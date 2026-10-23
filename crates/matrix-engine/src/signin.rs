@@ -222,7 +222,10 @@ impl UnlockSession {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignInMode {
     Password,
+    /// Legacy profile protected by a local phrase.
     Unlock,
+    /// Vault profile: the protection secret comes from the OS vault, no phrase.
+    UnlockVault,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SignInPrompt {
@@ -365,10 +368,12 @@ impl PendingSignIn {
                 return Err(error);
             }
         };
-        let mode = if profile.active_account().is_some() {
-            SignInMode::Unlock
-        } else {
+        let mode = if profile.active_account().is_none() {
             SignInMode::Password
+        } else if profile.vault_mode && self.source.is_some() {
+            SignInMode::UnlockVault
+        } else {
+            SignInMode::Unlock
         };
         self.events
             .send(SignInEvent::Prompt(SignInPrompt { mode, error: None }))
@@ -409,7 +414,7 @@ impl PendingSignIn {
                     }
                     session
                 }
-                SignInCommand::UnlockVault if mode == SignInMode::Unlock => {
+                SignInCommand::UnlockVault if matches!(mode, SignInMode::Unlock | SignInMode::UnlockVault) => {
                     match self.source.as_deref() {
                         Some(source) => profile.unlock_vault(source, self.trust_root.clone()).await,
                         None => Err(SignInError::ProtectionMismatch),

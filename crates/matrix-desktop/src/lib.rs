@@ -8,7 +8,9 @@ pub use verification::DeviceVerification;
 #[cfg(all(feature = "live", unix))]
 mod signin_form;
 #[cfg(all(feature = "live", unix))]
-pub use signin_form::{FormStatus, SignInForm, SignInSource};
+pub use signin_form::{FormStatus, SignInForm, SignInSource, visible_fields};
+#[cfg(all(feature = "live", unix))]
+pub use signin_form::{DEFER_LABEL, RECOVER_LABEL, RECOVERY_WARNING};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
 mod composer;

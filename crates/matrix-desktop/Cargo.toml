@@ -34,6 +34,9 @@ desktop = ["dep:gpui", "dep:image"]
 live = ["desktop", "matrix-engine/sdk"]
 # Test-only fixture driver, absent from ordinary/default/live desktop builds.
 perf-probe = ["desktop"]
+# New profiles keep their protection secret in the OS vault instead of a local phrase.
+linux-vault = ["live", "matrix-engine/linux-vault"]
+mac-vault = ["live", "matrix-engine/mac-vault"]
 
 [[bin]]
 name = "matrix-desktop"

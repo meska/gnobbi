@@ -197,3 +197,76 @@ fn form_consumes_credentials_once_only_after_a_backend_prompt() {
     assert_eq!(form.homeserver, "https://fixture.invalid");
     assert_eq!(form.user, "@alice:fixture.invalid");
 }
+
+fn vault_form(mode: SignInMode) -> SignInForm {
+    let mut form = SignInForm::default();
+    form.vault = true;
+    form.apply(SignInEvent::Prompt(SignInPrompt { mode, error: None }));
+    form
+}
+
+#[test]
+fn vault_form_submits_a_new_profile_with_only_the_server_password() {
+    let mut form = vault_form(SignInMode::Password);
+    form.homeserver = "https://fixture.invalid".into();
+    form.user = "@alice:fixture.invalid".into();
+    form.password.replace(None, "fixture-password");
+    assert!(matches!(
+        form.submit(),
+        Some(SignInCommand::VaultPassword { .. })
+    ));
+    assert_eq!(form.status(), FormStatus::Busy);
+    assert_eq!(form.password.display_text(), "");
+}
+
+#[test]
+fn vault_form_without_a_password_shows_a_password_only_message() {
+    use matrix_engine::signin::SignInError;
+    let mut form = vault_form(SignInMode::Password);
+    form.phrase.replace(None, "stray phrase must not count");
+    assert!(form.submit().is_none());
+    assert_eq!(
+        form.status(),
+        FormStatus::Prompt(SignInPrompt {
+            mode: SignInMode::Password,
+            error: Some(SignInError::InvalidSecret)
+        })
+    );
+    assert_eq!(form.error_message(), Some("Inserisci la password Matrix."));
+}
+
+#[test]
+fn vault_unlock_needs_no_secret_and_sends_the_vault_command() {
+    let mut form = vault_form(SignInMode::UnlockVault);
+    assert!(matches!(form.submit(), Some(SignInCommand::UnlockVault)));
+    assert_eq!(form.status(), FormStatus::Busy);
+}
+
+#[test]
+fn recovery_step_can_be_deferred_once_by_the_current_source_only() {
+    use matrix_engine::signin::RecoveryState;
+    let mut form = vault_form(SignInMode::Password);
+    form.apply(SignInEvent::Authenticated(matrix_domain::AccountId::new(1)));
+    assert_eq!(form.source(), None);
+    form.apply(SignInEvent::Recovery(RecoveryState::Offered));
+    assert_eq!(form.recovery(), Some(RecoveryState::Offered));
+    let source = form.source().unwrap();
+    form.apply(SignInEvent::Recovery(RecoveryState::Unavailable));
+    assert!(form.defer_source(source).is_none());
+    let current = form.source().unwrap();
+    assert!(matches!(
+        form.defer_source(current),
+        Some(SignInCommand::DeferRecovery)
+    ));
+    assert!(form.defer_source(current).is_none());
+    assert_eq!(form.source(), None);
+}
+
+#[test]
+fn visible_fields_follow_the_flow() {
+    use matrix_desktop::visible_fields;
+    assert_eq!(visible_fields(SignInMode::Password, true), &[0, 1, 2]);
+    assert_eq!(visible_fields(SignInMode::Password, false), &[0, 1, 2, 3]);
+    assert_eq!(visible_fields(SignInMode::Unlock, true), &[3]);
+    assert_eq!(visible_fields(SignInMode::UnlockVault, true), &[] as &[usize]);
+}

@@ -3,6 +3,7 @@ use crate::{FormStatus, SignInForm, SignInSource};
 use accesskit::{Action, ActionRequest, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use matrix_engine::signin::SignInMode;
 
+pub use crate::{DEFER_LABEL, RECOVERY_WARNING, RECOVER_LABEL};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Control {
     Homeserver,
@@ -10,14 +11,19 @@ pub enum Control {
     Password,
     Phrase,
     Submit,
+    /// Post-login step only.
+    Recover,
+    Defer,
 }
 impl Control {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 7] = [
         Self::Homeserver,
         Self::User,
         Self::Password,
         Self::Phrase,
         Self::Submit,
+        Self::Recover,
+        Self::Defer,
     ];
     pub fn id(self) -> NodeId {
         NodeId(100 + self as u64)
@@ -29,7 +35,9 @@ pub struct Snapshot {
     pub status: FormStatus,
     pub mode: SignInMode,
     pub public: [String; 2],
-    pub bounds: [Option<accesskit::Rect>; 5],
+    pub bounds: [Option<accesskit::Rect>; 7],
+    pub vault: bool,
+    pub recovery: Option<matrix_engine::signin::RecoveryState>,
     pub focused: Option<Control>,
 }
 #[derive(Clone, Copy)]
@@ -73,7 +81,9 @@ impl Snapshot {
             status: form.status(),
             mode,
             public: [form.homeserver.clone(), form.user.clone()],
-            bounds: [None; 5],
+            bounds: [None; 7],
+            vault: form.vault,
+            recovery: form.recovery(),
             focused: None,
         }
     }
@@ -87,8 +97,7 @@ impl Snapshot {
         let control = Control::ALL
             .into_iter()
             .find(|c| c.id() == request.target_node)?;
-        if self.mode == SignInMode::Unlock && !matches!(control, Control::Phrase | Control::Submit)
-        {
+        if !self.shows(control) || (self.recovery.is_some() && control == Control::Recover) {
             return None;
         }
         Some(super::NavigationAction::SignIn(Intent {
@@ -97,31 +106,43 @@ impl Snapshot {
             focus_only: request.action == Action::Focus,
         }))
     }
+    fn shows(&self, control: Control) -> bool {
+        match control {
+            Control::Recover | Control::Defer => self.recovery.is_some(),
+            _ if self.recovery.is_some() => false,
+            Control::Submit => true,
+            c => crate::visible_fields(self.mode, self.vault).contains(&(c as usize)),
+        }
+    }
     pub fn tree(&self) -> TreeUpdate {
         let mut root = Node::new(Role::Window);
-        root.set_label(if self.mode == SignInMode::Unlock {
+        root.set_label(if self.recovery.is_some() {
+            "Dime — Cronologia cifrata"
+        } else if self.mode != SignInMode::Password {
             "Dime — Sblocca"
         } else {
             "Dime — Accedi"
         });
-        root.set_description(self.status.error_message().unwrap_or(match self.status {
+        root.set_description(if self.recovery.is_some() {
+            RECOVERY_WARNING
+        } else {
+            self.status.error_message().unwrap_or(match self.status {
             FormStatus::Opening => "Apertura profilo…",
             FormStatus::Busy => "Attendere…",
             _ => "Matrix diretto · nessun gateway",
-        }));
+        })
+        });
         let mut tree = TreeUpdate {
             nodes: vec![(super::ROOT, root)],
             tree: Some(Tree::new(super::ROOT)),
             tree_id: TreeId::ROOT,
             focus: super::ROOT,
         };
-        for control in Control::ALL.into_iter().filter(|c| {
-            self.mode == SignInMode::Password || matches!(c, Control::Phrase | Control::Submit)
-        }) {
+        for control in Control::ALL.into_iter().filter(|c| self.shows(*c)) {
             let index = control as usize;
             let mut node = Node::new(match control {
                 Control::Password | Control::Phrase => Role::PasswordInput,
-                Control::Submit => Role::Button,
+                Control::Submit | Control::Recover | Control::Defer => Role::Button,
                 _ => Role::TextInput,
             });
             node.set_label(match control {
@@ -129,13 +150,17 @@ impl Snapshot {
                 Control::User => "ID Matrix completo",
                 Control::Password => "Password Matrix",
                 Control::Phrase => "Frase locale · almeno 16 caratteri",
-                Control::Submit if self.mode == SignInMode::Unlock => "Sblocca",
+                Control::Submit if self.mode != SignInMode::Password => "Sblocca",
                 Control::Submit => "Accedi",
+                Control::Recover => RECOVER_LABEL,
+                Control::Defer => DEFER_LABEL,
             });
             if index < 2 {
                 node.set_value(self.public[index].clone());
             }
-            if self.source.is_some() {
+            if control == Control::Recover {
+                node.set_disabled();
+            } else if self.source.is_some() {
                 node.add_action(Action::Focus);
                 node.add_action(Action::Click);
             } else {

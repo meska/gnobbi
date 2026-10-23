@@ -287,3 +287,71 @@ fn password_projection_protects_both_secrets_and_hides_chat() {
         Some(NavigationAction::SignIn(_))
     ));
 }
+
+fn node(tree: &accesskit::TreeUpdate, control: Control) -> Option<&accesskit::Node> {
+    tree.nodes
+        .iter()
+        .find(|(id, _)| *id == control.id())
+        .map(|(_, n)| n)
+}
+fn vault_form(mode: SignInMode) -> SignInForm {
+    let mut form = SignInForm::default();
+    form.vault = true;
+    form.apply(SignInEvent::Prompt(SignInPrompt { mode, error: None }));
+    form
+}
+
+#[test]
+fn vault_password_projection_has_no_local_phrase_node() {
+    let form = vault_form(SignInMode::Password);
+    let nav = navigation(Snapshot::new(&form, SignInMode::Password));
+    let tree = nav.tree();
+    assert!(node(&tree, Control::Phrase).is_none());
+    for control in [Control::Homeserver, Control::User, Control::Password, Control::Submit] {
+        assert!(node(&tree, control).is_some());
+        assert!(nav.action(&request(control.id(), Action::Click)).is_some());
+    }
+    assert!(nav.action(&request(Control::Phrase.id(), Action::Click)).is_none());
+    assert!(!format!("{tree:?}").contains("Frase locale"));
+}
+
+#[test]
+fn vault_unlock_projection_is_a_single_unlock_button() {
+    let form = vault_form(SignInMode::UnlockVault);
+    let nav = navigation(Snapshot::new(&form, SignInMode::UnlockVault));
+    let tree = nav.tree();
+    assert_eq!(tree.nodes.len(), 2);
+    assert_eq!(node(&tree, Control::Submit).unwrap().label(), Some("Sblocca"));
+    assert!(nav.action(&request(Control::Password.id(), Action::Click)).is_none());
+    assert!(nav.action(&request(Control::Submit.id(), Action::Click)).is_some());
+}
+
+#[test]
+fn recovery_step_projects_a_disabled_entry_and_a_working_defer_button() {
+    use matrix_engine::signin::RecoveryState;
+    let mut form = vault_form(SignInMode::Password);
+    form.password.replace(None, "hidden password sentinel");
+    form.apply(SignInEvent::Authenticated(matrix_domain::AccountId::new(1)));
+    form.apply(SignInEvent::Recovery(RecoveryState::Offered));
+    let nav = navigation(Snapshot::new(&form, SignInMode::Password));
+    let tree = nav.tree();
+    assert_eq!(tree.nodes[0].1.label(), Some("Dime — Cronologia cifrata"));
+    assert!(tree.nodes[0].1.description().unwrap().contains("non sarà leggibile"));
+    assert_eq!(tree.nodes.len(), 3);
+    let recover = node(&tree, Control::Recover).unwrap();
+    assert_eq!(recover.role(), Role::Button);
+    assert!(recover.is_disabled());
+    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_none());
+    let defer = node(&tree, Control::Defer).unwrap();
+    assert_eq!(defer.role(), Role::Button);
+    assert_eq!(defer.label(), Some("Continua senza recupero"));
+    assert!(!defer.is_disabled());
+    assert!(matches!(
+        nav.action(&request(Control::Defer.id(), Action::Click)),
+        Some(NavigationAction::SignIn(i)) if i.control == Control::Defer
+    ));
+    for control in [Control::Homeserver, Control::User, Control::Password, Control::Phrase, Control::Submit] {
+        assert!(nav.action(&request(control.id(), Action::Click)).is_none());
+    }
+    assert!(!format!("{tree:?}").contains("hidden password sentinel"));
+}

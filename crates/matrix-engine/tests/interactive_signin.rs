@@ -236,3 +236,60 @@ mod vault_route {
         assert_eq!(fake.0.load(Ordering::Relaxed), 0);
     }
 }
+
+struct NoVault;
+impl matrix_engine::signin::ProtectionSource for NoVault {
+    fn create(
+        &self,
+        _: &matrix_engine::persistence::AccountStore,
+    ) -> Result<matrix_engine::signin::Secret, matrix_engine::signin::VaultError> {
+        Err(matrix_engine::signin::VaultError::Unavailable)
+    }
+    fn read(
+        &self,
+        _: &matrix_engine::persistence::AccountStore,
+    ) -> Result<matrix_engine::signin::Secret, matrix_engine::signin::VaultError> {
+        Err(matrix_engine::signin::VaultError::Unavailable)
+    }
+}
+fn first_mode(binding: Option<&[u8]>, with_source: bool) -> SignInMode {
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+    let root = Root::new();
+    std::fs::DirBuilder::new().mode(0o700).create(&root.0).unwrap();
+    let write = |name: &str, bytes: &[u8]| {
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(root.0.join(name))
+            .unwrap()
+            .write_all(bytes)
+            .unwrap();
+    };
+    write("active-account", b"1");
+    if let Some(binding) = binding {
+        write("protection-mode", binding);
+    }
+    let (mut ui, pending) = if with_source {
+        matrix_engine::signin::interactive_with_source(root.0.clone(), None, Box::new(NoVault))
+    } else {
+        interactive(root.0.clone(), None)
+    };
+    runtime().block_on(async {
+        let consumer = async {
+            let Some(SignInEvent::Prompt(prompt)) = ui.events.recv().await else {
+                panic!("expected a prompt");
+            };
+            drop(ui);
+            prompt.mode
+        };
+        tokio::join!(pending.run(), consumer).1
+    })
+}
+#[test]
+fn restoring_a_vault_profile_prompts_without_a_phrase_but_legacy_profiles_keep_unlock() {
+    assert_eq!(first_mode(Some(b"vault-v1"), true), SignInMode::UnlockVault);
+    assert_eq!(first_mode(None, true), SignInMode::Unlock);
+    assert_eq!(first_mode(None, false), SignInMode::Unlock);
+}

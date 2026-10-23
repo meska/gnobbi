@@ -1541,6 +1541,7 @@ fn main() {
     let connected = options.is_some() || signin_options.is_some();
     #[cfg(all(feature = "live", unix))]
     let mut signin_ui = None;
+    let mut signin_vault = false;
     let account_id = options
         .as_ref()
         .map_or(AccountId::new(0), |options| options.account_id);
@@ -1581,7 +1582,12 @@ fn main() {
                     eprintln!("Could not read explicit trust root");
                     std::process::exit(2);
                 });
-            let (ui, pending) = matrix_engine::signin::interactive(options.root, trust);
+            let vault = matrix_engine::signin::platform_source();
+            signin_vault = vault.is_some();
+            let (ui, pending) = match vault {
+                Some(source) => matrix_engine::signin::interactive_with_source(options.root, trust, source),
+                None => matrix_engine::signin::interactive(options.root, trust),
+            };
             signin_ui = Some(ui);
             matrix_engine::room_sync::RoomListWorker::spawn(move || async move {
                 pending
@@ -1695,7 +1701,7 @@ fn main() {
                     }
                     search_focus.focus(window);
                     #[cfg(all(feature = "live", unix))]
-                    let signin = signin_ui.take().map(|route| cx.new(|cx| signin_view::SignInView::new(route, cx)));
+                    let signin = signin_ui.take().map(|route| cx.new(|cx| signin_view::SignInView::new(route, cx).with_vault(signin_vault)));
                     #[cfg(all(feature = "live", unix))]
                     if let Some(signin) = &signin {
                         cx.observe(signin, |_, _, cx| cx.notify()).detach();
