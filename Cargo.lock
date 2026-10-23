@@ -4098,6 +4098,7 @@ dependencies = [
  "matrix-sdk-store-encryption",
  "reqwest",
  "secret-service",
+ "security-framework",
  "serde_json",
  "tokio",
  "url",

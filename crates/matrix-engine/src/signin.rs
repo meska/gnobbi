@@ -8,6 +8,9 @@ use crate::{
 use matrix_domain::AccountId;
 use std::path::PathBuf;
 
+#[cfg(all(test, feature = "mac-vault", target_os = "macos"))]
+#[path = "keychain_tests.rs"]
+mod keychain_tests;
 #[cfg(all(test, feature = "linux-vault", target_os = "linux"))]
 #[path = "vault_tests.rs"]
 mod vault_tests;

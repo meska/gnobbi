@@ -75,6 +75,8 @@ pub mod sending;
 pub mod signin;
 #[cfg(all(feature = "linux-vault", target_os = "linux"))]
 pub mod vault;
+#[cfg(all(feature = "mac-vault", target_os = "macos"))]
+pub mod keychain;
 pub use generation::{GenerationExhausted, RequestTag, ViewRequests};
 mod channel;
 pub use channel::{Receiver, Sender, TryReceiveError, TrySendError, bounded};

@@ -9,6 +9,7 @@ rust-version = "1.96"
 [features]
 default = []
 linux-vault = ["sdk", "dep:secret-service", "dep:getrandom"]
+mac-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
 sdk = ["dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:zeroize", "dep:image", "dep:matrix-sdk-crypto"]
 
 [dependencies]
@@ -25,6 +26,10 @@ tokio = { version = "=1.53.2", optional = true, default-features = false, featur
 
 [target.'cfg(target_os = "linux")'.dependencies]
 secret-service = { version = "=5.2.0", optional = true, default-features = false, features = ["rt-async-io-crypto-rust"] }
+getrandom = { version = "=0.4.3", optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "=3.7.0", optional = true, default-features = false }
 getrandom = { version = "=0.4.3", optional = true }
 
 [[test]]
