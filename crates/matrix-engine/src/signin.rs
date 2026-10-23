@@ -8,6 +8,10 @@ use crate::{
 use matrix_domain::AccountId;
 use std::path::PathBuf;
 
+#[cfg(all(test, feature = "linux-vault", target_os = "linux"))]
+#[path = "vault_tests.rs"]
+mod vault_tests;
+
 /// A bounded owned credential; deliberately no Debug/Display/Clone/serialization.
 /// The owned buffer is zeroized on every return and cancellation path.
 /// SDK-internal copies are outside this wrapper's zeroization guarantee.

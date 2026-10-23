@@ -4090,12 +4090,14 @@ version = "0.1.0"
 name = "matrix-engine"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.4.3",
  "image",
  "matrix-domain",
  "matrix-sdk",
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "reqwest",
+ "secret-service",
  "serde_json",
  "tokio",
  "url",
@@ -6419,6 +6421,25 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "secret-service"
+version = "5.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5107b24b91445dd2aa449a258a1807b63240942157292354dc5bfdbeb8bc6db8"
+dependencies = [
+ "aes 0.9.3",
+ "cbc 0.2.1",
+ "futures-util",
+ "getrandom 0.4.3",
+ "hkdf 0.13.0",
+ "hybrid-array",
+ "num",
+ "once_cell",
+ "serde",
+ "sha2 0.11.0",
+ "zbus",
 ]
 
 [[package]]

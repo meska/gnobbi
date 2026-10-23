@@ -73,6 +73,8 @@ pub mod reconnect;
 pub mod sending;
 #[cfg(all(feature = "sdk", unix))]
 pub mod signin;
+#[cfg(all(feature = "linux-vault", target_os = "linux"))]
+pub mod vault;
 pub use generation::{GenerationExhausted, RequestTag, ViewRequests};
 mod channel;
 pub use channel::{Receiver, Sender, TryReceiveError, TrySendError, bounded};
