@@ -1,0 +1,27 @@
+[package]
+name = "matrix-engine"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version = "1.96"
+
+[features]
+default = []
+sdk = ["dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:zeroize", "dep:image", "dep:matrix-sdk-crypto"]
+
+[dependencies]
+matrix-sdk-crypto = { version = "=0.19.1", optional = true, default-features = false }
+image = { version = "=0.25.10", optional = true, default-features = false, features = ["png"] }
+zeroize = { version = "=1.9.1", optional = true }
+matrix-domain = { path = "../matrix-domain" }
+matrix-sdk-store-encryption = { version = "=0.19.1", optional = true }
+matrix-sdk = { version = "=0.19.1", optional = true, default-features = false, features = ["e2e-encryption", "bundled-sqlite", "rustls-aws-lc-rs"] }
+reqwest = { version = "=0.13.5", optional = true, default-features = false, features = ["rustls"] }
+serde_json = { version = "=1.0.151", optional = true }
+url = { version = "=2.5.8", optional = true }
+tokio = { version = "=1.53.2", optional = true, default-features = false, features = ["rt", "time"] }
+
+[[test]]
+name = "sdk_smoke"
+required-features = ["sdk"]

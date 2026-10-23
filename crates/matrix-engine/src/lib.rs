@@ -1,0 +1,107 @@
+//! Headless backend/UI boundary with an opt-in Matrix SDK adapter surface.
+//!
+//! Enable `sdk` only in backend consumers; domain/UI DTOs remain SDK-free.
+//! This re-export is the adapter integration point, not login/sync support.
+//! It does not start a runtime or create a client on the UI thread.
+#[cfg(feature = "sdk")]
+pub use matrix_sdk as sdk;
+#[cfg(feature = "sdk")]
+pub mod accounts;
+#[cfg(feature = "sdk")]
+pub mod auth;
+#[cfg(feature = "sdk")]
+pub mod recovery;
+#[cfg(feature = "sdk")]
+pub mod room_sync;
+pub mod verification;
+
+/// A server-backed room-list projection; never log remote names or identities.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RoomSummary {
+    pub scope: matrix_domain::RoomScope,
+    pub name: String,
+    /// Server notification count, not a locally inferred read receipt.
+    pub unread: u64,
+    pub info: RoomInfo,
+}
+
+/// Snapshot from SDK state after /sync. No remote payload formatting traits.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct RoomInfo {
+    /// Observed public peer markers only; empty means no known marker, not unread.
+    pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
+    pub topic: Option<String>,
+    pub joined_members: u64,
+    pub is_space: bool,
+    /// Direct m.space.child links with valid nonempty via; never autojoin.
+    pub children: Vec<matrix_domain::RoomId>,
+    /// None means the SDK has insufficient state, not unencrypted.
+    pub encrypted: Option<bool>,
+}
+
+/// Stable-ID updates independent of the current UI filter or selection.
+pub enum RoomListDiff {
+    Upsert(RoomSummary),
+    Remove(RoomScope),
+}
+
+pub enum RoomListEvent {
+    Diff(RoomListDiff),
+    Status(RoomSyncStatus),
+    /// Content-free invalidation, independent of room-summary equality or selection.
+    TimelineActivity(RoomScope),
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum RoomSyncStatus {
+    Connecting,
+    Ready,
+    AuthenticationFailed,
+    SyncFailed,
+}
+#[cfg(feature = "sdk")]
+pub mod discovery;
+mod generation;
+pub mod history;
+pub mod media;
+#[cfg(feature = "sdk")]
+pub mod media_sdk;
+pub mod operations;
+#[cfg(all(feature = "sdk", unix))]
+pub mod persistence;
+pub mod receipts;
+pub mod reconnect;
+pub mod sending;
+#[cfg(all(feature = "sdk", unix))]
+pub mod signin;
+pub use generation::{GenerationExhausted, RequestTag, ViewRequests};
+mod channel;
+pub use channel::{Receiver, Sender, TryReceiveError, TrySendError, bounded};
+use matrix_domain::{EventId, RoomScope, TimelineUpdate, TransactionId};
+
+/// Typed UI requests. Message bodies are private data, never log these DTOs.
+pub enum EngineCommand {
+    LoadHistory {
+        tag: RequestTag,
+        before: Option<EventId>,
+    },
+    SendText {
+        scope: RoomScope,
+        transaction_id: TransactionId,
+        body: String,
+    },
+}
+
+/// Backend events distinguish view data from durable account/room updates.
+/// Route Timeline updates even after navigating away; never log DTO bodies.
+pub enum EngineEvent {
+    /// Ephemeral view result; consumer must check ViewRequests::accepts.
+    HistoryItem {
+        tag: RequestTag,
+        event_id: EventId,
+        body: String,
+    },
+    Timeline {
+        scope: RoomScope,
+        update: TimelineUpdate,
+    },
+}

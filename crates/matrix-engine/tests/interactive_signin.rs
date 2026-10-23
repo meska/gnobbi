@@ -1,0 +1,157 @@
+#![cfg(all(feature = "sdk", unix))]
+use matrix_engine::signin::{SignInEvent, SignInMode, SignInPrompt, interactive};
+use std::sync::atomic::{AtomicU64, Ordering};
+static NEXT: AtomicU64 = AtomicU64::new(0);
+struct Root(std::path::PathBuf);
+impl Root {
+    fn new() -> Self {
+        let path = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(format!(
+                "interactive-signin-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+        assert!(!path.exists());
+        Self(path)
+    }
+}
+impl Drop for Root {
+    fn drop(&mut self) {
+        if self.0.exists() {
+            std::fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+}
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+// Probes of the existing bounded-channel / worker cancellation contracts.
+#[test]
+fn interactive_route_bounds_pending_credentials_and_closes_when_backend_is_dropped() {
+    use matrix_engine::TrySendError;
+    use matrix_engine::signin::{Secret, SignInCommand};
+    let root = Root::new();
+    let (mut ui, pending) = interactive(root.0.clone(), None);
+    let command = || SignInCommand::Unlock {
+        phrase: Secret::new("queue fixture unlock phrase".into()).unwrap(),
+    };
+    assert!(ui.commands.try_send(command()).is_ok());
+    assert!(matches!(
+        ui.commands.try_send(command()),
+        Err(TrySendError::Full(_))
+    ));
+    drop(pending);
+    assert!(matches!(
+        ui.commands.try_send(command()),
+        Err(TrySendError::Closed(_))
+    ));
+    assert!(!root.0.exists());
+}
+#[test]
+fn existing_worker_cancels_a_waiting_signin_and_releases_profile_ownership() {
+    let root = Root::new();
+    let (mut ui, pending) = interactive(root.0.clone(), None);
+    let (worker, _events) = matrix_engine::room_sync::RoomListWorker::spawn(move || async move {
+        pending
+            .run()
+            .await
+            .map_err(|_| matrix_engine::auth::AuthError::LoginFailed)
+    })
+    .unwrap();
+    let started = std::time::Instant::now();
+    loop {
+        match ui.events.try_recv() {
+            Ok(SignInEvent::Prompt(_)) => break,
+            Err(matrix_engine::TryReceiveError::Empty | matrix_engine::TryReceiveError::Busy) => (),
+            _ => panic!("backend failed before the prompt"),
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(worker.shutdown().is_ok());
+    assert!(matrix_engine::signin::SignInProfile::open(root.0.clone()).is_ok());
+    assert_eq!(
+        ui.events.try_recv(),
+        Err(matrix_engine::TryReceiveError::Closed)
+    );
+}
+
+#[test]
+fn interactive_setup_failure_is_reported_without_paths_or_raw_io_errors() {
+    use matrix_engine::signin::SignInError;
+    let (mut ui, pending) = interactive("relative".into(), None);
+    runtime().block_on(async {
+        let result = pending.run().await;
+        assert!(matches!(result, Err(SignInError::InvalidStorePath)));
+        assert_eq!(
+            ui.events.recv().await,
+            Some(SignInEvent::Failed(SignInError::InvalidStorePath))
+        );
+        assert_eq!(ui.events.recv().await, None);
+    });
+}
+
+#[test]
+fn interactive_rejects_wrong_mode_without_leaving_the_prompt_or_creating_a_store() {
+    use matrix_engine::signin::{Secret, SignInCommand, SignInError};
+    let root = Root::new();
+    let (mut ui, pending) = interactive(root.0.clone(), None);
+    runtime().block_on(async {
+        let consumer = async {
+            let _ = ui.events.recv().await.unwrap();
+            assert!(
+                ui.commands
+                    .try_send(SignInCommand::Unlock {
+                        phrase: Secret::new("fixture unlock phrase".into()).unwrap()
+                    })
+                    .is_ok()
+            );
+            assert_eq!(
+                ui.events.recv().await,
+                Some(SignInEvent::Prompt(SignInPrompt {
+                    mode: SignInMode::Password,
+                    error: Some(SignInError::NoSession)
+                }))
+            );
+            assert!(!root.0.join("account-1").exists());
+            drop(ui);
+        };
+        let (result, ()) = tokio::join!(pending.run(), consumer);
+        assert!(result.is_err());
+    });
+}
+
+#[test]
+fn interactive_profile_opens_only_on_the_backend_and_stops_when_the_ui_closes() {
+    let root = Root::new();
+    let (mut ui, pending) = interactive(root.0.clone(), None);
+    assert!(
+        !root.0.exists(),
+        "constructing a UI route must not touch storage"
+    );
+    runtime().block_on(async {
+        let consumer = async {
+            assert_eq!(
+                ui.events.recv().await,
+                Some(SignInEvent::Prompt(SignInPrompt {
+                    mode: SignInMode::Password,
+                    error: None
+                }))
+            );
+            assert!(root.0.join(".profile-lock").is_file());
+            drop(ui);
+        };
+        let (result, ()) = tokio::join!(pending.run(), consumer);
+        assert!(result.is_err());
+    });
+    assert!(
+        matrix_engine::signin::SignInProfile::open(root.0.clone()).is_ok(),
+        "UI close releases backend profile ownership"
+    );
+}

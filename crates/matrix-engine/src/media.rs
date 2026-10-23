@@ -1,0 +1,111 @@
+//! Bounded, in-memory attachment data. No paths, SDK types or payload diagnostics.
+use matrix_domain::{EventId, RoomScope};
+use std::collections::VecDeque;
+
+pub enum MediaCommand {
+    Send {
+        scope: RoomScope,
+        transaction: matrix_domain::TransactionId,
+        bytes: Vec<u8>,
+    },
+    Download {
+        tag: crate::RequestTag,
+        event: EventId,
+    },
+}
+
+pub enum MediaEvent {
+    Sent {
+        scope: RoomScope,
+        transaction: matrix_domain::TransactionId,
+        result: Result<EventId, MediaError>,
+    },
+    Downloaded {
+        tag: crate::RequestTag,
+        event: EventId,
+        result: Result<DownloadedPng, MediaError>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaError {
+    InvalidImage,
+    UnsupportedType,
+    TooLarge,
+    Cancelled,
+    InvalidScope,
+    LoggedOut,
+    Deadline,
+    Failed,
+}
+pub const MAX_MEDIA_BYTES: usize = 4 * 1024 * 1024;
+
+pub struct DownloadedPng {
+    pub bytes: Vec<u8>,
+    pub preview: Preview,
+}
+
+/// Owned straight-alpha RGBA8; no SDK or GPUI objects cross the boundary.
+pub struct Preview {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+    #[cfg(all(test, feature = "sdk"))]
+    pub(crate) decoded_on: std::thread::ThreadId,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct MediaKey {
+    pub scope: RoomScope,
+    pub event_id: EventId,
+}
+
+/// LRU byte cache. Caller owns one cache per active account and drops it on logout.
+/// Keys include account/room/event even if a caller accidentally shares a cache.
+pub struct MediaCache {
+    budget: usize,
+    used: usize,
+    entries: VecDeque<(MediaKey, Vec<u8>)>,
+}
+impl MediaCache {
+    pub fn new(budget: usize) -> Self {
+        Self {
+            budget,
+            used: 0,
+            entries: VecDeque::new(),
+        }
+    }
+    pub fn clear_account(&mut self, account_id: matrix_domain::AccountId) {
+        self.entries
+            .retain(|(key, _)| key.scope.account_id != account_id);
+        self.used = self.entries.iter().map(|(_, value)| value.len()).sum();
+    }
+    pub fn used_bytes(&self) -> usize {
+        self.used
+    }
+    pub fn get(&mut self, key: &MediaKey) -> Option<&[u8]> {
+        let index = self.entries.iter().position(|(k, _)| k == key)?;
+        let entry = self.entries.remove(index)?;
+        self.entries.push_back(entry);
+        self.entries.back().map(|(_, value)| value.as_slice())
+    }
+    pub fn insert(&mut self, key: MediaKey, data: Vec<u8>) -> bool {
+        if data.is_empty() || data.len() > self.budget {
+            return false;
+        }
+        if let Some(index) = self.entries.iter().position(|(k, _)| k == &key) {
+            self.used -= self.entries.remove(index).expect("known index").1.len();
+        }
+        while self.used > self.budget - data.len() {
+            self.used -= self
+                .entries
+                .pop_front()
+                .expect("nonempty occupied cache")
+                .1
+                .len();
+        }
+        self.used += data.len();
+        self.entries.push_back((key, data));
+        true
+    }
+}

@@ -1,0 +1,600 @@
+use matrix_desktop::{DemoHistory, HistorySession, HistoryStatus};
+use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
+use matrix_engine::history::{HistoryEvent, HistoryPage, HistoryResult};
+fn scope(room: &str) -> RoomScope {
+    RoomScope {
+        account_id: AccountId::new(19),
+        room_id: RoomId::new(room),
+    }
+}
+fn event(id: &str) -> HistoryEvent {
+    HistoryEvent {
+        event_id: EventId::new(id),
+        body: "same text".into(),
+        outgoing: false,
+        timestamp_ms: 1,
+    }
+}
+fn page(
+    request: &matrix_engine::history::HistoryRequest,
+    ids: &[&str],
+    next: Option<&str>,
+) -> HistoryResult {
+    HistoryResult {
+        tag: request.tag.clone(),
+        page: Ok(HistoryPage {
+            tag: request.tag.clone(),
+            events: ids.iter().map(|id| event(id)).collect(),
+            next: next.map(str::to_owned),
+        }),
+    }
+}
+
+#[test]
+fn live_activity_refreshes_selected_room_without_replacing_older_cursor() {
+    let mut view = HistorySession::new();
+    let room = scope("!alpha:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&initial, &["$old"], Some("older")))
+        .unwrap();
+    view.activity(&room);
+    let refresh = view
+        .refresh()
+        .expect("selected activity must request latest history");
+    assert!(refresh.before.is_none());
+    let rows = view
+        .apply_live(page(&refresh, &["$old", "$new"], Some("ignored")))
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].event_id.as_str(), "$new");
+    assert!(view.refresh().is_none());
+    assert_eq!(view.load_older().unwrap().before.as_deref(), Some("older"));
+}
+
+#[test]
+fn live_refresh_publishes_changed_loaded_source_without_duplicate_unchanged_rows() {
+    let mut view = HistorySession::new();
+    let room = scope("!links:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&initial, &["$before", "$link"], Some("older")));
+    for body in ["https://new.invalid/è", "same text"] {
+        view.activity(&room);
+        let refresh = view.refresh().unwrap();
+        let mut update = page(&refresh, &["$unloaded", "$before", "$link"], None);
+        update.page.as_mut().unwrap().events[2].body = body.into();
+        let rows = view.apply_live(update).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "changed loaded link source must be published"
+        );
+        assert_eq!(rows[0].event_id.as_str(), "$link");
+        assert_eq!(rows[0].body, body);
+        view.activity(&room);
+        let refresh = view.refresh().unwrap();
+        let mut unchanged = page(&refresh, &["$before", "$link"], None);
+        unchanged.page.as_mut().unwrap().events[1].body = body.into();
+        assert!(view.apply_live(unchanged).unwrap().is_empty());
+    }
+    assert_eq!(view.load_older().unwrap().before.as_deref(), Some("older"));
+}
+
+#[test]
+fn switching_account_cancels_inflight_live_refresh() {
+    let mut view = HistorySession::new();
+    let room = scope("!shared:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&initial, &["$old"], None));
+    view.activity(&room);
+    let stale = view.refresh().unwrap();
+    let mut other = room.clone();
+    other.account_id = AccountId::new(20);
+    let initial = view.select(Some(other.clone())).unwrap();
+    view.apply(page(&initial, &["$other"], None));
+    assert!(stale.tag.is_cancelled());
+    assert!(view.apply_live(page(&stale, &["$wrong"], None)).is_none());
+    view.activity(&room);
+    assert!(view.refresh().is_none());
+    view.activity(&other);
+    assert!(view.refresh().is_some());
+}
+
+#[test]
+fn live_burst_pages_back_to_overlap_before_publishing_in_chronological_order() {
+    let mut view = HistorySession::new();
+    let room = scope("!alpha:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&initial, &["$old"], Some("older")));
+    view.activity(&room);
+    let newest = view.refresh().unwrap();
+    assert!(
+        view.apply_live(page(&newest, &["$3", "$4"], Some("gap")))
+            .is_none()
+    );
+    let gap = view
+        .refresh()
+        .expect("must fill gap, not silently drop a burst");
+    assert_eq!(gap.before.as_deref(), Some("gap"));
+    let rows = view
+        .apply_live(page(&gap, &["$old", "$1", "$2"], Some("stop")))
+        .unwrap();
+    let ids: Vec<_> = rows.iter().map(|row| row.event_id.as_str()).collect();
+    assert_eq!(ids, vec!["$1", "$2", "$3", "$4"]);
+    assert!(view.refresh().is_none());
+    assert_eq!(view.load_older().unwrap().before.as_deref(), Some("older"));
+}
+
+#[test]
+fn refresh_overlap_does_not_append_unknown_older_rows() {
+    let mut view = HistorySession::new();
+    let room = scope("!alpha:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&initial, &["$old"], Some("older")));
+    view.activity(&room);
+    let refresh = view.refresh().unwrap();
+    let rows = view
+        .apply_live(page(&refresh, &["$older-not-loaded", "$old", "$new"], None))
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].event_id.as_str(), "$new");
+    let older = view.load_older().unwrap();
+    assert_eq!(
+        view.apply(page(&older, &["$older-not-loaded"], None))
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn live_work_serializes_with_pagination_and_coalesces_activity_during_pending_pages() {
+    let mut view = HistorySession::new();
+    let room = scope("!alpha:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    for _ in 0..100 {
+        view.activity(&room);
+    }
+    assert!(view.refresh().is_none(), "initial page pending");
+    view.apply(page(&initial, &["$old"], Some("older")));
+    let live = view.refresh().unwrap();
+    assert!(
+        view.load_older().is_none(),
+        "one asynchronous history job at a time"
+    );
+    for _ in 0..100 {
+        view.activity(&room);
+    }
+    assert!(view.refresh().is_none());
+    view.apply_live(page(&live, &["$old", "$new"], None))
+        .unwrap();
+    let followup = view.refresh().unwrap();
+    assert!(view.apply_live(page(&live, &["$stale"], None)).is_none());
+    assert_eq!(
+        view.apply_live(page(&followup, &["$new", "$newer", "$newer"], None))
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(view.refresh().is_none());
+    let older = view.load_older().unwrap();
+    view.activity(&room);
+    assert!(view.refresh().is_none());
+    view.apply(page(&older, &["$older"], None));
+    assert!(view.refresh().is_some());
+}
+
+#[test]
+fn refreshed_source_retires_old_links_before_same_body_returns() {
+    use matrix_desktop::{LinkConfirmation, MessageLinkRequests};
+    let room = scope("!links:test");
+    let mut history = DemoHistory::new(room, 0);
+    let mut original = event("$link");
+    original.body = "https://a.invalid/x".into();
+    history.append_server(vec![original]);
+    let id = history.events()[0].id.clone();
+    let mut links = MessageLinkRequests::default();
+    let old = links.targets(&id, &history.events()[0].text).remove(0);
+    let mut confirmation = LinkConfirmation::default();
+    assert!(links.request(&old, &mut confirmation));
+    for body in ["https://b.invalid/y", "https://a.invalid/x"] {
+        let mut updated = event("$link");
+        updated.body = body.into();
+        assert!(history.refresh_server(vec![updated, event("$new")]));
+        assert_eq!(history.events().len(), 2);
+        assert_eq!(history.events()[0].id, id);
+        assert_eq!(history.events()[0].text, body);
+        links.retain_current(
+            history
+                .events()
+                .iter()
+                .map(|row| (&row.id, row.text.as_str())),
+        );
+        let current = links.targets(&id, &history.events()[0].text).remove(0);
+        assert!(links.request(&current, &mut confirmation));
+        assert!(!links.focus(&old));
+        assert!(!links.request(&old, &mut confirmation));
+        assert_eq!(confirmation.pending().unwrap().as_str(), body);
+    }
+    assert!(!history.refresh_server(vec![event("$new"), event("$newer")]));
+    assert_eq!(history.events().len(), 3);
+}
+
+#[test]
+fn live_rows_append_without_replacing_loaded_edited_or_redacted_content() {
+    let room = scope("!alpha:test");
+    let mut history = DemoHistory::new(room, 0);
+    let mut edited = event("$edited");
+    edited.body = "already edited caffè 🦀".into();
+    let mut redacted = event("$redacted");
+    redacted.body = "[Messaggio eliminato]".into();
+    history.prepend_server(vec![edited, redacted]);
+    history.append_server(vec![
+        event("$edited"),
+        event("$redacted"),
+        event("$new"),
+        event("$new"),
+    ]);
+    assert_eq!(history.events().len(), 3);
+    assert_eq!(history.events()[0].text, "already edited caffè 🦀");
+    assert_eq!(history.events()[1].text, "[Messaggio eliminato]");
+    assert_eq!(
+        history.events()[2].id.id,
+        matrix_domain::TimelineId::Server(EventId::new("$new"))
+    );
+}
+
+#[test]
+fn failed_live_refresh_retries_latest_without_consuming_older_cursor() {
+    let mut view = HistorySession::new();
+    let room = scope("!alpha:test");
+    let first = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&first, &["$old"], Some("older")));
+    view.activity(&room);
+    let refresh = view.refresh().unwrap();
+    assert!(view.is_live(&refresh.tag));
+    view.apply_live(HistoryResult {
+        tag: refresh.tag.clone(),
+        page: Err(matrix_engine::history::HistoryError::Transport),
+    });
+    assert!(matches!(view.status(), HistoryStatus::Failed));
+    assert!(view.refresh().is_none(), "no tight automatic retry loop");
+    assert!(
+        view.load_older().is_none(),
+        "retry failed live work before older pages"
+    );
+    let retry = view.refresh().unwrap();
+    assert!(retry.before.is_none());
+    assert!(!view.is_live(&refresh.tag));
+    view.apply_live(page(&retry, &["$old", "$new"], None))
+        .unwrap();
+    assert!(matches!(view.status(), HistoryStatus::More));
+    assert_eq!(view.load_older().unwrap().before.as_deref(), Some("older"));
+}
+
+#[test]
+fn cancelled_live_gap_cannot_publish_after_room_switch_or_removal() {
+    for next_room in [Some(scope("!beta:test")), None, Some(scope("!alpha:test"))] {
+        let mut view = HistorySession::new();
+        let room = scope("!alpha:test");
+        let first = view.select(Some(room.clone())).unwrap();
+        view.apply(page(&first, &["$old"], None));
+        view.activity(&room);
+        let live = view.refresh().unwrap();
+        view.apply_live(page(&live, &["$buffered"], Some("gap")));
+        let gap = view.refresh().unwrap();
+        view.select(None);
+        if let Some(first) = view.select(next_room) {
+            view.apply(page(&first, &["$current"], None));
+        }
+        assert!(gap.tag.is_cancelled());
+        assert!(!view.is_live(&gap.tag));
+        assert!(view.apply_live(page(&gap, &["$wrong"], None)).is_none());
+        assert!(view.refresh().is_none());
+    }
+}
+
+#[test]
+fn live_cursor_cycle_discards_partial_rows_and_allows_explicit_retry() {
+    let mut view = HistorySession::new();
+    let room = scope("!alpha:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&initial, &["$old"], None));
+    view.activity(&room);
+    let first = view.refresh().unwrap();
+    assert!(
+        view.apply_live(page(&first, &["$new"], Some("cycle")))
+            .is_none()
+    );
+    let second = view.refresh().unwrap();
+    assert!(view.load_older().is_none());
+    assert!(
+        view.apply_live(page(&second, &["$new"], Some("cycle")))
+            .is_none()
+    );
+    assert!(matches!(view.status(), HistoryStatus::Failed));
+    assert!(view.refresh().is_none());
+    view.load_older();
+    let retry = view.refresh().unwrap();
+    assert_eq!(
+        view.apply_live(page(&retry, &["$old", "$new"], None))
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(matches!(view.status(), HistoryStatus::Start));
+}
+
+#[test]
+fn mismatched_live_inner_page_cannot_publish_content() {
+    let mut view = HistorySession::new();
+    let room = scope("!alpha:test");
+    let first = view.select(Some(room.clone())).unwrap();
+    view.apply(page(&first, &["$old"], None));
+    view.activity(&room);
+    let refresh = view.refresh().unwrap();
+    let mut wrong = page(&first, &["$wrong"], None);
+    wrong.tag = refresh.tag;
+    assert!(view.apply_live(wrong).is_none());
+    assert!(matches!(view.status(), HistoryStatus::Failed));
+}
+
+#[test]
+fn server_rows_preserve_scoped_identity_body_and_timestamp_without_demo_labels() {
+    let scope = scope("!alpha:test");
+    let mut history = DemoHistory::new(scope.clone(), 0);
+    history.prepend_server(vec![event("$2")]);
+    let mut older = event("$1");
+    older.timestamp_ms = 3_661_000;
+    older.outgoing = true;
+    history.prepend_server(vec![older]);
+    assert_eq!(history.events().len(), 2);
+    let row = &history.events()[0];
+    assert_eq!(row.id.scope, scope);
+    assert_eq!(
+        row.id.id,
+        matrix_domain::TimelineId::Server(EventId::new("$1"))
+    );
+    assert_eq!(row.text, "same text");
+    assert_eq!(row.time, "01:01 UTC");
+    assert!(row.outgoing);
+    assert!(row.send_state.is_none());
+}
+#[test]
+fn queued_pagination_intent_cannot_load_a_later_page_or_different_room() {
+    let mut view = HistorySession::new();
+    assert!(view.pagination_tag().is_none());
+    let first = view.select(Some(scope("!alpha:test"))).unwrap();
+    let intent = view.pagination_tag().unwrap();
+    assert!(view.load_older_if_current(&intent).is_none(), "loading");
+    view.apply(HistoryResult {
+        tag: first.tag.clone(),
+        page: Ok(HistoryPage {
+            tag: first.tag,
+            events: vec![event("$2")],
+            next: Some("cursor-1".into()),
+        }),
+    })
+    .unwrap();
+    let older = view.load_older_if_current(&intent).unwrap();
+    assert_eq!(older.before.as_deref(), Some("cursor-1"));
+    assert!(view.load_older_if_current(&intent).is_none(), "duplicate");
+    view.apply(HistoryResult {
+        tag: older.tag.clone(),
+        page: Ok(HistoryPage {
+            tag: older.tag,
+            events: vec![event("$1")],
+            next: Some("cursor-2".into()),
+        }),
+    })
+    .unwrap();
+    assert!(
+        view.load_older_if_current(&intent).is_none(),
+        "old page even after completion"
+    );
+    let current = view.pagination_tag().unwrap();
+    view.select(Some(scope("!beta:test")));
+    assert!(view.load_older_if_current(&current).is_none(), "other room");
+    view.select(None);
+    assert!(view.pagination_tag().is_none());
+}
+
+#[test]
+fn pagination_deduplicates_server_ids_without_matching_text() {
+    let mut view = HistorySession::new();
+    let first = view.select(Some(scope("!alpha:test"))).unwrap();
+    assert!(view.load_older().is_none(), "one in flight");
+    let rows = view
+        .apply(HistoryResult {
+            tag: first.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: first.tag,
+                events: vec![event("$2"), event("$3")],
+                next: Some("opaque-not-event-id".into()),
+            }),
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    let older = view.load_older().unwrap();
+    assert_eq!(older.before.as_deref(), Some("opaque-not-event-id"));
+    let rows = view
+        .apply(HistoryResult {
+            tag: older.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: older.tag,
+                events: vec![event("$1"), event("$2"), event("$1")],
+                next: None,
+            }),
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].event_id.as_str(), "$1");
+    assert!(view.load_older().is_none(), "history exhausted");
+}
+
+#[test]
+fn account_switch_rejects_stale_same_room_pages_without_sharing_seen_ids() {
+    let mut view = HistorySession::new();
+    let alice_scope = scope("!shared:test");
+    let mut bob_scope = alice_scope.clone();
+    bob_scope.account_id = AccountId::new(28);
+    let old = view.select(Some(alice_scope.clone())).unwrap();
+    let bob = view.select(Some(bob_scope)).unwrap();
+    assert!(old.tag.is_cancelled());
+    assert!(
+        view.apply(HistoryResult {
+            tag: old.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: old.tag,
+                events: vec![event("$shared")],
+                next: Some("alice-cursor".into())
+            }),
+        })
+        .is_none()
+    );
+    let rows = view
+        .apply(HistoryResult {
+            tag: bob.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: bob.tag.clone(),
+                events: vec![event("$shared")],
+                next: Some("bob-cursor".into()),
+            }),
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        view.load_older().unwrap().before.as_deref(),
+        Some("bob-cursor")
+    );
+    let alice = view.select(Some(alice_scope)).unwrap();
+    let rows = view
+        .apply(HistoryResult {
+            tag: alice.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: alice.tag,
+                events: vec![event("$shared")],
+                next: None,
+            }),
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1, "seen event IDs cannot leak across accounts");
+    view.select(None);
+    assert!(
+        view.apply(HistoryResult {
+            tag: bob.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: bob.tag,
+                events: vec![event("$shared")],
+                next: None
+            }),
+        })
+        .is_none()
+    );
+}
+
+#[test]
+fn room_switch_rejects_already_queued_old_page() {
+    let mut view = HistorySession::new();
+    let old = view.select(Some(scope("!alpha:test"))).unwrap();
+    let new = view.select(Some(scope("!beta:test"))).unwrap();
+    assert!(old.tag.is_cancelled());
+    assert!(
+        view.apply(HistoryResult {
+            tag: old.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: old.tag,
+                events: vec![event("$old")],
+                next: None
+            })
+        })
+        .is_none()
+    );
+    let accepted = view
+        .apply(HistoryResult {
+            tag: new.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: new.tag,
+                events: vec![event("$new")],
+                next: Some("opaque".into()),
+            }),
+        })
+        .unwrap();
+    assert_eq!(accepted.len(), 1);
+    assert_eq!(accepted[0].event_id.as_str(), "$new");
+}
+
+#[test]
+fn failed_page_retries_same_cursor_without_losing_seen_ids() {
+    let mut view = HistorySession::new();
+    assert!(matches!(view.status(), HistoryStatus::Empty));
+    let first = view.select(Some(scope("!alpha:test"))).unwrap();
+    assert!(view.select(Some(scope("!alpha:test"))).is_none());
+    assert!(!first.tag.is_cancelled());
+    assert!(matches!(view.status(), HistoryStatus::Loading));
+    view.apply(HistoryResult {
+        tag: first.tag.clone(),
+        page: Ok(HistoryPage {
+            tag: first.tag,
+            events: vec![event("$2")],
+            next: Some("cursor".into()),
+        }),
+    })
+    .unwrap();
+    let older = view.load_older().unwrap();
+    assert!(
+        view.apply(HistoryResult {
+            tag: older.tag,
+            page: Err(matrix_engine::history::HistoryError::Transport),
+        })
+        .is_none()
+    );
+    assert!(matches!(view.status(), HistoryStatus::Failed));
+    let retry = view.load_older().unwrap();
+    assert_eq!(retry.before.as_deref(), Some("cursor"));
+    let rows = view
+        .apply(HistoryResult {
+            tag: retry.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: retry.tag,
+                events: vec![event("$1"), event("$2")],
+                next: None,
+            }),
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].event_id.as_str(), "$1");
+    assert!(matches!(view.status(), HistoryStatus::Start));
+}
+
+#[test]
+fn removing_selected_room_cancels_pending_history_and_resets_lifecycle() {
+    let mut view = HistorySession::new();
+    let old = view.select(Some(scope("!alpha:test"))).unwrap();
+    assert!(view.select(None).is_none());
+    assert!(old.tag.is_cancelled());
+    assert!(matches!(view.status(), HistoryStatus::Empty));
+    assert!(view.load_older().is_none());
+    assert!(
+        view.apply(HistoryResult {
+            tag: old.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: old.tag,
+                events: vec![event("$old")],
+                next: None,
+            }),
+        })
+        .is_none()
+    );
+    let fresh = view.select(Some(scope("!alpha:test"))).unwrap();
+    let rows = view
+        .apply(HistoryResult {
+            tag: fresh.tag.clone(),
+            page: Ok(HistoryPage {
+                tag: fresh.tag,
+                events: vec![event("$old")],
+                next: None,
+            }),
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1, "a new lifecycle must not inherit seen IDs");
+}

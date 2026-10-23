@@ -1,0 +1,41 @@
+[package]
+name = "matrix-desktop"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+matrix-domain = { path = "../matrix-domain" }
+matrix-engine = { path = "../matrix-engine" }
+url = "=2.5.8"
+zeroize = "=1.9.1"
+
+image = { version = "=0.25.10", default-features = false, optional = true }
+
+# GPUI backend features are per target. Non-macOS keeps exactly the Linux snapshot's
+# wayland + x11. macOS uses Metal with shaders compiled at runtime (no Xcode Metal Toolchain
+# needed) plus font-kit, without which GPUI falls back to NoopTextSystem and paints no text.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x11"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["runtime_shaders", "font-kit"], optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+accesskit = { version = "=0.24.1", optional = true }
+accesskit_unix = { version = "=0.22.1", optional = true }
+
+[features]
+# Experimental, incomplete Linux semantic adapter; not a release accessibility claim.
+linux-a11y = ["dep:accesskit", "dep:accesskit_unix"]
+default = ["desktop"]
+desktop = ["dep:gpui", "dep:image"]
+live = ["desktop", "matrix-engine/sdk"]
+# Test-only fixture driver, absent from ordinary/default/live desktop builds.
+perf-probe = ["desktop"]
+
+[[bin]]
+name = "matrix-desktop"
+path = "src/main.rs"
+required-features = ["desktop"]

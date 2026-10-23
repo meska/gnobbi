@@ -1,0 +1,27 @@
+# Build
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock è versionato (applicazione, build --locked)
+
+# Output di test e artefatti locali
+/artifacts/
+
+# Segreti e credenziali
+.env
+.env.*
+*.key
+*.pem
+credentials*
+session-store/
+
+# Python (script in tools/)
+__pycache__/
+*.pyc
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
