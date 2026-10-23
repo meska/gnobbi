@@ -36,6 +36,22 @@ impl Secret {
     }
 }
 
+/// Protection-secret failures from an OS vault; fixed categories, no details.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VaultError {
+    Unavailable,
+    AlreadyExists,
+    Missing,
+    InvalidItem,
+    Locked,
+}
+
+/// Generated protection secret for one account store. Blocking: call from a backend worker.
+pub trait ProtectionSource {
+    fn create(&self, store: &AccountStore) -> Result<Secret, VaultError>;
+    fn read(&self, store: &AccountStore) -> Result<Secret, VaultError>;
+}
+
 /// Fixed local categories only: never SDK bodies, paths, URLs or credentials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignInError {
@@ -51,6 +67,9 @@ pub enum SignInError {
     AlreadySignedIn,
     NoSession,
     AttemptLimit,
+    /// Profile protection mode does not match the requested operation.
+    ProtectionMismatch,
+    Vault(VaultError),
     Authentication(AuthError),
 }
 
@@ -60,7 +79,7 @@ pub struct PasswordSignIn {
     homeserver: HomeserverUrl,
     user: String,
     password: Secret,
-    phrase: Secret,
+    phrase: Option<Secret>,
     trust_root: Option<Vec<u8>>,
 }
 impl PasswordSignIn {
@@ -86,12 +105,40 @@ impl PasswordSignIn {
             homeserver,
             user,
             password,
-            phrase,
+            phrase: Some(phrase),
             trust_root,
         })
     }
 
+    fn new_vault(
+        root: PathBuf,
+        account: AccountId,
+        homeserver: String,
+        user: String,
+        password: Secret,
+        trust_root: Option<Vec<u8>>,
+    ) -> Result<Self, SignInError> {
+        let mut login = Self::new(
+            root,
+            account,
+            homeserver,
+            user,
+            password,
+            Secret::new("x".repeat(16))?,
+            trust_root,
+        )?;
+        login.phrase = None;
+        Ok(login)
+    }
+
     pub async fn run(self) -> Result<AccountSession, SignInError> {
+        self.run_with(None).await
+    }
+
+    async fn run_with(
+        self,
+        source: Option<&dyn ProtectionSource>,
+    ) -> Result<AccountSession, SignInError> {
         let discovery = match self.trust_root.as_deref() {
             Some(pem) => Discovery::with_trusted_root(pem),
             None => Discovery::new(),
@@ -115,13 +162,19 @@ impl PasswordSignIn {
             );
         }
         let http = http.build().map_err(|_| SignInError::Discovery)?;
-        AccountStore::create(&self.root, self.account)
-            .map_err(|_| SignInError::Storage)?
+        let store =
+            AccountStore::create(&self.root, self.account).map_err(|_| SignInError::Storage)?;
+        let phrase = match (self.phrase, source) {
+            (Some(phrase), None) => phrase,
+            (None, Some(source)) => source.create(&store).map_err(SignInError::Vault)?,
+            _ => return Err(SignInError::ProtectionMismatch),
+        };
+        store
             .password_login_with_http(
                 result.homeserver,
                 &self.user,
                 &self.password.0,
-                &self.phrase.0,
+                &phrase.0,
                 http,
             )
             .await
@@ -282,6 +335,7 @@ impl PendingSignIn {
 pub struct SignInProfile {
     root: PathBuf,
     active: Option<AccountId>,
+    vault_mode: bool,
     _lock: std::fs::File,
 }
 impl SignInProfile {
@@ -339,9 +393,23 @@ impl SignInProfile {
         if active.is_none() {
             ensure_no_sealed_attempt(&root)?;
         }
+        // Non-secret binding; absent means the legacy phrase profile, anything else is damage.
+        let mode_path = root.join("protection-mode");
+        let vault_mode = match std::fs::symlink_metadata(&mode_path) {
+            Ok(_) => {
+                profile_regular_file(&mode_path, 8)?;
+                if std::fs::read(&mode_path).map_err(|_| SignInError::Storage)? != b"vault-v1" {
+                    return Err(SignInError::Storage);
+                }
+                true
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(_) => return Err(SignInError::Storage),
+        };
         Ok(Self {
             root,
             active,
+            vault_mode,
             _lock: lock,
         })
     }
@@ -356,6 +424,35 @@ impl SignInProfile {
         user: String,
         password: Secret,
         phrase: Secret,
+        trust_root: Option<Vec<u8>>,
+    ) -> Result<AccountSession, SignInError> {
+        if self.vault_mode {
+            return Err(SignInError::ProtectionMismatch);
+        }
+        self.login(None, homeserver, user, password, Some(phrase), trust_root)
+            .await
+    }
+
+    /// New vault-backed profile: the protection secret is generated and kept only in the OS vault.
+    pub async fn password_login_vault(
+        &mut self,
+        source: &dyn ProtectionSource,
+        homeserver: String,
+        user: String,
+        password: Secret,
+        trust_root: Option<Vec<u8>>,
+    ) -> Result<AccountSession, SignInError> {
+        self.login(Some(source), homeserver, user, password, None, trust_root)
+            .await
+    }
+
+    async fn login(
+        &mut self,
+        source: Option<&dyn ProtectionSource>,
+        homeserver: String,
+        user: String,
+        password: Secret,
+        phrase: Option<Secret>,
         trust_root: Option<Vec<u8>>,
     ) -> Result<AccountSession, SignInError> {
         use std::io::Write;
@@ -380,17 +477,39 @@ impl SignInProfile {
             }
         }
         let account = available.ok_or(SignInError::AttemptLimit)?;
-        let session = PasswordSignIn::new(
-            self.root.clone(),
-            account,
-            homeserver,
-            user,
-            password,
-            phrase,
-            trust_root,
-        )?
-        .run()
-        .await?;
+        let login = match phrase {
+            Some(phrase) => PasswordSignIn::new(
+                self.root.clone(),
+                account,
+                homeserver,
+                user,
+                password,
+                phrase,
+                trust_root,
+            )?,
+            None => PasswordSignIn::new_vault(
+                self.root.clone(),
+                account,
+                homeserver,
+                user,
+                password,
+                trust_root,
+            )?,
+        };
+        let session = login.run_with(source).await?;
+        if source.is_some() && !self.vault_mode {
+            let mode = self.root.join("protection-mode");
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&mode)
+                .map_err(|_| SignInError::Storage)?;
+            file.write_all(b"vault-v1")
+                .map_err(|_| SignInError::Storage)?;
+            file.sync_all().map_err(|_| SignInError::Storage)?;
+            self.vault_mode = true;
+        }
         // No secret in this small selector. Publish only after sealed login and
         // remote whoami, and never overwrite another profile's selection.
         let pending = self.root.join("active-account.pending");
@@ -413,11 +532,31 @@ impl SignInProfile {
         Ok(session)
     }
 
+    pub async fn unlock_vault(
+        &mut self,
+        source: &dyn ProtectionSource,
+        trust_root: Option<Vec<u8>>,
+    ) -> Result<AccountSession, SignInError> {
+        if !self.vault_mode {
+            return Err(SignInError::ProtectionMismatch);
+        }
+        let account = self.active.ok_or(SignInError::NoSession)?;
+        let store = AccountStore::open(&self.root, account).map_err(|_| SignInError::Storage)?;
+        let phrase = source.read(&store).map_err(SignInError::Vault)?;
+        drop(store);
+        UnlockSession::new(self.root.clone(), account, phrase, trust_root)?
+            .run()
+            .await
+    }
+
     pub async fn unlock(
         &mut self,
         phrase: Secret,
         trust_root: Option<Vec<u8>>,
     ) -> Result<AccountSession, SignInError> {
+        if self.vault_mode {
+            return Err(SignInError::ProtectionMismatch);
+        }
         UnlockSession::new(
             self.root.clone(),
             self.active.ok_or(SignInError::NoSession)?,

@@ -1,13 +1,17 @@
 //! Linux native protection-secret lifecycle; call only on a blocking backend worker.
 use crate::{persistence::AccountStore, signin::Secret};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum VaultError {
-    Unavailable,
-    AlreadyExists,
-    Missing,
-    InvalidItem,
-    Locked,
+pub use crate::signin::VaultError;
+
+/// The real Linux Secret Service as a profile protection source.
+pub struct SecretService;
+impl crate::signin::ProtectionSource for SecretService {
+    fn create(&self, store: &AccountStore) -> Result<Secret, VaultError> {
+        ProtectionVault::new(store).create()
+    }
+    fn read(&self, store: &AccountStore) -> Result<Secret, VaultError> {
+        ProtectionVault::new(store).read()
+    }
 }
 
 /// Borrows the account's exclusive store lock; never substitutes another profile.
