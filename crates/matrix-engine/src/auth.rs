@@ -149,6 +149,21 @@ impl AccountSession {
         Ok(())
     }
 
+    /// Public Ed25519 signing key of this device (base64); identifies the crypto identity across restarts.
+    pub async fn ed25519_key(&self) -> Result<String, AuthError> {
+        let client = self.client.as_ref().ok_or(AuthError::LoggedOut)?;
+        let device = client
+            .encryption()
+            .get_own_device()
+            .await
+            .map_err(|_| AuthError::Storage)?
+            .ok_or(AuthError::IdentityMismatch)?;
+        Ok(device
+            .ed25519_key()
+            .ok_or(AuthError::IdentityMismatch)?
+            .to_base64())
+    }
+
     /// Read back the exact authenticated server identity, not cached login metadata.
     pub async fn whoami(&self) -> Result<SessionIdentity, AuthError> {
         let client = self.client.as_ref().ok_or(AuthError::LoggedOut)?;
