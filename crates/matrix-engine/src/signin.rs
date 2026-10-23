@@ -233,7 +233,17 @@ pub struct SignInPrompt {
 pub enum SignInEvent {
     Prompt(SignInPrompt),
     Authenticated(AccountId),
+    /// After a vault sign-in only: optional encrypted-history recovery.
+    Recovery(RecoveryState),
     Failed(SignInError),
+}
+/// Payload-free post-login state; no key backup, backup creation or device trust happens here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryState {
+    Offered,
+    Deferred,
+    /// Recovery entry was requested but is not implemented yet.
+    Unavailable,
 }
 pub enum SignInCommand {
     Password {
@@ -245,6 +255,16 @@ pub enum SignInCommand {
     Unlock {
         phrase: Secret,
     },
+    /// New profile on a vault route: no local phrase, the protection secret lives in the OS vault.
+    VaultPassword {
+        homeserver: String,
+        user: String,
+        password: Secret,
+    },
+    /// Restore a vault profile; the secret is read from the OS vault.
+    UnlockVault,
+    EnterRecovery,
+    DeferRecovery,
 }
 pub struct SignInUi {
     pub events: crate::Receiver<SignInEvent>,
@@ -255,10 +275,35 @@ pub struct SignInUi {
 pub struct PendingSignIn {
     root: PathBuf,
     trust_root: Option<Vec<u8>>,
+    source: Option<Box<dyn ProtectionSource + Send + Sync>>,
     events: crate::Sender<SignInEvent>,
     commands: crate::Receiver<SignInCommand>,
 }
 pub fn interactive(root: PathBuf, trust_root: Option<Vec<u8>>) -> (SignInUi, PendingSignIn) {
+    route(root, trust_root, None)
+}
+/// Vault route: new profiles need no local phrase.
+pub fn interactive_with_source(
+    root: PathBuf,
+    trust_root: Option<Vec<u8>>,
+    source: Box<dyn ProtectionSource + Send + Sync>,
+) -> (SignInUi, PendingSignIn) {
+    route(root, trust_root, Some(source))
+}
+/// The OS vault of this platform, if compiled in.
+pub fn platform_source() -> Option<Box<dyn ProtectionSource + Send + Sync>> {
+    #[cfg(all(feature = "linux-vault", target_os = "linux"))]
+    return Some(Box::new(crate::vault::SecretService));
+    #[cfg(all(feature = "mac-vault", target_os = "macos"))]
+    return Some(Box::new(crate::keychain::MacKeychain));
+    #[allow(unreachable_code)]
+    None
+}
+fn route(
+    root: PathBuf,
+    trust_root: Option<Vec<u8>>,
+    source: Option<Box<dyn ProtectionSource + Send + Sync>>,
+) -> (SignInUi, PendingSignIn) {
     let capacity = std::num::NonZeroUsize::new(1).unwrap();
     let (commands, requests) = crate::bounded(capacity);
     let (events, updates) = crate::bounded(capacity);
@@ -270,14 +315,50 @@ pub fn interactive(root: PathBuf, trust_root: Option<Vec<u8>>) -> (SignInUi, Pen
         PendingSignIn {
             root,
             trust_root,
+            source,
             events,
             commands: requests,
         },
     )
 }
 impl PendingSignIn {
+    /// Authenticated vault session: offer recovery, hand the session over once deferred.
+    /// Never touches key backup or device trust.
+    async fn recovery_step(
+        &mut self,
+        session: AccountSession,
+    ) -> Result<AccountSession, SignInError> {
+        let closed = |_| SignInError::NoSession;
+        self.events
+            .send(SignInEvent::Authenticated(session.account_id()))
+            .await
+            .map_err(closed)?;
+        self.events
+            .send(SignInEvent::Recovery(RecoveryState::Offered))
+            .await
+            .map_err(closed)?;
+        while let Some(command) = self.commands.recv().await {
+            match command {
+                SignInCommand::DeferRecovery => {
+                    self.events
+                        .send(SignInEvent::Recovery(RecoveryState::Deferred))
+                        .await
+                        .map_err(closed)?;
+                    return Ok(session);
+                }
+                SignInCommand::EnterRecovery => self
+                    .events
+                    .send(SignInEvent::Recovery(RecoveryState::Unavailable))
+                    .await
+                    .map_err(closed)?,
+                _ => (),
+            }
+        }
+        Err(SignInError::NoSession)
+    }
+
     pub async fn run(mut self) -> Result<AccountSession, SignInError> {
-        let mut profile = match SignInProfile::open(self.root) {
+        let mut profile = match SignInProfile::open(self.root.clone()) {
             Ok(profile) => profile,
             Err(error) => {
                 let _ = self.events.send(SignInEvent::Failed(error)).await;
@@ -300,13 +381,42 @@ impl PendingSignIn {
                     user,
                     password,
                     phrase,
-                } if mode == SignInMode::Password => {
+                } if mode == SignInMode::Password && self.source.is_none() => {
                     profile
                         .password_login(homeserver, user, password, phrase, self.trust_root.clone())
                         .await
                 }
                 SignInCommand::Unlock { phrase } if mode == SignInMode::Unlock => {
                     profile.unlock(phrase, self.trust_root.clone()).await
+                }
+                SignInCommand::VaultPassword {
+                    homeserver,
+                    user,
+                    password,
+                } if mode == SignInMode::Password && self.source.is_some() => {
+                    let source = self.source.as_deref().unwrap();
+                    let session = profile
+                        .password_login_vault(
+                            source,
+                            homeserver,
+                            user,
+                            password,
+                            self.trust_root.clone(),
+                        )
+                        .await;
+                    if let Ok(session) = session {
+                        return self.recovery_step(session).await;
+                    }
+                    session
+                }
+                SignInCommand::UnlockVault if mode == SignInMode::Unlock => {
+                    match self.source.as_deref() {
+                        Some(source) => profile.unlock_vault(source, self.trust_root.clone()).await,
+                        None => Err(SignInError::ProtectionMismatch),
+                    }
+                }
+                SignInCommand::Password { .. } if mode == SignInMode::Password => {
+                    Err(SignInError::ProtectionMismatch)
                 }
                 _ => Err(SignInError::NoSession),
             };

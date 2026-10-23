@@ -94,6 +94,8 @@ impl SignInForm {
                 self.phrase.take();
                 self.status = FormStatus::Authenticated(account);
             }
+            // Recovery step is rendered by the sign-in view, not by this form.
+            SignInEvent::Recovery(_) => {}
             SignInEvent::Failed(error) => {
                 self.password.take();
                 self.phrase.take();

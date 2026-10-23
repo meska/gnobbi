@@ -155,3 +155,84 @@ fn interactive_profile_opens_only_on_the_backend_and_stops_when_the_ui_closes() 
         "UI close releases backend profile ownership"
     );
 }
+
+mod vault_route {
+    use super::*;
+    use matrix_engine::persistence::AccountStore;
+    use matrix_engine::signin::{
+        ProtectionSource, Secret, SignInCommand, SignInError, VaultError, interactive_with_source,
+    };
+    use std::sync::{Arc, atomic::AtomicU32};
+
+    #[derive(Clone, Default)]
+    struct Fake(Arc<AtomicU32>);
+    impl ProtectionSource for Fake {
+        fn create(&self, _: &AccountStore) -> Result<Secret, VaultError> {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            Err(VaultError::Unavailable)
+        }
+        fn read(&self, _: &AccountStore) -> Result<Secret, VaultError> {
+            Err(VaultError::Missing)
+        }
+    }
+
+    #[test]
+    fn vault_password_without_a_phrase_reports_network_failure_and_retries_without_touching_the_vault()
+     {
+        let root = Root::new();
+        let fake = Fake::default();
+        let (mut ui, pending) =
+            interactive_with_source(root.0.clone(), None, Box::new(fake.clone()));
+        runtime().block_on(async {
+            let consumer = async {
+                assert_eq!(
+                    ui.events.recv().await,
+                    Some(SignInEvent::Prompt(SignInPrompt {
+                        mode: SignInMode::Password,
+                        error: None
+                    }))
+                );
+                for _ in 0..2 {
+                    assert!(
+                        ui.commands
+                            .try_send(SignInCommand::VaultPassword {
+                                homeserver: "https://127.0.0.1:1/".into(),
+                                user: "@alice:example.test".into(),
+                                password: Secret::new("fixture password".into()).unwrap(),
+                            })
+                            .is_ok()
+                    );
+                    assert_eq!(
+                        ui.events.recv().await,
+                        Some(SignInEvent::Prompt(SignInPrompt {
+                            mode: SignInMode::Password,
+                            error: Some(SignInError::Discovery)
+                        }))
+                    );
+                }
+                // A local-phrase password command is refused on a vault route.
+                assert!(
+                    ui.commands
+                        .try_send(SignInCommand::Password {
+                            homeserver: "https://127.0.0.1:1/".into(),
+                            user: "@alice:example.test".into(),
+                            password: Secret::new("fixture password".into()).unwrap(),
+                            phrase: Secret::new("fixture unlock phrase".into()).unwrap(),
+                        })
+                        .is_ok()
+                );
+                assert_eq!(
+                    ui.events.recv().await,
+                    Some(SignInEvent::Prompt(SignInPrompt {
+                        mode: SignInMode::Password,
+                        error: Some(SignInError::ProtectionMismatch)
+                    }))
+                );
+                drop(ui);
+            };
+            let (result, ()) = tokio::join!(pending.run(), consumer);
+            assert!(result.is_err());
+        });
+        assert_eq!(fake.0.load(Ordering::Relaxed), 0);
+    }
+}

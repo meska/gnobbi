@@ -319,3 +319,79 @@ fn disposable_signin_profile_retries_rejected_credentials_without_reusing_a_dirt
         assert!(session.whoami().await.unwrap().device_id() == device);
     });
 }
+
+#[cfg(unix)]
+struct VaultFake(std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, [u8; 1]>>, Option<crate::signin::VaultError>);
+#[cfg(unix)]
+impl crate::signin::ProtectionSource for VaultFake {
+    fn create(&self, store: &crate::persistence::AccountStore) -> Result<crate::signin::Secret, crate::signin::VaultError> {
+        if let Some(error) = self.1 { return Err(error); }
+        self.0.lock().unwrap().insert(store.path.clone(), [0]);
+        crate::signin::Secret::new("v".repeat(64)).map_err(|_| crate::signin::VaultError::Unavailable)
+    }
+    fn read(&self, store: &crate::persistence::AccountStore) -> Result<crate::signin::Secret, crate::signin::VaultError> {
+        self.0.lock().unwrap().get(&store.path).ok_or(crate::signin::VaultError::Missing)?;
+        crate::signin::Secret::new("v".repeat(64)).map_err(|_| crate::signin::VaultError::Unavailable)
+    }
+}
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_signin_vault_route_logs_in_without_a_phrase_and_defers_recovery() {
+    use crate::signin::{
+        RecoveryState, Secret, SignInCommand, SignInError, SignInEvent, SignInMode, SignInPrompt,
+        VaultError, interactive_with_source,
+    };
+    let config = fixture();
+    let parent = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap();
+    let root = parent.join("vault-route-profile");
+    let pem = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let login = |password: &str| SignInCommand::VaultPassword {
+        homeserver: config["url"].as_str().unwrap().into(),
+        user: "@alice:matrix-desktop.test".into(),
+        password: Secret::new(password.into()).unwrap(),
+    };
+    let prompt = |error| SignInEvent::Prompt(SignInPrompt { mode: SignInMode::Password, error });
+    runtime().block_on(async {
+        let (mut ui, pending) = interactive_with_source(
+            root.clone(),
+            Some(pem),
+            Box::new(VaultFake(Default::default(), Some(VaultError::Unavailable))),
+        );
+        let consumer = async {
+            assert_eq!(ui.events.recv().await, Some(prompt(None)));
+            // Vault failure: typed, payload-free, retryable.
+            assert!(ui.commands.try_send(login(config["alice_password"].as_str().unwrap())).is_ok());
+            assert_eq!(ui.events.recv().await, Some(prompt(Some(SignInError::Vault(VaultError::Unavailable)))));
+            drop(ui);
+        };
+        let (result, ()) = tokio::join!(pending.run(), consumer);
+        assert!(result.is_err());
+        // A failed attempt never selects a profile.
+        assert!(!root.join("active-account").exists());
+    });
+    let pem = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    runtime().block_on(async {
+        let (mut ui, pending) = interactive_with_source(root.clone(), Some(pem), Box::new(VaultFake(Default::default(), None)));
+        let consumer = async {
+            assert_eq!(ui.events.recv().await, Some(prompt(None)));
+            assert!(ui.commands.try_send(login("incorrect-fixture-password")).is_ok());
+            assert_eq!(
+                ui.events.recv().await,
+                Some(prompt(Some(SignInError::Authentication(AuthError::CredentialsRejected))))
+            );
+            assert!(ui.commands.try_send(login(config["alice_password"].as_str().unwrap())).is_ok());
+            assert!(matches!(ui.events.recv().await, Some(SignInEvent::Authenticated(_))));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Offered)));
+            assert!(ui.commands.try_send(SignInCommand::EnterRecovery).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Unavailable)));
+            assert!(ui.commands.try_send(SignInCommand::DeferRecovery).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Deferred)));
+        };
+        let (session, ()) = tokio::join!(pending.run(), consumer);
+        let session = session.unwrap();
+        assert!(session.whoami().await.unwrap().user_id() == "@alice:matrix-desktop.test");
+    });
+    assert_eq!(std::fs::read(root.join("protection-mode")).unwrap(), b"vault-v1");
+    assert!(root.join("active-account").exists());
+}
