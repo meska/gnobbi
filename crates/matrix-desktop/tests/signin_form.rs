@@ -270,3 +270,18 @@ fn visible_fields_follow_the_flow() {
     assert_eq!(visible_fields(SignInMode::Unlock, true), &[3]);
     assert_eq!(visible_fields(SignInMode::UnlockVault, true), &[] as &[usize]);
 }
+
+#[test]
+fn vault_failures_get_their_own_actionable_messages() {
+    use matrix_engine::signin::{SignInError, VaultError::*};
+    let message = |error| FormStatus::Failed(SignInError::Vault(error)).error_message().unwrap();
+    for error in [Unavailable, Locked] {
+        let text = message(error);
+        assert!(text.to_lowercase().contains("portachiavi"), "{error:?}: {text}");
+        assert!(!text.contains("percorso del profilo"), "{error:?}: {text}");
+    }
+    for error in [Missing, InvalidItem, AlreadyExists] {
+        assert!(message(error).contains("chiave del profilo"), "{error:?}");
+    }
+    assert_ne!(message(Unavailable), message(Missing));
+}

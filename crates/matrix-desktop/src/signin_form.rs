@@ -30,7 +30,10 @@ impl FormStatus {
             Self::Failed(error) => error,
             _ => return None,
         };
-        use matrix_engine::signin::SignInError::*;
+        use matrix_engine::signin::{
+            SignInError::*,
+            VaultError::{Locked, Unavailable},
+        };
         Some(match error {
             InvalidHomeserver => "Inserisci un endpoint homeserver HTTPS valido.",
             InvalidUserId => "Inserisci l’ID Matrix completo: @nome:server.",
@@ -48,6 +51,10 @@ impl FormStatus {
             Authentication(_) => {
                 "Accesso/sblocco non riuscito. Controlla le credenziali e riprova."
             }
+            Vault(Unavailable | Locked) => {
+                "Portachiavi di sistema non disponibile o bloccato. Sbloccalo e riprova."
+            }
+            Vault(_) => "La chiave del profilo non è nel portachiavi di sistema. Il profilo non è stato modificato.",
             ProfileBusy => "Profilo già aperto in un’altra istanza. Chiudila e riavvia.",
             _ => "Profilo locale non disponibile. Chiudi e verifica il percorso del profilo.",
         })
