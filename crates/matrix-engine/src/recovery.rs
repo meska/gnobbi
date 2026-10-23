@@ -13,6 +13,21 @@ pub enum RecoveryError {
     IdentityRequired,
     BackupUnavailable,
     InvalidSecret,
+    /// The key does not open the account's secret storage (wrong or malformed).
+    WrongKey,
+    Transport,
+    /// The account has no secret storage, so there is nothing to recover from.
+    NoSecretStorage,
+}
+
+fn classify(error: &matrix_sdk::encryption::recovery::RecoveryError) -> RecoveryError {
+    use matrix_sdk::encryption::{recovery::RecoveryError as Sdk, secret_storage::SecretStorageError as Store};
+    match error {
+        Sdk::SecretStorage(Store::SecretStorageKey(_)) => RecoveryError::WrongKey,
+        Sdk::SecretStorage(Store::MissingKeyInfo { key_id: None }) => RecoveryError::NoSecretStorage,
+        Sdk::Sdk(_) | Sdk::SecretStorage(Store::Sdk(_)) => RecoveryError::Transport,
+        _ => RecoveryError::Failed,
+    }
 }
 
 /// Caller must arrange secure, explicit delivery; this is not a UI DTO.
@@ -69,6 +84,37 @@ impl AccountSession {
                 .download_room_keys_for_room(&room_id)
                 .await
                 .map_err(|_| RecoveryError::Failed)
+        })
+        .await
+        .map_err(|_| RecoveryError::Deadline)?
+    }
+    /// Import secrets with an existing recovery key, then download the backed-up keys of every
+    /// known room. Never resets, deletes or replaces anything; success is not proof that every
+    /// old message exists.
+    pub async fn recover_all_room_keys(&mut self, key: &str) -> Result<(), RecoveryError> {
+        let client = self.client.as_ref().ok_or(RecoveryError::LoggedOut)?;
+        if key.is_empty() || key.len() > 1024 {
+            return Err(RecoveryError::InvalidSecret);
+        }
+        tokio::time::timeout(Duration::from_secs(40), async {
+            client.encryption().recovery().recover(key).await.map_err(|e| classify(&e))?;
+            if !client.encryption().backups().are_enabled().await {
+                return Err(RecoveryError::BackupUnavailable);
+            }
+            // The room list is only known after a sync; a fresh vault sign-in has not run one.
+            client
+                .sync_once(matrix_sdk::config::SyncSettings::default())
+                .await
+                .map_err(|_| RecoveryError::Transport)?;
+            for room in client.rooms() {
+                client
+                    .encryption()
+                    .backups()
+                    .download_room_keys_for_room(room.room_id())
+                    .await
+                    .map_err(|_| RecoveryError::Transport)?;
+            }
+            Ok(())
         })
         .await
         .map_err(|_| RecoveryError::Deadline)?

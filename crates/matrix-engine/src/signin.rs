@@ -2,6 +2,7 @@
 //! No runtime, sync, recovery setup or remote writes beyond explicit login.
 use crate::{
     auth::{AccountSession, AuthError},
+    recovery::RecoveryError,
     discovery::{Discovery, HomeserverUrl, LoginSupport},
     persistence::AccountStore,
 };
@@ -244,9 +245,24 @@ pub enum SignInEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryState {
     Offered,
+    /// A recovery key is being checked and room keys downloaded.
+    Pending,
+    /// Keys were imported and downloaded; this does not prove every old message exists.
+    Recovered,
+    Failed(RecoveryFailure),
     Deferred,
-    /// Recovery entry was requested but is not implemented yet.
-    Unavailable,
+    /// The account has no secret storage: the recovery key route does not exist for it.
+    Unsupported,
+}
+/// Fixed failure categories of one recovery attempt; retry or defer stay possible.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryFailure {
+    /// Malformed or wrong key.
+    InvalidKey,
+    Network,
+    Timeout,
+    BackupUnavailable,
+    Other,
 }
 pub enum SignInCommand {
     Password {
@@ -266,7 +282,8 @@ pub enum SignInCommand {
     },
     /// Restore a vault profile; the secret is read from the OS vault.
     UnlockVault,
-    EnterRecovery,
+    /// An existing Matrix recovery key (or passphrase); dropped and zeroized after the attempt.
+    EnterRecovery(Secret),
     DeferRecovery,
 }
 pub struct SignInUi {
@@ -329,7 +346,7 @@ impl PendingSignIn {
     /// Never touches key backup or device trust.
     async fn recovery_step(
         &mut self,
-        session: AccountSession,
+        mut session: AccountSession,
     ) -> Result<AccountSession, SignInError> {
         let closed = |_| SignInError::NoSession;
         self.events
@@ -349,11 +366,35 @@ impl PendingSignIn {
                         .map_err(closed)?;
                     return Ok(session);
                 }
-                SignInCommand::EnterRecovery => self
-                    .events
-                    .send(SignInEvent::Recovery(RecoveryState::Unavailable))
-                    .await
-                    .map_err(closed)?,
+                SignInCommand::EnterRecovery(key) => {
+                    self.events
+                        .send(SignInEvent::Recovery(RecoveryState::Pending))
+                        .await
+                        .map_err(closed)?;
+                    // The key lives only in this call; dropping the future zeroizes it.
+                    let outcome = session.recover_all_room_keys(&key.0).await;
+                    drop(key);
+                    let state = match outcome {
+                        Ok(()) => RecoveryState::Recovered,
+                        Err(RecoveryError::NoSecretStorage) => RecoveryState::Unsupported,
+                        Err(RecoveryError::WrongKey | RecoveryError::InvalidSecret) => {
+                            RecoveryState::Failed(RecoveryFailure::InvalidKey)
+                        }
+                        Err(RecoveryError::Transport) => RecoveryState::Failed(RecoveryFailure::Network),
+                        Err(RecoveryError::Deadline) => RecoveryState::Failed(RecoveryFailure::Timeout),
+                        Err(RecoveryError::BackupUnavailable) => {
+                            RecoveryState::Failed(RecoveryFailure::BackupUnavailable)
+                        }
+                        Err(_) => RecoveryState::Failed(RecoveryFailure::Other),
+                    };
+                    self.events
+                        .send(SignInEvent::Recovery(state))
+                        .await
+                        .map_err(closed)?;
+                    if state == RecoveryState::Recovered {
+                        return Ok(session);
+                    }
+                }
                 _ => (),
             }
         }

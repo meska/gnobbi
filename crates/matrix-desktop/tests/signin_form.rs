@@ -251,7 +251,7 @@ fn recovery_step_can_be_deferred_once_by_the_current_source_only() {
     form.apply(SignInEvent::Recovery(RecoveryState::Offered));
     assert_eq!(form.recovery(), Some(RecoveryState::Offered));
     let source = form.source().unwrap();
-    form.apply(SignInEvent::Recovery(RecoveryState::Unavailable));
+    form.apply(SignInEvent::Recovery(RecoveryState::Unsupported));
     assert!(form.defer_source(source).is_none());
     let current = form.source().unwrap();
     assert!(matches!(

@@ -135,7 +135,9 @@ impl SignInForm {
         self.source = matches!(
             event,
             SignInEvent::Prompt(_)
-                | SignInEvent::Recovery(RecoveryState::Offered | RecoveryState::Unavailable)
+                | SignInEvent::Recovery(
+                    RecoveryState::Offered | RecoveryState::Failed(_) | RecoveryState::Unsupported
+                )
         )
         .then(SignInSource::new);
         match event {

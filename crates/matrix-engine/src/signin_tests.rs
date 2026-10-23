@@ -383,8 +383,10 @@ fn disposable_signin_vault_route_logs_in_without_a_phrase_and_defers_recovery() 
             assert!(ui.commands.try_send(login(config["alice_password"].as_str().unwrap())).is_ok());
             assert!(matches!(ui.events.recv().await, Some(SignInEvent::Authenticated(_))));
             assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Offered)));
-            assert!(ui.commands.try_send(SignInCommand::EnterRecovery).is_ok());
-            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Unavailable)));
+            // This account has no secret storage: the recovery key route does not exist.
+            assert!(ui.commands.try_send(SignInCommand::EnterRecovery(Secret::new("EsTc 1111 2222 3333".into()).unwrap())).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Pending)));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Unsupported)));
             assert!(ui.commands.try_send(SignInCommand::DeferRecovery).is_ok());
             assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Deferred)));
         };
@@ -394,4 +396,118 @@ fn disposable_signin_vault_route_logs_in_without_a_phrase_and_defers_recovery() 
     });
     assert_eq!(std::fs::read(root.join("protection-mode")).unwrap(), b"vault-v1");
     assert!(root.join("active-account").exists());
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_signin_recovery_key_restores_the_exact_old_event_and_failures_change_nothing() {
+    use crate::signin::{
+        RecoveryFailure, RecoveryState, Secret, SignInCommand, SignInEvent, SignInMode,
+        SignInPrompt, interactive_with_source,
+    };
+    let config = fixture();
+    let parent = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap();
+    let root = parent.join("vault-recovery-profile");
+    let pem = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let (room, event, key, wrong_key, before) = runtime().block_on(async {
+        let (mut source, room, event) = recovery_seed(&config).await;
+        let key = source.enable_new_recovery().await.expect("source recovery");
+        source.upload_key_backup().await.unwrap();
+        let other = login(&config, "bob", 27).await;
+        let client = other.client.as_ref().unwrap();
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+        let wrong = client.encryption().secret_storage().create_secret_store().await.unwrap().secret_storage_key();
+        let before = recovery_backup_wire(&config).await;
+        (room, event, key.expose().to_owned(), wrong, before)
+    });
+    // Precondition: a fresh device cannot read the old event.
+    runtime().block_on(async {
+        let fresh = login(&config, "alice", 28).await;
+        let client = fresh.client.as_ref().unwrap();
+        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        recovery_assert_message(client, &room, &event, false).await;
+    });
+    let secret = |text: &str| Secret::new(text.into()).unwrap();
+    let paused_state = std::sync::Mutex::new(None);
+    let session = runtime().block_on(async {
+        let (mut ui, pending) = interactive_with_source(root.clone(), Some(pem), Box::new(VaultFake(Default::default(), None)));
+        let consumer = async {
+            let prompt = SignInEvent::Prompt(SignInPrompt { mode: SignInMode::Password, error: None });
+            assert_eq!(ui.events.recv().await, Some(prompt));
+            assert!(ui.commands.try_send(SignInCommand::VaultPassword {
+                homeserver: config["url"].as_str().unwrap().into(),
+                user: "@alice:matrix-desktop.test".into(),
+                password: secret(config["alice_password"].as_str().unwrap()),
+            }).is_ok());
+            assert!(matches!(ui.events.recv().await, Some(SignInEvent::Authenticated(_))));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Offered)));
+            // Wrong valid key and malformed key: typed failure, retry stays possible.
+            for bad in [wrong_key.as_str(), "not a recovery key"] {
+                assert!(ui.commands.try_send(SignInCommand::EnterRecovery(secret(bad))).is_ok());
+                assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Pending)));
+                assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Failed(RecoveryFailure::InvalidKey))));
+            }
+            assert!(recovery_backup_wire(&config).await == before, "failed attempts must not touch the server backup");
+            // Transport failure while pending.
+            let paused = PausedServer::new(&config);
+            assert!(ui.commands.try_send(SignInCommand::EnterRecovery(secret(&key))).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Pending)));
+            *paused_state.lock().unwrap() = ui.events.recv().await;
+            drop(paused);
+            assert!(recovery_backup_wire(&config).await == before, "transport failure must not touch the server backup");
+            assert!(ui.commands.try_send(SignInCommand::EnterRecovery(secret(&key))).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Pending)));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Recovered)));
+        };
+        let (session, ()) = tokio::join!(pending.run(), consumer);
+        session.unwrap()
+    });
+    assert!(matches!(
+        paused_state.into_inner().unwrap(),
+        Some(SignInEvent::Recovery(RecoveryState::Failed(RecoveryFailure::Network | RecoveryFailure::Timeout)))
+    ));
+    // The session must drop inside a runtime (SDK pool).
+    runtime().block_on(async move {
+        recovery_assert_message(session.client.as_ref().unwrap(), &room, &event, true).await;
+        assert!(recovery_backup_wire(&config).await == before, "recovery must not mutate the server backup");
+    });
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_signin_recovery_passphrase_uses_the_same_route() {
+    use crate::signin::{RecoveryState, Secret, SignInCommand, SignInEvent, interactive_with_source};
+    let config = fixture();
+    let parent = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap();
+    let root = parent.join("vault-recovery-passphrase-profile");
+    let pem = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let (room, event) = runtime().block_on(async {
+        let (mut source, room, event) = recovery_seed(&config).await;
+        source.client.as_ref().unwrap().encryption().recovery().enable().with_passphrase("fixture recovery passphrase").await.unwrap();
+        source.upload_key_backup().await.unwrap();
+        (room, event)
+    });
+    let session = runtime().block_on(async {
+        let (mut ui, pending) = interactive_with_source(root, Some(pem), Box::new(VaultFake(Default::default(), None)));
+        let consumer = async {
+            ui.events.recv().await.unwrap();
+            assert!(ui.commands.try_send(SignInCommand::VaultPassword {
+                homeserver: config["url"].as_str().unwrap().into(),
+                user: "@alice:matrix-desktop.test".into(),
+                password: Secret::new(config["alice_password"].as_str().unwrap().into()).unwrap(),
+            }).is_ok());
+            assert!(matches!(ui.events.recv().await, Some(SignInEvent::Authenticated(_))));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Offered)));
+            assert!(ui.commands.try_send(SignInCommand::EnterRecovery(Secret::new("fixture recovery passphrase".into()).unwrap())).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Pending)));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Recovered)));
+        };
+        let (session, ()) = tokio::join!(pending.run(), consumer);
+        session.unwrap()
+    });
+    runtime().block_on(async move {
+        recovery_assert_message(session.client.as_ref().unwrap(), &room, &event, true).await;
+    });
 }
