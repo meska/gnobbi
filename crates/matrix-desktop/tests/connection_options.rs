@@ -91,3 +91,21 @@ fn bare_signin_uses_the_profile_under_the_data_directory() {
     assert_eq!(default_signin_args(&given, &dirs), given);
     assert!(default_signin_args(&[], &dirs).is_empty());
 }
+
+#[test]
+fn linux_launch_without_arguments_opens_the_sign_in_on_the_standard_profile() {
+    use matrix_desktop::{AppDirs, default_signin_args, linux_launch_args};
+    let dirs = AppDirs {
+        config: "/c/dime".into(),
+        data: "/d/dime".into(),
+        cache: "/k/dime".into(),
+    };
+    let args = linux_launch_args(&[]);
+    assert_eq!(args, ["--signin"]);
+    assert_eq!(default_signin_args(&args, &dirs), ["--signin", "/d/dime/profile"]);
+    // Explicit flags keep working for tests.
+    let given = ["--signin", "/p"].map(str::to_owned);
+    assert_eq!(linux_launch_args(&given), given);
+    let restore = ["--restore", "/s", "1"].map(str::to_owned);
+    assert_eq!(linux_launch_args(&restore), restore);
+}

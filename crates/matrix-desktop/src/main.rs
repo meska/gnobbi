@@ -1738,6 +1738,8 @@ fn main() {
         }
         bundled.unwrap_or(args)
     };
+    #[cfg(all(target_os = "linux", not(test)))]
+    let args = matrix_desktop::linux_launch_args(&args);
     let legacy_offer = (args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file"))
         .then(|| {
             let dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
