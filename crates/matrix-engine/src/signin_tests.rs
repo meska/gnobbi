@@ -539,6 +539,32 @@ fn disposable_gui_recovery_seed() {
     std::fs::write(out.join("ids.json"), serde_json::json!({"room": room, "event": event.as_str()}).to_string()).unwrap();
 }
 
+/// Seeds for the GUI setup certification: an encrypted room for alice, or a backup (and nothing
+/// else) for bob, so that his account is in the partial state setup must refuse.
+#[cfg(unix)]
+#[test]
+#[ignore = "GUI setup seed driver; needs the external test harness (not in this repo)"]
+fn disposable_gui_setup_seed() {
+    let config = fixture();
+    let out = std::path::PathBuf::from(std::env::var("FIXTURE_SETUP_OUT").expect("output dir"));
+    match std::env::var("FIXTURE_SETUP_MODE").expect("mode").as_str() {
+        "alice-room" => {
+            let room = runtime().block_on(async { room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+                serde_json::json!({"name": "disposable setup", "visibility": "private", "initial_state": [
+                    {"type": "m.room.encryption", "state_key": "", "content": {"algorithm": "m.megolm.v1.aes-sha2"}}
+                ]})).await["room_id"].as_str().unwrap().to_owned() });
+            std::fs::write(out.join("ids.json"), serde_json::json!({"room": room}).to_string()).unwrap();
+        }
+        "bob-backup-only" => runtime().block_on(async {
+            let seeder = login(&config, "bob", 29).await;
+            let client = seeder.client.as_ref().unwrap();
+            client.encryption().wait_for_e2ee_initialization_tasks().await;
+            client.encryption().backups().create().await.unwrap();
+        }),
+        other => panic!("unknown seed mode {other}"),
+    }
+}
+
 /// Server-side state a refused setup must leave alone: backup version, default secret-storage key,
 /// published cross-signing keys. The fresh sign-in device is deliberately not part of it.
 #[cfg(unix)]
