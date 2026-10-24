@@ -44,6 +44,45 @@ impl Shell {
                 .is_some_and(|room| room.scope == self.active_scope)
     }
 
+    fn chat_visible(&self, window: &Window) -> bool {
+        self.connected
+            && self.timeline.is_some()
+            && self.sidebar.selected().is_some_and(|room| room.scope == self.active_scope)
+            && (window.viewport_size().width >= px(800.) || self.compact_chat)
+    }
+
+    /// Wrap backwards: Send when eligible, else the text field.
+    pub(crate) fn focus_last_chat_control(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if !self.chat_visible(window) {
+            return false;
+        }
+        self.composer.update(cx, |editor, cx| {
+            if editor.send_eligible() {
+                editor.focus_send(window, cx)
+            } else {
+                editor.focus_from_accessibility(window, cx)
+            }
+        });
+        cx.notify();
+        true
+    }
+
+    /// Wrap forwards: compact Back, else the first rail entry.
+    fn focus_first_nav_control(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if window.viewport_size().width < px(800.) {
+            self.back_focus_handle().focus(window);
+        } else {
+            self.rail_ui.target = self.sidebar.navigation_entries()[0].scope.clone();
+            self.reveal_rail_target(window, cx);
+            self.rail_ui.focus.focus(window);
+        }
+        cx.notify();
+    }
+
     fn focus_chat_entry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.connected {
@@ -147,13 +186,22 @@ impl Shell {
                 }
                 return true;
             }
-            #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-            {
-                self.set_compact_chat(false);
-                self.list_focus.focus(window);
-                cx.notify();
+            if self.focus_last_chat_control(window, cx) {
                 return true;
             }
+        }
+        if !shift && self.chat_visible(window) {
+            let editor = self.composer.read(cx);
+            if editor.send_is_focused(window) || (editor.tab_back_ready(window) && !editor.send_eligible()) {
+                self.focus_first_nav_control(window, cx);
+                return true;
+            }
+        }
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        if shift && self.chat_visible(window) && self.composer.read(cx).tab_back_ready(window) {
+            self.history_focus.focus(window);
+            cx.notify();
+            return true;
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let entry = self.connected && self.history_focus.is_focused(window);

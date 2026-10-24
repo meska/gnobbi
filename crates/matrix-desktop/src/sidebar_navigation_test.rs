@@ -8,6 +8,7 @@ static CONNECTED: AtomicBool = AtomicBool::new(false);
 static COMPACT: AtomicBool = AtomicBool::new(false);
 static SPACES: AtomicBool = AtomicBool::new(false);
 static CHAT: AtomicBool = AtomicBool::new(false);
+static EMPTY: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
 static DYNAMIC: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 /// Key-ups seen by the Shell; GPUI X11 turns an auto-repeat release/press split by scheduling jitter into a real key-up.
@@ -504,6 +505,95 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }
             this.update_in(cx, |this, window, cx| {
                 preserve_drafts_and_capture(this, &scopes, window, cx, if chat { "seam-chat" } else if COMPACT.load(Ordering::SeqCst) { "seam-compact" } else { "seam-wide" });
+                cx.quit();
+            }).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 17 {
+            // Chat end of the ring: history boundary, composer, eligible Send and the wrap to the first navigation control.
+            let chat = CHAT.load(Ordering::SeqCst);
+            let empty = EMPTY.load(Ordering::SeqCst);
+            let last = if empty { "composer" } else { "send" };
+            let a11y = cfg!(all(feature = "linux-a11y", target_os = "linux"));
+            let first = if chat { "back" } else { "rail0" };
+            let mut steps: Vec<(&str, &str)> = vec![("shift-tab", last)];
+            if !empty {
+                steps.push(("shift-tab", "composer"));
+            }
+            if a11y {
+                steps.push(("shift-tab", "history"));
+            }
+            steps.push(("shift-tab", "info"));
+            steps.push(("tab", if a11y { "history" } else { "composer" }));
+            if a11y {
+                steps.push(("tab", "composer"));
+            }
+            if !empty {
+                steps.push(("tab", "send"));
+            }
+            steps.push(("tab", first));
+            steps.push(("tab", if chat { "info" } else { "rail1" }));
+            this.update_in(cx, |this, window, cx| {
+                if chat {
+                    this.set_compact_chat(true);
+                    this.back_focus_handle().focus(window);
+                } else {
+                    this.rail_ui.target = this.sidebar.navigation_entries()[0].scope.clone();
+                    this.rail_ui.focus.focus(window);
+                }
+                if empty {
+                    this.composer.update(cx, |v, cx| {
+                        let mut actual = None;
+                        let len = v.text_for_range(0..65536, &mut actual, window, cx).unwrap().len();
+                        v.replace_text_in_range(Some(0..len), "  ", window, cx);
+                    });
+                }
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(300)).await;
+            // The first key is the one under test from the first control.
+            if !chat { steps.insert(0, ("noop", "rail0")); }
+            for (key, expected) in steps {
+                if key != "noop" {
+                    cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
+                }
+                this.update_in(cx, |this, window, cx| {
+                    use matrix_desktop::panel_openers::Control;
+                    let focused = match expected {
+                        "back" => this.back_focus_handle().is_focused(window),
+                        "info" => this.opener_ui.focused(Control::Info, window),
+                        "send" => this.composer.read(cx).send_is_focused(window),
+                        "composer" => this.composer.read(cx).is_focused(window),
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        "history" => this.history_focus.is_focused(window),
+                        name if name.starts_with("rail") => {
+                            let index = name[4..].parse::<usize>().unwrap();
+                            this.rail_ui.focus.is_focused(window) && this.rail_ui.target == this.sidebar.navigation_entries()[index].scope
+                        }
+                        _ => unreachable!(),
+                    };
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
+                    assert_eq!(this.compact_chat, chat);
+                    assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
+                    assert_eq!(this.active_scope, scopes[0]);
+                    assert!(!this.dark && !this.sidebar.unread_only());
+                    assert!(history(this));
+                    if !empty {
+                        this.composer.update(cx, |v, cx| {
+                            let mut actual = None;
+                            assert_eq!(v.text_for_range(0..65536, &mut actual, window, cx).as_deref(), Some(DRAFTS[0]));
+                        });
+                    }
+                    eprintln!("ring: {key} => {expected}; selected/history/draft unchanged");
+                }).unwrap();
+                executor.timer(std::time::Duration::from_millis(80)).await;
+            }
+            this.update_in(cx, |this, window, cx| {
+                if empty {
+                    this.composer.update(cx, |v, cx| v.replace_text_in_range(Some(0..2), DRAFTS[0], window, cx));
+                }
+                preserve_drafts_and_capture(this, &scopes, window, cx, if chat { "ring-chat" } else if empty { "ring-empty" } else { "ring-wide" });
                 cx.quit();
             }).unwrap();
             return;
@@ -1758,6 +1848,41 @@ fn compact_list_seam_runs_through_footer_both_ways() {
 fn compact_chat_seam_runs_from_back_through_info_both_ways() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(16, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
+    CHAT.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn wide_chat_end_wraps_to_first_rail_control_both_ways() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(17, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn wide_chat_end_without_eligible_send_wraps_from_composer() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(17, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    EMPTY.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn compact_chat_end_wraps_to_back_both_ways() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(17, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
     CHAT.store(true, Ordering::SeqCst);

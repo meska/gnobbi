@@ -152,9 +152,13 @@ impl ComposerView {
     }
 
     /// The text field itself (not Send) holds focus and no IME preedit is active.
-    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
     pub fn tab_back_ready(&self, window: &Window) -> bool {
         self.focus.is_focused(window) && self.draft.marked().is_none()
+    }
+
+    /// Tab from the text field reaches Send only for a non-blank draft outside IME preedit.
+    pub fn send_eligible(&self) -> bool {
+        self.draft.marked().is_none() && !self.draft.text().trim().is_empty()
     }
 
     pub fn focus_from_accessibility(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -168,14 +172,13 @@ impl ComposerView {
         self.submit(cx);
     }
 
-    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub fn focus_send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.refresh_send_focus(cx);
         self.send_focus.focus(window);
         cx.notify();
     }
 
-    fn send_is_focused(&self, window: &Window) -> bool {
+    pub fn send_is_focused(&self, window: &Window) -> bool {
         self.visit.source() == Some(self.send_focus_source) && self.send_focus.is_focused(window)
     }
 

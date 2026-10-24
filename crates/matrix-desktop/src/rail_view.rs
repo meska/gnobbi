@@ -103,6 +103,13 @@ impl Shell {
             .position(|entry| entry.scope == self.rail_ui.target)
             .unwrap_or(0);
         let last = entries.len() - 1;
+        if key.key == "tab"
+            && key.modifiers.shift
+            && index == 0
+            && self.focus_last_chat_control(window, cx)
+        {
+            return true;
+        }
         let next = match key.key.as_str() {
             "down" => Some((index + 1).min(last)),
             "up" => Some(index.saturating_sub(1)),
