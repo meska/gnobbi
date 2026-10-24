@@ -893,3 +893,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - zvariant 5.15.0 — MIT — https://github.com/z-galaxy/zbus/
 - zvariant_derive 5.15.0 — MIT — https://github.com/z-galaxy/zbus/
 - zvariant_utils 4.2.0 — MIT — https://github.com/z-galaxy/zbus/
+
+## AppImage package
+
+The Linux AppImage bundles only the application binary, its desktop entry, metadata and icons (own assets). No system libraries are bundled; GPU, Wayland and Vulkan libraries come from the host. The AppImage file embeds the upstream type 2 runtime from the AppImage project (MIT; it statically links squashfuse, BSD-2-Clause, and libfuse, LGPL-2.1-or-later): https://github.com/AppImage/type2-runtime
