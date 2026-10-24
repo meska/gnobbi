@@ -23,6 +23,9 @@ pub struct SignInView {
     /// Old profile and data dir while the offer to adopt it is open.
     legacy: Option<(std::path::PathBuf, std::path::PathBuf)>,
     legacy_note: Option<&'static str>,
+    /// Old-name vault entries found for the adopted profile: (old profile folder, new profile folder).
+    vault_copy: Option<(std::path::PathBuf, std::path::PathBuf)>,
+    vault_note: Option<&'static str>,
     #[cfg(test)]
     legacy_bounds: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<&'static str, gpui::Bounds<gpui::Pixels>>>>,
     #[cfg(test)]
@@ -305,6 +308,40 @@ impl SignInView {
         self.legacy = offer;
         self
     }
+    /// Looks (read-only, off the UI thread) for vault entries saved under the old app name for
+    /// the profile at `new`; if any exist the sign-in offers to copy them. Nothing is written here.
+    pub fn check_vault_copy(&mut self, candidates: Vec<std::path::PathBuf>, new: std::path::PathBuf, cx: &mut Context<Self>) {
+        #[cfg(all(feature = "linux-vault", target_os = "linux"))]
+        {
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |this, cx| {
+                let found = executor.spawn(async move {
+                    candidates.into_iter().find(|old| matrix_engine::vault::legacy_pending(old, &new) > 0).map(|old| (old, new))
+                }).await;
+                if let Some(found) = found {
+                    this.update(cx, |this, cx| { this.vault_copy = Some(found); cx.notify(); }).ok();
+                }
+            }).detach();
+        }
+        #[cfg(not(all(feature = "linux-vault", target_os = "linux")))]
+        let _ = (candidates, new, cx);
+    }
+    fn copy_vault(&mut self, cx: &mut Context<Self>) {
+        let Some((old, new)) = self.vault_copy.take() else { return };
+        #[cfg(all(feature = "linux-vault", target_os = "linux"))]
+        {
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |this, cx| {
+                let done = executor.spawn(async move { matrix_engine::vault::copy_legacy_profile(&old, &new) }).await;
+                this.update(cx, |this, cx| {
+                    this.vault_note = Some(if done.is_ok() { "Chiave copiata. Quella vecchia è rimasta dov'era." } else { "Impossibile copiare la chiave: quella vecchia è intatta." });
+                    cx.notify();
+                }).ok();
+            }).detach();
+        }
+        #[cfg(not(all(feature = "linux-vault", target_os = "linux")))]
+        let _ = (old, new, cx);
+    }
     fn adopt_legacy(&mut self, cx: &mut Context<Self>) {
         if let Some((legacy, data)) = self.legacy.take() {
             self.legacy_note = Some(match matrix_desktop::legacy_profile::adopt(&legacy, &data) {
@@ -327,6 +364,8 @@ impl SignInView {
             focus_next: None,
             legacy: None,
             legacy_note: None,
+            vault_copy: None,
+            vault_note: None,
             #[cfg(test)]
             legacy_bounds: Default::default(),
             #[cfg(test)]
@@ -707,6 +746,16 @@ impl Render for SignInView {
                         .child(button("legacy-ignore", "Ignora")
                             .on_click(cx.listener(|this, _, _, cx| { this.legacy = None; cx.notify(); }))));
             } else if let Some(note) = self.legacy_note {
+                card = card.child(div().text_size(px(12.)).child(note));
+            }
+            if self.vault_copy.is_some() {
+                card = card.child(div().text_size(px(12.)).child("Chiave del profilo precedente trovata nel portachiavi."))
+                    .child(div().flex().gap_2()
+                        .child(button("vault-copy", "Copia la chiave")
+                            .on_click(cx.listener(|this, _, _, cx| this.copy_vault(cx))))
+                        .child(button("vault-skip", "Non ora")
+                            .on_click(cx.listener(|this, _, _, cx| { this.vault_copy = None; cx.notify(); }))));
+            } else if let Some(note) = self.vault_note {
                 card = card.child(div().text_size(px(12.)).child(note));
             }
         }

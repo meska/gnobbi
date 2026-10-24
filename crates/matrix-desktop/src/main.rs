@@ -1752,6 +1752,15 @@ fn main() {
                 .map(|old| (old, dirs.data))
         })
         .flatten();
+    // Old profile folders whose vault keys may still be saved under the previous app name.
+    let vault_candidates = (args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file"))
+        .then(|| {
+            let dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
+            let home = std::env::var("HOME").ok()?;
+            let old = [Some(matrix_desktop::legacy_profile::legacy_path(std::path::Path::new(&home))), matrix_desktop::legacy_profile::renamed_path(&dirs.data)];
+            Some((old.into_iter().flatten().collect::<Vec<_>>(), dirs.data.join("profile")))
+        })
+        .flatten();
     let args = match matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
         Some(dirs) if args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file") => {
             #[cfg(unix)]
@@ -1949,7 +1958,11 @@ fn main() {
                     }
                     search_focus.focus(window);
                     #[cfg(all(feature = "live", unix))]
-                    let signin = signin_ui.take().map(|route| cx.new(|cx| signin_view::SignInView::new(route, cx).with_vault(signin_vault).with_legacy(legacy_offer.clone())));
+                    let signin = signin_ui.take().map(|route| cx.new(|cx| {
+                        let mut view = signin_view::SignInView::new(route, cx).with_vault(signin_vault).with_legacy(legacy_offer.clone());
+                        if let Some((candidates, profile)) = &vault_candidates { view.check_vault_copy(candidates.clone(), profile.clone(), cx); }
+                        view
+                    }));
                     #[cfg(all(feature = "live", unix))]
                     if let Some(signin) = &signin {
                         cx.observe(signin, |_, _, cx| cx.notify()).detach();
