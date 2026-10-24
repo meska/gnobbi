@@ -653,6 +653,94 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 20 {
+            // A light/dark change with focus on each ring control keeps the focus target, room, history and drafts.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let mut cases: Vec<(bool, bool, &str)> = vec![];
+            for label in ["list", "search", "theme", "unread", "devices", "notifications", "info", "entry"] {
+                cases.push((true, false, label));
+            }
+            for label in ["list", "search", "theme", "unread", "devices", "notifications"] {
+                cases.push((false, false, label));
+            }
+            for label in ["info", "entry", #[cfg(all(feature = "linux-a11y", target_os = "linux"))] "back"] {
+                cases.push((false, true, label));
+            }
+            for (wide, chat, start) in cases {
+                navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                let (w, h) = if wide { ("1120", "760") } else { ("360", "480") };
+                navigation_resize_test::resize(w, h);
+                wait(300).await;
+                // Capture the sidebar callbacks and opener intents on the list page, then show the target page.
+                this.update_in(cx, |this, window, cx| {
+                    assert_eq!(window.viewport_size().width >= px(800.), wide);
+                    this.navigation_wide = wide;
+                    this.set_compact_chat(false);
+                    this.list_focus.focus(window);
+                    cx.notify();
+                }).unwrap();
+                wait(200).await;
+                let (callbacks, intents) = this.update_in(cx, |this, window, cx| {
+                    use matrix_desktop::panel_openers::{Control, Intent};
+                    let callbacks = [false, true].map(|unread| activation_callback(this, window, unread));
+                    let intents = Control::ALL.map(|control| this.opener_ui.source(control).map(|source| Intent { control, source, focus_only: false }));
+                    this.set_compact_chat(chat);
+                    cx.notify();
+                    (callbacks, intents)
+                }).unwrap();
+                wait(200).await;
+                let dark_before = this.update_in(cx, |this, window, cx| {
+                    ring_focus(this, start, window, cx);
+                    assert_eq!(ring_label(this, window, cx), start, "setup must focus {start}");
+                    let dark = this.dark;
+                    let toggles = ACTIVATIONS[0].load(Ordering::SeqCst);
+                    this.toggle_theme(cx);
+                    assert_eq!(this.dark, !dark, "theme must flip");
+                    assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), toggles + 1);
+                    assert_eq!(ring_label(this, window, cx), start, "theme change moved focus off {start}");
+                    cx.notify();
+                    dark
+                }).unwrap();
+                wait(300).await;
+                this.update_in(cx, |this, window, cx| {
+                    let landed = ring_label(this, window, cx);
+                    eprintln!("theme wide={wide} chat={chat}: {start} -> {landed} after repaint, dark={}", this.dark);
+                    assert_eq!(landed, start, "focus must survive the repaint of the new theme");
+                    assert_eq!(this.dark, !dark_before);
+                    assert_eq!(this.compact_chat, chat);
+                    // Hidden sidebar callbacks and openers stay inert after the theme change.
+                    let before = [0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst));
+                    let draft_before = this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) });
+                    if !wide && chat {
+                        for callback in &callbacks { callback(this, window, cx); }
+                    }
+                    for intent in intents.into_iter().flatten() {
+                        if this.opener_ui.source(intent.control) != Some(intent.source) { this.apply_opener(intent, window, cx); }
+                    }
+                    assert_eq!([0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst)), before, "hidden callback acted after theme change");
+                    assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "hidden opener opened a panel");
+                    assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }), draft_before);
+                    assert_eq!(draft_before.as_deref(), Some(DRAFTS[0]), "draft must be intact, nothing sent");
+                    assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
+                    assert_eq!(this.active_scope, scopes[0]);
+                    assert!(!this.sidebar.unread_only());
+                    assert!(history(this));
+                    assert_eq!(ring_label(this, window, cx), start);
+                    this.toggle_theme(cx); // back to the starting theme for the next case
+                    assert_eq!(this.dark, dark_before);
+                    cx.notify();
+                }).unwrap();
+                wait(200).await;
+                this.update_in(cx, |this, window, cx| {
+                    assert_eq!(ring_label(this, window, cx), start, "focus must survive switching back");
+                }).unwrap();
+            }
+            this.update_in(cx, |this, window, cx| {
+                preserve_drafts_and_capture(this, &scopes, window, cx, "ring-theme");
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 18 {
             // Filter and room switch, then the empty and selected-hidden list modes keep a deterministic ring.
             let empty = EMPTY.load(Ordering::SeqCst);
@@ -2147,6 +2235,17 @@ fn empty_list_keeps_ring_and_selection() {
 fn native_resize_moves_every_ring_control_to_a_visible_one() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(19, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn theme_change_keeps_every_ring_control_focused() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(20, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
