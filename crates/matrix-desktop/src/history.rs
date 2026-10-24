@@ -343,3 +343,13 @@ impl DemoHistory {
         &self.events
     }
 }
+
+/// Bubble footer: the time plus one glyph for the delivery state (no state words).
+pub fn bubble_stamp(time: &str, outgoing: bool, state: Option<DemoSendState>) -> String {
+    match (outgoing, state) {
+        (_, Some(DemoSendState::Pending)) => format!("{time} ◷"),
+        (_, Some(DemoSendState::Failed)) => format!("{time} !"),
+        (true, None) => format!("{time} ✓"),
+        (false, None) => time.to_owned(),
+    }
+}

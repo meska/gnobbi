@@ -1149,15 +1149,10 @@ impl TimelineView {
                         None => if live { "server" } else { "fixture" },
                     };
                     let stamp = StyledText::new(match event.send_state {
-                        Some(DemoSendState::Pending) if live => "In attesa · Matrix".to_owned(),
-                        Some(DemoSendState::Failed) if live => delivery.as_ref().and_then(|delivery| {
-                            transaction_id.as_ref().and_then(|tx| delivery.borrow().failure_label(&delivery_id.scope, tx))
-                        }).unwrap_or("Invio non confermato · Matrix").to_owned(),
-                        Some(DemoSendState::Pending) => "In attesa · demo locale".to_owned(),
-                        Some(DemoSendState::Failed) => "Errore simulato · demo locale".to_owned(),
+                        Some(_) => matrix_desktop::bubble_stamp(&event.time, event.outgoing, event.send_state),
                         None if live => match &event.id.id {
-                            matrix_domain::TimelineId::Server(id) => format!("{} · {}", event.time, id.as_str()),
-                            _ => event.time.clone(),
+                            matrix_domain::TimelineId::Server(id) => format!("{} · {}", matrix_desktop::bubble_stamp(&event.time, event.outgoing, None), id.as_str()),
+                            _ => matrix_desktop::bubble_stamp(&event.time, event.outgoing, None),
                         },
                         None => format!("{} · demo locale", event.time),
                     });

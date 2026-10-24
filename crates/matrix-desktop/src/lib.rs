@@ -51,7 +51,7 @@ pub use live_operations::LiveOperations;
 mod live_history;
 pub use live_history::{HistorySession, HistoryStatus};
 mod history;
-pub use history::{DemoEvent, DemoHistory, DemoSendState};
+pub use history::{DemoEvent, DemoHistory, DemoSendState, bubble_stamp};
 mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 mod sidebar;
