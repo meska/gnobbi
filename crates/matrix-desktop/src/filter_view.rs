@@ -207,6 +207,24 @@ impl Shell {
         if self.notifications_open || self.verification_open || self.room_details_open {
             return;
         }
+        // Back only exists on the narrow chat page: widening hands its focus to the composer.
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        if window.viewport_size().width >= px(800.) && self.back_ui.focus.is_focused(window) {
+            self.composer
+                .update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
+        }
+        // The chat entry keeps focus across a shrink: show the chat page it belongs to.
+        if window.viewport_size().width < px(800.)
+            && !self.compact_chat
+            && (self.composer.read(cx).is_focused(window) || {
+                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                { self.history_focus.is_focused(window) }
+                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                { false }
+            })
+        {
+            self.set_compact_chat(true);
+        }
         if window.viewport_size().width < px(800.) && self.compact_chat {
             if self.rail_ui.focus.is_focused(window)
                 || self.spaces_ui.focus.is_focused(window)
@@ -214,11 +232,15 @@ impl Shell {
                 || self.unread_focus.is_focused(window)
                 || self.search_focus.is_focused(window)
                 || self.list_focus.is_focused(window)
+                || self.opener_ui.hidden_focused(window)
             {
                 self.composer
                     .update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
             }
             return;
+        }
+        if self.opener_ui.hidden_focused(window) {
+            self.list_focus.focus(window);
         }
         if !self
             .sidebar

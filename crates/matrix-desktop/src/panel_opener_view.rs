@@ -35,6 +35,14 @@ impl OpenerUi {
     pub(crate) fn source(&self, control: Control) -> Option<u64> {
         self.sources[control as usize]
     }
+    /// A hidden opener keeps its old handle; true while that handle still holds native focus.
+    pub(crate) fn hidden_focused(&self, window: &Window) -> bool {
+        self.focus.borrow().iter().enumerate().any(|(i, slot)| {
+            slot.as_ref().is_some_and(|(source, handle)| {
+                self.sources[i] != Some(*source) && handle.is_focused(window)
+            })
+        })
+    }
     pub(crate) fn focused(&self, control: Control, window: &Window) -> bool {
         self.focus.borrow()[control as usize]
             .as_ref()

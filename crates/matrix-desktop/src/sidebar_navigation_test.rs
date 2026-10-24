@@ -103,6 +103,65 @@ pub(crate) fn observe(label: String) -> Option<gpui::AnyElement> {
     })
 }
 
+
+const RING: [&str; 10] = ["list", "search", "theme", "unread", "devices", "notifications", "info", "entry", "back", "none"];
+
+fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
+    use matrix_desktop::panel_openers::Control;
+    let entry = {
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        { this.history_focus.is_focused(window) || this.composer.read(cx).is_focused(window) }
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        { this.composer.read(cx).is_focused(window) }
+    };
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    if this.back_ui.focus.is_focused(window) { return "back"; }
+    [
+        (this.list_focus.is_focused(window), "list"),
+        (this.search_focus.is_focused(window), "search"),
+        (this.theme_focus.is_focused(window), "theme"),
+        (this.unread_focus.is_focused(window), "unread"),
+        (this.opener_ui.focused(Control::Devices, window), "devices"),
+        (this.opener_ui.focused(Control::Notifications, window), "notifications"),
+        (this.opener_ui.focused(Control::Info, window), "info"),
+        (entry, "entry"),
+    ]
+    .into_iter()
+    .find_map(|(focused, name)| focused.then_some(name))
+    .unwrap_or(RING[9])
+}
+
+fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Context<Shell>) {
+    use matrix_desktop::panel_openers::{Control, Intent};
+    let opener = |control| Intent { control, source: 0, focus_only: true };
+    let control = match label {
+        "list" => return this.list_focus.focus(window),
+        "search" => return this.search_focus.focus(window),
+        "theme" => return this.theme_focus.focus(window),
+        "unread" => return this.unread_focus.focus(window),
+        "devices" => Control::Devices,
+        "notifications" => Control::Notifications,
+        "info" => Control::Info,
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        "entry" => return this.history_focus.focus(window),
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        "entry" => return this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx)),
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        "back" => return this.back_ui.focus.focus(window),
+        _ => unreachable!(),
+    };
+    let source = this.opener_ui.source(control).expect("opener must be visible to start");
+    this.apply_opener(Intent { source, ..opener(control) }, window, cx);
+}
+
+fn ring_visible(label: &str, wide: bool, chat: bool) -> bool {
+    match (wide, chat) {
+        (true, _) => label != "back",
+        (false, false) => ["list", "search", "theme", "unread", "devices", "notifications"].contains(&label),
+        (false, true) => ["info", "entry", "back"].contains(&label),
+    }
+}
+
 fn preserve_drafts_and_capture(
     this: &mut Shell,
     scopes: &[RoomScope],
@@ -505,6 +564,91 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }
             this.update_in(cx, |this, window, cx| {
                 preserve_drafts_and_capture(this, &scopes, window, cx, if chat { "seam-chat" } else if COMPACT.load(Ordering::SeqCst) { "seam-compact" } else { "seam-wide" });
+                cx.quit();
+            }).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 19 {
+            // Every ring control, focused before a real native Configure with paint suspended, lands on a visible one.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let cases: &[(bool, bool, &str)] = &[
+                (true, false, "devices"), (true, false, "notifications"), (true, false, "info"), (true, false, "entry"),
+                (true, false, "theme"), (true, false, "unread"), (true, false, "search"), (true, false, "list"),
+                (true, true, "devices"), (true, true, "notifications"), (true, true, "info"), (true, true, "entry"),
+                (false, true, "info"), (false, true, "entry"),
+                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                (false, true, "back"),
+                (false, false, "devices"), (false, false, "notifications"), (false, false, "theme"),
+                (false, false, "unread"), (false, false, "search"), (false, false, "list"),
+            ];
+            let size = |wide: bool| if wide { ("1120", "760") } else { ("360", "480") };
+            for &(wide, chat, start) in cases {
+                // Settle the starting layout with real Configure events and live paint.
+                navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                navigation_resize_test::resize(size(wide).0, size(wide).1);
+                wait(300).await;
+                let callbacks = this.update_in(cx, |this, window, cx| {
+                    assert_eq!(window.viewport_size().width >= px(800.), wide);
+                    this.list_focus.focus(window); // no leftover chat-entry focus may pick the page
+                    this.navigation_wide = wide;
+                    this.set_compact_chat(chat);
+                    cx.notify();
+                    // Theme and unread are only painted where the sidebar is visible.
+                    (wide || !chat).then(|| [false, true].map(|unread| activation_callback(this, window, unread)))
+                }).unwrap();
+                wait(200).await;
+                let retired = this.update_in(cx, |this, window, cx| {
+                    ring_focus(this, start, window, cx);
+                    assert_eq!(ring_label(this, window, cx), start, "setup must focus {start}");
+                    // Normal (non-focus) opener intents for every opener, captured at the start layout.
+                    use matrix_desktop::panel_openers::{Control, Intent};
+                    let intents = Control::ALL.map(|control| this.opener_ui.source(control).map(|source| Intent { control, source, focus_only: false }));
+                    PAINTED.lock().unwrap().clear();
+                    navigation_resize_test::FROZEN.store(true, Ordering::SeqCst);
+                    navigation_resize_test::resize(size(!wide).0, size(!wide).1);
+                    intents
+                }).unwrap();
+                wait(300).await;
+                this.update_in(cx, |this, window, cx| {
+                    assert_eq!(window.viewport_size().width >= px(800.), !wide);
+                    assert!(PAINTED.lock().unwrap().is_empty(), "Configure must not repaint while suspended");
+                    let landed = ring_label(this, window, cx);
+                    // A narrow target shows the page the shell now reports; a focused chat entry brings the chat page.
+                    let chat = if wide { this.compact_chat } else { chat };
+                    eprintln!("ring wide={wide} chat={chat}: {start} -> {landed} (target visible={})", ring_visible(landed, !wide, chat));
+                    assert!(ring_visible(landed, !wide, chat), "{start} must land on a visible control after Configure, got {landed}");
+                    if ring_visible(start, !wide, chat) {
+                        assert_eq!(landed, start, "{start} stays visible and must keep focus");
+                    }
+                    // Retired callbacks: nothing opens, nothing is activated, nothing is sent.
+                    let before = [0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst));
+                    let draft_before = this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) });
+                    for callback in callbacks.iter().flatten() { callback(this, window, cx); }
+                    for intent in retired.into_iter().flatten() {
+                        let hidden = this.opener_ui.source(intent.control) != Some(intent.source);
+                        if hidden { this.apply_opener(intent, window, cx); }
+                    }
+                    assert_eq!([0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst)), before, "retired Theme/unread callback acted");
+                    assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "retired opener opened a panel");
+                    assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }), draft_before);
+                    assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }).as_deref(), Some(DRAFTS[0]), "draft must be intact, nothing sent");
+                    assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
+                    assert_eq!(this.active_scope, scopes[0]);
+                    assert!(history(this));
+                    navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                    cx.notify();
+                }).unwrap();
+                wait(300).await;
+                this.update_in(cx, |this, window, cx| {
+                    let landed = ring_label(this, window, cx);
+                    let chat = if wide { this.compact_chat } else { chat };
+                    assert!(ring_visible(landed, !wide, chat), "focus must stay visible after repaint, got {landed}");
+                    assert_eq!(this.active_scope, scopes[0]);
+                    assert!(history(this));
+                }).unwrap();
+            }
+            this.update_in(cx, |this, window, cx| {
+                preserve_drafts_and_capture(this, &scopes, window, cx, "ring-resize");
                 cx.quit();
             }).unwrap();
             return;
@@ -1994,6 +2138,17 @@ fn empty_list_keeps_ring_and_selection() {
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     EMPTY.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn native_resize_moves_every_ring_control_to_a_visible_one() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(19, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
