@@ -15,17 +15,18 @@ pub struct SignInView {
     held: Option<matrix_domain::AccountId>,
     fields_source: Option<matrix_desktop::SignInSource>,
     submit_focus: FocusHandle,
+    recover_focus: FocusHandle,
     focus_next: Option<usize>,
     #[cfg(test)]
     painted_submit: Option<PaintedSubmit>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    submit_bounds: Option<accesskit::Rect>,
+    button_bounds: [Option<accesskit::Rect>; 2],
 }
 impl SignInView {
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.keystroke.key == "tab" {
             let mut ring = if self.form.recovery().is_some() {
-                vec![]
+                if self.key_route() { vec![3, 5] } else { vec![] }
             } else {
                 visible_fields(self.mode, self.form.vault).to_vec()
             };
@@ -34,7 +35,7 @@ impl SignInView {
                 .fields
                 .iter()
                 .position(|field| field.read(cx).focus.is_focused(window))
-                .unwrap_or(4);
+                .unwrap_or(if self.recover_focus.is_focused(window) { 5 } else { 4 });
             let position = ring
                 .iter()
                 .position(|index| *index == current)
@@ -46,15 +47,22 @@ impl SignInView {
             };
             if ring[next] == 4 {
                 self.submit_focus.focus(window);
+            } else if ring[next] == 5 {
+                self.recover_focus.focus(window);
             } else {
                 self.fields[ring[next]].read(cx).focus.focus(window);
             }
             cx.notify();
             cx.stop_propagation();
         } else if event.keystroke.key == "enter"
-            || (event.keystroke.key == "space" && self.submit_focus.is_focused(window))
+            || (event.keystroke.key == "space"
+                && (self.submit_focus.is_focused(window) || self.recover_focus.is_focused(window)))
         {
-            self.submit(cx);
+            if self.form.recovery().is_some() && !self.submit_focus.is_focused(window) {
+                self.recover(cx);
+            } else {
+                self.submit(cx);
+            }
             cx.stop_propagation();
         }
     }
@@ -75,6 +83,39 @@ impl SignInView {
                 this.submit_source(source, cx);
             }
         }
+    }
+    fn recover_callback(&self) -> impl Fn(&mut Self, &mut Context<Self>) + use<> {
+        let source = self.form.source();
+        move |this, cx| {
+            if let Some(source) = source {
+                this.recover_source(source, cx);
+            }
+        }
+    }
+    fn recover(&mut self, cx: &mut Context<Self>) {
+        (self.recover_callback())(self, cx);
+    }
+    /// The recovery key can be entered unless the account has no secret storage.
+    fn key_route(&self) -> bool {
+        self.form.recovery() != Some(RecoveryState::Unsupported)
+    }
+    fn recover_source(&mut self, source: matrix_desktop::SignInSource, cx: &mut Context<Self>) {
+        if self.fields[3].read(cx).input.marked_utf16().is_some() {
+            return;
+        }
+        self.form.phrase = self.fields[3].update(cx, |field, cx| {
+            cx.notify();
+            std::mem::replace(&mut field.input, LoginInput::secret())
+        });
+        if let Some(command) = self.form.recover_source(source)
+            && self.route.commands.try_send(command).is_err()
+        {
+            self.form.apply(SignInEvent::Recovery(RecoveryState::Failed(
+                matrix_engine::signin::RecoveryFailure::Other,
+            )));
+        }
+        self.update_enabled(cx);
+        cx.notify();
     }
     fn submit(&mut self, cx: &mut Context<Self>) {
         (self.submit_callback())(self, cx);
@@ -128,7 +169,7 @@ impl SignInView {
         if self.fields_source != self.form.source() {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             {
-                self.submit_bounds = None;
+                self.button_bounds = [None; 2];
             }
             let public: [String; 2] =
                 std::array::from_fn(|i| self.fields[i].read(cx).input.display_text());
@@ -169,14 +210,26 @@ impl SignInView {
                     }
                 });
             } else if self.form.recovery().is_some() {
-                self.focus_next = Some(4);
+                self.focus_next = Some(
+                    if matches!(self.form.recovery(), Some(RecoveryState::Offered | RecoveryState::Failed(_))) {
+                        3
+                    } else {
+                        4
+                    },
+                );
             }
         }
         let enabled = matches!(self.form.status(), FormStatus::Prompt(_));
         let visible = visible_fields(self.mode, self.form.vault);
+        let key_open = self.form.source().is_some()
+            && matches!(self.form.recovery(), Some(RecoveryState::Offered | RecoveryState::Failed(_)));
         for (index, field) in self.fields.iter().enumerate() {
             field.update(cx, |field, cx| {
-                field.enabled = enabled && visible.contains(&index);
+                field.enabled = if self.form.recovery().is_some() {
+                    key_open && index == 3
+                } else {
+                    enabled && visible.contains(&index)
+                };
                 cx.notify();
             });
         }
@@ -194,11 +247,12 @@ impl SignInView {
             held: None,
             fields_source: None,
             submit_focus: cx.focus_handle(),
+            recover_focus: cx.focus_handle(),
             focus_next: None,
             #[cfg(test)]
             painted_submit: None,
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-            submit_bounds: None,
+            button_bounds: [None; 2],
             fields: std::array::from_fn(|index| {
                 let field = cx.new(|cx| crate::login_field::LoginField::new(index >= 2, cx));
                 cx.observe(&field, |_, _, cx| cx.notify()).detach();
@@ -222,9 +276,12 @@ impl SignInView {
             }
         }
         let button = if snapshot.recovery.is_some() { Control::Defer } else { Control::Submit };
-        snapshot.bounds[button as usize] = self.submit_bounds;
+        snapshot.bounds[button as usize] = self.button_bounds[0];
+        snapshot.bounds[Control::Recover as usize] = self.button_bounds[1];
         if self.submit_focus.is_focused(window) {
             snapshot.focused = Some(button);
+        } else if self.recover_focus.is_focused(window) {
+            snapshot.focused = Some(Control::Recover);
         }
         snapshot
     }
@@ -238,6 +295,7 @@ impl SignInView {
         use matrix_desktop::accessibility::signin::Control;
         let allowed = if self.form.recovery().is_some() {
             intent.control == Control::Defer
+                || (self.key_route() && matches!(intent.control, Control::Recover | Control::Phrase))
         } else {
             intent.control == Control::Submit
                 || visible_fields(self.mode, self.form.vault).contains(&(intent.control as usize))
@@ -245,7 +303,13 @@ impl SignInView {
         if self.form.source() != Some(intent.source) || !allowed {
             return false;
         }
-        if matches!(intent.control, Control::Submit | Control::Defer) {
+        if intent.control == Control::Recover {
+            if intent.focus_only {
+                self.recover_focus.focus(window);
+            } else {
+                self.recover_source(intent.source, cx);
+            }
+        } else if matches!(intent.control, Control::Submit | Control::Defer) {
             if intent.focus_only {
                 self.submit_focus.focus(window);
             } else {
@@ -260,7 +324,7 @@ impl SignInView {
         cx.notify();
         true
     }
-    fn submit_observer(&self, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    fn bounds_observer(&self, _slot: usize, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
             let entity = _cx.entity();
@@ -276,12 +340,12 @@ impl SignInView {
                             f64::from(f32::from(bounds.right())) * scale,
                             f64::from(f32::from(bounds.bottom())) * scale,
                         );
-                        if entity.read(cx).submit_bounds != Some(rect) {
+                        if entity.read(cx).button_bounds[_slot] != Some(rect) {
                             let entity = entity.clone();
                             cx.defer(move |cx| {
                                 entity.update(cx, |this, cx| {
                                     if this.form.source() == source {
-                                        this.submit_bounds = Some(rect);
+                                        this.button_bounds[_slot] = Some(rect);
                                         cx.notify();
                                     }
                                 })
@@ -321,7 +385,9 @@ impl SignInView {
                     self.held = Some(account);
                 }
                 SignInEvent::Authenticated(account) => return Some(account),
-                SignInEvent::Recovery(RecoveryState::Deferred) => return self.held.take(),
+                SignInEvent::Recovery(RecoveryState::Deferred | RecoveryState::Recovered) => {
+                    return self.held.take();
+                }
                 _ => (),
             }
         }
@@ -401,30 +467,53 @@ impl Render for SignInView {
                 .child(self.fields[index].clone());
         }
         if recovery {
+            let state = self.form.recovery();
+            let key_open = self.form.source().is_some() && self.key_route();
             card = card
-                .child(div().text_size(px(12.)).child(
-                    matrix_desktop::RECOVERY_WARNING,
-                ))
-                .child(
-                    div()
-                        .id("signin-recover")
-                        .h(px(36.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .border_2()
-                        .border_color(rgb(LIGHT.disabled))
-                        .bg(rgb(LIGHT.disabled))
-                        .text_color(rgb(LIGHT.secondary))
-                        .child(matrix_desktop::RECOVER_LABEL),
-                );
+                .child(div().text_size(px(12.)).child(matrix_desktop::RECOVERY_WARNING))
+                .child(div().text_size(px(12.)).child(matrix_desktop::RECOVERY_NOTE));
+            if self.key_route() {
+                let recover = std::rc::Rc::new(self.recover_callback());
+                card = card
+                    .child(div().text_size(px(12.)).child(matrix_desktop::RECOVERY_KEY_LABEL))
+                    .child(self.fields[3].clone())
+                    .child(
+                        div()
+                            .id("signin-recover")
+                            .relative()
+                            .children(self.bounds_observer(1, cx))
+                            .track_focus(&self.recover_focus)
+                            .h(px(36.))
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .border_2()
+                            .border_color(rgb(if self.recover_focus.is_focused(window) {
+                                LIGHT.text
+                            } else {
+                                LIGHT.accent
+                            }))
+                            .bg(rgb(if key_open { LIGHT.accent } else { LIGHT.disabled }))
+                            .text_color(rgb(if key_open { LIGHT.on_accent } else { LIGHT.secondary }))
+                            .when(key_open, |d| {
+                                d.cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, _, cx| recover(this, cx)))
+                            })
+                            .child(match state {
+                                Some(RecoveryState::Pending) => "Verifica in corso…",
+                                Some(RecoveryState::Failed(_)) => matrix_desktop::RETRY_LABEL,
+                                _ => matrix_desktop::RECOVER_LABEL,
+                            }),
+                    );
+            }
         }
         card = card
             .child(
                 div()
                     .id("signin-submit")
                     .relative()
-                    .children(self.submit_observer(cx))
+                    .children(self.bounds_observer(0, cx))
                     .track_focus(&self.submit_focus)
                     .h(px(36.))
                     .flex_shrink_0()
@@ -468,8 +557,18 @@ impl Render for SignInView {
             .child(
                 div()
                     .text_size(px(12.))
-                    .text_color(rgb(LIGHT.error))
-                    .child(self.form.error_message().unwrap_or("")),
+                    .text_color(rgb(if matches!(
+                        self.form.recovery(),
+                        Some(RecoveryState::Pending | RecoveryState::Unsupported)
+                    ) {
+                        LIGHT.secondary
+                    } else {
+                        LIGHT.error
+                    }))
+                    .child(match self.form.recovery() {
+                        Some(RecoveryState::Pending) => matrix_desktop::RECOVERY_PENDING,
+                        _ => self.form.error_message().unwrap_or(""),
+                    }),
             );
         div()
             .id("signin")
@@ -631,7 +730,7 @@ mod tests {
                     {
                         use matrix_desktop::accessibility::signin::Intent;
                         assert!(!v.apply_semantic(intent, window, cx));
-                        assert!(v.submit_bounds.is_none(), "a replacement prompt must not inherit previous painted submit bounds");
+                        assert!(v.button_bounds.iter().all(Option::is_none), "a replacement prompt must not inherit previous painted submit bounds");
                         assert!(v.apply_semantic(Intent { source: v.form.source().unwrap(), ..intent }, window, cx));
                     }
                     v.fields[3].read(cx).focus.focus(window);
@@ -729,6 +828,12 @@ mod tests {
                 SignInEvent::Prompt(matrix_engine::signin::SignInPrompt { mode: SignInMode::Password, error: None }),
                 SignInEvent::Authenticated(matrix_domain::AccountId::new(1)),
                 SignInEvent::Recovery(RecoveryState::Offered),
+                SignInEvent::Recovery(match std::env::var("DIME_RECOVERY_CAPTURE").as_deref() {
+                    Ok("pending") => RecoveryState::Pending,
+                    Ok("invalid") => RecoveryState::Failed(matrix_engine::signin::RecoveryFailure::InvalidKey),
+                    Ok("unsupported") => RecoveryState::Unsupported,
+                    _ => RecoveryState::Offered,
+                }),
             ] {
                 events.try_send(event).unwrap();
                 view.update(cx, |v, _, cx| v.poll(cx)).unwrap();
@@ -736,6 +841,64 @@ mod tests {
             let executor = cx.background_executor().clone();
             cx.spawn(async move |cx| {
                 executor.timer(std::time::Duration::from_secs(6)).await;
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn recovery_step_sends_the_key_reports_failures_retries_and_continues_on_success() {
+        use matrix_engine::signin::{RecoveryFailure, SignInCommand};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let capacity = std::num::NonZeroUsize::new(1).unwrap();
+            let (mut events, event_rx) = matrix_engine::bounded(capacity);
+            let (commands, mut requests) = matrix_engine::bounded(capacity);
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |_, cx| {
+                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, commands }, cx).with_vault(true))
+                })
+                .unwrap();
+            view.update(cx, |v, window, cx| {
+                let account = matrix_domain::AccountId::new(1);
+                for event in [
+                    SignInEvent::Prompt(matrix_engine::signin::SignInPrompt { mode: SignInMode::Password, error: None }),
+                    SignInEvent::Authenticated(account),
+                    SignInEvent::Recovery(RecoveryState::Offered),
+                ] {
+                    events.try_send(event).unwrap();
+                    assert_eq!(v.poll(cx), None);
+                    let _ = v.render(window, cx);
+                }
+                assert!(v.fields[3].read(cx).enabled && v.fields[3].read(cx).focus.is_focused(window));
+                let type_key = |v: &mut SignInView, cx: &mut Context<SignInView>| {
+                    v.fields[3].update(cx, |f, _| f.input.replace(None, "fixture recovery key"));
+                };
+                type_key(v, cx);
+                v.recover(cx);
+                assert!(matches!(requests.try_recv(), Ok(SignInCommand::EnterRecovery(_))));
+                v.recover(cx);
+                assert!(requests.try_recv().is_err(), "a second activation must not resend the key");
+                events.try_send(SignInEvent::Recovery(RecoveryState::Pending)).unwrap();
+                assert_eq!(v.poll(cx), None);
+                let _ = v.render(window, cx);
+                assert!(!v.fields[3].read(cx).enabled, "no editing while the key is checked");
+                events.try_send(SignInEvent::Recovery(RecoveryState::Failed(RecoveryFailure::InvalidKey))).unwrap();
+                assert_eq!(v.poll(cx), None);
+                let _ = v.render(window, cx);
+                assert!(v.form.error_message().unwrap().contains("non valida"));
+                assert!(v.fields[3].read(cx).enabled && v.fields[3].read(cx).focus.is_focused(window));
+                assert!(v.fields[3].read(cx).input.display_text().is_empty(), "the failed key is gone");
+                type_key(v, cx);
+                v.recover(cx);
+                assert!(matches!(requests.try_recv(), Ok(SignInCommand::EnterRecovery(_))));
+                events.try_send(SignInEvent::Recovery(RecoveryState::Recovered)).unwrap();
+                assert_eq!(v.poll(cx), Some(account), "success continues to the room list");
+            })
+            .unwrap();
+            cx.spawn(async move |cx| {
                 cx.update(|cx| cx.quit()).unwrap();
             })
             .detach();
@@ -772,7 +935,7 @@ mod tests {
                 events.try_send(SignInEvent::Recovery(RecoveryState::Offered)).unwrap();
                 assert_eq!(v.poll(cx), None);
                 let _ = v.render(window, cx);
-                assert!(v.submit_focus.is_focused(window));
+                assert!(v.fields[3].read(cx).focus.is_focused(window), "the key field takes focus");
                 v.submit(cx);
                 let got = requests.try_recv();
                 eprintln!("got ok={} ", got.is_ok());

@@ -10,7 +10,10 @@ mod signin_form;
 #[cfg(all(feature = "live", unix))]
 pub use signin_form::{FormStatus, SignInForm, SignInSource, visible_fields};
 #[cfg(all(feature = "live", unix))]
-pub use signin_form::{DEFER_LABEL, RECOVER_LABEL, RECOVERY_WARNING};
+pub use signin_form::{
+    DEFER_LABEL, RECOVER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_NOTE, RECOVERY_PENDING, RECOVERY_WARNING,
+    RETRY_LABEL,
+};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
 mod composer;

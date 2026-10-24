@@ -1,10 +1,25 @@
 //! UI-only sign-in state; storage and authentication stay on the backend.
 use crate::LoginInput;
 use matrix_engine::signin::{
-    RecoveryState, Secret, SignInCommand, SignInEvent, SignInMode, SignInPrompt,
+    RecoveryFailure, RecoveryState, Secret, SignInCommand, SignInEvent, SignInMode, SignInPrompt,
 };
 pub const RECOVERY_WARNING: &str = "Senza recupero la cronologia cifrata precedente non sarà leggibile su questo dispositivo.";
-pub const RECOVER_LABEL: &str = "Recupera cronologia cifrata (non ancora disponibile)";
+pub const RECOVER_LABEL: &str = "Recupera cronologia cifrata";
+pub const RETRY_LABEL: &str = "Riprova recupero";
+pub const RECOVERY_KEY_LABEL: &str = "Chiave di recupero Matrix";
+pub const RECOVERY_NOTE: &str = "Inserisci la chiave di recupero Matrix del tuo account (non è la frase locale del profilo). Il backup può non contenere tutti i messaggi: non tutti i vecchi messaggi sono garantiti.";
+pub const RECOVERY_PENDING: &str = "Verifica della chiave e download delle chiavi dal backup in corso…";
+pub(crate) fn recovery_message(state: RecoveryState) -> Option<&'static str> {
+    Some(match state {
+        RecoveryState::Failed(RecoveryFailure::InvalidKey) => "Chiave di recupero Matrix non valida. Controlla e riprova.",
+        RecoveryState::Failed(RecoveryFailure::Network) => "Server non raggiungibile. Riprova più tardi o continua senza recupero.",
+        RecoveryState::Failed(RecoveryFailure::Timeout) => "Il recupero ha impiegato troppo tempo. Riprova o continua senza recupero.",
+        RecoveryState::Failed(RecoveryFailure::BackupUnavailable) => "Il server non ha un backup delle chiavi utilizzabile. Continua senza recupero.",
+        RecoveryState::Failed(RecoveryFailure::Other) => "Recupero non riuscito. Riprova o continua senza recupero.",
+        RecoveryState::Unsupported => "Questo account non ha un archivio segreto Matrix: nessuna chiave di recupero da inserire.",
+        _ => return None,
+    })
+}
 pub const DEFER_LABEL: &str = "Continua senza recupero";
 /// Editor indices (homeserver, user, password, phrase) shown for a flow.
 pub fn visible_fields(mode: SignInMode, vault: bool) -> &'static [usize] {
@@ -109,6 +124,9 @@ impl SignInForm {
         self.recovery
     }
     pub fn error_message(&self) -> Option<&'static str> {
+        if let Some(message) = self.recovery.and_then(recovery_message) {
+            return Some(message);
+        }
         match self.status {
             FormStatus::Prompt(SignInPrompt {
                 mode: SignInMode::Password,
@@ -124,6 +142,31 @@ impl SignInForm {
         }
         self.source = None;
         Some(SignInCommand::DeferRecovery)
+    }
+    /// Send the recovery key typed into the phrase editor; the key never stays in the form.
+    pub fn recover_source(&mut self, source: SignInSource) -> Option<SignInCommand> {
+        if self.source != Some(source)
+            || !matches!(
+                self.recovery,
+                Some(RecoveryState::Offered | RecoveryState::Failed(_))
+            )
+            || self.phrase.marked_utf16().is_some()
+        {
+            return None;
+        }
+        let mut key = self.phrase.take();
+        match Secret::new(std::mem::take(&mut *key)) {
+            Ok(key) => {
+                self.source = None;
+                self.recovery = Some(RecoveryState::Pending);
+                Some(SignInCommand::EnterRecovery(key))
+            }
+            Err(_) => {
+                self.source = Some(SignInSource::new());
+                self.recovery = Some(RecoveryState::Failed(RecoveryFailure::InvalidKey));
+                None
+            }
+        }
     }
     pub fn submit_source(&mut self, source: SignInSource) -> Option<SignInCommand> {
         if self.source != Some(source) {

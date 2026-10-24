@@ -327,31 +327,66 @@ fn vault_unlock_projection_is_a_single_unlock_button() {
 }
 
 #[test]
-fn recovery_step_projects_a_disabled_entry_and_a_working_defer_button() {
+fn recovery_step_projects_key_field_recover_and_defer_without_secrets() {
     use matrix_engine::signin::RecoveryState;
     let mut form = vault_form(SignInMode::Password);
     form.password.replace(None, "hidden password sentinel");
     form.apply(SignInEvent::Authenticated(matrix_domain::AccountId::new(1)));
     form.apply(SignInEvent::Recovery(RecoveryState::Offered));
+    form.phrase.replace(None, "hidden recovery key sentinel");
     let nav = navigation(Snapshot::new(&form, SignInMode::Password));
     let tree = nav.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Dime — Cronologia cifrata"));
     assert!(tree.nodes[0].1.description().unwrap().contains("non sarà leggibile"));
-    assert_eq!(tree.nodes.len(), 3);
+    assert_eq!(tree.nodes.len(), 4);
+    let key = node(&tree, Control::Phrase).unwrap();
+    assert_eq!(key.role(), Role::PasswordInput);
+    assert_eq!(key.label(), Some("Chiave di recupero Matrix"));
+    assert!(key.value().is_none());
     let recover = node(&tree, Control::Recover).unwrap();
     assert_eq!(recover.role(), Role::Button);
-    assert!(recover.is_disabled());
-    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_none());
+    assert_eq!(recover.label(), Some("Recupera cronologia cifrata"));
+    assert!(!recover.is_disabled());
+    for control in [Control::Recover, Control::Phrase, Control::Defer] {
+        assert!(matches!(
+            nav.action(&request(control.id(), Action::Click)),
+            Some(NavigationAction::SignIn(i)) if i.control == control
+        ));
+    }
     let defer = node(&tree, Control::Defer).unwrap();
-    assert_eq!(defer.role(), Role::Button);
     assert_eq!(defer.label(), Some("Continua senza recupero"));
-    assert!(!defer.is_disabled());
-    assert!(matches!(
-        nav.action(&request(Control::Defer.id(), Action::Click)),
-        Some(NavigationAction::SignIn(i)) if i.control == Control::Defer
-    ));
-    for control in [Control::Homeserver, Control::User, Control::Password, Control::Phrase, Control::Submit] {
+    for control in [Control::Homeserver, Control::User, Control::Password, Control::Submit] {
         assert!(nav.action(&request(control.id(), Action::Click)).is_none());
     }
-    assert!(!format!("{tree:?}").contains("hidden password sentinel"));
+    let dump = format!("{tree:?}");
+    assert!(!dump.contains("hidden password sentinel") && !dump.contains("hidden recovery key sentinel"));
+}
+
+#[test]
+fn recovery_states_project_pending_error_retry_and_unsupported() {
+    use matrix_engine::signin::{RecoveryFailure, RecoveryState};
+    let project = |state| {
+        let mut form = vault_form(SignInMode::Password);
+        form.apply(SignInEvent::Authenticated(matrix_domain::AccountId::new(1)));
+        form.apply(SignInEvent::Recovery(RecoveryState::Offered));
+        form.apply(SignInEvent::Recovery(state));
+        let nav = navigation(Snapshot::new(&form, SignInMode::Password));
+        let tree = nav.tree();
+        (nav, tree)
+    };
+    let (nav, tree) = project(RecoveryState::Pending);
+    assert!(tree.nodes[0].1.description().unwrap().contains("in corso"));
+    assert!(tree.nodes.iter().skip(1).all(|(_, n)| n.is_disabled()));
+    assert!(nav.action(&request(Control::Defer.id(), Action::Click)).is_none());
+
+    let (nav, tree) = project(RecoveryState::Failed(RecoveryFailure::InvalidKey));
+    assert!(tree.nodes[0].1.description().unwrap().contains("non valida"));
+    assert_eq!(node(&tree, Control::Recover).unwrap().label(), Some("Riprova recupero"));
+    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_some());
+
+    let (nav, tree) = project(RecoveryState::Unsupported);
+    assert_eq!(tree.nodes.len(), 2);
+    assert!(node(&tree, Control::Phrase).is_none() && node(&tree, Control::Recover).is_none());
+    assert!(nav.action(&request(Control::Defer.id(), Action::Click)).is_some());
+    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_none());
 }

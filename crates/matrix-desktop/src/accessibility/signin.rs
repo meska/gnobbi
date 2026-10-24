@@ -3,7 +3,8 @@ use crate::{FormStatus, SignInForm, SignInSource};
 use accesskit::{Action, ActionRequest, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use matrix_engine::signin::SignInMode;
 
-pub use crate::{DEFER_LABEL, RECOVERY_WARNING, RECOVER_LABEL};
+pub use crate::{DEFER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_PENDING, RECOVERY_WARNING, RECOVER_LABEL, RETRY_LABEL};
+use matrix_engine::signin::RecoveryState;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Control {
     Homeserver,
@@ -97,7 +98,7 @@ impl Snapshot {
         let control = Control::ALL
             .into_iter()
             .find(|c| c.id() == request.target_node)?;
-        if !self.shows(control) || (self.recovery.is_some() && control == Control::Recover) {
+        if !self.shows(control) {
             return None;
         }
         Some(super::NavigationAction::SignIn(Intent {
@@ -108,7 +109,10 @@ impl Snapshot {
     }
     fn shows(&self, control: Control) -> bool {
         match control {
-            Control::Recover | Control::Defer => self.recovery.is_some(),
+            Control::Defer => self.recovery.is_some(),
+            Control::Recover | Control::Phrase if self.recovery.is_some() => {
+                self.recovery != Some(RecoveryState::Unsupported)
+            }
             _ if self.recovery.is_some() => false,
             Control::Submit => true,
             c => crate::visible_fields(self.mode, self.vault).contains(&(c as usize)),
@@ -123,8 +127,12 @@ impl Snapshot {
         } else {
             "Dime — Accedi"
         });
-        root.set_description(if self.recovery.is_some() {
-            RECOVERY_WARNING
+        root.set_description(if let Some(state) = self.recovery {
+            if state == RecoveryState::Pending {
+                RECOVERY_PENDING
+            } else {
+                crate::signin_form::recovery_message(state).unwrap_or(RECOVERY_WARNING)
+            }
         } else {
             self.status.error_message().unwrap_or(match self.status {
             FormStatus::Opening => "Apertura profilo…",
@@ -149,18 +157,18 @@ impl Snapshot {
                 Control::Homeserver => "Homeserver HTTPS",
                 Control::User => "ID Matrix completo",
                 Control::Password => "Password Matrix",
+                Control::Phrase if self.recovery.is_some() => RECOVERY_KEY_LABEL,
                 Control::Phrase => "Frase locale · almeno 16 caratteri",
                 Control::Submit if self.mode != SignInMode::Password => "Sblocca",
                 Control::Submit => "Accedi",
+                Control::Recover if matches!(self.recovery, Some(RecoveryState::Failed(_))) => RETRY_LABEL,
                 Control::Recover => RECOVER_LABEL,
                 Control::Defer => DEFER_LABEL,
             });
             if index < 2 {
                 node.set_value(self.public[index].clone());
             }
-            if control == Control::Recover {
-                node.set_disabled();
-            } else if self.source.is_some() {
+            if self.source.is_some() {
                 node.add_action(Action::Focus);
                 node.add_action(Action::Click);
             } else {

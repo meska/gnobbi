@@ -285,3 +285,77 @@ fn vault_failures_get_their_own_actionable_messages() {
     }
     assert_ne!(message(Unavailable), message(Missing));
 }
+
+fn offered_form() -> SignInForm {
+    use matrix_engine::signin::RecoveryState;
+    let mut form = SignInForm::default();
+    form.vault = true;
+    form.apply(SignInEvent::Authenticated(matrix_domain::AccountId::new(1)));
+    form.apply(SignInEvent::Recovery(RecoveryState::Offered));
+    form
+}
+
+#[test]
+fn recovery_key_is_sent_once_and_the_step_waits_in_pending() {
+    use matrix_engine::signin::RecoveryState;
+    let mut form = offered_form();
+    form.phrase.replace(None, "EsTu fixture key words");
+    let source = form.source().unwrap();
+    assert!(matches!(
+        form.recover_source(source),
+        Some(SignInCommand::EnterRecovery(_))
+    ));
+    assert_eq!(form.recovery(), Some(RecoveryState::Pending));
+    assert_eq!(form.source(), None);
+    assert!(form.phrase.display_text().is_empty(), "the key leaves the editor");
+    assert!(form.recover_source(source).is_none());
+}
+
+#[test]
+fn empty_recovery_key_fails_locally_and_allows_a_retry() {
+    use matrix_engine::signin::{RecoveryFailure, RecoveryState};
+    let mut form = offered_form();
+    let source = form.source().unwrap();
+    assert!(form.recover_source(source).is_none());
+    assert_eq!(
+        form.recovery(),
+        Some(RecoveryState::Failed(RecoveryFailure::InvalidKey))
+    );
+    assert!(form.error_message().unwrap().contains("Chiave di recupero"));
+    let retry = form.source().unwrap();
+    assert_ne!(retry, source);
+    form.phrase.replace(None, "second attempt key");
+    assert!(matches!(
+        form.recover_source(retry),
+        Some(SignInCommand::EnterRecovery(_))
+    ));
+}
+
+#[test]
+fn every_recovery_failure_has_its_own_message_and_keeps_skip_and_retry() {
+    use matrix_engine::signin::{RecoveryFailure::*, RecoveryState};
+    let mut seen = std::collections::HashSet::new();
+    for failure in [InvalidKey, Network, Timeout, BackupUnavailable, Other] {
+        let mut form = offered_form();
+        form.apply(SignInEvent::Recovery(RecoveryState::Failed(failure)));
+        let message = form.error_message().expect("typed message");
+        assert!(seen.insert(message), "{failure:?} shares its message");
+        let source = form.source().expect("retry and skip stay possible");
+        assert!(matches!(form.defer_source(source), Some(SignInCommand::DeferRecovery)));
+    }
+    let mut form = offered_form();
+    form.apply(SignInEvent::Recovery(RecoveryState::Unsupported));
+    assert!(form.error_message().unwrap().contains("archivio segreto"));
+    let source = form.source().unwrap();
+    form.phrase.replace(None, "ignored");
+    assert!(form.recover_source(source).is_none(), "no key route without secret storage");
+    assert_eq!(form.recovery(), Some(RecoveryState::Unsupported));
+}
+
+#[test]
+fn recovery_wording_names_the_matrix_key_and_the_backup_limit() {
+    assert!(matrix_desktop::RECOVERY_NOTE.contains("chiave di recupero Matrix"));
+    assert!(matrix_desktop::RECOVERY_NOTE.contains("non è la frase locale"));
+    assert!(matrix_desktop::RECOVERY_NOTE.contains("non tutti i vecchi messaggi"));
+    assert_eq!(matrix_desktop::RECOVER_LABEL, "Recupera cronologia cifrata");
+}
