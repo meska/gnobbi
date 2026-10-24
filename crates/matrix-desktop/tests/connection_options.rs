@@ -68,3 +68,26 @@ fn bundle_profile_directory_is_created_private() {
     matrix_desktop::create_private_dir(&profile).unwrap(); // idempotent
     std::fs::remove_dir_all(base).unwrap();
 }
+
+#[test]
+fn bare_signin_uses_the_profile_under_the_data_directory() {
+    use matrix_desktop::{AppDirs, default_signin_args};
+    let dirs = AppDirs {
+        config: "/c/dime".into(),
+        data: "/d/dime".into(),
+        cache: "/k/dime".into(),
+    };
+    let bare = vec!["--signin".to_owned()];
+    assert_eq!(
+        default_signin_args(&bare, &dirs),
+        vec!["--signin".to_owned(), "/d/dime/profile".to_owned()]
+    );
+    let with_ca = ["--signin", "--ca-file", "/ca.pem"].map(str::to_owned);
+    assert_eq!(
+        default_signin_args(&with_ca, &dirs),
+        ["--signin", "/d/dime/profile", "--ca-file", "/ca.pem"].map(str::to_owned)
+    );
+    let given = vec!["--signin".to_owned(), "/p".to_owned()];
+    assert_eq!(default_signin_args(&given, &dirs), given);
+    assert!(default_signin_args(&[], &dirs).is_empty());
+}

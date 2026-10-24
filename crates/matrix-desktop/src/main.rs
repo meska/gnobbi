@@ -1738,6 +1738,19 @@ fn main() {
         }
         bundled.unwrap_or(args)
     };
+    let args = match matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
+        Some(dirs) if args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file") => {
+            #[cfg(unix)]
+            if let Err(error) = dirs.ensure() {
+                eprintln!("Dime: cannot create {}: {error}", dirs.data.display());
+                std::process::exit(2);
+            }
+            #[cfg(unix)]
+            let _ = matrix_desktop::create_private_dir(&dirs.data.join("profile"));
+            matrix_desktop::default_signin_args(&args, &dirs)
+        }
+        _ => args,
+    };
     #[cfg(test)]
     let args = if navigation_resize_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || panel_opener_view::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)

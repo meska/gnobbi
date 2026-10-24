@@ -22,7 +22,7 @@ mod composer;
 mod connection_options;
 pub mod panel_openers;
 pub use composer::Composer;
-pub use connection_options::{RestoreOptions, SignInOptions, bundle_launch_args};
+pub use connection_options::{RestoreOptions, SignInOptions, bundle_launch_args, default_signin_args};
 #[cfg(unix)]
 pub use connection_options::create_private_dir;
 mod drafts;
