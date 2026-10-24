@@ -1677,12 +1677,12 @@ impl Render for Shell {
                                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                                 .child(header_name),
                                         )
-                                        .child(
+                                        .when(!self.connected, |d| d.child(
                                             div()
                                                 .text_size(px(11.))
                                                 .text_color(rgb(t.secondary))
-                                                .child(if self.connected { "Matrix · storico, invio e ricezione live" } else { DEMO_NOTICE }),
-                                        ),
+                                                .child(DEMO_NOTICE),
+                                        )),
                                 )
                                 .when(self.connected && self.sidebar.selected().is_some(), |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Info, window, cx))),
                         )

@@ -194,6 +194,6 @@ fn connected_sidebar_projects_server_room_without_demo_rows() {
     assert_eq!(room.scope, scope("!one:fixture.invalid"));
     assert_eq!(room.name, "Laboratorio");
     assert_eq!(room.unread, 3);
-    assert_eq!(room.preview, "Storico Matrix · messaggi live");
+    assert_eq!(room.preview, "");
     assert_eq!(sidebar.visible_indices(), &[0]);
 }

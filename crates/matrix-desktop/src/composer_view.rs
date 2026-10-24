@@ -542,12 +542,7 @@ impl Render for ComposerView {
         // The layout-only sentinel provides a caret position after a final newline.
         // It is never part of the draft, clipboard, input protocol or submitted body.
         let text = if empty {
-            if self.live {
-                "Scrivi un messaggio Matrix"
-            } else {
-                "Scrivi un messaggio · demo locale"
-            }
-            .to_owned()
+            "Scrivi un messaggio".to_owned()
         } else {
             format!("{}\u{200b}", self.draft.text())
         };
@@ -761,17 +756,6 @@ impl Render for ComposerView {
                             })
                             .child(if self.live { "Invia" } else { "Invia · demo" }),
                     ),
-            )
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .line_height(px(14.))
-                    .text_color(rgb(t.secondary))
-                    .child(if self.live {
-                        "Matrix · Invio: invia · Shift+Invio: nuova riga · draft in memoria"
-                    } else {
-                        "DEMO LOCALE · Invio: simula invio · Shift+Invio: nuova riga · nessuna rete"
-                    }),
             )
     }
 }
