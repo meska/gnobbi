@@ -532,6 +532,39 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        if DYNAMIC.load(Ordering::SeqCst) == 11 {
+            // A translated FocusSearch queued while Search is hidden must be dropped by the Shell drain, and honoured once Search is visible again.
+            this.update_in(cx, |this, window, cx| {
+                navigation_resize_test::FROZEN.store(true, Ordering::SeqCst);
+                this.set_compact_chat(true);
+                this.composer.update(cx, |composer, cx| composer.focus_from_accessibility(window, cx));
+                this.accessibility.queue_action(matrix_desktop::accessibility::NavigationAction::FocusSearch);
+                Shell::drain_navigation_actions(this, window, cx);
+                assert!(!this.search_focus.is_focused(window), "hidden Search must not take queued focus");
+                assert_eq!(this.sidebar.query(), "");
+                assert!(this.compact_chat);
+                assert_eq!(this.active_scope, scopes[0]);
+                assert!(history(this));
+                navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            this.update_in(cx, |this, window, cx| {
+                this.set_compact_chat(false);
+                this.accessibility.queue_action(matrix_desktop::accessibility::NavigationAction::FocusSearch);
+                Shell::drain_navigation_actions(this, window, cx);
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            this.update_in(cx, |this, window, cx| {
+                assert!(this.search_focus.is_focused(window), "visible Search must take queued focus");
+                assert_eq!(this.sidebar.query(), "");
+                preserve_drafts_and_capture(this, &scopes, window, cx, "hidden-search-queued-focus");
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 6 {
             cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse("shift-tab").unwrap(), cx); }).unwrap();
             let beta = this.update_in(cx, |this, window, cx| {
@@ -1146,6 +1179,21 @@ fn hidden_search_rejects_native_key_edits_and_keeps_state() {
         Ok("1")
     );
     DYNAMIC.store(10, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+#[ignore = "requires private display"]
+fn queued_focus_search_is_dropped_while_search_hidden() {
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
+    DYNAMIC.store(11, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);

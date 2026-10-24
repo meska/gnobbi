@@ -1241,6 +1241,7 @@ pub struct LinuxAccessibility {
     adapter: accesskit_unix::Adapter,
     snapshot: Arc<Mutex<semantic_session::SemanticSession>>,
     actions: mpsc::Receiver<NavigationAction>,
+    queue: mpsc::SyncSender<NavigationAction>,
 }
 
 impl LinuxAccessibility {
@@ -1250,11 +1251,12 @@ impl LinuxAccessibility {
         Self {
             adapter: accesskit_unix::Adapter::new(
                 Activation(snapshot.clone()),
-                Actions(sender, snapshot.clone()),
+                Actions(sender.clone(), snapshot.clone()),
                 Deactivation,
             ),
             snapshot,
             actions,
+            queue: sender,
         }
     }
 
@@ -1264,6 +1266,11 @@ impl LinuxAccessibility {
         self.adapter.update_window_focus_state(focused);
         self.adapter
             .update_if_active(|| self.snapshot.lock().unwrap().tree());
+    }
+
+    /// Queues an action as the platform adapter would; lets tests drive the Shell drain.
+    pub fn queue_action(&self, action: NavigationAction) {
+        let _ = self.queue.try_send(action);
     }
 
     /// A bounded foreground pump must call this, at most eight times per tick.
