@@ -284,9 +284,6 @@ impl Shell {
                                     .text_size(px(11.))
                                     .child(entry.name),
                             )
-                            .when(scope_key.is_some(), |d| {
-                                d.child(div().text_size(px(9.)).child("Spazio Matrix"))
-                            })
                             .when(entry.selected, |d| {
                                 d.child(
                                     div()
