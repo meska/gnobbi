@@ -20,6 +20,9 @@ pub struct SignInView {
     recover_focus: FocusHandle,
     copy_focus: FocusHandle,
     focus_next: Option<usize>,
+    /// Old profile and data dir while the offer to adopt it is open.
+    legacy: Option<(std::path::PathBuf, std::path::PathBuf)>,
+    legacy_note: Option<&'static str>,
     #[cfg(test)]
     painted_submit: Option<PaintedSubmit>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -296,6 +299,19 @@ impl SignInView {
         self.form.vault = vault;
         self
     }
+    pub fn with_legacy(mut self, offer: Option<(std::path::PathBuf, std::path::PathBuf)>) -> Self {
+        self.legacy = offer;
+        self
+    }
+    fn adopt_legacy(&mut self, cx: &mut Context<Self>) {
+        if let Some((legacy, data)) = self.legacy.take() {
+            self.legacy_note = Some(match matrix_desktop::legacy_profile::adopt(&legacy, &data) {
+                Ok(()) => "Profilo spostato. Riapri Dime per sbloccarlo.",
+                Err(_) => "Impossibile spostare il profilo: quello vecchio è intatto.",
+            });
+            cx.notify();
+        }
+    }
     pub fn new(route: SignInUi, cx: &mut Context<Self>) -> Self {
         Self {
             form: SignInForm::default(),
@@ -307,6 +323,8 @@ impl SignInView {
             recover_focus: cx.focus_handle(),
             copy_focus: cx.focus_handle(),
             focus_next: None,
+            legacy: None,
+            legacy_note: None,
             #[cfg(test)]
             painted_submit: None,
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -665,6 +683,22 @@ impl Render for SignInView {
                             _ => matrix_desktop::SETUP_LABEL,
                         }),
                 );
+            }
+        }
+        if !recovery && self.mode == SignInMode::Password {
+            let button = |id: &'static str, label: &'static str| {
+                div().id(id).px_3().h(px(32.)).flex().items_center().border_1()
+                    .border_color(rgb(LIGHT.accent)).text_color(rgb(LIGHT.accent)).cursor_pointer().child(label)
+            };
+            if self.legacy.is_some() {
+                card = card.child(div().text_size(px(12.)).child("Hai un profilo Dime precedente."))
+                    .child(div().flex().gap_2()
+                        .child(button("legacy-adopt", "Usa il profilo esistente")
+                            .on_click(cx.listener(|this, _, _, cx| this.adopt_legacy(cx))))
+                        .child(button("legacy-ignore", "Ignora")
+                            .on_click(cx.listener(|this, _, _, cx| { this.legacy = None; cx.notify(); }))));
+            } else if let Some(note) = self.legacy_note {
+                card = card.child(div().text_size(px(12.)).child(note));
             }
         }
         card = card

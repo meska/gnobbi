@@ -1738,6 +1738,13 @@ fn main() {
         }
         bundled.unwrap_or(args)
     };
+    let legacy_offer = (args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file"))
+        .then(|| {
+            let dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
+            let legacy = matrix_desktop::legacy_profile::legacy_path(std::path::Path::new(&std::env::var("HOME").ok()?));
+            matrix_desktop::legacy_profile::offered(&legacy, &dirs.data).then_some((legacy, dirs.data))
+        })
+        .flatten();
     let args = match matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
         Some(dirs) if args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file") => {
             #[cfg(unix)]
@@ -1935,7 +1942,7 @@ fn main() {
                     }
                     search_focus.focus(window);
                     #[cfg(all(feature = "live", unix))]
-                    let signin = signin_ui.take().map(|route| cx.new(|cx| signin_view::SignInView::new(route, cx).with_vault(signin_vault)));
+                    let signin = signin_ui.take().map(|route| cx.new(|cx| signin_view::SignInView::new(route, cx).with_vault(signin_vault).with_legacy(legacy_offer.clone())));
                     #[cfg(all(feature = "live", unix))]
                     if let Some(signin) = &signin {
                         cx.observe(signin, |_, _, cx| cx.notify()).detach();
