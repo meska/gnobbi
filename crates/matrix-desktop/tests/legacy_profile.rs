@@ -29,6 +29,7 @@ fn offered_only_when_legacy_exists_and_new_profile_is_absent() {
     let legacy = legacy_with_file(&root);
     assert!(offered(&legacy, &data));
     std::fs::create_dir_all(data.join("profile")).unwrap();
+    std::fs::write(data.join("profile/x"), b"x").unwrap();
     assert!(!offered(&legacy, &data));
 }
 
@@ -63,6 +64,7 @@ fn adopt_refuses_to_overwrite_an_existing_profile() {
     let root = tmp("overwrite");
     let data = root.join("data");
     std::fs::create_dir_all(data.join("profile")).unwrap();
+    std::fs::write(data.join("profile/x"), b"x").unwrap();
     let legacy = legacy_with_file(&root);
     assert!(adopt(&legacy, &data).is_err());
     assert!(legacy.join("store.db").exists());
@@ -84,4 +86,27 @@ fn failed_rename_across_devices_leaves_legacy_untouched() {
     let _ = std::fs::remove_dir_all(&data);
     assert!(result.is_err(), "cross-device move must fail, not copy");
     assert!(legacy.join("store.db").exists());
+}
+
+#[test]
+fn empty_profile_dir_made_at_startup_does_not_block_the_offer_or_adoption() {
+    let root = tmp("emptydir");
+    let data = root.join("data");
+    std::fs::create_dir_all(data.join("profile")).unwrap();
+    let legacy = legacy_with_file(&root);
+    assert!(offered(&legacy, &data));
+    adopt(&legacy, &data).unwrap();
+    assert_eq!(std::fs::read(data.join("profile/store.db")).unwrap(), b"x");
+}
+
+#[test]
+fn non_empty_new_profile_is_never_replaced() {
+    let root = tmp("nonempty");
+    let data = root.join("data");
+    std::fs::create_dir_all(data.join("profile")).unwrap();
+    std::fs::write(data.join("profile/keep"), b"k").unwrap();
+    let legacy = legacy_with_file(&root);
+    assert!(!offered(&legacy, &data));
+    assert!(adopt(&legacy, &data).is_err());
+    assert!(legacy.join("store.db").exists() && data.join("profile/keep").exists());
 }
