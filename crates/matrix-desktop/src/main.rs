@@ -1352,7 +1352,7 @@ impl Render for Shell {
             }
         };
         window.set_window_title(&format!(
-            "{} — Dime — {} ({}/{})",
+            "{} — Gnobbi — {} ({}/{})",
             header_name,
             connection_label,
             self.sidebar.visible_indices().len(),
@@ -1403,7 +1403,7 @@ impl Render for Shell {
                                     div()
                                         .text_size(px(18.))
                                         .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .child("Dime"),
+                                        .child("Gnobbi"),
                                 )
                                 .child(
                                     div()
@@ -1751,7 +1751,7 @@ fn main() {
         Some(dirs) if args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file") => {
             #[cfg(unix)]
             if let Err(error) = dirs.ensure() {
-                eprintln!("Dime: cannot create {}: {error}", dirs.data.display());
+                eprintln!("Gnobbi: cannot create {}: {error}", dirs.data.display());
                 std::process::exit(2);
             }
             #[cfg(unix)]
@@ -1915,7 +1915,7 @@ fn main() {
     Application::new().run(move |cx: &mut App| {
         #[cfg(target_os = "macos")]
         cx.set_menus(vec![
-            gpui::Menu { name: "Dime".into(), items: vec![] },
+            gpui::Menu { name: "Gnobbi".into(), items: vec![] },
             editing_command::edit_menu(),
         ]);
         let bounds = Bounds::centered(None, size(px(LIGHT.width), px(LIGHT.height)), cx);
@@ -1923,7 +1923,7 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Dime — demo offline".into()),
+                    title: Some("Gnobbi — demo offline".into()),
                     ..Default::default()
                 }),
                 focus: false,

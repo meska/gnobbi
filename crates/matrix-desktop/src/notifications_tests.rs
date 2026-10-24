@@ -113,7 +113,7 @@ fn worker_delivers_content_free_payload_off_the_calling_thread() {
     assert!(handle.submit(alert()));
     let (thread, title, body) = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
     assert_ne!(thread, caller);
-    assert_eq!(title, "Matrix Desktop");
+    assert_eq!(title, "Gnobbi");
     assert_eq!(body, "Nuovi messaggi");
     worker.shutdown().unwrap();
 }
@@ -126,9 +126,9 @@ fn macos_alert_passes_text_only_as_argv_never_inside_the_script() {
     let script = args[..script_end].join("\n");
     assert!(script.contains("on run argv"));
     assert!(script.contains("display notification (item 2 of argv) with title (item 1 of argv)"));
-    assert!(!script.contains("Matrix Desktop") && !script.contains("Nuovi messaggi"));
+    assert!(!script.contains("Gnobbi") && !script.contains("Nuovi messaggi"));
     assert_eq!(
         &args[script_end + 1..],
-        ["Matrix Desktop", "Nuovi messaggi"]
+        ["Gnobbi", "Nuovi messaggi"]
     );
 }

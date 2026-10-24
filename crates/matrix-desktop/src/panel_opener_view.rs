@@ -344,7 +344,7 @@ mod tests {
                 }).unwrap();
                 executor.timer(std::time::Duration::from_millis(250)).await;
                 if let Ok(out)=std::env::var("P101_CAPTURE_DIR") {
-                    let ids=std::process::Command::new("xdotool").args(["search","--onlyvisible","--name","Dime"]).output().unwrap();
+                    let ids=std::process::Command::new("xdotool").args(["search","--onlyvisible","--name","Gnobbi"]).output().unwrap();
                     assert!(ids.status.success());
                     let ids=String::from_utf8(ids.stdout).unwrap();
                     let id=ids.lines().next().unwrap();

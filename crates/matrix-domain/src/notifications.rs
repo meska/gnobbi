@@ -67,7 +67,7 @@ pub struct Notification {
 }
 impl Notification {
     pub fn title(&self) -> &'static str {
-        "Matrix Desktop"
+        "Gnobbi"
     }
     pub fn body(&self) -> String {
         match self.count {

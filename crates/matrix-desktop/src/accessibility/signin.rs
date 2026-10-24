@@ -137,11 +137,11 @@ impl Snapshot {
     pub fn tree(&self) -> TreeUpdate {
         let mut root = Node::new(Role::Window);
         root.set_label(if self.recovery.is_some() {
-            "Dime — Cronologia cifrata"
+            "Gnobbi — Cronologia cifrata"
         } else if self.mode != SignInMode::Password {
-            "Dime — Sblocca"
+            "Gnobbi — Sblocca"
         } else {
-            "Dime — Accedi"
+            "Gnobbi — Accedi"
         });
         root.set_description(if let Some(state) = self.recovery {
             if self.setup == Some(SetupPhase::KeyShown) {

@@ -308,7 +308,7 @@ impl SignInView {
     fn adopt_legacy(&mut self, cx: &mut Context<Self>) {
         if let Some((legacy, data)) = self.legacy.take() {
             self.legacy_note = Some(match matrix_desktop::legacy_profile::adopt(&legacy, &data) {
-                Ok(()) => "Profilo spostato. Riapri Dime per sbloccarlo.",
+                Ok(()) => "Profilo spostato. Riapri Gnobbi per sbloccarlo.",
                 Err(_) => "Impossibile spostare il profilo: quello vecchio è intatto.",
             });
             cx.notify();
@@ -509,11 +509,11 @@ impl Render for SignInView {
             _ => None,
         };
         let title = if recovery {
-            "Dime — Cronologia cifrata"
+            "Gnobbi — Cronologia cifrata"
         } else if unlock {
-            "Dime — Sblocca"
+            "Gnobbi — Sblocca"
         } else {
-            "Dime — Accedi"
+            "Gnobbi — Accedi"
         };
         window.set_window_title(&format!(
             "{title}{}",
@@ -541,9 +541,9 @@ impl Render for SignInView {
             .child(div().text_size(px(24.)).child(if recovery {
                 "Cronologia cifrata"
             } else if unlock {
-                "Sblocca Dime"
+                "Sblocca Gnobbi"
             } else {
-                "Accedi a Dime"
+                "Accedi a Gnobbi"
             }))
             .child(div().text_size(px(12.)).child(match self.mode {
                 _ if recovery => "Passo facoltativo dopo l’accesso",

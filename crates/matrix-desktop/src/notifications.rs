@@ -110,7 +110,7 @@ fn deliver_os(notification: Notification) -> Result<(), NotificationError> {
     use std::process::{Command, Stdio};
     let mut child = Command::new("/usr/bin/notify-send")
         .args([
-            "--app-name=Matrix Desktop",
+            "--app-name=Gnobbi",
             "--urgency=low",
             "--expire-time=5000",
             "--hint=boolean:suppress-sound:true",

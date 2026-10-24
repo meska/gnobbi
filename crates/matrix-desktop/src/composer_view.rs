@@ -1321,7 +1321,7 @@ mod tests {
         );
         gpui::Application::new().run(move |cx| {
             let view = cx.open_window(gpui::WindowOptions {
-                titlebar: Some(gpui::TitlebarOptions { title: Some("Dime".into()), ..Default::default() }),
+                titlebar: Some(gpui::TitlebarOptions { title: Some("Gnobbi".into()), ..Default::default() }),
                 ..Default::default()
             }, |window, cx| cx.new(|cx| {
                 let mut v = ComposerView::new(RoomScope {

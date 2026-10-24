@@ -1147,7 +1147,7 @@ impl NavigationSnapshot {
 /// Full tree for the first functional semantic slice, without message/account data.
 pub fn theme_tree(dark: bool) -> TreeUpdate {
     let mut root = Node::new(Role::Window);
-    root.set_label("Dime");
+    root.set_label("Gnobbi");
     root.set_children(vec![THEME]);
     let mut theme = Node::new(Role::Button);
     theme.set_label(if dark {

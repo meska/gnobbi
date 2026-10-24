@@ -158,7 +158,7 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
         data: None,
     };
     let tree = view.tree();
-    assert_eq!(tree.nodes[0].1.label(), Some("Dime"));
+    assert_eq!(tree.nodes[0].1.label(), Some("Gnobbi"));
     assert_eq!(tree.focus, TOGGLE);
     assert!(matches!(
         view.action(&request),

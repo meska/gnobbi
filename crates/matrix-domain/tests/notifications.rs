@@ -13,7 +13,7 @@ fn enabling_notifies_only_new_increases_after_the_first_room_baseline() {
     policy.set_enabled(true);
     assert!(policy.update(&scope(1), 12).is_none());
     let alert = policy.update(&scope(1), 14).expect("new unread");
-    assert_eq!(alert.title(), "Matrix Desktop");
+    assert_eq!(alert.title(), "Gnobbi");
     assert_eq!(alert.body(), "Nuovi messaggi");
     assert!(policy.update(&scope(1), 14).is_none());
     assert!(policy.update(&scope(1), 2).is_none());

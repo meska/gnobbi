@@ -45,7 +45,7 @@ fn unlock_projection_contains_only_protected_phrase_and_unlock_button() {
     let nav = navigation(snapshot);
     let tree = nav.tree();
     assert_eq!(tree.nodes.len(), 3);
-    assert_eq!(tree.nodes[0].1.label(), Some("Dime — Sblocca"));
+    assert_eq!(tree.nodes[0].1.label(), Some("Gnobbi — Sblocca"));
     let phrase = &tree
         .nodes
         .iter()
@@ -336,7 +336,7 @@ fn recovery_step_projects_key_field_recover_and_defer_without_secrets() {
     form.phrase.replace(None, "hidden recovery key sentinel");
     let nav = navigation(Snapshot::new(&form, SignInMode::Password));
     let tree = nav.tree();
-    assert_eq!(tree.nodes[0].1.label(), Some("Dime — Cronologia cifrata"));
+    assert_eq!(tree.nodes[0].1.label(), Some("Gnobbi — Cronologia cifrata"));
     assert!(tree.nodes[0].1.description().unwrap().contains("non sarà leggibile"));
     assert_eq!(tree.nodes.len(), 4);
     let key = node(&tree, Control::Phrase).unwrap();

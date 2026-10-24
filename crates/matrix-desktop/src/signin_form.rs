@@ -21,10 +21,10 @@ pub(crate) fn recovery_message(state: RecoveryState) -> Option<&'static str> {
     })
 }
 pub const SETUP_LABEL: &str = "Crea chiave di recupero";
-pub const SETUP_NOTE: &str = "Questo account non ha ancora un recupero Matrix. Puoi crearne uno nuovo: Dime genera una chiave di recupero e un backup delle chiavi di cifratura.";
+pub const SETUP_NOTE: &str = "Questo account non ha ancora un recupero Matrix. Puoi crearne uno nuovo: Gnobbi genera una chiave di recupero e un backup delle chiavi di cifratura.";
 pub const SETUP_PENDING: &str = "Creazione del recupero e del backup in corso…";
 pub const SETUP_KEY_LABEL: &str = "Chiave di recupero Matrix";
-pub const SETUP_KEY_NOTE: &str = "Questa chiave viene mostrata una sola volta e Dime non la conserva. Salvala in un gestore di password o in un luogo sicuro: senza di essa non potrai ripristinare la cronologia cifrata.";
+pub const SETUP_KEY_NOTE: &str = "Questa chiave viene mostrata una sola volta e Gnobbi non la conserva. Salvala in un gestore di password o in un luogo sicuro: senza di essa non potrai ripristinare la cronologia cifrata.";
 pub const SETUP_KEY_MASKED: &str = "Chiave di recupero mostrata a schermo, una sola volta. Non è letta dal lettore di schermo.";
 pub const SETUP_RETRY_LABEL: &str = "Riprova a creare la chiave";
 pub const COPY_LABEL: &str = "Copia chiave";
@@ -35,9 +35,9 @@ pub(crate) fn setup_message(phase: SetupPhase) -> Option<&'static str> {
         SetupPhase::KeyShown => return None,
         SetupPhase::Unsupported => "Il server non offre il backup delle chiavi: nessun recupero da creare. Continua senza recupero.",
         SetupPhase::Failed(SetupFailure::AlreadyExists) => "Questo account ha già un recupero: inserisci la chiave di recupero esistente.",
-        SetupPhase::Failed(SetupFailure::Partial) => "Il recupero di questo account è configurato solo a metà: Dime non lo modifica. Continua senza recupero.",
-        SetupPhase::Failed(SetupFailure::IdentityRequired) => "Questo account ha già un’identità crittografica che questo dispositivo non possiede: Dime non la sostituisce. Continua senza recupero.",
-        SetupPhase::Failed(SetupFailure::AuthRequired) => "Il server chiede una conferma aggiuntiva che Dime non supporta. Continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::Partial) => "Il recupero di questo account è configurato solo a metà: Gnobbi non lo modifica. Continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::IdentityRequired) => "Questo account ha già un’identità crittografica che questo dispositivo non possiede: Gnobbi non la sostituisce. Continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::AuthRequired) => "Il server chiede una conferma aggiuntiva che Gnobbi non supporta. Continua senza recupero.",
         SetupPhase::Failed(SetupFailure::Network) => "Server non raggiungibile: il recupero non è stato creato. Riprova o continua senza recupero.",
         SetupPhase::Failed(SetupFailure::Timeout) => "La creazione ha impiegato troppo tempo. Riprova o continua senza recupero.",
         SetupPhase::Failed(SetupFailure::Other) => "Creazione del recupero non riuscita. Riprova o continua senza recupero.",
@@ -344,6 +344,22 @@ impl SignInForm {
                 });
                 None
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod brand_tests {
+    use super::*;
+
+    #[test]
+    fn user_facing_notes_say_gnobbi_never_dime() {
+        for text in [SETUP_NOTE, SETUP_KEY_NOTE] {
+            assert!(text.contains("Gnobbi") && !text.contains("Dime"), "{text}");
+        }
+        for failure in [SetupFailure::Partial, SetupFailure::IdentityRequired, SetupFailure::AuthRequired] {
+            let text = setup_message(SetupPhase::Failed(failure)).unwrap();
+            assert!(!text.contains("Dime"), "{text}");
         }
     }
 }
