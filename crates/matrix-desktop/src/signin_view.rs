@@ -419,7 +419,7 @@ impl Render for SignInView {
         };
         window.set_window_title(&format!(
             "{title}{}",
-            if error.is_some() { " · errore" } else { "" }
+            if error.is_some() || matches!(self.form.recovery(), Some(RecoveryState::Failed(_))) { " · errore" } else { "" }
         ));
         let enabled = matches!(self.form.status(), FormStatus::Prompt(_))
             || (recovery && self.form.source().is_some());

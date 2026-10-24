@@ -511,3 +511,30 @@ fn disposable_signin_recovery_passphrase_uses_the_same_route() {
         recovery_assert_message(session.client.as_ref().unwrap(), &room, &event, true).await;
     });
 }
+
+#[cfg(unix)]
+#[test]
+#[ignore = "GUI recovery seed driver; needs the external test harness (not in this repo)"]
+fn disposable_gui_recovery_seed() {
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    let config = fixture();
+    let out = std::path::PathBuf::from(std::env::var("FIXTURE_RECOVERY_OUT").expect("private output dir"));
+    let (room, event, key, wrong, backup) = runtime().block_on(async {
+        let (mut source, room, event) = recovery_seed(&config).await;
+        let key = source.enable_new_recovery().await.expect("source recovery");
+        source.upload_key_backup().await.unwrap();
+        let other = login(&config, "bob", 27).await;
+        let client = other.client.as_ref().unwrap();
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+        let wrong = client.encryption().secret_storage().create_secret_store().await.unwrap().secret_storage_key();
+        (room, event, key.expose().to_owned(), wrong, recovery_backup_wire(&config).await)
+    });
+    let private = |name: &str, text: &str| {
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(out.join(name)).unwrap();
+        file.write_all(text.as_bytes()).unwrap();
+    };
+    private("recovery.key", &key);
+    private("wrong.key", &wrong);
+    private("backup-before.json", &backup.to_string());
+    std::fs::write(out.join("ids.json"), serde_json::json!({"room": room, "event": event.as_str()}).to_string()).unwrap();
+}
