@@ -1,6 +1,6 @@
 # Third-party notices
 
-Dime depends on the crates below (all targets and features, from Cargo.lock). License strings are the SPDX expressions declared by each crate; full texts ship with each crate source. Generated with cargo metadata; not a legal audit.
+Gnobbi depends on the crates below (all targets and features, from Cargo.lock). License strings are the SPDX expressions declared by each crate; full texts ship with each crate source. Generated with cargo metadata; not a legal audit.
 
 - accesskit 0.24.1 — MIT OR Apache-2.0 — https://github.com/AccessKit/accesskit
 - accesskit_atspi_common 0.19.1 — MIT OR Apache-2.0 — https://github.com/AccessKit/accesskit
