@@ -239,21 +239,19 @@ impl Shell {
             }) else {
                 return false;
             };
-            let target = match key.key.as_str() {
-                "tab" => match control {
-                    Control::Info => Control::Info,
-                    Control::Devices => Control::Notifications,
-                    Control::Notifications => Control::Devices,
-                },
-                "space" | "enter" => control,
-                _ => return false,
-            };
-            if let Some(source) = sources[target as usize] {
+            if key.key == "tab" {
+                this.opener_tab(control, key.modifiers.shift, window, cx);
+                return true;
+            }
+            if !matches!(key.key.as_str(), "space" | "enter") {
+                return false;
+            }
+            if let Some(source) = sources[control as usize] {
                 this.apply_opener(
                     Intent {
-                        control: target,
+                        control,
                         source,
-                        focus_only: key.key == "tab",
+                        focus_only: false,
                     },
                     window,
                     cx,

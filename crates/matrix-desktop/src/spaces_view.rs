@@ -114,7 +114,11 @@ impl Shell {
             }
         }
         if reverse {
-            self.list_focus.focus(window);
+            if !(self.connected
+                && self.focus_opener(matrix_desktop::panel_openers::Control::Notifications, window, cx))
+            {
+                self.list_focus.focus(window);
+            }
         } else {
             self.theme_focus.focus(window);
         }

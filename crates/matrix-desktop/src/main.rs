@@ -12,6 +12,7 @@ mod notification_view;
 mod operation_panel_view;
 mod panel_opener_view;
 mod rail_view;
+mod ring_seam;
 mod room_details_view;
 mod scrollbar_view;
 #[cfg(test)]
@@ -44,6 +45,8 @@ struct Shell {
     opener_ui: panel_opener_view::OpenerUi,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     back_ui: compact_view::BackUi,
+    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+    back_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     operation_ui: operation_panel_view::OperationUi,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -449,6 +452,10 @@ impl Shell {
     ) {
         let key = &event.keystroke;
         if self.rail_key(event, window, cx) {
+            cx.stop_propagation();
+            return;
+        }
+        if self.ring_key(event, window, cx) {
             cx.stop_propagation();
             return;
         }
@@ -2241,6 +2248,8 @@ fn main() {
                         opener_ui: panel_opener_view::OpenerUi::new(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         back_ui: compact_view::BackUi::new(cx),
+                        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                        back_focus: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         operation_ui: operation_panel_view::OperationUi::new(cx),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

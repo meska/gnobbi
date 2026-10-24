@@ -325,8 +325,11 @@ impl Shell {
         }
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         {
-            let _ = window;
+            let focused = self.back_focus.is_focused(window);
             control
+                .track_focus(&self.back_focus)
+                .border_1()
+                .border_color(rgb(if focused { t.accent } else { t.surface }))
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.set_compact_chat(false);
                     this.list_focus.focus(window);

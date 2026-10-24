@@ -7,6 +7,7 @@ pub(crate) static ACTIVE: AtomicBool = AtomicBool::new(false);
 static CONNECTED: AtomicBool = AtomicBool::new(false);
 static COMPACT: AtomicBool = AtomicBool::new(false);
 static SPACES: AtomicBool = AtomicBool::new(false);
+static CHAT: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
 static DYNAMIC: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 /// Key-ups seen by the Shell; GPUI X11 turns an auto-repeat release/press split by scheduling jitter into a real key-up.
@@ -445,6 +446,64 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let bounds = PAINTED.lock().unwrap()["unread"];
                 assert!(bounds.size.width > px(0.) && bounds.bottom() <= window.viewport_size().height);
                 preserve_drafts_and_capture(this, &scopes, window, cx, "pointer-native-return");
+                cx.quit();
+            }).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 16 {
+            // List/chat seam: room list -> footer Devices, Notifications -> Info -> chat entry, and back.
+            let chat = CHAT.load(Ordering::SeqCst);
+            let steps: Vec<(&str, &str)> = if chat {
+                vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "back")]
+            } else if COMPACT.load(Ordering::SeqCst) {
+                vec![("tab", "devices"), ("tab", "notifications"), ("tab", "theme"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list")]
+            } else {
+                vec![("tab", "devices"), ("tab", "notifications"), ("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list")]
+            };
+            this.update_in(cx, |this, window, cx| {
+                if chat {
+                    this.set_compact_chat(true);
+                    this.back_focus_handle().focus(window);
+                } else {
+                    this.list_focus.focus(window);
+                }
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(300)).await;
+            for (key, expected) in steps {
+                cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
+                this.update_in(cx, |this, window, cx| {
+                    use matrix_desktop::panel_openers::Control;
+                    let focused = match expected {
+                        "list" => this.list_focus.is_focused(window),
+                        "theme" => this.theme_focus.is_focused(window),
+                        "back" => this.back_focus_handle().is_focused(window),
+                        "devices" => this.opener_ui.focused(Control::Devices, window),
+                        "notifications" => this.opener_ui.focused(Control::Notifications, window),
+                        "info" => this.opener_ui.focused(Control::Info, window),
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        "entry" => this.history_focus.is_focused(window),
+                        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                        "entry" => this.composer.read(cx).is_focused(window),
+                        _ => unreachable!(),
+                    };
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
+                    assert_eq!(this.compact_chat, chat);
+                    assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
+                    assert_eq!(this.active_scope, scopes[0]);
+                    assert!(!this.dark && !this.sidebar.unread_only());
+                    assert!(history(this));
+                    this.composer.update(cx, |v, cx| {
+                        let mut actual = None;
+                        assert_eq!(v.text_for_range(0..65536, &mut actual, window, cx).as_deref(), Some(DRAFTS[0]));
+                    });
+                    eprintln!("seam: {key} => {expected}; selected/history/draft unchanged");
+                }).unwrap();
+                executor.timer(std::time::Duration::from_millis(80)).await;
+            }
+            this.update_in(cx, |this, window, cx| {
+                preserve_drafts_and_capture(this, &scopes, window, cx, if chat { "seam-chat" } else if COMPACT.load(Ordering::SeqCst) { "seam-compact" } else { "seam-wide" });
                 cx.quit();
             }).unwrap();
             return;
@@ -1207,12 +1266,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             return;
         }
         let steps = if COMPACT.load(Ordering::SeqCst) && OPEN.load(Ordering::SeqCst) {
-            vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "list"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list")]
+            vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list"), ("tab", "devices"), ("tab", "notifications"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list")]
         } else if !COMPACT.load(Ordering::SeqCst) && SPACES.load(Ordering::SeqCst) {
             vec![("tab", "theme"), ("shift-tab", "rail2"), ("shift-tab", "rail1"), ("shift-tab", "rail0"), ("tab", "rail1"), ("tab", "rail2"), ("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "rail2")]
         } else if COMPACT.load(Ordering::SeqCst) {
             if CONNECTED.load(Ordering::SeqCst) {
-                vec![("tab", "unread"), ("tab", "search"), ("tab", "list"), ("tab", "space0"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "space0"), ("tab", "theme")]
+                vec![("tab", "unread"), ("tab", "search"), ("tab", "list"), ("tab", "devices"), ("tab", "notifications"), ("tab", "space0"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "space0"), ("tab", "theme")]
             } else {
                 vec![("tab", "search"), ("tab", "list"), ("tab", "theme"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "theme")]
             }
@@ -1231,6 +1290,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     "unread" => this.unread_focus.is_focused(window),
                     "search" => this.search_focus.is_focused(window),
                     "list" => this.list_focus.is_focused(window),
+                    "devices" => this.opener_ui.focused(matrix_desktop::panel_openers::Control::Devices, window),
+                    "notifications" => this.opener_ui.focused(matrix_desktop::panel_openers::Control::Notifications, window),
                     "rail" => this.rail_ui.focus.is_focused(window),
                     name if name.starts_with("space") => {
                         let index = name[5..].parse::<usize>().unwrap();
@@ -1667,6 +1728,39 @@ fn translated_spaces_intents_activate_once_and_reject_stale_sources() {
     COMPACT.store(std::env::var("P111_COMPACT").as_deref() == Ok("1"), Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn wide_list_chat_seam_runs_through_footer_and_info_both_ways() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(16, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn compact_list_seam_runs_through_footer_both_ways() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(16, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn compact_chat_seam_runs_from_back_through_info_both_ways() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(16, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
+    CHAT.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }

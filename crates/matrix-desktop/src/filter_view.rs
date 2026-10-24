@@ -283,6 +283,12 @@ impl Shell {
                 self.compact_spaces_tab(true, window, cx);
                 return true;
             } else if key.modifiers.shift && compact {
+                if self.connected
+                    && self.focus_opener(matrix_desktop::panel_openers::Control::Notifications, window, cx)
+                {
+                    cx.notify();
+                    return true;
+                }
                 &self.list_focus
             } else if key.modifiers.shift {
                 self.rail_ui.target = self

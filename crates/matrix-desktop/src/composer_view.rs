@@ -151,6 +151,12 @@ impl ComposerView {
         }
     }
 
+    /// The text field itself (not Send) holds focus and no IME preedit is active.
+    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+    pub fn tab_back_ready(&self, window: &Window) -> bool {
+        self.focus.is_focused(window) && self.draft.marked().is_none()
+    }
+
     pub fn focus_from_accessibility(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.focus.focus(window);
         cx.notify();
