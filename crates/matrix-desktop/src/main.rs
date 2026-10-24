@@ -1744,7 +1744,12 @@ fn main() {
         .then(|| {
             let dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
             let legacy = matrix_desktop::legacy_profile::legacy_path(std::path::Path::new(&std::env::var("HOME").ok()?));
-            matrix_desktop::legacy_profile::offered(&legacy, &dirs.data).then_some((legacy, dirs.data))
+            let renamed = matrix_desktop::legacy_profile::renamed_path(&dirs.data);
+            [Some(legacy), renamed]
+                .into_iter()
+                .flatten()
+                .find(|old| matrix_desktop::legacy_profile::offered(old, &dirs.data))
+                .map(|old| (old, dirs.data))
         })
         .flatten();
     let args = match matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {

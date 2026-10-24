@@ -5,6 +5,12 @@ pub fn legacy_path(home: &Path) -> PathBuf {
     home.join("Dime").join("profile")
 }
 
+/// Profile of the pre-rename app folder, next to the new data dir (e.g. `.../share/dime/profile`).
+pub fn renamed_path(data: &Path) -> Option<PathBuf> {
+    let old = if data.file_name()?.to_str()? == "Gnobbi" { "Dime" } else { "dime" };
+    Some(data.parent()?.join(old).join("profile"))
+}
+
 /// True when the old profile exists and the new data dir has no profile yet.
 pub fn offered(legacy: &Path, data: &Path) -> bool {
     legacy.is_dir() && absent(&data.join("profile"))

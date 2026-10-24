@@ -39,7 +39,7 @@ pub fn app_dirs(platform: Platform, env: impl Fn(&str) -> Option<String>) -> Opt
             let pick = |var: &str, fallback: &str| {
                 absolute(&env, var)
                     .or_else(|| home.as_ref().map(|h| h.join(fallback)))
-                    .map(|base| base.join("dime"))
+                    .map(|base| base.join("gnobbi"))
             };
             Some(AppDirs {
                 config: pick("XDG_CONFIG_HOME", ".config")?,
@@ -49,17 +49,17 @@ pub fn app_dirs(platform: Platform, env: impl Fn(&str) -> Option<String>) -> Opt
         }
         Platform::MacOs => {
             let library = absolute(&env, "HOME")?.join("Library");
-            let support = library.join("Application Support").join("Dime");
+            let support = library.join("Application Support").join("Gnobbi");
             Some(AppDirs {
                 config: support.clone(),
                 data: support,
-                cache: library.join("Caches").join("Dime"),
+                cache: library.join("Caches").join("Gnobbi"),
             })
         }
         Platform::Windows => {
-            let local = absolute_windows(&env, "LOCALAPPDATA")?.join("Dime");
+            let local = absolute_windows(&env, "LOCALAPPDATA")?.join("Gnobbi");
             Some(AppDirs {
-                config: absolute_windows(&env, "APPDATA")?.join("Dime"),
+                config: absolute_windows(&env, "APPDATA")?.join("Gnobbi"),
                 cache: local.join("cache"),
                 data: local,
             })

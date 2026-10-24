@@ -29,7 +29,7 @@ impl<'a> ProtectionVault<'a> {
                 .map_err(|_| VaultError::Unavailable)?;
         let path = self.store.path.to_str().ok_or(VaultError::Unavailable)?;
         let attributes = std::collections::HashMap::from([
-            ("application", "dime"),
+            ("application", "gnobbi"),
             ("purpose", "sdk-protection-v1"),
             ("account-store", path),
         ]);
@@ -62,7 +62,7 @@ impl<'a> ProtectionVault<'a> {
             .map_err(|_| VaultError::Unavailable)?;
         let path = self.store.path.to_str().ok_or(VaultError::Unavailable)?;
         let attributes = std::collections::HashMap::from([
-            ("application", "dime"),
+            ("application", "gnobbi"),
             ("purpose", "sdk-protection-v1"),
             ("account-store", path),
         ]);
@@ -86,7 +86,7 @@ impl<'a> ProtectionVault<'a> {
         }
         collection
             .create_item(
-                "Dime SDK protection",
+                "Gnobbi SDK protection",
                 attributes,
                 text.as_bytes(),
                 false,

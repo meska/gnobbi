@@ -74,7 +74,7 @@ fn refuses_preexisting_protection_item_without_changing_it() {
     let collection = service.get_default_collection().unwrap();
     let path = root.join("account-1");
     let attributes = std::collections::HashMap::from([
-        ("application", "dime"),
+        ("application", "gnobbi"),
         ("purpose", "sdk-protection-v1"),
         ("account-store", path.to_str().unwrap()),
     ]);

@@ -19,7 +19,7 @@ fn refuses_untrusted_or_ambiguous_native_items() {
     let collection = service.get_default_collection().unwrap();
     let path = root.join("account-1");
     let attrs = std::collections::HashMap::from([
-        ("application", "dime"),
+        ("application", "gnobbi"),
         ("purpose", "sdk-protection-v1"),
         ("account-store", path.to_str().unwrap()),
     ]);
@@ -65,7 +65,7 @@ fn refuses_duplicate_matching_items_instead_of_choosing_one() {
     let collection = service.get_default_collection().unwrap();
     let path = root.join("account-1");
     let attrs = std::collections::HashMap::from([
-        ("application", "dime"),
+        ("application", "gnobbi"),
         ("purpose", "sdk-protection-v1"),
         ("account-store", path.to_str().unwrap()),
     ]);

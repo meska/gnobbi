@@ -4,7 +4,7 @@ use security_framework::os::macos::keychain::SecKeychain;
 
 pub use crate::signin::VaultError;
 
-const SERVICE: &str = "dime.sdk-protection-v1";
+const SERVICE: &str = "gnobbi.sdk-protection-v1";
 // Keychain OSStatus codes (Security/SecBase.h).
 const ITEM_NOT_FOUND: i32 = -25300;
 const INTERACTION_NOT_ALLOWED: i32 = -25308;

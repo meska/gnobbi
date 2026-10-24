@@ -1,4 +1,4 @@
-use matrix_desktop::legacy_profile::{adopt, legacy_path, offered};
+use matrix_desktop::legacy_profile::{adopt, legacy_path, offered, renamed_path};
 use std::path::{Path, PathBuf};
 
 fn tmp(name: &str) -> PathBuf {
@@ -109,4 +109,27 @@ fn non_empty_new_profile_is_never_replaced() {
     assert!(!offered(&legacy, &data));
     assert!(adopt(&legacy, &data).is_err());
     assert!(legacy.join("store.db").exists() && data.join("profile/keep").exists());
+}
+
+#[test]
+fn renamed_path_is_the_old_name_profile_next_to_the_new_data_dir() {
+    assert_eq!(
+        renamed_path(Path::new("/h/.local/share/gnobbi")),
+        Some(PathBuf::from("/h/.local/share/dime/profile"))
+    );
+    assert_eq!(renamed_path(Path::new("/")), None);
+}
+
+#[test]
+fn old_name_profile_is_offered_and_adopted_without_touching_other_files() {
+    let root = tmp("renamed");
+    let data = root.join("share/gnobbi");
+    std::fs::create_dir_all(&data).unwrap();
+    let old = renamed_path(&data).unwrap();
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join("store.db"), b"x").unwrap();
+    assert!(offered(&old, &data));
+    adopt(&old, &data).unwrap();
+    assert_eq!(std::fs::read(data.join("profile/store.db")).unwrap(), b"x");
+    assert!(!old.exists());
 }
