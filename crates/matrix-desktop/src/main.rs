@@ -1519,6 +1519,18 @@ fn main() {
         return login_field::mac_clipboard_probe::run();
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(target_os = "macos")]
+    let args = {
+        let exe = std::env::current_exe().ok().and_then(|path| path.to_str().map(str::to_owned));
+        let home = std::env::var("HOME").ok();
+        let bundled = exe
+            .as_deref()
+            .and_then(|exe| matrix_desktop::bundle_launch_args(exe, home.as_deref(), &args));
+        if let Some(home) = home.as_deref().filter(|_| bundled.is_some()) {
+            let _ = std::fs::create_dir_all(format!("{home}/Library/Application Support/Dime/profile"));
+        }
+        bundled.unwrap_or(args)
+    };
     #[cfg(test)]
     let args = if navigation_resize_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || panel_opener_view::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)

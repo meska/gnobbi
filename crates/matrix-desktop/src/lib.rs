@@ -20,7 +20,7 @@ mod composer;
 mod connection_options;
 pub mod panel_openers;
 pub use composer::Composer;
-pub use connection_options::{RestoreOptions, SignInOptions};
+pub use connection_options::{RestoreOptions, SignInOptions, bundle_launch_args};
 mod drafts;
 pub use drafts::RoomDrafts;
 mod selection;
