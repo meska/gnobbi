@@ -509,6 +509,91 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 18 {
+            // Filter and room switch, then the empty and selected-hidden list modes keep a deterministic ring.
+            let empty = EMPTY.load(Ordering::SeqCst);
+            // Painted Theme and unread-filter callbacks captured while still visible; the filter change retires them.
+            executor.timer(std::time::Duration::from_millis(300)).await;
+            let painted = this.update_in(cx, |this, window, _| [false, true].map(|unread| activation_callback(this, window, unread))).unwrap();
+            this.update_in(cx, |this, window, cx| {
+                let name = this.sidebar.rooms()[1].name.clone();
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    scope: scopes[1].clone(), name, unread: 3, info: Default::default(),
+                }));
+                // Room switch and back through the sidebar, then the filter.
+                assert!(this.sidebar.select(&scopes[1]));
+                this.sync_room(cx);
+                assert!(this.sidebar.select(&scopes[0]));
+                this.sync_room(cx);
+                if empty {
+                    this.sidebar.set_query("no matches ");
+                } else {
+                    this.sidebar.set_unread_only(true);
+                }
+                assert_eq!(this.sidebar.visible_indices().len(), if empty { 0 } else { 1 });
+                this.list_focus.focus(window);
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(300)).await;
+            // The room switch above replaced the live timelines: probe the post-switch ones.
+            let history = this.update_in(cx, |this, _, _| {
+                let active = this.timeline.as_ref().unwrap().sidebar_history_probe();
+                let saved = this.saved_timelines[&scopes[1]].sidebar_history_probe();
+                let other_scope = scopes[1].clone();
+                move |this: &Shell| active(this.timeline.as_ref().unwrap()) && saved(&this.saved_timelines[&other_scope])
+            }).unwrap();
+            this.update_in(cx, |this, window, cx| {
+                let before = [0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst));
+                let unread = this.sidebar.unread_only();
+                for callback in &painted {
+                    callback(this, window, cx);
+                }
+                assert!(this.list_focus.is_focused(window), "retired callbacks must not steal focus");
+                assert_eq!([0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst)), before, "retired callbacks must not act");
+                assert!(!this.dark && this.sidebar.unread_only() == unread);
+                assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
+                eprintln!("hidden-ring empty={empty}: retired Theme/unread callbacks inert");
+            }).unwrap();
+            let steps = [
+                ("tab", "devices"), ("tab", "notifications"), ("tab", "info"), ("tab", "entry"),
+                ("shift-tab", "info"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list"),
+                ("shift-tab", "search"), ("tab", "list"),
+            ];
+            for (key, expected) in steps {
+                cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
+                this.update_in(cx, |this, window, cx| {
+                    use matrix_desktop::panel_openers::Control;
+                    let focused = match expected {
+                        "list" => this.list_focus.is_focused(window),
+                        "search" => this.search_focus.is_focused(window),
+                        "devices" => this.opener_ui.focused(Control::Devices, window),
+                        "notifications" => this.opener_ui.focused(Control::Notifications, window),
+                        "info" => this.opener_ui.focused(Control::Info, window),
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        "entry" => this.history_focus.is_focused(window),
+                        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                        "entry" => this.composer.read(cx).is_focused(window),
+                        _ => unreachable!(),
+                    };
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
+                    assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0], "focus must not change the selected room");
+                    assert_eq!(this.active_scope, scopes[0]);
+                    assert!(history(this));
+                    this.composer.update(cx, |v, cx| {
+                        let mut actual = None;
+                        assert_eq!(v.text_for_range(0..65536, &mut actual, window, cx).as_deref(), Some(DRAFTS[0]));
+                    });
+                    eprintln!("hidden-ring empty={empty}: {key} => {expected}; selected/history/draft unchanged");
+                }).unwrap();
+                executor.timer(std::time::Duration::from_millis(80)).await;
+            }
+            this.update_in(cx, |this, window, cx| {
+                preserve_drafts_and_capture(this, &scopes, window, cx, if empty { "list-empty" } else { "list-selected-hidden" });
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 17 {
             // Chat end of the ring: history boundary, composer, eligible Send and the wrap to the first navigation control.
             let chat = CHAT.load(Ordering::SeqCst);
@@ -1886,6 +1971,29 @@ fn compact_chat_end_wraps_to_back_both_ways() {
     CONNECTED.store(true, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
     CHAT.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn selected_hidden_list_keeps_ring_and_selection() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(18, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn empty_list_keeps_ring_and_selection() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(18, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    EMPTY.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
