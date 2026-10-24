@@ -564,6 +564,97 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             return;
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        if DYNAMIC.load(Ordering::SeqCst) == 15 {
+            // Translated semantic Spaces intents (rail or compact menu): exact activation counts, stale/replaced sources rejected, Focus changes nothing.
+            use matrix_desktop::accessibility::spaces::SpacesAction;
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let compact = COMPACT.load(Ordering::SeqCst);
+            let account = scopes[0].account_id;
+            let beta = this.update_in(cx, |this, _, _| this.sidebar.navigation_entries()[2].scope.clone()).unwrap();
+            fn translate(this: &mut Shell, window: &mut Window, action: accesskit::Action, toggle: bool, scope: &Option<RoomScope>) -> SpacesAction {
+                let view = this.semantic_spaces(window).unwrap();
+                let id = if toggle { matrix_desktop::accessibility::spaces::TOGGLE } else { view.choices.iter().find(|c| c.scope == *scope).unwrap().id };
+                view.action(&accesskit::ActionRequest { action, target_tree: accesskit::TreeId::ROOT, target_node: id, data: None }).unwrap()
+            }
+            fn reset(this: &mut Shell, open: bool, cx: &mut Context<Shell>) {
+                this.sidebar.set_space(None);
+                this.set_spaces_open(open);
+                cx.notify();
+            }
+            wait(300).await;
+            // 1. Focus alone: no filter/menu change, same selection, drafts and history identities.
+            this.update_in(cx, |this, window, cx| {
+                reset(this, !compact, cx);
+                let revision = this.sidebar.navigation_revision();
+                let open = this.spaces_open;
+                let focus = translate(this, window, accesskit::Action::Focus, compact, &beta);
+                this.apply_semantic_spaces(focus.clone(), window, cx);
+                this.apply_semantic_spaces(focus, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "Focus activated a Space");
+                assert_eq!(this.spaces_open, open, "Focus changed the menu");
+                assert_eq!(this.sidebar.navigation_revision(), revision, "Focus changed navigation state");
+                assert!(history(this), "Focus must preserve timeline identities");
+                preserve_drafts_and_capture(this, &scopes, window, cx, "p111-spaces-focus");
+            }).unwrap();
+            // 2. Compact toggle: the same translated Click applied twice opens exactly once.
+            if compact {
+                this.update_in(cx, |this, window, cx| {
+                    reset(this, false, cx);
+                    let click = translate(this, window, accesskit::Action::Click, true, &None);
+                    this.apply_semantic_spaces(click.clone(), window, cx);
+                    assert!(this.spaces_open, "translated toggle must open once");
+                    let revision = this.sidebar.navigation_revision();
+                    this.apply_semantic_spaces(click, window, cx);
+                    assert!(this.spaces_open, "second delivery of the same intent toggled again");
+                    assert_eq!(this.sidebar.navigation_revision(), revision);
+                    reset(this, true, cx);
+                }).unwrap();
+            }
+            // 3. Choice: applied twice, activates once and keeps selection/history; a repeat after it is rejected.
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                reset(this, true, cx);
+                let click = translate(this, window, accesskit::Action::Click, false, &beta);
+                this.apply_semantic_spaces(click.clone(), window, cx);
+                assert_eq!(this.sidebar.active_space(), beta.as_ref(), "translated choice must activate its Space once");
+                let revision = this.sidebar.navigation_revision();
+                this.apply_semantic_spaces(click, window, cx);
+                assert_eq!(this.sidebar.navigation_revision(), revision, "second delivery of the same choice acted again");
+                assert!(!compact || !this.spaces_open, "compact menu must close after the choice");
+                assert!(history(this), "activation must keep timeline identities");
+                assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
+                reset(this, true, cx);
+            }).unwrap();
+            // 4. Stale: revision bumped after translation, and target replaced at the same index.
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                let click = translate(this, window, accesskit::Action::Click, false, &beta);
+                this.sidebar.set_unread_only(true);
+                this.sidebar.set_unread_only(false);
+                this.apply_semantic_spaces(click, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "choice translated before a revision change activated");
+                let stale = translate(this, window, accesskit::Action::Click, false, &beta);
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Remove(beta.clone().unwrap()));
+                upsert_space(this, account, "!gamma:fixture", "Gamma");
+                this.apply_semantic_spaces(stale, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "choice of a replaced Space activated");
+                cx.notify();
+            }).unwrap();
+            // 5. Fresh intent after reacquisition works exactly once; drafts and history still exact.
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                let gamma = this.sidebar.navigation_entries().into_iter().find(|e| e.name == "Gamma").unwrap().scope;
+                let click = translate(this, window, accesskit::Action::Click, false, &gamma);
+                this.apply_semantic_spaces(click, window, cx);
+                assert_eq!(this.sidebar.active_space(), gamma.as_ref(), "fresh translated choice must activate");
+                assert!(history(this));
+                reset(this, true, cx);
+                preserve_drafts_and_capture(this, &scopes, window, cx, "p111-spaces-intents");
+                cx.quit();
+            }).unwrap();
+            return;
+        }
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if DYNAMIC.load(Ordering::SeqCst) == 14 {
             // Painted compact Spaces toggle/choice callbacks: current ones act once; retired, hidden or replaced ones never; Configure before repaint included.
             use matrix_desktop::accessibility::spaces::TOGGLE;
@@ -1561,6 +1652,19 @@ fn painted_compact_spaces_callbacks_retire_with_their_source() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(14, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+#[ignore = "requires private display"]
+fn translated_spaces_intents_activate_once_and_reject_stale_sources() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(15, Ordering::SeqCst);
+    COMPACT.store(std::env::var("P111_COMPACT").as_deref() == Ok("1"), Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
