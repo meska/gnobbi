@@ -49,6 +49,25 @@ pub(crate) fn capture_rail(
 fn painted_rail(scope: &Option<RoomScope>) -> PointerCallback {
     RAILS.with_borrow(|rails| rails.get(scope).expect("rail entry was never painted").clone())
 }
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+thread_local! {
+    static SPACE_NODES: std::cell::RefCell<std::collections::HashMap<accesskit::NodeId, PointerCallback>> = Default::default();
+}
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+pub(crate) fn capture_space(
+    id: accesskit::NodeId,
+    callback: impl Fn(&mut Shell, &mut Window, &mut Context<Shell>) + 'static,
+) -> PointerCallback {
+    let callback: PointerCallback = std::rc::Rc::new(callback);
+    if ACTIVE.load(Ordering::SeqCst) {
+        SPACE_NODES.with_borrow_mut(|nodes| nodes.insert(id, callback.clone()));
+    }
+    callback
+}
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+fn painted_space(id: accesskit::NodeId) -> PointerCallback {
+    SPACE_NODES.with_borrow(|nodes| nodes.get(&id).expect("compact Spaces node was never painted").clone())
+}
 fn painted_pointer(unread: bool) -> PointerCallback {
     assert!(
         PAINTED
@@ -542,6 +561,125 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 }
             }
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        if DYNAMIC.load(Ordering::SeqCst) == 14 {
+            // Painted compact Spaces toggle/choice callbacks: current ones act once; retired, hidden or replaced ones never; Configure before repaint included.
+            use matrix_desktop::accessibility::spaces::TOGGLE;
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let account = scopes[0].account_id;
+            let beta = this.update_in(cx, |this, _, _| this.sidebar.navigation_entries()[2].scope.clone()).unwrap();
+            fn paint(this: &mut Shell, open: bool, cx: &mut Context<Shell>) {
+                this.sidebar.set_space(None);
+                this.set_spaces_open(open);
+                cx.notify();
+            }
+            let choice_id = |this: &mut Shell, window: &mut Window, scope: &Option<RoomScope>| {
+                this.semantic_spaces(window).unwrap().choices.iter().find(|c| c.scope == *scope).unwrap().id
+            };
+            // 1. Current toggle opens once; current choice picks its Space once and closes the menu.
+            this.update_in(cx, |this, _, cx| paint(this, false, cx)).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                painted_space(TOGGLE)(this, window, cx);
+                assert!(this.spaces_open, "current painted toggle must open the menu once");
+                cx.notify();
+            }).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                let id = choice_id(this, window, &beta);
+                painted_space(id)(this, window, cx);
+                assert_eq!(this.sidebar.active_space(), beta.as_ref(), "current painted choice must activate its Space");
+                assert!(!this.spaces_open);
+            }).unwrap();
+            // 2. Older navigation revision: toggle and choice callbacks do nothing.
+            this.update_in(cx, |this, _, cx| paint(this, true, cx)).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                let id = choice_id(this, window, &beta);
+                let (toggle, choice) = (painted_space(TOGGLE), painted_space(id));
+                this.sidebar.set_unread_only(true);
+                this.sidebar.set_unread_only(false);
+                toggle(this, window, cx);
+                assert!(this.spaces_open, "retired toggle changed the menu");
+                choice(this, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "retired choice activated");
+                cx.notify();
+            }).unwrap();
+            // 3. Target replaced at the same index: the old callback must not choose the newcomer.
+            wait(300).await;
+            let old = this.update_in(cx, |this, window, _| {
+                let id = choice_id(this, window, &beta);
+                painted_space(id)
+            }).unwrap();
+            this.update_in(cx, |this, window, cx| {
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Remove(beta.clone().unwrap()));
+                upsert_space(this, account, "!gamma:fixture", "Gamma");
+                old(this, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "callback of a replaced choice activated");
+                cx.notify();
+            }).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                let gamma = this.sidebar.navigation_entries().into_iter().find(|e| e.name == "Gamma").unwrap().scope;
+                old(this, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "retired choice survived repaint");
+                let id = choice_id(this, window, &gamma);
+                painted_space(id)(this, window, cx);
+                assert_eq!(this.sidebar.active_space(), gamma.as_ref(), "fresh choice must activate");
+                this.sidebar.set_space(None);
+                this.set_spaces_open(true);
+                cx.notify();
+            }).unwrap();
+            // 4. Menu hidden by the compact chat page: callbacks painted before are rejected; fresh ones work after return.
+            wait(300).await;
+            let (toggle, choice) = this.update_in(cx, |this, window, _| {
+                let id = this.semantic_spaces(window).unwrap().choices[1].id;
+                (painted_space(TOGGLE), painted_space(id))
+            }).unwrap();
+            this.update_in(cx, |this, window, cx| {
+                this.set_compact_chat(true);
+                toggle(this, window, cx);
+                choice(this, window, cx);
+                assert!(this.spaces_open && this.sidebar.active_space().is_none(), "hidden Spaces callback acted");
+                this.set_compact_chat(false);
+                toggle(this, window, cx);
+                choice(this, window, cx);
+                assert!(this.spaces_open && this.sidebar.active_space().is_none(), "callback survived hide/return");
+                cx.notify();
+            }).unwrap();
+            wait(300).await;
+            // 5. Real Configure with paint suspended rejects the retired callbacks before repaint.
+            let fresh = this.update_in(cx, |_, _, _| {
+                let fresh = painted_space(TOGGLE);
+                PAINTED.lock().unwrap().clear();
+                navigation_resize_test::FROZEN.store(true, Ordering::SeqCst);
+                navigation_resize_test::resize("1120", "760");
+                fresh
+            }).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                assert!(window.viewport_size().width >= px(800.));
+                fresh(this, window, cx);
+                assert!(this.spaces_open, "toggle acted on native Configure before repaint");
+                navigation_resize_test::resize("360", "480");
+            }).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                fresh(this, window, cx);
+                assert!(this.spaces_open, "toggle acted on Configure back before repaint");
+                navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                cx.notify();
+            }).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                fresh(this, window, cx);
+                assert!(this.spaces_open, "retired toggle survived repaint");
+                painted_space(TOGGLE)(this, window, cx);
+                assert!(!this.spaces_open, "reacquired toggle must act");
+                cx.quit();
+            }).unwrap();
             return;
         }
         if DYNAMIC.load(Ordering::SeqCst) == 13 {
@@ -1410,6 +1548,19 @@ fn painted_rail_pointer_callbacks_retire_with_their_source() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(13, Ordering::SeqCst);
     COMPACT.store(false, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+#[ignore = "requires private display"]
+fn painted_compact_spaces_callbacks_retire_with_their_source() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(14, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);

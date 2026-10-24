@@ -403,6 +403,13 @@ impl Shell {
             account: view.account,
             open: !view.open,
         });
+        let toggle_pointer = move |this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>| {
+            if let Some(action) = toggle_action(this.semantic_spaces(window).as_ref()) {
+                this.apply_semantic_spaces(action, window, cx);
+            }
+        };
+        #[cfg(test)]
+        let toggle_pointer = crate::sidebar_navigation_test::capture_space(TOGGLE, toggle_pointer);
         let toggle = div()
             .id("spaces-toggle")
             .relative()
@@ -421,11 +428,7 @@ impl Shell {
             .overflow_hidden()
             .child(label)
             .child(self.space_observer(TOGGLE, cx))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                if let Some(action) = toggle_action(this.semantic_spaces(window).as_ref()) {
-                    this.apply_semantic_spaces(action, window, cx);
-                }
-            }));
+            .on_click(cx.listener(move |this, _, window, cx| toggle_pointer(this, window, cx)));
         div()
             .id("spaces-navigation")
             .track_focus(&self.spaces_ui.focus)
@@ -452,6 +455,13 @@ impl Shell {
                                 scope: choice.scope.clone(),
                                 previous: view.active.clone(),
                             });
+                            let choice_pointer = move |this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>| {
+                                if let Some(action) = action(this.semantic_spaces(window).as_ref()) {
+                                    this.apply_semantic_spaces(action, window, cx);
+                                }
+                            };
+                            #[cfg(test)]
+                            let choice_pointer = crate::sidebar_navigation_test::capture_space(id, choice_pointer);
                             let anchor = self
                                 .spaces_ui
                                 .anchors
@@ -485,13 +495,7 @@ impl Shell {
                                 }))
                                 .child(choice.name.clone())
                                 .child(self.space_observer(id, cx))
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    if let Some(action) =
-                                        action(this.semantic_spaces(window).as_ref())
-                                    {
-                                        this.apply_semantic_spaces(action, window, cx);
-                                    }
-                                }))
+                                .on_click(cx.listener(move |this, _, window, cx| choice_pointer(this, window, cx)))
                         })),
                 )
             })
