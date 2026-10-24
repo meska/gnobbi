@@ -51,3 +51,20 @@ fn bundle_launch_without_arguments_opens_connected_sign_in_in_the_app_profile() 
     assert!(bundle_launch_args(exe, None, &[]).is_none());
     assert!(bundle_launch_args(exe, Some("relative"), &[]).is_none());
 }
+
+#[cfg(unix)]
+#[test]
+fn bundle_profile_directory_is_created_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let base = std::env::temp_dir().join(format!("dime-profile-test-{}", std::process::id()));
+    let profile = base.join("Library/Application Support/Dime/profile");
+    matrix_desktop::create_private_dir(&profile).unwrap();
+    for dir in [&profile, &base.join("Library/Application Support/Dime")] {
+        assert_eq!(
+            std::fs::metadata(dir).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+    matrix_desktop::create_private_dir(&profile).unwrap(); // idempotent
+    std::fs::remove_dir_all(base).unwrap();
+}

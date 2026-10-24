@@ -72,3 +72,13 @@ pub fn bundle_launch_args(exe: &str, home: Option<&str>, args: &[String]) -> Opt
     );
     Some(vec!["--signin".to_owned(), profile])
 }
+
+/// Create `path` (and missing parents) readable by the owner only; the profile store refuses looser modes.
+#[cfg(unix)]
+pub fn create_private_dir(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path)
+}
