@@ -9,29 +9,26 @@ use std::cell::RefCell;
 pub(crate) struct SpacesUi {
     pub(crate) focus: FocusHandle,
     // None is the toggle; Some(None) is All; scoped choices survive reordering.
-    pub(crate) target: Option<Option<RoomScope>>,
+    pub(crate) target: SpacesTarget,
 }
+#[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+pub(crate) type SpacesTarget = Option<Option<RoomScope>>;
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+pub(crate) type SpacesTarget = accesskit::NodeId;
 impl Shell {
+    /// Runs on the release of a completed Space/Enter gesture (see `sidebar_activation_up`).
     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-    pub(crate) fn spaces_key(
-        &mut self,
-        event: &KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let key = &event.keystroke;
+    pub(crate) fn spaces_activate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if window.viewport_size().width >= px(800.)
             || self.compact_chat
             || !self.connected
             || self.sidebar.spaces().next().is_none()
             || !self.spaces_ui.focus.is_focused(window)
-            || key.modifiers.control
-            || key.modifiers.alt
-            || key.modifiers.platform
-            || !matches!(key.key.as_str(), "space" | "enter")
         {
-            return false;
+            return;
         }
+        #[cfg(test)]
+        sidebar_navigation_test::ACTIVATIONS[2].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.spaces_ui.target.is_none() {
             self.set_spaces_open(!self.spaces_open);
         } else {
@@ -41,16 +38,15 @@ impl Shell {
                 .find(|entry| Some(entry.scope.clone()) == self.spaces_ui.target)
                 .filter(|_| self.spaces_open)
             else {
-                return true;
+                return;
             };
             if !self.sidebar.set_space(entry.scope.clone()) {
-                return true;
+                return;
             }
             self.set_spaces_open(false);
             self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
         }
         self.spaces_shortcut_focus(window, cx);
-        true
     }
     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
     pub(crate) fn spaces_shortcut_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -139,7 +135,7 @@ impl SpacesUi {
 pub(crate) struct SpacesUi {
     nodes: RefCell<SpaceNodes>,
     pub(crate) focus: FocusHandle,
-    target: accesskit::NodeId,
+    pub(crate) target: SpacesTarget,
     bounds: HashMap<accesskit::NodeId, accesskit::Rect>,
     scroll: gpui::ScrollHandle,
     anchors: RefCell<HashMap<accesskit::NodeId, gpui::ScrollAnchor>>,
@@ -226,19 +222,26 @@ impl Shell {
                     cx.notify();
                 }
             }
-            "space" | "enter" => {
-                if let Some(action) = view.action(&accesskit::ActionRequest {
-                    action: accesskit::Action::Click,
-                    target_node: self.spaces_ui.target,
-                    target_tree: accesskit::TreeId::ROOT,
-                    data: None,
-                }) {
-                    self.apply_semantic_spaces(action, window, cx);
-                }
-            }
             _ => return false,
         }
         true
+    }
+    /// Runs on the release of a completed Space/Enter gesture (see `sidebar_activation_up`).
+    pub(crate) fn spaces_activate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(view) = self.semantic_spaces(window) else {
+            return;
+        };
+        #[cfg(test)]
+        crate::sidebar_navigation_test::ACTIVATIONS[2]
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if let Some(action) = view.action(&accesskit::ActionRequest {
+            action: accesskit::Action::Click,
+            target_node: self.spaces_ui.target,
+            target_tree: accesskit::TreeId::ROOT,
+            data: None,
+        }) {
+            self.apply_semantic_spaces(action, window, cx);
+        }
     }
     pub(crate) fn semantic_spaces(&self, window: &Window) -> Option<SpacesSnapshot> {
         if self.notifications_open

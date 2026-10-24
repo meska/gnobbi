@@ -9,10 +9,13 @@ static COMPACT: AtomicBool = AtomicBool::new(false);
 static SPACES: AtomicBool = AtomicBool::new(false);
 static OPEN: AtomicBool = AtomicBool::new(false);
 static DYNAMIC: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Key-ups seen by the Shell; GPUI X11 turns an auto-repeat release/press split by scheduling jitter into a real key-up.
+pub(crate) static UPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub(crate) static KEYDOWNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub(crate) static ACTIVATIONS: [std::sync::atomic::AtomicUsize; 2] = [
+pub(crate) static ACTIVATIONS: [std::sync::atomic::AtomicUsize; 3] = [
     std::sync::atomic::AtomicUsize::new(0),
     std::sync::atomic::AtomicUsize::new(0),
+    std::sync::atomic::AtomicUsize::new(0), // rail / compact Spaces
 ];
 const DRAFTS: [&str; 2] = [" caffè 🦀\nprima ", " δεύτερη 🚀\nbozza "];
 
@@ -130,6 +133,33 @@ fn pointer_transition(this: &mut Shell, transition: &str, away: bool) {
         _ => unreachable!(),
     }
     this.refresh_navigation_visibility();
+}
+
+fn upsert_space(this: &mut Shell, account: matrix_domain::AccountId, id: &str, name: &str) {
+    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+        scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(id) },
+        name: name.into(), unread: 0,
+        info: matrix_engine::RoomInfo { is_space: true, ..Default::default() },
+    }));
+}
+
+fn focus_choice(this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>, scope: &Option<RoomScope>) {
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    {
+        let view = this.semantic_spaces(window).unwrap();
+        let id = view.choices.iter().find(|c| c.scope == *scope).unwrap().id;
+        this.apply_semantic_spaces(
+            matrix_desktop::accessibility::spaces::SpacesAction::Focus { revision: view.revision, account: view.account, id },
+            window,
+            cx,
+        );
+    }
+    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+    {
+        this.spaces_ui.target = Some(scope.clone());
+        let _ = cx;
+    }
+    this.spaces_ui.focus.focus(window);
 }
 
 fn native_key(key: &str, down: bool) {
@@ -493,6 +523,85 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         assert!(history(this));
                         preserve_drafts_and_capture(this, &scopes, window, cx, &format!("focus-retired-{unread}-{key}"));
                     }).unwrap();
+                }
+            }
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 12 {
+            // Rail and compact Spaces activate once per completed key gesture, never on press/repeat or from a retired source.
+            let compact = COMPACT.load(Ordering::SeqCst);
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let count = || ACTIVATIONS[2].load(Ordering::SeqCst);
+            let entries = this.update_in(cx, |this, _, _| this.sidebar.navigation_entries()).unwrap();
+            let (alpha, beta) = (entries[1].scope.clone(), entries[2].scope.clone());
+            let account = scopes[0].account_id;
+            // Each case: (prepare the focused source, observable state that a single activation changes).
+            for key in ["space", "enter"] {
+                for retire in [None, Some("revision"), Some("target"), Some("removed")] {
+                    'attempt: loop {
+                    this.update_in(cx, |this, window, cx| {
+                        this.sidebar.set_space(None);
+                        this.set_spaces_open(compact);
+                        if compact { focus_choice(this, window, cx, &beta); } else { this.rail_ui.target = beta.clone(); this.rail_ui.focus.focus(window); }
+                        cx.notify();
+                    }).unwrap();
+                    wait(300).await;
+                    let before = count();
+                    native_key(key, false);
+                    wait(300).await;
+                    this.update_in(cx, |this, _, _| assert!(this.sidebar.active_space().is_none() && count() == before, "unmatched release activated")).unwrap();
+                    let downs = KEYDOWNS.load(Ordering::SeqCst);
+                    let ups = UPS.load(Ordering::SeqCst);
+                    native_key(key, true);
+                    for ms in [100, 900, 150] {
+                        wait(ms).await;
+                        if UPS.load(Ordering::SeqCst) != ups { break; }
+                        this.update_in(cx, |this, _, _| assert!(this.sidebar.active_space().is_none() && count() == before, "press/repeat activated: active={:?} count={} before={} open={}", this.sidebar.active_space(), count(), before, this.spaces_open)).unwrap();
+                    }
+                    if UPS.load(Ordering::SeqCst) != ups {
+                        eprintln!("environment split a key repeat into release+press; retrying this gesture");
+                        native_key(key, false);
+                        wait(300).await;
+                        continue 'attempt;
+                    }
+                    assert!(KEYDOWNS.load(Ordering::SeqCst) >= downs + 2, "private X server must deliver held-repeat keydowns");
+                    match retire {
+                        Some("revision") => this.update_in(cx, |this, _, _| { this.sidebar.set_unread_only(true); this.sidebar.set_unread_only(false); }).unwrap(),
+                        Some("removed") => this.update_in(cx, |this, _, cx| {
+                            this.sidebar.apply_diff(matrix_engine::RoomListDiff::Remove(beta.clone().unwrap()));
+                            cx.notify();
+                        }).unwrap(),
+                        Some(_) => this.update_in(cx, |this, window, cx| { if compact { focus_choice(this, window, cx, &alpha); } else { this.rail_ui.target = alpha.clone(); } }).unwrap(),
+                        None => {}
+                    }
+                    native_key(key, false);
+                    wait(300).await;
+                    this.update_in(cx, |this, _, _| {
+                        if retire == Some("removed") { upsert_space(this, account, "!beta:fixture", "Beta"); }
+                        if retire.is_some() {
+                            assert!(this.sidebar.active_space().is_none() && count() == before, "retired source activated: {retire:?}");
+                        } else {
+                            assert_eq!(count(), before + 1, "exactly one activation per gesture");
+                            assert_eq!(this.sidebar.active_space(), beta.as_ref(), "activation chose the focused Space");
+                        }
+                    }).unwrap();
+                    break;
+                    }
+                }
+                // Compact toggle: one gesture flips the menu once.
+                if compact {
+                    this.update_in(cx, |this, window, cx| { this.set_spaces_open(false); this.spaces_shortcut_focus(window, cx); }).unwrap();
+                    wait(300).await;
+                    let before = count();
+                    let ups = UPS.load(Ordering::SeqCst);
+                    native_key(key, true);
+                    wait(900).await;
+                    if UPS.load(Ordering::SeqCst) != ups { eprintln!("environment split a key repeat; toggle gesture skipped for this key"); native_key(key, false); wait(300).await; continue; }
+                    this.update_in(cx, |this, _, _| assert!(!this.spaces_open && count() == before, "toggle activated on press/repeat: open={} count={} before={} active={:?}", this.spaces_open, count(), before, this.sidebar.active_space())).unwrap();
+                    native_key(key, false);
+                    wait(300).await;
+                    this.update_in(cx, |this, _, _| assert!(this.spaces_open && count() == before + 1, "toggle must open once on release")).unwrap();
                 }
             }
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
@@ -1196,6 +1305,30 @@ fn queued_focus_search_is_dropped_while_search_hidden() {
     DYNAMIC.store(11, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn rail_requires_completed_current_key_gestures() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(12, Ordering::SeqCst);
+    COMPACT.store(false, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn compact_spaces_require_completed_current_key_gestures() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(12, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }

@@ -663,6 +663,7 @@ impl Shell {
             cx.stop_propagation();
             return;
         }
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.spaces_key(event, window, cx) {
             cx.stop_propagation();
             return;
@@ -1905,7 +1906,9 @@ fn main() {
                     let search_focus = cx.focus_handle();
                     let theme_focus = cx.focus_handle();
                     let unread_focus = cx.focus_handle();
-                    for focus in [&theme_focus, &unread_focus] {
+                    let rail_ui = rail_view::RailUi::new(cx);
+                    let spaces_ui = spaces_view::SpacesUi::new(cx);
+                    for focus in [&theme_focus, &unread_focus, &rail_ui.focus, &spaces_ui.focus] {
                         cx.on_blur(focus, window, |this: &mut Shell, _, _| {
                             if let Some(press) = &mut this.pending_sidebar_key { press.cancelled = true; }
                         }).detach();
@@ -2234,7 +2237,7 @@ fn main() {
                         #[cfg(all(feature = "live", unix))]
                         signin: signin.clone(),
                         pending_sidebar_key: None,
-                        rail_ui: rail_view::RailUi::new(cx),
+                        rail_ui,
                         opener_ui: panel_opener_view::OpenerUi::new(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         back_ui: compact_view::BackUi::new(cx),
@@ -2298,7 +2301,7 @@ fn main() {
                         details_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_details_bounds: [None; 2],
-                        spaces_ui: spaces_view::SpacesUi::new(cx),
+                        spaces_ui,
                         spaces_open: false,
                         navigation_wide: true,
                         notification_failed: false,

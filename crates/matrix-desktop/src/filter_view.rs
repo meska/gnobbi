@@ -1,8 +1,17 @@
 //! Keyboard and assistive entry to the existing session-only unread filter.
 use crate::*;
 
+/// Control that received the key-down; the release only activates the same, still current source.
+#[derive(PartialEq)]
+pub(crate) enum PressKind {
+    Theme,
+    Unread,
+    Rail(Option<RoomScope>),
+    Spaces(spaces_view::SpacesTarget),
+}
+
 pub(crate) struct SidebarPress {
-    unread: bool,
+    kind: PressKind,
     key: String,
     account: AccountId,
     revision: u64,
@@ -104,13 +113,24 @@ impl Shell {
             }
             return false;
         }
-        let unread = self.connected && self.unread_focus.is_focused(window);
-        if !unread && !self.theme_focus.is_focused(window) {
+        let kind = if self.connected && self.unread_focus.is_focused(window) {
+            PressKind::Unread
+        } else if self.theme_focus.is_focused(window) {
+            PressKind::Theme
+        } else if self.navigation_wide && self.rail_ui.focus.is_focused(window) {
+            PressKind::Rail(self.rail_ui.target.clone())
+        } else if !self.navigation_wide
+            && self.connected
+            && self.sidebar.spaces().next().is_some()
+            && self.spaces_ui.focus.is_focused(window)
+        {
+            PressKind::Spaces(self.spaces_ui.target.clone())
+        } else {
             return false;
-        }
+        };
         if !event.is_held && self.pending_sidebar_key.is_none() {
             self.pending_sidebar_key = Some(SidebarPress {
-                unread,
+                kind,
                 key: key.key.clone(),
                 account: self.active_scope.account_id,
                 revision: self.sidebar.navigation_revision(),
@@ -127,6 +147,11 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let key = &event.keystroke;
+        #[cfg(test)]
+        if sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
+            sidebar_navigation_test::UPS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            eprintln!("Shell capture up key={}", key.key);
+        }
         if !matches!(key.key.as_str(), "space" | "enter") {
             return;
         }
@@ -150,16 +175,26 @@ impl Shell {
             && !self.verification_open
             && !self.room_details_open
             && (self.navigation_wide || !self.compact_chat)
-            && if press.unread {
-                self.connected && self.unread_focus.is_focused(window)
-            } else {
-                self.theme_focus.is_focused(window)
+            && match &press.kind {
+                PressKind::Unread => self.connected && self.unread_focus.is_focused(window),
+                PressKind::Theme => self.theme_focus.is_focused(window),
+                PressKind::Rail(target) => {
+                    self.navigation_wide
+                        && self.rail_ui.focus.is_focused(window)
+                        && self.rail_ui.target == *target
+                }
+                PressKind::Spaces(target) => {
+                    !self.navigation_wide
+                        && self.spaces_ui.focus.is_focused(window)
+                        && self.spaces_ui.target == *target
+                }
             }
         {
-            if press.unread {
-                self.toggle_unread(window, cx);
-            } else {
-                self.toggle_theme(cx);
+            match press.kind {
+                PressKind::Unread => self.toggle_unread(window, cx),
+                PressKind::Theme => self.toggle_theme(cx),
+                PressKind::Rail(_) => self.rail_activate(cx),
+                PressKind::Spaces(_) => self.spaces_activate(window, cx),
             }
         }
     }

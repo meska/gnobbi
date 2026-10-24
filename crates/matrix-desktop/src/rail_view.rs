@@ -118,12 +118,6 @@ impl Shell {
                 self.search_focus.focus(window);
                 None
             }
-            "space" | "enter" => {
-                if self.sidebar.set_space(entries[index].scope.clone()) {
-                    self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
-                }
-                None
-            }
             _ => return false,
         };
         if let Some(next) = next {
@@ -132,6 +126,21 @@ impl Shell {
         }
         cx.notify();
         true
+    }
+
+    /// Runs on the release of a completed Space/Enter gesture (see `sidebar_activation_up`).
+    pub(crate) fn rail_activate(&mut self, cx: &mut Context<Self>) {
+        #[cfg(test)]
+        sidebar_navigation_test::ACTIVATIONS[2].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let entries = self.sidebar.navigation_entries();
+        let index = entries
+            .iter()
+            .position(|entry| entry.scope == self.rail_ui.target)
+            .unwrap_or(0);
+        if self.sidebar.set_space(entries[index].scope.clone()) {
+            self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
+        }
+        cx.notify();
     }
 
     pub(crate) fn render_rail(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
