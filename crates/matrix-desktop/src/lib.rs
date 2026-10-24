@@ -16,6 +16,8 @@ pub use signin_form::{
 };
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
+mod app_dirs;
+pub use app_dirs::{AppDirs, Platform, app_dirs};
 mod composer;
 mod connection_options;
 pub mod panel_openers;
