@@ -24,32 +24,7 @@ impl<'a> ProtectionVault<'a> {
     }
 
     pub fn read(&self) -> Result<Secret, VaultError> {
-        let service =
-            secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh)
-                .map_err(|_| VaultError::Unavailable)?;
-        let path = self.store.path.to_str().ok_or(VaultError::Unavailable)?;
-        let attributes = std::collections::HashMap::from([
-            ("application", "gnobbi"),
-            ("purpose", "sdk-protection-v1"),
-            ("account-store", path),
-        ]);
-        let items = service
-            .search_items(attributes)
-            .map_err(|_| VaultError::Unavailable)?;
-        if items.unlocked.len() + items.locked.len() > 1 {
-            return Err(VaultError::InvalidItem);
-        }
-        if !items.locked.is_empty() {
-            return Err(VaultError::Locked);
-        }
-        let item = items.unlocked.first().ok_or(VaultError::Missing)?;
-        let value =
-            zeroize::Zeroizing::new(item.get_secret().map_err(|_| VaultError::Unavailable)?);
-        if value.len() != 64 || !value.iter().all(u8::is_ascii_hexdigit) {
-            return Err(VaultError::InvalidItem);
-        }
-        let text = std::str::from_utf8(&value).map_err(|_| VaultError::InvalidItem)?;
-        Secret::new(text.to_owned()).map_err(|_| VaultError::InvalidItem)
+        read_entry("gnobbi", &self.store.path)
     }
 
     pub fn create(&self) -> Result<Secret, VaultError> {
@@ -95,4 +70,37 @@ impl<'a> ProtectionVault<'a> {
             .map_err(|_| VaultError::Unavailable)?;
         Secret::new(std::mem::take(&mut *text)).map_err(|_| VaultError::Unavailable)
     }
+}
+
+/// Read-only lookup of a protection secret saved under the previous application name for a
+/// profile folder; never writes or deletes. `Missing` means no such entry.
+pub fn read_legacy(profile: &std::path::Path) -> Result<Secret, VaultError> {
+    read_entry("dime", profile)
+}
+
+fn read_entry(application: &str, profile: &std::path::Path) -> Result<Secret, VaultError> {
+    let service =
+        secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh)
+            .map_err(|_| VaultError::Unavailable)?;
+    let path = profile.to_str().ok_or(VaultError::Unavailable)?;
+    let items = service
+        .search_items(std::collections::HashMap::from([
+            ("application", application),
+            ("purpose", "sdk-protection-v1"),
+            ("account-store", path),
+        ]))
+        .map_err(|_| VaultError::Unavailable)?;
+    if items.unlocked.len() + items.locked.len() > 1 {
+        return Err(VaultError::InvalidItem);
+    }
+    if !items.locked.is_empty() {
+        return Err(VaultError::Locked);
+    }
+    let item = items.unlocked.first().ok_or(VaultError::Missing)?;
+    let value = zeroize::Zeroizing::new(item.get_secret().map_err(|_| VaultError::Unavailable)?);
+    if value.len() != 64 || !value.iter().all(u8::is_ascii_hexdigit) {
+        return Err(VaultError::InvalidItem);
+    }
+    let text = std::str::from_utf8(&value).map_err(|_| VaultError::InvalidItem)?;
+    Secret::new(text.to_owned()).map_err(|_| VaultError::InvalidItem)
 }

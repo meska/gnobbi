@@ -126,3 +126,43 @@ fn absent_bus_fails_closed_without_inventing_a_key() {
 fn denied_service_fails_closed_without_inventing_a_key() {
     unavailable_without_service("denied");
 }
+
+#[test]
+#[ignore = "requires disposable Secret Service on an isolated bus"]
+fn reads_old_name_entry_without_changing_it_and_reports_missing() {
+    assert_eq!(
+        std::env::var("DIME_VAULT_FIXTURE").as_deref(),
+        Ok("isolated")
+    );
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let old = home.join("old-profile/account-1");
+    let other = home.join("old-profile/account-2");
+    let service =
+        secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh)
+            .unwrap();
+    let collection = service.get_default_collection().unwrap();
+    let attributes = std::collections::HashMap::from([
+        ("application", "dime"),
+        ("purpose", "sdk-protection-v1"),
+        ("account-store", old.to_str().unwrap()),
+    ]);
+    let seeded = "ab".repeat(32);
+    let item = collection
+        .create_item(
+            "synthetic old",
+            attributes.clone(),
+            seeded.as_bytes(),
+            false,
+            "text/plain",
+        )
+        .unwrap();
+    assert!(matrix_engine::vault::read_legacy(&old).is_ok());
+    assert!(matches!(
+        matrix_engine::vault::read_legacy(&other),
+        Err(VaultError::Missing)
+    ));
+    let items = collection.search_items(attributes).unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].item_path, item.item_path);
+    assert_eq!(items[0].get_secret().unwrap(), seeded.as_bytes());
+}
