@@ -85,7 +85,7 @@ impl Sidebar {
             scope: summary.scope,
             initials: summary.name.chars().take(2).collect(),
             name: summary.name,
-            preview: "Storico Matrix · messaggi live".to_owned(),
+            preview: String::new(),
             time: "",
             color: 0x5288b5,
             unread: summary.unread,

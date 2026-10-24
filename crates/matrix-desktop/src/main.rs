@@ -1583,13 +1583,15 @@ impl Render for Shell {
                                                                     .child(if this.connected && room.unread > 0 { room.unread.to_string() } else { room.time.to_owned() }),
                                                             ),
                                                     )
-                                                    .child(
-                                                        div()
-                                                            .text_size(px(12.))
-                                                            .text_color(rgb(t.secondary))
-                                                            .overflow_hidden()
-                                                            .child(room.preview.clone()),
-                                                    ),
+                                                    .when(!room.preview.is_empty(), |d| {
+                                                        d.child(
+                                                            div()
+                                                                .text_size(px(12.))
+                                                                .text_color(rgb(t.secondary))
+                                                                .overflow_hidden()
+                                                                .child(room.preview.clone()),
+                                                        )
+                                                    }),
                                             )
                                             })
                                             .collect::<Vec<_>>()

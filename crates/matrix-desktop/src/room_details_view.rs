@@ -311,15 +311,6 @@ impl Shell {
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child(room.name.clone()),
                     )
-                    .child(
-                        div()
-                            .text_color(rgb(t.secondary))
-                            .child(if room.info.is_space {
-                                "Spazio Matrix"
-                            } else {
-                                "Stanza Matrix"
-                            }),
-                    )
                     .child(format!(
                         "{} {}",
                         room.info.joined_members,
