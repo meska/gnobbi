@@ -498,6 +498,40 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 10 {
+            // Hidden Search (compact chat page, repaint suspended) must not be edited by native key dispatch.
+            this.update_in(cx, |this, window, cx| {
+                navigation_resize_test::FROZEN.store(true, Ordering::SeqCst);
+                this.set_compact_chat(true);
+                this.search_focus.focus(window);
+                assert!(this.search_focus.is_focused(window));
+                cx.notify();
+            }).unwrap();
+            for text in ["è", "🦀"] {
+                let mut key = Keystroke::parse("x").unwrap();
+                key.key_char = Some(text.into());
+                cx.update(|window, cx| { window.dispatch_keystroke(key, cx); }).unwrap();
+            }
+            for name in ["backspace", "escape"] {
+                cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(name).unwrap(), cx); }).unwrap();
+            }
+            this.update_in(cx, |this, window, cx| {
+                assert_eq!(this.sidebar.query(), "", "hidden Search must reject native edits");
+                assert!(this.compact_chat);
+                assert_eq!(this.active_scope, scopes[0]);
+                assert!(history(this));
+                navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            this.update_in(cx, |this, window, cx| {
+                assert!(this.composer.read(cx).is_focused(window));
+                assert_eq!(this.sidebar.query(), "");
+                preserve_drafts_and_capture(this, &scopes, window, cx, "hidden-search-edit");
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 6 {
             cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse("shift-tab").unwrap(), cx); }).unwrap();
             let beta = this.update_in(cx, |this, window, cx| {
@@ -1100,6 +1134,20 @@ fn desktop_joined_spaces_traverse_without_changing_filter_or_conversation() {
     );
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn hidden_search_rejects_native_key_edits_and_keeps_state() {
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
+    DYNAMIC.store(10, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
