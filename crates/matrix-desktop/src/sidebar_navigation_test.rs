@@ -33,6 +33,22 @@ pub(crate) fn capture_pointer(
     }
     callback
 }
+thread_local! {
+    static RAILS: std::cell::RefCell<std::collections::HashMap<Option<RoomScope>, PointerCallback>> = Default::default();
+}
+pub(crate) fn capture_rail(
+    scope: &Option<RoomScope>,
+    callback: impl Fn(&mut Shell, &mut Window, &mut Context<Shell>) + 'static,
+) -> PointerCallback {
+    let callback: PointerCallback = std::rc::Rc::new(callback);
+    if ACTIVE.load(Ordering::SeqCst) {
+        RAILS.with_borrow_mut(|rails| rails.insert(scope.clone(), callback.clone()));
+    }
+    callback
+}
+fn painted_rail(scope: &Option<RoomScope>) -> PointerCallback {
+    RAILS.with_borrow(|rails| rails.get(scope).expect("rail entry was never painted").clone())
+}
 fn painted_pointer(unread: bool) -> PointerCallback {
     assert!(
         PAINTED
@@ -526,6 +542,61 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 }
             }
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 13 {
+            // Painted rail pointer callbacks: current ones activate once, retired ones never, even before repaint after a native Configure.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let beta = this.update_in(cx, |this, _, _| this.sidebar.navigation_entries()[2].scope.clone()).unwrap();
+            wait(300).await;
+            let painted = this.update_in(cx, |this, window, cx| {
+                this.sidebar.set_space(None);
+                this.list_focus.focus(window);
+                cx.notify();
+                painted_rail(&beta)
+            }).unwrap();
+            wait(200).await;
+            this.update_in(cx, |this, window, cx| {
+                painted(this, window, cx);
+                assert_eq!(this.sidebar.active_space(), beta.as_ref(), "current painted rail callback must activate its Space once");
+                this.sidebar.set_space(None);
+                this.sidebar.set_unread_only(true);
+                this.sidebar.set_unread_only(false);
+                painted(this, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "rail callback from an older navigation revision activated");
+                cx.notify();
+            }).unwrap();
+            wait(200).await;
+            let fresh = this.update_in(cx, |_, _, _| {
+                let fresh = painted_rail(&beta);
+                PAINTED.lock().unwrap().clear();
+                navigation_resize_test::FROZEN.store(true, Ordering::SeqCst);
+                navigation_resize_test::resize("360", "480");
+                fresh
+            }).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                assert_eq!(window.viewport_size().width, px(360.));
+                assert!(PAINTED.lock().unwrap().is_empty(), "Configure must not repaint while suspended");
+                fresh(this, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "rail callback activated on native Configure before repaint");
+                navigation_resize_test::resize("1120", "760");
+            }).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                fresh(this, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "rail callback activated on native Configure back before repaint");
+                navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                cx.notify();
+            }).unwrap();
+            wait(300).await;
+            this.update_in(cx, |this, window, cx| {
+                fresh(this, window, cx);
+                assert!(this.sidebar.active_space().is_none(), "retired rail callback survived repaint");
+                painted_rail(&beta)(this, window, cx);
+                assert_eq!(this.sidebar.active_space(), beta.as_ref(), "reacquired rail callback must activate");
+                cx.quit();
+            }).unwrap();
             return;
         }
         if DYNAMIC.load(Ordering::SeqCst) == 12 {
@@ -1328,6 +1399,18 @@ fn compact_spaces_require_completed_current_key_gestures() {
     DYNAMIC.store(12, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn painted_rail_pointer_callbacks_retire_with_their_source() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(13, Ordering::SeqCst);
+    COMPACT.store(false, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();

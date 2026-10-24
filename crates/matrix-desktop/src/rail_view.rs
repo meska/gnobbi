@@ -200,6 +200,32 @@ impl Shell {
                         } else {
                             format!("Spazio Matrix: {}", entry.name)
                         };
+                        let scope_key = scope.clone();
+                        let pointer = move |this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>| {
+                                this.navigation_wide = window.viewport_size().width >= px(800.);
+                                this.refresh_navigation_visibility();
+                                if !source_visit(&this.sidebar) {
+                                    return;
+                                }
+                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                                {
+                                    if let Some(action) = callback
+                                        .as_ref()
+                                        .and_then(|f| f(this.semantic_spaces(window).as_ref()))
+                                    {
+                                        this.apply_semantic_spaces(action, window, cx);
+                                    }
+                                }
+                                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                                if this.sidebar.set_space(scope.clone()) {
+                                    this.rail_ui.target = scope.clone();
+                                    this.rail_ui.focus.focus(window);
+                                    this.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
+                                    cx.notify();
+                                }
+                        };
+                        #[cfg(test)]
+                        let pointer = sidebar_navigation_test::capture_rail(&scope_key, pointer);
                         let dark = self.dark;
                         div()
                             .id(("rail-entry", index))
@@ -229,7 +255,7 @@ impl Shell {
                                 t.secondary
                             }))
                             .cursor_pointer()
-                            .children(self.rail_observer(&scope, window, cx))
+                            .children(self.rail_observer(&scope_key, window, cx))
                             .child(
                                 div()
                                     .w(px(36.))
@@ -251,7 +277,7 @@ impl Shell {
                                     .text_size(px(11.))
                                     .child(entry.name),
                             )
-                            .when(scope.is_some(), |d| {
+                            .when(scope_key.is_some(), |d| {
                                 d.child(div().text_size(px(9.)).child("Spazio Matrix"))
                             })
                             .when(entry.selected, |d| {
@@ -283,29 +309,7 @@ impl Shell {
                                         }),
                                 )
                             })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.navigation_wide = window.viewport_size().width >= px(800.);
-                                this.refresh_navigation_visibility();
-                                if !source_visit(&this.sidebar) {
-                                    return;
-                                }
-                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                                {
-                                    if let Some(action) = callback
-                                        .as_ref()
-                                        .and_then(|f| f(this.semantic_spaces(window).as_ref()))
-                                    {
-                                        this.apply_semantic_spaces(action, window, cx);
-                                    }
-                                }
-                                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-                                if this.sidebar.set_space(scope.clone()) {
-                                    this.rail_ui.target = scope.clone();
-                                    this.rail_ui.focus.focus(window);
-                                    this.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
-                                    cx.notify();
-                                }
-                            }))
+                            .on_click(cx.listener(move |this, _, window, cx| pointer(this, window, cx)))
                     }),
             )
             .into_any_element()
