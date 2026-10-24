@@ -24,6 +24,8 @@ pub struct SignInView {
     legacy: Option<(std::path::PathBuf, std::path::PathBuf)>,
     legacy_note: Option<&'static str>,
     #[cfg(test)]
+    legacy_bounds: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<&'static str, gpui::Bounds<gpui::Pixels>>>>,
+    #[cfg(test)]
     painted_submit: Option<PaintedSubmit>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     button_bounds: [Option<accesskit::Rect>; 3],
@@ -325,6 +327,8 @@ impl SignInView {
             focus_next: None,
             legacy: None,
             legacy_note: None,
+            #[cfg(test)]
+            legacy_bounds: Default::default(),
             #[cfg(test)]
             painted_submit: None,
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -686,9 +690,14 @@ impl Render for SignInView {
             }
         }
         if !recovery && self.mode == SignInMode::Password {
-            let button = |id: &'static str, label: &'static str| {
-                div().id(id).px_3().h(px(32.)).flex().items_center().border_1()
-                    .border_color(rgb(LIGHT.accent)).text_color(rgb(LIGHT.accent)).cursor_pointer().child(label)
+            #[cfg(test)]
+            let seen = self.legacy_bounds.clone();
+            let button = move |id: &'static str, label: &'static str| {
+                let b = div().id(id).relative().px_3().h(px(32.)).flex().items_center().border_1()
+                    .border_color(rgb(LIGHT.accent)).text_color(rgb(LIGHT.accent)).cursor_pointer().child(label);
+                #[cfg(test)]
+                let b = { let seen = seen.clone(); b.child(gpui::canvas(|_, _, _| (), move |bounds, _, _, _| { seen.borrow_mut().insert(id, bounds); }).absolute().size_full()) };
+                b
             };
             if self.legacy.is_some() {
                 card = card.child(div().text_size(px(12.)).child("Hai un profilo Dime precedente."))
@@ -856,6 +865,57 @@ mod tests {
                 cx.update(|cx| cx.quit()).unwrap();
             }).detach();
         });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_legacy_adopt_click_moves_profile() {
+        let (old_kept, new_has) = legacy_click("legacy-adopt");
+        assert!(!old_kept && new_has, "adopt click must move the profile");
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_legacy_ignore_click_moves_nothing() {
+        let (old_kept, new_has) = legacy_click("legacy-ignore");
+        assert!(old_kept && !new_has, "ignore click must move nothing");
+    }
+
+    /// Real X11 mouse click (xdotool) on the painted button; returns (old profile still there, new profile has it).
+    fn legacy_click(id: &'static str) -> (bool, bool) {
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        let root = std::env::temp_dir().join(format!("dime-legacy-click-{}-{id}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (legacy, data) = (root.join("old"), root.join("data"));
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(legacy.join("marker"), "x").unwrap();
+        let offer = (legacy.clone(), data.clone());
+        gpui::Application::new().run(move |cx| {
+            let capacity = std::num::NonZeroUsize::new(1).unwrap();
+            let (_events, event_rx) = matrix_engine::bounded(capacity);
+            let (commands, _requests) = matrix_engine::bounded(capacity);
+            let view = cx.open_window(gpui::WindowOptions::default(), |_, cx| cx.new(|cx| {
+                SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(capacity).1, commands }, cx)
+                    .with_legacy(Some(offer))
+            })).unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(500)).await;
+                let b = view.update(cx, |v, _, _| *v.legacy_bounds.borrow().get(id).expect("button painted")).unwrap();
+                let ids = std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap();
+                let win = String::from_utf8(ids.stdout).unwrap().lines().next().expect("window").to_string();
+                let c = b.center();
+                assert!(std::process::Command::new("xdotool")
+                    .args(["mousemove", "--window", &win, &format!("{}", f32::from(c.x) as i32), &format!("{}", f32::from(c.y) as i32), "click", "1"])
+                    .status().unwrap().success());
+                executor.timer(std::time::Duration::from_millis(400)).await;
+                cx.update(|cx| cx.quit()).unwrap();
+            }).detach();
+        });
+        let r = (legacy.join("marker").exists(), data.join("profile").join("marker").exists());
+        let _ = std::fs::remove_dir_all(&root);
+        r
     }
 
     #[test]
