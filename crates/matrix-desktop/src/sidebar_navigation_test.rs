@@ -258,6 +258,12 @@ fn focus_choice(this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>, 
     this.spaces_ui.focus.focus(window);
 }
 
+async fn native_tap(key: &str, executor: &gpui::BackgroundExecutor) {
+    native_key(key, true);
+    native_key(key, false);
+    executor.timer(std::time::Duration::from_millis(300)).await;
+}
+
 fn native_key(key: &str, down: bool) {
     let command = if down { "keydown" } else { "keyup" };
     assert!(
@@ -1760,7 +1766,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
         }
         if COMPACT.load(Ordering::SeqCst) && SPACES.load(Ordering::SeqCst) {
-            cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse("enter").unwrap(), cx); }).unwrap();
+            // The shortcut already flipped the menu; one completed Enter gesture flips it back.
+            this.update_in(cx, |this, _, _| assert_eq!(this.spaces_open, !OPEN.load(Ordering::SeqCst))).unwrap();
+            native_tap("enter", &executor).await;
             this.update_in(cx, |this, window, _| {
                 assert_eq!(this.spaces_open, OPEN.load(Ordering::SeqCst), "Enter on toggle must only change menu expansion");
                 assert!(!this.compact_chat, "Space control Enter must never open the selected conversation");
@@ -1770,9 +1778,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
         }
         if COMPACT.load(Ordering::SeqCst) && OPEN.load(Ordering::SeqCst) {
-            for key in ["tab", "tab", "enter"] {
+            for key in ["tab", "tab"] {
                 cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
             }
+            native_tap("enter", &executor).await;
             this.update_in(cx, |this, window, _| {
                 assert_eq!(this.sidebar.active_space(), this.sidebar.navigation_entries()[1].scope.as_ref(), "Enter must choose only the focused joined Space");
                 assert!(!this.spaces_open && !this.compact_chat);
