@@ -4078,6 +4078,7 @@ dependencies = [
  "image",
  "matrix-domain",
  "matrix-engine",
+ "serde_json",
  "url",
  "zeroize",
 ]

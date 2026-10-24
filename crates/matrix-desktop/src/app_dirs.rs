@@ -83,4 +83,14 @@ impl AppDirs {
         }
         Ok(())
     }
+
+    /// Regenerable thumbnail cache, created on demand.
+    pub fn thumbnails(&self) -> std::io::Result<PathBuf> {
+        let dir = self.cache.join("thumbnails");
+        #[cfg(unix)]
+        crate::create_private_dir(&dir)?;
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
 }
