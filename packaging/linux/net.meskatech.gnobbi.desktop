@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Gnobbi
+Comment=Matrix chat client
+Exec=gnobbi
+Icon=net.meskatech.gnobbi
+Terminal=false
+Categories=Network;InstantMessaging;
+StartupWMClass=net.meskatech.gnobbi
