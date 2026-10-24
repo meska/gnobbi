@@ -71,6 +71,11 @@ fn classify_setup(error: &matrix_sdk::encryption::recovery::RecoveryError) -> Se
 pub struct RecoverySecret(zeroize::Zeroizing<String>);
 impl zeroize::ZeroizeOnDrop for RecoverySecret {}
 impl RecoverySecret {
+    /// Builds a secret from a fixed value, for tests that never reach a homeserver.
+    #[doc(hidden)]
+    pub fn fixture(key: &str) -> Self {
+        Self(zeroize::Zeroizing::new(key.to_owned()))
+    }
     /// The recovery key must never be formatted into diagnostics.
     /// ```compile_fail
     /// fn leak(secret: matrix_engine::recovery::RecoverySecret) {

@@ -1,7 +1,9 @@
 //! Graphical projection only; authentication remains on RoomListWorker.
-use gpui::{Context, FocusHandle, KeyDownEvent, Window, div, prelude::*, px, rgb};
-use matrix_desktop::{FormStatus, LIGHT, LoginInput, SignInForm, visible_fields};
-use matrix_engine::signin::{RecoveryState, SignInError, SignInEvent, SignInMode, SignInUi};
+use gpui::{ClipboardItem, Context, FocusHandle, KeyDownEvent, Window, div, prelude::*, px, rgb};
+use matrix_desktop::{FormStatus, LIGHT, LoginInput, SetupPhase, SignInForm, visible_fields};
+use matrix_engine::signin::{
+    RecoveryState, SetupEvent, SetupFailure, SignInError, SignInEvent, SignInMode, SignInUi,
+};
 
 #[cfg(test)]
 type PaintedSubmit = std::rc::Rc<dyn Fn(&mut SignInView, &mut Context<SignInView>)>;
@@ -16,17 +18,26 @@ pub struct SignInView {
     fields_source: Option<matrix_desktop::SignInSource>,
     submit_focus: FocusHandle,
     recover_focus: FocusHandle,
+    copy_focus: FocusHandle,
     focus_next: Option<usize>,
     #[cfg(test)]
     painted_submit: Option<PaintedSubmit>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    button_bounds: [Option<accesskit::Rect>; 2],
+    button_bounds: [Option<accesskit::Rect>; 3],
 }
 impl SignInView {
     fn key(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         if event.keystroke.key == "tab" {
             let mut ring = if self.form.recovery().is_some() {
-                if self.key_route() { vec![3, 5] } else { vec![] }
+                if self.form.setup_phase() == Some(SetupPhase::KeyShown) {
+                    vec![7]
+                } else if self.key_route() {
+                    vec![3, 5]
+                } else if self.form.setup_offered() {
+                    vec![5]
+                } else {
+                    vec![]
+                }
             } else {
                 visible_fields(self.mode, self.form.vault).to_vec()
             };
@@ -35,7 +46,13 @@ impl SignInView {
                 .fields
                 .iter()
                 .position(|field| field.read(cx).focus.is_focused(window))
-                .unwrap_or(if self.recover_focus.is_focused(window) { 5 } else { 4 });
+                .unwrap_or(if self.recover_focus.is_focused(window) {
+                    5
+                } else if self.copy_focus.is_focused(window) {
+                    7
+                } else {
+                    4
+                });
             let position = ring
                 .iter()
                 .position(|index| *index == current)
@@ -49,6 +66,8 @@ impl SignInView {
                 self.submit_focus.focus(window);
             } else if ring[next] == 5 {
                 self.recover_focus.focus(window);
+            } else if ring[next] == 7 {
+                self.copy_focus.focus(window);
             } else {
                 self.fields[ring[next]].read(cx).focus.focus(window);
             }
@@ -56,9 +75,14 @@ impl SignInView {
             cx.stop_propagation();
         } else if event.keystroke.key == "enter"
             || (event.keystroke.key == "space"
-                && (self.submit_focus.is_focused(window) || self.recover_focus.is_focused(window)))
+                && (self.submit_focus.is_focused(window)
+                    || self.recover_focus.is_focused(window)
+                    || self.copy_focus.is_focused(window)))
         {
-            if self.form.recovery().is_some() && !self.submit_focus.is_focused(window) {
+            // Enter alone never confirms a shown key: only the focused confirm button does.
+            if self.copy_focus.is_focused(window) {
+                self.copy_key(cx);
+            } else if self.form.recovery().is_some() && !self.submit_focus.is_focused(window) {
                 self.recover(cx);
             } else {
                 self.submit(cx);
@@ -92,6 +116,20 @@ impl SignInView {
             }
         }
     }
+    fn copy_callback(&self) -> impl Fn(&mut Self, &mut Context<Self>) + use<> {
+        let source = self.form.source();
+        move |this, cx| {
+            if source.is_some() && this.form.source() == source {
+                this.copy_key(cx);
+            }
+        }
+    }
+    /// Explicit user copy of the shown key; nothing else puts it on the clipboard.
+    fn copy_key(&mut self, cx: &mut Context<Self>) {
+        if let Some(key) = self.form.recovery_key() {
+            cx.write_to_clipboard(ClipboardItem::new_string(key.to_owned()));
+        }
+    }
     fn recover(&mut self, cx: &mut Context<Self>) {
         (self.recover_callback())(self, cx);
     }
@@ -100,6 +138,16 @@ impl SignInView {
         self.form.recovery() != Some(RecoveryState::Unsupported)
     }
     fn recover_source(&mut self, source: matrix_desktop::SignInSource, cx: &mut Context<Self>) {
+        if self.form.recovery() == Some(RecoveryState::Unsupported) {
+            if let Some(command) = self.form.setup_source(source)
+                && self.route.commands.try_send(command).is_err()
+            {
+                self.form.apply_setup(SetupEvent::Failed(SetupFailure::Other));
+            }
+            self.update_enabled(cx);
+            cx.notify();
+            return;
+        }
         if self.fields[3].read(cx).input.marked_utf16().is_some() {
             return;
         }
@@ -122,7 +170,12 @@ impl SignInView {
     }
     fn submit_source(&mut self, source: matrix_desktop::SignInSource, cx: &mut Context<Self>) {
         if self.form.recovery().is_some() {
-            if let Some(command) = self.form.defer_source(source)
+            let command = if self.form.setup_phase() == Some(SetupPhase::KeyShown) {
+                self.form.confirm_saved_source(source)
+            } else {
+                self.form.defer_source(source)
+            };
+            if let Some(command) = command
                 && self.route.commands.try_send(command).is_err()
             {
                 self.form.apply(SignInEvent::Failed(SignInError::NoSession));
@@ -169,7 +222,7 @@ impl SignInView {
         if self.fields_source != self.form.source() {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             {
-                self.button_bounds = [None; 2];
+                self.button_bounds = [None; 3];
             }
             let public: [String; 2] =
                 std::array::from_fn(|i| self.fields[i].read(cx).input.display_text());
@@ -213,6 +266,10 @@ impl SignInView {
                 self.focus_next = Some(
                     if matches!(self.form.recovery(), Some(RecoveryState::Offered | RecoveryState::Failed(_))) {
                         3
+                    } else if self.form.setup_phase() == Some(SetupPhase::KeyShown) {
+                        7
+                    } else if self.form.setup_offered() {
+                        5
                     } else {
                         4
                     },
@@ -248,11 +305,12 @@ impl SignInView {
             fields_source: None,
             submit_focus: cx.focus_handle(),
             recover_focus: cx.focus_handle(),
+            copy_focus: cx.focus_handle(),
             focus_next: None,
             #[cfg(test)]
             painted_submit: None,
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-            button_bounds: [None; 2],
+            button_bounds: [None; 3],
             fields: std::array::from_fn(|index| {
                 let field = cx.new(|cx| crate::login_field::LoginField::new(index >= 2, cx));
                 cx.observe(&field, |_, _, cx| cx.notify()).detach();
@@ -278,10 +336,13 @@ impl SignInView {
         let button = if snapshot.recovery.is_some() { Control::Defer } else { Control::Submit };
         snapshot.bounds[button as usize] = self.button_bounds[0];
         snapshot.bounds[Control::Recover as usize] = self.button_bounds[1];
+        snapshot.bounds[Control::Copy as usize] = self.button_bounds[2];
         if self.submit_focus.is_focused(window) {
             snapshot.focused = Some(button);
         } else if self.recover_focus.is_focused(window) {
             snapshot.focused = Some(Control::Recover);
+        } else if self.copy_focus.is_focused(window) {
+            snapshot.focused = Some(Control::Copy);
         }
         snapshot
     }
@@ -296,6 +357,8 @@ impl SignInView {
         let allowed = if self.form.recovery().is_some() {
             intent.control == Control::Defer
                 || (self.key_route() && matches!(intent.control, Control::Recover | Control::Phrase))
+                || (self.form.setup_offered() && intent.control == Control::Recover)
+                || (self.form.setup_phase() == Some(SetupPhase::KeyShown) && intent.control == Control::Copy)
         } else {
             intent.control == Control::Submit
                 || visible_fields(self.mode, self.form.vault).contains(&(intent.control as usize))
@@ -303,7 +366,13 @@ impl SignInView {
         if self.form.source() != Some(intent.source) || !allowed {
             return false;
         }
-        if intent.control == Control::Recover {
+        if intent.control == Control::Copy {
+            if intent.focus_only {
+                self.copy_focus.focus(window);
+            } else {
+                self.copy_key(cx);
+            }
+        } else if intent.control == Control::Recover {
             if intent.focus_only {
                 self.recover_focus.focus(window);
             } else {
@@ -364,6 +433,12 @@ impl SignInView {
         }
     }
     pub fn poll(&mut self, cx: &mut Context<Self>) -> Option<matrix_domain::AccountId> {
+        if let Ok(event) = self.route.setup.try_recv() {
+            self.form.apply_setup(event);
+            self.update_enabled(cx);
+            cx.notify();
+            return None;
+        }
         if let Ok(event) = self.route.events.try_recv() {
             for field in &self.fields[2..] {
                 field.update(cx, |field, cx| {
@@ -397,10 +472,11 @@ impl SignInView {
 impl Render for SignInView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if let Some(index) = self.focus_next.take() {
-            if index == 4 {
-                self.submit_focus.focus(window);
-            } else {
-                self.fields[index].read(cx).focus.focus(window);
+            match index {
+                4 => self.submit_focus.focus(window),
+                5 => self.recover_focus.focus(window),
+                7 => self.copy_focus.focus(window),
+                _ => self.fields[index].read(cx).focus.focus(window),
             }
         }
         let recovery = self.form.recovery().is_some();
@@ -419,7 +495,12 @@ impl Render for SignInView {
         };
         window.set_window_title(&format!(
             "{title}{}",
-            if error.is_some() || matches!(self.form.recovery(), Some(RecoveryState::Failed(_))) { " · errore" } else { "" }
+            if error.is_some()
+                || matches!(self.form.recovery(), Some(RecoveryState::Failed(_)))
+                || matches!(self.form.setup_phase(), Some(SetupPhase::Failed(_)))
+            {
+                " · errore"
+            } else { "" }
         ));
         let enabled = matches!(self.form.status(), FormStatus::Prompt(_))
             || (recovery && self.form.source().is_some());
@@ -469,9 +550,53 @@ impl Render for SignInView {
         if recovery {
             let state = self.form.recovery();
             let key_open = self.form.source().is_some() && self.key_route();
-            card = card
-                .child(div().text_size(px(12.)).child(matrix_desktop::RECOVERY_WARNING))
-                .child(div().text_size(px(12.)).child(matrix_desktop::RECOVERY_NOTE));
+            let phase = self.form.setup_phase();
+            if let Some(key) = self.form.recovery_key() {
+                let copy = std::rc::Rc::new(self.copy_callback());
+                card = card
+                    .child(div().text_size(px(12.)).child(matrix_desktop::SETUP_KEY_NOTE))
+                    .child(div().text_size(px(12.)).child(matrix_desktop::SETUP_KEY_LABEL))
+                    .child(
+                        div()
+                            .id("signin-setup-key")
+                            .p_3()
+                            .border_2()
+                            .border_color(rgb(LIGHT.accent))
+                            .font_family("DejaVu Sans Mono")
+                            .text_size(px(15.))
+                            .child(key.to_owned()),
+                    )
+                    .child(
+                        div()
+                            .id("signin-copy")
+                            .relative()
+                            .children(self.bounds_observer(2, cx))
+                            .track_focus(&self.copy_focus)
+                            .h(px(36.))
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .border_2()
+                            .border_color(rgb(if self.copy_focus.is_focused(window) {
+                                LIGHT.text
+                            } else {
+                                LIGHT.accent
+                            }))
+                            .text_color(rgb(LIGHT.accent))
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| copy(this, cx)))
+                            .child(matrix_desktop::COPY_LABEL),
+                    );
+            } else {
+                card = card
+                    .child(div().text_size(px(12.)).child(matrix_desktop::RECOVERY_WARNING))
+                    .child(div().text_size(px(12.)).child(if self.key_route() {
+                        matrix_desktop::RECOVERY_NOTE
+                    } else {
+                        matrix_desktop::SETUP_NOTE
+                    }));
+            }
             if self.key_route() {
                 let recover = std::rc::Rc::new(self.recover_callback());
                 card = card
@@ -506,6 +631,40 @@ impl Render for SignInView {
                                 _ => matrix_desktop::RECOVER_LABEL,
                             }),
                     );
+            } else if self.form.setup_offered() || phase == Some(SetupPhase::Pending) {
+                // Outlined, not filled: creating a new recovery is not the restore action.
+                let offered = self.form.setup_offered() && self.form.source().is_some();
+                let recover = std::rc::Rc::new(self.recover_callback());
+                card = card.child(
+                    div()
+                        .id("signin-recover")
+                        .relative()
+                        .children(self.bounds_observer(1, cx))
+                        .track_focus(&self.recover_focus)
+                        .h(px(36.))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .border_2()
+                        .border_color(rgb(if self.recover_focus.is_focused(window) {
+                            LIGHT.text
+                        } else if offered {
+                            LIGHT.accent
+                        } else {
+                            LIGHT.disabled
+                        }))
+                        .text_color(rgb(if offered { LIGHT.accent } else { LIGHT.secondary }))
+                        .when(offered, |d| {
+                            d.cursor_pointer()
+                                .on_click(cx.listener(move |this, _, _, cx| recover(this, cx)))
+                        })
+                        .child(match phase {
+                            Some(SetupPhase::Pending) => "Creazione in corso…",
+                            Some(SetupPhase::Failed(_)) => matrix_desktop::SETUP_RETRY_LABEL,
+                            _ => matrix_desktop::SETUP_LABEL,
+                        }),
+                );
             }
         }
         card = card
@@ -544,7 +703,11 @@ impl Render for SignInView {
                     })
                     .child(if enabled {
                         if recovery {
-                            matrix_desktop::DEFER_LABEL
+                            if self.form.setup_phase() == Some(SetupPhase::KeyShown) {
+                                matrix_desktop::SAVED_LABEL
+                            } else {
+                                matrix_desktop::DEFER_LABEL
+                            }
                         } else if unlock {
                             "Sblocca"
                         } else {
@@ -558,8 +721,9 @@ impl Render for SignInView {
                 div()
                     .text_size(px(12.))
                     .text_color(rgb(if matches!(
-                        self.form.recovery(),
-                        Some(RecoveryState::Pending | RecoveryState::Unsupported)
+                        (self.form.recovery(), self.form.setup_phase()),
+                        (Some(RecoveryState::Pending), _)
+                            | (Some(RecoveryState::Unsupported), None | Some(SetupPhase::Pending))
                     ) {
                         LIGHT.secondary
                     } else {
@@ -819,9 +983,10 @@ mod tests {
             let capacity = std::num::NonZeroUsize::new(1).unwrap();
             let (mut events, event_rx) = matrix_engine::bounded(capacity);
             let (commands, _requests) = matrix_engine::bounded(capacity);
+            let (mut setup_tx, setup_rx) = matrix_engine::bounded(capacity);
             let view = cx
                 .open_window(gpui::WindowOptions::default(), |_, cx| {
-                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx).with_vault(true))
+                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: setup_rx, commands }, cx).with_vault(true))
                 })
                 .unwrap();
             for event in [
@@ -831,11 +996,23 @@ mod tests {
                 SignInEvent::Recovery(match std::env::var("DIME_RECOVERY_CAPTURE").as_deref() {
                     Ok("pending") => RecoveryState::Pending,
                     Ok("invalid") => RecoveryState::Failed(matrix_engine::signin::RecoveryFailure::InvalidKey),
-                    Ok("unsupported") => RecoveryState::Unsupported,
+                    Ok("unsupported" | "setup" | "setup-key" | "setup-failed") => RecoveryState::Unsupported,
                     _ => RecoveryState::Offered,
                 }),
             ] {
                 events.try_send(event).unwrap();
+                view.update(cx, |v, _, cx| v.poll(cx)).unwrap();
+            }
+            let capture = std::env::var("DIME_RECOVERY_CAPTURE").unwrap_or_default();
+            let setup = match capture.as_str() {
+                "setup-key" => Some(SetupEvent::Ready(matrix_engine::recovery::RecoverySecret::fixture(
+                    "EsTc 7Qx9 mK2p LdA4 hW8s Yb3N cR6v ZfJ5",
+                ))),
+                "setup-failed" => Some(SetupEvent::Failed(SetupFailure::Network)),
+                _ => None,
+            };
+            if let Some(event) = setup {
+                assert!(setup_tx.try_send(event).is_ok());
                 view.update(cx, |v, _, cx| v.poll(cx)).unwrap();
             }
             let executor = cx.background_executor().clone();
@@ -896,6 +1073,84 @@ mod tests {
                 assert!(matches!(requests.try_recv(), Ok(SignInCommand::EnterRecovery(_))));
                 events.try_send(SignInEvent::Recovery(RecoveryState::Recovered)).unwrap();
                 assert_eq!(v.poll(cx), Some(account), "success continues to the room list");
+            })
+            .unwrap();
+            cx.spawn(async move |cx| {
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn recovery_setup_offers_creation_shows_the_key_once_and_needs_the_confirmation() {
+        use matrix_engine::signin::SignInCommand;
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let capacity = std::num::NonZeroUsize::new(1).unwrap();
+            let (mut events, event_rx) = matrix_engine::bounded(capacity);
+            let (commands, mut requests) = matrix_engine::bounded(capacity);
+            let (mut setup, setup_rx) = matrix_engine::bounded(capacity);
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |_, cx| {
+                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: setup_rx, commands }, cx).with_vault(true))
+                })
+                .unwrap();
+            view.update(cx, |v, window, cx| {
+                let account = matrix_domain::AccountId::new(1);
+                for event in [
+                    SignInEvent::Prompt(matrix_engine::signin::SignInPrompt { mode: SignInMode::Password, error: None }),
+                    SignInEvent::Authenticated(account),
+                    SignInEvent::Recovery(RecoveryState::Offered),
+                ] {
+                    events.try_send(event).unwrap();
+                    assert_eq!(v.poll(cx), None);
+                    let _ = v.render(window, cx);
+                }
+                // The restore route offers no creation.
+                v.recover(cx);
+                assert!(requests.try_recv().is_err(), "empty key: nothing is sent and nothing is created");
+                events.try_send(SignInEvent::Recovery(RecoveryState::Unsupported)).unwrap();
+                assert_eq!(v.poll(cx), None);
+                let _ = v.render(window, cx);
+                assert!(v.recover_focus.is_focused(window), "the setup offer takes focus");
+                v.recover(cx);
+                assert!(matches!(requests.try_recv(), Ok(SignInCommand::SetupRecovery)));
+                v.recover(cx);
+                assert!(requests.try_recv().is_err(), "a second activation must not start a second setup");
+                assert!(setup.try_send(SetupEvent::Pending).is_ok());
+                assert_eq!(v.poll(cx), None);
+                let _ = v.render(window, cx);
+                assert!(setup.try_send(SetupEvent::Failed(SetupFailure::Network)).is_ok());
+                assert_eq!(v.poll(cx), None);
+                let _ = v.render(window, cx);
+                assert!(v.form.error_message().unwrap().contains("non raggiungibile"));
+                assert!(v.recover_focus.is_focused(window), "retry keeps focus on the offer");
+                v.recover(cx);
+                assert!(matches!(requests.try_recv(), Ok(SignInCommand::SetupRecovery)), "retry after a failure");
+                assert!(setup.try_send(SetupEvent::Ready(matrix_engine::recovery::RecoverySecret::fixture("fixture key 1234"))).is_ok());
+                assert_eq!(v.poll(cx), None);
+                let _ = v.render(window, cx);
+                assert_eq!(v.form.recovery_key(), Some("fixture key 1234"));
+                assert!(v.copy_focus.is_focused(window), "focus lands on copy, never on the confirmation");
+                v.copy_key(cx);
+                assert_eq!(cx.read_from_clipboard().and_then(|item| item.text()).as_deref(), Some("fixture key 1234"));
+                let stale = v.submit_callback();
+                v.copy_focus.focus(window);
+                v.key(&KeyDownEvent { keystroke: gpui::Keystroke::parse("enter").unwrap(), is_held: false }, window, cx);
+                assert!(requests.try_recv().is_err(), "Enter on copy must not confirm the key as saved");
+                assert_eq!(v.form.recovery_key(), Some("fixture key 1234"));
+                v.recover(cx);
+                assert!(requests.try_recv().is_err(), "no second setup while the key is shown");
+                stale(v, cx);
+                v.submit(cx);
+                assert!(matches!(requests.try_recv(), Ok(SignInCommand::DeferRecovery)));
+                assert_eq!(v.form.recovery_key(), None, "the key is gone after the confirmation");
+                v.submit(cx);
+                assert!(requests.try_recv().is_err());
+                events.try_send(SignInEvent::Recovery(RecoveryState::Deferred)).unwrap();
+                assert_eq!(v.poll(cx), Some(account));
             })
             .unwrap();
             cx.spawn(async move |cx| {
@@ -993,8 +1248,8 @@ mod tests {
                         assert!(session.action(request).is_none());
                         assert!(!v.apply_semantic(*intent, window, cx));
                     }
-                    for control in Control::ALL.into_iter().filter(|c| !matches!(c, Control::Recover | Control::Defer) && (mode == SignInMode::Password || matches!(c, Control::Phrase | Control::Submit))) {
-                        let id = session.tree().nodes.iter().find(|(_,n)| n.label() == Some(match control {Control::Homeserver => "Homeserver HTTPS", Control::User => "ID Matrix completo", Control::Password => "Password Matrix", Control::Phrase => "Frase locale · almeno 16 caratteri", Control::Submit if mode == SignInMode::Unlock => "Sblocca", Control::Submit => "Accedi", Control::Recover | Control::Defer => unreachable!()})).unwrap().0;
+                    for control in Control::ALL.into_iter().filter(|c| !matches!(c, Control::Recover | Control::Defer | Control::Copy) && (mode == SignInMode::Password || matches!(c, Control::Phrase | Control::Submit))) {
+                        let id = session.tree().nodes.iter().find(|(_,n)| n.label() == Some(match control {Control::Homeserver => "Homeserver HTTPS", Control::User => "ID Matrix completo", Control::Password => "Password Matrix", Control::Phrase => "Frase locale · almeno 16 caratteri", Control::Submit if mode == SignInMode::Unlock => "Sblocca", Control::Submit => "Accedi", Control::Recover | Control::Defer | Control::Copy => unreachable!()})).unwrap().0;
                         for action in [Action::Focus, Action::Click] {
                             let request = ActionRequest { action, target_tree: TreeId::ROOT, target_node: id, data: None };
                             let Some(NavigationAction::SignIn(intent)) = session.action(&request) else { panic!("current action missing") };

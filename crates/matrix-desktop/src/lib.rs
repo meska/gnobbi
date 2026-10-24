@@ -8,11 +8,11 @@ pub use verification::DeviceVerification;
 #[cfg(all(feature = "live", unix))]
 mod signin_form;
 #[cfg(all(feature = "live", unix))]
-pub use signin_form::{FormStatus, SignInForm, SignInSource, visible_fields};
+pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 #[cfg(all(feature = "live", unix))]
 pub use signin_form::{
     DEFER_LABEL, RECOVER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_NOTE, RECOVERY_PENDING, RECOVERY_WARNING,
-    RETRY_LABEL,
+    RETRY_LABEL, SAVED_LABEL, SETUP_KEY_LABEL, SETUP_KEY_NOTE, SETUP_KEY_MASKED, SETUP_LABEL, SETUP_NOTE, SETUP_RETRY_LABEL, SETUP_PENDING, COPY_LABEL,
 };
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};

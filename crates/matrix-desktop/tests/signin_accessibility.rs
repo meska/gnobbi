@@ -385,8 +385,54 @@ fn recovery_states_project_pending_error_retry_and_unsupported() {
     assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_some());
 
     let (nav, tree) = project(RecoveryState::Unsupported);
-    assert_eq!(tree.nodes.len(), 2);
-    assert!(node(&tree, Control::Phrase).is_none() && node(&tree, Control::Recover).is_none());
+    // No secret storage: no key field, but the distinct setup offer next to the skip.
+    assert_eq!(tree.nodes.len(), 3);
+    assert!(node(&tree, Control::Phrase).is_none());
+    assert_eq!(node(&tree, Control::Recover).unwrap().label(), Some(matrix_desktop::SETUP_LABEL));
     assert!(nav.action(&request(Control::Defer.id(), Action::Click)).is_some());
+    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_some());
+}
+
+#[test]
+fn recovery_setup_projects_offer_masked_key_copy_and_confirm_without_the_key() {
+    use matrix_engine::recovery::RecoverySecret;
+    use matrix_engine::signin::{RecoveryState, SetupEvent, SetupFailure};
+    const KEY: &str = "SENTINEL recovery KEY 4242";
+    let mut form = vault_form(SignInMode::Password);
+    form.apply(SignInEvent::Authenticated(matrix_domain::AccountId::new(1)));
+    form.apply(SignInEvent::Recovery(RecoveryState::Unsupported));
+    form.apply_setup(SetupEvent::Pending);
+    let tree = navigation(Snapshot::new(&form, SignInMode::Password)).tree();
+    assert!(tree.nodes[0].1.description().unwrap().contains("in corso"));
+    assert!(tree.nodes.iter().skip(1).all(|(_, n)| n.is_disabled()));
+
+    form.apply_setup(SetupEvent::Failed(SetupFailure::Network));
+    let nav = navigation(Snapshot::new(&form, SignInMode::Password));
+    let tree = nav.tree();
+    assert!(tree.nodes[0].1.description().unwrap().contains("non raggiungibile"));
+    assert_eq!(node(&tree, Control::Recover).unwrap().label(), Some(matrix_desktop::SETUP_RETRY_LABEL));
+    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_some());
+
+    form.apply_setup(SetupEvent::Failed(SetupFailure::Partial));
+    let nav = navigation(Snapshot::new(&form, SignInMode::Password));
+    let tree = nav.tree();
+    assert!(node(&tree, Control::Recover).is_none(), "a permanent refusal offers no retry");
     assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_none());
+    assert!(nav.action(&request(Control::Defer.id(), Action::Click)).is_some());
+
+    form.apply_setup(SetupEvent::Ready(RecoverySecret::fixture(KEY)));
+    let nav = navigation(Snapshot::new(&form, SignInMode::Password));
+    let tree = nav.tree();
+    assert_eq!(tree.nodes[0].1.description(), Some(matrix_desktop::SETUP_KEY_MASKED));
+    assert_eq!(node(&tree, Control::Copy).unwrap().label(), Some(matrix_desktop::COPY_LABEL));
+    assert_eq!(node(&tree, Control::Defer).unwrap().label(), Some(matrix_desktop::SAVED_LABEL));
+    assert!(node(&tree, Control::Recover).is_none() && node(&tree, Control::Phrase).is_none());
+    for control in [Control::Copy, Control::Defer] {
+        assert!(matches!(
+            nav.action(&request(control.id(), Action::Click)),
+            Some(NavigationAction::SignIn(i)) if i.control == control
+        ));
+    }
+    let dump = format!("{tree:?}");
+    assert!(!dump.contains("SENTINEL") && !dump.contains("4242"), "the key never reaches the a11y tree");
 }

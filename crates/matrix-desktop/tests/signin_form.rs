@@ -359,3 +359,134 @@ fn recovery_wording_names_the_matrix_key_and_the_backup_limit() {
     assert!(matrix_desktop::RECOVERY_NOTE.contains("non tutti i vecchi messaggi"));
     assert_eq!(matrix_desktop::RECOVER_LABEL, "Recupera cronologia cifrata");
 }
+
+mod recovery_setup {
+    use matrix_desktop::SetupPhase;
+    use matrix_engine::recovery::RecoverySecret;
+    use matrix_engine::signin::{
+        RecoveryFailure, RecoveryState, SetupEvent, SetupFailure, SignInCommand, SignInEvent,
+    };
+    const KEY: &str = "EsTc fixture KEY 0000 1111 2222";
+
+    fn absent_form() -> matrix_desktop::SignInForm {
+        let mut form = matrix_desktop::SignInForm::default();
+        form.vault = true;
+        form.apply(SignInEvent::Authenticated(matrix_domain::AccountId::new(1)));
+        form.apply(SignInEvent::Recovery(RecoveryState::Offered));
+        form.apply(SignInEvent::Recovery(RecoveryState::Unsupported));
+        form
+    }
+    fn shown_form() -> matrix_desktop::SignInForm {
+        let mut form = absent_form();
+        let source = form.source().unwrap();
+        assert!(matches!(form.setup_source(source), Some(SignInCommand::SetupRecovery)));
+        form.apply_setup(SetupEvent::Pending);
+        form.apply_setup(SetupEvent::Ready(RecoverySecret::fixture(KEY)));
+        form
+    }
+
+    #[test]
+    fn setup_is_offered_only_when_the_account_has_no_secret_storage() {
+        for state in [
+            RecoveryState::Offered,
+            RecoveryState::Failed(RecoveryFailure::InvalidKey),
+            RecoveryState::Failed(RecoveryFailure::BackupUnavailable),
+        ] {
+            let mut form = absent_form();
+            form.apply(SignInEvent::Recovery(RecoveryState::Offered));
+            form.apply(SignInEvent::Recovery(state));
+            let source = form.source().unwrap();
+            assert!(!form.setup_offered(), "{state:?}");
+            assert!(form.setup_source(source).is_none(), "{state:?}");
+        }
+        let mut form = absent_form();
+        assert!(form.setup_offered());
+        let source = form.source().unwrap();
+        assert!(matches!(form.setup_source(source), Some(SignInCommand::SetupRecovery)));
+        assert!(form.setup_source(source).is_none(), "one activation, one command");
+        form.apply_setup(SetupEvent::Pending);
+        assert_eq!(form.setup_phase(), Some(SetupPhase::Pending));
+        assert_eq!(form.source(), None, "nothing is actionable while the setup runs");
+    }
+
+    #[test]
+    fn the_key_is_shown_once_and_continuing_needs_the_explicit_confirmation() {
+        let mut form = shown_form();
+        assert_eq!(form.setup_phase(), Some(SetupPhase::KeyShown));
+        assert_eq!(form.recovery_key(), Some(KEY));
+        assert_eq!(form.error_message(), None, "no stale message next to a shown key");
+        let source = form.source().unwrap();
+        assert!(form.defer_source(source).is_none(), "skipping is not the confirmation");
+        assert!(form.setup_source(source).is_none(), "no second key while one is shown");
+        assert_eq!(form.recovery_key(), Some(KEY));
+        assert!(matches!(form.confirm_saved_source(source), Some(SignInCommand::DeferRecovery)));
+        assert_eq!(form.recovery_key(), None, "the key leaves the form on confirmation");
+        assert!(form.confirm_saved_source(source).is_none());
+        assert_eq!(form.source(), None);
+    }
+
+    #[test]
+    fn a_stale_source_cannot_confirm_and_confirming_needs_a_shown_key() {
+        let mut form = absent_form();
+        let source = form.source().unwrap();
+        assert!(form.confirm_saved_source(source).is_none(), "no key, nothing to confirm");
+        let mut form = shown_form();
+        let old = form.source().unwrap();
+        form.apply_setup(SetupEvent::Ready(RecoverySecret::fixture(KEY)));
+        assert!(form.confirm_saved_source(old).is_none());
+        assert_eq!(form.recovery_key(), Some(KEY));
+    }
+
+    #[test]
+    fn transient_failures_allow_retry_and_permanent_ones_only_continue_without() {
+        for failure in [SetupFailure::Network, SetupFailure::Timeout, SetupFailure::Other] {
+            let mut form = absent_form();
+            let source = form.source().unwrap();
+            form.setup_source(source).unwrap();
+            form.apply_setup(SetupEvent::Failed(failure));
+            assert_eq!(form.setup_phase(), Some(SetupPhase::Failed(failure)));
+            assert!(form.error_message().is_some());
+            assert!(form.setup_offered(), "{failure:?} can be retried");
+            let source = form.source().unwrap();
+            assert!(matches!(form.setup_source(source), Some(SignInCommand::SetupRecovery)));
+        }
+        let mut messages = std::collections::HashSet::new();
+        for failure in [SetupFailure::Partial, SetupFailure::IdentityRequired, SetupFailure::AuthRequired] {
+            let mut form = absent_form();
+            let source = form.source().unwrap();
+            form.setup_source(source).unwrap();
+            form.apply_setup(SetupEvent::Failed(failure));
+            assert!(messages.insert(form.error_message().unwrap()), "{failure:?}");
+            assert!(!form.setup_offered(), "{failure:?} cannot be fixed by retrying");
+            let source = form.source().unwrap();
+            assert!(form.setup_source(source).is_none());
+            assert!(matches!(form.defer_source(source), Some(SignInCommand::DeferRecovery)));
+        }
+        let mut form = absent_form();
+        form.apply_setup(SetupEvent::Unsupported);
+        assert!(!form.setup_offered());
+        assert!(form.error_message().unwrap().contains("backup"));
+    }
+
+    #[test]
+    fn an_existing_recovery_turns_the_offer_into_the_restore_route() {
+        let mut form = absent_form();
+        let source = form.source().unwrap();
+        form.setup_source(source).unwrap();
+        form.apply_setup(SetupEvent::Failed(SetupFailure::AlreadyExists));
+        assert_eq!(form.recovery(), Some(RecoveryState::Offered));
+        assert!(!form.setup_offered());
+        assert!(form.error_message().unwrap().contains("già"));
+        let source = form.source().unwrap();
+        form.phrase.replace(None, "existing recovery key fixture");
+        assert!(matches!(form.recover_source(source), Some(SignInCommand::EnterRecovery(_))));
+    }
+
+    #[test]
+    fn labels_keep_setup_distinct_from_restore() {
+        assert_ne!(matrix_desktop::SETUP_LABEL, matrix_desktop::RECOVER_LABEL);
+        assert!(matrix_desktop::SETUP_LABEL.contains("Crea"));
+        assert!(matrix_desktop::SAVED_LABEL.contains("salvato"));
+        assert!(matrix_desktop::SETUP_KEY_NOTE.contains("una sola volta"));
+    }
+}

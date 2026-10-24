@@ -3,7 +3,11 @@ use crate::{FormStatus, SignInForm, SignInSource};
 use accesskit::{Action, ActionRequest, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use matrix_engine::signin::SignInMode;
 
-pub use crate::{DEFER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_PENDING, RECOVERY_WARNING, RECOVER_LABEL, RETRY_LABEL};
+pub use crate::{
+    COPY_LABEL, DEFER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_PENDING, RECOVERY_WARNING, RECOVER_LABEL, RETRY_LABEL,
+    SAVED_LABEL, SETUP_KEY_MASKED, SETUP_LABEL, SETUP_RETRY_LABEL,
+};
+use crate::SetupPhase;
 use matrix_engine::signin::RecoveryState;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Control {
@@ -15,9 +19,11 @@ pub enum Control {
     /// Post-login step only.
     Recover,
     Defer,
+    /// Copies the generated recovery key; the key itself is never in the tree.
+    Copy,
 }
 impl Control {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Homeserver,
         Self::User,
         Self::Password,
@@ -25,6 +31,7 @@ impl Control {
         Self::Submit,
         Self::Recover,
         Self::Defer,
+        Self::Copy,
     ];
     pub fn id(self) -> NodeId {
         NodeId(100 + self as u64)
@@ -36,9 +43,11 @@ pub struct Snapshot {
     pub status: FormStatus,
     pub mode: SignInMode,
     pub public: [String; 2],
-    pub bounds: [Option<accesskit::Rect>; 7],
+    pub bounds: [Option<accesskit::Rect>; 8],
     pub vault: bool,
     pub recovery: Option<matrix_engine::signin::RecoveryState>,
+    pub setup: Option<SetupPhase>,
+    pub setup_offered: bool,
     pub focused: Option<Control>,
 }
 #[derive(Clone, Copy)]
@@ -82,9 +91,11 @@ impl Snapshot {
             status: form.status(),
             mode,
             public: [form.homeserver.clone(), form.user.clone()],
-            bounds: [None; 7],
+            bounds: [None; 8],
             vault: form.vault,
             recovery: form.recovery(),
+            setup: form.setup_phase(),
+            setup_offered: form.setup_offered(),
             focused: None,
         }
     }
@@ -110,9 +121,14 @@ impl Snapshot {
     fn shows(&self, control: Control) -> bool {
         match control {
             Control::Defer => self.recovery.is_some(),
-            Control::Recover | Control::Phrase if self.recovery.is_some() => {
+            Control::Copy => self.setup == Some(SetupPhase::KeyShown),
+            Control::Recover if self.recovery.is_some() => {
                 self.recovery != Some(RecoveryState::Unsupported)
+                    || self.setup_offered
+                    || self.setup == Some(SetupPhase::Pending)
             }
+            Control::Phrase if self.recovery.is_some() => self.recovery != Some(RecoveryState::Unsupported),
+            _ if self.setup == Some(SetupPhase::KeyShown) => false,
             _ if self.recovery.is_some() => false,
             Control::Submit => true,
             c => crate::visible_fields(self.mode, self.vault).contains(&(c as usize)),
@@ -128,7 +144,11 @@ impl Snapshot {
             "Dime — Accedi"
         });
         root.set_description(if let Some(state) = self.recovery {
-            if state == RecoveryState::Pending {
+            if self.setup == Some(SetupPhase::KeyShown) {
+                SETUP_KEY_MASKED
+            } else if let Some(message) = self.setup.and_then(crate::signin_form::setup_message) {
+                message
+            } else if state == RecoveryState::Pending {
                 RECOVERY_PENDING
             } else {
                 crate::signin_form::recovery_message(state).unwrap_or(RECOVERY_WARNING)
@@ -150,7 +170,7 @@ impl Snapshot {
             let index = control as usize;
             let mut node = Node::new(match control {
                 Control::Password | Control::Phrase => Role::PasswordInput,
-                Control::Submit | Control::Recover | Control::Defer => Role::Button,
+                Control::Submit | Control::Recover | Control::Defer | Control::Copy => Role::Button,
                 _ => Role::TextInput,
             });
             node.set_label(match control {
@@ -161,9 +181,14 @@ impl Snapshot {
                 Control::Phrase => "Frase locale · almeno 16 caratteri",
                 Control::Submit if self.mode != SignInMode::Password => "Sblocca",
                 Control::Submit => "Accedi",
+                Control::Recover if self.recovery == Some(RecoveryState::Unsupported) => {
+                    if matches!(self.setup, Some(SetupPhase::Failed(_))) { SETUP_RETRY_LABEL } else { SETUP_LABEL }
+                }
                 Control::Recover if matches!(self.recovery, Some(RecoveryState::Failed(_))) => RETRY_LABEL,
                 Control::Recover => RECOVER_LABEL,
+                Control::Defer if self.setup == Some(SetupPhase::KeyShown) => SAVED_LABEL,
                 Control::Defer => DEFER_LABEL,
+                Control::Copy => COPY_LABEL,
             });
             if index < 2 {
                 node.set_value(self.public[index].clone());

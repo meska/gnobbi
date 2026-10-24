@@ -1,7 +1,7 @@
 //! UI-only sign-in state; storage and authentication stay on the backend.
 use crate::LoginInput;
 use matrix_engine::signin::{
-    RecoveryFailure, RecoveryState, Secret, SignInCommand, SignInEvent, SignInMode, SignInPrompt,
+    RecoveryFailure, RecoveryState, Secret, SetupEvent, SetupFailure, SignInCommand, SignInEvent, SignInMode, SignInPrompt,
 };
 pub const RECOVERY_WARNING: &str = "Senza recupero la cronologia cifrata precedente non sarà leggibile su questo dispositivo.";
 pub const RECOVER_LABEL: &str = "Recupera cronologia cifrata";
@@ -19,6 +19,38 @@ pub(crate) fn recovery_message(state: RecoveryState) -> Option<&'static str> {
         RecoveryState::Unsupported => "Questo account non ha un archivio segreto Matrix: nessuna chiave di recupero da inserire.",
         _ => return None,
     })
+}
+pub const SETUP_LABEL: &str = "Crea chiave di recupero";
+pub const SETUP_NOTE: &str = "Questo account non ha ancora un recupero Matrix. Puoi crearne uno nuovo: Dime genera una chiave di recupero e un backup delle chiavi di cifratura.";
+pub const SETUP_PENDING: &str = "Creazione del recupero e del backup in corso…";
+pub const SETUP_KEY_LABEL: &str = "Chiave di recupero Matrix";
+pub const SETUP_KEY_NOTE: &str = "Questa chiave viene mostrata una sola volta e Dime non la conserva. Salvala in un gestore di password o in un luogo sicuro: senza di essa non potrai ripristinare la cronologia cifrata.";
+pub const SETUP_KEY_MASKED: &str = "Chiave di recupero mostrata a schermo, una sola volta. Non è letta dal lettore di schermo.";
+pub const SETUP_RETRY_LABEL: &str = "Riprova a creare la chiave";
+pub const COPY_LABEL: &str = "Copia chiave";
+pub const SAVED_LABEL: &str = "Ho salvato la chiave: continua";
+pub(crate) fn setup_message(phase: SetupPhase) -> Option<&'static str> {
+    Some(match phase {
+        SetupPhase::Pending => SETUP_PENDING,
+        SetupPhase::KeyShown => return None,
+        SetupPhase::Unsupported => "Il server non offre il backup delle chiavi: nessun recupero da creare. Continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::AlreadyExists) => "Questo account ha già un recupero: inserisci la chiave di recupero esistente.",
+        SetupPhase::Failed(SetupFailure::Partial) => "Il recupero di questo account è configurato solo a metà: Dime non lo modifica. Continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::IdentityRequired) => "Questo account ha già un’identità crittografica che questo dispositivo non possiede: Dime non la sostituisce. Continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::AuthRequired) => "Il server chiede una conferma aggiuntiva che Dime non supporta. Continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::Network) => "Server non raggiungibile: il recupero non è stato creato. Riprova o continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::Timeout) => "La creazione ha impiegato troppo tempo. Riprova o continua senza recupero.",
+        SetupPhase::Failed(SetupFailure::Other) => "Creazione del recupero non riuscita. Riprova o continua senza recupero.",
+    })
+}
+/// Payload-free state of a first-time recovery setup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupPhase {
+    Pending,
+    /// The generated key is on screen and waits for the explicit confirmation.
+    KeyShown,
+    Failed(SetupFailure),
+    Unsupported,
 }
 pub const DEFER_LABEL: &str = "Continua senza recupero";
 /// Editor indices (homeserver, user, password, phrase) shown for a flow.
@@ -97,6 +129,9 @@ pub struct SignInForm {
     /// The OS vault protects new profiles: no local phrase is asked.
     pub vault: bool,
     recovery: Option<RecoveryState>,
+    setup: Option<SetupPhase>,
+    /// Held only while it is on screen; zeroized on drop.
+    key: Option<matrix_engine::recovery::RecoverySecret>,
     status: FormStatus,
 }
 impl Default for SignInForm {
@@ -108,6 +143,8 @@ impl Default for SignInForm {
             phrase: LoginInput::secret(),
             vault: false,
             recovery: None,
+            setup: None,
+            key: None,
             status: FormStatus::Opening,
             source: None,
         }
@@ -123,7 +160,66 @@ impl SignInForm {
     pub fn recovery(&self) -> Option<RecoveryState> {
         self.recovery
     }
+    pub fn setup_phase(&self) -> Option<SetupPhase> {
+        self.setup
+    }
+    /// The generated recovery key, only while the confirmation is pending.
+    pub fn recovery_key(&self) -> Option<&str> {
+        self.key.as_ref().map(|key| key.expose())
+    }
+    /// Creating a recovery is offered only when the account has none, and retried only after transient failures.
+    pub fn setup_offered(&self) -> bool {
+        self.recovery == Some(RecoveryState::Unsupported)
+            && matches!(
+                self.setup,
+                None | Some(SetupPhase::Failed(
+                    SetupFailure::Network | SetupFailure::Timeout | SetupFailure::Other
+                ))
+            )
+    }
+    pub fn setup_source(&mut self, source: SignInSource) -> Option<SignInCommand> {
+        if self.source != Some(source) || !self.setup_offered() {
+            return None;
+        }
+        self.source = None;
+        self.setup = Some(SetupPhase::Pending);
+        Some(SignInCommand::SetupRecovery)
+    }
+    /// The only way past a shown key; the key leaves the form here.
+    pub fn confirm_saved_source(&mut self, source: SignInSource) -> Option<SignInCommand> {
+        if self.source != Some(source) || self.key.is_none() {
+            return None;
+        }
+        self.key = None;
+        self.setup = None;
+        self.source = None;
+        Some(SignInCommand::DeferRecovery)
+    }
+    pub fn apply_setup(&mut self, event: SetupEvent) {
+        self.source = (!matches!(event, SetupEvent::Pending)).then(SignInSource::new);
+        self.key = None;
+        self.setup = Some(match event {
+            SetupEvent::Pending => SetupPhase::Pending,
+            SetupEvent::Ready(key) => {
+                self.key = Some(key);
+                SetupPhase::KeyShown
+            }
+            SetupEvent::Unsupported => SetupPhase::Unsupported,
+            SetupEvent::Failed(failure) => {
+                if failure == SetupFailure::AlreadyExists {
+                    self.recovery = Some(RecoveryState::Offered);
+                }
+                SetupPhase::Failed(failure)
+            }
+        });
+    }
     pub fn error_message(&self) -> Option<&'static str> {
+        if self.setup == Some(SetupPhase::KeyShown) {
+            return None;
+        }
+        if let Some(message) = self.setup.and_then(setup_message) {
+            return Some(message);
+        }
         if let Some(message) = self.recovery.and_then(recovery_message) {
             return Some(message);
         }
@@ -137,7 +233,7 @@ impl SignInForm {
     }
     /// Skip the optional recovery step; stale or repeated activations do nothing.
     pub fn defer_source(&mut self, source: SignInSource) -> Option<SignInCommand> {
-        if self.source != Some(source) || self.recovery.is_none() {
+        if self.source != Some(source) || self.recovery.is_none() || self.key.is_some() {
             return None;
         }
         self.source = None;
@@ -158,6 +254,7 @@ impl SignInForm {
         match Secret::new(std::mem::take(&mut *key)) {
             Ok(key) => {
                 self.source = None;
+                self.setup = None;
                 self.recovery = Some(RecoveryState::Pending);
                 Some(SignInCommand::EnterRecovery(key))
             }
@@ -190,7 +287,11 @@ impl SignInForm {
                 self.phrase.take();
                 self.status = FormStatus::Authenticated(account);
             }
-            SignInEvent::Recovery(state) => self.recovery = Some(state),
+            SignInEvent::Recovery(state) => {
+                self.setup = None;
+                self.key = None;
+                self.recovery = Some(state);
+            }
             SignInEvent::Failed(error) => {
                 self.password.take();
                 self.phrase.take();
