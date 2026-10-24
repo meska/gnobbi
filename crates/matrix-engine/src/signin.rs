@@ -2,7 +2,7 @@
 //! No runtime, sync, recovery setup or remote writes beyond explicit login.
 use crate::{
     auth::{AccountSession, AuthError},
-    recovery::RecoveryError,
+    recovery::{RecoveryError, SetupError},
     discovery::{Discovery, HomeserverUrl, LoginSupport},
     persistence::AccountStore,
 };
@@ -264,6 +264,26 @@ pub enum RecoveryFailure {
     BackupUnavailable,
     Other,
 }
+/// Outcome of a first-time recovery setup, on its own channel because the key must not be
+/// `Debug`, `Clone` or `Copy`. Delivered once; nothing else carries it.
+pub enum SetupEvent {
+    Pending,
+    Ready(crate::recovery::RecoverySecret),
+    Failed(SetupFailure),
+    /// The homeserver offers no key backup.
+    Unsupported,
+}
+/// Fixed failure categories of one setup attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupFailure {
+    AlreadyExists,
+    Partial,
+    IdentityRequired,
+    AuthRequired,
+    Network,
+    Timeout,
+    Other,
+}
 pub enum SignInCommand {
     Password {
         homeserver: String,
@@ -284,10 +304,13 @@ pub enum SignInCommand {
     UnlockVault,
     /// An existing Matrix recovery key (or passphrase); dropped and zeroized after the attempt.
     EnterRecovery(Secret),
+    /// Create secret storage and key backup; refused when either already exists.
+    SetupRecovery,
     DeferRecovery,
 }
 pub struct SignInUi {
     pub events: crate::Receiver<SignInEvent>,
+    pub setup: crate::Receiver<SetupEvent>,
     pub commands: crate::Sender<SignInCommand>,
 }
 /// A pending backend operation, not a runtime or a thread. Run inside the
@@ -297,6 +320,7 @@ pub struct PendingSignIn {
     trust_root: Option<Vec<u8>>,
     source: Option<Box<dyn ProtectionSource + Send + Sync>>,
     events: crate::Sender<SignInEvent>,
+    setup: crate::Sender<SetupEvent>,
     commands: crate::Receiver<SignInCommand>,
 }
 pub fn interactive(root: PathBuf, trust_root: Option<Vec<u8>>) -> (SignInUi, PendingSignIn) {
@@ -327,9 +351,11 @@ fn route(
     let capacity = std::num::NonZeroUsize::new(1).unwrap();
     let (commands, requests) = crate::bounded(capacity);
     let (events, updates) = crate::bounded(capacity);
+    let (setup_events, setup) = crate::bounded(capacity);
     (
         SignInUi {
             events: updates,
+            setup,
             commands,
         },
         PendingSignIn {
@@ -337,6 +363,7 @@ fn route(
             trust_root,
             source,
             events,
+            setup: setup_events,
             commands: requests,
         },
     )
@@ -394,6 +421,23 @@ impl PendingSignIn {
                     if state == RecoveryState::Recovered {
                         return Ok(session);
                     }
+                }
+                SignInCommand::SetupRecovery => {
+                    self.setup.send(SetupEvent::Pending).await.map_err(|_| SignInError::NoSession)?;
+                    let event = match session.setup_recovery().await {
+                        Ok(key) => SetupEvent::Ready(key),
+                        Err(SetupError::Unsupported) => SetupEvent::Unsupported,
+                        Err(error) => SetupEvent::Failed(match error {
+                            SetupError::AlreadyExists => SetupFailure::AlreadyExists,
+                            SetupError::Partial => SetupFailure::Partial,
+                            SetupError::IdentityRequired => SetupFailure::IdentityRequired,
+                            SetupError::AuthRequired => SetupFailure::AuthRequired,
+                            SetupError::Transport => SetupFailure::Network,
+                            SetupError::Deadline => SetupFailure::Timeout,
+                            _ => SetupFailure::Other,
+                        }),
+                    };
+                    self.setup.send(event).await.map_err(|_| SignInError::NoSession)?;
                 }
                 _ => (),
             }

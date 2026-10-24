@@ -448,7 +448,7 @@ fn install_signin_queue(window: &mut Window, cx: &mut Context<Shell>) {
             let prompt = SignInEvent::Prompt(SignInPrompt { mode, error: None });
             events.try_send(prompt).unwrap();
             let view = cx.new(|cx| {
-                let mut view = crate::signin_view::SignInView::new(SignInUi { events: event_rx, commands }, cx);
+                let mut view = crate::signin_view::SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx);
                 view.poll(cx);
                 view
             });

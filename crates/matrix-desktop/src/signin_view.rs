@@ -612,7 +612,7 @@ mod tests {
             let (commands, mut requests) = matrix_engine::bounded(capacity);
             events.try_send(SignInEvent::Prompt(matrix_engine::signin::SignInPrompt { mode, error: None })).unwrap();
             let view = cx.open_window(gpui::WindowOptions::default(), |_, cx| cx.new(|cx| {
-                let mut view = SignInView::new(SignInUi { events: event_rx, commands }, cx);
+                let mut view = SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx);
                 view.poll(cx);
                 view
             })).unwrap();
@@ -685,7 +685,7 @@ mod tests {
             let prompt = SignInEvent::Prompt(matrix_engine::signin::SignInPrompt { mode, error: None });
             assert!(events.try_send(prompt).is_ok());
             let view = cx.open_window(gpui::WindowOptions::default(), |_, cx| cx.new(|cx| {
-                let mut view = SignInView::new(SignInUi { events: event_rx, commands }, cx);
+                let mut view = SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx);
                 view.poll(cx);
                 view
             })).unwrap();
@@ -821,7 +821,7 @@ mod tests {
             let (commands, _requests) = matrix_engine::bounded(capacity);
             let view = cx
                 .open_window(gpui::WindowOptions::default(), |_, cx| {
-                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, commands }, cx).with_vault(true))
+                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx).with_vault(true))
                 })
                 .unwrap();
             for event in [
@@ -858,7 +858,7 @@ mod tests {
             let (commands, mut requests) = matrix_engine::bounded(capacity);
             let view = cx
                 .open_window(gpui::WindowOptions::default(), |_, cx| {
-                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, commands }, cx).with_vault(true))
+                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx).with_vault(true))
                 })
                 .unwrap();
             view.update(cx, |v, window, cx| {
@@ -918,7 +918,7 @@ mod tests {
             let (commands, mut requests) = matrix_engine::bounded(capacity);
             let view = cx
                 .open_window(gpui::WindowOptions::default(), |_, cx| {
-                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, commands }, cx).with_vault(true))
+                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx).with_vault(true))
                 })
                 .unwrap();
             view.update(cx, |v, window, cx| {
@@ -969,7 +969,7 @@ mod tests {
             let capacity = std::num::NonZeroUsize::new(1).unwrap();
             let (mut events, event_rx) = matrix_engine::bounded(capacity);
             let (commands, mut requests) = matrix_engine::bounded(capacity);
-            let view = cx.open_window(gpui::WindowOptions::default(), |_, cx| cx.new(|cx| SignInView::new(SignInUi { events: event_rx, commands }, cx))).unwrap();
+            let view = cx.open_window(gpui::WindowOptions::default(), |_, cx| cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx))).unwrap();
             view.update(cx, |v, window, cx| {
                 let nav = |v: &SignInView, window: &Window, cx: &gpui::App| NavigationSnapshot::for_signin(v.semantic_snapshot(window, cx));
                 let mut session = SemanticSession::new(nav(v, window, cx));
@@ -1074,6 +1074,7 @@ mod tests {
                         SignInView::new(
                             SignInUi {
                                 events: event_rx,
+                                setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1,
                                 commands,
                             },
                             cx,

@@ -538,3 +538,175 @@ fn disposable_gui_recovery_seed() {
     private("backup-before.json", &backup.to_string());
     std::fs::write(out.join("ids.json"), serde_json::json!({"room": room, "event": event.as_str()}).to_string()).unwrap();
 }
+
+/// Server-side state a refused setup must leave alone: backup version, default secret-storage key,
+/// published cross-signing keys. The fresh sign-in device is deliberately not part of it.
+#[cfg(unix)]
+async fn setup_wire(config: &serde_json::Value) -> serde_json::Value {
+    let base = format!("{}_matrix/client/v3/", config["url"].as_str().unwrap());
+    let token = config["alice_token"].as_str().unwrap();
+    let get = |path: String| {
+        let request = http(config).get(format!("{base}{path}")).bearer_auth(token);
+        async move {
+            let response = request.send().await.unwrap();
+            let status = response.status().as_u16();
+            (status, serde_json::from_slice::<serde_json::Value>(&response.bytes().await.unwrap()).unwrap())
+        }
+    };
+    let query = http(config).post(format!("{base}keys/query")).bearer_auth(token)
+        .header("Content-Type", "application/json").body(r#"{"device_keys":{"@alice:matrix-desktop.test":[]}}"#).send().await.unwrap();
+    let query: serde_json::Value = serde_json::from_slice(&query.bytes().await.unwrap()).unwrap();
+    serde_json::json!({
+        "backup": get("room_keys/version".into()).await,
+        "default_key": get("user/@alice:matrix-desktop.test/account_data/m.secret_storage.default_key".into()).await,
+        "master": query["master_keys"], "self_signing": query["self_signing_keys"], "user_signing": query["user_signing_keys"],
+    })
+}
+
+/// Seed alice's server state, sign in again on a new device through the vault route and ask for
+/// recovery setup. Returns the typed refusal; the wire state must be byte-identical afterwards.
+#[cfg(unix)]
+fn setup_refused(root_name: &str, seed: fn(&matrix_sdk::Client) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + '_>>) -> crate::signin::SetupFailure {
+    use crate::signin::{RecoveryState, Secret, SetupEvent, SignInCommand, SignInEvent, interactive_with_source};
+    let config = fixture();
+    let parent = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap();
+    let pem = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let before = runtime().block_on(async {
+        let seeder = login(&config, "alice", 25).await;
+        let client = seeder.client.as_ref().unwrap();
+        client.encryption().wait_for_e2ee_initialization_tasks().await;
+        seed(client).await;
+        setup_wire(&config).await
+    });
+    let (failure, session) = runtime().block_on(async {
+        let (mut ui, pending) = interactive_with_source(parent.join(root_name), Some(pem), Box::new(VaultFake(Default::default(), None)));
+        let consumer = async {
+            ui.events.recv().await.unwrap();
+            assert!(ui.commands.try_send(SignInCommand::VaultPassword {
+                homeserver: config["url"].as_str().unwrap().into(),
+                user: "@alice:matrix-desktop.test".into(),
+                password: Secret::new(config["alice_password"].as_str().unwrap().into()).unwrap(),
+            }).is_ok());
+            assert!(matches!(ui.events.recv().await, Some(SignInEvent::Authenticated(_))));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Offered)));
+            assert!(ui.commands.try_send(SignInCommand::SetupRecovery).is_ok());
+            assert!(matches!(ui.setup.recv().await, Some(SetupEvent::Pending)));
+            let Some(SetupEvent::Failed(kind)) = ui.setup.recv().await else { panic!("setup must be refused") };
+            assert!(ui.commands.try_send(SignInCommand::DeferRecovery).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Deferred)));
+            kind
+        };
+        let (session, kind) = tokio::join!(pending.run(), consumer);
+        (kind, session.unwrap())
+    });
+    runtime().block_on(async move {
+        assert!(setup_wire(&config).await == before, "a refused setup must not touch the server");
+        drop(session);
+    });
+    failure
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_signin_setup_recovery_creates_backup_and_a_second_device_restores_the_exact_event() {
+    use crate::signin::{RecoveryState, Secret, SetupEvent, SignInCommand, SignInEvent, SignInMode, SignInPrompt, interactive_with_source};
+    let config = fixture();
+    let parent = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap();
+    let pem = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let room = runtime().block_on(async { room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+        serde_json::json!({"name": "disposable setup", "visibility": "private", "initial_state": [
+            {"type": "m.room.encryption", "state_key": "", "content": {"algorithm": "m.megolm.v1.aes-sha2"}}
+        ]})).await["room_id"].as_str().unwrap().to_owned() });
+    let (key, first, event) = runtime().block_on(async {
+        let (mut ui, pending) = interactive_with_source(parent.join("setup-first"), Some(pem.clone()), Box::new(VaultFake(Default::default(), None)));
+        let consumer = async {
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Prompt(SignInPrompt { mode: SignInMode::Password, error: None })));
+            assert!(ui.commands.try_send(SignInCommand::VaultPassword {
+                homeserver: config["url"].as_str().unwrap().into(),
+                user: "@alice:matrix-desktop.test".into(),
+                password: Secret::new(config["alice_password"].as_str().unwrap().into()).unwrap(),
+            }).is_ok());
+            assert!(matches!(ui.events.recv().await, Some(SignInEvent::Authenticated(_))));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Offered)));
+            assert!(ui.commands.try_send(SignInCommand::SetupRecovery).is_ok());
+            assert!(matches!(ui.setup.recv().await, Some(SetupEvent::Pending)));
+            let Some(SetupEvent::Ready(key)) = ui.setup.recv().await else { panic!("setup must be ready") };
+            assert!(ui.commands.try_send(SignInCommand::DeferRecovery).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Deferred)));
+            key.expose().to_owned()
+        };
+        let (session, key) = tokio::join!(pending.run(), consumer);
+        let mut session = session.unwrap();
+        let client = session.client.as_ref().unwrap().clone();
+        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        let event = client.get_room(&matrix_sdk::ruma::RoomId::parse(&room).unwrap()).unwrap()
+            .send(matrix_sdk::ruma::events::room::message::RoomMessageEventContent::text_plain("recover old encrypted città 🦀"))
+            .await.unwrap().response.event_id;
+        session.upload_key_backup().await.unwrap();
+        (key, session, event)
+    });
+    let second = runtime().block_on(async {
+        let (mut ui, pending) = interactive_with_source(parent.join("setup-second"), Some(pem), Box::new(VaultFake(Default::default(), None)));
+        let consumer = async {
+            ui.events.recv().await.unwrap();
+            assert!(ui.commands.try_send(SignInCommand::VaultPassword {
+                homeserver: config["url"].as_str().unwrap().into(),
+                user: "@alice:matrix-desktop.test".into(),
+                password: Secret::new(config["alice_password"].as_str().unwrap().into()).unwrap(),
+            }).is_ok());
+            assert!(matches!(ui.events.recv().await, Some(SignInEvent::Authenticated(_))));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Offered)));
+            assert!(ui.commands.try_send(SignInCommand::EnterRecovery(Secret::new(key).unwrap())).is_ok());
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Pending)));
+            assert_eq!(ui.events.recv().await, Some(SignInEvent::Recovery(RecoveryState::Recovered)));
+        };
+        let (session, ()) = tokio::join!(pending.run(), consumer);
+        session.unwrap()
+    });
+    runtime().block_on(async move {
+        recovery_assert_message(second.client.as_ref().unwrap(), &room, &event, true).await;
+        drop(first); // SDK sessions must drop inside a runtime.
+    });
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_signin_setup_recovery_refuses_an_account_that_already_has_recovery() {
+    let kind = setup_refused("setup-exists", |client| Box::pin(async move {
+        client.encryption().bootstrap_cross_signing(None).await.unwrap();
+        client.encryption().recovery().enable().await.unwrap();
+    }));
+    assert_eq!(kind, crate::signin::SetupFailure::AlreadyExists);
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_signin_setup_recovery_refuses_a_backup_without_secret_storage() {
+    let kind = setup_refused("setup-backup-only", |client| Box::pin(async move {
+        client.encryption().backups().create().await.unwrap();
+    }));
+    assert_eq!(kind, crate::signin::SetupFailure::Partial);
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_signin_setup_recovery_refuses_secret_storage_without_a_backup() {
+    let kind = setup_refused("setup-storage-only", |client| Box::pin(async move {
+        client.encryption().secret_storage().create_secret_store().await.unwrap();
+    }));
+    assert_eq!(kind, crate::signin::SetupFailure::Partial);
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_signin_setup_recovery_never_replaces_an_identity_this_device_cannot_sign_with() {
+    let kind = setup_refused("setup-foreign-identity", |client| Box::pin(async move {
+        client.encryption().bootstrap_cross_signing(None).await.unwrap();
+    }));
+    assert_eq!(kind, crate::signin::SetupFailure::IdentityRequired);
+}

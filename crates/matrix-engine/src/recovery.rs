@@ -30,6 +30,42 @@ fn classify(error: &matrix_sdk::encryption::recovery::RecoveryError) -> Recovery
     }
 }
 
+/// Why a first-time recovery setup did not happen. Everything but `Transport`, `Deadline` and
+/// `Failed` is a refusal made before anything was written to the server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetupError {
+    LoggedOut,
+    /// Secret storage and key backup both exist already.
+    AlreadyExists,
+    /// Exactly one of secret storage and key backup exists; never completed or replaced silently.
+    Partial,
+    /// The account has an identity this device holds no private keys for: not replaced here.
+    IdentityRequired,
+    /// The server demands interactive authentication; it is never answered automatically.
+    AuthRequired,
+    /// The homeserver does not offer key backup.
+    Unsupported,
+    Transport,
+    Deadline,
+    Failed,
+}
+
+fn classify_setup(error: &matrix_sdk::encryption::recovery::RecoveryError) -> SetupError {
+    use matrix_sdk::encryption::{recovery::RecoveryError as Sdk, secret_storage::SecretStorageError as Store};
+    let sdk = match error {
+        Sdk::Sdk(e) | Sdk::SecretStorage(Store::Sdk(e)) => e,
+        Sdk::BackupExistsOnServer => return SetupError::Partial,
+        _ => return SetupError::Failed,
+    };
+    if sdk.as_uiaa_response().is_some() {
+        SetupError::AuthRequired
+    } else if matches!(sdk.client_api_error_kind(), Some(matrix_sdk::ruma::api::error::ErrorKind::Unrecognized)) {
+        SetupError::Unsupported
+    } else {
+        SetupError::Transport
+    }
+}
+
 /// Caller must arrange secure, explicit delivery; this is not a UI DTO.
 /// No automatic clipboard, file, diagnostic or screenshot integration.
 pub struct RecoverySecret(zeroize::Zeroizing<String>);
@@ -172,5 +208,34 @@ impl AccountSession {
         })
         .await
         .map_err(|_| RecoveryError::Deadline)?
+    }
+    /// First-time setup of secret storage and key backup, only when both are absent on the server.
+    /// Uses the SDK bootstrap (which also creates a missing identity); a required interactive
+    /// authentication is reported, never answered. A timeout can leave partial remote setup:
+    /// nothing is deleted to roll back.
+    pub async fn setup_recovery(&mut self) -> Result<RecoverySecret, SetupError> {
+        let client = self.client.as_ref().ok_or(SetupError::LoggedOut)?;
+        let me = client.user_id().ok_or(SetupError::LoggedOut)?.to_owned();
+        let transport = |_| SetupError::Transport;
+        tokio::time::timeout(Duration::from_secs(60), async {
+            let encryption = client.encryption();
+            let storage = encryption.secret_storage().fetch_default_key_id().await.map_err(transport)?.is_some();
+            let backup = encryption.backups().fetch_exists_on_server().await.map_err(transport)?;
+            match (storage, backup) {
+                (true, true) => return Err(SetupError::AlreadyExists),
+                (true, false) | (false, true) => return Err(SetupError::Partial),
+                (false, false) => (),
+            }
+            // A published identity without local private keys would be replaced by the bootstrap.
+            let complete = encryption.cross_signing_status().await.is_some_and(|status| status.is_complete());
+            if !complete && encryption.request_user_identity(&me).await.map_err(transport)?.is_some() {
+                return Err(SetupError::IdentityRequired);
+            }
+            encryption.recovery().enable().wait_for_backups_to_upload().await
+                .map(|key| RecoverySecret(zeroize::Zeroizing::new(key)))
+                .map_err(|e| classify_setup(&e))
+        })
+        .await
+        .map_err(|_| SetupError::Deadline)?
     }
 }
