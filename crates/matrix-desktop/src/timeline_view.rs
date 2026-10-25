@@ -75,6 +75,7 @@ pub struct TimelineView {
     link_bounds: Rc<RefCell<std::collections::HashMap<u64, Bounds<Pixels>>>>,
     link_sources: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     link_cursor: Rc<Cell<Option<u64>>>,
+    link_hover: Rc<Cell<Option<u64>>>,
     requested_link: Rc<RefCell<Option<matrix_desktop::MessageLinkTarget>>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     selection_cursor: Rc<
@@ -206,6 +207,7 @@ impl TimelineView {
             confirmation_focus: Rc::default(),
             link_sources: Rc::default(),
             link_cursor: Rc::default(),
+            link_hover: Rc::default(),
             requested_link: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             selection_cursor: Rc::default(),
@@ -1070,6 +1072,7 @@ impl TimelineView {
         let pending = self.link.borrow().capture();
         let link_sources = self.link_sources.clone();
         let link_cursor = self.link_cursor.clone();
+        let link_hover = self.link_hover.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1164,6 +1167,10 @@ impl TimelineView {
                     let down_sources = link_sources.clone();
                     let up_sources = link_sources.clone();
                     let up_targets = targets.clone();
+                    let move_targets = targets.clone();
+                    let move_hover = link_hover.clone();
+                    let hovered_url = targets.iter().find(|target| link_hover.get() == Some(target.instance())).map(|target| target.url().as_str().to_owned());
+                    let (tip_surface, tip_border, tip_text) = (t.surface, t.border, t.text);
                     let down_cursor = link_cursor.clone();
                     let down_requested = requested_link.clone();
                     let up_requested = requested_link.clone();
@@ -1217,7 +1224,9 @@ impl TimelineView {
                                 })
                                 .when_some(sender_label, |d, name| d.child(
                                     div().id(("sender-name", index)).mb_1().text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(name)))
-                                .child(div().id(("message-text", index)).cursor(gpui::CursorStyle::IBeam)
+                                .child(div().id(("message-text", index))
+                                    .cursor(if hovered_url.is_some() { gpui::CursorStyle::PointingHand } else { gpui::CursorStyle::IBeam })
+                                    .when_some(hovered_url, |d, url| d.tooltip(move |_, cx| cx.new(|_| LinkTooltip { url: url.clone(), surface: tip_surface, border: tip_border, text: tip_text }).into()))
                                     .on_mouse_down(MouseButton::Left, move |e, window, cx| {
                                         let ix = down_layout.index_for_position(e.position).unwrap_or_else(|ix| ix);
                                         if !down_selection.borrow_mut().begin_current(down_generation, down_id.clone(), &down_text, ix) { return; }
@@ -1250,7 +1259,17 @@ impl TimelineView {
                                         let id = move_id.clone();
                                         let text = move_text.clone();
                                         let dragging = move_drag.clone();
+                                        let targets = move_targets.clone();
+                                        let hover = move_hover.clone();
+                                        let hover_layout = move_layout.clone();
                                         window.on_mouse_event(move |e: &gpui::MouseMoveEvent, phase, window, _| {
+                                            if phase == gpui::DispatchPhase::Bubble {
+                                                let over = hover_layout.index_for_position(e.position).ok().and_then(|ix| matrix_desktop::link_at(&targets, ix)).map(|t| t.instance());
+                                                if over != hover.get() && (over.is_some() || targets.iter().any(|t| hover.get() == Some(t.instance()))) {
+                                                    hover.set(over);
+                                                    window.refresh();
+                                                }
+                                            }
                                             if phase == gpui::DispatchPhase::Bubble && e.pressed_button == Some(MouseButton::Left) && let Some(generation) = dragging.get() {
                                                 let ix = layout.index_for_position(e.position).unwrap_or_else(|ix| ix);
                                                 if selection.borrow().generation() == generation {
@@ -2170,5 +2189,19 @@ mod tests {
             assert!(!current_cancel());
             assert!(current_open().is_none());
         }
+    }
+}
+
+struct LinkTooltip {
+    url: String,
+    surface: u32,
+    border: u32,
+    text: u32,
+}
+
+impl gpui::Render for LinkTooltip {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        div().px_3().py_2().rounded_md().border_1().border_color(rgb(self.border)).bg(rgb(self.surface))
+            .text_color(rgb(self.text)).text_size(px(12.)).max_w(px(480.)).child(self.url.clone())
     }
 }

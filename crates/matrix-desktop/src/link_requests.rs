@@ -112,3 +112,8 @@ impl MessageLinkRequests {
         confirmation.request(target)
     }
 }
+
+/// The link occurrence covering a byte index of the message text.
+pub fn link_at(targets: &[MessageLinkTarget], index: usize) -> Option<&MessageLinkTarget> {
+    targets.iter().find(|t| t.range().contains(&index))
+}

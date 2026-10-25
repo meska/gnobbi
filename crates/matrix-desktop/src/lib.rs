@@ -37,7 +37,7 @@ pub use offline_delivery::{OfflineDelivery, OfflineDeliveryTarget};
 mod event_id_copy;
 pub use event_id_copy::{EventIdCopies, EventIdCopyTarget};
 mod link_requests;
-pub use link_requests::{MessageLinkRequests, MessageLinkTarget};
+pub use link_requests::{MessageLinkRequests, MessageLinkTarget, link_at};
 mod links;
 pub use links::{
     LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links,

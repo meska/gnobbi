@@ -1,4 +1,4 @@
-use matrix_desktop::{LinkConfirmation, MessageLinkRequests};
+use matrix_desktop::{LinkConfirmation, MessageLinkRequests, link_at};
 use matrix_domain::{AccountId, EventId, RoomId, RoomScope, ScopedTimelineId, TimelineId};
 
 fn event() -> ScopedTimelineId {
@@ -251,4 +251,17 @@ fn scoped_link_occurrences_only_request_validated_confirmation() {
         sources.targets(&id, text)[1].instance(),
         links[1].instance()
     );
+}
+
+#[test]
+fn link_at_returns_only_the_link_under_the_text_index() {
+    let text = "ciao https://example.invalid/a e https://example.invalid/b fine";
+    let targets = MessageLinkRequests::default().targets(&event(), text);
+    let a = text.find("https://example.invalid/a").unwrap();
+    let b = text.find("https://example.invalid/b").unwrap();
+    assert_eq!(link_at(&targets, a + 3).unwrap().url().as_str(), "https://example.invalid/a");
+    assert_eq!(link_at(&targets, b).unwrap().url().as_str(), "https://example.invalid/b");
+    assert!(link_at(&targets, 0).is_none());
+    assert!(link_at(&targets, a - 1).is_none());
+    assert!(link_at(&targets, text.len()).is_none());
 }
