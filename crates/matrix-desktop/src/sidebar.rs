@@ -14,6 +14,16 @@ pub struct SidebarRoom {
     pub info: matrix_engine::RoomInfo,
 }
 
+impl SidebarRoom {
+    /// Only me in the room, nothing unread and no live message. Unknown member count (0) is never empty.
+    fn is_empty(&self) -> bool {
+        !self.info.is_space
+            && self.info.joined_members == 1
+            && self.unread == 0
+            && self.info.preview.is_none()
+    }
+}
+
 /// Session-local navigation projection. `Some` is a joined Matrix Space, not a local folder.
 pub struct NavigationEntry {
     pub scope: Option<RoomScope>,
@@ -38,6 +48,7 @@ pub struct Sidebar {
     visible: Vec<usize>,
     query: String,
     unread_only: bool,
+    show_empty: bool,
     space: Option<RoomScope>,
     selected: Option<usize>,
 }
@@ -53,6 +64,7 @@ impl Sidebar {
             visible: Vec::new(),
             query: String::new(),
             unread_only: false,
+            show_empty: false,
             selected: None,
             space: None,
         }
@@ -149,6 +161,7 @@ impl Sidebar {
             visible: (0..300).collect(),
             query: String::new(),
             unread_only: false,
+            show_empty: false,
             selected: Some(0),
             space: None,
         }
@@ -202,6 +215,23 @@ impl Sidebar {
         }
         self.unread_only = enabled;
         self.set_query(&self.query.clone());
+    }
+
+    pub fn set_show_empty(&mut self, enabled: bool) {
+        if self.show_empty != enabled {
+            self.retire_navigation();
+        }
+        self.show_empty = enabled;
+        self.set_query(&self.query.clone());
+    }
+
+    pub fn show_empty(&self) -> bool {
+        self.show_empty
+    }
+
+    /// Rooms that are empty, whether or not they are currently shown.
+    pub fn hidden_empty_count(&self) -> usize {
+        self.rooms.iter().filter(|room| room.is_empty()).count()
     }
 
     pub fn unread_only(&self) -> bool {
@@ -286,6 +316,7 @@ impl Sidebar {
             .filter(|(_, room)| {
                 room.name.to_lowercase().contains(&needle)
                     && (!self.unread_only || room.unread > 0)
+                    && (self.show_empty || !room.is_empty())
                     && space.is_none_or(|s| {
                         room.scope == s.scope || s.info.children.contains(&room.scope.room_id)
                     })

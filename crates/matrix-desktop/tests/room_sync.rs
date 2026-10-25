@@ -197,3 +197,39 @@ fn connected_sidebar_projects_server_room_without_demo_rows() {
     assert_eq!(room.preview, "");
     assert_eq!(sidebar.visible_indices(), &[0]);
 }
+
+fn upsert_info(id: &str, unread: u64, members: u64, preview: Option<&str>) -> RoomListDiff {
+    RoomListDiff::Upsert(RoomSummary {
+        scope: scope(id),
+        name: id.to_owned(),
+        unread,
+        info: matrix_engine::RoomInfo {
+            joined_members: members,
+            preview: preview.map(str::to_owned),
+            ..Default::default()
+        },
+    })
+}
+
+#[test]
+fn rooms_with_only_me_and_no_messages_are_hidden_until_shown() {
+    let mut sidebar = Sidebar::connected(AccountId::new(18));
+    sidebar.apply_diff(upsert_info("!empty:test", 0, 1, None));
+    sidebar.apply_diff(upsert_info("!talk:test", 0, 1, Some("ciao")));
+    sidebar.apply_diff(upsert_info("!unread:test", 3, 1, None));
+    sidebar.apply_diff(upsert_info("!peer:test", 0, 2, None));
+    sidebar.apply_diff(upsert_info("!unknown:test", 0, 0, None));
+    let names = |s: &Sidebar| {
+        s.visible_indices().iter().map(|&i| s.rooms()[i].name.clone()).collect::<Vec<_>>()
+    };
+    assert_eq!(names(&sidebar), ["!talk:test", "!unread:test", "!peer:test", "!unknown:test"]);
+    assert_eq!(sidebar.hidden_empty_count(), 1);
+    sidebar.set_show_empty(true);
+    assert_eq!(sidebar.visible_indices().len(), 5);
+    assert_eq!(sidebar.hidden_empty_count(), 1);
+    // a deleted last message leaves the room empty again
+    sidebar.set_show_empty(false);
+    sidebar.apply_diff(upsert_info("!talk:test", 0, 1, None));
+    assert_eq!(sidebar.hidden_empty_count(), 2);
+    assert_eq!(sidebar.visible_indices().len(), 3);
+}

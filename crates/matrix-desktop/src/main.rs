@@ -1643,11 +1643,19 @@ impl Render for Shell {
                                 .when(self.connected, |d| d.flex_wrap().gap_2())
                                 .child(div().when(self.connected, |d| d.w_full()).child(format!(
                                     "{}/{} conversazioni · {}",
-                                    self.sidebar.visible_indices().len(), self.sidebar.rooms().len(),
+                                    self.sidebar.visible_indices().len(), self.sidebar.rooms().len() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
                                     if self.connected { connection_label } else { "fixture offline" }
                                 )))
                                 .when(self.connected, |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Devices, window, cx)))
                                 .when(self.connected, |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Notifications, window, cx)))
+                                .when(self.connected && self.sidebar.hidden_empty_count() > 0, |d| d.child(
+                                    div().id("empty-rooms-filter").cursor_pointer().text_color(rgb(t.accent))
+                                        .child(if self.sidebar.show_empty() { "Nascondi vuote".to_owned() } else { format!("Vuote ({})", self.sidebar.hidden_empty_count()) })
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.sidebar.set_show_empty(!this.sidebar.show_empty());
+                                            cx.notify();
+                                        })),
+                                ))
                                 .when(self.connected, |d| d.child(self.render_unread(window, cx))),
                         ),
                 )

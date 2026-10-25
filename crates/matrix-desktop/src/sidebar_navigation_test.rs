@@ -1420,6 +1420,40 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 25 {
+            // Connected Shell: an empty room is hidden, a «Vuote (N)» control brings it back.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
+                assert!(ok, "screenshot {name}");
+            };
+            let visible = |this: &mut Shell| this.sidebar.visible_indices().iter().map(|&i| this.sidebar.rooms()[i].name.clone()).collect::<Vec<_>>();
+            let hidden = this.update_in(cx, |this, _, cx| {
+                let account = this.active_scope.account_id;
+                for (id, name, members, preview) in [("!a:t", "Anna Bianchi", 2, Some("Ci vediamo domani")), ("!b:t", "Stanza vuota", 1, None)] {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                        scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(id) },
+                        name: name.into(), unread: 0,
+                        info: matrix_engine::RoomInfo { preview: preview.map(Into::into), joined_members: members, ..Default::default() },
+                    }));
+                }
+                cx.notify();
+                visible(this)
+            }).unwrap();
+            assert!(!hidden.iter().any(|n| n == "Stanza vuota") && hidden.iter().any(|n| n == "Anna Bianchi"), "{hidden:?}");
+            wait(700).await;
+            shot("p182-hidden");
+            let shown = this.update_in(cx, |this, _, cx| {
+                this.sidebar.set_show_empty(true);
+                cx.notify();
+                visible(this)
+            }).unwrap();
+            assert!(shown.iter().any(|n| n == "Stanza vuota"), "{shown:?}");
+            wait(700).await;
+            shot("p182-shown");
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 24 {
             // Connected Shell: a room row shows the last real message under the name, none when it has no message.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2428,6 +2462,17 @@ fn older_history_strip_shows_only_while_loading_or_after_a_failure() {
 fn room_row_shows_the_last_real_message_as_preview() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(24, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn empty_rooms_are_hidden_until_the_control_shows_them() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(25, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
