@@ -272,3 +272,47 @@ fn last_activity_follows_the_preview_and_clears_when_that_message_is_deleted() {
     apply_preview(&mut previews, "!r", PreviewChange::Remove { target: "$2".into() });
     assert_eq!(last_activity(&previews, "!r"), None);
 }
+
+fn label_of(json: serde_json::Value) -> String {
+    message_label(&serde_json::from_value::<MessageType>(json).unwrap())
+}
+
+#[test]
+fn non_text_message_types_get_real_labels() {
+    let table = [
+        (
+            serde_json::json!({"msgtype":"m.video","body":"clip.mp4","filename":"clip.mp4","url":"mxc://t/v",
+                "info":{"size":307200,"duration":12000,"mimetype":"video/mp4"},
+                "com.beeper.disappearing_timer":{"type":"after_read","timer":60000}}),
+            "Video · 0:12 · 300 KB",
+        ),
+        (serde_json::json!({"msgtype":"m.video","body":"v","url":"mxc://t/v"}), "Video"),
+        (
+            serde_json::json!({"msgtype":"m.audio","body":"a.ogg","url":"mxc://t/a","org.matrix.msc3245.voice":{}}),
+            "Nota vocale",
+        ),
+        (serde_json::json!({"msgtype":"m.audio","body":"a.mp3","url":"mxc://t/a"}), "Audio"),
+        (
+            serde_json::json!({"msgtype":"m.file","body":"r.pdf","filename":"relazione.pdf","url":"mxc://t/f","info":{"size":2097152}}),
+            "File · relazione.pdf · 2.0 MB",
+        ),
+        (serde_json::json!({"msgtype":"m.file","body":"r.pdf","url":"mxc://t/f"}), "File · r.pdf"),
+        (serde_json::json!({"msgtype":"m.location","body":"qui","geo_uri":"geo:1,2"}), "Posizione"),
+        (serde_json::json!({"msgtype":"m.foo","body":"x"}), "m.foo"),
+        (serde_json::json!({"msgtype":"m.text","body":""}), "Messaggio senza testo"),
+        (serde_json::json!({"msgtype":"m.text","body":"ciao"}), "ciao"),
+    ];
+    for (json, expected) in table {
+        let label = label_of(json.clone());
+        assert_eq!(label, expected, "{json}");
+        assert!(!label.contains("supporto non disponibile"));
+    }
+}
+
+#[test]
+fn sticker_and_poll_events_have_labels_and_other_types_none() {
+    assert_eq!(event_type_label("m.sticker"), Some("Sticker"));
+    assert_eq!(event_type_label("m.poll.start"), Some("Sondaggio"));
+    assert_eq!(event_type_label("org.matrix.msc3381.poll.start"), Some("Sondaggio"));
+    assert_eq!(event_type_label("m.reaction"), None);
+}

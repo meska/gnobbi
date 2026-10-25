@@ -2,6 +2,7 @@
 use crate::{RoomListDiff, RoomSummary, auth::AccountSession};
 use matrix_domain::{RoomId, RoomScope};
 use matrix_sdk::{RoomState, config::SyncSettings, ruma::presence::PresenceState};
+use matrix_sdk::ruma::events::room::message::MessageType;
 use std::{collections::BTreeMap, time::Duration};
 
 pub use crate::{RoomListEvent, RoomSyncStatus};
@@ -1108,6 +1109,27 @@ async fn history_rows(
             }
             continue;
         }
+        if let Some(label) = event
+            .raw()
+            .get_field::<String>("type")
+            .ok()
+            .flatten()
+            .and_then(|t| event_type_label(&t))
+            && let (Some(id), Some(sender), Some(timestamp)) = (
+                event.event_id(),
+                event.raw().get_field::<matrix_sdk::ruma::OwnedUserId>("sender").ok().flatten(),
+                event.raw().get_field::<u64>("origin_server_ts").ok().flatten(),
+            )
+        {
+            events.push(HistoryEvent {
+                event_id: matrix_domain::EventId::new(id.as_str()),
+                body: if redacted.contains(id) { "[Messaggio eliminato]" } else { label }.into(),
+                outgoing: client.user_id() == Some(sender.as_ref()),
+                timestamp_ms: timestamp,
+                sender: history_sender(&room, &sender).await,
+            });
+            continue;
+        }
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
             message,
         ))) = event.raw().deserialize()
@@ -1225,11 +1247,8 @@ async fn history_rows(
                 }
             }
             let body = match message.content.msgtype {
-                MessageType::Text(text) => text.body,
-                MessageType::Notice(text) => text.body,
-                MessageType::Emote(text) => format!("* {}", text.body),
                 MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
-                _ => "[Messaggio non testuale · supporto non disponibile]".into(),
+                other => message_label(&other),
             };
             events.push(HistoryEvent {
                 event_id: matrix_domain::EventId::new(message.event_id.as_str()),
@@ -1241,6 +1260,59 @@ async fn history_rows(
         }
     }
     Ok(events)
+}
+
+fn human_size(bytes: u64) -> String {
+    match bytes {
+        0..1024 => format!("{bytes} B"),
+        1024..1_048_576 => format!("{} KB", bytes / 1024),
+        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+    }
+}
+
+/// Row text for a message type: its content when textual, otherwise a short real label.
+fn message_label(msgtype: &MessageType) -> String {
+    let join = |name: &str, parts: Vec<String>| {
+        std::iter::once(name.to_owned()).chain(parts).collect::<Vec<_>>().join(" · ")
+    };
+    match msgtype {
+        MessageType::Text(_) | MessageType::Notice(_) | MessageType::Emote(_)
+            if msgtype.body().is_empty() =>
+        {
+            "Messaggio senza testo".into()
+        }
+        MessageType::Emote(_) => format!("* {}", msgtype.body()),
+        MessageType::Text(_) | MessageType::Notice(_) => msgtype.body().to_owned(),
+        MessageType::ServerNotice(n) => n.body.clone(),
+        MessageType::Video(v) => {
+            let info = v.info.as_deref();
+            let duration = info.and_then(|i| i.duration).map(|d| {
+                let s = d.as_secs();
+                format!("{}:{:02}", s / 60, s % 60)
+            });
+            let size = info.and_then(|i| i.size).map(|s| human_size(s.into()));
+            join("Video", duration.into_iter().chain(size).collect())
+        }
+        MessageType::Audio(a) if a.voice.is_some() => "Nota vocale".into(),
+        MessageType::Audio(_) => "Audio".into(),
+        MessageType::File(f) => {
+            let size = f.info.as_deref().and_then(|i| i.size).map(|s| human_size(s.into()));
+            join("File", std::iter::once(f.filename().to_owned()).chain(size).collect())
+        }
+        MessageType::Location(_) => "Posizione".into(),
+        MessageType::VerificationRequest(_) => "Richiesta di verifica".into(),
+        MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
+        other => other.msgtype().to_owned(),
+    }
+}
+
+/// Label for message-like events that are not `m.room.message` (sticker, poll).
+fn event_type_label(event_type: &str) -> Option<&'static str> {
+    match event_type {
+        "m.sticker" => Some("Sticker"),
+        "m.poll.start" | "org.matrix.msc3381.poll.start" => Some("Sondaggio"),
+        _ => None,
+    }
 }
 
 /// Targets of redaction events among saved events: the cache keeps the original and the redaction apart.
