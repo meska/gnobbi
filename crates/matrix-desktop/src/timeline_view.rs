@@ -1130,8 +1130,10 @@ impl TimelineView {
                     cuts.dedup();
                     body = body.with_highlights(cuts.windows(2).map(|pair| {
                         let range = pair[0]..pair[1];
+                        let is_link = links.iter().any(|link| link.range.contains(&range.start));
                         let style = HighlightStyle {
-                            color: links.iter().any(|link| link.range.contains(&range.start)).then(|| rgb(t.accent).into()),
+                            color: is_link.then(|| rgb(t.accent).into()),
+                            underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
                             background_color: selected.as_ref().is_some_and(|r| r.contains(&range.start)).then(|| rgb(t.selection).into()),
                             ..Default::default()
                         };

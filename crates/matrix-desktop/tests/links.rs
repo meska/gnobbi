@@ -133,3 +133,16 @@ fn only_explicit_http_https_urls_without_credentials_are_openable() {
         assert!(SafeWebUrl::parse(raw).is_none(), "accepted {raw:?}");
     }
 }
+
+#[test]
+fn sample_message_links_cover_each_web_url_and_skip_other_schemes() {
+    let text = "Guarda https://example.invalid/docs/guida e poi https://example.invalid/archivio/2026/10/25/un-percorso-molto-lungo?x=1&y=2 oppure javascript:alert(1) e ftp://example.invalid/file";
+    let found: Vec<_> = message_links(text).iter().map(|l| text[l.range.clone()].to_owned()).collect();
+    assert_eq!(
+        found,
+        [
+            "https://example.invalid/docs/guida",
+            "https://example.invalid/archivio/2026/10/25/un-percorso-molto-lungo?x=1&y=2"
+        ]
+    );
+}
