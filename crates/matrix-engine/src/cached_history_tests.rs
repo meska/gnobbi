@@ -193,6 +193,8 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
         .await;
         tokio::time::sleep(Duration::from_secs(1)).await;
         drop((events, _drop, room, alice, invited, session));
+        // Marks where the second run starts in the homeserver request log.
+        http().get(format!("{url}_matrix/client/versions?mark=reopen")).send().await.unwrap();
 
         // Alice is away while more messages arrive.
         for n in COUNT..COUNT + MISSED {
