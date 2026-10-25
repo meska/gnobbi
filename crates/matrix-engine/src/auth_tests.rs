@@ -1653,6 +1653,72 @@ fn disposable_persistent_restore_works_with_homeserver_unreachable() {
 #[cfg(unix)]
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_persistent_room_list_shows_saved_rooms_with_homeserver_unreachable() {
+    use crate::{RoomListDiff, RoomListEvent, room_sync::{RoomListWorker, RoomSync}};
+    let config = fixture();
+    let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap().to_owned();
+    let passphrase = "long disposable saved rooms fixture passphrase";
+    runtime().block_on(async {
+        let session = AccountStore::create(&root, AccountId::new(119))
+            .unwrap()
+            .password_login_with_http(
+                HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                passphrase,
+                http(&config),
+            )
+            .await
+            .unwrap();
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"visibility": "private", "name": "saved room"})).await;
+        let id = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "alice", reqwest::Method::PUT, &format!("rooms/{id}/send/m.room.message/s1"),
+            serde_json::json!({"msgtype": "m.text", "body": "last saved message"})).await;
+        let mut sync = RoomSync::new(session);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            let seen = sync.next_batch().await.unwrap().iter().any(|d| matches!(d,
+                RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == id && r.info.preview.as_deref() == Some("last saved message")));
+            if seen {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "room and preview seen online");
+        }
+    });
+    let pid = config["server_pid"].to_string();
+    struct Resume(String);
+    impl Drop for Resume {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("/usr/bin/kill").args(["-CONT", &self.0]).status();
+        }
+    }
+    assert!(std::process::Command::new("/usr/bin/kill").args(["-STOP", &pid]).status().unwrap().success());
+    let _resume = Resume(pid);
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let (worker, mut receiver) = RoomListWorker::spawn(move || async move {
+        AccountStore::open(&root, AccountId::new(119))
+            .unwrap()
+            .restore_with_trusted_root(passphrase, &ca)
+            .await
+    })
+    .unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if let Ok(RoomListEvent::Diff(RoomListDiff::Upsert(room))) = receiver.try_recv() {
+            assert_eq!(room.name, "saved room");
+            assert_eq!(room.info.preview.as_deref(), Some("last saved message"));
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "saved rooms must not wait for the first sync answer");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    worker.shutdown().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
 fn disposable_persistent_existing_store_cannot_be_rebound() {
     let config = fixture();
     let root = std::path::Path::new(config["ca"].as_str().unwrap())

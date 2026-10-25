@@ -323,6 +323,13 @@ impl RoomListWorker {
                             .as_str()
                             .hash(&mut seed);
                         let mut backoff = crate::reconnect::Backoff::new(seed.finish());
+                        if let Ok(saved) = sync.saved_batch().await {
+                            for change in saved {
+                                if sender.send(RoomListEvent::Diff(change)).await.is_err() {
+                                    return;
+                                }
+                            }
+                        }
                         loop {
                             let (changes, activity) = match sync.next_batch_with_activity().await {
                                 Ok(changes) => changes,
@@ -674,6 +681,36 @@ impl RoomSync {
                 self.receipts.observe_event(&scope, &raw);
             }
         }
+        let activity_heads = heads;
+        let changes = self.summarize().await?;
+        let activity = self.timeline_activity(activity_heads);
+        Ok((changes, activity))
+    }
+
+    /// Joined rooms already in the SDK store, previews from the saved messages. No network.
+    pub async fn saved_batch(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
+        let client = self.session.client.as_ref().ok_or(SyncError::LoggedOut)?.clone();
+        for room in client.rooms().into_iter().filter(|r| r.state() == RoomState::Joined) {
+            let Ok((saved, _, _)) = stored_events(&client, room.room_id()).await else { continue };
+            for event in &saved {
+                match preview_change(event.raw().json().get()) {
+                    PreviewChange::Set { event_id, text } => {
+                        self.previews.insert(room.room_id().to_string(), (event_id, text));
+                    }
+                    PreviewChange::Remove { target } => {
+                        if self.previews.get(room.room_id().as_str()).is_some_and(|(id, _)| *id == target) {
+                            self.previews.remove(room.room_id().as_str());
+                        }
+                    }
+                    PreviewChange::Ignore => {}
+                }
+            }
+        }
+        self.summarize().await
+    }
+
+    async fn summarize(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
+        let client = self.session.client.as_ref().ok_or(SyncError::LoggedOut)?;
         let mut current = BTreeMap::new();
         for room in client
             .rooms()
@@ -745,8 +782,7 @@ impl RoomSync {
                 .collect::<Vec<_>>(),
         );
         self.previous = current;
-        let activity = self.timeline_activity(heads);
-        Ok((changes, activity))
+        Ok(changes)
     }
 
     fn timeline_activity(

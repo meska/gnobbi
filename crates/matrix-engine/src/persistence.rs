@@ -166,7 +166,11 @@ impl AccountStore {
             client: Some(client),
             store: Some(self),
         };
-        match session.whoami().await {
+        // shortcut: a hanging network is cut at 3 s so saved rooms show; a slower valid server re-checks at sync.
+        let checked = tokio::time::timeout(std::time::Duration::from_secs(3), session.whoami())
+            .await
+            .unwrap_or(Err(AuthError::Transport));
+        match checked {
             Ok(identity)
                 if identity.user_id() != expected.user_id.as_str()
                     || identity.device_id() != expected.device_id.as_str() =>
