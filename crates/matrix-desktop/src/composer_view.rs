@@ -124,6 +124,11 @@ impl ComposerView {
         cx.notify();
     }
 
+    #[cfg(test)]
+    pub(crate) fn draft_state(&self) -> (String, usize, usize) {
+        (self.draft.text().to_owned(), self.anchor, self.cursor)
+    }
+
     pub fn is_focused(&self, window: &Window) -> bool {
         self.focus.is_focused(window) || self.send_is_focused(window)
     }

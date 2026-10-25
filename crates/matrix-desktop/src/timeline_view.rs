@@ -1989,6 +1989,84 @@ mod tests {
         });
     }
 
+    struct ComposerHost(TimelineView, gpui::Entity<crate::composer_view::ComposerView>);
+    impl Render for ComposerHost {
+        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div()
+                .size_full()
+                .flex()
+                .flex_col()
+                .child(div().flex_1().child(self.0.render(matrix_desktop::LIGHT, window, None, None)))
+                .child(self.1.clone())
+        }
+    }
+
+    /// Older rows arriving must not touch the draft, the message selection or where focus sits.
+    #[test]
+    #[ignore = "requires private display"]
+    fn older_rows_keep_draft_selection_and_focus() {
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        gpui::Application::new().run(|cx| {
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:fixture.invalid") };
+                    let composer = cx.new(|cx| crate::composer_view::ComposerView::new(scope.clone(), cx));
+                    cx.new(|cx| ComposerHost(TimelineView::with_history(DemoHistory::new(scope, 60), cx.focus_handle(), false), composer))
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                let pause = || executor.timer(std::time::Duration::from_millis(500));
+                pause().await;
+                let (id, text) = view
+                    .update(cx, |host, window, cx| {
+                        host.1.update(cx, |c, cx| {
+                            gpui::EntityInputHandler::replace_text_in_range(c, None, "bozza caffè 🦀", window, cx);
+                            c.focus_from_accessibility(window, cx);
+                        });
+                        host.0.state.scroll_to(ListOffset { item_ix: 20, offset_in_item: px(3.) });
+                        let history = host.0.history.borrow();
+                        let event = &history.events()[22];
+                        host.0.selection.borrow_mut().begin(event.id.clone(), &event.text, 0);
+                        host.0.selection.borrow_mut().extend(&event.id, &event.text, 4);
+                        (event.id.clone(), event.text.clone())
+                    })
+                    .unwrap();
+                pause().await;
+                let before = view
+                    .update(cx, |host, window, cx| {
+                        assert!(host.1.read(cx).is_focused(window), "composer focused before");
+                        host.1.read(cx).draft_state()
+                    })
+                    .unwrap();
+                assert_eq!(before.0, "bozza caffè 🦀");
+                view.update(cx, |host, _, cx| {
+                    let older = (0..25)
+                        .map(|n| HistoryEvent {
+                            event_id: EventId::new(format!("$old{n}:fixture.invalid")),
+                            body: format!("older {n}"),
+                            outgoing: false,
+                            timestamp_ms: n,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                        })
+                        .collect();
+                    host.0.prepend_server(older);
+                    cx.notify();
+                })
+                .unwrap();
+                pause().await;
+                view.update(cx, |host, window, cx| {
+                    assert_eq!(host.1.read(cx).draft_state(), before, "draft text and cursor unchanged");
+                    assert!(host.1.read(cx).is_focused(window), "composer keeps focus");
+                    assert_eq!(host.0.selection.borrow().range(&id, &text), Some(0..4), "message selection unchanged");
+                    cx.quit();
+                })
+                .unwrap();
+            })
+            .detach();
+        });
+    }
+
     fn selection_probe(
         check: impl FnOnce(&mut TimelineView, &mut gpui::Window, &mut gpui::App) + 'static,
     ) {
