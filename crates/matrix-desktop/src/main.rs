@@ -5,6 +5,7 @@ mod filter_view;
 #[cfg(all(feature = "live", unix))]
 mod login_field;
 mod media_view;
+mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
 mod notification_view;
@@ -43,6 +44,9 @@ struct Shell {
     signin: Option<gpui::Entity<signin_view::SignInView>>,
     rail_ui: rail_view::RailUi,
     opener_ui: panel_opener_view::OpenerUi,
+    menu_open: bool,
+    menu_focus: FocusHandle,
+    drawer_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     back_ui: compact_view::BackUi,
     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -1384,7 +1388,7 @@ impl Render for Shell {
             .capture_key_down(cx.listener({
                 let opener_keys=self.opener_key_callback();
                 move |this,event,window,cx| {
-                    if this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
+                    if this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
                     else {this.navigation_key(event,window,cx);}
                 }
             }))
@@ -1419,6 +1423,7 @@ impl Render for Shell {
                                 .items_center()
                                 .px_5()
                                 .gap_3()
+                                .child(self.render_menu_button(t, window, cx))
                                 .child(
                                     div()
                                         .text_size(px(18.))
@@ -1739,6 +1744,7 @@ impl Render for Shell {
                 )
             })
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
+            .when(self.menu_open, |d| d.child(self.render_drawer(t, cx)))
             .into_any_element()
     }
 }
@@ -2316,6 +2322,9 @@ fn main() {
                         pending_sidebar_key: None,
                         rail_ui,
                         opener_ui: panel_opener_view::OpenerUi::new(),
+                        menu_open: false,
+                        menu_focus: cx.focus_handle(),
+                        drawer_focus: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         back_ui: compact_view::BackUi::new(cx),
                         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]

@@ -1420,6 +1420,50 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 26 {
+            // Connected Shell: the menu button opens a drawer; Esc, the shortcut or the scrim close it; focus follows.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
+                assert!(ok, "screenshot {name}");
+            };
+            macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
+            this.update_in(cx, |this, window, _| {
+                assert!(!this.menu_open, "drawer starts closed");
+                this.menu_focus.focus(window);
+            }).unwrap();
+            wait(500).await;
+            shot("p183-closed");
+            key!("enter");
+            wait(500).await;
+            this.update_in(cx, |this, window, _| {
+                assert!(this.menu_open, "Enter on the menu button opens the drawer");
+                assert!(this.drawer_focus.is_focused(window), "focus moves into the drawer");
+            }).unwrap();
+            key!("tab");
+            this.update_in(cx, |this, window, _| assert!(this.drawer_focus.is_focused(window), "Tab stays inside the drawer")).unwrap();
+            key!("shift-tab");
+            this.update_in(cx, |this, window, _| assert!(this.drawer_focus.is_focused(window), "Shift+Tab stays inside the drawer")).unwrap();
+            wait(500).await;
+            shot("p183-open");
+            key!("escape");
+            this.update_in(cx, |this, window, _| {
+                assert!(!this.menu_open, "Esc closes the drawer");
+                assert!(this.menu_focus.is_focused(window), "focus returns to the menu button");
+            }).unwrap();
+            key!("ctrl-shift-m");
+            this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window))).unwrap();
+            key!("ctrl-shift-m");
+            this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "second toggle closes")).unwrap();
+            // Outside click and button click share set_menu_open; the scrim path is checked through it.
+            this.update_in(cx, |this, window, cx| {
+                this.set_menu_open(true, window, cx);
+                this.set_menu_open(false, window, cx);
+                assert!(!this.menu_open && this.menu_focus.is_focused(window));
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 25 {
             // Connected Shell: an empty room is hidden, a «Vuote (N)» control brings it back.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2473,6 +2517,17 @@ fn room_row_shows_the_last_real_message_as_preview() {
 fn empty_rooms_are_hidden_until_the_control_shows_them() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(25, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn menu_button_opens_and_closes_the_drawer_and_moves_focus() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(26, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
