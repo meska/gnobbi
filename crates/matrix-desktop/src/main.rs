@@ -2216,6 +2216,10 @@ fn main() {
                                         if this.pending_history.is_none() {
                                             this.pending_history = this.history.refresh();
                                         }
+                                        if this.connected && this.pending_history.is_none()
+                                            && let Some(timeline) = &this.timeline {
+                                            this.pending_history = this.history.load_older_near_top(timeline.first_visible_row());
+                                        }
                                         this.flush_history();
                                         if this.drive_inline_images() {
                                             cx.notify();

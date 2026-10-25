@@ -599,3 +599,19 @@ fn removing_selected_room_cancels_pending_history_and_resets_lifecycle() {
         .unwrap();
     assert_eq!(rows.len(), 1, "a new lifecycle must not inherit seen IDs");
 }
+
+#[test]
+fn scrolling_near_the_top_starts_one_older_page_and_none_at_room_start() {
+    let mut view = HistorySession::new();
+    let room = scope("!auto:test");
+    let initial = view.select(Some(room)).unwrap();
+    view.apply(page(&initial, &["$a", "$b"], Some("older"))).unwrap();
+    assert!(view.load_older_near_top(HistorySession::AUTO_LOAD_ROWS + 1).is_none());
+    let request = view
+        .load_older_near_top(HistorySession::AUTO_LOAD_ROWS)
+        .expect("near the top must request the previous page");
+    assert_eq!(request.before.as_deref(), Some("older"));
+    assert!(view.load_older_near_top(0).is_none(), "one request at a time");
+    view.apply(page(&request, &["$c"], None)).unwrap();
+    assert!(view.load_older_near_top(0).is_none(), "nothing at room start");
+}

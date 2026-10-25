@@ -222,6 +222,17 @@ impl HistorySession {
         }
         self.load_older()
     }
+    /// Rows from the oldest loaded one within which scrolling starts the previous page by itself.
+    pub const AUTO_LOAD_ROWS: usize = 20;
+
+    /// Scroll-driven paging: only from a healthy `More` state, so a failed page waits for an explicit retry.
+    pub fn load_older_near_top(&mut self, first_visible_row: usize) -> Option<HistoryRequest> {
+        if self.status != HistoryStatus::More || first_visible_row > Self::AUTO_LOAD_ROWS {
+            return None;
+        }
+        self.load_older()
+    }
+
     pub fn load_older(&mut self) -> Option<HistoryRequest> {
         if self.live_failed {
             self.dirty = true;

@@ -832,6 +832,10 @@ impl TimelineView {
         }).collect()
     }
 
+    pub fn first_visible_row(&self) -> usize {
+        self.state.logical_scroll_top().item_ix
+    }
+
     pub fn prepend_older(&self) {
         let offset = self.state.logical_scroll_top();
         let anchor = self
