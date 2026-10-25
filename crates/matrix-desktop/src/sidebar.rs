@@ -85,7 +85,7 @@ impl Sidebar {
             scope: summary.scope,
             initials: summary.name.chars().take(2).collect(),
             name: summary.name,
-            preview: String::new(),
+            preview: summary.info.preview.clone().unwrap_or_default(),
             time: "",
             color: 0x5288b5,
             unread: summary.unread,

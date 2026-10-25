@@ -1207,6 +1207,41 @@ fn disposable_unnamed_room_is_listed_by_participants_not_by_id() {
 
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_room_list_preview_is_last_real_message_and_clears_when_deleted() {
+    use crate::{RoomListDiff, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"visibility": "private", "name": "preview", "invite": ["@bob:matrix-desktop.test"]})).await;
+        let id = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("rooms/{id}/join"), serde_json::json!({})).await;
+        let send = async |txn: &str, body: &str| room_request(&config, "bob", reqwest::Method::PUT,
+            &format!("rooms/{id}/send/m.room.message/{txn}"), serde_json::json!({"msgtype": "m.text", "body": body})).await;
+        send("t1", "primo").await;
+        let last = send("t2", "ultimo messaggio").await["event_id"].as_str().unwrap().to_owned();
+        let mut sync = RoomSync::new(login(&config, "alice", 19).await);
+        let mut wait_for = async |want: Option<&str>| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            loop {
+                for change in sync.next_batch().await.unwrap() {
+                    if let RoomListDiff::Upsert(room) = change
+                        && room.scope.room_id.as_str() == id
+                        && room.info.preview.as_deref() == want
+                    {
+                        return;
+                    }
+                }
+                assert!(std::time::Instant::now() < deadline, "preview never became {want:?}");
+            }
+        };
+        wait_for(Some("ultimo messaggio")).await;
+        room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/redact/{last}/t3"), serde_json::json!({})).await;
+        wait_for(None).await;
+    });
+}
+
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
 fn disposable_room_list_worker_delivers_on_bounded_background_route() {
     use crate::{
         RoomListDiff,

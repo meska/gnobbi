@@ -503,6 +503,8 @@ pub struct RoomSync {
     session: AccountSession,
     previous: BTreeMap<String, RoomSummary>,
     timeline_heads: BTreeMap<String, matrix_domain::EventId>,
+    /// Last real message per room as (event id, text); fed by sync only, so empty until a message arrives.
+    previews: BTreeMap<String, (String, String)>,
     receipts: crate::receipts::PeerReceipts,
     operation_state: std::sync::Arc<tokio::sync::Mutex<crate::operations::OperationJournal>>,
 }
@@ -565,6 +567,7 @@ impl RoomSync {
             session,
             previous: BTreeMap::new(),
             timeline_heads: BTreeMap::new(),
+            previews: BTreeMap::new(),
             receipts,
             operation_state: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
         }
@@ -643,6 +646,19 @@ impl RoomSync {
                     matrix_domain::EventId::new(event.as_str()),
                 ));
             }
+            for event in &update.timeline.events {
+                match preview_change(event.raw().json().get()) {
+                    PreviewChange::Set { event_id, text } => {
+                        self.previews.insert(room.to_string(), (event_id, text));
+                    }
+                    PreviewChange::Remove { target } => {
+                        if self.previews.get(room.as_str()).is_some_and(|(id, _)| *id == target) {
+                            self.previews.remove(room.as_str());
+                        }
+                    }
+                    PreviewChange::Ignore => {}
+                }
+            }
             for raw in update.ephemeral {
                 self.receipts.observe_event(&scope, &raw);
             }
@@ -689,6 +705,7 @@ impl RoomSync {
                             account_id: self.session.account_id(),
                             room_id: RoomId::new(id.clone()),
                         }),
+                        preview: self.previews.get(&id).map(|(_, text)| text.clone()),
                         topic: room.topic(),
                         joined_members: room.joined_members_count(),
                         is_space: room.is_space(),
@@ -738,6 +755,38 @@ impl RoomSync {
                 Some(summary.scope.clone())
             })
             .collect()
+    }
+}
+
+/// What one timeline event means for the room-list preview.
+#[derive(Debug, PartialEq, Eq)]
+enum PreviewChange {
+    Set { event_id: String, text: String },
+    Remove { target: String },
+    Ignore,
+}
+
+fn preview_change(raw: &str) -> PreviewChange {
+    let Ok(event) = serde_json::from_str::<serde_json::Value>(raw) else {
+        return PreviewChange::Ignore;
+    };
+    let text = |v: Option<&serde_json::Value>| v.and_then(|v| v.as_str()).map(str::to_owned);
+    let content = &event["content"];
+    match event["type"].as_str() {
+        Some("m.room.redaction") => text(event.get("redacts").or(content.get("redacts")))
+            .map_or(PreviewChange::Ignore, |target| PreviewChange::Remove { target }),
+        Some("m.room.message")
+            if event["unsigned"].get("redacted_because").is_none()
+                && content["m.relates_to"]["rel_type"] != "m.replace" =>
+        {
+            let (Some(event_id), Some(body)) = (text(event.get("event_id")), text(content.get("body")))
+            else {
+                return PreviewChange::Ignore;
+            };
+            let text = if content["msgtype"] == "m.image" { "Immagine".to_owned() } else { body };
+            PreviewChange::Set { event_id, text }
+        }
+        _ => PreviewChange::Ignore,
     }
 }
 

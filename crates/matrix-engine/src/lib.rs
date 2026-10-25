@@ -31,6 +31,8 @@ pub struct RoomInfo {
     /// Observed public peer markers only; empty means no known marker, not unread.
     pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
     pub topic: Option<String>,
+    /// Text of the last real message seen in sync; None when none or it was deleted.
+    pub preview: Option<String>,
     pub joined_members: u64,
     pub is_space: bool,
     /// Direct m.space.child links with valid nonempty via; never autojoin.

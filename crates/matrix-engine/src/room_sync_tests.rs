@@ -215,3 +215,24 @@ fn room_label_prefers_the_computed_name_and_uses_the_id_last() {
     assert_eq!(room_label(Some(N::Empty), id), id);
     assert_eq!(room_label(None, id), id);
 }
+
+#[test]
+fn preview_follows_real_messages_and_ignores_edits_and_deleted_ones() {
+    let msg = |id: &str, content: &str, extra: &str| {
+        format!(r#"{{"type":"m.room.message","event_id":"{id}","sender":"@a:t","content":{content}{extra}}}"#)
+    };
+    let set = |id: &str, text: &str| PreviewChange::Set { event_id: id.into(), text: text.into() };
+    assert_eq!(preview_change(&msg("$1", r#"{"msgtype":"m.text","body":"ciao"}"#, "")), set("$1", "ciao"));
+    assert_eq!(preview_change(&msg("$2", r#"{"msgtype":"m.notice","body":"avviso"}"#, "")), set("$2", "avviso"));
+    assert_eq!(preview_change(&msg("$3", r#"{"msgtype":"m.image","body":"IMG_1.png"}"#, "")), set("$3", "Immagine"));
+    assert_eq!(preview_change(&msg("$4", r#"{"msgtype":"m.file","body":"a.pdf"}"#, "")), set("$4", "a.pdf"));
+    let edit = r#"{"msgtype":"m.text","body":"* x","m.relates_to":{"rel_type":"m.replace","event_id":"$1"}}"#;
+    assert_eq!(preview_change(&msg("$5", edit, "")), PreviewChange::Ignore);
+    assert_eq!(preview_change(&msg("$6", "{}", r#","unsigned":{"redacted_because":{}}"#)), PreviewChange::Ignore);
+    assert_eq!(preview_change(r#"{"type":"m.room.redaction","event_id":"$7","redacts":"$1","content":{}}"#),
+        PreviewChange::Remove { target: "$1".into() });
+    assert_eq!(preview_change(r#"{"type":"m.room.redaction","event_id":"$8","content":{"redacts":"$2"}}"#),
+        PreviewChange::Remove { target: "$2".into() });
+    assert_eq!(preview_change(r#"{"type":"m.room.member","event_id":"$9","content":{}}"#), PreviewChange::Ignore);
+    assert_eq!(preview_change("not json"), PreviewChange::Ignore);
+}

@@ -1420,6 +1420,30 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 24 {
+            // Connected Shell: a room row shows the last real message under the name, none when it has no message.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let rows = this.update_in(cx, |this, _, cx| {
+                let account = this.active_scope.account_id;
+                for (id, name, preview) in [("!a:t", "Anna Bianchi", Some("Ci vediamo domani alle nove")), ("!b:t", "Anna Rossi", None)] {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                        scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(id) },
+                        name: name.into(), unread: 0,
+                        info: matrix_engine::RoomInfo { preview: preview.map(Into::into), ..Default::default() },
+                    }));
+                }
+                this.sidebar.set_query("Anna");
+                cx.notify();
+                this.sidebar.rooms().iter().map(|r| (r.name.clone(), r.preview.clone())).collect::<Vec<_>>()
+            }).unwrap();
+            assert!(rows.contains(&("Anna Bianchi".into(), "Ci vediamo domani alle nove".into())), "{rows:?}");
+            assert!(rows.contains(&("Anna Rossi".into(), String::new())), "{rows:?}");
+            wait(700).await;
+            let ok = std::process::Command::new("grim").arg("/tmp/gui-out/p181-preview.png").status().map(|s| s.success()).unwrap_or(false);
+            assert!(ok, "screenshot");
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 23 {
             // Connected Shell: the strip above the timeline shows only while an older page loads or after it failed.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2393,6 +2417,17 @@ fn wheel_and_scrollbar_drag_keep_the_row_being_read_in_place() {
 fn older_history_strip_shows_only_while_loading_or_after_a_failure() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(23, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn room_row_shows_the_last_real_message_as_preview() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(24, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
