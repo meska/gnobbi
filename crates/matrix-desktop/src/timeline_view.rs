@@ -1158,13 +1158,10 @@ impl TimelineView {
                         Some(DemoSendState::Failed) => "failed",
                         None => if live { "server" } else { "fixture" },
                     };
-                    let stamp = StyledText::new(match event.send_state {
-                        Some(_) => matrix_desktop::bubble_stamp(&event.time, event.outgoing, event.send_state),
-                        None if live => match &event.id.id {
-                            matrix_domain::TimelineId::Server(id) => format!("{} · {}", matrix_desktop::bubble_stamp(&event.time, event.outgoing, None), id.as_str()),
-                            _ => matrix_desktop::bubble_stamp(&event.time, event.outgoing, None),
-                        },
-                        None => format!("{} · demo locale", event.time),
+                    let stamp = StyledText::new(if live || event.send_state.is_some() {
+                        event.stamp()
+                    } else {
+                        format!("{} · demo locale", event.time)
                     });
                     let row_bounds: RowBounds = Rc::new(RefCell::new(None));
                     if probe {

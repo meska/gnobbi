@@ -33,6 +33,13 @@ pub struct DemoEvent {
     pub timestamp_ms: u64,
 }
 
+impl DemoEvent {
+    /// Bubble footer text; never contains the event id.
+    pub fn stamp(&self) -> String {
+        bubble_stamp(&self.time, self.outgoing, self.send_state)
+    }
+}
+
 impl DemoHistory {
     pub fn new(scope: RoomScope, count: usize) -> Self {
         let events = (0..count)
