@@ -586,14 +586,14 @@ impl Render for SignInView {
             } else {
                 "Accedi a Gnobbi"
             }))
-            .child(div().text_size(px(12.)).child(match self.mode {
+            .when(recovery || self.mode != SignInMode::UnlockVault, |d| d.child(div().text_size(px(12.)).child(match self.mode {
                 _ if recovery => "Passo facoltativo dopo l’accesso",
                 SignInMode::Unlock => {
                     "Sblocco dell’archivio locale con la frase locale del profilo. Non è la chiave di recupero Matrix."
                 }
-                SignInMode::UnlockVault => "La chiave del profilo è nel portachiavi di sistema.",
+                SignInMode::UnlockVault => "",
                 SignInMode::Password => "Matrix diretto · nessun gateway",
-            }));
+            })));
         for (index, label) in [
             "Homeserver HTTPS",
             "ID Matrix completo",
@@ -802,6 +802,8 @@ impl Render for SignInView {
                             } else {
                                 matrix_desktop::DEFER_LABEL
                             }
+                        } else if self.mode == SignInMode::UnlockVault {
+                            "Riprova"
                         } else if unlock {
                             "Sblocca"
                         } else {

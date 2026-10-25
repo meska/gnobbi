@@ -316,12 +316,12 @@ fn vault_password_projection_has_no_local_phrase_node() {
 }
 
 #[test]
-fn vault_unlock_projection_is_a_single_unlock_button() {
+fn vault_unlock_projection_is_a_single_retry_button() {
     let form = vault_form(SignInMode::UnlockVault);
     let nav = navigation(Snapshot::new(&form, SignInMode::UnlockVault));
     let tree = nav.tree();
     assert_eq!(tree.nodes.len(), 2);
-    assert_eq!(node(&tree, Control::Submit).unwrap().label(), Some("Sblocca"));
+    assert_eq!(node(&tree, Control::Submit).unwrap().label(), Some("Riprova"));
     assert!(nav.action(&request(Control::Password.id(), Action::Click)).is_none());
     assert!(nav.action(&request(Control::Submit.id(), Action::Click)).is_some());
 }

@@ -179,6 +179,7 @@ impl Snapshot {
                 Control::Password => "Password Matrix",
                 Control::Phrase if self.recovery.is_some() => RECOVERY_KEY_LABEL,
                 Control::Phrase => "Frase locale · almeno 16 caratteri",
+                Control::Submit if self.mode == SignInMode::UnlockVault => "Riprova",
                 Control::Submit if self.mode != SignInMode::Password => "Sblocca",
                 Control::Submit => "Accedi",
                 Control::Recover if self.recovery == Some(RecoveryState::Unsupported) => {

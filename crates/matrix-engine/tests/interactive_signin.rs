@@ -373,4 +373,42 @@ mod auto_unlock {
         assert_eq!(prompt.error, Some(SignInError::Vault(VaultError::Unavailable)));
         assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
     }
+
+    /// Locked on the first read, answering on the second.
+    struct Unlocks(Arc<AtomicU32>);
+    impl ProtectionSource for Unlocks {
+        fn create(&self, _: &AccountStore) -> Result<Secret, VaultError> {
+            Err(VaultError::Unavailable)
+        }
+        fn read(&self, _: &AccountStore) -> Result<Secret, VaultError> {
+            if self.0.fetch_add(1, Ordering::Relaxed) == 0 {
+                Err(VaultError::Locked)
+            } else {
+                Secret::new("fixture vault key fixture vault key".into()).map_err(|_| VaultError::Unavailable)
+            }
+        }
+    }
+
+    #[test]
+    fn retry_after_the_keyring_is_unlocked_reads_the_key_again_and_leaves_the_vault_error() {
+        let root = vault_root();
+        let reads = Arc::new(AtomicU32::new(0));
+        let (mut ui, pending) = interactive_with_source(root.0.clone(), None, Box::new(Unlocks(reads.clone())));
+        let second = runtime().block_on(async {
+            let consumer = async {
+                let Some(SignInEvent::Prompt(first)) = ui.events.recv().await else { panic!("first prompt") };
+                assert_eq!(first.error, Some(SignInError::Vault(VaultError::Locked)));
+                assert!(ui.commands.try_send(matrix_engine::signin::SignInCommand::UnlockVault).is_ok());
+                let event = ui.events.recv().await;
+                drop(ui);
+                event
+            };
+            tokio::join!(pending.run(), consumer).1
+        });
+        assert_eq!(reads.load(Ordering::Relaxed), 2);
+        assert!(
+            !matches!(second, Some(SignInEvent::Prompt(SignInPrompt { error: Some(SignInError::Vault(_)), .. }))),
+            "{second:?}"
+        );
+    }
 }
