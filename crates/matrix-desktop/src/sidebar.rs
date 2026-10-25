@@ -323,6 +323,13 @@ impl Sidebar {
             })
             .map(|(i, _)| i)
             .collect();
+        // Search keeps match order; the plain list is newest activity first, ties by name, idle rooms last.
+        if needle.is_empty() {
+            let rooms = &self.rooms;
+            self.visible.sort_by_cached_key(|&i| {
+                (std::cmp::Reverse(rooms[i].info.last_activity), rooms[i].name.to_lowercase())
+            });
+        }
     }
 
     /// Reject foreign account/room identities and rows outside the current filter.
@@ -367,5 +374,40 @@ impl Sidebar {
     }
     pub fn selected(&self) -> Option<&SidebarRoom> {
         self.selected.map(|i| &self.rooms[i])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use matrix_engine::{RoomInfo, RoomSummary};
+
+    fn names(sidebar: &Sidebar) -> Vec<&str> {
+        sidebar.visible_indices().iter().map(|&i| sidebar.rooms()[i].name.as_str()).collect()
+    }
+
+    fn fill(sidebar: &mut Sidebar, account: &AccountId, rooms: &[(&str, Option<u64>)]) {
+        for (name, last_activity) in rooms {
+            sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+                scope: RoomScope { account_id: account.clone(), room_id: RoomId::new(format!("!{name}:t.invalid")) },
+                name: (*name).into(),
+                unread: 0,
+                info: RoomInfo { last_activity: *last_activity, preview: Some("x".into()), ..Default::default() },
+            }));
+        }
+    }
+
+    #[test]
+    fn rooms_are_ordered_by_recent_activity_then_name_with_idle_rooms_last() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account.clone());
+        fill(&mut sidebar, &account, &[("zeta", None), ("beta", Some(10)), ("alfa", None), ("old", Some(5)), ("Gamma", Some(10)), ("new", Some(99))]);
+        assert_eq!(names(&sidebar), ["new", "beta", "Gamma", "old", "alfa", "zeta"]);
+        // a newer message moves the room to the top
+        fill(&mut sidebar, &account, &[("old", Some(100))]);
+        assert_eq!(names(&sidebar)[0], "old");
+        // search keeps the unsorted match order
+        sidebar.set_query("a");
+        assert_eq!(names(&sidebar), ["zeta", "beta", "alfa", "Gamma"]);
     }
 }
