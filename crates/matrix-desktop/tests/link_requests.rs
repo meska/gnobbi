@@ -1,4 +1,4 @@
-use matrix_desktop::{LinkConfirmation, MessageLinkRequests, link_at};
+use matrix_desktop::{LinkConfirmation, LinkMenu, MessageLinkRequests, link_at};
 use matrix_domain::{AccountId, EventId, RoomId, RoomScope, ScopedTimelineId, TimelineId};
 
 fn event() -> ScopedTimelineId {
@@ -264,4 +264,23 @@ fn link_at_returns_only_the_link_under_the_text_index() {
     assert!(link_at(&targets, 0).is_none());
     assert!(link_at(&targets, a - 1).is_none());
     assert!(link_at(&targets, text.len()).is_none());
+}
+
+#[test]
+fn link_menu_offers_copy_and_open_and_open_still_needs_confirmation() {
+    let id = event();
+    let mut sources = MessageLinkRequests::default();
+    let targets = sources.targets(&id, "vai su https://example.invalid/a ora");
+    let mut menu = LinkMenu::default();
+    assert!(menu.target().is_none());
+    assert_eq!(LinkMenu::ITEMS, ["Copia link", "Apri"]);
+    menu.open(targets[0].clone());
+    assert_eq!(menu.copy().as_deref(), Some("https://example.invalid/a"));
+    assert!(menu.target().is_none(), "choosing an item closes the menu");
+    let mut confirmation = LinkConfirmation::default();
+    menu.open(targets[0].clone());
+    assert!(menu.open_link(&mut sources, &mut confirmation));
+    assert!(menu.target().is_none());
+    assert_eq!(confirmation.capture().unwrap().url().as_str(), "https://example.invalid/a");
+    assert!(menu.copy().is_none());
 }

@@ -117,3 +117,39 @@ impl MessageLinkRequests {
 pub fn link_at(targets: &[MessageLinkTarget], index: usize) -> Option<&MessageLinkTarget> {
     targets.iter().find(|t| t.range().contains(&index))
 }
+
+/// Right-click menu on a link: copy the address, or open it (still behind the confirmation).
+#[derive(Default)]
+pub struct LinkMenu {
+    target: Option<MessageLinkTarget>,
+}
+
+impl LinkMenu {
+    pub const ITEMS: [&'static str; 2] = ["Copia link", "Apri"];
+
+    pub fn open(&mut self, target: MessageLinkTarget) {
+        self.target = Some(target);
+    }
+
+    pub fn target(&self) -> Option<&MessageLinkTarget> {
+        self.target.as_ref()
+    }
+
+    pub fn close(&mut self) {
+        self.target = None;
+    }
+
+    pub fn copy(&mut self) -> Option<String> {
+        self.target.take().map(|t| t.url().as_str().to_owned())
+    }
+
+    pub fn open_link(
+        &mut self,
+        sources: &mut MessageLinkRequests,
+        confirmation: &mut LinkConfirmation,
+    ) -> bool {
+        self.target
+            .take()
+            .is_some_and(|t| sources.request(&t, confirmation))
+    }
+}

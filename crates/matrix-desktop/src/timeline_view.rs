@@ -76,6 +76,8 @@ pub struct TimelineView {
     link_sources: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     link_cursor: Rc<Cell<Option<u64>>>,
     link_hover: Rc<Cell<Option<u64>>>,
+    link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
+    link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     requested_link: Rc<RefCell<Option<matrix_desktop::MessageLinkTarget>>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     selection_cursor: Rc<
@@ -123,6 +125,7 @@ impl TimelineView {
         let key_selection = self.selection.clone();
         let key_history = self.history.clone();
         let key_link = self.link.clone();
+        let key_menu = self.link_menu.clone();
         let generation = key_selection.borrow().generation();
         move |event, window, cx| {
             if key_selection.borrow().generation() != generation {
@@ -165,6 +168,7 @@ impl TimelineView {
             } else if event.keystroke.key == "escape" {
                 key_selection.borrow_mut().clear();
                 key_link.borrow_mut().cancel();
+                key_menu.borrow_mut().close();
                 window.refresh();
                 cx.stop_propagation();
             }
@@ -208,6 +212,8 @@ impl TimelineView {
             link_sources: Rc::default(),
             link_cursor: Rc::default(),
             link_hover: Rc::default(),
+            link_menu: Rc::default(),
+            link_menu_at: Rc::default(),
             requested_link: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             selection_cursor: Rc::default(),
@@ -1070,9 +1076,12 @@ impl TimelineView {
         let link = self.link.clone();
         let click_origin = self.click_origin.clone();
         let pending = self.link.borrow().capture();
+        let menu_target = self.link_menu.borrow().target().cloned();
         let link_sources = self.link_sources.clone();
         let link_cursor = self.link_cursor.clone();
         let link_hover = self.link_hover.clone();
+        let link_menu = self.link_menu.clone();
+        let link_menu_at = self.link_menu_at.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1137,7 +1146,8 @@ impl TimelineView {
                         let style = HighlightStyle {
                             color: is_link.then(|| rgb(t.accent).into()),
                             underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
-                            background_color: selected.as_ref().is_some_and(|r| r.contains(&range.start)).then(|| rgb(t.selection).into()),
+                            background_color: (selected.as_ref().is_some_and(|r| r.contains(&range.start))
+                                || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start))).then(|| rgb(t.selection).into()),
                             ..Default::default()
                         };
                         (range, style)
@@ -1172,6 +1182,14 @@ impl TimelineView {
                     let hovered_url = targets.iter().find(|target| link_hover.get() == Some(target.instance())).map(|target| target.url().as_str().to_owned());
                     let (tip_surface, tip_border, tip_text) = (t.surface, t.border, t.text);
                     let down_cursor = link_cursor.clone();
+                    let down_menu = link_menu.clone();
+                    let menu_layout = body.layout().clone();
+                    let menu_targets = targets.clone();
+                    let menu_state = link_menu.clone();
+                    let menu_at = link_menu_at.clone();
+                    let paint_targets = targets.clone();
+                    let paint_layout = body.layout().clone();
+                    let paint_links = row_link_painted.clone();
                     let down_requested = requested_link.clone();
                     let up_requested = requested_link.clone();
                     let status = match event.send_state {
@@ -1232,6 +1250,7 @@ impl TimelineView {
                                         if !down_selection.borrow_mut().begin_current(down_generation, down_id.clone(), &down_text, ix) { return; }
                                         down_sources.borrow_mut().retain_event(&down_id);
                                         down_cursor.set(None);
+                                        down_menu.borrow_mut().close();
                                         down_requested.replace(None);
                                         *down_origin.borrow_mut() = Some((down_id.clone(), ix));
                                         down_link.borrow_mut().cancel();
@@ -1239,6 +1258,15 @@ impl TimelineView {
                                         down_focus.focus(window);
                                         window.refresh();
                                         cx.stop_propagation();
+                                    })
+                                    .on_mouse_down(MouseButton::Right, move |e, window, cx| {
+                                        if let Ok(ix) = menu_layout.index_for_position(e.position)
+                                            && let Some(target) = matrix_desktop::link_at(&menu_targets, ix) {
+                                            menu_state.borrow_mut().open(target.clone());
+                                            menu_at.set(e.position);
+                                            window.refresh();
+                                            cx.stop_propagation();
+                                        }
                                     })
                                     .on_mouse_up(MouseButton::Left, move |e, window, _| {
                                         let origin = up_origin.borrow_mut().take();
@@ -1253,7 +1281,16 @@ impl TimelineView {
                                         }
                                     })
                                     .relative()
-                                    .child(canvas(|_, _, _| (), move |_, _, window, _| {
+                                    .child(canvas(|_, _, _| (), move |bounds, _, window, _| {
+                                        // Accessible link bounds come from the text itself: first line only when a link wraps.
+                                        for target in &paint_targets {
+                                            let r = target.range();
+                                            if let (Some(a), Some(b)) = (paint_layout.position_for_index(r.start), paint_layout.position_for_index(r.end)) {
+                                                let lh = paint_layout.line_height();
+                                                let right = if b.y == a.y { b.x } else { bounds.right() };
+                                                paint_links.borrow_mut().insert(target.instance(), Bounds::from_corners(a, gpui::point(right, a.y + lh)));
+                                            }
+                                        }
                                         let layout = move_layout.clone();
                                         let selection = move_selection.clone();
                                         let id = move_id.clone();
@@ -1281,26 +1318,6 @@ impl TimelineView {
                                         });
                                     }).absolute().inset_0())
                                     .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child(body))
-                                .children(targets.into_iter().map(|target| {
-                                    let sources = link_sources.clone();
-                                    let confirmation = link.clone();
-                                    let requested = requested_link.clone();
-                                    let cursor = link_cursor.clone();
-                                    let focus = focus.clone();
-                                    let painted = row_link_painted.clone();
-                                    let instance = target.instance();
-                                    div().id(("message-link", instance as usize)).mt_2().px_2().py_1()
-                                        .border_1().border_color(rgb(if cursor.get() == Some(instance) { t.accent } else { t.border }))
-                                        .text_size(px(12.)).whitespace_normal().text_color(rgb(t.accent)).cursor_pointer()
-                                        .child(format!("Apri link: {}", target.url().as_str()))
-                                        .on_click(move |_, window, _| {
-                                            if sources.borrow_mut().request(&target, &mut confirmation.borrow_mut()) {
-                                                cursor.set(Some(instance)); requested.replace(Some(target.clone())); focus.focus(window); window.refresh();
-                                            }
-                                        })
-                                        .child(canvas(|_, _, _| (), move |bounds, _, _, _| { painted.borrow_mut().insert(instance, bounds); }).absolute().inset_0())
-                                        .relative()
-                                }))
                                 .child(
                                     div()
                                         .w_full()
@@ -1478,6 +1495,28 @@ impl TimelineView {
                     window.on_next_frame(|window, _| window.refresh());
                 }
             }).absolute().size_full())
+            .when_some(menu_target, |d, target| {
+                let (surface, border, text_color) = (t.surface, t.border, t.text);
+                let item = |label: &'static str, i: usize| div().id(("link-menu-item", i)).px_4().py_2().cursor_pointer().text_size(px(13.)).text_color(rgb(text_color)).hover(|s| s.bg(rgb(border))).child(label);
+                let (menu, sources, confirmation, requested) = (self.link_menu.clone(), self.link_sources.clone(), self.link.clone(), self.requested_link.clone());
+                let (menu_out, menu_copy) = (self.link_menu.clone(), self.link_menu.clone());
+                let url = target.url().as_str().to_owned();
+                d.child(gpui::deferred(gpui::anchored().position(self.link_menu_at.get()).snap_to_window_with_margin(px(8.)).child(
+                    div().id("link-menu").occlude().flex().flex_col().py_1().rounded_md().border_1().border_color(rgb(border)).bg(rgb(surface)).min_w(px(140.))
+                        .on_mouse_down_out(move |_, window, _| { menu_out.borrow_mut().close(); window.refresh(); })
+                        .child(item(matrix_desktop::LinkMenu::ITEMS[0], 0).on_click(move |_, window, cx| {
+                            menu_copy.borrow_mut().close();
+                            cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
+                            window.refresh();
+                        }))
+                        .child(item(matrix_desktop::LinkMenu::ITEMS[1], 1).on_click(move |_, window, _| {
+                            if menu.borrow_mut().open_link(&mut sources.borrow_mut(), &mut confirmation.borrow_mut()) {
+                                requested.replace(Some(target.clone()));
+                            }
+                            window.refresh();
+                        })),
+                )).with_priority(2))
+            })
             .when_some(pending, |d, request| {
                 let (cancel, confirm) = confirmation_callbacks(self.link.clone(), self.link_sources.clone(), request.clone());
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
