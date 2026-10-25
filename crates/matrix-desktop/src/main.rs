@@ -28,7 +28,7 @@ use composer_view::{ComposerView, Submitted};
 
 use gpui::{
     App, Application, Bounds, Context, FocusHandle, KeyDownEvent, ScrollStrategy, TitlebarOptions,
-    UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
+    UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, point, prelude::*, px, rgb, size,
     uniform_list,
 };
 use matrix_desktop::{opens_message_menu,
@@ -1079,6 +1079,29 @@ impl Shell {
         self.sidebar.set_query(&query);
         self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
         cx.notify();
+    }
+
+    /// Room at the top of the viewport and its position, when the user has scrolled down.
+    fn reading_anchor(&self) -> Option<(RoomScope, usize)> {
+        let state = self.scroll.0.borrow();
+        let height = f32::from(state.last_item_size?.item.height);
+        let offset = -f32::from(state.base_handle.offset().y);
+        if offset <= 0. || height <= 0. {
+            return None;
+        }
+        let position = (offset / height) as usize;
+        let index = *self.sidebar.visible_indices().get(position)?;
+        Some((self.sidebar.rooms()[index].scope.clone(), position))
+    }
+
+    /// Re-aim the scroll so the room being read stays under the pointer after a reorder.
+    fn keep_reading_position(&mut self, anchor: Option<(RoomScope, usize)>) {
+        let Some((scope, old)) = anchor else { return };
+        let state = self.scroll.0.borrow();
+        let Some(size) = state.last_item_size else { return };
+        let offset = -f32::from(state.base_handle.offset().y);
+        let shifted = matrix_desktop::reading_offset(offset, f32::from(size.item.height), Some(old), self.sidebar.position_of(&scope));
+        state.base_handle.set_offset(point(px(0.), px(-shifted)));
     }
 
     fn request_older(&mut self) {
@@ -2186,7 +2209,9 @@ fn main() {
                                                             }
                                                         }
                                                     }
+                                                    let anchor = this.reading_anchor();
                                                     this.sidebar.apply_diff(diff);
+                                                    this.keep_reading_position(anchor);
                                                 }
                                                 RoomListEvent::TimelineActivity(scope) => this.history.activity(&scope),
                                                 RoomListEvent::Status(status) => {

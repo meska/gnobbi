@@ -55,7 +55,7 @@ pub use history::{opens_message_menu, DemoEvent, DemoHistory, DemoSendState, bub
 mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 mod sidebar;
-pub use sidebar::{Navigation, Sidebar, SidebarRoom};
+pub use sidebar::{Navigation, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DesignTokens {

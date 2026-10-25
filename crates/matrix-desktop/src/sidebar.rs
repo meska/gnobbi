@@ -366,6 +366,11 @@ impl Sidebar {
         Some(position)
     }
 
+    /// Position of a room in the visible order, if it is shown.
+    pub fn position_of(&self, scope: &RoomScope) -> Option<usize> {
+        self.visible.iter().position(|&i| self.rooms[i].scope == *scope)
+    }
+
     pub fn rooms(&self) -> &[SidebarRoom] {
         &self.rooms
     }
@@ -374,6 +379,17 @@ impl Sidebar {
     }
     pub fn selected(&self) -> Option<&SidebarRoom> {
         self.selected.map(|i| &self.rooms[i])
+    }
+}
+
+/// Scroll distance that keeps the row at the top of the viewport in place when it moves
+/// from `old` to `new` in the list; at the very top the list follows the new order.
+pub fn reading_offset(offset: f32, row_height: f32, old: Option<usize>, new: Option<usize>) -> f32 {
+    match (old, new) {
+        (Some(old), Some(new)) if offset > 0. && row_height > 0. => {
+            (offset + (new as f32 - old as f32) * row_height).max(0.)
+        }
+        _ => offset,
     }
 }
 
@@ -409,5 +425,77 @@ mod tests {
         // search keeps the unsorted match order
         sidebar.set_query("a");
         assert_eq!(names(&sidebar), ["zeta", "beta", "alfa", "Gamma"]);
+    }
+
+    fn scope(account: &AccountId, name: &str) -> RoomScope {
+        RoomScope { account_id: account.clone(), room_id: RoomId::new(format!("!{name}:t.invalid")) }
+    }
+
+    #[test]
+    fn a_new_message_keeps_the_open_room_selected_in_every_filter() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account.clone());
+        fill(&mut sidebar, &account, &[("a", Some(3)), ("b", Some(2)), ("c", Some(1))]);
+        let open = scope(&account, "c");
+        assert!(sidebar.select(&open));
+        sidebar.set_unread_only(false);
+        // another room gets the newest message, the open one is pushed down
+        fill(&mut sidebar, &account, &[("b", Some(50))]);
+        assert_eq!(names(&sidebar), ["b", "a", "c"]);
+        assert_eq!(sidebar.selected().map(|r| r.scope.clone()), Some(open.clone()));
+        // the open room itself moving to the top stays selected too
+        fill(&mut sidebar, &account, &[("c", Some(60))]);
+        assert_eq!(names(&sidebar)[0], "c");
+        assert_eq!(sidebar.selected().map(|r| r.scope.clone()), Some(open));
+    }
+
+    #[test]
+    fn a_new_message_reorders_inside_a_selected_space_and_the_unread_filter() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account.clone());
+        fill(&mut sidebar, &account, &[("x", Some(1)), ("y", Some(2)), ("z", Some(3))]);
+        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            scope: scope(&account, "space"),
+            name: "space".into(),
+            unread: 0,
+            info: RoomInfo { is_space: true, children: vec![RoomId::new("!x:t.invalid"), RoomId::new("!y:t.invalid")], ..Default::default() },
+        }));
+        assert!(sidebar.set_space(Some(scope(&account, "space"))));
+        assert!(sidebar.select(&scope(&account, "x")));
+        fill(&mut sidebar, &account, &[("x", Some(9))]);
+        assert_eq!(names(&sidebar), ["x", "y", "space"][..names(&sidebar).len()]);
+        assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
+        sidebar.set_unread_only(true);
+        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            scope: scope(&account, "y"),
+            name: "y".into(),
+            unread: 2,
+            info: RoomInfo { last_activity: Some(70), preview: Some("x".into()), ..Default::default() },
+        }));
+        assert_eq!(names(&sidebar), ["y"]);
+        assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
+    }
+
+    #[test]
+    fn position_of_gives_the_row_position_in_the_visible_order() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account.clone());
+        fill(&mut sidebar, &account, &[("a", Some(3)), ("b", Some(2))]);
+        assert_eq!(sidebar.position_of(&scope(&account, "b")), Some(1));
+        assert_eq!(sidebar.position_of(&scope(&account, "nope")), None);
+    }
+
+    #[test]
+    fn reading_offset_follows_the_row_that_was_at_the_top() {
+        // at the top the list shows the new room: no shift
+        assert_eq!(reading_offset(0., 56., Some(0), Some(1)), 0.);
+        // scrolled 3 rows and a half; the anchor row moved down one place: scroll one row more
+        assert_eq!(reading_offset(196., 56., Some(3), Some(4)), 252.);
+        // anchor moved up (room removed ahead of it)
+        assert_eq!(reading_offset(196., 56., Some(3), Some(2)), 140.);
+        // anchor vanished or no row height: untouched; never negative
+        assert_eq!(reading_offset(196., 56., Some(3), None), 196.);
+        assert_eq!(reading_offset(196., 0., Some(3), Some(4)), 196.);
+        assert_eq!(reading_offset(10., 56., Some(1), Some(0)), 0.);
     }
 }
