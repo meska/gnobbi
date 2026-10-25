@@ -316,3 +316,29 @@ fn sticker_and_poll_events_have_labels_and_other_types_none() {
     assert_eq!(event_type_label("org.matrix.msc3381.poll.start"), Some("Sondaggio"));
     assert_eq!(event_type_label("m.reaction"), None);
 }
+
+#[test]
+fn video_info_is_a_typed_value_for_every_combination() {
+    use matrix_sdk::ruma::events::room::MediaSource;
+    let video = |info: serde_json::Value| {
+        let mut json = serde_json::json!({"msgtype":"m.video","body":"c.mp4","url":"mxc://t/v"});
+        if !info.is_null() {
+            json["info"] = info;
+        }
+        match serde_json::from_value::<MessageType>(json).unwrap() {
+            MessageType::Video(v) => video_info(&v),
+            _ => unreachable!(),
+        }
+    };
+    let all = video(serde_json::json!({"size":307200,"duration":12000,
+        "thumbnail_url":"mxc://t/th","thumbnail_info":{"mimetype":"image/jpeg"}}));
+    assert_eq!(all.duration_ms, Some(12000));
+    assert_eq!(all.size, Some(307200));
+    assert!(matches!(all.thumbnail, Some(MediaSource::Plain(u)) if u.as_str() == "mxc://t/th"));
+    let bare = video(serde_json::json!({"size":10}));
+    assert_eq!((bare.duration_ms, bare.size, bare.thumbnail.is_none()), (None, Some(10), true));
+    let no_size = video(serde_json::json!({"duration":500}));
+    assert_eq!((no_size.duration_ms, no_size.size), (Some(500), None));
+    let none = video(serde_json::Value::Null);
+    assert_eq!((none.duration_ms, none.size, none.thumbnail.is_none()), (None, None, true));
+}

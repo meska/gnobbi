@@ -1105,6 +1105,7 @@ async fn history_rows(
                     outgoing: client.user_id() == Some(sender.as_ref()),
                     timestamp_ms: timestamp,
                     sender: history_sender(&room, &sender).await,
+                    video: None,
                 });
             }
             continue;
@@ -1127,6 +1128,7 @@ async fn history_rows(
                 outgoing: client.user_id() == Some(sender.as_ref()),
                 timestamp_ms: timestamp,
                 sender: history_sender(&room, &sender).await,
+                video: None,
             });
             continue;
         }
@@ -1143,6 +1145,7 @@ async fn history_rows(
                         outgoing: client.user_id() == Some(message.sender.as_ref()),
                         timestamp_ms: message.origin_server_ts.0.into(),
                         sender: history_sender(&room, &message.sender).await,
+                        video: None,
                     });
                     continue;
                 }
@@ -1153,6 +1156,7 @@ async fn history_rows(
                         outgoing: client.user_id() == Some(message.sender.as_ref()),
                         timestamp_ms: message.origin_server_ts.0.into(),
                         sender: history_sender(&room, &message.sender).await,
+                        video: None,
                     });
                     continue;
                 }
@@ -1246,6 +1250,10 @@ async fn history_rows(
                     message.content.apply_replacement(replacement.new_content);
                 }
             }
+            let video = match &message.content.msgtype {
+                MessageType::Video(v) => Some(video_info(v)),
+                _ => None,
+            };
             let body = match message.content.msgtype {
                 MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
                 other => message_label(&other),
@@ -1256,10 +1264,20 @@ async fn history_rows(
                 outgoing: client.user_id() == Some(message.sender.as_ref()),
                 timestamp_ms: message.origin_server_ts.0.into(),
                 sender: history_sender(&room, &message.sender).await,
+                video,
             });
         }
     }
     Ok(events)
+}
+
+fn video_info(v: &matrix_sdk::ruma::events::room::message::VideoMessageEventContent) -> crate::history::VideoInfo {
+    let info = v.info.as_deref();
+    crate::history::VideoInfo {
+        duration_ms: info.and_then(|i| i.duration).map(|d| d.as_millis() as u64),
+        size: info.and_then(|i| i.size).map(Into::into),
+        thumbnail: info.and_then(|i| i.thumbnail_source.clone()),
+    }
 }
 
 fn human_size(bytes: u64) -> String {

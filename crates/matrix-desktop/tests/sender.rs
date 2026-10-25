@@ -18,6 +18,7 @@ fn live_mapping_carries_sender_id_and_name() {
         outgoing: false,
         timestamp_ms: 0,
         sender: HistorySender::new("@anna:test", Some("Anna")),
+        video: None,
     }]);
     let sender = rows.events()[0].sender.as_ref().expect("sender");
     assert_eq!(sender.id, "@anna:test");
@@ -46,6 +47,7 @@ fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> Hi
         outgoing: false,
         timestamp_ms,
         sender: HistorySender::new(sender, name),
+        video: None,
     }
 }
 

@@ -1435,6 +1435,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     outgoing: n == 2,
                     timestamp_ms: 1_700_000_000_000 + n * 60_000,
                     sender: matrix_engine::history::HistorySender::new("@anna:gnobbi.test", None),
+                    video: None,
                 }).collect();
                 // The harness timeline is an offline fixture; debug ids only show on live rows.
                 let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());

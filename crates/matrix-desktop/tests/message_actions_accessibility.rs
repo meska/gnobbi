@@ -49,6 +49,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         outgoing: true,
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
+        video: None,
     }]);
     history
 }

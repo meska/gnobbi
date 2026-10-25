@@ -2008,6 +2008,7 @@ mod tests {
                             outgoing: false,
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2088,6 +2089,7 @@ mod tests {
                             outgoing: false,
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: None,
                         })
                         .collect();
                     host.0.prepend_server(older);

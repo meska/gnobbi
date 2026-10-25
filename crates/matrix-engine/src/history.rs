@@ -33,12 +33,22 @@ pub fn is_image_body(body: &str) -> bool {
     body == IMAGE_BODY
 }
 
+/// Video facts from the event `info`; the thumbnail is only a source to fetch later.
+#[derive(Debug, Clone)]
+pub struct VideoInfo {
+    pub duration_ms: Option<u64>,
+    pub size: Option<u64>,
+    #[cfg(feature = "sdk")]
+    pub thumbnail: Option<matrix_sdk::ruma::events::room::MediaSource>,
+}
+
 pub struct HistoryEvent {
     pub event_id: EventId,
     pub body: String,
     pub outgoing: bool,
     pub timestamp_ms: u64,
     pub sender: HistorySender,
+    pub video: Option<VideoInfo>,
 }
 
 /// How many people reacted to a message with one emoji.

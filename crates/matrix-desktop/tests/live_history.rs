@@ -14,6 +14,7 @@ fn event(id: &str) -> HistoryEvent {
         outgoing: false,
         timestamp_ms: 1,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
+        video: None,
     }
 }
 fn page(
