@@ -49,6 +49,7 @@ struct Shell {
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
     settings_open: bool,
+    drawer_row: usize,
     settings_focus: FocusHandle,
     prefs: matrix_desktop::Preferences,
     prefs_dirs: Option<matrix_desktop::AppDirs>,
@@ -1656,8 +1657,6 @@ impl Render for Shell {
                                     self.sidebar.visible_indices().len(), self.sidebar.rooms().len() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
                                     if self.connected { connection_label } else { "fixture offline" }
                                 )))
-                                .when(self.connected, |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Devices, window, cx)))
-                                .when(self.connected, |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Notifications, window, cx)))
                                 .when(self.connected && self.sidebar.hidden_empty_count() > 0, |d| d.child(
                                     div().id("empty-rooms-filter").cursor_pointer().text_color(rgb(t.accent))
                                         .child(if self.sidebar.show_empty() { "Nascondi vuote".to_owned() } else { format!("Vuote ({})", self.sidebar.hidden_empty_count()) })
@@ -2334,6 +2333,7 @@ fn main() {
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
+                        drawer_row: 0,
                         settings_focus: cx.focus_handle(),
                         prefs_dirs: matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()),
                         prefs: matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())

@@ -157,7 +157,7 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
 fn ring_visible(label: &str, wide: bool, chat: bool) -> bool {
     match (wide, chat) {
         (true, _) => label != "back",
-        (false, false) => ["list", "search", "theme", "unread", "devices", "notifications"].contains(&label),
+        (false, false) => ["list", "search", "theme", "unread"].contains(&label),
         (false, true) => ["info", "entry", "back"].contains(&label),
     }
 }
@@ -522,9 +522,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let steps: Vec<(&str, &str)> = if chat {
                 vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "back")]
             } else if COMPACT.load(Ordering::SeqCst) {
-                vec![("tab", "devices"), ("tab", "notifications"), ("tab", "theme"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list")]
+                vec![("tab", "theme"), ("shift-tab", "list")]
             } else {
-                vec![("tab", "devices"), ("tab", "notifications"), ("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list")]
+                vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "list")]
             };
             this.update_in(cx, |this, window, cx| {
                 if chat {
@@ -578,13 +578,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // Every ring control, focused before a real native Configure with paint suspended, lands on a visible one.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let cases: &[(bool, bool, &str)] = &[
-                (true, false, "devices"), (true, false, "notifications"), (true, false, "info"), (true, false, "entry"),
+                (true, false, "info"), (true, false, "entry"),
                 (true, false, "theme"), (true, false, "unread"), (true, false, "search"), (true, false, "list"),
-                (true, true, "devices"), (true, true, "notifications"), (true, true, "info"), (true, true, "entry"),
+                (true, true, "info"), (true, true, "entry"),
                 (false, true, "info"), (false, true, "entry"),
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 (false, true, "back"),
-                (false, false, "devices"), (false, false, "notifications"), (false, false, "theme"),
+                (false, false, "theme"),
                 (false, false, "unread"), (false, false, "search"), (false, false, "list"),
             ];
             let size = |wide: bool| if wide { ("1120", "760") } else { ("360", "480") };
@@ -663,10 +663,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // A light/dark change with focus on each ring control keeps the focus target, room, history and drafts.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let mut cases: Vec<(bool, bool, &str)> = vec![];
-            for label in ["list", "search", "theme", "unread", "devices", "notifications", "info", "entry"] {
+            for label in ["list", "search", "theme", "unread", "info", "entry"] {
                 cases.push((true, false, label));
             }
-            for label in ["list", "search", "theme", "unread", "devices", "notifications"] {
+            for label in ["list", "search", "theme", "unread"] {
                 cases.push((false, false, label));
             }
             for label in ["info", "entry", #[cfg(all(feature = "linux-a11y", target_os = "linux"))] "back"] {
@@ -793,8 +793,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 eprintln!("hidden-ring empty={empty}: retired Theme/unread callbacks inert");
             }).unwrap();
             let steps = [
-                ("tab", "devices"), ("tab", "notifications"), ("tab", "info"), ("tab", "entry"),
-                ("shift-tab", "info"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list"),
+                ("tab", "info"), ("tab", "entry"),
+                ("shift-tab", "info"), ("shift-tab", "list"),
                 ("shift-tab", "search"), ("tab", "list"),
             ];
             for (key, expected) in steps {
@@ -1451,6 +1451,66 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 29 {
+            // Devices and Notifications live in the drawer: Down/Enter open them, the list footer no longer has them.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
+                assert!(ok, "screenshot {name}");
+            };
+            macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
+            wait(400).await;
+            this.update_in(cx, |this, window, _| {
+                use matrix_desktop::panel_openers::Control;
+                assert!(this.opener_ui.source(Control::Devices).is_none() && this.opener_ui.source(Control::Notifications).is_none(), "footer no longer offers Devices/Notifications");
+                this.menu_focus.focus(window);
+            }).unwrap();
+            key!("enter");
+            wait(400).await;
+            shot("p186-drawer");
+            key!("down");
+            key!("enter");
+            wait(300).await;
+            this.update_in(cx, |this, window, _| {
+                assert!(this.verification_open && !this.menu_open && !this.settings_open, "Down+Enter opens Devices and closes the drawer");
+                assert!(this.list_focus.is_focused(window), "focus lands on the panel root");
+                this.set_verification_open(false);
+                this.menu_focus.focus(window);
+            }).unwrap();
+            key!("enter");
+            wait(400).await;
+            key!("down");
+            key!("down");
+            wait(300).await;
+            shot("p186-notifications-row");
+            key!("enter");
+            wait(300).await;
+            this.update_in(cx, |this, _, _| {
+                assert!(this.notifications_open && !this.menu_open, "two Downs + Enter open Notifications");
+                this.set_notifications_open(false);
+            }).unwrap();
+            shot("p186-notifications");
+            // Up wraps back; Esc still closes the drawer.
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+            wait(200).await;
+            key!("ctrl-shift-m");
+            wait(300).await;
+            this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window), "shortcut reopens the drawer")).unwrap();
+            key!("up");
+            this.update_in(cx, |this, _, _| assert_eq!(this.drawer_row, 2, "Up from the first row wraps to the last")).unwrap();
+            key!("enter");
+            this.update_in(cx, |this, window, cx| {
+                assert!(this.notifications_open, "Up from the first row wraps to Notifications");
+                this.set_notifications_open(false);
+                this.set_menu_open(true, window, cx);
+            }).unwrap();
+            key!("escape");
+            this.update_in(cx, |this, window, cx| {
+                assert!(!this.menu_open && this.menu_focus.is_focused(window), "Esc closes the drawer");
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 27 {
             // Drawer entry opens Settings; Enter toggles the debug switch and persists it; Esc steps back out.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -1967,12 +2027,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             return;
         }
         let steps = if COMPACT.load(Ordering::SeqCst) && OPEN.load(Ordering::SeqCst) {
-            vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list"), ("tab", "devices"), ("tab", "notifications"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list")]
+            vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "list"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list")]
         } else if !COMPACT.load(Ordering::SeqCst) && SPACES.load(Ordering::SeqCst) {
             vec![("tab", "theme"), ("shift-tab", "rail2"), ("shift-tab", "rail1"), ("shift-tab", "rail0"), ("tab", "rail1"), ("tab", "rail2"), ("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "rail2")]
         } else if COMPACT.load(Ordering::SeqCst) {
             if CONNECTED.load(Ordering::SeqCst) {
-                vec![("tab", "unread"), ("tab", "search"), ("tab", "list"), ("tab", "devices"), ("tab", "notifications"), ("tab", "space0"), ("shift-tab", "notifications"), ("shift-tab", "devices"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "space0"), ("tab", "theme")]
+                vec![("tab", "unread"), ("tab", "search"), ("tab", "list"), ("tab", "space0"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "space0"), ("tab", "theme")]
             } else {
                 vec![("tab", "search"), ("tab", "list"), ("tab", "theme"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "theme")]
             }
@@ -2627,6 +2687,17 @@ fn settings_entry_opens_the_panel_and_the_debug_switch_persists() {
 fn debug_mode_shows_event_ids_and_the_room_line() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(28, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn drawer_offers_devices_and_notifications_and_the_footer_does_not() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(29, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);

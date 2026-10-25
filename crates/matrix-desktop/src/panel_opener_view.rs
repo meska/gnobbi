@@ -113,8 +113,8 @@ impl Shell {
             available
                 && (self.navigation_wide || self.compact_chat)
                 && self.sidebar.selected().is_some(),
-            available && (self.navigation_wide || !self.compact_chat),
-            available && (self.navigation_wide || !self.compact_chat),
+            false, // Devices and Notifications are drawer rows now
+            false,
         ];
         for (i, visible) in visible.into_iter().enumerate() {
             if !visible {
@@ -145,21 +145,29 @@ impl Shell {
             }
         } else {
             match intent.control {
-                Control::Info => self.set_room_details_open(true),
-                Control::Notifications => self.set_notifications_open(true),
-                Control::Devices => {
-                    self.set_verification_open(true);
-                    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                    {
-                        self.device_focus = Default::default();
-                        self.a11y_device_bounds = [None; 6];
-                    }
-                    self.verification.refresh();
+                Control::Info => {
+                    self.set_room_details_open(true);
+                    self.list_focus.focus(window);
                 }
+                Control::Notifications => self.open_notifications_panel(window),
+                Control::Devices => self.open_devices_panel(window),
             }
-            self.list_focus.focus(window);
         }
         cx.notify();
+    }
+    pub(crate) fn open_notifications_panel(&mut self, window: &mut Window) {
+        self.set_notifications_open(true);
+        self.list_focus.focus(window);
+    }
+    pub(crate) fn open_devices_panel(&mut self, window: &mut Window) {
+        self.set_verification_open(true);
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        {
+            self.device_focus = Default::default();
+            self.a11y_device_bounds = [None; 6];
+        }
+        self.verification.refresh();
+        self.list_focus.focus(window);
     }
     pub(crate) fn opener_callback(
         &self,
@@ -293,6 +301,8 @@ mod tests {
     use matrix_desktop::panel_openers::{Control, Intent};
     use std::sync::atomic::{AtomicBool, Ordering};
     pub(crate) static ACTIVE: AtomicBool = AtomicBool::new(false);
+    /// Devices and Notifications moved into the drawer; only Info is still a root button.
+    const ROOT: [Control; 1] = [Control::Info];
     static PAINT: AtomicBool = AtomicBool::new(false);
     #[cfg(all(feature = "live", unix))]
     static AVAILABILITY: AtomicBool = AtomicBool::new(false);
@@ -311,7 +321,7 @@ mod tests {
             executor.timer(std::time::Duration::from_millis(500)).await;
             this.update_in(cx,|this,window,cx| {
                 assert!(window.is_window_active(), "private runner must activate the ready test window before paint assertions");
-                for control in Control::ALL {
+                for control in ROOT {
                     assert!(this.opener_ui.painted_bounds(control).is_some(),"current root button must have real painted bounds: {control:?}");
                     #[cfg(all(feature="linux-a11y",target_os="linux"))]
                     assert!(this.semantic_openers(window).iter().find(|s|s.control==control).unwrap().bounds.is_some());
@@ -330,14 +340,14 @@ mod tests {
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(400)).await;
             this.update_in(cx,|this,window,cx| {
-                for control in Control::ALL {
+                for control in ROOT {
                     assert!(this.opener_ui.painted_bounds(control).is_some(),"fresh repaint reacquires bounds");
                     let source=this.opener_ui.source(control).unwrap();
                     this.apply_opener(Intent{control,source,focus_only:true},window,cx);
                     assert!(this.opener_ui.focused(control,window));
                 }
             }).unwrap();
-            for control in Control::ALL {
+            for control in ROOT {
                 this.update_in(cx,|this,window,cx| {
                     let source=this.opener_ui.source(control).unwrap();
                     this.apply_opener(Intent{control,source,focus_only:true},window,cx);
@@ -359,14 +369,14 @@ mod tests {
                     navigation_resize_test::FROZEN.store(true,Ordering::SeqCst);
                     this.set_compact_chat(chat);
                     let mut callbacks=vec![];
-                    for control in Control::ALL.into_iter().filter(|c| (*c==Control::Info)!=chat) {
+                    for control in ROOT.into_iter().filter(|_| !chat) {
                         let source=this.opener_ui.source(control).unwrap();
                         let focus=Intent{control,source,focus_only:true};
                         this.apply_opener(focus,window,cx);
                         callbacks.push((this.opener_callback(focus),this.opener_callback(Intent{focus_only:false,..focus}),this.opener_key_callback()));
                     }
                     #[cfg(all(feature="linux-a11y",target_os="linux"))]
-                    let intents=semantic_actions(this,window).into_iter().filter(|a|matches!(a,matrix_desktop::accessibility::NavigationAction::PanelOpener(i) if (i.control==Control::Info)!=chat)).collect::<Vec<_>>();
+                    let intents=semantic_actions(this,window).into_iter().filter(|_| !chat).collect::<Vec<_>>();
                     navigation_resize_test::resize("360","480");
                     (callbacks,#[cfg(all(feature="linux-a11y",target_os="linux"))] intents)
                 }).unwrap();
@@ -392,7 +402,7 @@ mod tests {
             this.update_in(cx,|this,_,cx| {navigation_resize_test::FROZEN.store(false,Ordering::SeqCst);this.set_compact_chat(false);cx.notify();}).unwrap();
             executor.timer(std::time::Duration::from_millis(500)).await;
             this.update_in(cx,|this,window,cx| {
-                for control in Control::ALL {assert!(this.opener_ui.painted_bounds(control).is_some());}
+                for control in ROOT {assert!(this.opener_ui.painted_bounds(control).is_some());}
                 eprintln!("actual Configure away-back with projection frozen, native callbacks/translated intents rejected, Unicode draft preserved, fresh bounds reacquired");
                 let control=Control::Info;let source=this.opener_ui.source(control).unwrap();
                 this.opener_callback(Intent{control,source,focus_only:false})(this,window,cx);assert!(this.room_details_open);
@@ -447,7 +457,7 @@ mod tests {
         let session = SemanticSession::new(navigation);
         let tree = session.tree();
         let mut result = vec![];
-        for control in Control::ALL {
+        for control in ROOT {
             let id = tree
                 .nodes
                 .iter()
@@ -488,20 +498,13 @@ mod tests {
             this.update_in(cx, |this, window, cx| {
                 this.connected = true; // deterministic DTO fixture, no worker/network.
                 this.refresh_navigation_visibility();
-                for control in Control::ALL {
+                for control in ROOT {
                     let source = this.opener_ui.source(control).unwrap();
                     this.apply_opener(Intent {control, source, focus_only: true}, window,cx);
                     assert!(this.opener_ui.focused(control, window));
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open);
                 }
-                let source = this.opener_ui.source(Control::Devices).unwrap();
-                this.apply_opener(Intent {control: Control::Devices, source, focus_only: true}, window,cx);
-                let key = this.opener_key_callback();
-                for (name,expected) in [("tab", Control::Notifications),("shift-tab",Control::Devices)] {
-                    assert!(key(this,&KeyDownEvent {keystroke: gpui::Keystroke::parse(name).unwrap(),is_held:false},window,cx));
-                    assert!(this.opener_ui.focused(expected,window));
-                }
-                for (control,name) in [(Control::Info,"space"),(Control::Devices,"enter"),(Control::Notifications,"space")] {
+                for (control,name) in [(Control::Info,"space")] {
                     let source=this.opener_ui.source(control).unwrap();
                     this.apply_opener(Intent {control,source,focus_only:true},window,cx);
                     let key=this.opener_key_callback();
@@ -509,7 +512,7 @@ mod tests {
                     assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],Control::ALL.map(|c| c==control));
                     this.set_room_details_open(false);this.set_verification_open(false);this.set_notifications_open(false);
                 }
-                for control in Control::ALL {
+                for control in ROOT {
                     let source = this.opener_ui.source(control).unwrap();
                     let old = Intent {control,source,focus_only:true};
                     this.apply_opener(old,window,cx);
@@ -525,7 +528,7 @@ mod tests {
                     assert!(!key(this,&KeyDownEvent {keystroke:gpui::Keystroke::parse("enter").unwrap(),is_held:false},window,cx));
                     assert!(this.opener_ui.focused(control,window));
                 }
-                for control in Control::ALL {
+                for control in ROOT {
                     for transition in 0..3 {
                         let source=this.opener_ui.source(control).unwrap();
                         let old=Intent {control,source,focus_only:true};
@@ -563,7 +566,7 @@ mod tests {
                         assert!(!this.room_details_open && !this.notifications_open && !this.verification_open);
                     }
                 }
-                for control in Control::ALL {
+                for control in ROOT {
                     let source = this.opener_ui.source(control).unwrap();
                     let click=this.opener_callback(Intent {control,source,focus_only:false});
                     click(this,window,cx);
@@ -607,7 +610,7 @@ mod tests {
                 this.composer.update(cx, |v, cx| v.replace_text_in_range(Some(0..65536), " bozza 🦀\nP101 ", window, cx));
                 this.connected = true;
                 this.refresh_navigation_visibility();
-                for control in Control::ALL {
+                for control in ROOT {
                     let intent = Intent { control, source: this.opener_ui.source(control).unwrap(), focus_only: true };
                     this.apply_opener(intent,window,cx);
                     let focus = this.opener_callback(intent);
@@ -634,10 +637,9 @@ mod tests {
                 let sidebar = std::mem::replace(&mut this.sidebar, Sidebar::connected(this.active_scope.account_id));
                 this.refresh_navigation_visibility();
                 assert!(this.opener_ui.source(Control::Info).is_none());
-                assert!(this.opener_ui.source(Control::Devices).is_some());
-                assert!(this.opener_ui.source(Control::Notifications).is_some());
+                assert!(this.opener_ui.source(Control::Devices).is_none() && this.opener_ui.source(Control::Notifications).is_none());
                 this.sidebar = sidebar; this.refresh_navigation_visibility();
-                for control in Control::ALL {
+                for control in ROOT {
                     for name in ["space", "enter"] {
                         let intent = Intent { control, source: this.opener_ui.source(control).unwrap(), focus_only: true };
                         this.apply_opener(intent,window,cx);
@@ -671,7 +673,7 @@ mod tests {
                 }
                 eprintln!("offline/empty selection, held keys, Space/Enter and current SemanticSession Focus/Click duplicates characterized");
                 for mode in [SignInMode::Password, SignInMode::Unlock] {
-                    for control in Control::ALL {
+                    for control in ROOT {
                         let source = this.opener_ui.source(control).unwrap();
                         let intent = Intent { control, source, focus_only: true };
                         this.apply_opener(intent, window, cx);

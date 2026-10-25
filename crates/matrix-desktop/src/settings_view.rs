@@ -19,8 +19,15 @@ impl Shell {
     pub(crate) fn render_drawer_body(&self, t: matrix_desktop::DesignTokens, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let row = |id: &'static str| div().id(id).h(px(44.)).mx_2().px_3().flex().items_center().justify_between().rounded_lg().cursor_pointer();
         if !self.settings_open {
-            return row("menu-settings").mt_2().text_color(rgb(t.text)).child("Impostazioni")
-                .on_click(cx.listener(|this, _, window, cx| this.set_settings_open(true, window, cx)))
+            let ring = |i: usize| rgb(if self.drawer_row == i && self.drawer_focus.is_focused(window) { t.accent } else { t.surface });
+            return div().mt_2()
+                .child(row("menu-settings").border_1().border_color(ring(0)).text_color(rgb(t.text)).child("Impostazioni")
+                    .on_click(cx.listener(|this, _, window, cx| this.set_settings_open(true, window, cx))))
+                .when(self.connected, |d| d
+                    .child(row("menu-devices").border_1().border_color(ring(1)).text_color(rgb(t.text)).child("Dispositivi")
+                        .on_click(cx.listener(|this, _, window, cx| this.open_from_drawer(window, cx, Shell::open_devices_panel))))
+                    .child(row("menu-notifications").border_1().border_color(ring(2)).text_color(rgb(t.text)).child("Notifiche")
+                        .on_click(cx.listener(|this, _, window, cx| this.open_from_drawer(window, cx, Shell::open_notifications_panel)))))
                 .into_any_element();
         }
         let on = self.prefs.debug;

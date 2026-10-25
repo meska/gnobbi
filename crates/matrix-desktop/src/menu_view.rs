@@ -3,6 +3,8 @@
 use crate::*;
 
 pub(crate) const DRAWER_WIDTH: f32 = 280.;
+/// Settings, Devices, Notifications.
+pub(crate) const DRAWER_ROWS: usize = 3;
 
 impl Shell {
     pub(crate) fn set_menu_open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -11,7 +13,15 @@ impl Shell {
         }
         self.menu_open = open;
         self.settings_open = false;
+        self.drawer_row = 0;
         if open { self.drawer_focus.focus(window) } else { self.menu_focus.focus(window) }
+        cx.notify();
+    }
+
+    /// Closes the drawer, then lets `open` show a panel (which takes focus).
+    pub(crate) fn open_from_drawer(&mut self, window: &mut Window, cx: &mut Context<Self>, open: fn(&mut Self, &mut Window)) {
+        self.set_menu_open(false, window, cx);
+        open(self, window);
         cx.notify();
     }
 
@@ -29,13 +39,22 @@ impl Shell {
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
                 "escape" => self.set_menu_open(false, window, cx),
                 "enter" | "space" if activate && self.settings_open => self.toggle_debug(cx),
-                "enter" | "space" if activate => self.set_settings_open(true, window, cx),
-                // The drawer holds one focus stop at a time: Tab stays on it.
+                "enter" | "space" if activate => match self.drawer_row {
+                    1 => self.open_from_drawer(window, cx, Shell::open_devices_panel),
+                    2 => self.open_from_drawer(window, cx, Shell::open_notifications_panel),
+                    _ => self.set_settings_open(true, window, cx),
+                },
+                // The drawer holds one focus stop; Up/Down/Tab move between its rows.
                 "tab" if self.settings_open => self.settings_focus.focus(window),
-                "tab" => self.drawer_focus.focus(window),
+                "up" | "down" | "tab" => {
+                    let back = key.key == "up" || m.shift;
+                    self.drawer_row = (self.drawer_row + if back { DRAWER_ROWS - 1 } else { 1 }) % DRAWER_ROWS;
+                    self.drawer_focus.focus(window);
+                    cx.notify();
+                }
                 _ => (),
             }
-            return matches!(key.key.as_str(), "escape" | "tab") || activate;
+            return matches!(key.key.as_str(), "escape" | "tab" | "up" | "down") || activate;
         }
         if !m.modified() && matches!(key.key.as_str(), "enter" | "space") && self.menu_focus.is_focused(window) {
             self.set_menu_open(true, window, cx);

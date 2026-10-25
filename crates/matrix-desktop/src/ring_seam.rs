@@ -112,6 +112,19 @@ impl Shell {
         cx.notify();
     }
 
+    /// Forward from the room list: Info on wide windows, else spaces or the theme button.
+    fn after_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if window.viewport_size().width >= px(800.) {
+            if !self.focus_opener(Control::Info, window, cx) {
+                self.focus_chat_entry(window, cx);
+            }
+        } else if self.connected && self.sidebar.spaces().next().is_some() {
+            self.compact_spaces_tab(false, window, cx);
+        } else {
+            self.theme_focus.focus(window);
+        }
+    }
+
     /// Tab/Shift-Tab on a footer or header opener.
     pub(crate) fn opener_tab(
         &mut self,
@@ -121,26 +134,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         match (control, shift) {
-            (Control::Devices, false) => {
-                self.focus_opener(Control::Notifications, window, cx);
-            }
-            (Control::Devices, true) => self.list_focus.focus(window),
-            (Control::Notifications, true) => {
-                self.focus_opener(Control::Devices, window, cx);
-            }
-            (Control::Notifications, false) => {
-                if window.viewport_size().width >= px(800.) {
-                    if !self.focus_opener(Control::Info, window, cx) {
-                        self.focus_chat_entry(window, cx);
-                    }
-                } else if self.connected && self.sidebar.spaces().next().is_some() {
-                    self.compact_spaces_tab(false, window, cx);
-                } else {
-                    self.theme_focus.focus(window);
-                }
-            }
             (Control::Info, false) => self.focus_chat_entry(window, cx),
             (Control::Info, true) => self.focus_before_chat(true, window, cx),
+            // Devices and Notifications live in the drawer, not in the ring.
+            _ => {}
         }
         cx.notify();
     }
@@ -165,7 +162,9 @@ impl Shell {
         }
         let shift = key.modifiers.shift;
         if self.list_focus.is_focused(window) && !shift {
-            if self.connected && self.focus_opener(Control::Devices, window, cx) {
+            if self.connected {
+                self.after_list(window, cx);
+                cx.notify();
                 return true;
             }
             if self.back_visible(window) {
