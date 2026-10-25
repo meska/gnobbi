@@ -100,6 +100,8 @@ pub struct TimelineView {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     semantic_cursor: RefCell<Option<ScopedTimelineId>>,
     history: Rc<RefCell<DemoHistory>>,
+    /// Joined members of the shown room; sender names appear only above 2.
+    member_count: Cell<u64>,
     live: bool,
     state: ListState,
     scrollbar: crate::scrollbar_view::Scrollbar,
@@ -178,6 +180,10 @@ impl TimelineView {
         Self::with_history(DemoHistory::new(scope, count), focus, false)
     }
 
+    pub fn set_member_count(&self, count: u64) {
+        self.member_count.set(count);
+    }
+
     pub fn connected(scope: RoomScope, focus: FocusHandle) -> Self {
         Self::with_history(DemoHistory::new(scope, 0), focus, true)
     }
@@ -214,6 +220,8 @@ impl TimelineView {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             retry_cursor: RefCell::default(),
             history: Rc::new(RefCell::new(history)),
+            // The offline fixture stands for a group chat.
+            member_count: Cell::new(if live { 0 } else { 3 }),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             semantic_cursor: RefCell::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -986,6 +994,7 @@ impl TimelineView {
         let history = self.history.clone();
         let live = self.live;
         let probe = self.probe;
+        let members = self.member_count.get();
         let constructed = Rc::new(RefCell::new(Vec::<usize>::new()));
         let layouts = Rc::new(RefCell::new(Vec::<RowLayout>::new()));
         let row_indices = constructed.clone();
@@ -1095,6 +1104,7 @@ impl TimelineView {
                     let delivery_state = delivery_state.clone();
                     let history = history.borrow();
                     let event = &history.events()[index];
+                    let sender_label = history.sender_label(index, members);
                     let offline_target = (!live).then(|| offline_delivery.borrow_mut().target(event)).flatten();
                     let offline_callback = offline_target.clone().map(|target| offline_delivery_callback(offline_delivery.clone(), delivery_history.clone(), target, live));
                     let mut body = StyledText::new(event.text.clone());
@@ -1177,6 +1187,8 @@ impl TimelineView {
                                 .py_3()
                                 .rounded_lg()
                                 .bg(rgb(if event.outgoing { t.outgoing } else { t.surface }))
+                                .when_some(sender_label, |d, name| d.child(
+                                    div().id(("sender-name", index)).mb_1().text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(name)))
                                 .child(div().id(("message-text", index)).cursor(gpui::CursorStyle::IBeam)
                                     .on_mouse_down(MouseButton::Left, move |e, window, cx| {
                                         let ix = down_layout.index_for_position(e.position).unwrap_or_else(|ix| ix);
@@ -1573,6 +1585,53 @@ mod tests {
                 .size_full()
                 .child(self.0.render(matrix_desktop::LIGHT, window, None, None))
         }
+    }
+
+    struct ShotHost(TimelineView);
+    impl Render for ShotHost {
+        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().size_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, None))
+        }
+    }
+
+    /// Screenshot driver for the sender-name rule: same fixture with `members` members.
+    fn sender_names_screenshot(members: u64) {
+        gpui::Application::new().run(move |cx| {
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi sender names");
+                    cx.new(|cx| {
+                        let history = DemoHistory::new(
+                            RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!g:fixture.invalid") },
+                            12,
+                        );
+                        let v = TimelineView::with_history(history, cx.focus_handle(), false);
+                        v.set_member_count(members);
+                        ShotHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(1500)).await;
+                let shot = format!("/tmp/gui-out/p230-members-{members}.png");
+                assert!(std::process::Command::new("grim").arg(&shot).status().unwrap().success());
+                view.update(cx, |_, _, cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn sender_names_shot_group() {
+        sender_names_screenshot(3);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn sender_names_shot_pair() {
+        sender_names_screenshot(2);
     }
 
     #[test]

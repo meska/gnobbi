@@ -38,3 +38,30 @@ fn demo_incoming_events_have_sender_and_outgoing_do_not() {
     }
     assert!(rows.events().iter().any(|e| e.sender.as_ref().is_some_and(|s| s.name.is_some())));
 }
+
+fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> HistoryEvent {
+    HistoryEvent {
+        event_id: EventId::new(id),
+        body: "x".into(),
+        outgoing: false,
+        timestamp_ms,
+        sender: HistorySender::new(sender, name),
+    }
+}
+
+#[test]
+fn sender_label_follows_the_rule_in_a_group() {
+    let mut rows = DemoHistory::new(scope(), 0);
+    rows.prepend_server(vec![
+        incoming("$1", "@anna:test", Some("Anna"), 0),
+        incoming("$2", "@anna:test", Some("Anna"), 60_000),
+        incoming("$3", "@bruno:test", None, 120_000),
+        incoming("$4", "@bruno:test", None, 120_000 + 6 * 60_000),
+    ]);
+    let labels: Vec<_> = (0..4).map(|i| rows.sender_label(i, 3)).collect();
+    assert_eq!(
+        labels,
+        [Some("Anna".to_owned()), None, Some("@bruno:test".to_owned()), Some("@bruno:test".to_owned())]
+    );
+    assert!((0..4).all(|i| rows.sender_label(i, 2).is_none()));
+}

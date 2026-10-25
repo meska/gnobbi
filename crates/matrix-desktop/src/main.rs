@@ -883,10 +883,11 @@ impl Shell {
                 self.composer.update(cx, |editor, cx| {
                     editor.switch_room(self.active_scope.clone(), cx)
                 });
-                self.timeline = Some(TimelineView::connected(
-                    self.active_scope.clone(),
-                    cx.focus_handle(),
-                ));
+                let timeline = TimelineView::connected(self.active_scope.clone(), cx.focus_handle());
+                if let Some(room) = self.sidebar.selected() {
+                    timeline.set_member_count(room.info.joined_members);
+                }
+                self.timeline = Some(timeline);
                 self.pending_history = Some(request);
                 self.refresh_delivery(false);
             } else if scope.is_none() {

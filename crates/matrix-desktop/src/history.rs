@@ -30,6 +30,7 @@ pub struct DemoEvent {
     pub send_state: Option<DemoSendState>,
     /// None for local/own rows.
     pub sender: Option<HistorySender>,
+    pub timestamp_ms: u64,
 }
 
 impl DemoHistory {
@@ -55,8 +56,9 @@ impl DemoHistory {
                     text: format!("Evento {:05} · {body}", index + 1),
                     outgoing: index % 3 == 1,
                     send_state: None,
+                    timestamp_ms: index as u64 * 60_000,
                     sender: (index % 3 != 1).then(|| {
-                        let (id, name) = [("@anna:fixture.invalid", Some("Anna")), ("@bruno:fixture.invalid", None)][index % 2];
+                        let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
                     }),
                     time: format!("{:02}:{:02}", index / 60 % 24, index % 60),
@@ -124,6 +126,7 @@ impl DemoHistory {
             time: "locale".into(),
             send_state: Some(DemoSendState::Pending),
             sender: None,
+            timestamp_ms: 0,
         });
     }
 
@@ -205,6 +208,7 @@ impl DemoHistory {
                 ),
                 send_state: None,
                 sender: (!event.outgoing).then_some(event.sender),
+                timestamp_ms: event.timestamp_ms,
             })
             .collect::<Vec<_>>();
         let count = rows.len();
@@ -278,6 +282,7 @@ impl DemoHistory {
                     time: "ACK server · Risposta".into(),
                     send_state: None,
                     sender: None,
+                    timestamp_ms: 0,
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -345,6 +350,7 @@ impl DemoHistory {
                     },
                     send_state: state,
                     sender: None,
+                    timestamp_ms: 0,
                 });
             }
         }
@@ -352,6 +358,19 @@ impl DemoHistory {
 
     pub fn events(&self) -> &[DemoEvent] {
         &self.events
+    }
+
+    /// Sender name to draw above bubble `index`, per `matrix_domain::shows_sender_label`.
+    /// Falls back to the Matrix ID when the sender has no display name.
+    pub fn sender_label(&self, index: usize, member_count: u64) -> Option<String> {
+        let event = self.events.get(index)?;
+        let sender = event.sender.as_ref()?;
+        let previous = index.checked_sub(1).map(|i| &self.events[i]).map(|prev| {
+            let same = prev.sender.as_ref().is_some_and(|p| p.id == sender.id);
+            (same, event.timestamp_ms.saturating_sub(prev.timestamp_ms))
+        });
+        matrix_domain::shows_sender_label(member_count.try_into().unwrap_or(u32::MAX), event.outgoing, previous)
+            .then(|| sender.name.clone().unwrap_or_else(|| sender.id.clone()))
     }
 }
 
