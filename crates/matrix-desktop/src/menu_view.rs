@@ -10,6 +10,7 @@ impl Shell {
             return;
         }
         self.menu_open = open;
+        self.settings_open = false;
         if open { self.drawer_focus.focus(window) } else { self.menu_focus.focus(window) }
         cx.notify();
     }
@@ -23,13 +24,18 @@ impl Shell {
             return true;
         }
         if self.menu_open {
+            let activate = !m.modified() && matches!(key.key.as_str(), "enter" | "space");
             match key.key.as_str() {
+                "escape" if self.settings_open => self.set_settings_open(false, window, cx),
                 "escape" => self.set_menu_open(false, window, cx),
-                // The empty drawer holds one focus stop: Tab stays in it.
+                "enter" | "space" if activate && self.settings_open => self.toggle_debug(cx),
+                "enter" | "space" if activate => self.set_settings_open(true, window, cx),
+                // The drawer holds one focus stop at a time: Tab stays on it.
+                "tab" if self.settings_open => self.settings_focus.focus(window),
                 "tab" => self.drawer_focus.focus(window),
                 _ => (),
             }
-            return matches!(key.key.as_str(), "escape" | "tab");
+            return matches!(key.key.as_str(), "escape" | "tab") || activate;
         }
         if !m.modified() && matches!(key.key.as_str(), "enter" | "space") && self.menu_focus.is_focused(window) {
             self.set_menu_open(true, window, cx);
@@ -53,7 +59,7 @@ impl Shell {
     }
 
     /// Scrim and drawer start below the header so the button stays clickable.
-    pub(crate) fn render_drawer(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> gpui::AnyElement {
+    pub(crate) fn render_drawer(&self, t: matrix_desktop::DesignTokens, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         use gpui::{Animation, AnimationExt};
         div()
             .id("menu-scrim")
@@ -68,6 +74,7 @@ impl Shell {
                     .bg(rgb(t.surface))
                     .border_r_1().border_color(rgb(t.border))
                     .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(self.render_drawer_body(t, window, cx))
                     .with_animation(
                         "menu-drawer-slide",
                         Animation::new(std::time::Duration::from_millis(140)),

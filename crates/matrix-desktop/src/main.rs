@@ -6,6 +6,7 @@ mod filter_view;
 mod login_field;
 mod media_view;
 mod menu_view;
+mod settings_view;
 #[cfg(test)]
 mod navigation_resize_test;
 mod notification_view;
@@ -47,6 +48,10 @@ struct Shell {
     menu_open: bool,
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
+    settings_open: bool,
+    settings_focus: FocusHandle,
+    prefs: matrix_desktop::Preferences,
+    prefs_dirs: Option<matrix_desktop::AppDirs>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     back_ui: compact_view::BackUi,
     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -1744,7 +1749,7 @@ impl Render for Shell {
                 )
             })
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
-            .when(self.menu_open, |d| d.child(self.render_drawer(t, cx)))
+            .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .into_any_element()
     }
 }
@@ -2325,6 +2330,11 @@ fn main() {
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
+                        settings_open: false,
+                        settings_focus: cx.focus_handle(),
+                        prefs_dirs: matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()),
+                        prefs: matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())
+                            .map(|dirs| matrix_desktop::Preferences::load(&dirs)).unwrap_or_default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         back_ui: compact_view::BackUi::new(cx),
                         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]

@@ -1420,6 +1420,52 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 27 {
+            // Drawer entry opens Settings; Enter toggles the debug switch and persists it; Esc steps back out.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
+                assert!(ok, "screenshot {name}");
+            };
+            macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
+            let root = std::env::temp_dir().join(format!("p184-{}", std::process::id()));
+            let dirs = matrix_desktop::AppDirs { config: root.join("config"), data: root.join("data"), cache: root.join("cache") };
+            let saved = matrix_desktop::Preferences::load;
+            this.update_in(cx, |this, window, _| {
+                this.prefs_dirs = Some(dirs.clone());
+                assert!(!this.prefs.debug, "debug mode defaults to off");
+                this.menu_focus.focus(window);
+            }).unwrap();
+            key!("enter");
+            key!("enter");
+            wait(500).await;
+            this.update_in(cx, |this, window, _| {
+                assert!(this.settings_open && this.settings_focus.is_focused(window), "Enter on the drawer entry opens Settings");
+            }).unwrap();
+            shot("p184-off");
+            key!("enter");
+            wait(300).await;
+            this.update_in(cx, |this, _, _| {
+                assert!(this.prefs.debug, "Enter toggles debug on");
+                assert!(saved(&dirs).debug, "the switch is saved to the preferences file");
+            }).unwrap();
+            shot("p184-on");
+            key!("space");
+            this.update_in(cx, |this, _, _| {
+                assert!(!this.prefs.debug && !saved(&dirs).debug, "Space toggles it off and saves");
+            }).unwrap();
+            key!("escape");
+            this.update_in(cx, |this, window, _| {
+                assert!(!this.settings_open && this.menu_open && this.drawer_focus.is_focused(window), "Esc returns to the drawer");
+            }).unwrap();
+            key!("escape");
+            this.update_in(cx, |this, window, cx| {
+                assert!(!this.menu_open && this.menu_focus.is_focused(window), "second Esc closes the drawer");
+                let _ = std::fs::remove_dir_all(dirs.config.parent().unwrap());
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 26 {
             // Connected Shell: the menu button opens a drawer; Esc, the shortcut or the scrim close it; focus follows.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2528,6 +2574,17 @@ fn empty_rooms_are_hidden_until_the_control_shows_them() {
 fn menu_button_opens_and_closes_the_drawer_and_moves_focus() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(26, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn settings_entry_opens_the_panel_and_the_debug_switch_persists() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(27, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
