@@ -1706,7 +1706,7 @@ impl Render for Shell {
                                 )
                                 .when(self.connected && self.sidebar.selected().is_some(), |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Info, window, cx))),
                         )
-                        .when(self.connected, |d| d.child(div().id("load-server-history").relative().h(px(32.)).flex_shrink_0().px_6().flex().items_center().bg(rgb(t.surface)).text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer()
+                        .when(self.connected && matches!(self.history.status(), HistoryStatus::Loading | HistoryStatus::Failed), |d| d.child(div().id("load-server-history").relative().h(px(24.)).flex_shrink_0().px_6().flex().items_center().bg(rgb(t.surface)).text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer()
                             .map(|d| {
                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                 {
@@ -1724,11 +1724,8 @@ impl Render for Shell {
                                 d
                             })
                             .child(match self.history.status() {
-                                HistoryStatus::Empty => "Seleziona una stanza",
-                                HistoryStatus::Loading => "Caricamento storico…",
-                                HistoryStatus::More => "Carica precedenti · Ctrl+PageUp",
-                                HistoryStatus::Start => "Inizio dello storico raggiunto",
-                                HistoryStatus::Failed => "Storico non disponibile · clic per riprovare",
+                                HistoryStatus::Failed => "Impossibile caricare · scorri o clicca per riprovare",
+                                _ => "Caricamento…",
                             }).on_click(cx.listener(|this, _, _, cx| { this.request_older(); cx.notify(); }))))
                         .when_some(self.timeline.as_ref(), |d, timeline| d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone()))))
                         .when(self.connected && self.timeline.is_none(), |d| d.child(div().flex_1().bg(rgb(t.timeline)).p_6().child("Nessuna stanza selezionata. Nessun messaggio demo.")))

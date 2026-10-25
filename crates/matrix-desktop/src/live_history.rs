@@ -26,6 +26,8 @@ pub struct HistorySession {
     live_pending: bool,
     dirty: bool,
     live_failed: bool,
+    /// Top row seen since the older page failed; a different row means the reader scrolled.
+    failed_row: Option<usize>,
     live_before: Option<String>,
     live_rows: Vec<HistoryEvent>,
     live_cursors: HashSet<String>,
@@ -48,6 +50,7 @@ impl HistorySession {
             live_pending: false,
             dirty: false,
             live_failed: false,
+            failed_row: None,
             live_before: None,
             live_rows: Vec::new(),
             live_cursors: HashSet::new(),
@@ -63,6 +66,7 @@ impl HistorySession {
         self.live_pending = false;
         self.dirty = false;
         self.live_failed = false;
+        self.failed_row = None;
         self.live_before = None;
         self.live_rows.clear();
         self.live_cursors.clear();
@@ -227,7 +231,15 @@ impl HistorySession {
 
     /// Scroll-driven paging: only from a healthy `More` state, so a failed page waits for an explicit retry.
     pub fn load_older_near_top(&mut self, first_visible_row: usize) -> Option<HistoryRequest> {
-        if self.status != HistoryStatus::More || first_visible_row > Self::AUTO_LOAD_ROWS {
+        if first_visible_row > Self::AUTO_LOAD_ROWS {
+            return None;
+        }
+        if self.status == HistoryStatus::Failed && !self.live_failed {
+            // A failed page retries once per scroll, never per tick.
+            if self.failed_row.replace(first_visible_row).is_none_or(|row| row == first_visible_row) {
+                return None;
+            }
+        } else if self.status != HistoryStatus::More {
             return None;
         }
         self.load_older()
@@ -246,6 +258,7 @@ impl HistorySession {
         }
         let tag = self.views.start(self.scope.clone()?).ok()?;
         self.pagination_tag = Some(tag.clone());
+        self.failed_row = None;
         self.status = HistoryStatus::Loading;
         Some(HistoryRequest {
             tag,
