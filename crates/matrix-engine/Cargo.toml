@@ -43,3 +43,7 @@ futures-util = { version = "=0.3.34", default-features = false }
 [[test]]
 name = "sliding_sync_probe"
 required-features = ["sdk"]
+
+[[test]]
+name = "room_open_baseline"
+required-features = ["sdk"]
