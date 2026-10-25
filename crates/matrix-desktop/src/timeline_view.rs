@@ -1183,7 +1183,24 @@ impl TimelineView {
                                 .px_4()
                                 .py_3()
                                 .rounded_lg()
+                                .relative()
                                 .bg(rgb(if event.outgoing { t.outgoing } else { t.surface }))
+                                .when(event.menu_available(live), |d| {
+                                    let id = event.id.clone();
+                                    let operations = operations.clone();
+                                    let d = d.on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                                        if let Some(actions) = &operations { actions.borrow_mut().select(id.clone()); window.refresh(); cx.stop_propagation(); }
+                                    });
+                                    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                                    {
+                                        let painted = row_actions_painted.clone();
+                                        let id = event.id.clone();
+                                        return d.when(focused_actions.as_ref() == Some(&id), |d| d.border_2().border_color(rgb(t.accent)))
+                                            .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(id.clone(),bounds); }).absolute().inset_0());
+                                    }
+                                    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                                    { d }
+                                })
                                 .when_some(sender_label, |d, name| d.child(
                                     div().id(("sender-name", index)).mb_1().text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(name)))
                                 .child(div().id(("message-text", index)).cursor(gpui::CursorStyle::IBeam)
@@ -1317,23 +1334,6 @@ impl TimelineView {
                                     }
                                     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                                     { d }
-                                })
-                                .when(live && event.send_state.is_none(), |d| {
-                                    let id = event.id.clone();
-                                    d.child(div().flex().justify_end().h(px(24.)).items_center()
-                                        .child(div().id(("message-actions",index)).text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer().child("Azioni")
-                                            .map(|d| {
-                                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                                                {
-                                                    let painted = row_actions_painted.clone();
-                                                    let id = event.id.clone();
-                                                    d.relative().border_1().border_color(rgb(if focused_actions.as_ref() == Some(&id) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
-                                                        .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(id.clone(),bounds); }).absolute().inset_0())
-                                                }
-                                                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-                                                { d }
-                                            })
-                                            .on_click(move |_,window,_| { if let Some(actions) = &operations { actions.borrow_mut().select(id.clone()); window.refresh(); } })))
                                 })
                                 .when(!event.annotation.is_empty(), |d| d.child(div().text_size(px(12.)).text_color(rgb(t.accent)).child(event.annotation.clone())))
                                 .when_some(event.send_state.filter(|s| !live || *s == DemoSendState::Failed), |d, status| d.child(

@@ -38,6 +38,11 @@ impl DemoEvent {
     pub fn stamp(&self) -> String {
         bubble_stamp(&self.time, self.outgoing, self.send_state)
     }
+
+    /// Whether the message offers its actions menu: confirmed server messages only.
+    pub fn menu_available(&self, live: bool) -> bool {
+        live && self.send_state.is_none()
+    }
 }
 
 impl DemoHistory {
