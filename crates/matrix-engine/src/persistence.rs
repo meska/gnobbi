@@ -179,7 +179,7 @@ impl AccountStore {
     ) -> Result<matrix_sdk::Client, crate::auth::AuthError> {
         Self::private_directory(&self.path).map_err(|_| crate::auth::AuthError::Storage)?;
         Self::regular_files(&self.path).map_err(|_| crate::auth::AuthError::Storage)?;
-        matrix_sdk::Client::builder()
+        let client = matrix_sdk::Client::builder()
             .homeserver_url(homeserver.as_str())
             .disable_well_known_lookup(true)
             .respect_login_well_known(false)
@@ -192,7 +192,13 @@ impl AccountStore {
             .sqlite_store(&self.path, Some(passphrase))
             .build()
             .await
-            .map_err(|_| crate::auth::AuthError::Storage)
+            .map_err(|_| crate::auth::AuthError::Storage)?;
+        // The sqlite store above also holds the event cache, sealed with the same key.
+        client
+            .event_cache()
+            .subscribe()
+            .map_err(|_| crate::auth::AuthError::Storage)?;
+        Ok(client)
     }
 
     pub fn create(root: &Path, account_id: AccountId) -> Result<Self, StoreError> {

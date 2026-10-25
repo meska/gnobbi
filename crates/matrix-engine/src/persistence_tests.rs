@@ -258,3 +258,43 @@ fn symlinked_store_file_is_rejected_before_sdk_open() {
     ));
     assert_eq!(fs::read(target).unwrap(), b"fixture never modified");
 }
+
+#[test]
+fn profile_made_before_event_cache_opens_with_its_data_and_cache_on() {
+    let root = TestRoot::new("event-cache");
+    let store = AccountStore::create(&root.0, AccountId::new(270)).unwrap();
+    let url = crate::discovery::HomeserverUrl::parse("https://example.invalid").unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        // A profile as created before the event cache was switched on.
+        let old = matrix_sdk::Client::builder()
+            .homeserver_url(url.as_str())
+            .sqlite_store(&store.path, Some(PASSPHRASE))
+            .build()
+            .await
+            .unwrap();
+        assert!(!old.event_cache().has_subscribed());
+        old.state_store()
+            .set_custom_value(b"kept", b"before".to_vec())
+            .await
+            .unwrap();
+        drop(old);
+        let client = store
+            .client(&url, PASSPHRASE, reqwest::Client::new())
+            .await
+            .expect("old profile opens");
+        assert!(client.event_cache().has_subscribed());
+        assert!(fs::read_dir(&store.path).unwrap().any(|e| e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .contains("event-cache")));
+        assert_eq!(
+            client.state_store().get_custom_value(b"kept").await.unwrap(),
+            Some(b"before".to_vec())
+        );
+    });
+}
