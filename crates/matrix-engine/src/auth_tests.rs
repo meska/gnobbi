@@ -1183,6 +1183,30 @@ fn disposable_room_list_sync_tracks_name_unread_read_marker() {
 
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_unnamed_room_is_listed_by_participants_not_by_id() {
+    use crate::{RoomListDiff, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"visibility": "private", "invite": ["@bob:matrix-desktop.test"]})).await;
+        let id = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("rooms/{id}/join"), serde_json::json!({})).await;
+        let mut sync = RoomSync::new(login(&config, "alice", 18).await);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let name = loop {
+            let found = sync.next_batch().await.unwrap().into_iter().find_map(|change| match change {
+                RoomListDiff::Upsert(room) if room.scope.room_id.as_str() == id && room.name != id => Some(room.name),
+                _ => None,
+            });
+            if let Some(name) = found { break name; }
+            assert!(std::time::Instant::now() < deadline, "unnamed room never got a computed name");
+        };
+        assert!(name.contains("bob"), "computed name should come from the participant, got {name}");
+    });
+}
+
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
 fn disposable_room_list_worker_delivers_on_bounded_background_route() {
     use crate::{
         RoomListDiff,
