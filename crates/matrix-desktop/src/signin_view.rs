@@ -510,13 +510,15 @@ impl SignInView {
             if let SignInEvent::Prompt(prompt) = event {
                 self.mode = prompt.mode;
             }
+            // Authenticated before any prompt: the backend unlocked the vault by itself.
+            let unprompted = self.form.status() == FormStatus::Opening;
             self.form.apply(event);
             self.update_enabled(cx);
             cx.notify();
             match event {
                 // A vault sign-in still owes the recovery step: keep the view alive until it is deferred.
                 SignInEvent::Authenticated(account)
-                    if self.form.vault && self.mode == SignInMode::Password =>
+                    if self.form.vault && self.mode == SignInMode::Password && !unprompted =>
                 {
                     self.held = Some(account);
                 }
@@ -1299,6 +1301,31 @@ mod tests {
             })
             .unwrap();
             cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn automatic_vault_unlock_hands_over_the_account_without_any_prompt() {
+        gpui::Application::new().run(move |cx| {
+            let capacity = std::num::NonZeroUsize::new(1).unwrap();
+            let (mut events, event_rx) = matrix_engine::bounded(capacity);
+            let (commands, _requests) = matrix_engine::bounded(capacity);
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |_, cx| {
+                    cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap()).1, commands }, cx).with_vault(true))
+                })
+                .unwrap();
+            view.update(cx, |v, _, cx| {
+                let account = matrix_domain::AccountId::new(1);
+                events.try_send(SignInEvent::Authenticated(account)).unwrap();
+                assert_eq!(v.poll(cx), Some(account), "no unlock prompt, no recovery wait");
+            })
+            .unwrap();
+            cx.spawn(async move |cx| {
+                cx.update(|cx| cx.quit()).unwrap();
             })
             .detach();
         });

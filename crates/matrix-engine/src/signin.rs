@@ -318,7 +318,8 @@ pub struct SignInUi {
 pub struct PendingSignIn {
     root: PathBuf,
     trust_root: Option<Vec<u8>>,
-    source: Option<Box<dyn ProtectionSource + Send + Sync>>,
+    source: Option<std::sync::Arc<dyn ProtectionSource + Send + Sync>>,
+    vault_timeout: std::time::Duration,
     events: crate::Sender<SignInEvent>,
     setup: crate::Sender<SetupEvent>,
     commands: crate::Receiver<SignInCommand>,
@@ -361,14 +362,21 @@ fn route(
         PendingSignIn {
             root,
             trust_root,
-            source,
+            source: source.map(Into::into),
+            vault_timeout: VAULT_READ_TIMEOUT,
             events,
             setup: setup_events,
             commands: requests,
         },
     )
 }
+/// Upper bound for one OS-vault read; a locked or absent keyring must not stall start-up.
+const VAULT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 impl PendingSignIn {
+    pub fn with_vault_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.vault_timeout = timeout;
+        self
+    }
     /// Authenticated vault session: offer recovery, hand the session over once deferred.
     /// Never touches key backup or device trust.
     async fn recovery_step(
@@ -460,8 +468,23 @@ impl PendingSignIn {
         } else {
             SignInMode::Unlock
         };
+        // Vault profile: read the key by itself; the manual prompt only appears if that fails.
+        let mut first_error = None;
+        if mode == SignInMode::UnlockVault {
+            let source = self.source.clone().unwrap();
+            match profile.unlock_vault_timed(source, self.trust_root.clone(), self.vault_timeout).await {
+                Ok(session) => {
+                    self.events
+                        .send(SignInEvent::Authenticated(session.account_id()))
+                        .await
+                        .map_err(|_| SignInError::NoSession)?;
+                    return Ok(session);
+                }
+                Err(error) => first_error = Some(error),
+            }
+        }
         self.events
-            .send(SignInEvent::Prompt(SignInPrompt { mode, error: None }))
+            .send(SignInEvent::Prompt(SignInPrompt { mode, error: first_error }))
             .await
             .map_err(|_| SignInError::NoSession)?;
         while let Some(command) = self.commands.recv().await {
@@ -500,8 +523,12 @@ impl PendingSignIn {
                     session
                 }
                 SignInCommand::UnlockVault if matches!(mode, SignInMode::Unlock | SignInMode::UnlockVault) => {
-                    match self.source.as_deref() {
-                        Some(source) => profile.unlock_vault(source, self.trust_root.clone()).await,
+                    match self.source.clone() {
+                        Some(source) => {
+                            profile
+                                .unlock_vault_timed(source, self.trust_root.clone(), self.vault_timeout)
+                                .await
+                        }
                         None => Err(SignInError::ProtectionMismatch),
                     }
                 }
@@ -747,6 +774,32 @@ impl SignInProfile {
         let store = AccountStore::open(&self.root, account).map_err(|_| SignInError::Storage)?;
         let phrase = source.read(&store).map_err(SignInError::Vault)?;
         drop(store);
+        UnlockSession::new(self.root.clone(), account, phrase, trust_root)?
+            .run()
+            .await
+    }
+
+    /// Like `unlock_vault`, but the blocking vault read runs on a blocking thread and is
+    /// abandoned after `timeout` (reported as `Vault(Unavailable)`).
+    pub async fn unlock_vault_timed(
+        &mut self,
+        source: std::sync::Arc<dyn ProtectionSource + Send + Sync>,
+        trust_root: Option<Vec<u8>>,
+        timeout: std::time::Duration,
+    ) -> Result<AccountSession, SignInError> {
+        if !self.vault_mode {
+            return Err(SignInError::ProtectionMismatch);
+        }
+        let account = self.active.ok_or(SignInError::NoSession)?;
+        let root = self.root.clone();
+        let read = tokio::task::spawn_blocking(move || {
+            let store = AccountStore::open(&root, account).map_err(|_| SignInError::Storage)?;
+            source.read(&store).map_err(SignInError::Vault)
+        });
+        let phrase = match tokio::time::timeout(timeout, read).await {
+            Ok(Ok(phrase)) => phrase?,
+            _ => return Err(SignInError::Vault(VaultError::Unavailable)),
+        };
         UnlockSession::new(self.root.clone(), account, phrase, trust_root)?
             .run()
             .await

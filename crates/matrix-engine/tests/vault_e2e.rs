@@ -75,6 +75,24 @@ fn phase() {
             assert_eq!(user, ALICE);
             assert_eq!(device, std::fs::read_to_string(device_file).unwrap());
         }
+        // Interactive route, no command sent: the backend reads the key itself and opens the profile.
+        "restore-auto" => {
+            drop(profile);
+            let (mut ui, pending) = matrix_engine::signin::interactive_with_source(
+                root.clone(),
+                Some(fx.ca),
+                Box::new(SecretService),
+            );
+            let event = rt.block_on(async move {
+                let (result, event) = tokio::join!(pending.run(), ui.events.recv());
+                let session = result.unwrap();
+                let who = session.whoami().await.unwrap();
+                (event, who.user_id().to_owned(), who.device_id().to_owned())
+            });
+            assert!(matches!(event.0, Some(matrix_engine::signin::SignInEvent::Authenticated(_))));
+            assert_eq!(event.1, ALICE);
+            assert_eq!(event.2, std::fs::read_to_string(device_file).unwrap());
+        }
         // Expected Vault(Unavailable) (bus removed) or Vault(Missing) (copied profile).
         "restore-fails" => {
             let expected = match env("DIME_E2E_EXPECT").as_str() {

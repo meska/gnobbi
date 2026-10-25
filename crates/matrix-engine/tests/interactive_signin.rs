@@ -293,3 +293,84 @@ fn restoring_a_vault_profile_prompts_without_a_phrase_but_legacy_profiles_keep_u
     assert_eq!(first_mode(None, true), SignInMode::Unlock);
     assert_eq!(first_mode(None, false), SignInMode::Unlock);
 }
+
+mod auto_unlock {
+    use super::*;
+    use matrix_engine::persistence::AccountStore;
+    use matrix_engine::signin::{
+        ProtectionSource, Secret, SignInError, VaultError, interactive_with_source,
+    };
+    use std::sync::{Arc, atomic::AtomicU32};
+    use std::time::{Duration, Instant};
+
+    struct Counting {
+        reads: Arc<AtomicU32>,
+        delay: Duration,
+    }
+    impl ProtectionSource for Counting {
+        fn create(&self, _: &AccountStore) -> Result<Secret, VaultError> {
+            Err(VaultError::Unavailable)
+        }
+        fn read(&self, _: &AccountStore) -> Result<Secret, VaultError> {
+            self.reads.fetch_add(1, Ordering::Relaxed);
+            std::thread::sleep(self.delay);
+            Err(VaultError::Locked)
+        }
+    }
+
+    fn vault_root() -> Root {
+        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+        let root = Root::new();
+        std::fs::DirBuilder::new().mode(0o700).create(&root.0).unwrap();
+        std::fs::DirBuilder::new().mode(0o700).create(root.0.join("account-1")).unwrap();
+        for (name, bytes) in [("active-account", &b"1"[..]), ("protection-mode", b"vault-v1")] {
+            use std::io::Write;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(root.0.join(name))
+                .unwrap()
+                .write_all(bytes)
+                .unwrap();
+        }
+        root
+    }
+
+    /// Runs the backend without ever sending a command; returns the first prompt.
+    fn first_prompt(delay: Duration, timeout: Duration) -> (SignInPrompt, u32, Duration) {
+        let root = vault_root();
+        let reads = Arc::new(AtomicU32::new(0));
+        let source = Counting { reads: reads.clone(), delay };
+        let (mut ui, pending) = interactive_with_source(root.0.clone(), None, Box::new(source));
+        let start = Instant::now();
+        let prompt = runtime().block_on(async {
+            let consumer = async {
+                let Some(SignInEvent::Prompt(prompt)) = ui.events.recv().await else {
+                    panic!("expected a prompt");
+                };
+                let elapsed = start.elapsed();
+                drop(ui);
+                (prompt, elapsed)
+            };
+            tokio::join!(pending.with_vault_timeout(timeout).run(), consumer).1
+        });
+        (prompt.0, reads.load(Ordering::Relaxed), prompt.1)
+    }
+
+    #[test]
+    fn vault_profile_reads_the_key_without_a_command_and_reports_the_failure() {
+        let (prompt, reads, _) = first_prompt(Duration::ZERO, Duration::from_secs(5));
+        assert_eq!(reads, 1);
+        assert_eq!(prompt.mode, SignInMode::UnlockVault);
+        assert_eq!(prompt.error, Some(SignInError::Vault(VaultError::Locked)));
+    }
+
+    #[test]
+    fn a_hanging_vault_read_times_out_instead_of_blocking_the_prompt() {
+        let (prompt, _, elapsed) =
+            first_prompt(Duration::from_secs(3), Duration::from_millis(200));
+        assert_eq!(prompt.error, Some(SignInError::Vault(VaultError::Unavailable)));
+        assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+    }
+}
