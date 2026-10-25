@@ -1228,6 +1228,7 @@ fn disposable_room_list_preview_is_last_real_message_and_clears_when_deleted() {
                         && room.scope.room_id.as_str() == id
                         && room.info.preview.as_deref() == want
                     {
+                        assert_eq!(room.info.last_activity.is_some(), want.is_some());
                         return;
                     }
                 }

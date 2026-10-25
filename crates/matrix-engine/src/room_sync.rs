@@ -516,7 +516,7 @@ pub struct RoomSync {
     previous: BTreeMap<String, RoomSummary>,
     timeline_heads: BTreeMap<String, matrix_domain::EventId>,
     /// Last real message per room as (event id, text); fed by sync only, so empty until a message arrives.
-    previews: BTreeMap<String, (String, String)>,
+    previews: BTreeMap<String, (String, String, Option<u64>)>,
     receipts: crate::receipts::PeerReceipts,
     operation_state: std::sync::Arc<tokio::sync::Mutex<crate::operations::OperationJournal>>,
 }
@@ -678,17 +678,7 @@ impl RoomSync {
                 ));
             }
             for event in &update.timeline.events {
-                match preview_change(event.raw().json().get()) {
-                    PreviewChange::Set { event_id, text } => {
-                        self.previews.insert(room.to_string(), (event_id, text));
-                    }
-                    PreviewChange::Remove { target } => {
-                        if self.previews.get(room.as_str()).is_some_and(|(id, _)| *id == target) {
-                            self.previews.remove(room.as_str());
-                        }
-                    }
-                    PreviewChange::Ignore => {}
-                }
+                apply_preview(&mut self.previews, room.as_str(), preview_change(event.raw().json().get()));
             }
             for raw in update.ephemeral {
                 self.receipts.observe_event(&scope, &raw);
@@ -706,17 +696,7 @@ impl RoomSync {
         for room in client.rooms().into_iter().filter(|r| r.state() == RoomState::Joined) {
             let Ok((saved, _, _)) = stored_events(&client, room.room_id()).await else { continue };
             for event in &saved {
-                match preview_change(event.raw().json().get()) {
-                    PreviewChange::Set { event_id, text } => {
-                        self.previews.insert(room.room_id().to_string(), (event_id, text));
-                    }
-                    PreviewChange::Remove { target } => {
-                        if self.previews.get(room.room_id().as_str()).is_some_and(|(id, _)| *id == target) {
-                            self.previews.remove(room.room_id().as_str());
-                        }
-                    }
-                    PreviewChange::Ignore => {}
-                }
+                apply_preview(&mut self.previews, room.room_id().as_str(), preview_change(event.raw().json().get()));
             }
         }
         self.summarize().await
@@ -766,7 +746,8 @@ impl RoomSync {
                             account_id: self.session.account_id(),
                             room_id: RoomId::new(id.clone()),
                         }),
-                        preview: self.previews.get(&id).map(|(_, text)| text.clone()),
+                        preview: self.previews.get(&id).map(|(_, text, _)| text.clone()),
+                        last_activity: last_activity(&self.previews, &id),
                         topic: room.topic(),
                         joined_members: room.joined_members_count(),
                         is_space: room.is_space(),
@@ -821,7 +802,7 @@ impl RoomSync {
 /// What one timeline event means for the room-list preview.
 #[derive(Debug, PartialEq, Eq)]
 enum PreviewChange {
-    Set { event_id: String, text: String },
+    Set { event_id: String, text: String, ts: Option<u64> },
     Remove { target: String },
     Ignore,
 }
@@ -844,10 +825,32 @@ fn preview_change(raw: &str) -> PreviewChange {
                 return PreviewChange::Ignore;
             };
             let text = if content["msgtype"] == "m.image" { "Immagine".to_owned() } else { body };
-            PreviewChange::Set { event_id, text }
+            PreviewChange::Set { event_id, text, ts: event["origin_server_ts"].as_u64() }
         }
         _ => PreviewChange::Ignore,
     }
+}
+
+type Previews = BTreeMap<String, (String, String, Option<u64>)>;
+
+fn apply_preview(previews: &mut Previews, room: &str, change: PreviewChange) {
+    match change {
+        PreviewChange::Set { event_id, text, ts } => {
+            previews.insert(room.to_owned(), (event_id, text, ts));
+        }
+        PreviewChange::Remove { target } => {
+            if previews.get(room).is_some_and(|(id, ..)| *id == target) {
+                previews.remove(room);
+            }
+        }
+        PreviewChange::Ignore => {}
+    }
+}
+
+/// Server time (ms) of the last real message seen. The SDK recency stamp is a bump counter, not a
+/// time, and is absent without sliding sync; this one is the same on Synapse and Tuwunel.
+fn last_activity(previews: &Previews, room: &str) -> Option<u64> {
+    previews.get(room).and_then(|(.., ts)| *ts)
 }
 
 /// Name shown in the room list: the SDK-computed display name, the raw id only as a last resort.

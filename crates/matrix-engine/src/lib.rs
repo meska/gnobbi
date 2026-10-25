@@ -37,6 +37,8 @@ pub struct RoomInfo {
     pub topic: Option<String>,
     /// Text of the last real message seen in sync; None when none or it was deleted.
     pub preview: Option<String>,
+    /// Server time (ms since epoch) of the last real message; None when none or it was deleted.
+    pub last_activity: Option<u64>,
     pub joined_members: u64,
     pub is_space: bool,
     /// Direct m.space.child links with valid nonempty via; never autojoin.
