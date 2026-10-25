@@ -304,11 +304,19 @@ impl RoomListWorker {
                         }
                         clean
                     });
+                    // Set once the user opens a room: the background warm-up then yields.
+                    let opened = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                    let warm_client = client.clone();
+                    let warm_opened = opened.clone();
+                    let warm_stop = cancelled.clone();
                     // Runtime owns this read-only task; shutdown drops/cancels it.
                     let history_task = tokio::spawn(async move {
                         while let Some(request) = requests.recv().await {
                             if request.tag.is_cancelled() {
                                 continue;
+                            }
+                            if request.open {
+                                opened.store(true, std::sync::atomic::Ordering::Release);
                             }
                             if !serve_history(&client, account, request, &mut history_sender).await {
                                 break;
@@ -375,6 +383,11 @@ impl RoomListWorker {
                                     return;
                                 }
                                 ready = true;
+                                // Runtime drop ends it with the account; one pass after the first sync.
+                                let (client, opened, stop) = (warm_client.clone(), warm_opened.clone(), warm_stop.clone());
+                                tokio::spawn(async move {
+                                    crate::warm::warm(&client, &stop, &opened).await;
+                                });
                             }
                         }
                     };
@@ -1379,7 +1392,7 @@ async fn older_via_event_cache(
 }
 
 /// Saved events of a room oldest first, and whether a hole sits after some saved messages.
-async fn stored_events(
+pub(crate) async fn stored_events(
     client: &matrix_sdk::Client,
     id: &matrix_sdk::ruma::RoomId,
 ) -> Result<(Vec<matrix_sdk::deserialized_responses::TimelineEvent>, bool, Option<String>), crate::history::HistoryError> {

@@ -462,3 +462,92 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
         drop((store, client));
     });
 }
+
+async fn warm_fixture(
+    id: u64,
+    interrupt: bool,
+) -> (usize, Vec<usize>) {
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let root = std::path::PathBuf::from(env("CACHE_PROBE_ROOT"));
+    let http = || {
+        crate::auth::secure_http_builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(&ca).unwrap())
+            .build()
+            .unwrap()
+    };
+    let bob = matrix_sdk::Client::builder()
+        .homeserver_url(&url)
+        .add_root_certificates(vec![reqwest::Certificate::from_pem(&ca).unwrap()])
+        .build()
+        .await
+        .unwrap();
+    bob.matrix_auth()
+        .login_username("@bob:matrix-desktop.test", config["bob_password"].as_str().unwrap())
+        .send()
+        .await
+        .unwrap();
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        let mut request = CreateRoom::new();
+        request.invite = vec!["@alice:matrix-desktop.test".try_into().unwrap()];
+        let room_id = bob.create_room(request).await.unwrap().room_id().to_owned();
+        let bob_room = bob.get_room(&room_id).unwrap();
+        for n in 0..30 {
+            bob_room.send(RoomMessageEventContent::text_plain(format!("m{n}"))).await.unwrap();
+        }
+        ids.push(room_id);
+    }
+    let store = AccountStore::create(&root, AccountId::new(id)).unwrap();
+    let session = store
+        .password_login_with_http(
+            HomeserverUrl::parse(&url).unwrap(),
+            "@alice:matrix-desktop.test",
+            config["alice_password"].as_str().unwrap(),
+            PASSPHRASE,
+            http(),
+        )
+        .await
+        .unwrap();
+    let alice = session.client.clone().unwrap();
+    for room_id in &ids {
+        let invited = eventually("invite", || async {
+            alice.sync_once(Default::default()).await.ok()?;
+            alice.get_room(room_id)
+        })
+        .await;
+        invited.join().await.unwrap();
+    }
+    alice.sync_once(Default::default()).await.unwrap();
+    let stop = std::sync::atomic::AtomicBool::new(false);
+    let stop_now = std::sync::atomic::AtomicBool::new(interrupt);
+    let warmed = crate::warm::warm(&alice, &stop, &stop_now).await;
+    let mut saved = Vec::new();
+    for room_id in &ids {
+        saved.push(crate::room_sync::stored_events(&alice, room_id).await.unwrap().0.len());
+    }
+    drop(alice);
+    (warmed, saved)
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn warm_up_saves_the_history_of_the_first_rooms() {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let (warmed, saved) = rt.block_on(warm_fixture(273, false));
+    println!("WARM warmed {warmed} saved {saved:?}");
+    assert_eq!(warmed, 3);
+    assert!(saved.iter().all(|n| *n >= 20), "every room has saved messages: {saved:?}");
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn warm_up_does_nothing_once_the_user_opened_another_room() {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let (warmed, saved) = rt.block_on(warm_fixture(274, true));
+    println!("WARM warmed {warmed} saved {saved:?}");
+    assert_eq!(warmed, 0);
+    assert!(saved.iter().all(|n| *n <= 10), "only the sync window is saved: {saved:?}");
+}

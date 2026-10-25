@@ -15,6 +15,8 @@ pub mod auth;
 pub mod recovery;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
+#[cfg(feature = "sdk")]
+mod warm;
 pub mod verification;
 
 /// A server-backed room-list projection; never log remote names or identities.
