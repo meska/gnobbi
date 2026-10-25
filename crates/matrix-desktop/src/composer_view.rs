@@ -975,7 +975,13 @@ mod tests {
                     })
                 })
                 .unwrap();
+            let executor = cx.background_executor().clone();
             cx.spawn(async move |cx| {
+                // Wayland reads the clipboard only through an offer from the compositor: seed one and let it arrive.
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string("seed".into())))
+                    .unwrap();
+                executor.timer(std::time::Duration::from_millis(300)).await;
                 view.update(cx, check).unwrap();
                 cx.update(|cx| cx.quit()).unwrap();
             })
@@ -1048,7 +1054,8 @@ mod tests {
                 command(v, "ctrl-c", mac, window, cx);
                 assert_eq!(
                     cx.read_from_clipboard().and_then(|i| i.text()).as_deref(),
-                    Some(original.as_str())
+                    Some(original.as_str()),
+                    "ctrl-c mac={mac}"
                 );
                 command(v, "ctrl-x", mac, window, cx);
                 assert_eq!(v.draft.text(), "");
@@ -1224,6 +1231,11 @@ mod tests {
                 .unwrap();
             let executor = cx.background_executor().clone();
             cx.spawn(async move |cx| {
+                // Seed a compositor-visible selection so Wayland clipboard reads work.
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string("seed".into())))
+                    .unwrap();
+                executor.timer(std::time::Duration::from_millis(300)).await;
                 view.update(cx, |v, window, cx| {
                     for chord in [
                         "cmd-a",
