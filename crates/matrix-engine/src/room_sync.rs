@@ -587,6 +587,56 @@ impl RoomSync {
         fetch_history(client, self.session.account_id(), tag, before).await
     }
 
+    /// Messages already in the SDK event cache, oldest first. Never touches the network.
+    pub async fn cached_history(
+        &self,
+        tag: crate::RequestTag,
+    ) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
+        use crate::history::HistoryError;
+        let client = self.session.client.as_ref().ok_or(HistoryError::Unavailable)?;
+        if tag.scope().account_id != self.session.account_id() {
+            return Err(HistoryError::WrongScope);
+        }
+        let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
+            .map_err(|_| HistoryError::WrongScope)?;
+        let room = client
+            .get_room(&id)
+            .filter(|r| r.state() == RoomState::Joined)
+            .ok_or(HistoryError::Unavailable)?;
+        // The store holds every chunk saved so far; the room cache would load them one by one
+        // and ask the server at the first gap.
+        let cached = {
+            use matrix_sdk::linked_chunk::{ChunkContent, LinkedChunkId};
+            let lock = client
+                .event_cache_store()
+                .lock()
+                .await
+                .map_err(|_| HistoryError::Unavailable)?;
+            let guard = match &lock {
+                matrix_sdk::cross_process_lock::MappedCrossProcessLockState::Clean(g)
+                | matrix_sdk::cross_process_lock::MappedCrossProcessLockState::Dirty(g) => g,
+            };
+            let mut chunks: std::collections::HashMap<_, _> = guard
+                .load_all_chunks(LinkedChunkId::Room(&id))
+                .await
+                .map_err(|_| HistoryError::Unavailable)?
+                .into_iter()
+                .map(|c| (c.identifier, c))
+                .collect();
+            let mut next = chunks.values().find(|c| c.previous.is_none()).map(|c| c.identifier);
+            let mut cached = Vec::new();
+            while let Some(chunk) = next.and_then(|n| chunks.remove(&n)) {
+                next = chunk.next;
+                if let ChunkContent::Items(items) = chunk.content {
+                    cached.extend(items);
+                }
+            }
+            cached
+        };
+        let events = history_rows(client, &room, &id, cached.into_iter(), false).await?;
+        Ok(crate::history::HistoryPage { tag, events, next: None })
+    }
+
     /// Await only on the backend runtime. SDK persists/reuses its sync cursor;
     /// unchanged summaries are not emitted again. Payload-free errors only.
     pub async fn next_batch(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
@@ -902,43 +952,22 @@ async fn fetch_history(
     .await
 }
 
-async fn load_history(
+/// Message rows for events given oldest first. With `fetch_edits` an unedited-looking message
+/// asks the server for its edits; without it only edits already inside the event are applied.
+async fn history_rows(
     client: &matrix_sdk::Client,
-    account_id: matrix_domain::AccountId,
-    tag: crate::RequestTag,
-    before: Option<String>,
-) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
-    use crate::history::{HistoryError, HistoryEvent, HistoryPage};
-    use matrix_sdk::ruma::{
-        RoomId,
-        events::{
-            AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
-            room::message::MessageType,
-        },
+    room: &matrix_sdk::room::Room,
+    id: &matrix_sdk::ruma::RoomId,
+    chronological: impl Iterator<Item = matrix_sdk::deserialized_responses::TimelineEvent>,
+    fetch_edits: bool,
+) -> Result<Vec<crate::history::HistoryEvent>, crate::history::HistoryError> {
+    use crate::history::{HistoryError, HistoryEvent};
+    use matrix_sdk::ruma::events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+        room::message::MessageType,
     };
-    if tag.is_cancelled() {
-        return Err(HistoryError::Cancelled);
-    }
-    if tag.scope().account_id != account_id {
-        return Err(HistoryError::WrongScope);
-    }
-    let id = RoomId::parse(tag.scope().room_id.as_str()).map_err(|_| HistoryError::WrongScope)?;
-    let room = client
-        .get_room(&id)
-        .filter(|r| r.state() == RoomState::Joined)
-        .ok_or(HistoryError::Unavailable)?;
-    let mut options = matrix_sdk::room::MessagesOptions::backward();
-    options.from = before.clone();
-    options.limit = 25u32.into();
-    let response = room
-        .messages(options)
-        .await
-        .map_err(|_| HistoryError::Transport)?;
-    if tag.is_cancelled() {
-        return Err(HistoryError::Cancelled);
-    }
     let mut events = Vec::new();
-    for event in response.chunk.into_iter().rev() {
+    for event in chronological {
         // SDK owns decryption. A UTD remains a real row with server identity,
         // never silently omitted or rendered as ciphertext/plaintext.
         if event
@@ -1008,7 +1037,7 @@ async fn load_history(
                 message
                     .content
                     .apply_replacement(replacement.new_content.clone());
-            } else {
+            } else if fetch_edits {
                 use matrix_sdk::{
                     room::{IncludeRelations, RelationsOptions},
                     ruma::events::{
@@ -1091,6 +1120,39 @@ async fn load_history(
             });
         }
     }
+    Ok(events)
+}
+
+async fn load_history(
+    client: &matrix_sdk::Client,
+    account_id: matrix_domain::AccountId,
+    tag: crate::RequestTag,
+    before: Option<String>,
+) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
+    use crate::history::{HistoryError, HistoryPage};
+    use matrix_sdk::ruma::RoomId;
+    if tag.is_cancelled() {
+        return Err(HistoryError::Cancelled);
+    }
+    if tag.scope().account_id != account_id {
+        return Err(HistoryError::WrongScope);
+    }
+    let id = RoomId::parse(tag.scope().room_id.as_str()).map_err(|_| HistoryError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == RoomState::Joined)
+        .ok_or(HistoryError::Unavailable)?;
+    let mut options = matrix_sdk::room::MessagesOptions::backward();
+    options.from = before.clone();
+    options.limit = 25u32.into();
+    let response = room
+        .messages(options)
+        .await
+        .map_err(|_| HistoryError::Transport)?;
+    if tag.is_cancelled() {
+        return Err(HistoryError::Cancelled);
+    }
+    let events = history_rows(client, &room, &id, response.chunk.into_iter().rev(), true).await?;
     let next = response
         .end
         .filter(|end| Some(end) != before.as_ref() && end != &response.start);

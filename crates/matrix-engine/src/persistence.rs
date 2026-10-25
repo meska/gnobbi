@@ -14,6 +14,10 @@ use std::{
 #[path = "persistence_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "cached_history_tests.rs"]
+mod cached_history_tests;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoreError {
     UnsafePath,
