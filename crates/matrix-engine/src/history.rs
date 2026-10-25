@@ -5,6 +5,8 @@ use matrix_domain::EventId;
 pub struct HistoryRequest {
     pub tag: RequestTag,
     pub before: Option<String>,
+    /// Room opening: saved messages first, then only what was missed.
+    pub open: bool,
 }
 
 /// Event author: Matrix user ID plus display name when the room member is known.

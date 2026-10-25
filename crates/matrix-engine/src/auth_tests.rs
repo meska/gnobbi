@@ -888,7 +888,7 @@ fn disposable_timeline_worker_routes_history_beside_sync() {
             .unwrap();
         assert!(
             commands
-                .send(HistoryRequest { tag, before: None })
+                .send(HistoryRequest { tag, before: None, open: false })
                 .await
                 .is_ok()
         );

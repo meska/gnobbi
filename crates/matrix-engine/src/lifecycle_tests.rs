@@ -492,7 +492,8 @@ fn disposable_lifecycle_shutdown_cancels_inflight_history_and_inspection() {
             history
                 .send(crate::history::HistoryRequest {
                     tag: tag.clone(),
-                    before: None
+                    before: None,
+                    open: false,
                 })
                 .await
                 .is_ok()

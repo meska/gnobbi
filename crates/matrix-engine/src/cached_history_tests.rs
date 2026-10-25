@@ -12,6 +12,7 @@ use std::time::Duration;
 
 const PASSPHRASE: &str = "long disposable fixture passphrase";
 const COUNT: usize = 30;
+const OPEN: bool = true;
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} required"))
@@ -208,16 +209,25 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             serde_json::from_value(value["session"].clone()).unwrap();
         let client = store.client(&HomeserverUrl::parse(&url).unwrap(), PASSPHRASE, http()).await.unwrap();
         client.restore_session(sdk_session).await.unwrap();
-        let sync = RoomSync::new(AccountSession {
-            account_id: AccountId::new(293),
-            client: Some(client),
-            store: Some(store),
-        });
         let scope = RoomScope {
             account_id: AccountId::new(293),
             room_id: RoomId::new(room_id.as_str()),
         };
-        let (page, _) = sync.open_history(ViewRequests::new().start(scope).unwrap()).await.unwrap();
+        // The same route the app uses: selecting the room sends an opening request.
+        let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
+        let mut views = ViewRequests::new();
+        let tag = views.start(scope).unwrap();
+        let request = crate::history::HistoryRequest { tag, before: None, open: OPEN };
+        assert!(crate::room_sync::serve_history(&client, AccountId::new(293), request, &mut out).await);
+        let saved = results.recv().await.unwrap().page.unwrap();
+        assert_eq!(saved.events.len(), COUNT, "saved messages come first, before the gap");
+        let page = tokio::time::timeout(Duration::from_secs(20), results.recv())
+            .await
+            .expect("the full list follows the saved one")
+            .unwrap()
+            .page
+            .unwrap();
+        drop((store, client));
         let bodies: Vec<&str> = page.events.iter().map(|e| e.body.as_str()).collect();
         let expect: Vec<String> = (0..COUNT + MISSED).map(|n| format!("m{n}")).collect();
         assert_eq!(bodies, expect.iter().map(String::as_str).collect::<Vec<_>>(), "cache plus gap, in order");

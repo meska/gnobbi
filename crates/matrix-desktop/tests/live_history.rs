@@ -636,3 +636,18 @@ fn failed_older_page_retries_only_after_the_reader_scrolls() {
     view.apply(page(&retry, &["$b"], None)).unwrap();
     assert!(matches!(view.status(), HistoryStatus::Start));
 }
+
+#[test]
+fn selecting_a_room_asks_to_open_it_and_the_saved_page_then_the_gap_both_land() {
+    let mut view = HistorySession::new();
+    let room = scope("!seen:test");
+    let open = view.select(Some(room.clone())).unwrap();
+    assert!(open.open, "selection opens through the saved messages");
+    let saved = view.apply(page(&open, &["$a", "$b"], None)).unwrap();
+    assert_eq!(saved.len(), 2);
+    let gap = view.apply(page(&open, &["$a", "$b", "$c"], None)).unwrap();
+    assert_eq!(gap.len(), 1);
+    assert_eq!(gap[0].event_id.as_str(), "$c");
+    view.activity(&room);
+    assert!(!view.refresh().unwrap().open, "live refresh stays a plain page");
+}

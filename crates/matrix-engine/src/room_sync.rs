@@ -307,18 +307,10 @@ impl RoomListWorker {
                     // Runtime owns this read-only task; shutdown drops/cancels it.
                     let history_task = tokio::spawn(async move {
                         while let Some(request) = requests.recv().await {
-                            let tag = request.tag;
-                            if tag.is_cancelled() {
+                            if request.tag.is_cancelled() {
                                 continue;
                             }
-                            let page =
-                                fetch_history(&client, account, tag.clone(), request.before).await;
-                            if !tag.is_cancelled()
-                                && history_sender
-                                    .send(crate::history::HistoryResult { tag, page })
-                                    .await
-                                    .is_err()
-                            {
+                            if !serve_history(&client, account, request, &mut history_sender).await {
                                 break;
                             }
                         }
@@ -592,20 +584,8 @@ impl RoomSync {
         &self,
         tag: crate::RequestTag,
     ) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
-        use crate::history::HistoryError;
-        let client = self.session.client.as_ref().ok_or(HistoryError::Unavailable)?;
-        if tag.scope().account_id != self.session.account_id() {
-            return Err(HistoryError::WrongScope);
-        }
-        let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
-            .map_err(|_| HistoryError::WrongScope)?;
-        let room = client
-            .get_room(&id)
-            .filter(|r| r.state() == RoomState::Joined)
-            .ok_or(HistoryError::Unavailable)?;
-        let (cached, _) = stored_events(client, &id).await?;
-        let events = history_rows(client, &room, &id, cached.into_iter(), false).await?;
-        Ok(crate::history::HistoryPage { tag, events, next: None })
+        let client = self.session.client.as_ref().ok_or(crate::history::HistoryError::Unavailable)?;
+        saved_page(client, self.session.account_id(), tag).await
     }
 
     /// Open a room: the sync cursor brings the messages missed since the last run, and if
@@ -614,34 +594,8 @@ impl RoomSync {
         &self,
         tag: crate::RequestTag,
     ) -> Result<(crate::history::HistoryPage, Vec<crate::history::ReactionCount>), crate::history::HistoryError> {
-        use crate::history::HistoryError;
-        let client = self.session.client.as_ref().ok_or(HistoryError::Unavailable)?;
-        let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
-            .map_err(|_| HistoryError::WrongScope)?;
-        let room = client.get_room(&id).filter(|r| r.state() == RoomState::Joined).ok_or(HistoryError::Unavailable)?;
-        let (mut rows, _) = stored_events(client, &id).await?;
-        let anchor = rows.last().and_then(|e| e.event_id());
-        // Subscribed before the sync so the cache applies the missed messages as they arrive.
-        let (events, _drop) = room.event_cache().await.map_err(|_| HistoryError::Unavailable)?;
-        client
-            .sync_once(matrix_sdk::config::SyncSettings::default())
-            .await
-            .map_err(|_| HistoryError::Transport)?;
-        // shortcut: at most 10 batches of 20 for the hole; a longer absence reopens to the newest part.
-        let mut fresh = events.events().await.map_err(|_| HistoryError::Unavailable)?;
-        for _ in 0..10 {
-            if anchor.is_none() || fresh.iter().any(|e| e.event_id() == anchor) {
-                break;
-            }
-            events.pagination().run_backwards_until(20).await.map_err(|_| HistoryError::Transport)?;
-            fresh = events.events().await.map_err(|_| HistoryError::Unavailable)?;
-        }
-        // The saved list keeps its order; only what follows its last message is added.
-        let start = fresh.iter().position(|e| e.event_id() == anchor).map_or(0, |at| at + 1);
-        rows.extend(fresh.into_iter().skip(start));
-        let reactions = reaction_counts(&rows);
-        let events = history_rows(client, &room, &id, rows.into_iter(), false).await?;
-        Ok((crate::history::HistoryPage { tag, events, next: None }, reactions))
+        let client = self.session.client.as_ref().ok_or(crate::history::HistoryError::Unavailable)?;
+        open_page(client, tag).await
     }
 
     /// Await only on the backend runtime. SDK persists/reuses its sync cursor;
@@ -914,6 +868,91 @@ async fn until_stopped<F: std::future::Future>(
         }
     })
     .await
+}
+
+/// Saved messages of one room from the SDK event cache. Never touches the network.
+async fn saved_page(
+    client: &matrix_sdk::Client,
+    account_id: matrix_domain::AccountId,
+    tag: crate::RequestTag,
+) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
+    use crate::history::HistoryError;
+    if tag.scope().account_id != account_id {
+        return Err(HistoryError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
+        .map_err(|_| HistoryError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == RoomState::Joined)
+        .ok_or(HistoryError::Unavailable)?;
+    let (cached, _) = stored_events(client, &id).await?;
+    let events = history_rows(client, &room, &id, cached.into_iter(), false).await?;
+    Ok(crate::history::HistoryPage { tag, events, next: None })
+}
+
+async fn open_page(
+    client: &matrix_sdk::Client,
+    tag: crate::RequestTag,
+) -> Result<(crate::history::HistoryPage, Vec<crate::history::ReactionCount>), crate::history::HistoryError> {
+    use crate::history::HistoryError;
+    let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
+        .map_err(|_| HistoryError::WrongScope)?;
+    let room = client.get_room(&id).filter(|r| r.state() == RoomState::Joined).ok_or(HistoryError::Unavailable)?;
+    let (mut rows, _) = stored_events(client, &id).await?;
+    let anchor = rows.last().and_then(|e| e.event_id());
+    // Subscribed before the sync so the cache applies the missed messages as they arrive.
+    let (events, _drop) = room.event_cache().await.map_err(|_| HistoryError::Unavailable)?;
+    client
+        .sync_once(matrix_sdk::config::SyncSettings::default())
+        .await
+        .map_err(|_| HistoryError::Transport)?;
+    // shortcut: at most 10 batches of 20 for the hole; a longer absence reopens to the newest part.
+    let mut fresh = events.events().await.map_err(|_| HistoryError::Unavailable)?;
+    for _ in 0..10 {
+        if anchor.is_none() || fresh.iter().any(|e| e.event_id() == anchor) {
+            break;
+        }
+        events.pagination().run_backwards_until(20).await.map_err(|_| HistoryError::Transport)?;
+        fresh = events.events().await.map_err(|_| HistoryError::Unavailable)?;
+    }
+    // The saved list keeps its order; only what follows its last message is added.
+    let start = fresh.iter().position(|e| e.event_id() == anchor).map_or(0, |at| at + 1);
+    rows.extend(fresh.into_iter().skip(start));
+    let reactions = reaction_counts(&rows);
+    let events = history_rows(client, &room, &id, rows.into_iter(), false).await?;
+    Ok((crate::history::HistoryPage { tag, events, next: None }, reactions))
+}
+
+/// Answer one history request. An opened room that has saved messages emits them first,
+/// then the full list with what was missed; a failed gap keeps the saved list. A room
+/// never seen (nothing saved) takes the plain server page.
+pub(crate) async fn serve_history(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    request: crate::history::HistoryRequest,
+    out: &mut crate::Sender<crate::history::HistoryResult>,
+) -> bool {
+    let tag = request.tag;
+    // False once the receiver is gone.
+    let mut emit = async |result: crate::history::HistoryResult| {
+        result.tag.is_cancelled() || out.send(result).await.is_ok()
+    };
+    if request.open {
+        if let Ok(saved) = saved_page(client, account, tag.clone()).await
+            && !saved.events.is_empty()
+        {
+            if !emit(crate::history::HistoryResult { tag: tag.clone(), page: Ok(saved) }).await {
+                return false;
+            }
+            return match open_page(client, tag.clone()).await {
+                Ok((page, _)) => emit(crate::history::HistoryResult { tag, page: Ok(page) }).await,
+                Err(_) => true,
+            };
+        }
+    }
+    let page = fetch_history(client, account, tag.clone(), request.before).await;
+    emit(crate::history::HistoryResult { tag, page }).await
 }
 
 async fn history_sender(

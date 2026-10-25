@@ -162,7 +162,7 @@ fn live_activity_peer(encrypted: bool, reconnect: bool) {
             "timeline notification must carry exact local account/room, not a changed summary");
         let mut views = ViewRequests::new();
         let tag = views.start(scope.clone()).unwrap();
-        assert!(commands.send(HistoryRequest { tag, before: None }).await.is_ok());
+        assert!(commands.send(HistoryRequest { tag, before: None, open: false }).await.is_ok());
         let result = tokio::time::timeout(Duration::from_secs(5), history.recv()).await.unwrap().unwrap();
         assert!(views.accepts(&result.tag));
         let page = result.page.unwrap();
@@ -190,15 +190,15 @@ fn live_activity_peer(encrypted: bool, reconnect: bool) {
             (RoomScope { room_id: RoomId::new("!unjoined:matrix-desktop.test"), ..scope.clone() }, HistoryError::Unavailable),
         ] {
             let tag = views.start(bad).unwrap();
-            assert!(commands.send(HistoryRequest { tag, before: None }).await.is_ok());
+            assert!(commands.send(HistoryRequest { tag, before: None, open: false }).await.is_ok());
             let response = tokio::time::timeout(Duration::from_secs(5), history.recv()).await.unwrap().unwrap();
             assert!(matches!(response.page, Err(error) if error == expected));
         }
         let cancelled = views.start(scope.clone()).unwrap();
         views.cancel();
-        assert!(commands.send(HistoryRequest { tag: cancelled, before: None }).await.is_ok());
+        assert!(commands.send(HistoryRequest { tag: cancelled, before: None, open: false }).await.is_ok());
         let tag = views.start(scope).unwrap();
-        assert!(commands.send(HistoryRequest { tag, before: None }).await.is_ok());
+        assert!(commands.send(HistoryRequest { tag, before: None, open: false }).await.is_ok());
         let valid = tokio::time::timeout(Duration::from_secs(5), history.recv()).await.unwrap().unwrap();
         assert!(views.accepts(&valid.tag), "cancelled history produces no stale result");
         assert!(valid.page.is_ok());

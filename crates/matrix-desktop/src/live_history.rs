@@ -89,7 +89,7 @@ impl HistorySession {
         let tag = self.views.start(scope?).ok()?;
         self.pagination_tag = Some(tag.clone());
         self.status = HistoryStatus::Loading;
-        Some(HistoryRequest { tag, before: None })
+        Some(HistoryRequest { tag, before: None, open: true })
     }
     pub fn apply(&mut self, result: HistoryResult) -> Option<Vec<HistoryEvent>> {
         if !self.views.accepts(&result.tag) {
@@ -146,6 +146,7 @@ impl HistorySession {
         Some(HistoryRequest {
             tag,
             before: self.live_before.clone(),
+            open: false,
         })
     }
 
@@ -274,6 +275,7 @@ impl HistorySession {
         Some(HistoryRequest {
             tag,
             before: self.next.clone(),
+            open: false,
         })
     }
 }
