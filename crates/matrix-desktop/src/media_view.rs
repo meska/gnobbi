@@ -50,6 +50,23 @@ pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> Any
     }
 }
 
+/// Full-area dark scrim with the picture scaled to fit; a click anywhere closes it.
+pub(crate) fn large_view(image: Arc<gpui::RenderImage>, close: impl Fn(&mut gpui::Window) + 'static) -> AnyElement {
+    div()
+        .id("large-image")
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p_4()
+        .bg(gpui::rgba(0x000000d9))
+        .cursor_pointer()
+        .on_click(move |_, window, _| close(window))
+        .child(img(image).max_w_full().max_h_full().object_fit(gpui::ObjectFit::Contain))
+        .into_any_element()
+}
+
 impl Shell {
     /// Ask for the next image of the open room, one read at a time; true when the view changed.
     pub(crate) fn drive_inline_images(&mut self) -> bool {

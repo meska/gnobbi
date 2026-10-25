@@ -59,6 +59,14 @@ fn offline_delivery_callback(
     }
 }
 
+fn close_viewer(viewing: &RefCell<Option<matrix_domain::EventId>>, focus: &FocusHandle, key: &str, window: &mut gpui::Window) -> bool {
+    if key != "escape" || viewing.borrow_mut().take().is_none() {
+        return false;
+    }
+    focus.focus(window);
+    true
+}
+
 pub struct TimelineView {
     offline_delivery: Rc<RefCell<matrix_desktop::OfflineDelivery>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -76,6 +84,7 @@ pub struct TimelineView {
     link_sources: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     link_cursor: Rc<Cell<Option<u64>>>,
     link_hover: Rc<Cell<Option<u64>>>,
+    viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     pub(crate) images: Rc<RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>>,
@@ -213,6 +222,7 @@ impl TimelineView {
             link_sources: Rc::default(),
             link_cursor: Rc::default(),
             link_hover: Rc::default(),
+            viewing: Rc::default(),
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
@@ -785,6 +795,23 @@ impl TimelineView {
         self.history.borrow().keyboard_menu_target(focused.as_ref())
     }
 
+    pub(crate) fn viewing(&self) -> Option<matrix_domain::EventId> {
+        self.viewing.borrow().clone()
+    }
+
+    /// Open the large view of a loaded image; keyboard focus stays on the timeline, which handles Escape.
+    pub(crate) fn open_image(&self, id: matrix_domain::EventId, window: &mut gpui::Window) {
+        if matches!(self.images.borrow().get(&id), Some(crate::media_view::InlineImage::Ready(_))) {
+            *self.viewing.borrow_mut() = Some(id);
+            self.focus.focus(window);
+        }
+    }
+
+    /// Escape closes the large view and returns focus to the timeline; true when consumed.
+    pub(crate) fn viewer_key(&self, key: &str, window: &mut gpui::Window) -> bool {
+        close_viewer(&self.viewing, &self.focus, key, window)
+    }
+
     pub fn focus_timeline(&self, window: &mut gpui::Window) {
         self.focus.focus(window);
     }
@@ -1101,6 +1128,7 @@ impl TimelineView {
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
         let images = self.images.clone();
+        let viewing = self.viewing.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1122,6 +1150,15 @@ impl TimelineView {
             .id("timeline-text")
             .track_focus(&self.focus)
             .on_key_down(self.selection_key_callback(cfg!(target_os = "macos")))
+            .on_key_down({
+                let (viewing, focus) = (self.viewing.clone(), self.focus.clone());
+                move |event, window, cx| {
+                    if close_viewer(&viewing, &focus, &event.keystroke.key, window) {
+                        window.refresh();
+                        cx.stop_propagation();
+                    }
+                }
+            })
             .when(cfg!(any(target_os = "macos", test)), |element| {
                 let key = self.selection_key_callback(true);
                 let focus = self.focus.clone();
@@ -1155,7 +1192,21 @@ impl TimelineView {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
                         };
-                        crate::media_view::inline_picture(state, t)
+                        let opened = matches!(state, Some(crate::media_view::InlineImage::Ready(_)));
+                        let picture = crate::media_view::inline_picture(state, t);
+                        match (&event.id.id, opened) {
+                            (matrix_domain::TimelineId::Server(id), true) => {
+                                let (id, viewing, focus) = (id.clone(), viewing.clone(), focus.clone());
+                                div().id(gpui::SharedString::from(id.as_str().to_owned())).cursor_pointer()
+                                    .on_click(move |_, window, _| {
+                                        *viewing.borrow_mut() = Some(id.clone());
+                                        focus.focus(window);
+                                        window.refresh();
+                                    })
+                                    .child(picture).into_any_element()
+                            }
+                            _ => picture,
+                        }
                     });
                     let mut body = StyledText::new(event.text.clone());
                     let links = message_links(&event.text);
@@ -1343,7 +1394,11 @@ impl TimelineView {
                                             }
                                         });
                                     }).absolute().inset_0())
-                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child(picture.unwrap_or_else(|| body.into_any_element())))
+                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child(match picture {
+                                        // The mouse handlers read the text layout, which only exists once the text was painted: keep it painted, invisible.
+                                        Some(picture) => div().child(picture).child(div().size_0().overflow_hidden().child(body)).into_any_element(),
+                                        None => body.into_any_element(),
+                                    }))
                                 .child(
                                     div()
                                         .w_full()
@@ -1472,6 +1527,16 @@ impl TimelineView {
                 })
                 .size_full(),
             )
+            .children(self.viewing().and_then(|id| match self.images.borrow().get(&id) {
+                Some(crate::media_view::InlineImage::Ready(image)) => {
+                    let (viewing, focus) = (self.viewing.clone(), self.focus.clone());
+                    Some(crate::media_view::large_view(image.clone(), move |window| {
+                        close_viewer(&viewing, &focus, "escape", window);
+                        window.refresh();
+                    }))
+                }
+                _ => None,
+            }))
             .map(|d| {
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 {
@@ -1916,6 +1981,32 @@ mod tests {
             window,
             cx,
         );
+    }
+
+    fn ready_image() -> crate::media_view::InlineImage {
+        let buffer = image::RgbaImage::from_raw(2, 2, vec![255; 16]).unwrap();
+        crate::media_view::InlineImage::Ready(std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)])))
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn large_image_view_opens_and_escape_returns_focus_to_timeline() {
+        selection_probe(|v, window, _| {
+            let id = matrix_domain::EventId::new("$picture:fixture.invalid");
+            v.images.borrow_mut().insert(id.clone(), ready_image());
+            let other = matrix_domain::EventId::new("$missing:fixture.invalid");
+            v.open_image(other, window);
+            assert!(v.viewing().is_none(), "an image that is not loaded has no large view");
+            v.open_image(id.clone(), window);
+            assert_eq!(v.viewing(), Some(id.clone()));
+            assert!(v.focus.is_focused(window), "the large view owns keyboard focus");
+            assert!(!v.viewer_key("a", window), "other keys leave the view open");
+            assert_eq!(v.viewing(), Some(id));
+            assert!(v.viewer_key("escape", window));
+            assert!(v.viewing().is_none());
+            assert!(v.focus.is_focused(window), "focus returns to the timeline");
+            assert!(!v.viewer_key("escape", window), "Escape with no view is not consumed");
+        });
     }
 
     #[test]

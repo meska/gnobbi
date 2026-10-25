@@ -451,6 +451,13 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let key = &event.keystroke;
+        if let Some(timeline) = &self.timeline
+            && timeline.viewer_key(&key.key, window)
+        {
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
         if self.connected && !self.search_focus.is_focused(window) {
             let m = &key.modifiers;
             if opens_message_menu(&key.key, m.shift, m.control, m.alt, m.platform) {
