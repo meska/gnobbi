@@ -961,7 +961,7 @@ impl TimelineView {
                 .iter()
                 .position(|event| event.id == anchor)
                 .expect("prepend retains server anchor");
-            self.state.scroll_to(ListOffset {
+                        self.state.scroll_to(ListOffset {
                 item_ix: position,
                 offset_in_item: offset.offset_in_item,
             });
@@ -1928,6 +1928,62 @@ mod tests {
                     "selected-message menu source/focus and read-only availability passed"
                 );
                 cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    /// Reading position when older server rows arrive: the row being read keeps its place.
+    #[test]
+    #[ignore = "requires private display"]
+    fn older_rows_keep_the_row_being_read_in_place() {
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        gpui::Application::new().run(|cx| {
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi anchoring");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:fixture.invalid") };
+                        ShotHost(TimelineView::with_history(DemoHistory::new(scope, 60), cx.focus_handle(), false))
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                let pause = || executor.timer(std::time::Duration::from_millis(700));
+                pause().await;
+                let (id, offset) = view
+                    .update(cx, |host, _, _| {
+                        host.0.state.scroll_to(ListOffset { item_ix: 20, offset_in_item: px(7.) });
+                        (host.0.history.borrow().events()[20].id.clone(), px(7.))
+                    })
+                    .unwrap();
+                pause().await;
+                assert!(std::process::Command::new("grim").arg("/tmp/gui-out/p177-before.png").status().unwrap().success());
+                view.update(cx, |host, _, cx| {
+                    let older = (0..25)
+                        .map(|n| HistoryEvent {
+                            event_id: EventId::new(format!("$old{n}:fixture.invalid")),
+                            body: format!("older {n}"),
+                            outgoing: false,
+                            timestamp_ms: n,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                        })
+                        .collect();
+                    host.0.prepend_server(older);
+                    cx.notify();
+                })
+                .unwrap();
+                pause().await;
+                assert!(std::process::Command::new("grim").arg("/tmp/gui-out/p177-after.png").status().unwrap().success());
+                view.update(cx, |host, _, cx| {
+                    let top = host.0.state.logical_scroll_top();
+                    assert_eq!(host.0.history.borrow().events()[top.item_ix].id, id, "same row at the top");
+                    assert_eq!(top.offset_in_item, offset, "same pixel offset inside it");
+                    assert_eq!(top.item_ix, 45);
+                    cx.quit();
+                })
+                .unwrap();
             })
             .detach();
         });
