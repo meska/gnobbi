@@ -15,6 +15,17 @@ pub enum HistoryStatus {
     Failed,
 }
 
+impl HistoryStatus {
+    /// Visible strip text; the keyboard shortcut and the accessible action carry no on-screen label.
+    pub fn strip_label(self) -> Option<&'static str> {
+        match self {
+            Self::Loading => Some("Caricamento…"),
+            Self::Failed => Some("Impossibile caricare · scorri o clicca per riprovare"),
+            _ => None,
+        }
+    }
+}
+
 pub struct HistorySession {
     views: ViewRequests,
     pagination_tag: Option<matrix_engine::RequestTag>,
