@@ -39,10 +39,20 @@ impl DemoEvent {
         bubble_stamp(&self.time, self.outgoing, self.send_state)
     }
 
+    /// Server event id shown in debug mode; unsent rows have none.
+    pub fn debug_id(&self) -> Option<&str> {
+        match &self.id.id { TimelineId::Server(id) => Some(id.as_str()), _ => None }
+    }
+
     /// Whether the message offers its actions menu: confirmed server messages only.
     pub fn menu_available(&self, live: bool) -> bool {
         live && self.send_state.is_none()
     }
+}
+
+/// Debug-mode line above the timeline: room id and sync state.
+pub fn debug_room_line(scope: &matrix_domain::RoomScope, sync: &str) -> String {
+    format!("{} · {sync}", scope.room_id.as_str())
 }
 
 /// Menu key or Shift+F10, the platform keys that open a context menu.

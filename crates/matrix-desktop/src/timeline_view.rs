@@ -115,6 +115,7 @@ pub struct TimelineView {
     history: Rc<RefCell<DemoHistory>>,
     /// Joined members of the shown room; sender names appear only above 2.
     member_count: Cell<u64>,
+    debug: Cell<bool>,
     live: bool,
     state: ListState,
     scrollbar: crate::scrollbar_view::Scrollbar,
@@ -195,6 +196,10 @@ impl TimelineView {
         Self::with_history(DemoHistory::new(scope, count), focus, false)
     }
 
+    pub fn set_debug(&self, on: bool) {
+        self.debug.set(on);
+    }
+
     pub fn set_member_count(&self, count: u64) {
         self.member_count.set(count);
     }
@@ -242,6 +247,7 @@ impl TimelineView {
             history: Rc::new(RefCell::new(history)),
             // The offline fixture stands for a group chat.
             member_count: Cell::new(if live { 0 } else { 3 }),
+            debug: Cell::new(false),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             semantic_cursor: RefCell::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1091,6 +1097,7 @@ impl TimelineView {
         let live = self.live;
         let probe = self.probe;
         let members = self.member_count.get();
+        let debug = self.debug.get();
         let constructed = Rc::new(RefCell::new(Vec::<usize>::new()));
         let layouts = Rc::new(RefCell::new(Vec::<RowLayout>::new()));
         let row_indices = constructed.clone();
@@ -1460,6 +1467,12 @@ impl TimelineView {
                                         })
                                         .child(stamp),
                                 )
+                                .when_some((debug && live).then(|| event.debug_id().map(str::to_owned)).flatten(), |d, id| {
+                                    let copied = id.clone();
+                                    d.child(div().id(("event-debug-id", index)).w_full().text_right().text_size(px(10.)).line_height(px(14.))
+                                        .text_color(rgb(t.secondary)).cursor_pointer().child(id)
+                                        .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()))))
+                                })
                                 .map(|d| {
                                     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                     {

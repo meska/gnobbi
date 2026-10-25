@@ -1420,6 +1420,37 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 28 {
+            // Debug mode: event ids under messages and a room/sync line; off shows none.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
+                assert!(ok, "screenshot {name}");
+            };
+            wait(700).await;
+            this.update_in(cx, |this, _, cx| {
+                let events = (1..=3).map(|n| matrix_engine::history::HistoryEvent {
+                    event_id: matrix_domain::EventId::new(format!("$debugevent{n}:gnobbi.test")),
+                    body: format!("Messaggio {n}"),
+                    outgoing: n == 2,
+                    timestamp_ms: 1_700_000_000_000 + n * 60_000,
+                    sender: matrix_engine::history::HistorySender::new("@anna:gnobbi.test", None),
+                }).collect();
+                // The harness timeline is an offline fixture; debug ids only show on live rows.
+                let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
+                timeline.append_server(events);
+                this.timeline = Some(timeline);
+                this.prefs.debug = false;
+                cx.notify();
+            }).unwrap();
+            wait(500).await;
+            shot("p185-off");
+            this.update_in(cx, |this, _, cx| { this.prefs.debug = true; cx.notify(); }).unwrap();
+            wait(500).await;
+            shot("p185-on");
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 27 {
             // Drawer entry opens Settings; Enter toggles the debug switch and persists it; Esc steps back out.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2585,6 +2616,17 @@ fn menu_button_opens_and_closes_the_drawer_and_moves_focus() {
 fn settings_entry_opens_the_panel_and_the_debug_switch_persists() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(27, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn debug_mode_shows_event_ids_and_the_room_line() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(28, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);

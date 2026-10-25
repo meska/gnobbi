@@ -1742,7 +1742,10 @@ impl Render for Shell {
                                 d
                             })
                             .child(self.history.status().strip_label().unwrap_or_default()).on_click(cx.listener(|this, _, _, cx| { this.request_older(); cx.notify(); }))))
-                        .when_some(self.timeline.as_ref(), |d, timeline| d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone()))))
+                        .when(self.prefs.debug && self.connected && self.sidebar.selected().is_some(), |d| d.child(
+                            div().flex_shrink_0().px_4().py_1().text_size(px(11.)).text_color(rgb(t.secondary))
+                                .child(matrix_desktop::debug_room_line(&self.active_scope, connection_label))))
+                        .when_some(self.timeline.as_ref(), |d, timeline| { timeline.set_debug(self.prefs.debug); d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone())))})
                         .when(self.connected && self.timeline.is_none(), |d| d.child(div().flex_1().bg(rgb(t.timeline)).p_6().child("Nessuna stanza selezionata. Nessun messaggio demo.")))
                         .when(self.connected, |d| d.child(self.render_operations(window, cx)))
                         .when(!self.connected || self.sidebar.selected().is_some(), |d| d.child(self.composer.clone())),
