@@ -286,10 +286,20 @@ impl AccountStore {
 
     pub(crate) fn forget(&self) -> Result<(), StoreError> {
         Self::private_directory(&self.path)?;
-        match fs::remove_file(self.path.join("session.sealed")) {
-            Ok(()) => (),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-            Err(_) => return Err(StoreError::Io),
+        // The credential goes first, then the whole saved cache (state, crypto, events, media).
+        let mut names = vec![std::ffi::OsString::from("session.sealed")];
+        for entry in fs::read_dir(&self.path).map_err(|_| StoreError::Io)? {
+            let name = entry.map_err(|_| StoreError::Io)?.file_name();
+            if name != ".lock" && name != "session.sealed" {
+                names.push(name);
+            }
+        }
+        for name in names {
+            match fs::remove_file(self.path.join(name)) {
+                Ok(()) => (),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
+                Err(_) => return Err(StoreError::Io),
+            }
         }
         fs::File::open(&self.path)
             .and_then(|dir| dir.sync_all())

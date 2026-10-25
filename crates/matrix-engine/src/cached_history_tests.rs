@@ -463,10 +463,8 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
     });
 }
 
-async fn warm_fixture(
-    id: u64,
-    interrupt: bool,
-) -> (usize, Vec<usize>) {
+/// Alice signed in with a sealed store and joined to three rooms of 30 messages, one sync done.
+async fn seeded(id: u64) -> (AccountSession, Vec<matrix_sdk::ruma::OwnedRoomId>) {
     let config: serde_json::Value =
         serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
     let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
@@ -521,6 +519,12 @@ async fn warm_fixture(
         invited.join().await.unwrap();
     }
     alice.sync_once(Default::default()).await.unwrap();
+    (session, ids)
+}
+
+async fn warm_fixture(id: u64, interrupt: bool) -> (usize, Vec<usize>) {
+    let (session, ids) = seeded(id).await;
+    let alice = session.client.clone().unwrap();
     let stop = std::sync::atomic::AtomicBool::new(false);
     let stop_now = std::sync::atomic::AtomicBool::new(interrupt);
     let warmed = crate::warm::warm(&alice, &stop, &stop_now).await;
@@ -550,4 +554,51 @@ fn warm_up_does_nothing_once_the_user_opened_another_room() {
     println!("WARM warmed {warmed} saved {saved:?}");
     assert_eq!(warmed, 0);
     assert!(saved.iter().all(|n| *n <= 10), "only the sync window is saved: {saved:?}");
+}
+
+fn probe_root(id: u64) -> std::path::PathBuf {
+    std::path::PathBuf::from(env("CACHE_PROBE_ROOT")).join(format!("account-{id}"))
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn logout_removes_the_account_cache_and_keeps_the_profile_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let (mut session, ids) = seeded(277).await;
+        let alice = session.client.clone().unwrap();
+        crate::warm::warm(&alice, &std::sync::atomic::AtomicBool::new(false), &std::sync::atomic::AtomicBool::new(false)).await;
+        assert!(crate::room_sync::stored_events(&alice, &ids[0]).await.unwrap().0.len() >= 25);
+        drop(alice);
+        let dir = probe_root(277);
+        let names = |d: &std::path::Path| {
+            let mut n: Vec<String> = std::fs::read_dir(d).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+            n.sort();
+            n
+        };
+        println!("BEFORE {:?}", names(&dir));
+        assert!(names(&dir).len() > 2, "the cache files exist before logout");
+        session.logout().await.unwrap();
+        println!("AFTER {:?}", names(&dir));
+        assert_eq!(names(&dir), vec![".lock".to_owned()], "nothing of the account cache is left");
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+    });
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn cache_over_the_size_limit_is_pruned_and_a_small_one_is_kept() {
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let (session, ids) = seeded(278).await;
+        let alice = session.client.clone().unwrap();
+        crate::warm::warm(&alice, &std::sync::atomic::AtomicBool::new(false), &std::sync::atomic::AtomicBool::new(false)).await;
+        let saved = crate::room_sync::stored_events(&alice, &ids[0]).await.unwrap().0.len();
+        assert!(saved >= 25);
+        assert!(!crate::warm::prune(&alice, crate::warm::CACHE_LIMIT).await, "a small cache is kept");
+        assert_eq!(crate::room_sync::stored_events(&alice, &ids[0]).await.unwrap().0.len(), saved);
+        assert!(crate::warm::prune(&alice, 1).await, "a cache over the limit is cleared");
+        assert_eq!(crate::room_sync::stored_events(&alice, &ids[0]).await.map_or(0, |s| s.0.len()), 0);
+    });
 }

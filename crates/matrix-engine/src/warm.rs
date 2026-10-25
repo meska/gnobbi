@@ -6,6 +6,24 @@ pub(crate) const RECENT: usize = 10;
 /// One server page; a room that already holds this many saved messages opens full.
 const PAGE: u16 = 25;
 
+/// Declared size limit of the saved event cache of one account.
+pub(crate) const CACHE_LIMIT: usize = 256 * 1024 * 1024;
+
+/// Clears the saved event cache when it grew over `limit` bytes (the next open refills it).
+/// Returns whether it cleared.
+pub(crate) async fn prune(client: &matrix_sdk::Client, limit: usize) -> bool {
+    use matrix_sdk::cross_process_lock::MappedCrossProcessLockState::{Clean, Dirty};
+    // The store lock is released before clearing, which takes it again.
+    let size = match client.event_cache_store().lock().await {
+        Ok(Clean(store) | Dirty(store)) => store.get_size().await.ok().flatten(),
+        Err(_) => None,
+    };
+    if size.is_none_or(|size| size <= limit) {
+        return false;
+    }
+    client.event_cache().clear_all_rooms().await.is_ok()
+}
+
 /// Rooms to warm: those with unread (newest first, at most `recent`), then the `recent` newest.
 pub(crate) fn pick<T: Clone, R: Ord + Clone>(rooms: &[(T, R, bool)], recent: usize) -> Vec<T> {
     let mut by_recency: Vec<&(T, R, bool)> = rooms.iter().collect();
@@ -24,6 +42,7 @@ pub(crate) fn pick<T: Clone, R: Ord + Clone>(rooms: &[(T, R, bool)], recent: usi
 /// at once when `stop` (account closing) or `interrupt` (the user opened a room) is set.
 /// Returns how many rooms it filled.
 pub(crate) async fn warm(client: &matrix_sdk::Client, stop: &AtomicBool, interrupt: &AtomicBool) -> usize {
+    prune(client, CACHE_LIMIT).await;
     let rooms: Vec<_> = client
         .joined_rooms()
         .into_iter()
