@@ -6,6 +6,8 @@
 #[cfg(feature = "sdk")]
 pub use matrix_sdk as sdk;
 #[cfg(feature = "sdk")]
+pub use matrix_sdk_ui as sdk_ui;
+#[cfg(feature = "sdk")]
 pub mod accounts;
 #[cfg(feature = "sdk")]
 pub mod auth;

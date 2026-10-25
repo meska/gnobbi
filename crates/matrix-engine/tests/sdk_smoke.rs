@@ -66,3 +66,10 @@ fn sdk_opens_bundled_sqlite_stores_in_an_owned_fixture_directory() {
     std::fs::remove_dir_all(&root).unwrap();
     assert!(!root.exists());
 }
+
+/// The official UI crate (same version as the SDK) is linked and its timeline API reachable.
+#[test]
+fn sdk_ui_timeline_builder_is_linked() {
+    let name = std::any::type_name::<matrix_engine::sdk_ui::timeline::TimelineBuilder>();
+    assert!(name.contains("TimelineBuilder"));
+}

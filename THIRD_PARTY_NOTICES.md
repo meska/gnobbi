@@ -44,12 +44,14 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - async-net 2.0.0 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-net
 - async-process 2.5.0 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-process
 - async-recursion 1.2.0 — MIT OR Apache-2.0 — https://github.com/dcchut/async-recursion
+- async-rx 0.2.1 — MPL-2.0 — https://codeberg.org/jplatte/async-rx
 - async-signal 0.2.14 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-signal
 - async-std 1.13.2 — Apache-2.0 OR MIT — https://github.com/async-rs/async-std
 - async-stream 0.3.6 — MIT — https://github.com/tokio-rs/async-stream
 - async-stream-impl 0.3.6 — MIT — https://github.com/tokio-rs/async-stream
 - async-task 4.7.1 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-task
 - async-trait 0.1.92 — MIT OR Apache-2.0 — https://github.com/dtolnay/async-trait
+- async_cell 0.2.3 — MIT — https://gitlab.com/samsartor/async_cell
 - async_zip 0.0.17 — MIT — https://github.com/Majored/rs-async-zip
 - atomic 0.5.3 — Apache-2.0/MIT — https://github.com/Amanieu/atomic-rs
 - atomic-waker 1.1.2 — Apache-2.0 OR MIT — https://github.com/smol-rs/atomic-waker
@@ -196,6 +198,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - ed25519-dalek 3.0.0 — BSD-3-Clause — https://github.com/dalek-cryptography/curve25519-dalek/tree/main/ed25519-dalek
 - either 1.19.0 — MIT OR Apache-2.0 — https://github.com/rayon-rs/either
 - embed-resource 3.0.11 — MIT — https://github.com/nabijaczleweli/rust-embed-resource
+- emojis 0.9.1 — (MIT OR Apache-2.0) AND Unicode-3.0 — https://github.com/rossmacarthur/emojis
 - encoding_rs 0.8.42 — (Apache-2.0 OR MIT) AND BSD-3-Clause — https://github.com/hsivonen/encoding_rs
 - endi 1.1.1 — MIT — https://github.com/zeenix/endi
 - enumflags2 0.7.12 — MIT OR Apache-2.0 — https://github.com/meithecatte/enumflags2
@@ -213,6 +216,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - exr 1.74.2 — BSD-3-Clause — https://github.com/johannesvollmer/exrs
 - eyeball 0.8.8 — MPL-2.0 — https://github.com/jplatte/eyeball
 - eyeball-im 0.9.1 — MPL-2.0 — https://codeberg.org/jplatte/eyeball
+- eyeball-im-util 0.11.0 — MPL-2.0 — https://codeberg.org/jplatte/eyeball
 - fallible-iterator 0.3.0 — MIT/Apache-2.0 — https://github.com/sfackler/rust-fallible-iterator
 - fallible-streaming-iterator 0.1.9 — MIT/Apache-2.0 — https://github.com/sfackler/fallible-streaming-iterator
 - fancy_constructor 2.1.1 — MIT OR Apache-2.0 — https://github.com/Alorel/fancy_constructor-rs.git
@@ -254,6 +258,8 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - futures-sink 0.3.34 — MIT OR Apache-2.0 — https://github.com/rust-lang/futures-rs
 - futures-task 0.3.34 — MIT OR Apache-2.0 — https://github.com/rust-lang/futures-rs
 - futures-util 0.3.34 — MIT OR Apache-2.0 — https://github.com/rust-lang/futures-rs
+- fuzzy-matcher 0.3.7 — MIT — https://github.com/lotabout/fuzzy-matcher
+- generator 0.8.11 — MIT/Apache-2.0 — https://github.com/Xudong-Huang/generator-rs.git
 - generic-array 0.14.7 — MIT — https://github.com/fizyk20/generic-array.git
 - gethostname 1.1.0 — Apache-2.0 — https://codeberg.org/swsnr/gethostname.rs.git
 - getrandom 0.2.17 — MIT OR Apache-2.0 — https://github.com/rust-random/getrandom
@@ -371,6 +377,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - litemap 0.8.3 — Unicode-3.0 — https://github.com/unicode-org/icu4x
 - lock_api 0.4.14 — MIT OR Apache-2.0 — https://github.com/Amanieu/parking_lot
 - log 0.4.34 — MIT OR Apache-2.0 — https://github.com/rust-lang/log
+- loom 0.7.2 — MIT — https://github.com/tokio-rs/loom
 - loop9 0.1.5 — MIT — https://gitlab.com/kornelski/loop9.git
 - lru-slab 0.1.3 — MIT OR Apache-2.0 OR Zlib — https://github.com/Ralith/lru-slab
 - lyon 1.0.19 — MIT OR Apache-2.0 — https://github.com/nical/lyon
@@ -390,6 +397,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - malloc_buf 0.0.6 — MIT — https://github.com/SSheldon/malloc_buf
 - maplit 1.0.2 — MIT/Apache-2.0 — https://github.com/bluss/maplit
 - markup5ever 0.39.0 — MIT OR Apache-2.0 — https://github.com/servo/html5ever
+- matchers 0.2.0 — MIT — https://github.com/hawkw/matchers
 - matrix-pickle 0.2.3 — Apache-2.0 — https://github.com/matrix-org/matrix-pickle
 - matrix-pickle-derive 0.2.3 — Apache-2.0 — https://github.com/matrix-org/matrix-pickle
 - matrix-sdk 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk
@@ -399,6 +407,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - matrix-sdk-indexeddb 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk
 - matrix-sdk-sqlite 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk
 - matrix-sdk-store-encryption 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk
+- matrix-sdk-ui 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk
 - matrix_indexed_db_futures 0.7.0 — MIT — https://github.com/matrix-org/rust-indexed-db
 - matrix_indexed_db_futures_macros_internal 1.0.0 — MIT — https://github.com/matrix-org/rust-indexed-db
 - maybe-rayon 0.1.1 — MIT — https://github.com/shssoichiro/maybe-rayon
@@ -709,6 +718,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - tracing 0.1.44 — MIT — https://github.com/tokio-rs/tracing
 - tracing-attributes 0.1.31 — MIT — https://github.com/tokio-rs/tracing
 - tracing-core 0.1.36 — MIT — https://github.com/tokio-rs/tracing
+- tracing-log 0.2.0 — MIT — https://github.com/tokio-rs/tracing
 - tracing-subscriber 0.3.23 — MIT — https://github.com/tokio-rs/tracing
 - try-lock 0.2.5 — MIT — https://github.com/seanmonstar/try-lock
 - ttf-parser 0.20.0 — MIT OR Apache-2.0 — https://github.com/RazrFalcon/ttf-parser
@@ -742,6 +752,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - utf8_iter 1.0.4 — Apache-2.0 OR MIT — https://github.com/hsivonen/utf8_iter
 - uuid 1.27.0 — Apache-2.0 OR MIT — https://github.com/uuid-rs/uuid
 - v_frame 0.3.9 — BSD-2-Clause — https://github.com/rust-av/v_frame
+- valuable 0.1.1 — MIT — https://github.com/tokio-rs/valuable
 - value-bag 1.14.1 — Apache-2.0 OR MIT — https://github.com/sval-rs/value-bag
 - value-bag-serde1 1.14.1 — Apache-2.0 OR MIT
 - value-bag-sval2 1.14.1 — Apache-2.0 OR MIT
