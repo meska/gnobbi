@@ -346,3 +346,103 @@ fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
         assert_eq!(reactions[0].target, page.events[3].event_id, "reaction sits on m3");
     });
 }
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
+    const TOTAL: usize = 90;
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let root = std::path::PathBuf::from(env("CACHE_PROBE_ROOT"));
+    let http = || {
+        crate::auth::secure_http_builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(&ca).unwrap())
+            .build()
+            .unwrap()
+    };
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let bob = matrix_sdk::Client::builder()
+            .homeserver_url(&url)
+            .add_root_certificates(vec![reqwest::Certificate::from_pem(&ca).unwrap()])
+            .build()
+            .await
+            .unwrap();
+        bob.matrix_auth()
+            .login_username("@bob:matrix-desktop.test", config["bob_password"].as_str().unwrap())
+            .send()
+            .await
+            .unwrap();
+        let mut request = CreateRoom::new();
+        request.invite = vec!["@alice:matrix-desktop.test".try_into().unwrap()];
+        let room_id = bob.create_room(request).await.unwrap().room_id().to_owned();
+        let bob_room = bob.get_room(&room_id).unwrap_or_else(|| panic!("bob room"));
+        for n in 0..TOTAL {
+            bob_room.send(RoomMessageEventContent::text_plain(format!("m{n}"))).await.unwrap();
+        }
+
+        // First run: Alice sees only the newest part of a long room.
+        let store = AccountStore::create(&root, AccountId::new(296)).unwrap();
+        let session = store
+            .password_login_with_http(
+                HomeserverUrl::parse(&url).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        let alice = session.client.clone().unwrap();
+        let invited = eventually("invite", || async {
+            alice.sync_once(Default::default()).await.ok()?;
+            alice.get_room(&room_id)
+        })
+        .await;
+        invited.join().await.unwrap();
+        alice.sync_once(Default::default()).await.unwrap();
+        let room = alice.get_room(&room_id).unwrap();
+        let (events, _drop) = room.event_cache().await.unwrap();
+        eventually("some history in cache", || async {
+            events.pagination().run_backwards_until(20).await.ok()?;
+            (events.events().await.ok()?.len() >= 20).then_some(())
+        })
+        .await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop((events, _drop, room, alice, invited, session));
+
+        // Restart online and open the room the way the app does.
+        let store = AccountStore::open(&root, AccountId::new(296)).unwrap();
+        let value = store.unseal(PASSPHRASE).unwrap();
+        let sdk_session: matrix_sdk::authentication::matrix::MatrixSession =
+            serde_json::from_value(value["session"].clone()).unwrap();
+        let client = store.client(&HomeserverUrl::parse(&url).unwrap(), PASSPHRASE, http()).await.unwrap();
+        client.restore_session(sdk_session).await.unwrap();
+        let scope = RoomScope {
+            account_id: AccountId::new(296),
+            room_id: RoomId::new(room_id.as_str()),
+        };
+        let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
+        let mut views = ViewRequests::new();
+        let request = crate::history::HistoryRequest { tag: views.start(scope.clone()).unwrap(), before: None, open: OPEN };
+        assert!(crate::room_sync::serve_history(&client, AccountId::new(296), request, &mut out).await);
+        let saved = results.recv().await.unwrap().page.unwrap();
+        let opened = tokio::time::timeout(Duration::from_secs(20), results.recv()).await.unwrap().unwrap().page.unwrap();
+        let first_saved: usize = opened.events[0].body[1..].parse().unwrap();
+        assert!(first_saved > 0, "the room was only partly saved: first row m{first_saved}");
+        assert!(saved.next.is_some() && opened.next.is_some(), "a cursor to older messages is kept");
+
+        // Scrolling up: a plain page before the cursor, through the same route as load_older.
+        let request = crate::history::HistoryRequest { tag: views.start(scope).unwrap(), before: opened.next.clone(), open: false };
+        assert!(crate::room_sync::serve_history(&client, AccountId::new(296), request, &mut out).await);
+        let older = results.recv().await.unwrap().page.unwrap();
+        let last = older.events.last().expect("older rows").body.clone();
+        assert_eq!(last, format!("m{}", first_saved - 1), "older page ends right before the saved list");
+        let ids: std::collections::BTreeSet<_> =
+            older.events.iter().chain(opened.events.iter()).map(|e| e.event_id.as_str().to_owned()).collect();
+        assert_eq!(ids.len(), older.events.len() + opened.events.len(), "no duplicates across pages");
+        drop((store, client));
+    });
+}

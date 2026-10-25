@@ -886,9 +886,9 @@ async fn saved_page(
         .get_room(&id)
         .filter(|r| r.state() == RoomState::Joined)
         .ok_or(HistoryError::Unavailable)?;
-    let (cached, _) = stored_events(client, &id).await?;
+    let (cached, _, next) = stored_events(client, &id).await?;
     let events = history_rows(client, &room, &id, cached.into_iter(), false).await?;
-    Ok(crate::history::HistoryPage { tag, events, next: None })
+    Ok(crate::history::HistoryPage { tag, events, next })
 }
 
 async fn open_page(
@@ -899,7 +899,7 @@ async fn open_page(
     let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
         .map_err(|_| HistoryError::WrongScope)?;
     let room = client.get_room(&id).filter(|r| r.state() == RoomState::Joined).ok_or(HistoryError::Unavailable)?;
-    let (mut rows, _) = stored_events(client, &id).await?;
+    let (mut rows, _, next) = stored_events(client, &id).await?;
     let anchor = rows.last().and_then(|e| e.event_id());
     // Subscribed before the sync so the cache applies the missed messages as they arrive.
     let (events, _drop) = room.event_cache().await.map_err(|_| HistoryError::Unavailable)?;
@@ -921,7 +921,7 @@ async fn open_page(
     rows.extend(fresh.into_iter().skip(start));
     let reactions = reaction_counts(&rows);
     let events = history_rows(client, &room, &id, rows.into_iter(), false).await?;
-    Ok((crate::history::HistoryPage { tag, events, next: None }, reactions))
+    Ok((crate::history::HistoryPage { tag, events, next }, reactions))
 }
 
 /// Answer one history request. An opened room that has saved messages emits them first,
@@ -1311,7 +1311,7 @@ async fn load_history(
 async fn stored_events(
     client: &matrix_sdk::Client,
     id: &matrix_sdk::ruma::RoomId,
-) -> Result<(Vec<matrix_sdk::deserialized_responses::TimelineEvent>, bool), crate::history::HistoryError> {
+) -> Result<(Vec<matrix_sdk::deserialized_responses::TimelineEvent>, bool, Option<String>), crate::history::HistoryError> {
     use crate::history::HistoryError;
     use matrix_sdk::linked_chunk::{ChunkContent, LinkedChunkId};
     let lock = client
@@ -1331,13 +1331,14 @@ async fn stored_events(
         .map(|c| (c.identifier, c))
         .collect();
     let mut next = chunks.values().find(|c| c.previous.is_none()).map(|c| c.identifier);
-    let (mut cached, mut hole) = (Vec::new(), false);
+    let (mut cached, mut hole, mut older) = (Vec::new(), false, None);
     while let Some(chunk) = next.and_then(|n| chunks.remove(&n)) {
         next = chunk.next;
         match chunk.content {
             ChunkContent::Items(items) => cached.extend(items),
-            ChunkContent::Gap(_) => hole |= !cached.is_empty(),
+            ChunkContent::Gap(gap) if cached.is_empty() => older = Some(gap.token),
+            ChunkContent::Gap(_) => hole = true,
         }
     }
-    Ok((cached, hole))
+    Ok((cached, hole, older))
 }
