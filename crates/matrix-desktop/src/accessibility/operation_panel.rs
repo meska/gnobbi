@@ -358,7 +358,8 @@ impl PanelSnapshot {
         }
 
         Some(Self {
-            preview_available: matches!(target.id, matrix_domain::TimelineId::Server(_)),
+            // Pictures load on arrival, there is no preview action any more.
+            preview_available: false,
             media_status: None,
             preview_focused: false,
             preview_bounds: None,

@@ -87,8 +87,6 @@ struct Shell {
     notifications_open: bool,
     notification_failed: bool,
     media: matrix_desktop::LiveMedia,
-    media_target: Option<matrix_domain::ScopedTimelineId>,
-    media_image: Option<std::sync::Arc<gpui::RenderImage>>,
     media_commands: Option<matrix_engine::Sender<matrix_engine::media::MediaCommand>>,
     verification: matrix_desktop::DeviceVerification,
     verification_open: bool,
@@ -896,7 +894,6 @@ impl Shell {
             if let Some(request) = self.history.select(scope.clone()) {
                 self.set_room_details_open(false);
                 self.media.clear();
-                self.media_image = None;
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
                 self.active_scope = request.tag.scope().clone();
@@ -913,7 +910,6 @@ impl Shell {
             } else if scope.is_none() {
                 self.set_room_details_open(false);
                 self.media.clear();
-                self.media_image = None;
                 self.operations.borrow_mut().clear_selection();
                 self.timeline = None;
                 self.pending_history = None;
@@ -951,8 +947,6 @@ impl Shell {
         let target = self.operations.borrow().selection().cloned();
         self.operations.borrow_mut().clear_selection();
         self.confirm_redaction = None;
-        self.media.clear();
-        self.media_image = None;
         if let Some(timeline) = &self.timeline {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             if let Some(target) = target {
@@ -1123,11 +1117,6 @@ impl Shell {
     fn render_operations(&mut self, _window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         use matrix_engine::operations::OperationError;
         let actions = self.operations.borrow();
-        if self.media_target.as_ref() != actions.selection() {
-            self.media.clear();
-            self.media_image = None;
-            self.media_target = None;
-        }
         let selected = actions.selection().is_some();
         let busy = actions.is_pending();
         let permissions = actions.details().map(|d| d.permissions).unwrap_or_default();
@@ -1160,7 +1149,6 @@ impl Shell {
                 ("react", "+1 / togli", permissions.react && !busy),
                 ("retry", "Riprova", error == Some(OperationError::Transport)),
                 ("close", "Chiudi", true),
-                ("preview", "Anteprima PNG", selected),
             ]
         };
         div().flex_shrink_0().px_4().py_2().bg(rgb(t.surface)).border_t_1().border_color(rgb(t.selection))
@@ -1181,14 +1169,6 @@ impl Shell {
                         let _ = event;
                         match name {
                             "close" => this.close_message_actions(_window),
-                            "preview" => {
-                                if let Some(id) = this.operations.borrow().selection()
-                                    && let matrix_domain::TimelineId::Server(event) = &id.id {
-                                    this.media_image = None;
-                                    this.media.request(id.scope.clone(), event.clone());
-                                    this.media_target = Some(id.clone());
-                                }
-                            },
                             "redact" => {
                                 let target = this.operations.borrow().selection().cloned();
                                 if let Some(target) = target {
@@ -1228,9 +1208,6 @@ impl Shell {
                 let d = d.when(name == "close" || name == "cancel-redact", |d| d.track_focus(&self.operation_ui.focus)
                     .when(self.operation_ui.focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
                     .children(self.operation_control_observer("close", cx)))
-                    .when(name == "preview" && enabled, |d| d.track_focus(&self.operation_ui.preview_focus)
-                        .when(self.operation_ui.preview_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
-                        .children(self.operation_control_observer("preview", cx)))
                     .when(name == "reply" && enabled, |d| d.track_focus(&self.operation_ui.reply_focus)
                         .when(self.operation_ui.reply_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("reply", cx)))
@@ -1749,7 +1726,6 @@ impl Render for Shell {
                         .when_some(self.timeline.as_ref(), |d, timeline| d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone()))))
                         .when(self.connected && self.timeline.is_none(), |d| d.child(div().flex_1().bg(rgb(t.timeline)).p_6().child("Nessuna stanza selezionata. Nessun messaggio demo.")))
                         .when(self.connected, |d| d.child(self.render_operations(window, cx)))
-                        .when(self.connected, |d| d.child(self.render_media()))
                         .when(!self.connected || self.sidebar.selected().is_some(), |d| d.child(self.composer.clone())),
                 )
             })
@@ -2234,6 +2210,9 @@ fn main() {
                                             this.pending_history = this.history.refresh();
                                         }
                                         this.flush_history();
+                                        if this.drive_inline_images() {
+                                            cx.notify();
+                                        }
                                         if let Some(sender) = &mut this.media_commands {
                                             this.media.flush(sender);
                                         }
@@ -2395,8 +2374,6 @@ fn main() {
                         navigation_wide: true,
                         notification_failed: false,
                         media: matrix_desktop::LiveMedia::default(),
-                        media_target: None,
-                        media_image: None,
                         media_commands: media_commands.take(),
                         verification: matrix_desktop::DeviceVerification::new(account_id),
                         verification_open: false,

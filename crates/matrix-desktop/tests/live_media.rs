@@ -134,3 +134,40 @@ fn explicit_preview_request_accepts_only_matching_scoped_result() {
     assert!(!view.loading());
     assert_eq!(view.take_preview().unwrap().rgba, [255, 0, 0, 255]);
 }
+
+#[test]
+fn inline_loading_asks_for_one_image_at_a_time_and_never_repeats_a_settled_one() {
+    let mut view = LiveMedia::default();
+    let (mut sender, mut receiver) =
+        matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
+    let (a, b) = (EventId::new("$a"), EventId::new("$b"));
+    let order = || [b.clone(), a.clone()];
+    assert!(view.next_inline(scope(), order()));
+    view.flush(&mut sender);
+    let Ok(MediaCommand::Download { tag, event }) = receiver.try_recv() else {
+        panic!("first inline read required");
+    };
+    assert_eq!(event.as_str(), "$b");
+    assert!(!view.next_inline(scope(), order()), "one read at a time");
+    assert!(view.apply(MediaEvent::Downloaded {
+        tag,
+        event,
+        result: Err(matrix_engine::media::MediaError::Failed)
+    }));
+    assert!(view.next_inline(scope(), order()));
+    view.flush(&mut sender);
+    let Ok(MediaCommand::Download { tag, event }) = receiver.try_recv() else {
+        panic!("second inline read required");
+    };
+    assert_eq!(event.as_str(), "$a", "failed $b is not retried");
+    assert!(view.apply(MediaEvent::Downloaded {
+        tag,
+        event,
+        result: Ok(DownloadedPng {
+            bytes: vec![1],
+            preview: Preview { width: 1, height: 1, rgba: vec![0, 0, 0, 255] }
+        })
+    }));
+    assert!(view.take_preview().is_some());
+    assert!(!view.next_inline(scope(), order()), "all settled");
+}

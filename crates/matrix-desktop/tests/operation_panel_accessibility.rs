@@ -1273,7 +1273,7 @@ fn panel_close_keyboard_links_opener_to_composer_without_a_focus_trap() {
     let mut panel = PanelSnapshot::project(&operations, false, None).unwrap();
     assert!(matches!(
         panel.key("tab", false, true).unwrap().intent,
-        PanelIntent::FocusPreview
+        PanelIntent::Focus
     ));
     assert!(panel.key("tab", false, false).is_none());
     assert!(panel.key("enter", false, true).is_none());
@@ -1284,7 +1284,7 @@ fn panel_close_keyboard_links_opener_to_composer_without_a_focus_trap() {
     ));
     assert!(matches!(
         panel.key("tab", true, false).unwrap().intent,
-        PanelIntent::FocusPreview
+        PanelIntent::Message
     ));
     for key in ["space", "enter", "escape"] {
         assert!(matches!(

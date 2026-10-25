@@ -23,6 +23,14 @@ impl HistorySender {
     }
 }
 
+/// Body of an image message row; the UI draws the picture instead of text.
+// shortcut: a user typing exactly this text is shown a failed image, upgrade when rows carry a kind.
+pub const IMAGE_BODY: &str = "\u{fffc}Immagine";
+
+pub fn is_image_body(body: &str) -> bool {
+    body == IMAGE_BODY
+}
+
 pub struct HistoryEvent {
     pub event_id: EventId,
     pub body: String,
@@ -49,4 +57,16 @@ pub enum HistoryError {
 pub struct HistoryResult {
     pub tag: RequestTag,
     pub page: Result<HistoryPage, HistoryError>,
+}
+
+#[cfg(test)]
+mod image_body_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_image_marker_is_an_image_body() {
+        assert!(is_image_body(IMAGE_BODY));
+        assert!(!is_image_body("ciao"));
+        assert!(!is_image_body(""));
+    }
 }

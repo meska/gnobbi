@@ -1020,7 +1020,7 @@ async fn load_history(
                 MessageType::Text(text) => text.body,
                 MessageType::Notice(text) => text.body,
                 MessageType::Emote(text) => format!("* {}", text.body),
-                MessageType::Image(_) => "[Immagine · Azioni → Anteprima PNG]".into(),
+                MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
                 _ => "[Messaggio non testuale · supporto non disponibile]".into(),
             };
             events.push(HistoryEvent {

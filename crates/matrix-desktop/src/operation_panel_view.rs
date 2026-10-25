@@ -80,33 +80,6 @@ impl Shell {
                 *target == panel.target && *generation == panel.tag.generation()
             })
             .map(|(_, _, bounds)| *bounds);
-        if self.media_target.as_ref() == Some(&panel.target) {
-            panel.media_status = if self.media.loading() {
-                Some("Caricamento PNG…".into())
-            } else if let Some(error) = self.media.error() {
-                Some(
-                    match error {
-                        matrix_engine::media::MediaError::UnsupportedType => {
-                            "Formato non supportato · solo PNG valido ≤4 MiB / 2048 px"
-                        }
-                        matrix_engine::media::MediaError::InvalidImage
-                        | matrix_engine::media::MediaError::TooLarge => {
-                            "Anteprima non disponibile · solo PNG valido ≤4 MiB / 2048 px"
-                        }
-                        _ => "Download PNG non riuscito · usa Anteprima PNG per riprovare",
-                    }
-                    .into(),
-                )
-            } else {
-                self.media_image.as_ref().map(|image| {
-                    let size = image.size(0);
-                    format!(
-                        "Anteprima PNG pronta · {}×{} · solo memoria",
-                        size.width.0, size.height.0
-                    )
-                })
-            };
-        }
         panel.preview_focused = self.operation_ui.preview_focus.is_focused(window);
         panel.preview_bounds = self
             .operation_ui
@@ -168,14 +141,7 @@ impl Shell {
         }
         match action.intent {
             PanelIntent::FocusPreview => self.operation_ui.preview_focus.focus(window),
-            PanelIntent::Preview => {
-                if let matrix_domain::TimelineId::Server(event) = &action.target.id {
-                    self.media_image = None;
-                    self.media
-                        .request(action.target.scope.clone(), event.clone());
-                    self.media_target = Some(action.target);
-                }
-            }
+            PanelIntent::Preview => (),
             PanelIntent::FocusRedact | PanelIntent::FocusConfirmRedact => {
                 self.operation_ui.redact_focus.focus(window)
             }
@@ -243,8 +209,6 @@ impl Shell {
             PanelIntent::Close => {
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
-                self.media.clear();
-                self.media_image = None;
                 self.operation_ui.preview_bounds = None;
                 self.operation_ui.bounds = None;
                 self.operation_ui.reply_bounds = None;

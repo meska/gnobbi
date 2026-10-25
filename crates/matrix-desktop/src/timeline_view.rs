@@ -78,6 +78,7 @@ pub struct TimelineView {
     link_hover: Rc<Cell<Option<u64>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
+    pub(crate) images: Rc<RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>>,
     requested_link: Rc<RefCell<Option<matrix_desktop::MessageLinkTarget>>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     selection_cursor: Rc<
@@ -214,6 +215,7 @@ impl TimelineView {
             link_hover: Rc::default(),
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
+            images: Rc::default(),
             requested_link: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             selection_cursor: Rc::default(),
@@ -787,6 +789,22 @@ impl TimelineView {
         self.focus.focus(window);
     }
 
+    /// Re-measure the row of an image whose state changed.
+    pub(crate) fn image_changed(&self, id: &matrix_domain::EventId) {
+        let index = self.history.borrow().events().iter().position(|e| matches!(&e.id.id, matrix_domain::TimelineId::Server(s) if s == id));
+        if let Some(index) = index {
+            self.state.splice(index..index + 1, 1);
+        }
+    }
+
+    /// Image rows of this room, newest first, for loading on arrival.
+    pub(crate) fn image_events(&self) -> Vec<matrix_domain::EventId> {
+        self.history.borrow().events().iter().rev().filter(|e| matrix_engine::history::is_image_body(&e.text)).filter_map(|e| match &e.id.id {
+            matrix_domain::TimelineId::Server(id) => Some(id.clone()),
+            _ => None,
+        }).collect()
+    }
+
     pub fn prepend_older(&self) {
         let offset = self.state.logical_scroll_top();
         let anchor = self
@@ -1082,6 +1100,7 @@ impl TimelineView {
         let link_hover = self.link_hover.clone();
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
+        let images = self.images.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1131,6 +1150,13 @@ impl TimelineView {
                     let sender_label = history.sender_label(index, members);
                     let offline_target = (!live).then(|| offline_delivery.borrow_mut().target(event)).flatten();
                     let offline_callback = offline_target.clone().map(|target| offline_delivery_callback(offline_delivery.clone(), delivery_history.clone(), target, live));
+                    let picture = matrix_engine::history::is_image_body(&event.text).then(|| {
+                        let state = match &event.id.id {
+                            matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
+                            _ => None,
+                        };
+                        crate::media_view::inline_picture(state, t)
+                    });
                     let mut body = StyledText::new(event.text.clone());
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
@@ -1317,7 +1343,7 @@ impl TimelineView {
                                             }
                                         });
                                     }).absolute().inset_0())
-                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child(body))
+                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child(picture.unwrap_or_else(|| body.into_any_element())))
                                 .child(
                                     div()
                                         .w_full()
