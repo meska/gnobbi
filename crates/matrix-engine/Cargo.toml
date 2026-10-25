@@ -36,3 +36,10 @@ getrandom = { version = "=0.4.3", optional = true }
 [[test]]
 name = "sdk_smoke"
 required-features = ["sdk"]
+
+[dev-dependencies]
+futures-util = { version = "=0.3.34", default-features = false }
+
+[[test]]
+name = "sliding_sync_probe"
+required-features = ["sdk"]
