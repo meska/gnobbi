@@ -930,7 +930,7 @@ mod tests {
         assert!(old_kept && !new_has, "ignore click must move nothing");
     }
 
-    /// Real X11 mouse click (xdotool) on the painted button; returns (old profile still there, new profile has it).
+    /// Real mouse click (xdotool on X11, the Wayland input helper under sway) on the painted button; returns (old profile still there, new profile has it).
     fn legacy_click(id: &'static str) -> (bool, bool) {
         assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
         let root = std::env::temp_dir().join(format!("dime-legacy-click-{}-{id}", std::process::id()));
@@ -952,12 +952,8 @@ mod tests {
             cx.spawn(async move |cx| {
                 executor.timer(std::time::Duration::from_millis(500)).await;
                 let b = view.update(cx, |v, _, _| *v.legacy_bounds.borrow().get(id).expect("button painted")).unwrap();
-                let ids = std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap();
-                let win = String::from_utf8(ids.stdout).unwrap().lines().next().expect("window").to_string();
                 let c = b.center();
-                assert!(std::process::Command::new("xdotool")
-                    .args(["mousemove", "--window", &win, &format!("{}", f32::from(c.x) as i32), &format!("{}", f32::from(c.y) as i32), "click", "1"])
-                    .status().unwrap().success());
+                crate::navigation_resize_test::click(f32::from(c.x) as i32, f32::from(c.y) as i32);
                 executor.timer(std::time::Duration::from_millis(400)).await;
                 cx.update(|cx| cx.quit()).unwrap();
             }).detach();
@@ -1240,6 +1236,12 @@ mod tests {
                     cx.new(|cx| SignInView::new(SignInUi { events: event_rx, setup: setup_rx, commands }, cx).with_vault(true))
                 })
                 .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+            // Wayland reads the clipboard only through a compositor offer: seed one and let it arrive.
+            executor.timer(std::time::Duration::from_millis(300)).await;
+            cx.update(|cx| cx.write_to_clipboard(ClipboardItem::new_string("seed".into()))).unwrap();
+            executor.timer(std::time::Duration::from_millis(300)).await;
             view.update(cx, |v, window, cx| {
                 let account = matrix_domain::AccountId::new(1);
                 for event in [
@@ -1296,8 +1298,7 @@ mod tests {
                 assert_eq!(v.poll(cx), Some(account));
             })
             .unwrap();
-            cx.spawn(async move |cx| {
-                cx.update(|cx| cx.quit()).unwrap();
+            cx.update(|cx| cx.quit()).unwrap();
             })
             .detach();
         });

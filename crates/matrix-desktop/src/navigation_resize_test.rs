@@ -279,7 +279,25 @@ fn send_sources_retire_on_unpainted_shell_and_native_bounds_transitions() {
     crate::main();
 }
 
+/// Under the Wayland test runner (WL_INPUT set) the runner starts one process per test, so the only window is tiled at the output origin and window and output coordinates agree.
+pub(crate) fn click(x: i32, y: i32) {
+    let ok = match std::env::var("WL_INPUT") {
+        Ok(helper) => std::process::Command::new(helper).arg(format!("click:{x},{y}")).status().unwrap().success(),
+        Err(_) => {
+            let ids = std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap();
+            let win = String::from_utf8(ids.stdout).unwrap().lines().next().expect("window").to_string();
+            std::process::Command::new("xdotool").args(["mousemove", "--window", &win, &x.to_string(), &y.to_string(), "click", "1"]).status().unwrap().success()
+        }
+    };
+    assert!(ok);
+}
+
 pub(crate) fn resize(width: &str, height: &str) {
+    if std::env::var_os("SWAYSOCK").is_some() {
+        let cmd = format!("[pid={}] floating enable, resize set width {width} px height {height} px", std::process::id());
+        assert!(std::process::Command::new("swaymsg").arg(cmd).status().unwrap().success());
+        return;
+    }
     let output = std::process::Command::new("xdotool")
         .args([
             "search",
