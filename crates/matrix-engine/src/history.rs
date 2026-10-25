@@ -39,6 +39,13 @@ pub struct HistoryEvent {
     pub sender: HistorySender,
 }
 
+/// How many people reacted to a message with one emoji.
+pub struct ReactionCount {
+    pub target: EventId,
+    pub key: String,
+    pub count: usize,
+}
+
 pub struct HistoryPage {
     pub tag: RequestTag,
     /// Chronological order, oldest first. No body/ID/cursor Debug or logging.

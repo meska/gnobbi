@@ -613,7 +613,7 @@ impl RoomSync {
     pub async fn open_history(
         &self,
         tag: crate::RequestTag,
-    ) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
+    ) -> Result<(crate::history::HistoryPage, Vec<crate::history::ReactionCount>), crate::history::HistoryError> {
         use crate::history::HistoryError;
         let client = self.session.client.as_ref().ok_or(HistoryError::Unavailable)?;
         let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
@@ -639,8 +639,9 @@ impl RoomSync {
         // The saved list keeps its order; only what follows its last message is added.
         let start = fresh.iter().position(|e| e.event_id() == anchor).map_or(0, |at| at + 1);
         rows.extend(fresh.into_iter().skip(start));
+        let reactions = reaction_counts(&rows);
         let events = history_rows(client, &room, &id, rows.into_iter(), false).await?;
-        Ok(crate::history::HistoryPage { tag, events, next: None })
+        Ok((crate::history::HistoryPage { tag, events, next: None }, reactions))
     }
 
     /// Await only on the backend runtime. SDK persists/reuses its sync cursor;
@@ -973,6 +974,9 @@ async fn history_rows(
         room::message::MessageType,
     };
     let mut events = Vec::new();
+    let chronological: Vec<_> = chronological.collect();
+    let saved_edits = saved_edits(&chronological);
+    let redacted = redacted_ids(&chronological);
     for event in chronological {
         // SDK owns decryption. A UTD remains a real row with server identity,
         // never silently omitted or rendered as ciphertext/plaintext.
@@ -1018,7 +1022,17 @@ async fn history_rows(
         ))) = event.raw().deserialize()
         {
             let mut message = match message {
-                SyncMessageLikeEvent::Original(message) => message,
+                SyncMessageLikeEvent::Original(message) if !redacted.contains(&message.event_id) => message,
+                SyncMessageLikeEvent::Original(message) => {
+                    events.push(HistoryEvent {
+                        event_id: matrix_domain::EventId::new(message.event_id.as_str()),
+                        body: "[Messaggio eliminato]".into(),
+                        outgoing: client.user_id() == Some(message.sender.as_ref()),
+                        timestamp_ms: message.origin_server_ts.0.into(),
+                        sender: history_sender(&room, &message.sender).await,
+                    });
+                    continue;
+                }
                 SyncMessageLikeEvent::Redacted(message) => {
                     events.push(HistoryEvent {
                         event_id: matrix_domain::EventId::new(message.event_id.as_str()),
@@ -1038,6 +1052,15 @@ async fn history_rows(
                 && edit.sender == message.sender
                 && let Some(Relation::Replacement(replacement)) = &edit.content.relates_to
                 && replacement.event_id == message.event_id
+                && replacement.new_content.msgtype.msgtype() == message.content.msgtype.msgtype()
+            {
+                message
+                    .content
+                    .apply_replacement(replacement.new_content.clone());
+            } else if !fetch_edits
+                && let Some(edit) = saved_edits.get(&message.event_id)
+                && edit.sender == message.sender
+                && let Some(Relation::Replacement(replacement)) = &edit.content.relates_to
                 && replacement.new_content.msgtype.msgtype() == message.content.msgtype.msgtype()
             {
                 message
@@ -1127,6 +1150,86 @@ async fn history_rows(
         }
     }
     Ok(events)
+}
+
+/// Targets of redaction events among saved events: the cache keeps the original and the redaction apart.
+fn redacted_ids(
+    events: &[matrix_sdk::deserialized_responses::TimelineEvent],
+) -> std::collections::HashSet<matrix_sdk::ruma::OwnedEventId> {
+    events
+        .iter()
+        .filter(|e| e.raw().get_field::<String>("type").ok().flatten().as_deref() == Some("m.room.redaction"))
+        .filter_map(|e| {
+            // Older room versions carry the target at the top, newer ones in the content.
+            e.raw().get_field("redacts").ok().flatten().or_else(|| {
+                let content: serde_json::Value = e.raw().get_field("content").ok().flatten()?;
+                content.get("redacts")?.as_str()?.parse().ok()
+            })
+        })
+        .collect()
+}
+
+/// Latest edit of each message among saved events: the cache keeps edits as events of their own.
+fn saved_edits(
+    events: &[matrix_sdk::deserialized_responses::TimelineEvent],
+) -> std::collections::HashMap<
+    matrix_sdk::ruma::OwnedEventId,
+    matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent,
+> {
+    use matrix_sdk::ruma::events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+        room::message::Relation,
+    };
+    let mut latest = std::collections::HashMap::new();
+    for event in events {
+        if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+            SyncMessageLikeEvent::Original(edit),
+        ))) = event.raw().deserialize()
+            && let Some(Relation::Replacement(replacement)) = &edit.content.relates_to
+        {
+            let target = replacement.event_id.clone();
+            let newer = latest.get(&target).is_none_or(
+                |p: &matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent| {
+                    (edit.origin_server_ts, &edit.event_id) > (p.origin_server_ts, &p.event_id)
+                },
+            );
+            if newer {
+                latest.insert(target, edit);
+            }
+        }
+    }
+    latest
+}
+
+/// Live reactions among saved events (a redacted reaction no longer deserializes as one).
+fn reaction_counts(
+    events: &[matrix_sdk::deserialized_responses::TimelineEvent],
+) -> Vec<crate::history::ReactionCount> {
+    use matrix_sdk::ruma::events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
+    };
+    let mut counts: std::collections::BTreeMap<(String, String), usize> = Default::default();
+    let redacted = redacted_ids(events);
+    for event in events {
+        if event.event_id().is_some_and(|id| redacted.contains(id.as_ref() as &matrix_sdk::ruma::EventId)) {
+            continue;
+        }
+        if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Reaction(
+            SyncMessageLikeEvent::Original(reaction),
+        ))) = event.raw().deserialize()
+        {
+            let note = reaction.content.relates_to;
+            *counts.entry((note.event_id.to_string(), note.key)).or_default() += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|((target, key), count)| crate::history::ReactionCount {
+            target: matrix_domain::EventId::new(&target),
+            key,
+            count,
+        })
+        .collect()
 }
 
 async fn load_history(
