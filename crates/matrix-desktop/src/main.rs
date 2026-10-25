@@ -29,7 +29,7 @@ use gpui::{
     UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, prelude::*, px, rgb, size,
     uniform_list,
 };
-use matrix_desktop::{
+use matrix_desktop::{opens_message_menu,
     DARK, DEMO_NOTICE, HistorySession, HistoryStatus, LIGHT, Navigation, Sidebar,
 };
 use matrix_domain::{AccountId, RoomScope};
@@ -49,6 +49,8 @@ struct Shell {
     back_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     operation_ui: operation_panel_view::OperationUi,
+    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+    actions_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     accessibility: matrix_desktop::accessibility::LinuxAccessibility,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -451,6 +453,24 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let key = &event.keystroke;
+        if self.connected && !self.search_focus.is_focused(window) {
+            let m = &key.modifiers;
+            if opens_message_menu(&key.key, m.shift, m.control, m.alt, m.platform) {
+                let target = self.timeline.as_ref().and_then(|t| t.keyboard_menu_target());
+                if let Some(target) = target && self.operations.borrow_mut().select(target) {
+                    self.actions_focus().focus(window);
+                    cx.notify();
+                }
+                cx.stop_propagation();
+                return;
+            }
+            if key.key == "escape" && self.operations.borrow().selection().is_some() {
+                self.close_message_actions(window);
+                cx.notify();
+                cx.stop_propagation();
+                return;
+            }
+        }
         if self.rail_key(event, window, cx) {
             cx.stop_propagation();
             return;
@@ -918,6 +938,31 @@ impl Shell {
         }
     }
 
+    fn actions_focus(&self) -> &FocusHandle {
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        { &self.operation_ui.focus }
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        { &self.actions_focus }
+    }
+
+    /// Dismiss the message actions and hand focus back to the message they came from.
+    fn close_message_actions(&mut self, window: &mut Window) {
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let target = self.operations.borrow().selection().cloned();
+        self.operations.borrow_mut().clear_selection();
+        self.confirm_redaction = None;
+        self.media.clear();
+        self.media_image = None;
+        if let Some(timeline) = &self.timeline {
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            if let Some(target) = target {
+                timeline.focus_semantic_actions(&target, window);
+                return;
+            }
+            timeline.focus_timeline(window);
+        }
+    }
+
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = &event.keystroke;
         let searching = self.search_focus.is_focused(window);
@@ -1135,20 +1180,7 @@ impl Shell {
                         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                         let _ = event;
                         match name {
-                            "close" => {
-                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                                let target = this.operations.borrow().selection().cloned();
-                                this.operations.borrow_mut().clear_selection();
-                                this.confirm_redaction = None;
-                                this.media.clear();
-                                this.media_image = None;
-                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                                if let Some(target) = target && let Some(timeline) = &this.timeline {
-                                    // Retiring the focused mouse button must not orphan
-                                    // keyboard dispatch (Ctrl+F/search after dismissal).
-                                    timeline.focus_semantic_actions(&target, _window);
-                                }
-                            },
+                            "close" => this.close_message_actions(_window),
                             "preview" => {
                                 if let Some(id) = this.operations.borrow().selection()
                                     && let matrix_domain::TimelineId::Server(event) = &id.id {
@@ -1189,6 +1221,9 @@ impl Shell {
                     .when(probe, |d| d.child(gpui::canvas(move |bounds,_,_| {
                         eprintln!("Matrix Desktop operation {{\"control\":\"{name}\",\"enabled\":{enabled},\"bounds\":[{},{},{},{}]}}", f32::from(bounds.origin.x), f32::from(bounds.origin.y), f32::from(bounds.size.width), f32::from(bounds.size.height));
                     }, |_,_,_,_| {}).absolute().inset_0()));
+                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                let d = d.when(name == "close" || name == "cancel-redact", |d| d.track_focus(&self.actions_focus)
+                    .when(self.actions_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent))));
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 let d = d.when(name == "close" || name == "cancel-redact", |d| d.track_focus(&self.operation_ui.focus)
                     .when(self.operation_ui.focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
@@ -2293,6 +2328,8 @@ fn main() {
                         back_ui: compact_view::BackUi::new(cx),
                         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                         back_focus: cx.focus_handle(),
+                        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                        actions_focus: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         operation_ui: operation_panel_view::OperationUi::new(cx),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

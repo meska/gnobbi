@@ -45,7 +45,21 @@ impl DemoEvent {
     }
 }
 
+/// Menu key or Shift+F10, the platform keys that open a context menu.
+pub fn opens_message_menu(key: &str, shift: bool, control: bool, alt: bool, platform: bool) -> bool {
+    !control && !alt && !platform && (key == "menu" || (key == "f10" && shift))
+}
+
 impl DemoHistory {
+    /// Message the keyboard menu opens on: `focused` when it still offers one, else the newest.
+    pub fn keyboard_menu_target(&self, focused: Option<&ScopedTimelineId>) -> Option<ScopedTimelineId> {
+        let offers = |e: &&DemoEvent| e.menu_available(true) && matches!(e.id.id, TimelineId::Server(_));
+        self.events().iter().filter(offers)
+            .find(|e| Some(&e.id) == focused)
+            .or_else(|| self.events().iter().rev().find(offers))
+            .map(|e| e.id.clone())
+    }
+
     pub fn new(scope: RoomScope, count: usize) -> Self {
         let events = (0..count)
             .map(|index| {

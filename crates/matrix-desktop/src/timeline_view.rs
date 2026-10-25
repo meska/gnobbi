@@ -767,6 +767,18 @@ impl TimelineView {
         true
     }
 
+    pub fn keyboard_menu_target(&self) -> Option<ScopedTimelineId> {
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let focused = self.actions_cursor.borrow().clone();
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        let focused = None;
+        self.history.borrow().keyboard_menu_target(focused.as_ref())
+    }
+
+    pub fn focus_timeline(&self, window: &mut gpui::Window) {
+        self.focus.focus(window);
+    }
+
     pub fn prepend_older(&self) {
         let offset = self.state.logical_scroll_top();
         let anchor = self
