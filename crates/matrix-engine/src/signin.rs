@@ -66,6 +66,7 @@ pub enum SignInError {
     InvalidStorePath,
     Discovery,
     UnsupportedLogin,
+    NoSlidingSync,
     Storage,
     ProfileBusy,
     AlreadySignedIn,
@@ -158,6 +159,9 @@ impl PasswordSignIn {
             .any(|flow| flow.support() == LoginSupport::SdkPasswordOnly)
         {
             return Err(SignInError::UnsupportedLogin);
+        }
+        if !result.sliding_sync {
+            return Err(SignInError::NoSlidingSync);
         }
         let mut http = crate::auth::secure_http_builder();
         if let Some(pem) = self.trust_root.as_deref() {

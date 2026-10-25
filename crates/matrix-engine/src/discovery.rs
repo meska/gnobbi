@@ -86,6 +86,8 @@ impl LoginFlow {
 pub struct DiscoveryResult {
     pub homeserver: HomeserverUrl,
     pub server_versions: Vec<String>,
+    /// `org.matrix.simplified_msc3575` advertised in `/versions`, as the SDK requires.
+    pub sliding_sync: bool,
     pub login_flows: Vec<LoginFlow>,
 }
 
@@ -173,6 +175,11 @@ impl Discovery {
         if server_versions.is_empty() {
             return Err(DiscoveryError::InvalidResponse);
         }
+        let sliding_sync = versions
+            .get("unstable_features")
+            .and_then(|v| v.get("org.matrix.simplified_msc3575"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let login = self
             .json(
                 homeserver
@@ -201,6 +208,7 @@ impl Discovery {
         Ok(DiscoveryResult {
             homeserver,
             server_versions,
+            sliding_sync,
             login_flows,
         })
     }

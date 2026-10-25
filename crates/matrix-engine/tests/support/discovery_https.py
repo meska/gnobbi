@@ -38,7 +38,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif self.path in ['/hop1', '/hop2', '/hop3']:
             payload = {'m.homeserver': {'base_url': base+'/delegated'}}
         elif self.path.endswith('/_matrix/client/versions'):
-            payload = {'versions': ['v1.1', 'v1.15'], 'unstable_features': {}}
+            payload = {'versions': ['v1.1', 'v1.15'], 'unstable_features': {'org.matrix.simplified_msc3575': True} if mode == 'sliding' else {}}
         elif self.path.endswith('/_matrix/client/v3/login'):
             payload = {'flows': [{'type': 'm.login.password'}, {'type': 'm.login.sso'}, {'type': 'm.login.token'}, {'type': 'org.example.future'}]}
         else:

@@ -89,6 +89,7 @@ impl FormStatus {
             }
             InvalidSecret => "Password richiesta; frase locale di almeno 16 caratteri.",
             UnsupportedLogin => "Questo server non offre login password. SSO/OIDC non supportati.",
+            NoSlidingSync => "Questo server non supporta lo sliding sync",
             Discovery | InvalidTrustRoot => {
                 "Server non raggiungibile o certificato TLS non valido."
             }

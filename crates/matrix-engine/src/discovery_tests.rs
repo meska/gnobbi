@@ -128,6 +128,42 @@ fn signin_unsupported_flow_never_posts_credentials_or_creates_an_account_store()
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn signin_without_sliding_sync_stops_before_credentials_and_account_store() {
+    use crate::signin::{Secret, SignInError, SignInProfile};
+    let f = Fixture::start("default");
+    let root = f.root.join("signin");
+    let mut profile = SignInProfile::open(root.clone()).unwrap();
+    let result = run(profile.password_login(
+        f.base.clone(),
+        "@alice:fixture.invalid".into(),
+        Secret::new("fixture-not-a-real-password".into()).unwrap(),
+        Secret::new("protocol fixture unlock phrase".into()).unwrap(),
+        Some(std::fs::read(f.root.join("ca.pem")).unwrap()),
+    ));
+    assert!(matches!(result, Err(SignInError::NoSlidingSync)));
+    assert_eq!(f.requests().len(), 2, "only versions and login flows");
+    assert!(!root.join("account-1").exists());
+    assert_eq!(profile.active_account(), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn signin_with_sliding_sync_advertised_goes_on_to_credentials() {
+    use crate::signin::{Secret, SignInError, SignInProfile};
+    let f = Fixture::start("sliding");
+    let mut profile = SignInProfile::open(f.root.join("signin")).unwrap();
+    let result = run(profile.password_login(
+        f.base.clone(),
+        "@alice:fixture.invalid".into(),
+        Secret::new("fixture-not-a-real-password".into()).unwrap(),
+        Secret::new("protocol fixture unlock phrase".into()).unwrap(),
+        Some(std::fs::read(f.root.join("ca.pem")).unwrap()),
+    ));
+    assert!(!matches!(result, Err(SignInError::NoSlidingSync)));
+}
+
 #[test]
 fn ambiguous_redirect_authorities_are_rejected_before_url_normalization() {
     for mode in ["ambiguous", "empty-userinfo"] {

@@ -209,6 +209,10 @@ fn password_error_projection_explains_the_same_fixed_validation_error() {
             "Questo server non offre login password. SSO/OIDC non supportati.",
         ),
         (
+            SignInError::NoSlidingSync,
+            "Questo server non supporta lo sliding sync",
+        ),
+        (
             SignInError::Discovery,
             "Server non raggiungibile o certificato TLS non valido.",
         ),
