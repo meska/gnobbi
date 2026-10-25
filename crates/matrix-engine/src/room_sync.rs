@@ -682,7 +682,7 @@ impl RoomSync {
                         account_id: self.session.account_id(),
                         room_id: RoomId::new(id.clone()),
                     },
-                    name: room.name().unwrap_or_else(|| id.clone()),
+                    name: room_label(room.display_name().await.ok(), &id),
                     unread: room.unread_notification_counts().notification_count,
                     info: crate::RoomInfo {
                         public_read_receipts: self.receipts.snapshot(&RoomScope {
@@ -738,6 +738,15 @@ impl RoomSync {
                 Some(summary.scope.clone())
             })
             .collect()
+    }
+}
+
+/// Name shown in the room list: the SDK-computed display name, the raw id only as a last resort.
+fn room_label(name: Option<matrix_sdk::RoomDisplayName>, id: &str) -> String {
+    use matrix_sdk::RoomDisplayName as N;
+    match name {
+        Some(N::Named(n) | N::Aliased(n) | N::Calculated(n) | N::EmptyWas(n)) if !n.is_empty() => n,
+        _ => id.to_owned(),
     }
 }
 

@@ -203,3 +203,15 @@ fn shutdown_receive_closes_intake_before_draining_with_a_live_producer() {
         assert_eq!(shutdown_receive(&stop, &mut receiver).await, None);
     });
 }
+
+#[test]
+fn room_label_prefers_the_computed_name_and_uses_the_id_last() {
+    use matrix_sdk::RoomDisplayName as N;
+    let id = "!AHaFoh:example.org";
+    assert_eq!(room_label(Some(N::Named("Team".into())), id), "Team");
+    assert_eq!(room_label(Some(N::Aliased("#team:example.org".into())), id), "#team:example.org");
+    assert_eq!(room_label(Some(N::Calculated("Anna, Luca".into())), id), "Anna, Luca");
+    assert_eq!(room_label(Some(N::EmptyWas("Anna".into())), id), "Anna");
+    assert_eq!(room_label(Some(N::Empty), id), id);
+    assert_eq!(room_label(None, id), id);
+}
