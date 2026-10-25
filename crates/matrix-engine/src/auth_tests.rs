@@ -1597,6 +1597,62 @@ fn disposable_persistent_restore_fails_closed_after_revocation() {
 #[cfg(unix)]
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_persistent_restore_works_with_homeserver_unreachable() {
+    let config = fixture();
+    let root = std::path::Path::new(config["ca"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    let passphrase = "long disposable offline fixture passphrase";
+    let (user, token) = runtime().block_on(async {
+        let session = AccountStore::create(root, AccountId::new(117))
+            .unwrap()
+            .password_login_with_http(
+                HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                passphrase,
+                http(&config),
+            )
+            .await
+            .unwrap();
+        let identity = session.whoami().await.unwrap();
+        (
+            identity.user_id().to_owned(),
+            session.client.as_ref().unwrap().access_token().unwrap(),
+        )
+    });
+    let pid = config["server_pid"].to_string();
+    struct Resume(String);
+    impl Drop for Resume {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("/usr/bin/kill")
+                .args(["-CONT", &self.0])
+                .status();
+        }
+    }
+    assert!(
+        std::process::Command::new("/usr/bin/kill")
+            .args(["-STOP", &pid])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let _resume = Resume(pid);
+    runtime().block_on(async {
+        let session = AccountStore::open(root, AccountId::new(117))
+            .unwrap()
+            .restore_with_http(passphrase, http(&config))
+            .await
+            .expect("restore must not need the homeserver");
+        let client = session.client.as_ref().unwrap();
+        assert!(client.access_token().unwrap() == token);
+        assert!(client.user_id().unwrap().as_str() == user);
+    });
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
 fn disposable_persistent_existing_store_cannot_be_rebound() {
     let config = fixture();
     let root = std::path::Path::new(config["ca"].as_str().unwrap())

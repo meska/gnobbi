@@ -166,11 +166,16 @@ impl AccountStore {
             client: Some(client),
             store: Some(self),
         };
-        let identity = session.whoami().await?;
-        if identity.user_id() != expected.user_id.as_str()
-            || identity.device_id() != expected.device_id.as_str()
-        {
-            return Err(AuthError::IdentityMismatch);
+        match session.whoami().await {
+            Ok(identity)
+                if identity.user_id() != expected.user_id.as_str()
+                    || identity.device_id() != expected.device_id.as_str() =>
+            {
+                return Err(AuthError::IdentityMismatch);
+            }
+            // Unreachable homeserver: keep the saved login; a rejected token still fails.
+            Err(AuthError::Transport) | Ok(_) => {}
+            Err(error) => return Err(error),
         }
         Ok(session)
     }
