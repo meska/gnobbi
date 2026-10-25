@@ -272,6 +272,23 @@ impl TimelineView {
     }
 
     #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.history.borrow().events().len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scroll_to_row(&self, item_ix: usize, offset_in_item: gpui::Pixels) {
+        self.state.scroll_to(ListOffset { item_ix, offset_in_item });
+    }
+
+    /// Event ID and pixel offset of the row at the top of the viewport.
+    #[cfg(test)]
+    pub(crate) fn top_row(&self) -> (matrix_domain::TimelineId, gpui::Pixels) {
+        let top = self.state.logical_scroll_top();
+        (self.history.borrow().events()[top.item_ix].id.id.clone(), top.offset_in_item)
+    }
+
+    #[cfg(test)]
     pub(crate) fn sidebar_history_probe(&self) -> impl Fn(&Self) -> bool + use<> {
         let history = self.history.clone();
         let ids: Vec<_> = history

@@ -1379,6 +1379,47 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 21 {
+            // Ctrl+PageUp / Ctrl+Home through the Shell key path: the row being read keeps its pixel offset when older rows arrive.
+            this.update_in(cx, |this, window, cx| {
+                this.list_focus.focus(window);
+                this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.));
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            for key in ["ctrl-pageup", "ctrl-home"] {
+                let (len, row) = this.update_in(cx, |this, _, _| {
+                    let t = this.timeline.as_ref().unwrap();
+                    (t.len(), t.top_row())
+                }).unwrap();
+                cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
+                executor.timer(std::time::Duration::from_millis(250)).await;
+                let after = this.update_in(cx, |this, _, _| {
+                    let t = this.timeline.as_ref().unwrap();
+                    (t.len(), t.top_row())
+                }).unwrap();
+                if key == "ctrl-pageup" {
+                    assert_eq!(after.0, len + 25, "Ctrl+PageUp prepends one page");
+                    assert_eq!(after.1, row, "same row at the same pixel offset after Ctrl+PageUp");
+                } else {
+                    assert_eq!((after.1).1, px(0.), "Ctrl+Home reaches the first row");
+                }
+            }
+            // Older rows arriving at the very top: the first row stays put.
+            let (len, row) = this.update_in(cx, |this, _, _| {
+                let t = this.timeline.as_ref().unwrap();
+                (t.len(), t.top_row())
+            }).unwrap();
+            cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse("ctrl-pageup").unwrap(), cx); }).unwrap();
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            this.update_in(cx, |this, _, cx| {
+                let t = this.timeline.as_ref().unwrap();
+                assert_eq!(t.len(), len + 25);
+                assert_eq!(t.top_row(), row, "first row keeps its place after Ctrl+Home then Ctrl+PageUp");
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 10 {
             // Hidden Search (compact chat page, repaint suspended) must not be edited by native key dispatch.
             this.update_in(cx, |this, window, cx| {
@@ -2257,6 +2298,15 @@ fn theme_change_keeps_every_ring_control_focused() {
     DYNAMIC.store(20, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn page_up_and_home_keep_the_row_being_read_in_place() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(21, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
