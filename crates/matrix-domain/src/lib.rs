@@ -1,7 +1,9 @@
 //! UI-, transport- and SDK-independent domain contracts.
 
 pub mod notifications;
+mod sender_label;
 mod timeline;
+pub use sender_label::{shows_sender_label, SENDER_LABEL_GAP_MS};
 pub use timeline::{SendStatus, Timeline, TimelineError, TimelineItem, TimelineUpdate};
 
 /// Timeline identity explicitly tagged as local pending or server-assigned.
