@@ -1420,6 +1420,43 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 22 {
+            // Wheel and scrollbar-thumb drag: older rows arriving keep the row being read at the same pixel offset.
+            this.update_in(cx, |this, _, cx| {
+                this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.));
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            let read = |this: &mut Shell| { let t = this.timeline.as_ref().unwrap(); (t.len(), t.top_row()) };
+            let centre = this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().viewport_centre()).unwrap();
+            let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap().stdout).unwrap().lines().next().expect("window").to_string();
+            let xdo = |args: &[&str]| assert!(std::process::Command::new("xdotool").args(args).status().unwrap().success());
+            let start = this.update_in(cx, |this, _, _| read(this).1).unwrap();
+            xdo(&["mousemove", "--window", &win, &(f32::from(centre.x) as i32).to_string(), &(f32::from(centre.y) as i32).to_string(), "click", "--repeat", "3", "5"]);
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            let (len, row) = this.update_in(cx, |this, _, _| read(this)).unwrap();
+            assert_ne!(row, start, "the wheel must have moved the viewport");
+            this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().prepend_older()).unwrap();
+            let after = this.update_in(cx, |this, _, _| read(this)).unwrap();
+            assert_eq!(after.0, len + 25);
+            assert_eq!(after.1, row, "same row at the same pixel offset after wheel scroll then prepend");
+            // Thumb drag with the button still held when older rows arrive.
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            let thumb = this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().thumb_centre().expect("scrollbar thumb painted")).unwrap();
+            let row_before_drag = this.update_in(cx, |this, _, _| read(this).1).unwrap();
+            let (tx, ty) = (f32::from(thumb.x) as i32, f32::from(thumb.y) as i32);
+            xdo(&["mousemove", "--window", &win, &tx.to_string(), &ty.to_string(), "mousedown", "1", "mousemove_relative", "--", "0", "30"]);
+            executor.timer(std::time::Duration::from_millis(250)).await;
+            let (len, row) = this.update_in(cx, |this, _, _| read(this)).unwrap();
+            assert_ne!(row, row_before_drag, "the thumb drag must have moved the viewport");
+            this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().prepend_older()).unwrap();
+            let after = this.update_in(cx, |this, _, _| read(this)).unwrap();
+            assert_eq!(after.0, len + 25);
+            assert_eq!(after.1, row, "same row at the same pixel offset after thumb drag then prepend");
+            xdo(&["mouseup", "1"]);
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 10 {
             // Hidden Search (compact chat page, repaint suspended) must not be edited by native key dispatch.
             this.update_in(cx, |this, window, cx| {
@@ -2307,6 +2344,15 @@ fn theme_change_keeps_every_ring_control_focused() {
 fn page_up_and_home_keep_the_row_being_read_in_place() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(21, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn wheel_and_scrollbar_drag_keep_the_row_being_read_in_place() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(22, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }

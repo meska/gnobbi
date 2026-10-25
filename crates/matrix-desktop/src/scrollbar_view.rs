@@ -111,6 +111,17 @@ struct State {
 #[derive(Clone, Default)]
 pub struct Scrollbar(Rc<RefCell<State>>);
 impl Scrollbar {
+    /// Window position of the middle of the painted thumb.
+    #[cfg(test)]
+    pub(crate) fn thumb_centre(&self) -> Option<Point<Pixels>> {
+        let state = self.0.borrow();
+        let g = state.geometry?;
+        Some(point(
+            state.bounds.left() + px(7.),
+            state.bounds.top() + px(g.thumb_top + g.thumb_length / 2.),
+        ))
+    }
+
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub fn semantic_snapshot(
         &self,

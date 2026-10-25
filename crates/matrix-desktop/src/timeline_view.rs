@@ -277,6 +277,16 @@ impl TimelineView {
     }
 
     #[cfg(test)]
+    pub(crate) fn viewport_centre(&self) -> gpui::Point<gpui::Pixels> {
+        self.state.viewport_bounds().center()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn thumb_centre(&self) -> Option<gpui::Point<gpui::Pixels>> {
+        self.scrollbar.thumb_centre()
+    }
+
+    #[cfg(test)]
     pub(crate) fn scroll_to_row(&self, item_ix: usize, offset_in_item: gpui::Pixels) {
         self.state.scroll_to(ListOffset { item_ix, offset_in_item });
     }
