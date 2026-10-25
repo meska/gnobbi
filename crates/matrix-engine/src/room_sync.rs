@@ -800,6 +800,14 @@ async fn until_stopped<F: std::future::Future>(
     .await
 }
 
+async fn history_sender(
+    room: &matrix_sdk::room::Room,
+    id: &matrix_sdk::ruma::UserId,
+) -> crate::history::HistorySender {
+    let member = room.get_member_no_sync(id).await.ok().flatten();
+    crate::history::HistorySender::new(id.as_str(), member.as_ref().and_then(|m| m.display_name()))
+}
+
 async fn fetch_history(
     client: &matrix_sdk::Client,
     account_id: matrix_domain::AccountId,
@@ -906,6 +914,7 @@ async fn load_history(
                     .into(),
                     outgoing: client.user_id() == Some(sender.as_ref()),
                     timestamp_ms: timestamp,
+                    sender: history_sender(&room, &sender).await,
                 });
             }
             continue;
@@ -922,6 +931,7 @@ async fn load_history(
                         body: "[Messaggio eliminato]".into(),
                         outgoing: client.user_id() == Some(message.sender.as_ref()),
                         timestamp_ms: message.origin_server_ts.0.into(),
+                        sender: history_sender(&room, &message.sender).await,
                     });
                     continue;
                 }
@@ -1018,6 +1028,7 @@ async fn load_history(
                 body,
                 outgoing: client.user_id() == Some(message.sender.as_ref()),
                 timestamp_ms: message.origin_server_ts.0.into(),
+                sender: history_sender(&room, &message.sender).await,
             });
         }
     }

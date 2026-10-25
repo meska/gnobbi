@@ -7,11 +7,28 @@ pub struct HistoryRequest {
     pub before: Option<String>,
 }
 
+/// Event author: Matrix user ID plus display name when the room member is known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistorySender {
+    pub id: String,
+    pub name: Option<String>,
+}
+
+impl HistorySender {
+    pub fn new(id: &str, name: Option<&str>) -> Self {
+        Self {
+            id: id.to_owned(),
+            name: name.map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned),
+        }
+    }
+}
+
 pub struct HistoryEvent {
     pub event_id: EventId,
     pub body: String,
     pub outgoing: bool,
     pub timestamp_ms: u64,
+    pub sender: HistorySender,
 }
 
 pub struct HistoryPage {

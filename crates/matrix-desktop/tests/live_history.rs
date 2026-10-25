@@ -13,6 +13,7 @@ fn event(id: &str) -> HistoryEvent {
         body: "same text".into(),
         outgoing: false,
         timestamp_ms: 1,
+        sender: matrix_engine::history::HistorySender::new("@peer:test", None),
     }
 }
 fn page(

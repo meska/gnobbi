@@ -1,3 +1,4 @@
+use matrix_engine::history::HistorySender;
 use matrix_domain::{EventId, RoomScope, ScopedTimelineId, TimelineId, TransactionId};
 
 /// Offline presentation workload, not server history or canonical SDK state.
@@ -27,6 +28,8 @@ pub struct DemoEvent {
     pub outgoing: bool,
     pub time: String,
     pub send_state: Option<DemoSendState>,
+    /// None for local/own rows.
+    pub sender: Option<HistorySender>,
 }
 
 impl DemoHistory {
@@ -52,6 +55,10 @@ impl DemoHistory {
                     text: format!("Evento {:05} · {body}", index + 1),
                     outgoing: index % 3 == 1,
                     send_state: None,
+                    sender: (index % 3 != 1).then(|| {
+                        let (id, name) = [("@anna:fixture.invalid", Some("Anna")), ("@bruno:fixture.invalid", None)][index % 2];
+                        HistorySender::new(id, name)
+                    }),
                     time: format!("{:02}:{:02}", index / 60 % 24, index % 60),
                 }
             })
@@ -116,6 +123,7 @@ impl DemoHistory {
             outgoing: true,
             time: "locale".into(),
             send_state: Some(DemoSendState::Pending),
+            sender: None,
         });
     }
 
@@ -196,6 +204,7 @@ impl DemoHistory {
                     event.timestamp_ms / 60_000 % 60
                 ),
                 send_state: None,
+                sender: (!event.outgoing).then_some(event.sender),
             })
             .collect::<Vec<_>>();
         let count = rows.len();
@@ -268,6 +277,7 @@ impl DemoHistory {
                     outgoing: true,
                     time: "ACK server · Risposta".into(),
                     send_state: None,
+                    sender: None,
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -334,6 +344,7 @@ impl DemoHistory {
                         "ACK server".into()
                     },
                     send_state: state,
+                    sender: None,
                 });
             }
         }
