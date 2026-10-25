@@ -2,13 +2,21 @@
 use crate::Shell;
 use gpui::{AnyElement, div, img, prelude::*, px, rgb};
 use matrix_desktop::DesignTokens;
+use matrix_engine::media::MediaError;
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) enum InlineImage {
     Loading,
     Ready(Arc<gpui::RenderImage>),
-    Failed,
+    Failed(Option<MediaError>),
+}
+
+pub(crate) fn failure_label(error: Option<MediaError>) -> &'static str {
+    match error {
+        Some(MediaError::TooLarge) => "Immagine troppo grande",
+        _ => "Immagine non disponibile",
+    }
 }
 
 pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> AnyElement {
@@ -21,7 +29,7 @@ pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> Any
                 .rounded_md()
                 .into_any_element()
         }
-        Some(InlineImage::Failed) => div()
+        Some(InlineImage::Failed(error)) => div()
             .w(px(200.))
             .h(px(60.))
             .flex()
@@ -31,7 +39,7 @@ pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> Any
             .bg(rgb(t.timeline))
             .text_size(px(12.))
             .text_color(rgb(t.error))
-            .child("Immagine non disponibile")
+            .child(failure_label(error))
             .into_any_element(),
         _ => div()
             .w(px(200.))
@@ -67,6 +75,7 @@ impl Shell {
         let (Some(timeline), Some(id)) = (&self.timeline, self.media.event().cloned()) else {
             return;
         };
+        let error = self.media.error();
         let state = match self.media.take_preview() {
             Some(mut preview) => {
                 // GPUI RenderImage expects BGRA, image decoder returns straight RGBA.
@@ -74,13 +83,26 @@ impl Shell {
                     pixel.swap(0, 2);
                 }
                 image::RgbaImage::from_raw(preview.width, preview.height, preview.rgba)
-                    .map_or(InlineImage::Failed, |buffer| {
+                    .map_or(InlineImage::Failed(None), |buffer| {
                         InlineImage::Ready(Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)])))
                     })
             }
-            None => InlineImage::Failed,
+            None => InlineImage::Failed(error),
         };
         timeline.images.borrow_mut().insert(id.clone(), state);
         timeline.image_changed(&id);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_engine::media::MediaError;
+
+    #[test]
+    fn only_oversized_images_say_too_large() {
+        assert_eq!(super::failure_label(Some(MediaError::TooLarge)), "Immagine troppo grande");
+        for error in [None, Some(MediaError::Failed), Some(MediaError::InvalidImage), Some(MediaError::UnsupportedType)] {
+            assert_eq!(super::failure_label(error), "Immagine non disponibile");
+        }
     }
 }

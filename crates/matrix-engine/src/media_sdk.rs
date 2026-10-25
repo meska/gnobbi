@@ -101,9 +101,12 @@ pub(crate) async fn download_png(
         else {
             return Err(MediaError::UnsupportedType);
         };
-        if image.info.as_ref().and_then(|i| i.mimetype.as_deref()) != Some("image/png") {
-            return Err(MediaError::UnsupportedType);
-        }
+        let mime = image
+            .info
+            .as_ref()
+            .and_then(|i| i.mimetype.clone())
+            .ok_or(MediaError::UnsupportedType)?;
+        format_for_mime(&mime).ok_or(MediaError::UnsupportedType)?;
         let (uri, encrypted_file) = match image.source {
             matrix_sdk::ruma::events::room::MediaSource::Plain(uri) => (uri, None),
             matrix_sdk::ruma::events::room::MediaSource::Encrypted(file) => {
@@ -172,7 +175,7 @@ pub(crate) async fn download_png(
             .await
             .map_err(|_| MediaError::Failed)??;
         }
-        let preview = decode_png(bytes.clone(), "image/png", tag).await?;
+        let preview = decode_png(bytes.clone(), &mime, tag).await?;
         Ok(DownloadedPng { bytes, preview })
     })
     .await
@@ -223,6 +226,28 @@ pub(crate) async fn send_png(
 
 pub use crate::media::{DownloadedPng, MAX_MEDIA_BYTES, MediaError, Preview};
 
+/// MIME type of already-downloaded bytes (cache hits keep no metadata).
+pub(crate) fn mime_of(bytes: &[u8]) -> Option<&'static str> {
+    match image::guess_format(bytes).ok()? {
+        image::ImageFormat::Png => Some("image/png"),
+        image::ImageFormat::Jpeg => Some("image/jpeg"),
+        image::ImageFormat::WebP => Some("image/webp"),
+        image::ImageFormat::Gif => Some("image/gif"),
+        _ => None,
+    }
+}
+
+fn format_for_mime(mime: &str) -> Option<image::ImageFormat> {
+    match mime {
+        "image/png" => Some(image::ImageFormat::Png),
+        "image/jpeg" => Some(image::ImageFormat::Jpeg),
+        "image/webp" => Some(image::ImageFormat::WebP),
+        "image/gif" => Some(image::ImageFormat::Gif),
+        _ => None,
+    }
+}
+
+/// Decodes a PNG, JPEG, WebP or static GIF into a bounded preview.
 pub async fn decode_png(
     data: Vec<u8>,
     mime: &str,
@@ -232,9 +257,7 @@ pub async fn decode_png(
         return Err(MediaError::Cancelled);
     }
     let tag = tag.clone();
-    if mime != "image/png" {
-        return Err(MediaError::UnsupportedType);
-    }
+    let format = format_for_mime(mime).ok_or(MediaError::UnsupportedType)?;
     if data.len() > MAX_MEDIA_BYTES {
         return Err(MediaError::TooLarge);
     }
@@ -242,14 +265,22 @@ pub async fn decode_png(
         if tag.is_cancelled() {
             return Err(MediaError::Cancelled);
         }
-        let mut reader =
-            image::ImageReader::with_format(std::io::Cursor::new(&data), image::ImageFormat::Png);
-        let mut limits = image::Limits::default();
-        limits.max_image_width = Some(2048);
-        limits.max_image_height = Some(2048);
-        limits.max_alloc = Some(32 * 1024 * 1024);
-        reader.limits(limits);
-        let image = reader.decode().map_err(|_| MediaError::InvalidImage)?;
+        let reader = || {
+            let mut reader = image::ImageReader::with_format(std::io::Cursor::new(&data), format);
+            let mut limits = image::Limits::default();
+            limits.max_image_width = None;
+            limits.max_image_height = None;
+            limits.max_alloc = Some(512 * 1024 * 1024);
+            reader.limits(limits);
+            reader
+        };
+        let (w, h) = reader()
+            .into_dimensions()
+            .map_err(|_| MediaError::InvalidImage)?;
+        if u64::from(w) * u64::from(h) > crate::media::MAX_IMAGE_PIXELS {
+            return Err(MediaError::TooLarge);
+        }
+        let image = reader().decode().map_err(|_| MediaError::InvalidImage)?;
         let image = if image.width() > 320 || image.height() > 240 {
             image.thumbnail(320, 240)
         } else {

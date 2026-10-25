@@ -14,7 +14,7 @@ sdk = ["dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json"
 
 [dependencies]
 matrix-sdk-crypto = { version = "=0.19.1", optional = true, default-features = false }
-image = { version = "=0.25.10", optional = true, default-features = false, features = ["png"] }
+image = { version = "=0.25.10", optional = true, default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 zeroize = { version = "=1.9.1", optional = true }
 matrix-domain = { path = "../matrix-domain" }
 matrix-sdk-store-encryption = { version = "=0.19.1", optional = true }

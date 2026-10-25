@@ -12,7 +12,7 @@ fn media_preview_rejects_unsupported_types_before_decode() {
             .unwrap();
         for mime in [
             "image/svg+xml",
-            "image/jpeg",
+            "image/tiff",
             "text/html",
             "image/png; charset=utf-8",
             "",
@@ -21,14 +21,15 @@ fn media_preview_rejects_unsupported_types_before_decode() {
                 crate::media_sdk::decode_png(MEDIA_PNG.to_vec(), mime, &tag)
                     .await
                     .is_err(),
-                "only exact PNG MIME is supported"
+                "only exact image MIME types are supported"
             );
         }
     });
 }
 
 #[test]
-fn media_preview_rejects_encoded_data_over_four_mib() {
+fn media_ceiling_is_25_mib_and_a_five_mib_png_is_accepted() {
+    assert_eq!(crate::media::MAX_MEDIA_BYTES, 25 * 1024 * 1024);
     runtime().block_on(async {
         let mut requests = crate::ViewRequests::new();
         let tag = requests
@@ -38,13 +39,66 @@ fn media_preview_rejects_encoded_data_over_four_mib() {
             })
             .unwrap();
         let mut data = MEDIA_PNG.to_vec();
-        data.resize(4 * 1024 * 1024 + 1, 0);
+        data.resize(5 * 1024 * 1024, 0);
         assert!(
-            crate::media_sdk::decode_png(data, "image/png", &tag)
-                .await
-                .is_err(),
-            "encoded byte cap must be enforced before decode"
+            crate::media_sdk::decode_png(data, "image/png", &tag).await.is_ok(),
+            "a 5 MiB file is below the ceiling"
         );
+        let mut data = MEDIA_PNG.to_vec();
+        data.resize(25 * 1024 * 1024 + 1, 0);
+        assert!(matches!(
+            crate::media_sdk::decode_png(data, "image/png", &tag).await,
+            Err(crate::media::MediaError::TooLarge)
+        ));
+    });
+}
+
+fn media_generated(format: image::ImageFormat, width: u32, height: u32) -> Vec<u8> {
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgb8(width, height)
+        .write_to(&mut out, format)
+        .unwrap();
+    out.into_inner()
+}
+
+#[test]
+fn media_preview_decodes_png_jpeg_webp_and_gif() {
+    runtime().block_on(async {
+        let mut requests = crate::ViewRequests::new();
+        let tag = requests
+            .start(matrix_domain::RoomScope {
+                account_id: AccountId::new(26),
+                room_id: matrix_domain::RoomId::new("!media:test"),
+            })
+            .unwrap();
+        for (format, mime) in [
+            (image::ImageFormat::Png, "image/png"),
+            (image::ImageFormat::Jpeg, "image/jpeg"),
+            (image::ImageFormat::WebP, "image/webp"),
+            (image::ImageFormat::Gif, "image/gif"),
+        ] {
+            let preview = crate::media_sdk::decode_png(media_generated(format, 640, 480), mime, &tag)
+                .await
+                .unwrap_or_else(|e| panic!("{mime}: {e:?}"));
+            assert_eq!((preview.width, preview.height), (320, 240), "{mime}");
+        }
+    });
+}
+
+#[test]
+fn media_preview_rejects_bytes_that_do_not_match_the_declared_format() {
+    runtime().block_on(async {
+        let mut requests = crate::ViewRequests::new();
+        let tag = requests
+            .start(matrix_domain::RoomScope {
+                account_id: AccountId::new(26),
+                room_id: matrix_domain::RoomId::new("!media:test"),
+            })
+            .unwrap();
+        assert!(matches!(
+            crate::media_sdk::decode_png(MEDIA_PNG.to_vec(), "image/jpeg", &tag).await,
+            Err(crate::media::MediaError::InvalidImage)
+        ));
     });
 }
 
@@ -57,7 +111,7 @@ fn media_generated_png(width: u32, height: u32) -> Vec<u8> {
 }
 
 #[test]
-fn media_preview_caps_dimensions_before_allocating_pixels() {
+fn media_preview_resizes_wide_images_and_refuses_only_above_the_pixel_cap() {
     runtime().block_on(async {
         let mut requests = crate::ViewRequests::new();
         let tag = requests
@@ -66,14 +120,15 @@ fn media_preview_caps_dimensions_before_allocating_pixels() {
                 room_id: matrix_domain::RoomId::new("!media:test"),
             })
             .unwrap();
-        for (w, h) in [(2049, 1), (1, 2049)] {
-            assert!(
-                crate::media_sdk::decode_png(media_generated_png(w, h), "image/png", &tag)
-                    .await
-                    .is_err(),
-                "oversized dimensions must be rejected"
-            );
-        }
+        let wide = crate::media_sdk::decode_png(media_generated_png(4096, 16), "image/png", &tag)
+            .await
+            .expect("wide image under the pixel cap is resized, not refused");
+        assert!(wide.width <= 320 && wide.height <= 240);
+        assert_eq!(crate::media::MAX_IMAGE_PIXELS, 40_000_000);
+        assert!(matches!(
+            crate::media_sdk::decode_png(media_generated_png(8001, 5000), "image/png", &tag).await,
+            Err(crate::media::MediaError::TooLarge)
+        ));
     });
 }
 
@@ -450,8 +505,8 @@ fn disposable_media_rejects_untrusted_payloads_and_wrong_account() {
             assert!(matches!(session.download_png(&tag, &matrix_domain::EventId::new(event)).await, Err(error) if error == expected));
         }
         let wrong = requests.start(matrix_domain::RoomScope { account_id: AccountId::new(999), ..scope.clone() }).unwrap();
-        assert!(matches!(session.download_png(&wrong, &matrix_domain::EventId::new("$no-network")).await, Err(MediaError::InvalidScope)));
-        assert!(matches!(session.send_png(&scope, &matrix_domain::TransactionId::new("invalid"), b"not PNG".to_vec()).await, Err(MediaError::InvalidImage)));
+        assert!(matches!(session.download_png(&wrong, &matrix_domain::EventId::new("$no-network")).await, Err(crate::media::MediaError::InvalidScope)));
+        assert!(matches!(session.send_png(&scope, &matrix_domain::TransactionId::new("invalid"), b"not PNG".to_vec()).await, Err(crate::media::MediaError::InvalidImage)));
         let messages = room_request(&config,"alice",reqwest::Method::GET,&format!("rooms/{room}/messages?dir=b&limit=100"),serde_json::json!({})).await;
         assert_eq!(messages["chunk"].as_array().unwrap().iter().filter(|event| event["type"] == "m.room.message").count(), 3, "invalid upload must not create a message");
     });
@@ -533,4 +588,17 @@ fn media_preview_decodes_original_rgba_off_runtime_thread() {
         );
         assert_ne!(preview.decoded_on, std::thread::current().id());
     });
+}
+
+#[test]
+fn media_cached_bytes_are_decoded_with_their_own_format() {
+    for (format, mime) in [
+        (image::ImageFormat::Png, "image/png"),
+        (image::ImageFormat::Jpeg, "image/jpeg"),
+        (image::ImageFormat::WebP, "image/webp"),
+        (image::ImageFormat::Gif, "image/gif"),
+    ] {
+        assert_eq!(crate::media_sdk::mime_of(&media_generated(format, 8, 8)), Some(mime));
+    }
+    assert_eq!(crate::media_sdk::mime_of(b"not an image"), None);
 }

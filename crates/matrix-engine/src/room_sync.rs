@@ -171,7 +171,8 @@ impl RoomListWorker {
                                         if let Some(bytes) = cache.get(&key).map(<[u8]>::to_vec) {
                                             let preview = crate::media_sdk::decode_png(
                                                 bytes.clone(),
-                                                "image/png",
+                                                crate::media_sdk::mime_of(&bytes)
+                                                    .ok_or(crate::media::MediaError::InvalidImage)?,
                                                 &tag,
                                             )
                                             .await?;

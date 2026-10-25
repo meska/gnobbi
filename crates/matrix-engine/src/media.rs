@@ -38,7 +38,8 @@ pub enum MediaError {
     Deadline,
     Failed,
 }
-pub const MAX_MEDIA_BYTES: usize = 4 * 1024 * 1024;
+pub const MAX_MEDIA_BYTES: usize = 25 * 1024 * 1024;
+pub const MAX_IMAGE_PIXELS: u64 = 40_000_000;
 
 pub struct DownloadedPng {
     pub bytes: Vec<u8>,
