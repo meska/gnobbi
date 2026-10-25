@@ -1420,6 +1420,37 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 23 {
+            // Connected Shell: the strip above the timeline shows only while an older page loads or after it failed.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let path = format!("/tmp/gui-out/{name}.png");
+                let ok = std::process::Command::new("grim").arg(&path).status().map(|s| s.success()).unwrap_or(false);
+                assert!(ok, "screenshot {name}");
+            };
+            wait(700).await;
+            shot("p178-idle");
+            let loading = this.update_in(cx, |this, _, cx| {
+                let scope = this.active_scope.clone();
+                this.history.select(Some(scope));
+                cx.notify();
+                this.history.status() == HistoryStatus::Loading
+            }).unwrap();
+            assert!(loading, "selecting the room starts loading");
+            wait(400).await;
+            shot("p178-loading");
+            let failed = this.update_in(cx, |this, _, cx| {
+                let tag = this.history.pagination_tag().expect("loading request tag");
+                this.history.apply(matrix_engine::history::HistoryResult { tag, page: Err(matrix_engine::history::HistoryError::Unavailable) });
+                cx.notify();
+                this.history.status() == HistoryStatus::Failed
+            }).unwrap();
+            assert!(failed, "a failed page shows the failed state");
+            wait(400).await;
+            shot("p178-failed");
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 22 {
             // Wheel and scrollbar-thumb drag: older rows arriving keep the row being read at the same pixel offset.
             this.update_in(cx, |this, _, cx| {
@@ -2353,6 +2384,17 @@ fn page_up_and_home_keep_the_row_being_read_in_place() {
 fn wheel_and_scrollbar_drag_keep_the_row_being_read_in_place() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(22, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn older_history_strip_shows_only_while_loading_or_after_a_failure() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(23, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
