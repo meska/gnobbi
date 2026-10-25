@@ -127,3 +127,100 @@ fn seen_room_opens_from_the_cache_after_restart_with_the_homeserver_unreachable(
         assert_eq!(page.events.len(), before.events.len(), "same rows as before the restart");
     });
 }
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
+    const MISSED: usize = 25;
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let root = std::path::PathBuf::from(env("CACHE_PROBE_ROOT"));
+    let http = || {
+        crate::auth::secure_http_builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(&ca).unwrap())
+            .build()
+            .unwrap()
+    };
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let bob = matrix_sdk::Client::builder()
+            .homeserver_url(&url)
+            .add_root_certificates(vec![reqwest::Certificate::from_pem(&ca).unwrap()])
+            .build()
+            .await
+            .unwrap();
+        bob.matrix_auth()
+            .login_username("@bob:matrix-desktop.test", config["bob_password"].as_str().unwrap())
+            .send()
+            .await
+            .unwrap();
+        let mut request = CreateRoom::new();
+        request.invite = vec!["@alice:matrix-desktop.test".try_into().unwrap()];
+        let room_id = bob.create_room(request).await.unwrap().room_id().to_owned();
+        let bob_room = bob.get_room(&room_id).unwrap_or_else(|| panic!("bob room"));
+        for n in 0..COUNT {
+            bob_room.send(RoomMessageEventContent::text_plain(format!("m{n}"))).await.unwrap();
+        }
+
+        // First run: online, the room is seen and its history reaches the cache.
+        let store = AccountStore::create(&root, AccountId::new(293)).unwrap();
+        let session = store
+            .password_login_with_http(
+                HomeserverUrl::parse(&url).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        let alice = session.client.clone().unwrap();
+        let invited = eventually("invite", || async {
+            alice.sync_once(Default::default()).await.ok()?;
+            alice.get_room(&room_id)
+        })
+        .await;
+        invited.join().await.unwrap();
+        alice.sync_once(Default::default()).await.unwrap();
+        let room = alice.get_room(&room_id).unwrap();
+        let (events, _drop) = room.event_cache().await.unwrap();
+        eventually("history in cache", || async {
+            events.pagination().run_backwards_until(COUNT as u16 + 5).await.ok()?;
+            (events.events().await.ok()?.len() >= COUNT).then_some(())
+        })
+        .await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop((events, _drop, room, alice, invited, session));
+
+        // Alice is away while more messages arrive.
+        for n in COUNT..COUNT + MISSED {
+            bob_room.send(RoomMessageEventContent::text_plain(format!("m{n}"))).await.unwrap();
+        }
+
+        // Restart online: opening the room brings in exactly the missed messages.
+        let store = AccountStore::open(&root, AccountId::new(293)).unwrap();
+        let value = store.unseal(PASSPHRASE).unwrap();
+        let sdk_session: matrix_sdk::authentication::matrix::MatrixSession =
+            serde_json::from_value(value["session"].clone()).unwrap();
+        let client = store.client(&HomeserverUrl::parse(&url).unwrap(), PASSPHRASE, http()).await.unwrap();
+        client.restore_session(sdk_session).await.unwrap();
+        let sync = RoomSync::new(AccountSession {
+            account_id: AccountId::new(293),
+            client: Some(client),
+            store: Some(store),
+        });
+        let scope = RoomScope {
+            account_id: AccountId::new(293),
+            room_id: RoomId::new(room_id.as_str()),
+        };
+        let page = sync.open_history(ViewRequests::new().start(scope).unwrap()).await.unwrap();
+        let bodies: Vec<&str> = page.events.iter().map(|e| e.body.as_str()).collect();
+        let expect: Vec<String> = (0..COUNT + MISSED).map(|n| format!("m{n}")).collect();
+        assert_eq!(bodies, expect.iter().map(String::as_str).collect::<Vec<_>>(), "cache plus gap, in order");
+        let ids: std::collections::BTreeSet<_> =
+            page.events.iter().map(|e| e.event_id.as_str().to_owned()).collect();
+        assert_eq!(ids.len(), page.events.len(), "no duplicates");
+    });
+}

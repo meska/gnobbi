@@ -603,37 +603,43 @@ impl RoomSync {
             .get_room(&id)
             .filter(|r| r.state() == RoomState::Joined)
             .ok_or(HistoryError::Unavailable)?;
-        // The store holds every chunk saved so far; the room cache would load them one by one
-        // and ask the server at the first gap.
-        let cached = {
-            use matrix_sdk::linked_chunk::{ChunkContent, LinkedChunkId};
-            let lock = client
-                .event_cache_store()
-                .lock()
-                .await
-                .map_err(|_| HistoryError::Unavailable)?;
-            let guard = match &lock {
-                matrix_sdk::cross_process_lock::MappedCrossProcessLockState::Clean(g)
-                | matrix_sdk::cross_process_lock::MappedCrossProcessLockState::Dirty(g) => g,
-            };
-            let mut chunks: std::collections::HashMap<_, _> = guard
-                .load_all_chunks(LinkedChunkId::Room(&id))
-                .await
-                .map_err(|_| HistoryError::Unavailable)?
-                .into_iter()
-                .map(|c| (c.identifier, c))
-                .collect();
-            let mut next = chunks.values().find(|c| c.previous.is_none()).map(|c| c.identifier);
-            let mut cached = Vec::new();
-            while let Some(chunk) = next.and_then(|n| chunks.remove(&n)) {
-                next = chunk.next;
-                if let ChunkContent::Items(items) = chunk.content {
-                    cached.extend(items);
-                }
-            }
-            cached
-        };
+        let (cached, _) = stored_events(client, &id).await?;
         let events = history_rows(client, &room, &id, cached.into_iter(), false).await?;
+        Ok(crate::history::HistoryPage { tag, events, next: None })
+    }
+
+    /// Open a room: the sync cursor brings the messages missed since the last run, and if
+    /// that left a hole after the saved ones the SDK paginates just that hole.
+    pub async fn open_history(
+        &self,
+        tag: crate::RequestTag,
+    ) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
+        use crate::history::HistoryError;
+        let client = self.session.client.as_ref().ok_or(HistoryError::Unavailable)?;
+        let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
+            .map_err(|_| HistoryError::WrongScope)?;
+        let room = client.get_room(&id).filter(|r| r.state() == RoomState::Joined).ok_or(HistoryError::Unavailable)?;
+        let (mut rows, _) = stored_events(client, &id).await?;
+        let anchor = rows.last().and_then(|e| e.event_id());
+        // Subscribed before the sync so the cache applies the missed messages as they arrive.
+        let (events, _drop) = room.event_cache().await.map_err(|_| HistoryError::Unavailable)?;
+        client
+            .sync_once(matrix_sdk::config::SyncSettings::default())
+            .await
+            .map_err(|_| HistoryError::Transport)?;
+        // shortcut: at most 10 batches of 20 for the hole; a longer absence reopens to the newest part.
+        let mut fresh = events.events().await.map_err(|_| HistoryError::Unavailable)?;
+        for _ in 0..10 {
+            if anchor.is_none() || fresh.iter().any(|e| e.event_id() == anchor) {
+                break;
+            }
+            events.pagination().run_backwards_until(20).await.map_err(|_| HistoryError::Transport)?;
+            fresh = events.events().await.map_err(|_| HistoryError::Unavailable)?;
+        }
+        // The saved list keeps its order; only what follows its last message is added.
+        let start = fresh.iter().position(|e| e.event_id() == anchor).map_or(0, |at| at + 1);
+        rows.extend(fresh.into_iter().skip(start));
+        let events = history_rows(client, &room, &id, rows.into_iter(), false).await?;
         Ok(crate::history::HistoryPage { tag, events, next: None })
     }
 
@@ -1157,4 +1163,39 @@ async fn load_history(
         .end
         .filter(|end| Some(end) != before.as_ref() && end != &response.start);
     Ok(HistoryPage { tag, events, next })
+}
+
+/// Saved events of a room oldest first, and whether a hole sits after some saved messages.
+async fn stored_events(
+    client: &matrix_sdk::Client,
+    id: &matrix_sdk::ruma::RoomId,
+) -> Result<(Vec<matrix_sdk::deserialized_responses::TimelineEvent>, bool), crate::history::HistoryError> {
+    use crate::history::HistoryError;
+    use matrix_sdk::linked_chunk::{ChunkContent, LinkedChunkId};
+    let lock = client
+        .event_cache_store()
+        .lock()
+        .await
+        .map_err(|_| HistoryError::Unavailable)?;
+    let guard = match &lock {
+        matrix_sdk::cross_process_lock::MappedCrossProcessLockState::Clean(g)
+        | matrix_sdk::cross_process_lock::MappedCrossProcessLockState::Dirty(g) => g,
+    };
+    let mut chunks: std::collections::HashMap<_, _> = guard
+        .load_all_chunks(LinkedChunkId::Room(id))
+        .await
+        .map_err(|_| HistoryError::Unavailable)?
+        .into_iter()
+        .map(|c| (c.identifier, c))
+        .collect();
+    let mut next = chunks.values().find(|c| c.previous.is_none()).map(|c| c.identifier);
+    let (mut cached, mut hole) = (Vec::new(), false);
+    while let Some(chunk) = next.and_then(|n| chunks.remove(&n)) {
+        next = chunk.next;
+        match chunk.content {
+            ChunkContent::Items(items) => cached.extend(items),
+            ChunkContent::Gap(_) => hole |= !cached.is_empty(),
+        }
+    }
+    Ok((cached, hole))
 }
