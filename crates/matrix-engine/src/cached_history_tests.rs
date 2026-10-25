@@ -443,6 +443,22 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
         let ids: std::collections::BTreeSet<_> =
             older.events.iter().chain(opened.events.iter()).map(|e| e.event_id.as_str().to_owned()).collect();
         assert_eq!(ids.len(), older.events.len() + opened.events.len(), "no duplicates across pages");
+
+        // Scrolled-back messages are saved: a later open starts from them, without the server.
+        let oldest_scrolled = older.events[0].body.clone();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop((store, client));
+        let store = AccountStore::open(&root, AccountId::new(296)).unwrap();
+        let value = store.unseal(PASSPHRASE).unwrap();
+        let sdk_session: matrix_sdk::authentication::matrix::MatrixSession =
+            serde_json::from_value(value["session"].clone()).unwrap();
+        let client = store.client(&HomeserverUrl::parse(&url).unwrap(), PASSPHRASE, http()).await.unwrap();
+        client.restore_session(sdk_session).await.unwrap();
+        let scope = RoomScope { account_id: AccountId::new(296), room_id: RoomId::new(room_id.as_str()) };
+        let request = crate::history::HistoryRequest { tag: views.start(scope).unwrap(), before: None, open: OPEN };
+        assert!(crate::room_sync::serve_history(&client, AccountId::new(296), request, &mut out).await);
+        let reopened = results.recv().await.unwrap().page.unwrap();
+        assert_eq!(reopened.events[0].body, oldest_scrolled, "the scrolled-back page is in the saved list");
         drop((store, client));
     });
 }

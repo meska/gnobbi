@@ -1326,6 +1326,14 @@ async fn load_history(
         .get_room(&id)
         .filter(|r| r.state() == RoomState::Joined)
         .ok_or(HistoryError::Unavailable)?;
+    if before.is_some() {
+        let (older, next) = older_via_event_cache(client, &room, &id, before.as_deref()).await?;
+        if tag.is_cancelled() {
+            return Err(HistoryError::Cancelled);
+        }
+        let events = history_rows(client, &room, &id, older.into_iter(), true).await?;
+        return Ok(HistoryPage { tag, events, next });
+    }
     let mut options = matrix_sdk::room::MessagesOptions::backward();
     options.from = before.clone();
     options.limit = 25u32.into();
@@ -1341,6 +1349,33 @@ async fn load_history(
         .end
         .filter(|end| Some(end) != before.as_ref() && end != &response.start);
     Ok(HistoryPage { tag, events, next })
+}
+
+/// One page older than the shown list: saved chunks first, then the server through the SDK
+/// event cache, which also saves what it fetches. Oldest first, and the cursor to still older ones.
+async fn older_via_event_cache(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::room::Room,
+    id: &matrix_sdk::ruma::RoomId,
+    before: Option<&str>,
+) -> Result<(Vec<matrix_sdk::deserialized_responses::TimelineEvent>, Option<String>), crate::history::HistoryError> {
+    use crate::history::HistoryError;
+    let saved = stored_events(client, id).await?.0;
+    let shown: std::collections::HashSet<_> = saved.iter().filter_map(|e| e.event_id()).collect();
+    let (events, _drop) = room.event_cache().await.map_err(|_| HistoryError::Unavailable)?;
+    // shortcut: at most 50 steps over saved chunks already shown, then the page comes from the server.
+    let (mut older, mut reached_start) = (Vec::new(), false);
+    for _ in 0..50 {
+        let step = events.pagination().run_backwards_once(25).await.map_err(|_| HistoryError::Transport)?;
+        reached_start = step.reached_start;
+        older = step.events.into_iter().filter(|e| e.event_id().is_none_or(|i| !shown.contains(&i))).collect();
+        if !older.is_empty() || reached_start {
+            break;
+        }
+    }
+    older.reverse();
+    let next = if reached_start { None } else { stored_events(client, id).await?.2 };
+    Ok((older, next.filter(|n| Some(n.as_str()) != before)))
 }
 
 /// Saved events of a room oldest first, and whether a hole sits after some saved messages.
