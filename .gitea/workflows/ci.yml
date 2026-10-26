@@ -1,0 +1,19 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+concurrency:
+  group: ci-${{ gitea.ref }}
+  cancel-in-progress: true
+jobs:
+  linux:
+    runs-on: linux-x86_64
+    env:
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --locked -j4 -p matrix-desktop --features live,linux-vault
+      - name: Test
+        run: cargo test --locked -j4 -p matrix-domain
