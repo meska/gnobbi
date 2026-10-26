@@ -52,6 +52,8 @@ cat > "$OUT/app.entitlements" <<E2
 <key>keychain-access-groups</key><array><string>$APPID</string></array>
 </dict></plist>
 E2
+# a restrictive umask (service accounts) would leave root-only files in the bundle: App Store Connect rejects it (90255)
+chmod -R u+rwX,go+rX "$APP"
 codesign --force --timestamp -s "Apple Distribution" --entitlements "$OUT/app.entitlements" "$APP"
 codesign --verify --strict --deep --verbose=2 "$APP"
 productbuild --component "$APP" /Applications --sign "3rd Party Mac Developer Installer" "$OUT/Gnobbi.pkg"
