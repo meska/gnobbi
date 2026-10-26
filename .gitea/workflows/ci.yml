@@ -29,6 +29,10 @@ jobs:
           out="$HOME/ci/out/${{ gitea.sha }}"
           packaging/linux/build-appimage.sh "$out"
           ln -sfn "$out" "$HOME/ci/out/latest"
+          mkdir -p "$HOME/ci/share"
+          cp "$out/Gnobbi-x86_64.AppImage" "$HOME/ci/share/Gnobbi-x86_64.AppImage.new"
+          mv "$HOME/ci/share/Gnobbi-x86_64.AppImage.new" "$HOME/ci/share/Gnobbi-x86_64.AppImage"
+          printf 'commit=%s\nbuilt=%s\n' "${{ gitea.sha }}" "$(date -u +%FT%TZ)" > "$HOME/ci/share/BUILDINFO"
       - name: Status
         if: always()
         run: |
