@@ -29,6 +29,7 @@ pub struct NavigationEntry {
     pub scope: Option<RoomScope>,
     pub name: String,
     pub unread: u64,
+    pub mentions: u64,
     pub selected: bool,
 }
 
@@ -244,31 +245,54 @@ impl Sidebar {
 
     /// Counts each joined row once; independent of transient search/unread filters.
     pub fn navigation_entries(&self) -> Vec<NavigationEntry> {
+        let total = |keep: &dyn Fn(&SidebarRoom) -> bool| {
+            self.rooms
+                .iter()
+                .filter(|room| keep(room))
+                .fold((0u64, 0u64), |(u, m), room| {
+                    (
+                        u.saturating_add(room.unread),
+                        m.saturating_add(room.info.mentions),
+                    )
+                })
+        };
+        let (unread, mentions) = total(&|_| true);
         let mut entries = vec![NavigationEntry {
             scope: None,
             name: "Tutte".into(),
-            unread: self
-                .rooms
-                .iter()
-                .fold(0u64, |n, room| n.saturating_add(room.unread)),
+            unread,
+            mentions,
             selected: self.space.is_none(),
         }];
         entries.extend(self.spaces().map(|space| {
+            let (unread, mentions) = total(&|room| {
+                room.scope == space.scope || space.info.children.contains(&room.scope.room_id)
+            });
             NavigationEntry {
                 scope: Some(space.scope.clone()),
                 name: space.name.clone(),
-                unread: self
-                    .rooms
-                    .iter()
-                    .filter(|room| {
-                        room.scope == space.scope
-                            || space.info.children.contains(&room.scope.room_id)
-                    })
-                    .fold(0u64, |n, room| n.saturating_add(room.unread)),
+                unread,
+                mentions,
                 selected: self.space.as_ref() == Some(&space.scope),
             }
         }));
         entries
+    }
+
+    /// Optimistic drop once the read receipt is sent: zero this room's counters now,
+    /// the next server projection of the room (apply_diff) overwrites them. Other accounts are ignored.
+    pub fn mark_read_optimistic(&mut self, scope: &RoomScope) -> bool {
+        let Some(room) = self.rooms.iter_mut().find(|room| room.scope == *scope) else {
+            return false;
+        };
+        if room.unread == 0 && room.info.mentions == 0 {
+            return false;
+        }
+        room.unread = 0;
+        room.info.mentions = 0;
+        self.set_query(&self.query.clone());
+        self.retire_navigation();
+        true
     }
 
     pub fn active_space(&self) -> Option<&RoomScope> {
@@ -552,5 +576,54 @@ mod tests {
         assert_eq!(reading_offset(196., 56., Some(3), None), 196.);
         assert_eq!(reading_offset(196., 0., Some(3), Some(4)), 196.);
         assert_eq!(reading_offset(10., 56., Some(1), Some(0)), 0.);
+    }
+
+    #[test]
+    fn optimistic_read_lowers_room_space_filter_and_mention_counters() {
+        let other = AccountId::new(2);
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let upsert = |sidebar: &mut Sidebar, id: &str, unread, mentions, children: &[&str]| {
+            sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+                scope: scope(&account, id),
+                name: id.into(),
+                unread,
+                info: RoomInfo {
+                    mentions,
+                    is_space: !children.is_empty(),
+                    children: children
+                        .iter()
+                        .map(|c| RoomId::new(format!("!{c}:t.invalid")))
+                        .collect(),
+                    last_activity: Some(1),
+                    ..Default::default()
+                },
+            }));
+        };
+        upsert(&mut sidebar, "a", 3, 2, &[]);
+        upsert(&mut sidebar, "b", 4, 1, &[]);
+        upsert(&mut sidebar, "s", 0, 0, &["a"]);
+        sidebar.set_unread_only(true);
+        assert_eq!(names(&sidebar), ["a", "b"]);
+        let counts = |s: &Sidebar| {
+            s.navigation_entries()
+                .iter()
+                .map(|e| (e.unread, e.mentions))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(counts(&sidebar), [(7, 3), (3, 2)]);
+
+        // a foreign account's room with the same id is not touched
+        assert!(!sidebar.mark_read_optimistic(&scope(&other, "a")));
+        assert_eq!(counts(&sidebar), [(7, 3), (3, 2)]);
+
+        assert!(sidebar.mark_read_optimistic(&scope(&account, "a")));
+        assert_eq!(counts(&sidebar), [(4, 1), (0, 0)]); // all, space
+        assert_eq!(names(&sidebar), ["b"]); // unread filter drops the room
+        assert!(!sidebar.mark_read_optimistic(&scope(&account, "a"))); // idempotent
+
+        // the next server projection wins
+        upsert(&mut sidebar, "a", 1, 0, &[]);
+        assert_eq!(counts(&sidebar), [(5, 1), (1, 0)]);
     }
 }

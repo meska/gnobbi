@@ -837,6 +837,7 @@ impl RoomSync {
                         last_activity: last_activity(&self.previews, &id),
                         topic: room.topic(),
                         joined_members: room.joined_members_count(),
+                        mentions: room.unread_notification_counts().highlight_count,
                         is_space: room.is_space(),
                         children,
                         encrypted: (!room.encryption_state().is_unknown())

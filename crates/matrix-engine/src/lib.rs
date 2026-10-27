@@ -42,6 +42,8 @@ pub struct RoomInfo {
     /// Server time (ms since epoch) of the last real message; None when none or it was deleted.
     pub last_activity: Option<u64>,
     pub joined_members: u64,
+    /// Server highlight (mention) count; shown with the unread badge.
+    pub mentions: u64,
     pub is_space: bool,
     /// Direct m.space.child links with valid nonempty via; never autojoin.
     pub children: Vec<matrix_domain::RoomId>,
