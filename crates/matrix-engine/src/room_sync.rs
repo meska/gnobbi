@@ -635,6 +635,7 @@ impl RoomSync {
     pub async fn open_history(
         &self,
         tag: crate::RequestTag,
+        visibility: crate::receipts::ReadVisibility,
     ) -> Result<
         (
             crate::history::HistoryPage,
@@ -649,7 +650,7 @@ impl RoomSync {
             .ok_or(crate::history::HistoryError::Unavailable)?;
         let scope = tag.scope().clone();
         let opened = open_page(client, tag).await?;
-        if let Some(last) = opened.0.events.last() {
+        if let (true, Some(last)) = (visibility.sees_last_message(), opened.0.events.last()) {
             self.mark_read(client, &scope.room_id, &last.event_id).await;
         }
         Ok(opened)

@@ -95,6 +95,24 @@ impl PeerReceipts {
     }
 }
 
+/// What the user can see right now; receipts leave only when the newest message is really in view.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct ReadVisibility {
+    pub window_focused: bool,
+    pub room_foreground: bool,
+    /// Pixels between the viewport bottom and the end of the timeline.
+    pub bottom_gap_px: f32,
+}
+
+impl ReadVisibility {
+    /// Further than this from the bottom, the newest message is not in view.
+    pub const NEAR_BOTTOM_PX: f32 = 200.0;
+
+    pub fn sees_last_message(&self) -> bool {
+        self.window_focused && self.room_foreground && self.bottom_gap_px <= Self::NEAR_BOTTOM_PX
+    }
+}
+
 /// Last event we marked as read per room; a failed send is not recorded, so the next open retries it.
 #[cfg(any(feature = "sdk", test))]
 #[derive(Default)]
@@ -218,6 +236,30 @@ mod tests {
         );
         receipts.retain_rooms(&[]);
         assert!(receipts.snapshot(&scope).is_empty());
+    }
+
+    #[test]
+    fn last_message_is_seen_only_with_focus_foreground_room_and_timeline_near_bottom() {
+        let seen = ReadVisibility {
+            window_focused: true,
+            room_foreground: true,
+            bottom_gap_px: 0.0,
+        };
+        assert!(seen.sees_last_message());
+        assert!(
+            ReadVisibility {
+                bottom_gap_px: ReadVisibility::NEAR_BOTTOM_PX,
+                ..seen
+            }
+            .sees_last_message()
+        );
+        for hidden in [
+            ReadVisibility { window_focused: false, ..seen },
+            ReadVisibility { room_foreground: false, ..seen },
+            ReadVisibility { bottom_gap_px: 5000.0, ..seen },
+        ] {
+            assert!(!hidden.sees_last_message());
+        }
     }
 
     #[test]

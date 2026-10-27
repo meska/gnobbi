@@ -450,7 +450,7 @@ fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
             room_id: RoomId::new(room_id.as_str()),
         };
         let (page, reactions) = sync
-            .open_history(ViewRequests::new().start(scope).unwrap())
+            .open_history(ViewRequests::new().start(scope).unwrap(), crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0 })
             .await
             .unwrap();
         let bodies: Vec<&str> = page.events.iter().map(|e| e.body.as_str()).collect();
