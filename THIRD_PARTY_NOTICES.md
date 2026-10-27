@@ -599,6 +599,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - seahash 4.1.0 — MIT — https://gitlab.redox-os.org/redox-os/seahash
 - sealed 0.6.0 — MIT OR Apache-2.0 — https://github.com/jmg-duarte/sealed-rs
 - sealed 0.7.0 — MIT OR Apache-2.0 — https://github.com/jmg-duarte/sealed-rs
+- secret-service 5.2.0 — MIT OR Apache-2.0 — https://github.com/hwchen/secret-service-rs.git
 - security-framework 3.7.0 — MIT OR Apache-2.0 — https://github.com/kornelski/rust-security-framework
 - security-framework-sys 2.17.0 — MIT OR Apache-2.0 — https://github.com/kornelski/rust-security-framework
 - self_cell 1.3.0 — Apache-2.0 OR GPL-2.0-only — https://github.com/Voultapher/self_cell
@@ -691,7 +692,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - time 0.3.55 — MIT OR Apache-2.0 — https://github.com/time-rs/time
 - time-core 0.1.9 — MIT OR Apache-2.0 — https://github.com/time-rs/time
 - time-macros 0.2.32 — MIT OR Apache-2.0 — https://github.com/time-rs/time
-- tiny-keccak 2.0.2 — CC0-1.0
+- tiny-keccak 2.0.2 — CC0-1.0 — https://github.com/debris/tiny-keccak
 - tiny-skia 0.11.4 — BSD-3-Clause — https://github.com/RazrFalcon/tiny-skia
 - tiny-skia-path 0.11.4 — BSD-3-Clause — https://github.com/RazrFalcon/tiny-skia/tree/master/path
 - tinystr 0.8.4 — Unicode-3.0 — https://github.com/unicode-org/icu4x
@@ -899,7 +900,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - zlib-rs 0.6.8 — Zlib — https://github.com/trifectatechfoundation/zlib-rs
 - zmij 1.0.23 — MIT — https://github.com/dtolnay/zmij
 - zune-core 0.5.3 — MIT OR Apache-2.0 OR Zlib — https://github.com/etemesi254/zune-image
-- zune-inflate 0.2.54 — MIT OR Apache-2.0 OR Zlib
+- zune-inflate 0.2.54 — MIT OR Apache-2.0 OR Zlib — https://github.com/etemesi254/zune-image/tree/main/zune-inflate
 - zune-jpeg 0.5.15 — MIT OR Apache-2.0 OR Zlib — https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg
 - zvariant 5.15.0 — MIT — https://github.com/z-galaxy/zbus/
 - zvariant_derive 5.15.0 — MIT — https://github.com/z-galaxy/zbus/

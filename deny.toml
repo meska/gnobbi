@@ -1,0 +1,38 @@
+# cargo-deny configuration (license/advisory gate for the release).
+# Run: cargo deny --locked check licenses bans advisories sources
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+# Permissive licenses only. MPL-2.0 is OSI-approved (file-level copyleft,
+# compatible with MIT OR Apache-2.0 distribution of our code; notices ship
+# in THIRD_PARTY_NOTICES.md). No GPL/AGPL/SSPL branch is allowed: crates
+# offering "Apache-2.0 OR GPL-2.0-only" pass via the Apache branch.
+allow = [
+    "MIT", "MIT-0", "Apache-2.0", "Apache-2.0 WITH LLVM-exception",
+    "ISC", "BSD-2-Clause", "BSD-3-Clause", "BSD-1-Clause",
+    "Zlib", "0BSD", "Unlicense", "BSL-1.0", "Unicode-3.0",
+    "CC0-1.0", "MPL-2.0", "NCSA", "CDLA-Permissive-2.0",
+    "LGPL-2.1-or-later",  # only ever reachable inside an OR with MIT/Apache
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+# The only wildcard requirements are our internal path dependencies
+# (matrix-desktop -> matrix-domain/matrix-engine, matrix-engine -> matrix-domain);
+# pin them only if the crates are ever published.
+wildcards = "warn"
+allow = []
+deny = []
+
+[advisories]
+version = 2
+yanked = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
