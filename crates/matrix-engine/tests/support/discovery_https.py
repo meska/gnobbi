@@ -14,13 +14,22 @@ root = pathlib.Path(sys.argv[1])
 mode = sys.argv[2]
 
 def openssl(*args):
-    subprocess.run(['openssl', *args], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(['openssl', *args], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if result.returncode:
+        sys.stderr.buffer.write(result.stderr)
+    result.check_returncode()
 
 openssl('req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=Matrix Desktop test CA', '-keyout', str(root/'ca.key'), '-out', str(root/'ca.pem'))
 openssl('req', '-newkey', 'rsa:2048', '-nodes', '-subj', '/CN=localhost', '-keyout', str(root/'leaf.key'), '-out', str(root/'leaf.csr'))
 (root/'ext.cnf').write_text('subjectAltName=DNS:localhost' + ('' if mode == 'wrong-host' else ',IP:127.0.0.1') + '\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n')
-validity = ['-not_before', '20000101000000Z', '-not_after', '20000102000000Z'] if mode == 'expired' else ['-days', '1']
-openssl('x509', '-req', '-in', str(root/'leaf.csr'), '-CA', str(root/'ca.pem'), '-CAkey', str(root/'ca.key'), '-CAcreateserial', *validity, '-extfile', str(root/'ext.cnf'), '-out', str(root/'leaf.pem'))
+if mode == 'expired':
+    # OpenSSL 3.0 x509 cannot set validity dates; ca supports explicit past dates.
+    (root/'index.txt').touch()
+    (root/'serial').write_text('01\n')
+    (root/'ca.cnf').write_text(f'[ca]\ndefault_ca=fixture\n[fixture]\ndatabase={root}/index.txt\nserial={root}/serial\nnew_certs_dir={root}\ndefault_md=sha256\npolicy=policy\n[policy]\ncommonName=supplied\n')
+    openssl('ca', '-batch', '-notext', '-config', str(root/'ca.cnf'), '-cert', str(root/'ca.pem'), '-keyfile', str(root/'ca.key'), '-in', str(root/'leaf.csr'), '-startdate', '20000101000000Z', '-enddate', '20000102000000Z', '-extfile', str(root/'ext.cnf'), '-out', str(root/'leaf.pem'))
+else:
+    openssl('x509', '-req', '-in', str(root/'leaf.csr'), '-CA', str(root/'ca.pem'), '-CAkey', str(root/'ca.key'), '-CAcreateserial', '-days', '1', '-extfile', str(root/'ext.cnf'), '-out', str(root/'leaf.pem'))
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
