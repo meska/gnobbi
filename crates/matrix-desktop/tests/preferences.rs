@@ -28,6 +28,7 @@ fn roundtrip_keeps_values() {
     let p = Preferences {
         theme: Theme::Dark,
         debug: true,
+        read_receipts: false,
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);
@@ -72,4 +73,17 @@ fn thumbnail_cache_dir_is_under_cache_and_created() {
     let t = d.thumbnails().unwrap();
     assert_eq!(t, d.cache.join("thumbnails"));
     assert!(t.is_dir());
+}
+
+#[test]
+fn read_receipts_default_on_and_invalid_value_falls_back_to_on() {
+    assert!(Preferences::default().read_receipts);
+    let d = dirs(&tmp("receipts"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    for body in [&br#"{"read_receipts":"no"}"#[..], br#"{"read_receipts":null}"#, br#"{"debug":true}"#] {
+        std::fs::write(d.config.join("settings.json"), body).unwrap();
+        assert!(Preferences::load(&d).read_receipts, "{}", String::from_utf8_lossy(body));
+    }
+    std::fs::write(d.config.join("settings.json"), br#"{"read_receipts":false}"#).unwrap();
+    assert!(!Preferences::load(&d).read_receipts);
 }

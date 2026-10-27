@@ -26,10 +26,18 @@ impl Theme {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Preferences {
     pub theme: Theme,
     pub debug: bool,
+    /// «Conferme di lettura»: on by default, also when the saved value is missing or not a boolean.
+    pub read_receipts: bool,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Preferences { theme: Theme::default(), debug: false, read_receipts: true }
+    }
 }
 
 const FILE: &str = "settings.json";
@@ -53,6 +61,10 @@ impl Preferences {
                 .get("debug")
                 .and_then(Value::as_bool)
                 .unwrap_or_default(),
+            read_receipts: map
+                .get("read_receipts")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
         }
     }
 
@@ -67,7 +79,7 @@ impl Preferences {
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-        let body = json!({ "theme": self.theme.name(), "debug": self.debug });
+        let body = json!({ "theme": self.theme.name(), "debug": self.debug, "read_receipts": self.read_receipts });
         opts.open(&tmp)?.write_all(body.to_string().as_bytes())?;
         std::fs::rename(tmp, dirs.config.join(FILE))
     }

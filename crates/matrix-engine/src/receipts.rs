@@ -102,6 +102,8 @@ pub struct ReadVisibility {
     pub room_foreground: bool,
     /// Pixels between the viewport bottom and the end of the timeline.
     pub bottom_gap_px: f32,
+    /// «Conferme di lettura» setting: off sends the private receipt instead of the public one.
+    pub public_receipts: bool,
 }
 
 impl ReadVisibility {
@@ -110,6 +112,20 @@ impl ReadVisibility {
 
     pub fn sees_last_message(&self) -> bool {
         self.window_focused && self.room_foreground && self.bottom_gap_px <= Self::NEAR_BOTTOM_PX
+    }
+}
+
+/// Newest-event markers: fully_read always; the read receipt is public or, with the setting off, private.
+#[cfg(feature = "sdk")]
+pub(crate) fn marker_receipts(
+    event: matrix_sdk::ruma::OwnedEventId,
+    public: bool,
+) -> matrix_sdk::room::Receipts {
+    let receipts = matrix_sdk::room::Receipts::new().fully_read_marker(event.clone());
+    if public {
+        receipts.public_read_receipt(event)
+    } else {
+        receipts.private_read_receipt(event)
     }
 }
 
@@ -244,6 +260,7 @@ mod tests {
             window_focused: true,
             room_foreground: true,
             bottom_gap_px: 0.0,
+            public_receipts: true,
         };
         assert!(seen.sees_last_message());
         assert!(
@@ -276,5 +293,16 @@ mod tests {
         sent.record(room.clone(), a.clone());
         assert!(!sent.is_new(&room, &a), "same event is not sent twice");
         assert!(sent.is_new(&room, &b), "a newer event is sent");
+    }
+
+    #[cfg(feature = "sdk")]
+    #[test]
+    fn setting_off_sends_the_private_receipt_not_the_public_one() {
+        let id = matrix_sdk::ruma::event_id!("$e:x").to_owned();
+        let on = marker_receipts(id.clone(), true);
+        assert_eq!((on.public_read_receipt.as_ref(), on.private_read_receipt.as_ref()), (Some(&id), None));
+        let off = marker_receipts(id.clone(), false);
+        assert_eq!((off.public_read_receipt.as_ref(), off.private_read_receipt.as_ref()), (None, Some(&id)));
+        assert_eq!(off.fully_read.as_ref(), Some(&id));
     }
 }

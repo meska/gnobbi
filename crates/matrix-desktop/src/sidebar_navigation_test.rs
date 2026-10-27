@@ -1609,6 +1609,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, _| {
                 assert!(!this.prefs.debug && !saved(&dirs).debug, "Space toggles it off and saves");
             }).unwrap();
+            this.update_in(cx, |this, _, cx| {
+                assert!(this.prefs.read_receipts && saved(&dirs).read_receipts, "read receipts default to on");
+                this.toggle_read_receipts(cx);
+                assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "turning it off is saved");
+            }).unwrap();
+            wait(300).await;
+            shot("p242-receipts-off");
             key!("escape");
             this.update_in(cx, |this, window, _| {
                 assert!(!this.settings_open && this.menu_open && this.drawer_focus.is_focused(window), "Esc returns to the drawer");

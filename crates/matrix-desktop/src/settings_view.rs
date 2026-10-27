@@ -19,6 +19,15 @@ impl Shell {
 
     pub(crate) fn toggle_debug(&mut self, cx: &mut Context<Self>) {
         self.prefs.debug = !self.prefs.debug;
+        self.save_prefs(cx);
+    }
+
+    pub(crate) fn toggle_read_receipts(&mut self, cx: &mut Context<Self>) {
+        self.prefs.read_receipts = !self.prefs.read_receipts;
+        self.save_prefs(cx);
+    }
+
+    fn save_prefs(&mut self, cx: &mut Context<Self>) {
         if let Some(dirs) = &self.prefs_dirs
             && let Err(error) = self.prefs.save(dirs)
         {
@@ -91,23 +100,24 @@ impl Shell {
                 })
                 .into_any_element();
         }
-        let on = self.prefs.debug;
-        let track = div()
-            .w(px(36.))
-            .h(px(20.))
-            .rounded_full()
-            .flex()
-            .items_center()
-            .px(px(2.))
-            .bg(rgb(if on { t.accent } else { t.disabled }))
-            .when(on, |d| d.justify_end())
-            .child(
-                div()
-                    .w(px(16.))
-                    .h(px(16.))
-                    .rounded_full()
-                    .bg(rgb(t.on_accent)),
-            );
+        let switch = |on: bool| {
+            div()
+                .w(px(36.))
+                .h(px(20.))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .px(px(2.))
+                .bg(rgb(if on { t.accent } else { t.disabled }))
+                .when(on, |d| d.justify_end())
+                .child(
+                    div()
+                        .w(px(16.))
+                        .h(px(16.))
+                        .rounded_full()
+                        .bg(rgb(t.on_accent)),
+                )
+        };
         div()
             .child(
                 div()
@@ -129,8 +139,24 @@ impl Shell {
                         t.surface
                     }))
                     .child("Modalità debug")
-                    .child(track)
+                    .child(switch(self.prefs.debug))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_debug(cx))),
+            )
+            .child(
+                div()
+                    .h(px(t.header))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .text_color(rgb(t.text))
+                    .child("Privacy e sicurezza"),
+            )
+            .child(
+                row("settings-read-receipts")
+                    .text_color(rgb(t.text))
+                    .child("Conferme di lettura")
+                    .child(switch(self.prefs.read_receipts))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
             )
             .into_any_element()
     }

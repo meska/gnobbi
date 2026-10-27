@@ -131,7 +131,7 @@ fn disposable_open_room_clears_unread_counter() {
             account_id: AccountId::new(56),
             room_id: matrix_domain::RoomId::new(room.clone()),
         };
-        let (page, _) = sync.open_history(ViewRequests::new().start(scope).unwrap(), crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0 }).await.unwrap();
+        let (page, _) = sync.open_history(ViewRequests::new().start(scope).unwrap(), crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: true }).await.unwrap();
         assert!(page.events.len() >= N as usize, "the opened room shows the {N} messages");
 
         let unread = settle(&mut sync, unread, 0).await;

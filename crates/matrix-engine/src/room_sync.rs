@@ -651,7 +651,8 @@ impl RoomSync {
         let scope = tag.scope().clone();
         let opened = open_page(client, tag).await?;
         if let (true, Some(last)) = (visibility.sees_last_message(), opened.0.events.last()) {
-            self.mark_read(client, &scope.room_id, &last.event_id).await;
+            self.mark_read(client, &scope.room_id, &last.event_id, visibility.public_receipts)
+                .await;
         }
         Ok(opened)
     }
@@ -662,6 +663,7 @@ impl RoomSync {
         client: &matrix_sdk::Client,
         room_id: &RoomId,
         event: &matrix_domain::EventId,
+        public: bool,
     ) {
         if !self.sent_markers.lock().unwrap().is_new(room_id, event) {
             return;
@@ -675,9 +677,7 @@ impl RoomSync {
         let Some(room) = client.get_room(&id) else {
             return;
         };
-        let receipts = matrix_sdk::room::Receipts::new()
-            .public_read_receipt(event_id.clone())
-            .fully_read_marker(event_id);
+        let receipts = crate::receipts::marker_receipts(event_id, public);
         if room.send_multiple_receipts(receipts).await.is_ok() {
             self.sent_markers
                 .lock()
