@@ -15,6 +15,7 @@ mod panel_opener_view;
 mod rail_view;
 mod ring_seam;
 mod room_details_view;
+mod room_menu_view;
 mod scrollbar_view;
 mod settings_view;
 #[cfg(test)]
@@ -46,6 +47,7 @@ struct Shell {
     signin: Option<gpui::Entity<signin_view::SignInView>>,
     rail_ui: rail_view::RailUi,
     opener_ui: panel_opener_view::OpenerUi,
+    room_menu: Option<(RoomScope, gpui::Point<gpui::Pixels>)>,
     menu_open: bool,
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
@@ -1273,6 +1275,10 @@ impl Shell {
                             request,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::MarkRoom { scope, .. } => OperationResult::RoomMarked {
+                            scope,
+                            result: Err(OperationError::Unavailable),
+                        },
                     };
                     self.operations.borrow_mut().apply(result);
                 }
@@ -1581,7 +1587,7 @@ impl Render for Shell {
                                 .items_center()
                                 .px_5()
                                 .gap_3()
-                                .child(self.render_menu_button(t, window, cx))
+                                .when(compact, |d| d.child(self.render_menu_button(t, window, cx)))
                                 .child(
                                     div()
                                         .text_size(px(18.))
@@ -1707,6 +1713,13 @@ impl Render for Shell {
                                                 },
                                             ))
                                             .cursor_pointer()
+                                            .when(this.connected, |d| {
+                                                let scope = scope.clone();
+                                                d.on_mouse_down(gpui::MouseButton::Right, cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                                                    this.room_menu = Some((scope.clone(), e.position));
+                                                    cx.notify();
+                                                }))
+                                            })
                                             .on_click(cx.listener(move |this, _, window, cx| {
                                                 this.navigation_wide = window.viewport_size().width >= px(800.);
                                                 this.refresh_navigation_visibility();
@@ -1762,8 +1775,8 @@ impl Render for Shell {
                                                                 div()
                                                                     .text_size(px(11.))
                                                                     .text_color(rgb(t.secondary))
-                                                                    .when(this.connected && room.unread > 0, |d| d.px_2().rounded_full().bg(rgb(t.accent)).text_color(rgb(t.on_accent)))
-                                                                    .child(if this.connected && room.unread > 0 { room.unread.to_string() } else { room.time.to_owned() }),
+                                                                    .when(this.connected && (room.unread > 0 || room.info.marked_unread), |d| d.px_2().rounded_full().bg(rgb(t.accent)).text_color(rgb(t.on_accent)))
+                                                                    .child(if this.connected && room.unread > 0 { room.unread.to_string() } else if this.connected && room.info.marked_unread { "•".to_owned() } else { room.time.to_owned() }),
                                                             ),
                                                     )
                                                     .when(!room.preview.is_empty(), |d| {
@@ -1904,6 +1917,7 @@ impl Render for Shell {
             })
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
+            .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .into_any_element()
     }
 }
@@ -2369,6 +2383,11 @@ fn main() {
                                                     this.keep_reading_position(anchor);
                                                 }
                                                 RoomListEvent::TimelineActivity(scope) => this.history.activity(&scope),
+                                                RoomListEvent::Order(order) => {
+                                                    let anchor = this.reading_anchor();
+                                                    this.sidebar.set_order(order);
+                                                    this.keep_reading_position(anchor);
+                                                }
                                                 RoomListEvent::Status(status) => {
                                                     if status
                                                         == RoomSyncStatus::AuthenticationFailed
@@ -2509,6 +2528,7 @@ fn main() {
                         pending_sidebar_key: None,
                         rail_ui,
                         opener_ui: panel_opener_view::OpenerUi::new(),
+                        room_menu: None,
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),

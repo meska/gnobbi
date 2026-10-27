@@ -50,13 +50,17 @@ fn activity_route_shutdown(close: bool) {
     let mut retained = if close { drop(events); None } else { Some(&mut events) };
     worker.shutdown().unwrap();
     if let Some(events) = retained.as_mut() {
-        let mut count = 0;
+        let (mut count, mut activity) = (0, 0);
         while let Ok(event) = events.try_recv() {
-            assert!(matches!(event, crate::RoomListEvent::TimelineActivity(scope)
-                if scope.account_id == AccountId::new(22) && scope.room_id.as_str() == room));
+            // Previews and order share the route with the activity invalidations.
+            if let crate::RoomListEvent::TimelineActivity(scope) = event {
+                assert!(scope.account_id == AccountId::new(22) && scope.room_id.as_str() == room);
+                activity += 1;
+            }
             count += 1;
         }
-        assert_eq!(count, 64, "route was really full and accepted invalidations remained drainable");
+        assert_eq!(count, 64, "route was really full and accepted events remained drainable");
+        assert!(activity > 0, "accepted invalidations remained drainable");
     }
     runtime().block_on(async {
         // Shutdown may retire result delivery; independent server state proves the write.
@@ -126,12 +130,15 @@ fn live_activity_peer(encrypted: bool, reconnect: bool) {
     let (mut commands, mut history) = worker.take_history_route().unwrap();
     rt.block_on(async {
         let initial = tokio::time::timeout(Duration::from_secs(10), async {
-            let mut summary = None;
+            let (mut summary, mut ready) = (None, false);
             while let Some(event) = events.recv().await {
                 match event {
                     RoomListEvent::Diff(RoomListDiff::Upsert(room)) => summary = Some(room),
-                    RoomListEvent::Status(RoomSyncStatus::Ready) => break,
+                    RoomListEvent::Status(RoomSyncStatus::Ready) => ready = true,
                     _ => {}
+                }
+                if ready && summary.is_some() {
+                    break;
                 }
             }
             summary.expect("initial room summary")
@@ -141,7 +148,8 @@ fn live_activity_peer(encrypted: bool, reconnect: bool) {
         assert_eq!(initial.scope, scope);
         // Flush peer device tracking before encrypting for Dime's new device.
         peer.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
-        assert!(tokio::time::timeout(Duration::from_millis(500), events.recv()).await.is_err(), "idle sync is quiet");
+        // Settle: order, previews and (encrypted) key traffic may trail Ready; drain until quiet.
+        while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(500), events.recv()).await {}
         if reconnect {
             let paused = PausedServer::new(&config);
             tokio::time::timeout(Duration::from_secs(20), async {
@@ -156,10 +164,15 @@ fn live_activity_peer(encrypted: bool, reconnect: bool) {
         let body = "live città 🦀\npeer message after Ready";
         let sent = peer_room.send(matrix_sdk::ruma::events::room::message::RoomMessageEventContent::text_plain(body))
             .await.unwrap().response.event_id;
-        let event = tokio::time::timeout(Duration::from_secs(5), events.recv()).await
-            .expect("post-initial peer timeline must notify even when room summary is unchanged").unwrap();
-        assert!(matches!(event, RoomListEvent::TimelineActivity(actual) if actual == scope),
-            "timeline notification must carry exact local account/room, not a changed summary");
+        let activity = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                // the new preview also upserts the summary and may reorder
+                if let RoomListEvent::TimelineActivity(actual) = events.recv().await.unwrap() {
+                    break actual;
+                }
+            }
+        }).await.expect("post-initial peer timeline must notify");
+        assert_eq!(activity, scope, "timeline notification must carry exact local account/room");
         let mut views = ViewRequests::new();
         let tag = views.start(scope.clone()).unwrap();
         assert!(commands.send(HistoryRequest { tag, before: None, open: false }).await.is_ok());

@@ -17,6 +17,8 @@ pub mod auth;
 pub mod recovery;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
+#[cfg(feature = "sdk")]
+pub mod sliding;
 pub mod verification;
 #[cfg(feature = "sdk")]
 mod warm;
@@ -37,11 +39,14 @@ pub struct RoomInfo {
     /// Observed public peer markers only; empty means no known marker, not unread.
     pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
     pub topic: Option<String>,
-    /// Text of the last real message seen in sync; None when none or it was deleted.
+    /// Text of the SDK latest event when it is a message; None otherwise.
     pub preview: Option<String>,
-    /// Server time (ms since epoch) of the last real message; None when none or it was deleted.
-    pub last_activity: Option<u64>,
+    /// The user has an invitation to this room and has not answered it. Listed by the SDK
+    /// filter; the other fields describe the room as the invite shows it.
+    pub invited: bool,
     pub joined_members: u64,
+    /// The user flagged the room unread by hand (SDK marker), independent of the counters.
+    pub marked_unread: bool,
     /// Server highlight (mention) count; shown with the unread badge.
     pub mentions: u64,
     pub is_space: bool,
@@ -62,6 +67,9 @@ pub enum RoomListEvent {
     Status(RoomSyncStatus),
     /// Content-free invalidation, independent of room-summary equality or selection.
     TimelineActivity(RoomScope),
+    /// Every listed room, most recent first: the `RoomListService` sorter order (unsent
+    /// message, then recency, then name). Sent after the diffs it refers to.
+    Order(Vec<RoomScope>),
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RoomSyncStatus {

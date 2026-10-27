@@ -1033,8 +1033,7 @@ fn disposable_spaces_room_details_from_sync() {
         assert_eq!(room.info.topic.as_deref(), Some("Topic from server"));
         assert_eq!(room.info.joined_members, 1);
         assert!(!room.info.is_space);
-        // SDK does not certify absence of encryption from this /sync snapshot.
-        assert_eq!(room.info.encrypted, None);
+        assert_eq!(room.info.encrypted, Some(false));
         assert!(sync.next_batch().await.unwrap().is_empty());
     });
 }
@@ -1063,8 +1062,9 @@ fn disposable_spaces_children_follow_server_state() {
         assert_eq!(summary.info.children.len(), 1);
         assert_eq!(summary.info.children[0].as_str(), child);
         assert!(sync.next_batch().await.unwrap().is_empty());
-        room_request(&config, "alice", reqwest::Method::PUT, &path, serde_json::json!({})).await;
-        let batch = sync.next_batch().await.unwrap();
+        let batch = sync.next_batch_after(async {
+            room_request(&config, "alice", reqwest::Method::PUT, &path, serde_json::json!({})).await;
+        }).await.unwrap();
         assert!(batch.iter().any(|d| matches!(d, RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == space && r.info.children.is_empty())));
     });
 }
@@ -1107,11 +1107,12 @@ fn disposable_spaces_invalid_links_redaction_no_autojoin() {
         let encrypted = summaries.iter().find(|r| r.scope.room_id.as_str() == room).unwrap();
         assert_eq!(encrypted.info.encrypted, Some(true));
         assert!(encrypted.info.children.is_empty(), "ordinary rooms cannot invent Spaces");
-        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
-        room_request(&config, "alice", reqwest::Method::PUT, &format!("rooms/{room}/state/m.room.topic"), serde_json::json!({"topic":"Updated"})).await;
-        room_request(&config, "alice", reqwest::Method::PUT,
-            &format!("rooms/{space}/redact/{}/p029-link-redact", linked_event.unwrap()), serde_json::json!({})).await;
-        let batch = sync.next_batch().await.unwrap();
+        let batch = sync.next_batch_after(async {
+            room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+            room_request(&config, "alice", reqwest::Method::PUT, &format!("rooms/{room}/state/m.room.topic"), serde_json::json!({"topic":"Updated"})).await;
+            room_request(&config, "alice", reqwest::Method::PUT,
+                &format!("rooms/{space}/redact/{}/p029-link-redact", linked_event.unwrap()), serde_json::json!({})).await;
+        }).await.unwrap();
         assert!(batch.iter().any(|d| matches!(d, RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == room && r.info.topic.as_deref() == Some("Updated") && r.info.joined_members == 2 && r.info.encrypted == Some(true))));
         assert!(batch.iter().any(|d| matches!(d, RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == space && r.info.children.len() == 2 && !r.info.children.iter().any(|id| id.as_str() == room))));
         assert!(sync.next_batch().await.unwrap().is_empty());
@@ -1175,16 +1176,20 @@ fn disposable_room_list_sync_tracks_name_unread_read_marker() {
         room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{id}/join"), serde_json::json!({})).await;
         let mut sync = RoomSync::new(login(&config, "alice", 18).await);
         assert_eq!(sync.next_batch().await.unwrap().len(), 1);
-        room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/state/m.room.name"), serde_json::json!({"name": "renamed"})).await;
-        let sent = room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/send/m.room.message/p018-message"), serde_json::json!({"msgtype": "m.text", "body": "Disposable unread fixture"})).await;
-        let changes = sync.next_batch().await.unwrap();
-        let room = changes.iter().find_map(|change| match change {
+        let mut sent = serde_json::Value::Null;
+        let changes = sync.next_batch_after(async {
+            room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/state/m.room.name"), serde_json::json!({"name": "renamed"})).await;
+            sent = room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/send/m.room.message/p018-message"), serde_json::json!({"msgtype": "m.text", "body": "Disposable unread fixture"})).await;
+        }).await.unwrap();
+        // The rename and the message may come in separate deliveries: the last upsert is the result.
+        let room = changes.iter().rev().find_map(|change| match change {
             RoomListDiff::Upsert(room) if room.scope.room_id.as_str() == id => Some(room), _ => None,
         }).expect("rename/message updated room");
         assert_eq!(room.name, "renamed");
         assert!(room.unread >= 1, "server notification count must reach projection");
-        room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{id}/read_markers"), serde_json::json!({"m.fully_read": sent["event_id"], "m.read": sent["event_id"]})).await;
-        let changes = sync.next_batch().await.unwrap();
+        let changes = sync.next_batch_after(async {
+            room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{id}/read_markers"), serde_json::json!({"m.fully_read": sent["event_id"], "m.read": sent["event_id"]})).await;
+        }).await.unwrap();
         assert!(changes.iter().any(|change| matches!(change, RoomListDiff::Upsert(room) if room.scope.room_id.as_str() == id && room.unread == 0)), "read marker must clear projected notification count");
     });
 }
@@ -1258,24 +1263,28 @@ fn disposable_room_list_preview_is_last_real_message_and_clears_when_deleted() {
         send("t1", "primo").await;
         let last = send("t2", "ultimo messaggio").await["event_id"].as_str().unwrap().to_owned();
         let mut sync = RoomSync::new(login(&config, "alice", 19).await);
-        let mut wait_for = async |want: Option<&str>| {
+        let wait_for = async |sync: &mut RoomSync, ok: &dyn Fn(Option<&str>) -> bool, mut batch: Vec<RoomListDiff>| {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
             loop {
-                for change in sync.next_batch().await.unwrap() {
+                for change in batch {
                     if let RoomListDiff::Upsert(room) = change
                         && room.scope.room_id.as_str() == id
-                        && room.info.preview.as_deref() == want
+                        && ok(room.info.preview.as_deref())
                     {
-                        assert_eq!(room.info.last_activity.is_some(), want.is_some());
                         return;
                     }
                 }
-                assert!(std::time::Instant::now() < deadline, "preview never became {want:?}");
+                assert!(std::time::Instant::now() < deadline, "preview never matched");
+                batch = sync.next_batch().await.unwrap();
             }
         };
-        wait_for(Some("ultimo messaggio")).await;
-        room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/redact/{last}/t3"), serde_json::json!({})).await;
-        wait_for(None).await;
+        let first = sync.next_batch().await.unwrap();
+        wait_for(&mut sync, &|p| p == Some("ultimo messaggio"), first).await;
+        let redacted = sync.next_batch_after(async {
+            room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/redact/{last}/t3"), serde_json::json!({})).await;
+        }).await.unwrap();
+        // The SDK latest event drops the deleted message (it may show the one before it).
+        wait_for(&mut sync, &|p| p != Some("ultimo messaggio"), redacted).await;
     });
 }
 

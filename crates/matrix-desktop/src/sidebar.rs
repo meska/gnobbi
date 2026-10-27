@@ -46,6 +46,8 @@ pub struct Sidebar {
     navigation_visibility: (bool, bool, bool),
     account_id: AccountId,
     rooms: Vec<SidebarRoom>,
+    /// Position of each room in the `RoomListService` order (most recent first).
+    order: std::collections::HashMap<RoomScope, usize>,
     visible: Vec<usize>,
     query: String,
     unread_only: bool,
@@ -62,6 +64,7 @@ impl Sidebar {
             navigation_visibility: (true, true, false),
             account_id,
             rooms: Vec::new(),
+            order: std::collections::HashMap::new(),
             visible: Vec::new(),
             query: String::new(),
             unread_only: false,
@@ -91,7 +94,8 @@ impl Sidebar {
                 return old_len != self.rooms.len();
             }
         };
-        if summary.scope.account_id != self.account_id {
+        // shortcut: invitations are projected by the engine but have no row yet (no accept/reject UI).
+        if summary.scope.account_id != self.account_id || summary.info.invited {
             return false;
         }
         let row = SidebarRoom {
@@ -124,6 +128,16 @@ impl Sidebar {
             self.retire_navigation();
         }
         true
+    }
+
+    /// New SDK order (most recent first); rooms it does not know yet go last until the next one.
+    pub fn set_order(&mut self, order: Vec<RoomScope>) {
+        self.order = order.into_iter().zip(0..).collect();
+        let visible = self.visible.clone();
+        self.set_query(&self.query.clone());
+        if self.visible != visible {
+            self.retire_navigation();
+        }
     }
 
     pub fn demo(account_id: AccountId) -> Self {
@@ -159,6 +173,7 @@ impl Sidebar {
             navigation_visibility: (true, true, false),
             account_id,
             rooms,
+            order: Default::default(),
             visible: (0..300).collect(),
             query: String::new(),
             unread_only: false,
@@ -347,12 +362,12 @@ impl Sidebar {
             })
             .map(|(i, _)| i)
             .collect();
-        // Search keeps match order; the plain list is newest activity first, ties by name, idle rooms last.
+        // Search keeps match order; the plain list follows the SDK order, rooms not yet ordered last by name.
         if needle.is_empty() {
-            let rooms = &self.rooms;
+            let (rooms, order) = (&self.rooms, &self.order);
             self.visible.sort_by_cached_key(|&i| {
                 (
-                    std::cmp::Reverse(rooms[i].info.last_activity),
+                    order.get(&rooms[i].scope).copied().unwrap_or(usize::MAX),
                     rooms[i].name.to_lowercase(),
                 )
             });
@@ -435,8 +450,19 @@ mod tests {
             .collect()
     }
 
+    thread_local! {
+        static ACTIVITY: std::cell::RefCell<Vec<(String, Option<u64>)>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// Upserts the rooms and sets the order the SDK sorter would give: newest first, then name,
+    /// rooms without activity last (this stands in for `RoomListEvent::Order`).
     fn fill(sidebar: &mut Sidebar, account: &AccountId, rooms: &[(&str, Option<u64>)]) {
         for (name, last_activity) in rooms {
+            ACTIVITY.with(|a| {
+                let mut a = a.borrow_mut();
+                a.retain(|(n, _)| n != name);
+                a.push(((*name).into(), *last_activity));
+            });
             sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
                 scope: RoomScope {
                     account_id: *account,
@@ -445,12 +471,21 @@ mod tests {
                 name: (*name).into(),
                 unread: 0,
                 info: RoomInfo {
-                    last_activity: *last_activity,
                     preview: Some("x".into()),
                     ..Default::default()
                 },
             }));
         }
+        let mut all = ACTIVITY.with(|a| a.borrow().clone());
+        all.sort_by_key(|(n, at)| (std::cmp::Reverse(*at), n.to_lowercase()));
+        sidebar.set_order(
+            all.into_iter()
+                .map(|(n, _)| RoomScope {
+                    account_id: *account,
+                    room_id: RoomId::new(format!("!{n}:t.invalid")),
+                })
+                .collect(),
+        );
     }
 
     #[test]
@@ -546,7 +581,6 @@ mod tests {
             name: "y".into(),
             unread: 2,
             info: RoomInfo {
-                last_activity: Some(70),
                 preview: Some("x".into()),
                 ..Default::default()
             },
@@ -595,7 +629,6 @@ mod tests {
                         .iter()
                         .map(|c| RoomId::new(format!("!{c}:t.invalid")))
                         .collect(),
-                    last_activity: Some(1),
                     ..Default::default()
                 },
             }));

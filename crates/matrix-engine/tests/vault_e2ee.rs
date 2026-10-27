@@ -5,8 +5,9 @@
 //! One phase per process, so a phase boundary is a genuine restart. Driven by
 //! the vault_e2e script inside a private namespace; disposable accounts only.
 use matrix_domain::{RoomId, RoomScope, TransactionId};
+use futures_util::FutureExt;
 use matrix_engine::{
-    ViewRequests,
+    RoomListEvent, RoomSyncStatus, ViewRequests,
     auth::AccountSession,
     room_sync::RoomSync,
     sending::SendRequest,
@@ -63,9 +64,23 @@ async fn open(
     }
 }
 
+/// Runs the live sliding path until its first Ready (keys uploaded, rooms and members synced).
 async fn sync_twice(sync: &mut RoomSync) {
-    sync.next_batch().await.unwrap();
-    sync.next_batch().await.unwrap();
+    let (mut tx, mut rx) = matrix_engine::bounded(std::num::NonZeroUsize::new(256).unwrap());
+    let run = matrix_engine::sliding::run(sync, &mut tx, || {});
+    tokio::pin!(run);
+    let ready = async {
+        while let Some(event) = rx.recv().await {
+            if matches!(event, RoomListEvent::Status(RoomSyncStatus::Ready)) {
+                return;
+            }
+        }
+        panic!("sync stream closed before Ready");
+    };
+    tokio::select! {
+        _ = &mut run => panic!("sync ended before Ready"),
+        () = tokio::time::timeout(std::time::Duration::from_secs(60), ready).map(|r| r.expect("never Ready")) => {}
+    }
 }
 
 fn scope(session: &AccountSession, room: &str) -> RoomScope {

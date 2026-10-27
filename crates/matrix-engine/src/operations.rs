@@ -30,8 +30,18 @@ pub enum OperationCommand {
         target: EventId,
     },
     Apply(OperationRequest),
+    /// Room-level read marker from the room menu; `public` is the «Conferme di lettura» setting.
+    MarkRoom {
+        scope: RoomScope,
+        read: bool,
+        public: bool,
+    },
 }
 pub enum OperationResult {
+    RoomMarked {
+        scope: RoomScope,
+        result: Result<(), OperationError>,
+    },
     Inspected {
         tag: crate::RequestTag,
         target: EventId,
@@ -116,6 +126,40 @@ pub(crate) async fn details(
     })
     .await
     .map_err(|_| OperationError::Transport)?
+}
+
+/// Read: receipts for the newest stored event, then the SDK unread flag off. Unread: the SDK unread flag on.
+#[cfg(feature = "sdk")]
+pub(crate) async fn mark_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    read: bool,
+    public: bool,
+) -> Result<(), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(OperationError::Unavailable)?;
+    if read {
+        // shortcut: only events already in the event cache; a never-opened room just loses its flag.
+        let (rows, _, _) = crate::room_sync::stored_events(client, &id)
+            .await
+            .map_err(|_| OperationError::Unavailable)?;
+        if let Some(event) = rows.last().and_then(|e| e.event_id()) {
+            room.send_multiple_receipts(crate::receipts::marker_receipts(event.to_owned(), public))
+                .await
+                .map_err(|_| OperationError::Transport)?;
+        }
+    }
+    room.set_unread_flag(!read)
+        .await
+        .map_err(|_| OperationError::Transport)
 }
 
 #[cfg(feature = "sdk")]

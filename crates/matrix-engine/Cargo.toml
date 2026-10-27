@@ -10,7 +10,7 @@ rust-version = "1.96"
 default = []
 linux-vault = ["sdk", "dep:secret-service", "dep:getrandom"]
 mac-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
-sdk = ["dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:zeroize", "dep:image", "dep:matrix-sdk-crypto", "dep:matrix-sdk-ui"]
+sdk = ["dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:zeroize", "dep:image", "dep:matrix-sdk-crypto", "dep:matrix-sdk-ui", "dep:eyeball-im", "dep:futures-util"]
 
 [dependencies]
 matrix-sdk-crypto = { version = "=0.19.1", optional = true, default-features = false }
@@ -23,7 +23,10 @@ matrix-sdk = { version = "=0.19.1", optional = true, default-features = false, f
 reqwest = { version = "=0.13.5", optional = true, default-features = false, features = ["rustls"] }
 serde_json = { version = "=1.0.151", optional = true }
 url = { version = "=2.5.8", optional = true }
-tokio = { version = "=1.53.2", optional = true, default-features = false, features = ["rt", "time"] }
+tokio = { version = "=1.53.2", optional = true, default-features = false, features = ["rt", "time", "macros"] }
+
+eyeball-im = { version = "=0.9.1", optional = true }
+futures-util = { version = "=0.3.34", optional = true, default-features = false }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 secret-service = { version = "=5.2.0", optional = true, default-features = false, features = ["rt-async-io-crypto-rust"] }
@@ -50,4 +53,12 @@ required-features = ["sdk"]
 
 [[test]]
 name = "tuwunel_room_list_smoke"
+required-features = ["sdk"]
+
+[[test]]
+name = "sliding_adapter"
+required-features = ["sdk"]
+
+[[test]]
+name = "sync_migration_qa"
 required-features = ["sdk"]

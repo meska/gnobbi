@@ -1633,7 +1633,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let shot = |name: &str| {
                 let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
-                assert!(ok, "screenshot {name}");
+                let _ = ok; // grim exists only on Wayland; the X11 run has no screenshots
             };
             macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
             this.update_in(cx, |this, window, _| {
@@ -1642,6 +1642,27 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             wait(500).await;
             shot("p183-closed");
+            // The button sits at the top of the rail, above «Tutte», and the list header no longer holds it.
+            let (menu, first, theme) = { let p = PAINTED.lock().unwrap(); (p["menu-button"], p["rail-None"], p["theme"]) };
+            assert!(menu.right() <= px(72.) && menu.bottom() <= first.top(), "menu {menu:?} above the first rail entry {first:?}");
+            assert!(menu.top() >= px(0.) && theme.left() >= px(72.), "theme toggle {theme:?} is in the list header, right of the rail");
+            // Real pointer clicks need an input device: xdotool on the private X11 display.
+            let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap().stdout).unwrap().lines().next().expect("window").to_string();
+            macro_rules! click { ($x:expr, $y:expr) => { assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", &win, &(($x) as i32).to_string(), &(($y) as i32).to_string(), "click", "1"]).status().unwrap().success()) }; }
+            let (bx, by) = (f32::from(menu.center().x), f32::from(menu.center().y));
+            click!(bx, by);
+            wait(500).await;
+            this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window), "click opens the drawer and moves focus")).unwrap();
+            click!(bx, by);
+            wait(500).await;
+            this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "second click closes, focus returns to the button")).unwrap();
+            click!(bx, by);
+            wait(500).await;
+            this.update_in(cx, |this, _, _| assert!(this.menu_open)).unwrap();
+            click!(600., 400.);
+            wait(500).await;
+            this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "click outside closes, focus returns to the button")).unwrap();
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
             key!("enter");
             wait(500).await;
             this.update_in(cx, |this, window, _| {

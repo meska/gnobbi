@@ -13,7 +13,7 @@ fn failed_restore_reports_fixed_status_then_closes_the_route() {
     loop {
         match route.try_recv() {
             Ok(RoomListEvent::Status(status)) => statuses.push(status),
-            Ok(RoomListEvent::Diff(_) | RoomListEvent::TimelineActivity(_)) => {
+            Ok(RoomListEvent::Diff(_) | RoomListEvent::TimelineActivity(_) | RoomListEvent::Order(_)) => {
                 panic!("failed restore must not invent room activity")
             }
             Err(TryReceiveError::Closed) => break,

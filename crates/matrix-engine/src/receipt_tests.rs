@@ -21,8 +21,10 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
                 assert!(summary.info.public_read_receipts.is_empty(), "own ACK/marker is not peer reading");
             }
         }
-        room_request(&config, "bob", reqwest::Method::POST,
-            &format!("rooms/{room}/receipt/m.read/{event}"), serde_json::json!({})).await;
+        let mut batch = sync.next_batch_after(async {
+            room_request(&config, "bob", reqwest::Method::POST,
+                &format!("rooms/{room}/receipt/m.read/{event}"), serde_json::json!({})).await;
+        }).await.unwrap();
         let independent: serde_json::Value = serde_json::from_str(&http(&config)
             .get(format!("{}_matrix/client/v3/sync", config["url"].as_str().unwrap()))
             .bearer_auth(config["alice_token"].as_str().unwrap())
@@ -31,7 +33,7 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
             e["type"] == "m.receipt" && e["content"][event]["m.read"]["@bob:matrix-desktop.test"].is_object()), "independent HTTP readback must identify exact peer/event");
         let mut found = false;
         for _ in 0..8 {
-            for change in sync.next_batch().await.unwrap() {
+            for change in batch {
                 if let RoomListDiff::Upsert(summary) = change {
                     assert_eq!(summary.scope.account_id, AccountId::new(54));
                     assert_eq!(summary.scope.room_id.as_str(), room);
@@ -41,6 +43,7 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
                 }
             }
             if found { break; }
+            batch = sync.next_batch().await.unwrap();
         }
         assert!(found, "exact public peer marker must reach Dime after incremental sync");
         assert!(sync.next_batch().await.unwrap().is_empty(), "unchanged markers must not emit duplicate diffs");
@@ -49,16 +52,18 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
             &format!("rooms/{room}/send/m.room.message/p054-next"),
             serde_json::json!({"msgtype":"m.text","body":"Next marker"})).await;
         let next = next["event_id"].as_str().unwrap();
-        room_request(&config, "bob", reqwest::Method::POST,
-            &format!("rooms/{room}/receipt/m.read.private/{next}"), serde_json::json!({})).await;
-        for change in sync.next_batch().await.unwrap() {
+        for change in sync.next_batch_after(async {
+            room_request(&config, "bob", reqwest::Method::POST,
+                &format!("rooms/{room}/receipt/m.read.private/{next}"), serde_json::json!({})).await;
+        }).await.unwrap() {
             if let RoomListDiff::Upsert(summary) = change {
                 assert!(!summary.info.public_read_receipts.iter().any(|r| r.event_id.as_str() == next), "private marker must not advance public peer state");
             }
         }
-        room_request(&config, "bob", reqwest::Method::POST,
-            &format!("rooms/{room}/receipt/m.read/{next}"), serde_json::json!({})).await;
-        let updated = sync.next_batch().await.unwrap();
+        let updated = sync.next_batch_after(async {
+            room_request(&config, "bob", reqwest::Method::POST,
+                &format!("rooms/{room}/receipt/m.read/{next}"), serde_json::json!({})).await;
+        }).await.unwrap();
         let summary = updated.iter().find_map(|d| match d { RoomListDiff::Upsert(s) if s.scope.room_id.as_str() == room => Some(s), _ => None }).expect("changed peer marker emits room update");
         assert_eq!(summary.info.public_read_receipts.len(), 1);
         assert_eq!(summary.info.public_read_receipts[0].event_id.as_str(), next);
@@ -90,11 +95,6 @@ fn disposable_open_room_clears_unread_counter() {
             serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
         let room = created["room_id"].as_str().unwrap().to_owned();
         room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
-        for i in 0..N {
-            room_request(&config, "alice", reqwest::Method::PUT,
-                &format!("rooms/{room}/send/m.room.message/unread-{i}"),
-                serde_json::json!({"msgtype":"m.text","body":format!("unread {i}")})).await;
-        }
         // open_history needs the SDK event cache, which only the store-backed session has.
         let root = std::env::temp_dir().join(format!("gnobbi-test-unread-{}", std::process::id()));
         {
@@ -124,7 +124,20 @@ fn disposable_open_room_clears_unread_counter() {
             }
             unread
         };
-        let unread = settle(&mut sync, None, N).await;
+        // Sent while the sliding run is live: it counts unread from the deliveries it sees.
+        let mut unread = None;
+        let batch = sync.next_batch_after(async {
+            for i in 0..N {
+                room_request(&config, "alice", reqwest::Method::PUT,
+                    &format!("rooms/{room}/send/m.room.message/unread-{i}"),
+                    serde_json::json!({"msgtype":"m.text","body":format!("unread {i}")})).await;
+            }
+        }).await.unwrap();
+        for change in batch {
+            if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room {
+                unread = Some(s.unread);
+            }
+        }
         assert_eq!(unread, Some(N), "precondition: {N} unread messages shown before opening");
 
         let scope = matrix_domain::RoomScope {
@@ -138,5 +151,69 @@ fn disposable_open_room_clears_unread_counter() {
         drop(sync);
         let _ = std::fs::remove_dir_all(&root); // before the assert: a RED panic must not leave state
         assert_eq!(unread, Some(0), "opening the room must clear the unread counter, but it is still {unread:?}");
+    });
+}
+
+/// Room menu: «Segna come non letto» sets the SDK flag, «Segna come letto» clears it and the counter.
+/// Run: `python3 the auth_smoke script --filter disposable_room_menu_marks_read_and_unread`
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_room_menu_marks_read_and_unread() {
+    use crate::{RoomListDiff, ViewRequests, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+        let room = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+        let send = async |tag: &str| {
+            room_request(&config, "alice", reqwest::Method::PUT,
+                &format!("rooms/{room}/send/m.room.message/menu-{tag}"),
+                serde_json::json!({"msgtype":"m.text","body":tag})).await;
+        };
+        send("a").await;
+        let root = std::env::temp_dir().join(format!("gnobbi-test-menu-{}", std::process::id()));
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).unwrap();
+        }
+        let bob = AccountStore::create(&root, AccountId::new(57)).unwrap()
+            .password_login_with_http(
+                HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+                "@bob:matrix-desktop.test",
+                config["bob_password"].as_str().unwrap(),
+                "long disposable fixture passphrase",
+                http(&config),
+            )
+            .await
+            .expect("fixture login accepted");
+        let mut sync = RoomSync::new(bob);
+        // (unread, marked_unread) of the room once `done` holds, or the last seen after 8 batches.
+        let settle = async |sync: &mut RoomSync, mut seen: Option<(u64, bool)>, done: fn((u64, bool)) -> bool| {
+            for _ in 0..8 {
+                for change in sync.next_batch().await.unwrap() {
+                    if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room {
+                        seen = Some((s.unread, s.info.marked_unread));
+                    }
+                }
+                if seen.is_some_and(done) { break; }
+            }
+            seen
+        };
+        let seen = settle(&mut sync, None, |(unread, _)| unread == 1).await;
+        let scope = matrix_domain::RoomScope { account_id: AccountId::new(57), room_id: matrix_domain::RoomId::new(room.clone()) };
+        // Fills the event cache that «Segna come letto» takes the newest event from.
+        let visible = crate::receipts::ReadVisibility { window_focused: false, room_foreground: false, bottom_gap_px: 0.0, public_receipts: true };
+        sync.open_history(ViewRequests::new().start(scope.clone()).unwrap(), visible).await.unwrap();
+        let unread_result = sync.mark_room_for_test(&scope, false).await;
+        let flagged = settle(&mut sync, seen, |(_, marked)| marked).await;
+        let read_result = sync.mark_room_for_test(&scope, true).await;
+        let cleared = settle(&mut sync, flagged, |(unread, marked)| unread == 0 && !marked).await;
+        drop(sync);
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(seen, Some((1, false)), "precondition: one unread message, no flag");
+        assert!(unread_result.is_ok() && read_result.is_ok(), "both commands accepted");
+        assert_eq!(flagged.map(|s| s.1), Some(true), "«Segna come non letto» must set the room flag");
+        assert_eq!(cleared, Some((0, false)), "«Segna come letto» must clear the flag and the counter");
     });
 }

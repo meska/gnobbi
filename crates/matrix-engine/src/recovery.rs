@@ -157,8 +157,7 @@ impl AccountSession {
                 return Err(RecoveryError::BackupUnavailable);
             }
             // The room list is only known after a sync; a fresh vault sign-in has not run one.
-            client
-                .sync_once(matrix_sdk::config::SyncSettings::default())
+            crate::sliding::first_sync(client)
                 .await
                 .map_err(|_| RecoveryError::Transport)?;
             for room in client.rooms() {

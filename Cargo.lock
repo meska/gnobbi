@@ -4179,6 +4179,7 @@ version = "0.1.0"
 name = "matrix-engine"
 version = "0.1.0"
 dependencies = [
+ "eyeball-im",
  "futures-util",
  "getrandom 0.4.3",
  "image",

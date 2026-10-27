@@ -152,19 +152,37 @@ impl Shell {
 
     pub(crate) fn render_rail(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = if self.dark { DARK } else { LIGHT };
+        // The menu button stays on top of the rail, above «Tutte» and the scrolling entries.
         div()
-            .id("navigation-rail")
-            .track_focus(&self.rail_ui.focus)
             .w(px(72.))
             .h_full()
             .flex_shrink_0()
             .flex()
             .flex_col()
-            .overflow_y_scroll()
-            .track_scroll(&self.rail_ui.scroll)
             .bg(rgb(t.input))
             .border_r_1()
             .border_color(rgb(t.border))
+            .child(
+                div()
+                    .id("rail-menu")
+                    .h(px(t.header))
+                    .flex_shrink_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(self.render_menu_button(t, window, cx)),
+            )
+            .child(
+        div()
+            .id("navigation-rail")
+            .track_focus(&self.rail_ui.focus)
+            .w_full()
+            .flex_1()
+            .min_h_0()
+            .flex()
+            .flex_col()
+            .overflow_y_scroll()
+            .track_scroll(&self.rail_ui.scroll)
             .children(
                 self.sidebar
                     .navigation_entries()
@@ -320,7 +338,7 @@ impl Shell {
                                 cx.listener(move |this, _, window, cx| pointer(this, window, cx)),
                             )
                     }),
-            )
+            ))
             .into_any_element()
     }
 }

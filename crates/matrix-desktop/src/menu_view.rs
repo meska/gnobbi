@@ -95,6 +95,11 @@ impl Shell {
         let line = || div().w(px(16.)).h(px(2.)).rounded_sm().bg(rgb(t.text));
         div()
             .id("menu-button")
+            .relative()
+            .children({
+                #[cfg(test)] { crate::sidebar_navigation_test::observe("menu-button".into()) }
+                #[cfg(not(test))] { None::<gpui::AnyElement> }
+            })
             .track_focus(&self.menu_focus)
             .w(px(36.))
             .h(px(36.))

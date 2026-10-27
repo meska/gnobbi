@@ -2,7 +2,7 @@
 use crate::{RoomListDiff, RoomSummary, auth::AccountSession};
 use matrix_domain::{RoomId, RoomScope};
 use matrix_sdk::ruma::events::room::message::MessageType;
-use matrix_sdk::{RoomState, config::SyncSettings, ruma::presence::PresenceState};
+use matrix_sdk::RoomState;
 use std::{collections::BTreeMap, time::Duration};
 
 pub use crate::{RoomListEvent, RoomSyncStatus};
@@ -268,6 +268,21 @@ impl RoomListWorker {
                                         details,
                                     }
                                 }
+                                OperationCommand::MarkRoom {
+                                    scope,
+                                    read,
+                                    public,
+                                } => {
+                                    let result = crate::operations::mark_room(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                        read,
+                                        public,
+                                    )
+                                    .await;
+                                    OperationResult::RoomMarked { scope, result }
+                                }
                                 OperationCommand::Apply(request) => {
                                     let result = crate::operations::perform(
                                         &operation_client,
@@ -339,13 +354,6 @@ impl RoomListWorker {
                         }
                     });
                     let work = async {
-                        let mut ready = false;
-                        use std::hash::{Hash, Hasher};
-                        let mut seed = std::collections::hash_map::DefaultHasher::new();
-                        crate::sending::fresh_transaction_id()
-                            .as_str()
-                            .hash(&mut seed);
-                        let mut backoff = crate::reconnect::Backoff::new(seed.finish());
                         if let Ok(saved) = sync.saved_batch().await {
                             for change in saved {
                                 if sender.send(RoomListEvent::Diff(change)).await.is_err() {
@@ -353,59 +361,15 @@ impl RoomListWorker {
                                 }
                             }
                         }
-                        loop {
-                            let (changes, activity) = match sync.next_batch_with_activity().await {
-                                Ok(changes) => changes,
-                                Err(SyncError::LoggedOut) => {
-                                    let _ = sender
-                                        .send(RoomListEvent::Status(
-                                            RoomSyncStatus::AuthenticationFailed,
-                                        ))
-                                        .await;
-                                    return;
-                                }
-                                Err(_) => {
-                                    let _ = sender
-                                        .send(RoomListEvent::Status(RoomSyncStatus::SyncFailed))
-                                        .await;
-                                    ready = false;
-                                    // Sends keep their transaction identity; reconnect only /sync.
-                                    tokio::time::sleep(backoff.next_delay()).await;
-                                    continue;
-                                }
-                            };
-                            backoff.reset();
-                            for change in changes {
-                                if sender.send(RoomListEvent::Diff(change)).await.is_err() {
-                                    return;
-                                }
-                            }
-                            for scope in activity {
-                                if sender
-                                    .send(RoomListEvent::TimelineActivity(scope))
-                                    .await
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                            }
-                            if !ready {
-                                if sender
-                                    .send(RoomListEvent::Status(RoomSyncStatus::Ready))
-                                    .await
-                                    .is_err()
-                                {
-                                    return;
-                                }
-                                ready = true;
-                                // Runtime drop ends it with the account; one pass after the first sync.
-                                let (client, opened, stop) =
-                                    (warm_client.clone(), warm_opened.clone(), warm_stop.clone());
-                                tokio::spawn(async move {
-                                    crate::warm::warm(&client, &stop, &opened).await;
-                                });
-                            }
-                        }
+                        // Runtime drop ends the warm-up with the account; one pass after the first sync.
+                        let start_warm = || {
+                            let (client, opened, stop) =
+                                (warm_client.clone(), warm_opened.clone(), warm_stop.clone());
+                            tokio::spawn(async move {
+                                crate::warm::warm(&client, &stop, &opened).await;
+                            });
+                        };
+                        crate::sliding::run(&mut sync, &mut sender, start_warm).await;
                     };
                     let _ = until_stopped(&cancelled, work).await;
                     cancelled.store(true, std::sync::atomic::Ordering::Release);
@@ -531,9 +495,11 @@ pub struct RoomSync {
     session: AccountSession,
     previous: BTreeMap<String, RoomSummary>,
     timeline_heads: BTreeMap<String, matrix_domain::EventId>,
-    /// Last real message per room as (event id, text); fed by sync only, so empty until a message arrives.
-    previews: BTreeMap<String, (String, String, Option<u64>)>,
+    /// Rooms whose SDK latest event is being tracked (a store written before sliding sync has none).
+    latest_watched: std::collections::BTreeSet<String>,
     receipts: crate::receipts::PeerReceipts,
+    /// Sliding sync sends no server counts: unread comes from the SDK's client-side counts.
+    pub(crate) sliding_counts: bool,
     sent_markers: std::sync::Mutex<crate::receipts::SentMarkers>,
     operation_state: std::sync::Arc<tokio::sync::Mutex<crate::operations::OperationJournal>>,
 }
@@ -596,11 +562,36 @@ impl RoomSync {
             session,
             previous: BTreeMap::new(),
             timeline_heads: BTreeMap::new(),
-            previews: BTreeMap::new(),
+            latest_watched: Default::default(),
             receipts,
+            sliding_counts: false,
             sent_markers: Default::default(),
             operation_state: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
         }
+    }
+
+    /// Projection over an already logged-in client (the sliding-sync adapter and its tests).
+    pub fn from_client(account_id: matrix_domain::AccountId, client: matrix_sdk::Client) -> Self {
+        Self::new(AccountSession {
+            account_id,
+            client: Some(client),
+            #[cfg(unix)]
+            store: None,
+        })
+    }
+
+    pub(crate) fn client(&self) -> Option<&matrix_sdk::Client> {
+        self.session.client.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn mark_room_for_test(
+        &self,
+        scope: &RoomScope,
+        read: bool,
+    ) -> Result<(), crate::operations::OperationError> {
+        let client = self.session.client.as_ref().expect("store-backed session");
+        crate::operations::mark_room(client, self.session.account_id(), scope, read, true).await
     }
 
     /// Read one server page on the backend, never on the UI thread.
@@ -686,49 +677,72 @@ impl RoomSync {
         }
     }
 
-    /// Await only on the backend runtime. SDK persists/reuses its sync cursor;
-    /// unchanged summaries are not emitted again. Payload-free errors only.
+    /// Fixture: runs the live `sliding::run` until `Ready` and a quiet moment; returns what the
+    /// room list changed compared to the previous call (the run itself empties and refills it
+    /// while it starts, so the net difference is what a caller can rely on).
+    #[cfg(test)]
     pub async fn next_batch(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
-        self.next_batch_with_activity()
-            .await
-            .map(|(diffs, _)| diffs)
+        self.next_batch_after(async {}).await
     }
 
-    async fn next_batch_with_activity(
+    /// Like `next_batch`, but `action` runs once the run is `Ready`: what it changes on the
+    /// server reaches the room list as a live delivery, as in the app (sliding sync only counts
+    /// unread from deliveries it sees, so messages sent before the run show as one).
+    #[cfg(test)]
+    pub async fn next_batch_after(
         &mut self,
-    ) -> Result<(Vec<RoomListDiff>, Vec<RoomScope>), SyncError> {
-        let client = self.session.client.as_ref().ok_or(SyncError::LoggedOut)?;
-        use matrix_sdk::ruma::api::client::{
-            filter::{FilterDefinition, LazyLoadOptions},
-            sync::sync_events::v3::Filter,
-        };
-        let mut filter = FilterDefinition::default();
-        filter.room.state.lazy_load_options = LazyLoadOptions::Enabled {
-            include_redundant_members: false,
-        };
-        let response = tokio::time::timeout(
-            Duration::from_secs(15),
-            client.sync_once(
-                SyncSettings::default()
-                    .filter(Filter::FilterDefinition(filter))
-                    .timeout(Duration::from_millis(200))
-                    .set_presence(PresenceState::Offline),
-            ),
-        )
-        .await
-        .map_err(|_| SyncError::Transport)?
-        .map_err(|error| {
-            if matches!(
-                error.client_api_error_kind(),
-                Some(matrix_sdk::ruma::api::error::ErrorKind::UnknownToken { .. })
-            ) {
-                SyncError::LoggedOut
-            } else {
-                SyncError::Transport
+        action: impl std::future::Future<Output = ()>,
+    ) -> Result<Vec<RoomListDiff>, SyncError> {
+        use crate::{RoomListEvent, RoomSyncStatus};
+        let before = self.previous.clone();
+        let (mut tx, mut rx) = crate::bounded(std::num::NonZeroUsize::new(1024).unwrap());
+        let collect = async {
+            let (mut ready, mut action) = (false, Some(action));
+            loop {
+                let wait = Duration::from_secs(if ready { 3 } else { 30 });
+                match tokio::time::timeout(wait, rx.recv()).await {
+                    Ok(Some(RoomListEvent::Status(RoomSyncStatus::Ready))) => {
+                        ready = true;
+                        if let Some(action) = action.take() {
+                            action.await;
+                        }
+                    }
+                    Ok(Some(RoomListEvent::Status(RoomSyncStatus::AuthenticationFailed))) => {
+                        return Err(SyncError::LoggedOut);
+                    }
+                    Ok(Some(_)) => {}
+                    _ if ready => return Ok(()),
+                    _ => return Err(SyncError::Transport),
+                }
             }
-        })?;
+        };
+        tokio::select! {
+            () = crate::sliding::run(self, &mut tx, || {}) => Err(SyncError::Transport),
+            done = collect => done,
+        }?;
+        let mut diffs: Vec<_> = self
+            .previous
+            .iter()
+            .filter(|(id, room)| before.get(*id) != Some(*room))
+            .map(|(_, room)| RoomListDiff::Upsert(room.clone()))
+            .collect();
+        diffs.extend(
+            before
+                .iter()
+                .filter(|(id, _)| !self.previous.contains_key(*id))
+                .map(|(_, room)| RoomListDiff::Remove(room.scope.clone())),
+        );
+        Ok(diffs)
+    }
+
+    /// Folds one sync delivery (classic /sync or sliding sync) into peer receipts;
+    /// returns the newest event id per room that had timeline events.
+    pub(crate) fn observe_joined(
+        &mut self,
+        rooms: &matrix_sdk::sync::RoomUpdates,
+    ) -> Vec<(String, matrix_domain::EventId)> {
         let mut heads = Vec::new();
-        for (room, update) in response.rooms.joined {
+        for (room, update) in &rooms.joined {
             let scope = RoomScope {
                 account_id: self.session.account_id(),
                 room_id: RoomId::new(room.as_str()),
@@ -745,61 +759,43 @@ impl RoomSync {
                     matrix_domain::EventId::new(event.as_str()),
                 ));
             }
-            for event in &update.timeline.events {
-                apply_preview(
-                    &mut self.previews,
-                    room.as_str(),
-                    preview_change(event.raw().json().get()),
-                );
-            }
-            for raw in update.ephemeral {
-                self.receipts.observe_event(&scope, &raw);
+            for raw in &update.ephemeral {
+                self.receipts.observe_event(&scope, raw);
             }
         }
-        let activity_heads = heads;
-        let changes = self.summarize().await?;
-        let activity = self.timeline_activity(activity_heads);
-        Ok((changes, activity))
+        heads
     }
 
-    /// Joined rooms already in the SDK store, previews from the saved messages. No network.
+    /// Rooms already in the SDK store. No network.
     pub async fn saved_batch(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
-        let client = self
-            .session
-            .client
-            .as_ref()
-            .ok_or(SyncError::LoggedOut)?
-            .clone();
-        for room in client
-            .rooms()
-            .into_iter()
-            .filter(|r| r.state() == RoomState::Joined)
-        {
-            let Ok((saved, _, _)) = stored_events(&client, room.room_id()).await else {
-                continue;
-            };
-            for event in &saved {
-                apply_preview(
-                    &mut self.previews,
-                    room.room_id().as_str(),
-                    preview_change(event.raw().json().get()),
-                );
-            }
-        }
         self.summarize().await
     }
 
-    async fn summarize(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
-        let client = self.session.client.as_ref().ok_or(SyncError::LoggedOut)?;
+    /// Every stored room, in store order: classic fixtures and recovery from missed deliveries.
+    /// The app projects through `summarize_rooms` with the `RoomListService` list.
+    pub(crate) async fn summarize(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
+        let rooms = self.session.client.as_ref().ok_or(SyncError::LoggedOut)?.rooms();
+        self.summarize_rooms(rooms).await
+    }
+
+    /// Summaries of the joined and invited rooms among `rooms`; the diff against the last call.
+    pub(crate) async fn summarize_rooms(
+        &mut self,
+        rooms: Vec<matrix_sdk::Room>,
+    ) -> Result<Vec<RoomListDiff>, SyncError> {
+        let client = self.session.client.clone().ok_or(SyncError::LoggedOut)?;
         let mut current = BTreeMap::new();
-        for room in client
-            .rooms()
+        for room in rooms
             .into_iter()
-            .filter(|room| room.state() == RoomState::Joined)
+            .filter(|room| matches!(room.state(), RoomState::Joined | RoomState::Invited))
         {
             let id = room.room_id().as_str().to_owned();
+            // Once per room: the SDK computes a missing latest event from the event cache.
+            if room.state() == RoomState::Joined && self.latest_watched.insert(id.clone()) {
+                let _ = client.latest_events().await.listen_to_room(room.room_id()).await;
+            }
             let mut children = Vec::new();
-            if room.is_space() {
+            if room.state() == RoomState::Joined && room.is_space() {
                 use matrix_sdk::deserialized_responses::SyncOrStrippedState;
                 use matrix_sdk::ruma::events::{
                     SyncStateEvent, space::child::SpaceChildEventContent,
@@ -827,17 +823,26 @@ impl RoomSync {
                         room_id: RoomId::new(id.clone()),
                     },
                     name: room_label(room.display_name().await.ok(), &id),
-                    unread: room.unread_notification_counts().notification_count,
+                    unread: if self.sliding_counts {
+                        room.num_unread_notifications()
+                    } else {
+                        room.unread_notification_counts().notification_count
+                    },
                     info: crate::RoomInfo {
                         public_read_receipts: self.receipts.snapshot(&RoomScope {
                             account_id: self.session.account_id(),
                             room_id: RoomId::new(id.clone()),
                         }),
-                        preview: self.previews.get(&id).map(|(_, text, _)| text.clone()),
-                        last_activity: last_activity(&self.previews, &id),
+                        preview: latest_event_text(&room).await,
+                        invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
+                        marked_unread: room.is_marked_unread(),
                         joined_members: room.joined_members_count(),
-                        mentions: room.unread_notification_counts().highlight_count,
+                        mentions: if self.sliding_counts {
+                            room.num_unread_mentions()
+                        } else {
+                            room.unread_notification_counts().highlight_count
+                        },
                         is_space: room.is_space(),
                         children,
                         encrypted: (!room.encryption_state().is_unknown())
@@ -867,7 +872,12 @@ impl RoomSync {
         Ok(changes)
     }
 
-    fn timeline_activity(
+    /// Scope of a room projected by the last `summarize_rooms` (joined or invited).
+    pub(crate) fn scope_of(&self, room: &str) -> Option<RoomScope> {
+        self.previous.get(room).map(|summary| summary.scope.clone())
+    }
+
+    pub(crate) fn timeline_activity(
         &mut self,
         heads: Vec<(String, matrix_domain::EventId)>,
     ) -> Vec<RoomScope> {
@@ -887,75 +897,20 @@ impl RoomSync {
     }
 }
 
-/// What one timeline event means for the room-list preview.
-#[derive(Debug, PartialEq, Eq)]
-enum PreviewChange {
-    Set {
-        event_id: String,
-        text: String,
-        ts: Option<u64>,
-    },
-    Remove {
-        target: String,
-    },
-    Ignore,
-}
-
-fn preview_change(raw: &str) -> PreviewChange {
-    let Ok(event) = serde_json::from_str::<serde_json::Value>(raw) else {
-        return PreviewChange::Ignore;
+/// Preview text from the SDK latest event (`LatestEventValue`, kept by the SDK across edits,
+/// redactions and unsent local messages); None when it is not a message.
+async fn latest_event_text(room: &matrix_sdk::Room) -> Option<String> {
+    use matrix_sdk_ui::timeline::{LatestEventValue, RoomExt};
+    let (LatestEventValue::Remote { content, .. } | LatestEventValue::Local { content, .. }) =
+        room.latest_event().await
+    else {
+        return None;
     };
-    let text = |v: Option<&serde_json::Value>| v.and_then(|v| v.as_str()).map(str::to_owned);
-    let content = &event["content"];
-    match event["type"].as_str() {
-        Some("m.room.redaction") => text(event.get("redacts").or(content.get("redacts")))
-            .map_or(PreviewChange::Ignore, |target| PreviewChange::Remove {
-                target,
-            }),
-        Some("m.room.message")
-            if event["unsigned"].get("redacted_because").is_none()
-                && content["m.relates_to"]["rel_type"] != "m.replace" =>
-        {
-            let (Some(event_id), Some(body)) =
-                (text(event.get("event_id")), text(content.get("body")))
-            else {
-                return PreviewChange::Ignore;
-            };
-            let text = if content["msgtype"] == "m.image" {
-                "Immagine".to_owned()
-            } else {
-                body
-            };
-            PreviewChange::Set {
-                event_id,
-                text,
-                ts: event["origin_server_ts"].as_u64(),
-            }
-        }
-        _ => PreviewChange::Ignore,
-    }
-}
-
-type Previews = BTreeMap<String, (String, String, Option<u64>)>;
-
-fn apply_preview(previews: &mut Previews, room: &str, change: PreviewChange) {
-    match change {
-        PreviewChange::Set { event_id, text, ts } => {
-            previews.insert(room.to_owned(), (event_id, text, ts));
-        }
-        PreviewChange::Remove { target } => {
-            if previews.get(room).is_some_and(|(id, ..)| *id == target) {
-                previews.remove(room);
-            }
-        }
-        PreviewChange::Ignore => {}
-    }
-}
-
-/// Server time (ms) of the last real message seen. The SDK recency stamp is a bump counter, not a
-/// time, and is absent without sliding sync; this one is the same on Synapse and Tuwunel.
-fn last_activity(previews: &Previews, room: &str) -> Option<u64> {
-    previews.get(room).and_then(|(.., ts)| *ts)
+    let message = content.as_message()?;
+    Some(match message.msgtype() {
+        MessageType::Image(_) => "Immagine".to_owned(),
+        _ => message.body().to_owned(),
+    })
 }
 
 /// Name shown in the room list: the SDK-computed display name, the raw id only as a last resort.
@@ -1067,15 +1022,11 @@ async fn open_page(
         .ok_or(HistoryError::Unavailable)?;
     let (mut rows, _, next) = stored_events(client, &id).await?;
     let anchor = rows.last().and_then(|e| e.event_id());
-    // Subscribed before the sync so the cache applies the missed messages as they arrive.
+    // Subscribed first: the running SyncService feeds the cache, so missed messages arrive live.
     let (events, _drop) = room
         .event_cache()
         .await
         .map_err(|_| HistoryError::Unavailable)?;
-    client
-        .sync_once(matrix_sdk::config::SyncSettings::default())
-        .await
-        .map_err(|_| HistoryError::Transport)?;
     // shortcut: at most 10 batches of 20 for the hole; a longer absence reopens to the newest part.
     let mut fresh = events
         .events()
