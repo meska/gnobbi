@@ -1,0 +1,12 @@
+# Gnobbi vendored matrix-sdk
+
+- Version: 0.19.1 (Apache-2.0).
+- Official archive: https://static.crates.io/crates/matrix-sdk/matrix-sdk-0.19.1.crate
+- Archive SHA-256: `2afc652a144822f6fbe24084e08bc59cb483fd0b504396d492131dec0749396e`, verified against the original Cargo.lock registry checksum before vendoring.
+- Upstream source files modified: `src/config/request.rs`, `src/error.rs`, `src/http_client/native.rs`, `src/media.rs`.
+- `DefaultMediaFetcher::fetch_media_content_with_request_config` exposes the existing endpoint/auth/decrypt algorithm with a caller-supplied configuration and no cache access. The unchanged `MediaFetcher` trait delegates with the client's configuration and the original unlimited download timeout.
+- Native-only `RequestConfig::max_response_size(Option<usize>)` defaults to `None`, preserving the original unbounded response converter. `Some(limit)` checks Content-Length as a prefilter and counts each received chunk before append, returning `HttpError::ResponseTooLarge { limit }` before parsing/decryption. The error remains permanent under the existing retry classification. The bound is on accumulated body bytes, not exact RSS or socket buffering.
+- `wasm.rs` is unchanged; the configuration field and setter do not exist on wasm. No dependency changes, custom auth or crypto.
+- Added distribution files only: this document and `LICENSE`.
+- The published archive omits LICENSE. The added license is copied from the exact upstream revision recorded in the archive's `.cargo_vcs_info.json`: https://raw.githubusercontent.com/matrix-org/matrix-rust-sdk/b18166c68bb958a21f0bca8b2d8320cb53583362/LICENSE
+- `../matrix-sdk-0.19.1.patch` is generated using `diff -ruN` from the extracted official archive to this directory, excluding the two added distribution files (`GNOBBI-PATCH.md`, `LICENSE`). All other upstream files remain byte-identical.
