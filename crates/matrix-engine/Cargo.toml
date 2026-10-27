@@ -47,3 +47,7 @@ required-features = ["sdk"]
 [[test]]
 name = "room_open_baseline"
 required-features = ["sdk"]
+
+[[test]]
+name = "tuwunel_room_list_smoke"
+required-features = ["sdk"]
