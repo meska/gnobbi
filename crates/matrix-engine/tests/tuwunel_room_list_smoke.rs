@@ -5,10 +5,10 @@
 #![cfg(feature = "sdk")]
 use futures_util::StreamExt;
 use matrix_engine::{
-    sdk::{sliding_sync::VersionBuilder, Client},
+    sdk::{Client, sliding_sync::VersionBuilder},
     sdk_ui::{eyeball_im::VectorDiff, sync_service::SyncService},
 };
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} required"))

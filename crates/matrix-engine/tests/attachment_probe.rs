@@ -19,8 +19,10 @@ use matrix_engine::{
                 Direction,
                 client::{
                     message::get_message_events::v3::Request as MessagesRequest,
-                    room::create_room::v3::{CreationContent, Request as CreateRoomRequest, RoomPreset},
                     room::Visibility,
+                    room::create_room::v3::{
+                        CreationContent, Request as CreateRoomRequest, RoomPreset,
+                    },
                 },
             },
             assign,
@@ -47,16 +49,13 @@ async fn until(what: &str, mut cond: impl FnMut() -> bool) {
 
 /// Raw JSON of a decrypted (or plain) room message sent by `sender` whose
 /// msgtype is `msgtype`, polled from the accumulated room event cache.
-async fn wait_message(
-    events: &RoomEventCache,
-    sender: &str,
-    msgtype: &str,
-) -> serde_json::Value {
+async fn wait_message(events: &RoomEventCache, sender: &str, msgtype: &str) -> serde_json::Value {
     let start = Instant::now();
     loop {
         if let Ok(list) = events.events().await {
             if let Some(found) = list.iter().find_map(|event| {
-                let value: serde_json::Value = serde_json::from_str(event.raw().json().get()).ok()?;
+                let value: serde_json::Value =
+                    serde_json::from_str(event.raw().json().get()).ok()?;
                 let content = &value["content"];
                 (value["sender"] == sender
                     && value["type"] == "m.room.message"
