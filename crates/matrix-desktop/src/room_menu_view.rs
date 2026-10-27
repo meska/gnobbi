@@ -20,6 +20,20 @@ impl Shell {
         cx.notify();
     }
 
+    /// Opening or receiving in the room on screen: send the marker when the newest message is in view.
+    pub(crate) fn mark_open_room_read(&mut self, cx: &mut Context<Self>) {
+        if !self.read_dirty || !self.connected || self.pending_operation_command.is_some() {
+            return;
+        }
+        let (Some(room), Some(timeline)) = (self.sidebar.selected(), &self.timeline) else { return };
+        if cx.active_window().is_none() || !timeline.at_bottom() {
+            return;
+        }
+        let scope = room.scope.clone();
+        self.read_dirty = false;
+        self.mark_room(scope, true, cx);
+    }
+
     pub(crate) fn render_room_menu(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> gpui::AnyElement {
         let Some((scope, at)) = self.room_menu.clone() else { return div().into_any_element() };
         let item = |i: usize| {

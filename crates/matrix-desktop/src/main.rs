@@ -118,6 +118,8 @@ struct Shell {
     operations: std::rc::Rc<std::cell::RefCell<matrix_desktop::LiveOperations>>,
     operation_commands: Option<matrix_engine::Sender<matrix_engine::operations::OperationCommand>>,
     pending_operation_command: Option<matrix_engine::operations::OperationCommand>,
+    /// The open room may hold unread messages in view; cleared once the read marker is queued.
+    read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
     connected: bool,
     status: RoomSyncStatus,
@@ -1040,6 +1042,7 @@ impl Shell {
                 }
                 self.timeline = Some(timeline);
                 self.pending_history = Some(request);
+                self.read_dirty = true;
                 self.refresh_delivery(false);
             } else if scope.is_none() {
                 self.set_room_details_open(false);
@@ -2382,7 +2385,10 @@ fn main() {
                                                     this.sidebar.apply_diff(diff);
                                                     this.keep_reading_position(anchor);
                                                 }
-                                                RoomListEvent::TimelineActivity(scope) => this.history.activity(&scope),
+                                                RoomListEvent::TimelineActivity(scope) => {
+                                                    this.read_dirty |= this.sidebar.selected().is_some_and(|r| r.scope == scope);
+                                                    this.history.activity(&scope)
+                                                }
                                                 RoomListEvent::Order(order) => {
                                                     let anchor = this.reading_anchor();
                                                     this.sidebar.set_order(order);
@@ -2413,6 +2419,7 @@ fn main() {
                                         }
                                         if changed {
                                             this.sync_room(cx);
+                                            this.read_dirty |= !pages.is_empty();
                                             for result in pages {
                                                 let live = this.history.is_live(&result.tag);
                                                 let events = if live { this.history.apply_live(result) } else { this.history.apply(result) };
@@ -2441,6 +2448,7 @@ fn main() {
                                         if let Some(sender) = &mut this.media_commands {
                                             this.media.flush(sender);
                                         }
+                                        this.mark_open_room_read(cx);
                                         this.flush_operations();
                                         if let Some(sender) = &mut this.verification_commands {
                                             this.verification.flush(sender);
@@ -2626,6 +2634,7 @@ fn main() {
                         operations: std::rc::Rc::default(),
                         operation_commands: operation_commands.take(),
                         pending_operation_command: None,
+                        read_dirty: false,
                         confirm_redaction: None,
                         connected,
                         status: RoomSyncStatus::Connecting,

@@ -1061,7 +1061,7 @@ impl TimelineView {
         }
     }
 
-    fn at_bottom(&self) -> bool {
+    pub(crate) fn at_bottom(&self) -> bool {
         self.state.max_offset_for_scrollbar().height + self.state.scroll_px_offset_for_scrollbar().y
             <= px(2.)
     }
