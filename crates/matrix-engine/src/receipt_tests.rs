@@ -69,3 +69,74 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
         assert!(sync.next_batch().await.unwrap().iter().any(|d| matches!(d, RoomListDiff::Remove(s) if s.room_id.as_str() == room)));
     });
 }
+
+/// RED (known bug): opening a room with N unread messages leaves the counter at N.
+///
+/// Scenario on a disposable Synapse with synthetic accounts only: alice sends N messages into a
+/// two-member room, bob's room list shows unread == N; bob then opens the room through the engine
+/// (`open_history`, the call the desktop makes) and, after further syncs, the counter must drop to 0.
+/// Today nothing sends a read receipt or fully-read marker on open, so the server keeps counting
+/// and the assertion at the end fails with "unread still 3".
+/// Run: `python3 the auth_smoke script --filter disposable_open_room_clears_unread_counter`
+/// (fresh Synapse in a loopback-only bwrap sandbox, via `the ct script`).
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_open_room_clears_unread_counter() {
+    use crate::{RoomListDiff, ViewRequests, room_sync::RoomSync};
+    const N: u64 = 3;
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+        let room = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+        for i in 0..N {
+            room_request(&config, "alice", reqwest::Method::PUT,
+                &format!("rooms/{room}/send/m.room.message/unread-{i}"),
+                serde_json::json!({"msgtype":"m.text","body":format!("unread {i}")})).await;
+        }
+        // open_history needs the SDK event cache, which only the store-backed session has.
+        let root = std::env::temp_dir().join(format!("gnobbi-test-unread-{}", std::process::id()));
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).unwrap();
+        }
+        let bob = AccountStore::create(&root, AccountId::new(56)).unwrap()
+            .password_login_with_http(
+                HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+                "@bob:matrix-desktop.test",
+                config["bob_password"].as_str().unwrap(),
+                "long disposable fixture passphrase",
+                http(&config),
+            )
+            .await
+            .expect("fixture login accepted");
+        let mut sync = RoomSync::new(bob);
+        // Latest unread counter shown for the room in the list, once it equals `want` or after 8 batches.
+        let settle = async |sync: &mut RoomSync, mut unread: Option<u64>, want: u64| {
+            for _ in 0..8 {
+                for change in sync.next_batch().await.unwrap() {
+                    if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room {
+                        unread = Some(s.unread);
+                    }
+                }
+                if unread == Some(want) { break; }
+            }
+            unread
+        };
+        let unread = settle(&mut sync, None, N).await;
+        assert_eq!(unread, Some(N), "precondition: {N} unread messages shown before opening");
+
+        let scope = matrix_domain::RoomScope {
+            account_id: AccountId::new(56),
+            room_id: matrix_domain::RoomId::new(room.clone()),
+        };
+        let (page, _) = sync.open_history(ViewRequests::new().start(scope).unwrap()).await.unwrap();
+        assert!(page.events.len() >= N as usize, "the opened room shows the {N} messages");
+
+        let unread = settle(&mut sync, unread, 0).await;
+        drop(sync);
+        let _ = std::fs::remove_dir_all(&root); // before the assert: a RED panic must not leave state
+        assert_eq!(unread, Some(0), "opening the room must clear the unread counter, but it is still {unread:?}");
+    });
+}
