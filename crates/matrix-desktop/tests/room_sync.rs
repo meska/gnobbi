@@ -104,7 +104,8 @@ fn unread_filter_reacts_to_live_diffs_without_changing_hidden_selection() {
     assert_eq!(sidebar.rooms().len(), 2);
     sidebar.set_query("");
     sidebar.set_unread_only(false);
-    assert_eq!(sidebar.visible_indices(), &[0, 1]);
+    // Plain list: idle rooms by name, so Beta (index 1) precedes Renamed (index 0).
+    assert_eq!(sidebar.visible_indices(), &[1, 0]);
 }
 
 #[test]
@@ -227,7 +228,7 @@ fn rooms_with_only_me_and_no_messages_are_hidden_until_shown() {
     };
     assert_eq!(
         names(&sidebar),
-        ["!talk:test", "!unread:test", "!peer:test", "!unknown:test"]
+        ["!peer:test", "!talk:test", "!unknown:test", "!unread:test"]
     );
     assert_eq!(sidebar.hidden_empty_count(), 1);
     sidebar.set_show_empty(true);
