@@ -313,9 +313,7 @@ fn mac_target_handler_respects_disabled_marked_empty_and_multiline_guards() {
             }
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(MARKER.into()));
         }
-        eprintln!(
-            "Mac-target disabled/marked/empty/Alt/multiline guards passed (not native Cmd)"
-        );
+        eprintln!("Mac-target disabled/marked/empty/Alt/multiline guards passed (not native Cmd)");
     });
 }
 

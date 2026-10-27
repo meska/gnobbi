@@ -165,7 +165,11 @@ fn inline_loading_asks_for_one_image_at_a_time_and_never_repeats_a_settled_one()
         event,
         result: Ok(DownloadedPng {
             bytes: vec![1],
-            preview: Preview { width: 1, height: 1, rgba: vec![0, 0, 0, 255] }
+            preview: Preview {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 255]
+            }
         })
     }));
     assert!(view.take_preview().is_some());

@@ -1,5 +1,5 @@
-use matrix_engine::history::HistorySender;
 use matrix_domain::{EventId, RoomScope, ScopedTimelineId, TimelineId, TransactionId};
+use matrix_engine::history::HistorySender;
 
 /// Offline presentation workload, not server history or canonical SDK state.
 pub struct DemoHistory {
@@ -41,7 +41,10 @@ impl DemoEvent {
 
     /// Server event id shown in debug mode; unsent rows have none.
     pub fn debug_id(&self) -> Option<&str> {
-        match &self.id.id { TimelineId::Server(id) => Some(id.as_str()), _ => None }
+        match &self.id.id {
+            TimelineId::Server(id) => Some(id.as_str()),
+            _ => None,
+        }
     }
 
     /// Whether the message offers its actions menu: confirmed server messages only.
@@ -56,15 +59,27 @@ pub fn debug_room_line(scope: &matrix_domain::RoomScope, sync: &str) -> String {
 }
 
 /// Menu key or Shift+F10, the platform keys that open a context menu.
-pub fn opens_message_menu(key: &str, shift: bool, control: bool, alt: bool, platform: bool) -> bool {
+pub fn opens_message_menu(
+    key: &str,
+    shift: bool,
+    control: bool,
+    alt: bool,
+    platform: bool,
+) -> bool {
     !control && !alt && !platform && (key == "menu" || (key == "f10" && shift))
 }
 
 impl DemoHistory {
     /// Message the keyboard menu opens on: `focused` when it still offers one, else the newest.
-    pub fn keyboard_menu_target(&self, focused: Option<&ScopedTimelineId>) -> Option<ScopedTimelineId> {
-        let offers = |e: &&DemoEvent| e.menu_available(true) && matches!(e.id.id, TimelineId::Server(_));
-        self.events().iter().filter(offers)
+    pub fn keyboard_menu_target(
+        &self,
+        focused: Option<&ScopedTimelineId>,
+    ) -> Option<ScopedTimelineId> {
+        let offers =
+            |e: &&DemoEvent| e.menu_available(true) && matches!(e.id.id, TimelineId::Server(_));
+        self.events()
+            .iter()
+            .filter(offers)
             .find(|e| Some(&e.id) == focused)
             .or_else(|| self.events().iter().rev().find(offers))
             .map(|e| e.id.clone())
@@ -405,8 +420,12 @@ impl DemoHistory {
             let same = prev.sender.as_ref().is_some_and(|p| p.id == sender.id);
             (same, event.timestamp_ms.saturating_sub(prev.timestamp_ms))
         });
-        matrix_domain::shows_sender_label(member_count.try_into().unwrap_or(u32::MAX), event.outgoing, previous)
-            .then(|| sender.name.clone().unwrap_or_else(|| sender.id.clone()))
+        matrix_domain::shows_sender_label(
+            member_count.try_into().unwrap_or(u32::MAX),
+            event.outgoing,
+            previous,
+        )
+        .then(|| sender.name.clone().unwrap_or_else(|| sender.id.clone()))
     }
 }
 

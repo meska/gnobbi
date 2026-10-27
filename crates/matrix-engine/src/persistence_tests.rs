@@ -287,13 +287,18 @@ fn profile_made_before_event_cache_opens_with_its_data_and_cache_on() {
             .await
             .expect("old profile opens");
         assert!(client.event_cache().has_subscribed());
-        assert!(fs::read_dir(&store.path).unwrap().any(|e| e
-            .unwrap()
-            .file_name()
-            .to_string_lossy()
-            .contains("event-cache")));
+        assert!(fs::read_dir(&store.path).unwrap().any(|e| {
+            e.unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains("event-cache")
+        }));
         assert_eq!(
-            client.state_store().get_custom_value(b"kept").await.unwrap(),
+            client
+                .state_store()
+                .get_custom_value(b"kept")
+                .await
+                .unwrap(),
             Some(b"before".to_vec())
         );
     });

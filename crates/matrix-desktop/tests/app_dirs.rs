@@ -83,7 +83,10 @@ fn ensure_creates_every_directory_private() {
     d.ensure().unwrap();
     d.ensure().unwrap(); // idempotent
     for p in [&d.config, &d.data, &d.cache] {
-        assert_eq!(std::fs::metadata(p).unwrap().permissions().mode() & 0o777, 0o700);
+        assert_eq!(
+            std::fs::metadata(p).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
     std::fs::remove_dir_all(&base).unwrap();
 }

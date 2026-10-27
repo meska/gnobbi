@@ -21,10 +21,14 @@ pub enum RecoveryError {
 }
 
 fn classify(error: &matrix_sdk::encryption::recovery::RecoveryError) -> RecoveryError {
-    use matrix_sdk::encryption::{recovery::RecoveryError as Sdk, secret_storage::SecretStorageError as Store};
+    use matrix_sdk::encryption::{
+        recovery::RecoveryError as Sdk, secret_storage::SecretStorageError as Store,
+    };
     match error {
         Sdk::SecretStorage(Store::SecretStorageKey(_)) => RecoveryError::WrongKey,
-        Sdk::SecretStorage(Store::MissingKeyInfo { key_id: None }) => RecoveryError::NoSecretStorage,
+        Sdk::SecretStorage(Store::MissingKeyInfo { key_id: None }) => {
+            RecoveryError::NoSecretStorage
+        }
         Sdk::Sdk(_) | Sdk::SecretStorage(Store::Sdk(_)) => RecoveryError::Transport,
         _ => RecoveryError::Failed,
     }
@@ -51,7 +55,9 @@ pub enum SetupError {
 }
 
 fn classify_setup(error: &matrix_sdk::encryption::recovery::RecoveryError) -> SetupError {
-    use matrix_sdk::encryption::{recovery::RecoveryError as Sdk, secret_storage::SecretStorageError as Store};
+    use matrix_sdk::encryption::{
+        recovery::RecoveryError as Sdk, secret_storage::SecretStorageError as Store,
+    };
     let sdk = match error {
         Sdk::Sdk(e) | Sdk::SecretStorage(Store::Sdk(e)) => e,
         Sdk::BackupExistsOnServer => return SetupError::Partial,
@@ -59,7 +65,10 @@ fn classify_setup(error: &matrix_sdk::encryption::recovery::RecoveryError) -> Se
     };
     if sdk.as_uiaa_response().is_some() {
         SetupError::AuthRequired
-    } else if matches!(sdk.client_api_error_kind(), Some(matrix_sdk::ruma::api::error::ErrorKind::Unrecognized)) {
+    } else if matches!(
+        sdk.client_api_error_kind(),
+        Some(matrix_sdk::ruma::api::error::ErrorKind::Unrecognized)
+    ) {
         SetupError::Unsupported
     } else {
         SetupError::Transport
@@ -138,7 +147,12 @@ impl AccountSession {
             return Err(RecoveryError::InvalidSecret);
         }
         tokio::time::timeout(Duration::from_secs(40), async {
-            client.encryption().recovery().recover(key).await.map_err(|e| classify(&e))?;
+            client
+                .encryption()
+                .recovery()
+                .recover(key)
+                .await
+                .map_err(|e| classify(&e))?;
             if !client.encryption().backups().are_enabled().await {
                 return Err(RecoveryError::BackupUnavailable);
             }
@@ -224,19 +238,41 @@ impl AccountSession {
         let transport = |_| SetupError::Transport;
         tokio::time::timeout(Duration::from_secs(60), async {
             let encryption = client.encryption();
-            let storage = encryption.secret_storage().fetch_default_key_id().await.map_err(transport)?.is_some();
-            let backup = encryption.backups().fetch_exists_on_server().await.map_err(transport)?;
+            let storage = encryption
+                .secret_storage()
+                .fetch_default_key_id()
+                .await
+                .map_err(transport)?
+                .is_some();
+            let backup = encryption
+                .backups()
+                .fetch_exists_on_server()
+                .await
+                .map_err(transport)?;
             match (storage, backup) {
                 (true, true) => return Err(SetupError::AlreadyExists),
                 (true, false) | (false, true) => return Err(SetupError::Partial),
                 (false, false) => (),
             }
             // A published identity without local private keys would be replaced by the bootstrap.
-            let complete = encryption.cross_signing_status().await.is_some_and(|status| status.is_complete());
-            if !complete && encryption.request_user_identity(&me).await.map_err(transport)?.is_some() {
+            let complete = encryption
+                .cross_signing_status()
+                .await
+                .is_some_and(|status| status.is_complete());
+            if !complete
+                && encryption
+                    .request_user_identity(&me)
+                    .await
+                    .map_err(transport)?
+                    .is_some()
+            {
                 return Err(SetupError::IdentityRequired);
             }
-            encryption.recovery().enable().wait_for_backups_to_upload().await
+            encryption
+                .recovery()
+                .enable()
+                .wait_for_backups_to_upload()
+                .await
                 .map(|key| RecoverySecret(zeroize::Zeroizing::new(key)))
                 .map_err(|e| classify_setup(&e))
         })

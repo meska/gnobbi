@@ -17,7 +17,10 @@ fn legacy_with_file(root: &Path) -> PathBuf {
 
 #[test]
 fn legacy_path_is_dime_profile_under_home() {
-    assert_eq!(legacy_path(Path::new("/h")), PathBuf::from("/h/Dime/profile"));
+    assert_eq!(
+        legacy_path(Path::new("/h")),
+        PathBuf::from("/h/Dime/profile")
+    );
 }
 
 #[test]
@@ -44,7 +47,11 @@ fn adopt_moves_profile_and_keeps_permissions() {
     adopt(&legacy, &data).unwrap();
     assert!(!legacy.exists());
     assert_eq!(std::fs::read(data.join("profile/store.db")).unwrap(), b"x");
-    let mode = std::fs::metadata(data.join("profile")).unwrap().permissions().mode() & 0o777;
+    let mode = std::fs::metadata(data.join("profile"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
     assert_eq!(mode, 0o700);
 }
 
@@ -76,7 +83,9 @@ fn failed_rename_across_devices_leaves_legacy_untouched() {
     let root = tmp("xdev");
     let legacy = legacy_with_file(&root);
     let shm = Path::new("/dev/shm");
-    if !shm.is_dir() || std::fs::metadata(shm).unwrap().dev() == std::fs::metadata(&root).unwrap().dev() {
+    if !shm.is_dir()
+        || std::fs::metadata(shm).unwrap().dev() == std::fs::metadata(&root).unwrap().dev()
+    {
         eprintln!("skipped: no second filesystem available");
         return;
     }

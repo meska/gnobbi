@@ -255,7 +255,10 @@ impl matrix_engine::signin::ProtectionSource for NoVault {
 fn first_mode(binding: Option<&[u8]>, with_source: bool) -> SignInMode {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
     let root = Root::new();
-    std::fs::DirBuilder::new().mode(0o700).create(&root.0).unwrap();
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&root.0)
+        .unwrap();
     let write = |name: &str, bytes: &[u8]| {
         use std::io::Write;
         std::fs::OpenOptions::new()
@@ -321,9 +324,18 @@ mod auto_unlock {
     fn vault_root() -> Root {
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
         let root = Root::new();
-        std::fs::DirBuilder::new().mode(0o700).create(&root.0).unwrap();
-        std::fs::DirBuilder::new().mode(0o700).create(root.0.join("account-1")).unwrap();
-        for (name, bytes) in [("active-account", &b"1"[..]), ("protection-mode", b"vault-v1")] {
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&root.0)
+            .unwrap();
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(root.0.join("account-1"))
+            .unwrap();
+        for (name, bytes) in [
+            ("active-account", &b"1"[..]),
+            ("protection-mode", b"vault-v1"),
+        ] {
             use std::io::Write;
             std::fs::OpenOptions::new()
                 .write(true)
@@ -341,7 +353,10 @@ mod auto_unlock {
     fn first_prompt(delay: Duration, timeout: Duration) -> (SignInPrompt, u32, Duration) {
         let root = vault_root();
         let reads = Arc::new(AtomicU32::new(0));
-        let source = Counting { reads: reads.clone(), delay };
+        let source = Counting {
+            reads: reads.clone(),
+            delay,
+        };
         let (mut ui, pending) = interactive_with_source(root.0.clone(), None, Box::new(source));
         let start = Instant::now();
         let prompt = runtime().block_on(async {
@@ -368,9 +383,11 @@ mod auto_unlock {
 
     #[test]
     fn a_hanging_vault_read_times_out_instead_of_blocking_the_prompt() {
-        let (prompt, _, elapsed) =
-            first_prompt(Duration::from_secs(3), Duration::from_millis(200));
-        assert_eq!(prompt.error, Some(SignInError::Vault(VaultError::Unavailable)));
+        let (prompt, _, elapsed) = first_prompt(Duration::from_secs(3), Duration::from_millis(200));
+        assert_eq!(
+            prompt.error,
+            Some(SignInError::Vault(VaultError::Unavailable))
+        );
         assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
     }
 
@@ -384,7 +401,8 @@ mod auto_unlock {
             if self.0.fetch_add(1, Ordering::Relaxed) == 0 {
                 Err(VaultError::Locked)
             } else {
-                Secret::new("fixture vault key fixture vault key".into()).map_err(|_| VaultError::Unavailable)
+                Secret::new("fixture vault key fixture vault key".into())
+                    .map_err(|_| VaultError::Unavailable)
             }
         }
     }
@@ -393,12 +411,19 @@ mod auto_unlock {
     fn retry_after_the_keyring_is_unlocked_reads_the_key_again_and_leaves_the_vault_error() {
         let root = vault_root();
         let reads = Arc::new(AtomicU32::new(0));
-        let (mut ui, pending) = interactive_with_source(root.0.clone(), None, Box::new(Unlocks(reads.clone())));
+        let (mut ui, pending) =
+            interactive_with_source(root.0.clone(), None, Box::new(Unlocks(reads.clone())));
         let second = runtime().block_on(async {
             let consumer = async {
-                let Some(SignInEvent::Prompt(first)) = ui.events.recv().await else { panic!("first prompt") };
+                let Some(SignInEvent::Prompt(first)) = ui.events.recv().await else {
+                    panic!("first prompt")
+                };
                 assert_eq!(first.error, Some(SignInError::Vault(VaultError::Locked)));
-                assert!(ui.commands.try_send(matrix_engine::signin::SignInCommand::UnlockVault).is_ok());
+                assert!(
+                    ui.commands
+                        .try_send(matrix_engine::signin::SignInCommand::UnlockVault)
+                        .is_ok()
+                );
                 let event = ui.events.recv().await;
                 drop(ui);
                 event
@@ -407,7 +432,13 @@ mod auto_unlock {
         });
         assert_eq!(reads.load(Ordering::Relaxed), 2);
         assert!(
-            !matches!(second, Some(SignInEvent::Prompt(SignInPrompt { error: Some(SignInError::Vault(_)), .. }))),
+            !matches!(
+                second,
+                Some(SignInEvent::Prompt(SignInPrompt {
+                    error: Some(SignInError::Vault(_)),
+                    ..
+                }))
+            ),
             "{second:?}"
         );
     }

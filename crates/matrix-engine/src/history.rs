@@ -20,7 +20,10 @@ impl HistorySender {
     pub fn new(id: &str, name: Option<&str>) -> Self {
         Self {
             id: id.to_owned(),
-            name: name.map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned),
+            name: name
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_owned),
         }
     }
 }

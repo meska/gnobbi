@@ -3,11 +3,11 @@ use crate::{FormStatus, SignInForm, SignInSource};
 use accesskit::{Action, ActionRequest, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use matrix_engine::signin::SignInMode;
 
-pub use crate::{
-    COPY_LABEL, DEFER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_PENDING, RECOVERY_WARNING, RECOVER_LABEL, RETRY_LABEL,
-    SAVED_LABEL, SETUP_KEY_MASKED, SETUP_LABEL, SETUP_RETRY_LABEL,
-};
 use crate::SetupPhase;
+pub use crate::{
+    COPY_LABEL, DEFER_LABEL, RECOVER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_PENDING, RECOVERY_WARNING,
+    RETRY_LABEL, SAVED_LABEL, SETUP_KEY_MASKED, SETUP_LABEL, SETUP_RETRY_LABEL,
+};
 use matrix_engine::signin::RecoveryState;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Control {
@@ -127,7 +127,9 @@ impl Snapshot {
                     || self.setup_offered
                     || self.setup == Some(SetupPhase::Pending)
             }
-            Control::Phrase if self.recovery.is_some() => self.recovery != Some(RecoveryState::Unsupported),
+            Control::Phrase if self.recovery.is_some() => {
+                self.recovery != Some(RecoveryState::Unsupported)
+            }
             _ if self.setup == Some(SetupPhase::KeyShown) => false,
             _ if self.recovery.is_some() => false,
             Control::Submit => true,
@@ -155,10 +157,10 @@ impl Snapshot {
             }
         } else {
             self.status.error_message().unwrap_or(match self.status {
-            FormStatus::Opening => "Apertura profilo…",
-            FormStatus::Busy => "Attendere…",
-            _ => "Matrix diretto · nessun gateway",
-        })
+                FormStatus::Opening => "Apertura profilo…",
+                FormStatus::Busy => "Attendere…",
+                _ => "Matrix diretto · nessun gateway",
+            })
         });
         let mut tree = TreeUpdate {
             nodes: vec![(super::ROOT, root)],
@@ -183,9 +185,15 @@ impl Snapshot {
                 Control::Submit if self.mode != SignInMode::Password => "Sblocca",
                 Control::Submit => "Accedi",
                 Control::Recover if self.recovery == Some(RecoveryState::Unsupported) => {
-                    if matches!(self.setup, Some(SetupPhase::Failed(_))) { SETUP_RETRY_LABEL } else { SETUP_LABEL }
+                    if matches!(self.setup, Some(SetupPhase::Failed(_))) {
+                        SETUP_RETRY_LABEL
+                    } else {
+                        SETUP_LABEL
+                    }
                 }
-                Control::Recover if matches!(self.recovery, Some(RecoveryState::Failed(_))) => RETRY_LABEL,
+                Control::Recover if matches!(self.recovery, Some(RecoveryState::Failed(_))) => {
+                    RETRY_LABEL
+                }
                 Control::Recover => RECOVER_LABEL,
                 Control::Defer if self.setup == Some(SetupPhase::KeyShown) => SAVED_LABEL,
                 Control::Defer => DEFER_LABEL,

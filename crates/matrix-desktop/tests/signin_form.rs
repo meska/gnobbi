@@ -268,16 +268,26 @@ fn visible_fields_follow_the_flow() {
     assert_eq!(visible_fields(SignInMode::Password, true), &[0, 1, 2]);
     assert_eq!(visible_fields(SignInMode::Password, false), &[0, 1, 2, 3]);
     assert_eq!(visible_fields(SignInMode::Unlock, true), &[3]);
-    assert_eq!(visible_fields(SignInMode::UnlockVault, true), &[] as &[usize]);
+    assert_eq!(
+        visible_fields(SignInMode::UnlockVault, true),
+        &[] as &[usize]
+    );
 }
 
 #[test]
 fn vault_failures_get_their_own_actionable_messages() {
     use matrix_engine::signin::{SignInError, VaultError::*};
-    let message = |error| FormStatus::Failed(SignInError::Vault(error)).error_message().unwrap();
+    let message = |error| {
+        FormStatus::Failed(SignInError::Vault(error))
+            .error_message()
+            .unwrap()
+    };
     for error in [Unavailable, Locked] {
         let text = message(error);
-        assert!(text.to_lowercase().contains("portachiavi"), "{error:?}: {text}");
+        assert!(
+            text.to_lowercase().contains("portachiavi"),
+            "{error:?}: {text}"
+        );
         assert!(!text.contains("percorso del profilo"), "{error:?}: {text}");
     }
     for error in [Missing, InvalidItem, AlreadyExists] {
@@ -307,7 +317,10 @@ fn recovery_key_is_sent_once_and_the_step_waits_in_pending() {
     ));
     assert_eq!(form.recovery(), Some(RecoveryState::Pending));
     assert_eq!(form.source(), None);
-    assert!(form.phrase.display_text().is_empty(), "the key leaves the editor");
+    assert!(
+        form.phrase.display_text().is_empty(),
+        "the key leaves the editor"
+    );
     assert!(form.recover_source(source).is_none());
 }
 
@@ -341,14 +354,20 @@ fn every_recovery_failure_has_its_own_message_and_keeps_skip_and_retry() {
         let message = form.error_message().expect("typed message");
         assert!(seen.insert(message), "{failure:?} shares its message");
         let source = form.source().expect("retry and skip stay possible");
-        assert!(matches!(form.defer_source(source), Some(SignInCommand::DeferRecovery)));
+        assert!(matches!(
+            form.defer_source(source),
+            Some(SignInCommand::DeferRecovery)
+        ));
     }
     let mut form = offered_form();
     form.apply(SignInEvent::Recovery(RecoveryState::Unsupported));
     assert!(form.error_message().unwrap().contains("archivio segreto"));
     let source = form.source().unwrap();
     form.phrase.replace(None, "ignored");
-    assert!(form.recover_source(source).is_none(), "no key route without secret storage");
+    assert!(
+        form.recover_source(source).is_none(),
+        "no key route without secret storage"
+    );
     assert_eq!(form.recovery(), Some(RecoveryState::Unsupported));
 }
 
@@ -379,7 +398,10 @@ mod recovery_setup {
     fn shown_form() -> matrix_desktop::SignInForm {
         let mut form = absent_form();
         let source = form.source().unwrap();
-        assert!(matches!(form.setup_source(source), Some(SignInCommand::SetupRecovery)));
+        assert!(matches!(
+            form.setup_source(source),
+            Some(SignInCommand::SetupRecovery)
+        ));
         form.apply_setup(SetupEvent::Pending);
         form.apply_setup(SetupEvent::Ready(RecoverySecret::fixture(KEY)));
         form
@@ -402,11 +424,21 @@ mod recovery_setup {
         let mut form = absent_form();
         assert!(form.setup_offered());
         let source = form.source().unwrap();
-        assert!(matches!(form.setup_source(source), Some(SignInCommand::SetupRecovery)));
-        assert!(form.setup_source(source).is_none(), "one activation, one command");
+        assert!(matches!(
+            form.setup_source(source),
+            Some(SignInCommand::SetupRecovery)
+        ));
+        assert!(
+            form.setup_source(source).is_none(),
+            "one activation, one command"
+        );
         form.apply_setup(SetupEvent::Pending);
         assert_eq!(form.setup_phase(), Some(SetupPhase::Pending));
-        assert_eq!(form.source(), None, "nothing is actionable while the setup runs");
+        assert_eq!(
+            form.source(),
+            None,
+            "nothing is actionable while the setup runs"
+        );
     }
 
     #[test]
@@ -414,13 +446,30 @@ mod recovery_setup {
         let mut form = shown_form();
         assert_eq!(form.setup_phase(), Some(SetupPhase::KeyShown));
         assert_eq!(form.recovery_key(), Some(KEY));
-        assert_eq!(form.error_message(), None, "no stale message next to a shown key");
+        assert_eq!(
+            form.error_message(),
+            None,
+            "no stale message next to a shown key"
+        );
         let source = form.source().unwrap();
-        assert!(form.defer_source(source).is_none(), "skipping is not the confirmation");
-        assert!(form.setup_source(source).is_none(), "no second key while one is shown");
+        assert!(
+            form.defer_source(source).is_none(),
+            "skipping is not the confirmation"
+        );
+        assert!(
+            form.setup_source(source).is_none(),
+            "no second key while one is shown"
+        );
         assert_eq!(form.recovery_key(), Some(KEY));
-        assert!(matches!(form.confirm_saved_source(source), Some(SignInCommand::DeferRecovery)));
-        assert_eq!(form.recovery_key(), None, "the key leaves the form on confirmation");
+        assert!(matches!(
+            form.confirm_saved_source(source),
+            Some(SignInCommand::DeferRecovery)
+        ));
+        assert_eq!(
+            form.recovery_key(),
+            None,
+            "the key leaves the form on confirmation"
+        );
         assert!(form.confirm_saved_source(source).is_none());
         assert_eq!(form.source(), None);
     }
@@ -429,7 +478,10 @@ mod recovery_setup {
     fn a_stale_source_cannot_confirm_and_confirming_needs_a_shown_key() {
         let mut form = absent_form();
         let source = form.source().unwrap();
-        assert!(form.confirm_saved_source(source).is_none(), "no key, nothing to confirm");
+        assert!(
+            form.confirm_saved_source(source).is_none(),
+            "no key, nothing to confirm"
+        );
         let mut form = shown_form();
         let old = form.source().unwrap();
         form.apply_setup(SetupEvent::Ready(RecoverySecret::fixture(KEY)));
@@ -439,7 +491,11 @@ mod recovery_setup {
 
     #[test]
     fn transient_failures_allow_retry_and_permanent_ones_only_continue_without() {
-        for failure in [SetupFailure::Network, SetupFailure::Timeout, SetupFailure::Other] {
+        for failure in [
+            SetupFailure::Network,
+            SetupFailure::Timeout,
+            SetupFailure::Other,
+        ] {
             let mut form = absent_form();
             let source = form.source().unwrap();
             form.setup_source(source).unwrap();
@@ -448,19 +504,35 @@ mod recovery_setup {
             assert!(form.error_message().is_some());
             assert!(form.setup_offered(), "{failure:?} can be retried");
             let source = form.source().unwrap();
-            assert!(matches!(form.setup_source(source), Some(SignInCommand::SetupRecovery)));
+            assert!(matches!(
+                form.setup_source(source),
+                Some(SignInCommand::SetupRecovery)
+            ));
         }
         let mut messages = std::collections::HashSet::new();
-        for failure in [SetupFailure::Partial, SetupFailure::IdentityRequired, SetupFailure::AuthRequired] {
+        for failure in [
+            SetupFailure::Partial,
+            SetupFailure::IdentityRequired,
+            SetupFailure::AuthRequired,
+        ] {
             let mut form = absent_form();
             let source = form.source().unwrap();
             form.setup_source(source).unwrap();
             form.apply_setup(SetupEvent::Failed(failure));
-            assert!(messages.insert(form.error_message().unwrap()), "{failure:?}");
-            assert!(!form.setup_offered(), "{failure:?} cannot be fixed by retrying");
+            assert!(
+                messages.insert(form.error_message().unwrap()),
+                "{failure:?}"
+            );
+            assert!(
+                !form.setup_offered(),
+                "{failure:?} cannot be fixed by retrying"
+            );
             let source = form.source().unwrap();
             assert!(form.setup_source(source).is_none());
-            assert!(matches!(form.defer_source(source), Some(SignInCommand::DeferRecovery)));
+            assert!(matches!(
+                form.defer_source(source),
+                Some(SignInCommand::DeferRecovery)
+            ));
         }
         let mut form = absent_form();
         form.apply_setup(SetupEvent::Unsupported);
@@ -479,7 +551,10 @@ mod recovery_setup {
         assert!(form.error_message().unwrap().contains("già"));
         let source = form.source().unwrap();
         form.phrase.replace(None, "existing recovery key fixture");
-        assert!(matches!(form.recover_source(source), Some(SignInCommand::EnterRecovery(_))));
+        assert!(matches!(
+            form.recover_source(source),
+            Some(SignInCommand::EnterRecovery(_))
+        ));
     }
 
     #[test]

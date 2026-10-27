@@ -6,7 +6,10 @@ use matrix_engine::history::{HistoryEvent, HistorySender};
 #[test]
 fn live_server_message_stamp_has_no_event_id() {
     let mut rows = DemoHistory::new(
-        RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") },
+        RoomScope {
+            account_id: AccountId::new(1),
+            room_id: RoomId::new("!r:test"),
+        },
         0,
     );
     rows.prepend_server(vec![HistoryEvent {

@@ -127,8 +127,5 @@ fn macos_alert_passes_text_only_as_argv_never_inside_the_script() {
     assert!(script.contains("on run argv"));
     assert!(script.contains("display notification (item 2 of argv) with title (item 1 of argv)"));
     assert!(!script.contains("Gnobbi") && !script.contains("Nuovi messaggi"));
-    assert_eq!(
-        &args[script_end + 1..],
-        ["Gnobbi", "Nuovi messaggi"]
-    );
+    assert_eq!(&args[script_end + 1..], ["Gnobbi", "Nuovi messaggi"]);
 }

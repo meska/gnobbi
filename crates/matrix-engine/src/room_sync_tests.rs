@@ -209,8 +209,14 @@ fn room_label_prefers_the_computed_name_and_uses_the_id_last() {
     use matrix_sdk::RoomDisplayName as N;
     let id = "!AHaFoh:example.org";
     assert_eq!(room_label(Some(N::Named("Team".into())), id), "Team");
-    assert_eq!(room_label(Some(N::Aliased("#team:example.org".into())), id), "#team:example.org");
-    assert_eq!(room_label(Some(N::Calculated("Anna, Luca".into())), id), "Anna, Luca");
+    assert_eq!(
+        room_label(Some(N::Aliased("#team:example.org".into())), id),
+        "#team:example.org"
+    );
+    assert_eq!(
+        room_label(Some(N::Calculated("Anna, Luca".into())), id),
+        "Anna, Luca"
+    );
     assert_eq!(room_label(Some(N::EmptyWas("Anna".into())), id), "Anna");
     assert_eq!(room_label(Some(N::Empty), id), id);
     assert_eq!(room_label(None, id), id);
@@ -219,21 +225,59 @@ fn room_label_prefers_the_computed_name_and_uses_the_id_last() {
 #[test]
 fn preview_follows_real_messages_and_ignores_edits_and_deleted_ones() {
     let msg = |id: &str, content: &str, extra: &str| {
-        format!(r#"{{"type":"m.room.message","event_id":"{id}","sender":"@a:t","content":{content}{extra}}}"#)
+        format!(
+            r#"{{"type":"m.room.message","event_id":"{id}","sender":"@a:t","content":{content}{extra}}}"#
+        )
     };
-    let set = |id: &str, text: &str| PreviewChange::Set { event_id: id.into(), text: text.into(), ts: None };
-    assert_eq!(preview_change(&msg("$1", r#"{"msgtype":"m.text","body":"ciao"}"#, "")), set("$1", "ciao"));
-    assert_eq!(preview_change(&msg("$2", r#"{"msgtype":"m.notice","body":"avviso"}"#, "")), set("$2", "avviso"));
-    assert_eq!(preview_change(&msg("$3", r#"{"msgtype":"m.image","body":"IMG_1.png"}"#, "")), set("$3", "Immagine"));
-    assert_eq!(preview_change(&msg("$4", r#"{"msgtype":"m.file","body":"a.pdf"}"#, "")), set("$4", "a.pdf"));
+    let set = |id: &str, text: &str| PreviewChange::Set {
+        event_id: id.into(),
+        text: text.into(),
+        ts: None,
+    };
+    assert_eq!(
+        preview_change(&msg("$1", r#"{"msgtype":"m.text","body":"ciao"}"#, "")),
+        set("$1", "ciao")
+    );
+    assert_eq!(
+        preview_change(&msg("$2", r#"{"msgtype":"m.notice","body":"avviso"}"#, "")),
+        set("$2", "avviso")
+    );
+    assert_eq!(
+        preview_change(&msg(
+            "$3",
+            r#"{"msgtype":"m.image","body":"IMG_1.png"}"#,
+            ""
+        )),
+        set("$3", "Immagine")
+    );
+    assert_eq!(
+        preview_change(&msg("$4", r#"{"msgtype":"m.file","body":"a.pdf"}"#, "")),
+        set("$4", "a.pdf")
+    );
     let edit = r#"{"msgtype":"m.text","body":"* x","m.relates_to":{"rel_type":"m.replace","event_id":"$1"}}"#;
     assert_eq!(preview_change(&msg("$5", edit, "")), PreviewChange::Ignore);
-    assert_eq!(preview_change(&msg("$6", "{}", r#","unsigned":{"redacted_because":{}}"#)), PreviewChange::Ignore);
-    assert_eq!(preview_change(r#"{"type":"m.room.redaction","event_id":"$7","redacts":"$1","content":{}}"#),
-        PreviewChange::Remove { target: "$1".into() });
-    assert_eq!(preview_change(r#"{"type":"m.room.redaction","event_id":"$8","content":{"redacts":"$2"}}"#),
-        PreviewChange::Remove { target: "$2".into() });
-    assert_eq!(preview_change(r#"{"type":"m.room.member","event_id":"$9","content":{}}"#), PreviewChange::Ignore);
+    assert_eq!(
+        preview_change(&msg("$6", "{}", r#","unsigned":{"redacted_because":{}}"#)),
+        PreviewChange::Ignore
+    );
+    assert_eq!(
+        preview_change(
+            r#"{"type":"m.room.redaction","event_id":"$7","redacts":"$1","content":{}}"#
+        ),
+        PreviewChange::Remove {
+            target: "$1".into()
+        }
+    );
+    assert_eq!(
+        preview_change(r#"{"type":"m.room.redaction","event_id":"$8","content":{"redacts":"$2"}}"#),
+        PreviewChange::Remove {
+            target: "$2".into()
+        }
+    );
+    assert_eq!(
+        preview_change(r#"{"type":"m.room.member","event_id":"$9","content":{}}"#),
+        PreviewChange::Ignore
+    );
     assert_eq!(preview_change("not json"), PreviewChange::Ignore);
 }
 
@@ -243,11 +287,23 @@ fn last_activity_is_the_server_time_of_the_last_real_message_only() {
         PreviewChange::Set { ts, .. } => ts,
         other => panic!("not a message: {other:?}"),
     };
-    let msg = |kind: &str, at: &str| format!(r#"{{"type":"m.room.message","event_id":"$1","origin_server_ts":{at},"content":{{"msgtype":"{kind}","body":"x"}}}}"#);
+    let msg = |kind: &str, at: &str| {
+        format!(
+            r#"{{"type":"m.room.message","event_id":"$1","origin_server_ts":{at},"content":{{"msgtype":"{kind}","body":"x"}}}}"#
+        )
+    };
     assert_eq!(ts(&msg("m.text", "1700000000000")), Some(1_700_000_000_000));
-    assert_eq!(ts(&msg("m.image", "1700000000001")), Some(1_700_000_000_001));
+    assert_eq!(
+        ts(&msg("m.image", "1700000000001")),
+        Some(1_700_000_000_001)
+    );
     assert_eq!(ts(&msg("m.file", "1700000000002")), Some(1_700_000_000_002));
-    assert_eq!(ts(r#"{"type":"m.room.message","event_id":"$2","content":{"msgtype":"m.text","body":"x"}}"#), None);
+    assert_eq!(
+        ts(
+            r#"{"type":"m.room.message","event_id":"$2","content":{"msgtype":"m.text","body":"x"}}"#
+        ),
+        None
+    );
     // Not activity: reaction, receipt-like, state, edit, redacted message.
     for raw in [
         r#"{"type":"m.reaction","event_id":"$3","origin_server_ts":5,"content":{}}"#,
@@ -262,14 +318,30 @@ fn last_activity_is_the_server_time_of_the_last_real_message_only() {
 #[test]
 fn last_activity_follows_the_preview_and_clears_when_that_message_is_deleted() {
     let mut previews = std::collections::BTreeMap::new();
-    let msg = |id: &str, at: u64| PreviewChange::Set { event_id: id.into(), text: "t".into(), ts: Some(at) };
+    let msg = |id: &str, at: u64| PreviewChange::Set {
+        event_id: id.into(),
+        text: "t".into(),
+        ts: Some(at),
+    };
     apply_preview(&mut previews, "!r", msg("$1", 10));
     apply_preview(&mut previews, "!r", msg("$2", 20));
     assert_eq!(last_activity(&previews, "!r"), Some(20));
     assert_eq!(last_activity(&previews, "!none"), None);
-    apply_preview(&mut previews, "!r", PreviewChange::Remove { target: "$1".into() });
+    apply_preview(
+        &mut previews,
+        "!r",
+        PreviewChange::Remove {
+            target: "$1".into(),
+        },
+    );
     assert_eq!(last_activity(&previews, "!r"), Some(20));
-    apply_preview(&mut previews, "!r", PreviewChange::Remove { target: "$2".into() });
+    apply_preview(
+        &mut previews,
+        "!r",
+        PreviewChange::Remove {
+            target: "$2".into(),
+        },
+    );
     assert_eq!(last_activity(&previews, "!r"), None);
 }
 
@@ -286,21 +358,39 @@ fn non_text_message_types_get_real_labels() {
                 "com.beeper.disappearing_timer":{"type":"after_read","timer":60000}}),
             "Video · 0:12 · 300 KB",
         ),
-        (serde_json::json!({"msgtype":"m.video","body":"v","url":"mxc://t/v"}), "Video"),
+        (
+            serde_json::json!({"msgtype":"m.video","body":"v","url":"mxc://t/v"}),
+            "Video",
+        ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.ogg","url":"mxc://t/a","org.matrix.msc3245.voice":{}}),
             "Nota vocale",
         ),
-        (serde_json::json!({"msgtype":"m.audio","body":"a.mp3","url":"mxc://t/a"}), "Audio"),
+        (
+            serde_json::json!({"msgtype":"m.audio","body":"a.mp3","url":"mxc://t/a"}),
+            "Audio",
+        ),
         (
             serde_json::json!({"msgtype":"m.file","body":"r.pdf","filename":"relazione.pdf","url":"mxc://t/f","info":{"size":2097152}}),
             "File · relazione.pdf · 2.0 MB",
         ),
-        (serde_json::json!({"msgtype":"m.file","body":"r.pdf","url":"mxc://t/f"}), "File · r.pdf"),
-        (serde_json::json!({"msgtype":"m.location","body":"qui","geo_uri":"geo:1,2"}), "Posizione"),
+        (
+            serde_json::json!({"msgtype":"m.file","body":"r.pdf","url":"mxc://t/f"}),
+            "File · r.pdf",
+        ),
+        (
+            serde_json::json!({"msgtype":"m.location","body":"qui","geo_uri":"geo:1,2"}),
+            "Posizione",
+        ),
         (serde_json::json!({"msgtype":"m.foo","body":"x"}), "m.foo"),
-        (serde_json::json!({"msgtype":"m.text","body":""}), "Messaggio senza testo"),
-        (serde_json::json!({"msgtype":"m.text","body":"ciao"}), "ciao"),
+        (
+            serde_json::json!({"msgtype":"m.text","body":""}),
+            "Messaggio senza testo",
+        ),
+        (
+            serde_json::json!({"msgtype":"m.text","body":"ciao"}),
+            "ciao",
+        ),
     ];
     for (json, expected) in table {
         let label = label_of(json.clone());
@@ -313,7 +403,10 @@ fn non_text_message_types_get_real_labels() {
 fn sticker_and_poll_events_have_labels_and_other_types_none() {
     assert_eq!(event_type_label("m.sticker"), Some("Sticker"));
     assert_eq!(event_type_label("m.poll.start"), Some("Sondaggio"));
-    assert_eq!(event_type_label("org.matrix.msc3381.poll.start"), Some("Sondaggio"));
+    assert_eq!(
+        event_type_label("org.matrix.msc3381.poll.start"),
+        Some("Sondaggio")
+    );
     assert_eq!(event_type_label("m.reaction"), None);
 }
 
@@ -336,9 +429,15 @@ fn video_info_is_a_typed_value_for_every_combination() {
     assert_eq!(all.size, Some(307200));
     assert!(matches!(all.thumbnail, Some(MediaSource::Plain(u)) if u.as_str() == "mxc://t/th"));
     let bare = video(serde_json::json!({"size":10}));
-    assert_eq!((bare.duration_ms, bare.size, bare.thumbnail.is_none()), (None, Some(10), true));
+    assert_eq!(
+        (bare.duration_ms, bare.size, bare.thumbnail.is_none()),
+        (None, Some(10), true)
+    );
     let no_size = video(serde_json::json!({"duration":500}));
     assert_eq!((no_size.duration_ms, no_size.size), (Some(500), None));
     let none = video(serde_json::Value::Null);
-    assert_eq!((none.duration_ms, none.size, none.thumbnail.is_none()), (None, None, true));
+    assert_eq!(
+        (none.duration_ms, none.size, none.thumbnail.is_none()),
+        (None, None, true)
+    );
 }

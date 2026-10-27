@@ -208,7 +208,10 @@ impl Shell {
                             format!("Spazio Matrix: {}", entry.name)
                         };
                         let scope_key = scope.clone();
-                        let pointer = move |this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>| {
+                        let pointer =
+                            move |this: &mut Shell,
+                                  window: &mut Window,
+                                  cx: &mut Context<Shell>| {
                                 this.navigation_wide = window.viewport_size().width >= px(800.);
                                 this.refresh_navigation_visibility();
                                 if !source_visit(&this.sidebar) {
@@ -230,7 +233,7 @@ impl Shell {
                                     this.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
                                     cx.notify();
                                 }
-                        };
+                            };
                         #[cfg(test)]
                         let pointer = sidebar_navigation_test::capture_rail(&scope_key, pointer);
                         let dark = self.dark;
@@ -313,7 +316,9 @@ impl Shell {
                                         }),
                                 )
                             })
-                            .on_click(cx.listener(move |this, _, window, cx| pointer(this, window, cx)))
+                            .on_click(
+                                cx.listener(move |this, _, window, cx| pointer(this, window, cx)),
+                            )
                     }),
             )
             .into_any_element()

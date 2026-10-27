@@ -2,7 +2,11 @@ use matrix_desktop::{AppDirs, Preferences, Theme};
 use std::path::PathBuf;
 
 fn dirs(root: &std::path::Path) -> AppDirs {
-    AppDirs { config: root.join("cfg"), data: root.join("data"), cache: root.join("cache") }
+    AppDirs {
+        config: root.join("cfg"),
+        data: root.join("data"),
+        cache: root.join("cache"),
+    }
 }
 
 fn tmp(name: &str) -> PathBuf {
@@ -21,7 +25,10 @@ fn missing_file_gives_defaults() {
 #[test]
 fn roundtrip_keeps_values() {
     let d = dirs(&tmp("roundtrip"));
-    let p = Preferences { theme: Theme::Dark, debug: true };
+    let p = Preferences {
+        theme: Theme::Dark,
+        debug: true,
+    };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);
 }

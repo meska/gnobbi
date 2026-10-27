@@ -2,9 +2,9 @@
 //! No runtime, sync, recovery setup or remote writes beyond explicit login.
 use crate::{
     auth::{AccountSession, AuthError},
-    recovery::{RecoveryError, SetupError},
     discovery::{Discovery, HomeserverUrl, LoginSupport},
     persistence::AccountStore,
+    recovery::{RecoveryError, SetupError},
 };
 use matrix_domain::AccountId;
 use std::path::PathBuf;
@@ -419,8 +419,12 @@ impl PendingSignIn {
                         Err(RecoveryError::WrongKey | RecoveryError::InvalidSecret) => {
                             RecoveryState::Failed(RecoveryFailure::InvalidKey)
                         }
-                        Err(RecoveryError::Transport) => RecoveryState::Failed(RecoveryFailure::Network),
-                        Err(RecoveryError::Deadline) => RecoveryState::Failed(RecoveryFailure::Timeout),
+                        Err(RecoveryError::Transport) => {
+                            RecoveryState::Failed(RecoveryFailure::Network)
+                        }
+                        Err(RecoveryError::Deadline) => {
+                            RecoveryState::Failed(RecoveryFailure::Timeout)
+                        }
                         Err(RecoveryError::BackupUnavailable) => {
                             RecoveryState::Failed(RecoveryFailure::BackupUnavailable)
                         }
@@ -435,7 +439,10 @@ impl PendingSignIn {
                     }
                 }
                 SignInCommand::SetupRecovery => {
-                    self.setup.send(SetupEvent::Pending).await.map_err(|_| SignInError::NoSession)?;
+                    self.setup
+                        .send(SetupEvent::Pending)
+                        .await
+                        .map_err(|_| SignInError::NoSession)?;
                     let event = match session.setup_recovery().await {
                         Ok(key) => SetupEvent::Ready(key),
                         Err(SetupError::Unsupported) => SetupEvent::Unsupported,
@@ -449,7 +456,10 @@ impl PendingSignIn {
                             _ => SetupFailure::Other,
                         }),
                     };
-                    self.setup.send(event).await.map_err(|_| SignInError::NoSession)?;
+                    self.setup
+                        .send(event)
+                        .await
+                        .map_err(|_| SignInError::NoSession)?;
                 }
                 _ => (),
             }
@@ -476,7 +486,10 @@ impl PendingSignIn {
         let mut first_error = None;
         if mode == SignInMode::UnlockVault {
             let source = self.source.clone().unwrap();
-            match profile.unlock_vault_timed(source, self.trust_root.clone(), self.vault_timeout).await {
+            match profile
+                .unlock_vault_timed(source, self.trust_root.clone(), self.vault_timeout)
+                .await
+            {
                 Ok(session) => {
                     self.events
                         .send(SignInEvent::Authenticated(session.account_id()))
@@ -488,7 +501,10 @@ impl PendingSignIn {
             }
         }
         self.events
-            .send(SignInEvent::Prompt(SignInPrompt { mode, error: first_error }))
+            .send(SignInEvent::Prompt(SignInPrompt {
+                mode,
+                error: first_error,
+            }))
             .await
             .map_err(|_| SignInError::NoSession)?;
         while let Some(command) = self.commands.recv().await {
@@ -526,11 +542,17 @@ impl PendingSignIn {
                     }
                     session
                 }
-                SignInCommand::UnlockVault if matches!(mode, SignInMode::Unlock | SignInMode::UnlockVault) => {
+                SignInCommand::UnlockVault
+                    if matches!(mode, SignInMode::Unlock | SignInMode::UnlockVault) =>
+                {
                     match self.source.clone() {
                         Some(source) => {
                             profile
-                                .unlock_vault_timed(source, self.trust_root.clone(), self.vault_timeout)
+                                .unlock_vault_timed(
+                                    source,
+                                    self.trust_root.clone(),
+                                    self.vault_timeout,
+                                )
                                 .await
                         }
                         None => Err(SignInError::ProtectionMismatch),

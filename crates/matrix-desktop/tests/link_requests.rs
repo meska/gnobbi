@@ -259,8 +259,14 @@ fn link_at_returns_only_the_link_under_the_text_index() {
     let targets = MessageLinkRequests::default().targets(&event(), text);
     let a = text.find("https://example.invalid/a").unwrap();
     let b = text.find("https://example.invalid/b").unwrap();
-    assert_eq!(link_at(&targets, a + 3).unwrap().url().as_str(), "https://example.invalid/a");
-    assert_eq!(link_at(&targets, b).unwrap().url().as_str(), "https://example.invalid/b");
+    assert_eq!(
+        link_at(&targets, a + 3).unwrap().url().as_str(),
+        "https://example.invalid/a"
+    );
+    assert_eq!(
+        link_at(&targets, b).unwrap().url().as_str(),
+        "https://example.invalid/b"
+    );
     assert!(link_at(&targets, 0).is_none());
     assert!(link_at(&targets, a - 1).is_none());
     assert!(link_at(&targets, text.len()).is_none());
@@ -281,6 +287,9 @@ fn link_menu_offers_copy_and_open_and_open_still_needs_confirmation() {
     menu.open(targets[0].clone());
     assert!(menu.open_link(&mut sources, &mut confirmation));
     assert!(menu.target().is_none());
-    assert_eq!(confirmation.capture().unwrap().url().as_str(), "https://example.invalid/a");
+    assert_eq!(
+        confirmation.capture().unwrap().url().as_str(),
+        "https://example.invalid/a"
+    );
     assert!(menu.copy().is_none());
 }

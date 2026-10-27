@@ -606,15 +606,25 @@ fn scrolling_near_the_top_starts_one_older_page_and_none_at_room_start() {
     let mut view = HistorySession::new();
     let room = scope("!auto:test");
     let initial = view.select(Some(room)).unwrap();
-    view.apply(page(&initial, &["$a", "$b"], Some("older"))).unwrap();
-    assert!(view.load_older_near_top(HistorySession::AUTO_LOAD_ROWS + 1).is_none());
+    view.apply(page(&initial, &["$a", "$b"], Some("older")))
+        .unwrap();
+    assert!(
+        view.load_older_near_top(HistorySession::AUTO_LOAD_ROWS + 1)
+            .is_none()
+    );
     let request = view
         .load_older_near_top(HistorySession::AUTO_LOAD_ROWS)
         .expect("near the top must request the previous page");
     assert_eq!(request.before.as_deref(), Some("older"));
-    assert!(view.load_older_near_top(0).is_none(), "one request at a time");
+    assert!(
+        view.load_older_near_top(0).is_none(),
+        "one request at a time"
+    );
     view.apply(page(&request, &["$c"], None)).unwrap();
-    assert!(view.load_older_near_top(0).is_none(), "nothing at room start");
+    assert!(
+        view.load_older_near_top(0).is_none(),
+        "nothing at room start"
+    );
 }
 
 #[test]
@@ -623,17 +633,26 @@ fn failed_older_page_retries_only_after_the_reader_scrolls() {
     let initial = view.select(Some(scope("!retry:test"))).unwrap();
     view.apply(page(&initial, &["$a"], Some("older"))).unwrap();
     let request = view.load_older_near_top(3).unwrap();
-    assert!(view.apply(HistoryResult {
-        tag: request.tag,
-        page: Err(matrix_engine::history::HistoryError::Transport),
-    }).is_none());
+    assert!(
+        view.apply(HistoryResult {
+            tag: request.tag,
+            page: Err(matrix_engine::history::HistoryError::Transport),
+        })
+        .is_none()
+    );
     assert!(matches!(view.status(), HistoryStatus::Failed));
     for _ in 0..3 {
-        assert!(view.load_older_near_top(3).is_none(), "no retry while the view stands still");
+        assert!(
+            view.load_older_near_top(3).is_none(),
+            "no retry while the view stands still"
+        );
     }
     let retry = view.load_older_near_top(2).expect("scrolling retries once");
     assert_eq!(retry.before.as_deref(), Some("older"));
-    assert!(view.load_older_near_top(1).is_none(), "one request at a time");
+    assert!(
+        view.load_older_near_top(1).is_none(),
+        "one request at a time"
+    );
     view.apply(page(&retry, &["$b"], None)).unwrap();
     assert!(matches!(view.status(), HistoryStatus::Start));
 }
@@ -650,5 +669,8 @@ fn selecting_a_room_asks_to_open_it_and_the_saved_page_then_the_gap_both_land() 
     assert_eq!(gap.len(), 1);
     assert_eq!(gap[0].event_id.as_str(), "$c");
     view.activity(&room);
-    assert!(!view.refresh().unwrap().open, "live refresh stays a plain page");
+    assert!(
+        !view.refresh().unwrap().open,
+        "live refresh stays a plain page"
+    );
 }

@@ -204,27 +204,47 @@ fn seed_old_entry(home: &std::path::Path) -> (PathBuf, PathBuf, String) {
 #[test]
 #[ignore = "requires disposable Secret Service on an isolated bus"]
 fn copies_old_entry_to_new_name_keeping_the_original() {
-    assert_eq!(std::env::var("DIME_VAULT_FIXTURE").as_deref(), Ok("isolated"));
+    assert_eq!(
+        std::env::var("DIME_VAULT_FIXTURE").as_deref(),
+        Ok("isolated")
+    );
     let home = PathBuf::from(std::env::var_os("HOME").unwrap());
     let (old, new, seeded) = seed_old_entry(&home);
-    assert_eq!(matrix_engine::vault::copy_legacy_profile(&old, &new).unwrap(), 1);
+    assert_eq!(
+        matrix_engine::vault::copy_legacy_profile(&old, &new).unwrap(),
+        1
+    );
     let service =
         secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh)
             .unwrap();
     let collection = service.get_default_collection().unwrap();
-    let copied = collection.search_items(gnobbi_attrs(&new.join("account-1"))).unwrap();
+    let copied = collection
+        .search_items(gnobbi_attrs(&new.join("account-1")))
+        .unwrap();
     assert_eq!(copied.len(), 1);
     assert_eq!(copied[0].get_secret().unwrap(), seeded.as_bytes());
     assert!(matrix_engine::vault::read_legacy(&old.join("account-1")).is_ok());
     // running it again adds nothing
-    assert_eq!(matrix_engine::vault::copy_legacy_profile(&old, &new).unwrap(), 0);
-    assert_eq!(collection.search_items(gnobbi_attrs(&new.join("account-1"))).unwrap().len(), 1);
+    assert_eq!(
+        matrix_engine::vault::copy_legacy_profile(&old, &new).unwrap(),
+        0
+    );
+    assert_eq!(
+        collection
+            .search_items(gnobbi_attrs(&new.join("account-1")))
+            .unwrap()
+            .len(),
+        1
+    );
 }
 
 #[test]
 #[ignore = "requires disposable Secret Service on an isolated bus"]
 fn pending_count_is_read_only_so_declining_writes_nothing() {
-    assert_eq!(std::env::var("DIME_VAULT_FIXTURE").as_deref(), Ok("isolated"));
+    assert_eq!(
+        std::env::var("DIME_VAULT_FIXTURE").as_deref(),
+        Ok("isolated")
+    );
     let home = PathBuf::from(std::env::var_os("HOME").unwrap());
     let (old, new, _) = seed_old_entry(&home);
     assert_eq!(matrix_engine::vault::legacy_pending(&old, &new), 1);
@@ -232,6 +252,11 @@ fn pending_count_is_read_only_so_declining_writes_nothing() {
         secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh)
             .unwrap();
     let collection = service.get_default_collection().unwrap();
-    assert!(collection.search_items(gnobbi_attrs(&new.join("account-1"))).unwrap().is_empty());
+    assert!(
+        collection
+            .search_items(gnobbi_attrs(&new.join("account-1")))
+            .unwrap()
+            .is_empty()
+    );
     assert!(matrix_engine::vault::read_legacy(&old.join("account-1")).is_ok());
 }

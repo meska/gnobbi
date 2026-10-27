@@ -16,7 +16,10 @@ use matrix_engine::sdk::{
     },
     sliding_sync::VersionBuilder,
 };
-use std::{path::PathBuf, time::{Duration, Instant}};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 fn env(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{name} required"))
@@ -48,7 +51,10 @@ fn keep_syncing(client: &Client) {
     });
 }
 
-async fn eventually<T, F: std::future::Future<Output = Option<T>>>(what: &str, mut f: impl FnMut() -> F) -> T {
+async fn eventually<T, F: std::future::Future<Output = Option<T>>>(
+    what: &str,
+    mut f: impl FnMut() -> F,
+) -> T {
     for _ in 0..200 {
         if let Some(v) = f().await {
             return v;

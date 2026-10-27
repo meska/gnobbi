@@ -4,7 +4,10 @@ use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
 use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn scope() -> RoomScope {
-    RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") }
+    RoomScope {
+        account_id: AccountId::new(1),
+        room_id: RoomId::new("!r:test"),
+    }
 }
 
 fn live_history() -> DemoHistory {
@@ -40,7 +43,10 @@ fn unsent_message_has_no_context_menu() {
 }
 
 fn id(event: &str) -> matrix_domain::ScopedTimelineId {
-    matrix_domain::ScopedTimelineId { scope: scope(), id: matrix_domain::TimelineId::Server(EventId::new(event)) }
+    matrix_domain::ScopedTimelineId {
+        scope: scope(),
+        id: matrix_domain::TimelineId::Server(EventId::new(event)),
+    }
 }
 
 fn two_live() -> DemoHistory {
@@ -65,7 +71,10 @@ fn keyboard_menu_targets_the_newest_confirmed_message() {
 #[test]
 fn keyboard_menu_keeps_the_message_already_in_focus() {
     let rows = two_live();
-    assert_eq!(rows.keyboard_menu_target(Some(&id("$old"))), Some(id("$old")));
+    assert_eq!(
+        rows.keyboard_menu_target(Some(&id("$old"))),
+        Some(id("$old"))
+    );
 }
 
 #[test]
@@ -73,7 +82,10 @@ fn keyboard_menu_ignores_unsent_and_unknown_messages() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.submit_text("nuovo".into());
     assert_eq!(rows.keyboard_menu_target(None), None);
-    assert_eq!(two_live().keyboard_menu_target(Some(&id("$gone"))), Some(id("$new")));
+    assert_eq!(
+        two_live().keyboard_menu_target(Some(&id("$gone"))),
+        Some(id("$new"))
+    );
 }
 
 #[test]

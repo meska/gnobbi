@@ -8,26 +8,29 @@ pub use verification::DeviceVerification;
 #[cfg(all(feature = "live", unix))]
 mod signin_form;
 #[cfg(all(feature = "live", unix))]
-pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
-#[cfg(all(feature = "live", unix))]
 pub use signin_form::{
-    DEFER_LABEL, RECOVER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_NOTE, RECOVERY_PENDING, RECOVERY_WARNING,
-    RETRY_LABEL, SAVED_LABEL, SETUP_KEY_LABEL, SETUP_KEY_NOTE, SETUP_KEY_MASKED, SETUP_LABEL, SETUP_NOTE, SETUP_RETRY_LABEL, SETUP_PENDING, COPY_LABEL,
+    COPY_LABEL, DEFER_LABEL, RECOVER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_NOTE, RECOVERY_PENDING,
+    RECOVERY_WARNING, RETRY_LABEL, SAVED_LABEL, SETUP_KEY_LABEL, SETUP_KEY_MASKED, SETUP_KEY_NOTE,
+    SETUP_LABEL, SETUP_NOTE, SETUP_PENDING, SETUP_RETRY_LABEL,
 };
+#[cfg(all(feature = "live", unix))]
+pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
 mod app_dirs;
 pub use app_dirs::{AppDirs, Platform, app_dirs};
-mod preferences;
 pub mod legacy_profile;
+mod preferences;
 pub use preferences::{Preferences, Theme};
 mod composer;
 mod connection_options;
 pub mod panel_openers;
 pub use composer::Composer;
-pub use connection_options::{RestoreOptions, SignInOptions, bundle_launch_args, default_signin_args, linux_launch_args};
 #[cfg(unix)]
 pub use connection_options::create_private_dir;
+pub use connection_options::{
+    RestoreOptions, SignInOptions, bundle_launch_args, default_signin_args, linux_launch_args,
+};
 mod drafts;
 pub use drafts::RoomDrafts;
 mod selection;
@@ -51,7 +54,9 @@ pub use live_operations::LiveOperations;
 mod live_history;
 pub use live_history::{HistorySession, HistoryStatus};
 mod history;
-pub use history::{opens_message_menu, DemoEvent, DemoHistory, DemoSendState, bubble_stamp, debug_room_line};
+pub use history::{
+    DemoEvent, DemoHistory, DemoSendState, bubble_stamp, debug_room_line, opens_message_menu,
+};
 mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 mod sidebar;

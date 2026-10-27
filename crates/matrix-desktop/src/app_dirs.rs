@@ -28,7 +28,9 @@ pub struct AppDirs {
 /// Absolute, non-empty environment value; anything else counts as unset (XDG rule).
 fn absolute(env: &impl Fn(&str) -> Option<String>, key: &str) -> Option<PathBuf> {
     let value = env(key).filter(|v| !v.is_empty())?;
-    Path::new(&value).is_absolute().then(|| PathBuf::from(value))
+    Path::new(&value)
+        .is_absolute()
+        .then(|| PathBuf::from(value))
 }
 
 /// Directories for `platform`, or `None` when the base variables are missing or unusable.

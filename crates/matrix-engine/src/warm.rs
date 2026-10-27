@@ -41,14 +41,24 @@ pub(crate) fn pick<T: Clone, R: Ord + Clone>(rooms: &[(T, R, bool)], recent: usi
 /// Fill the saved history of the picked rooms, one at a time, on the backend runtime. Stops
 /// at once when `stop` (account closing) or `interrupt` (the user opened a room) is set.
 /// Returns how many rooms it filled.
-pub(crate) async fn warm(client: &matrix_sdk::Client, stop: &AtomicBool, interrupt: &AtomicBool) -> usize {
+pub(crate) async fn warm(
+    client: &matrix_sdk::Client,
+    stop: &AtomicBool,
+    interrupt: &AtomicBool,
+) -> usize {
     prune(client, CACHE_LIMIT).await;
     let rooms: Vec<_> = client
         .joined_rooms()
         .into_iter()
         .map(|r| {
-            let unread = r.num_unread_messages() > 0 || r.num_unread_notifications() > 0 || r.is_marked_unread();
-            (r.room_id().to_owned(), r.recency_stamp().map_or(0, u64::from), unread)
+            let unread = r.num_unread_messages() > 0
+                || r.num_unread_notifications() > 0
+                || r.is_marked_unread();
+            (
+                r.room_id().to_owned(),
+                r.recency_stamp().map_or(0, u64::from),
+                unread,
+            )
         })
         .collect();
     let mut warmed = 0;
@@ -56,8 +66,12 @@ pub(crate) async fn warm(client: &matrix_sdk::Client, stop: &AtomicBool, interru
         if stop.load(Ordering::Acquire) || interrupt.load(Ordering::Acquire) {
             break;
         }
-        let Some(room) = client.get_room(&id) else { continue };
-        let saved = crate::room_sync::stored_events(client, &id).await.map_or(0, |s| s.0.len());
+        let Some(room) = client.get_room(&id) else {
+            continue;
+        };
+        let saved = crate::room_sync::stored_events(client, &id)
+            .await
+            .map_or(0, |s| s.0.len());
         if saved >= usize::from(PAGE) {
             continue;
         }
@@ -65,7 +79,10 @@ pub(crate) async fn warm(client: &matrix_sdk::Client, stop: &AtomicBool, interru
             let (events, _drop) = room.event_cache().await.ok()?;
             events.pagination().run_backwards_once(PAGE).await.ok()
         };
-        if matches!(tokio::time::timeout(Duration::from_secs(15), fill).await, Ok(Some(_))) {
+        if matches!(
+            tokio::time::timeout(Duration::from_secs(15), fill).await,
+            Ok(Some(_))
+        ) {
             warmed += 1;
         }
     }

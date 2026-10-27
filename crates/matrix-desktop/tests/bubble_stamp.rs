@@ -9,7 +9,10 @@ fn pending_outgoing_shows_clock_glyph_not_words() {
 
 #[test]
 fn failed_outgoing_shows_alert_glyph_not_words() {
-    assert_eq!(bubble_stamp("10:42", true, Some(DemoSendState::Failed)), "10:42 !");
+    assert_eq!(
+        bubble_stamp("10:42", true, Some(DemoSendState::Failed)),
+        "10:42 !"
+    );
 }
 
 #[test]

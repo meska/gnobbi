@@ -220,9 +220,15 @@ fn rooms_with_only_me_and_no_messages_are_hidden_until_shown() {
     sidebar.apply_diff(upsert_info("!peer:test", 0, 2, None));
     sidebar.apply_diff(upsert_info("!unknown:test", 0, 0, None));
     let names = |s: &Sidebar| {
-        s.visible_indices().iter().map(|&i| s.rooms()[i].name.clone()).collect::<Vec<_>>()
+        s.visible_indices()
+            .iter()
+            .map(|&i| s.rooms()[i].name.clone())
+            .collect::<Vec<_>>()
     };
-    assert_eq!(names(&sidebar), ["!talk:test", "!unread:test", "!peer:test", "!unknown:test"]);
+    assert_eq!(
+        names(&sidebar),
+        ["!talk:test", "!unread:test", "!peer:test", "!unknown:test"]
+    );
     assert_eq!(sidebar.hidden_empty_count(), 1);
     sidebar.set_show_empty(true);
     assert_eq!(sidebar.visible_indices().len(), 5);

@@ -1,22 +1,37 @@
 //! UI-only sign-in state; storage and authentication stay on the backend.
 use crate::LoginInput;
 use matrix_engine::signin::{
-    RecoveryFailure, RecoveryState, Secret, SetupEvent, SetupFailure, SignInCommand, SignInEvent, SignInMode, SignInPrompt,
+    RecoveryFailure, RecoveryState, Secret, SetupEvent, SetupFailure, SignInCommand, SignInEvent,
+    SignInMode, SignInPrompt,
 };
-pub const RECOVERY_WARNING: &str = "Senza recupero la cronologia cifrata precedente non sarà leggibile su questo dispositivo.";
+pub const RECOVERY_WARNING: &str =
+    "Senza recupero la cronologia cifrata precedente non sarà leggibile su questo dispositivo.";
 pub const RECOVER_LABEL: &str = "Recupera cronologia cifrata";
 pub const RETRY_LABEL: &str = "Riprova recupero";
 pub const RECOVERY_KEY_LABEL: &str = "Chiave di recupero Matrix";
 pub const RECOVERY_NOTE: &str = "Inserisci la chiave di recupero Matrix del tuo account (non è la frase locale del profilo). Il backup può non contenere tutti i messaggi: non tutti i vecchi messaggi sono garantiti.";
-pub const RECOVERY_PENDING: &str = "Verifica della chiave e download delle chiavi dal backup in corso…";
+pub const RECOVERY_PENDING: &str =
+    "Verifica della chiave e download delle chiavi dal backup in corso…";
 pub(crate) fn recovery_message(state: RecoveryState) -> Option<&'static str> {
     Some(match state {
-        RecoveryState::Failed(RecoveryFailure::InvalidKey) => "Chiave di recupero Matrix non valida. Controlla e riprova.",
-        RecoveryState::Failed(RecoveryFailure::Network) => "Server non raggiungibile. Riprova più tardi o continua senza recupero.",
-        RecoveryState::Failed(RecoveryFailure::Timeout) => "Il recupero ha impiegato troppo tempo. Riprova o continua senza recupero.",
-        RecoveryState::Failed(RecoveryFailure::BackupUnavailable) => "Il server non ha un backup delle chiavi utilizzabile. Continua senza recupero.",
-        RecoveryState::Failed(RecoveryFailure::Other) => "Recupero non riuscito. Riprova o continua senza recupero.",
-        RecoveryState::Unsupported => "Questo account non ha un archivio segreto Matrix: nessuna chiave di recupero da inserire.",
+        RecoveryState::Failed(RecoveryFailure::InvalidKey) => {
+            "Chiave di recupero Matrix non valida. Controlla e riprova."
+        }
+        RecoveryState::Failed(RecoveryFailure::Network) => {
+            "Server non raggiungibile. Riprova più tardi o continua senza recupero."
+        }
+        RecoveryState::Failed(RecoveryFailure::Timeout) => {
+            "Il recupero ha impiegato troppo tempo. Riprova o continua senza recupero."
+        }
+        RecoveryState::Failed(RecoveryFailure::BackupUnavailable) => {
+            "Il server non ha un backup delle chiavi utilizzabile. Continua senza recupero."
+        }
+        RecoveryState::Failed(RecoveryFailure::Other) => {
+            "Recupero non riuscito. Riprova o continua senza recupero."
+        }
+        RecoveryState::Unsupported => {
+            "Questo account non ha un archivio segreto Matrix: nessuna chiave di recupero da inserire."
+        }
         _ => return None,
     })
 }
@@ -25,7 +40,8 @@ pub const SETUP_NOTE: &str = "Questo account non ha ancora un recupero Matrix. P
 pub const SETUP_PENDING: &str = "Creazione del recupero e del backup in corso…";
 pub const SETUP_KEY_LABEL: &str = "Chiave di recupero Matrix";
 pub const SETUP_KEY_NOTE: &str = "Questa chiave viene mostrata una sola volta e Gnobbi non la conserva. Salvala in un gestore di password o in un luogo sicuro: senza di essa non potrai ripristinare la cronologia cifrata.";
-pub const SETUP_KEY_MASKED: &str = "Chiave di recupero mostrata a schermo, una sola volta. Non è letta dal lettore di schermo.";
+pub const SETUP_KEY_MASKED: &str =
+    "Chiave di recupero mostrata a schermo, una sola volta. Non è letta dal lettore di schermo.";
 pub const SETUP_RETRY_LABEL: &str = "Riprova a creare la chiave";
 pub const COPY_LABEL: &str = "Copia chiave";
 pub const SAVED_LABEL: &str = "Ho salvato la chiave: continua";
@@ -33,14 +49,30 @@ pub(crate) fn setup_message(phase: SetupPhase) -> Option<&'static str> {
     Some(match phase {
         SetupPhase::Pending => SETUP_PENDING,
         SetupPhase::KeyShown => return None,
-        SetupPhase::Unsupported => "Il server non offre il backup delle chiavi: nessun recupero da creare. Continua senza recupero.",
-        SetupPhase::Failed(SetupFailure::AlreadyExists) => "Questo account ha già un recupero: inserisci la chiave di recupero esistente.",
-        SetupPhase::Failed(SetupFailure::Partial) => "Il recupero di questo account è configurato solo a metà: Gnobbi non lo modifica. Continua senza recupero.",
-        SetupPhase::Failed(SetupFailure::IdentityRequired) => "Questo account ha già un’identità crittografica che questo dispositivo non possiede: Gnobbi non la sostituisce. Continua senza recupero.",
-        SetupPhase::Failed(SetupFailure::AuthRequired) => "Il server chiede una conferma aggiuntiva che Gnobbi non supporta. Continua senza recupero.",
-        SetupPhase::Failed(SetupFailure::Network) => "Server non raggiungibile: il recupero non è stato creato. Riprova o continua senza recupero.",
-        SetupPhase::Failed(SetupFailure::Timeout) => "La creazione ha impiegato troppo tempo. Riprova o continua senza recupero.",
-        SetupPhase::Failed(SetupFailure::Other) => "Creazione del recupero non riuscita. Riprova o continua senza recupero.",
+        SetupPhase::Unsupported => {
+            "Il server non offre il backup delle chiavi: nessun recupero da creare. Continua senza recupero."
+        }
+        SetupPhase::Failed(SetupFailure::AlreadyExists) => {
+            "Questo account ha già un recupero: inserisci la chiave di recupero esistente."
+        }
+        SetupPhase::Failed(SetupFailure::Partial) => {
+            "Il recupero di questo account è configurato solo a metà: Gnobbi non lo modifica. Continua senza recupero."
+        }
+        SetupPhase::Failed(SetupFailure::IdentityRequired) => {
+            "Questo account ha già un’identità crittografica che questo dispositivo non possiede: Gnobbi non la sostituisce. Continua senza recupero."
+        }
+        SetupPhase::Failed(SetupFailure::AuthRequired) => {
+            "Il server chiede una conferma aggiuntiva che Gnobbi non supporta. Continua senza recupero."
+        }
+        SetupPhase::Failed(SetupFailure::Network) => {
+            "Server non raggiungibile: il recupero non è stato creato. Riprova o continua senza recupero."
+        }
+        SetupPhase::Failed(SetupFailure::Timeout) => {
+            "La creazione ha impiegato troppo tempo. Riprova o continua senza recupero."
+        }
+        SetupPhase::Failed(SetupFailure::Other) => {
+            "Creazione del recupero non riuscita. Riprova o continua senza recupero."
+        }
     })
 }
 /// Payload-free state of a first-time recovery setup.
@@ -102,7 +134,9 @@ impl FormStatus {
             Vault(Unavailable | Locked) => {
                 "Portachiavi di sistema non disponibile o bloccato. Sbloccalo e riprova."
             }
-            Vault(_) => "La chiave del profilo non è nel portachiavi di sistema. Il profilo non è stato modificato.",
+            Vault(_) => {
+                "La chiave del profilo non è nel portachiavi di sistema. Il profilo non è stato modificato."
+            }
             ProfileBusy => "Profilo già aperto in un’altra istanza. Chiudila e riavvia.",
             _ => "Profilo locale non disponibile. Chiudi e verifica il percorso del profilo.",
         })
@@ -358,7 +392,11 @@ mod brand_tests {
         for text in [SETUP_NOTE, SETUP_KEY_NOTE] {
             assert!(text.contains("Gnobbi") && !text.contains("Dime"), "{text}");
         }
-        for failure in [SetupFailure::Partial, SetupFailure::IdentityRequired, SetupFailure::AuthRequired] {
+        for failure in [
+            SetupFailure::Partial,
+            SetupFailure::IdentityRequired,
+            SetupFailure::AuthRequired,
+        ] {
             let text = setup_message(SetupPhase::Failed(failure)).unwrap();
             assert!(!text.contains("Dime"), "{text}");
         }

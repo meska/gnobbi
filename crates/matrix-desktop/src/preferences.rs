@@ -20,7 +20,9 @@ impl Theme {
         }
     }
     fn parse(s: &str) -> Option<Theme> {
-        [Theme::System, Theme::Light, Theme::Dark].into_iter().find(|t| t.name() == s)
+        [Theme::System, Theme::Light, Theme::Dark]
+            .into_iter()
+            .find(|t| t.name() == s)
     }
 }
 
@@ -35,13 +37,22 @@ const FILE: &str = "settings.json";
 impl Preferences {
     /// Missing, corrupt or invalid input yields defaults, field by field; unknown keys are ignored.
     pub fn load(dirs: &AppDirs) -> Preferences {
-        let Ok(bytes) = std::fs::read(dirs.config.join(FILE)) else { return Self::default() };
+        let Ok(bytes) = std::fs::read(dirs.config.join(FILE)) else {
+            return Self::default();
+        };
         let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(&bytes) else {
             return Self::default();
         };
         Preferences {
-            theme: map.get("theme").and_then(Value::as_str).and_then(Theme::parse).unwrap_or_default(),
-            debug: map.get("debug").and_then(Value::as_bool).unwrap_or_default(),
+            theme: map
+                .get("theme")
+                .and_then(Value::as_str)
+                .and_then(Theme::parse)
+                .unwrap_or_default(),
+            debug: map
+                .get("debug")
+                .and_then(Value::as_bool)
+                .unwrap_or_default(),
         }
     }
 

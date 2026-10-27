@@ -89,7 +89,11 @@ impl HistorySession {
         let tag = self.views.start(scope?).ok()?;
         self.pagination_tag = Some(tag.clone());
         self.status = HistoryStatus::Loading;
-        Some(HistoryRequest { tag, before: None, open: true })
+        Some(HistoryRequest {
+            tag,
+            before: None,
+            open: true,
+        })
     }
     pub fn apply(&mut self, result: HistoryResult) -> Option<Vec<HistoryEvent>> {
         if !self.views.accepts(&result.tag) {
@@ -248,7 +252,11 @@ impl HistorySession {
         }
         if self.status == HistoryStatus::Failed && !self.live_failed {
             // A failed page retries once per scroll, never per tick.
-            if self.failed_row.replace(first_visible_row).is_none_or(|row| row == first_visible_row) {
+            if self
+                .failed_row
+                .replace(first_visible_row)
+                .is_none_or(|row| row == first_visible_row)
+            {
                 return None;
             }
         } else if self.status != HistoryStatus::More {

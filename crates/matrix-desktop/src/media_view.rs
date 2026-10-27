@@ -51,7 +51,10 @@ pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> Any
 }
 
 /// Full-area dark scrim with the picture scaled to fit; a click anywhere closes it.
-pub(crate) fn large_view(image: Arc<gpui::RenderImage>, close: impl Fn(&mut gpui::Window) + 'static) -> AnyElement {
+pub(crate) fn large_view(
+    image: Arc<gpui::RenderImage>,
+    close: impl Fn(&mut gpui::Window) + 'static,
+) -> AnyElement {
     div()
         .id("large-image")
         .absolute()
@@ -63,7 +66,12 @@ pub(crate) fn large_view(image: Arc<gpui::RenderImage>, close: impl Fn(&mut gpui
         .bg(gpui::rgba(0x000000d9))
         .cursor_pointer()
         .on_click(move |_, window, _| close(window))
-        .child(img(image).max_w_full().max_h_full().object_fit(gpui::ObjectFit::Contain))
+        .child(
+            img(image)
+                .max_w_full()
+                .max_h_full()
+                .object_fit(gpui::ObjectFit::Contain),
+        )
         .into_any_element()
 }
 
@@ -75,13 +83,20 @@ impl Shell {
         };
         let wanted: Vec<_> = {
             let known = timeline.images.borrow();
-            timeline.image_events().into_iter().filter(|id| !known.contains_key(id)).collect()
+            timeline
+                .image_events()
+                .into_iter()
+                .filter(|id| !known.contains_key(id))
+                .collect()
         };
         if !self.media.next_inline(self.active_scope.clone(), wanted) {
             return false;
         }
         if let Some(id) = self.media.event().cloned() {
-            timeline.images.borrow_mut().insert(id.clone(), InlineImage::Loading);
+            timeline
+                .images
+                .borrow_mut()
+                .insert(id.clone(), InlineImage::Loading);
             timeline.image_changed(&id);
         }
         true
@@ -99,10 +114,14 @@ impl Shell {
                 for pixel in preview.rgba.as_chunks_mut::<4>().0 {
                     pixel.swap(0, 2);
                 }
-                image::RgbaImage::from_raw(preview.width, preview.height, preview.rgba)
-                    .map_or(InlineImage::Failed(None), |buffer| {
-                        InlineImage::Ready(Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)])))
-                    })
+                image::RgbaImage::from_raw(preview.width, preview.height, preview.rgba).map_or(
+                    InlineImage::Failed(None),
+                    |buffer| {
+                        InlineImage::Ready(Arc::new(gpui::RenderImage::new([image::Frame::new(
+                            buffer,
+                        )])))
+                    },
+                )
             }
             None => InlineImage::Failed(error),
         };
@@ -117,8 +136,16 @@ mod tests {
 
     #[test]
     fn only_oversized_images_say_too_large() {
-        assert_eq!(super::failure_label(Some(MediaError::TooLarge)), "Immagine troppo grande");
-        for error in [None, Some(MediaError::Failed), Some(MediaError::InvalidImage), Some(MediaError::UnsupportedType)] {
+        assert_eq!(
+            super::failure_label(Some(MediaError::TooLarge)),
+            "Immagine troppo grande"
+        );
+        for error in [
+            None,
+            Some(MediaError::Failed),
+            Some(MediaError::InvalidImage),
+            Some(MediaError::UnsupportedType),
+        ] {
             assert_eq!(super::failure_label(error), "Immagine non disponibile");
         }
     }

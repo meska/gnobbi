@@ -311,11 +311,19 @@ fn vault_password_projection_has_no_local_phrase_node() {
     let nav = navigation(Snapshot::new(&form, SignInMode::Password));
     let tree = nav.tree();
     assert!(node(&tree, Control::Phrase).is_none());
-    for control in [Control::Homeserver, Control::User, Control::Password, Control::Submit] {
+    for control in [
+        Control::Homeserver,
+        Control::User,
+        Control::Password,
+        Control::Submit,
+    ] {
         assert!(node(&tree, control).is_some());
         assert!(nav.action(&request(control.id(), Action::Click)).is_some());
     }
-    assert!(nav.action(&request(Control::Phrase.id(), Action::Click)).is_none());
+    assert!(
+        nav.action(&request(Control::Phrase.id(), Action::Click))
+            .is_none()
+    );
     assert!(!format!("{tree:?}").contains("Frase locale"));
 }
 
@@ -325,9 +333,18 @@ fn vault_unlock_projection_is_a_single_retry_button() {
     let nav = navigation(Snapshot::new(&form, SignInMode::UnlockVault));
     let tree = nav.tree();
     assert_eq!(tree.nodes.len(), 2);
-    assert_eq!(node(&tree, Control::Submit).unwrap().label(), Some("Riprova"));
-    assert!(nav.action(&request(Control::Password.id(), Action::Click)).is_none());
-    assert!(nav.action(&request(Control::Submit.id(), Action::Click)).is_some());
+    assert_eq!(
+        node(&tree, Control::Submit).unwrap().label(),
+        Some("Riprova")
+    );
+    assert!(
+        nav.action(&request(Control::Password.id(), Action::Click))
+            .is_none()
+    );
+    assert!(
+        nav.action(&request(Control::Submit.id(), Action::Click))
+            .is_some()
+    );
 }
 
 #[test]
@@ -341,7 +358,13 @@ fn recovery_step_projects_key_field_recover_and_defer_without_secrets() {
     let nav = navigation(Snapshot::new(&form, SignInMode::Password));
     let tree = nav.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Gnobbi — Cronologia cifrata"));
-    assert!(tree.nodes[0].1.description().unwrap().contains("non sarà leggibile"));
+    assert!(
+        tree.nodes[0]
+            .1
+            .description()
+            .unwrap()
+            .contains("non sarà leggibile")
+    );
     assert_eq!(tree.nodes.len(), 4);
     let key = node(&tree, Control::Phrase).unwrap();
     assert_eq!(key.role(), Role::PasswordInput);
@@ -359,11 +382,19 @@ fn recovery_step_projects_key_field_recover_and_defer_without_secrets() {
     }
     let defer = node(&tree, Control::Defer).unwrap();
     assert_eq!(defer.label(), Some("Continua senza recupero"));
-    for control in [Control::Homeserver, Control::User, Control::Password, Control::Submit] {
+    for control in [
+        Control::Homeserver,
+        Control::User,
+        Control::Password,
+        Control::Submit,
+    ] {
         assert!(nav.action(&request(control.id(), Action::Click)).is_none());
     }
     let dump = format!("{tree:?}");
-    assert!(!dump.contains("hidden password sentinel") && !dump.contains("hidden recovery key sentinel"));
+    assert!(
+        !dump.contains("hidden password sentinel")
+            && !dump.contains("hidden recovery key sentinel")
+    );
 }
 
 #[test]
@@ -381,20 +412,44 @@ fn recovery_states_project_pending_error_retry_and_unsupported() {
     let (nav, tree) = project(RecoveryState::Pending);
     assert!(tree.nodes[0].1.description().unwrap().contains("in corso"));
     assert!(tree.nodes.iter().skip(1).all(|(_, n)| n.is_disabled()));
-    assert!(nav.action(&request(Control::Defer.id(), Action::Click)).is_none());
+    assert!(
+        nav.action(&request(Control::Defer.id(), Action::Click))
+            .is_none()
+    );
 
     let (nav, tree) = project(RecoveryState::Failed(RecoveryFailure::InvalidKey));
-    assert!(tree.nodes[0].1.description().unwrap().contains("non valida"));
-    assert_eq!(node(&tree, Control::Recover).unwrap().label(), Some("Riprova recupero"));
-    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_some());
+    assert!(
+        tree.nodes[0]
+            .1
+            .description()
+            .unwrap()
+            .contains("non valida")
+    );
+    assert_eq!(
+        node(&tree, Control::Recover).unwrap().label(),
+        Some("Riprova recupero")
+    );
+    assert!(
+        nav.action(&request(Control::Recover.id(), Action::Click))
+            .is_some()
+    );
 
     let (nav, tree) = project(RecoveryState::Unsupported);
     // No secret storage: no key field, but the distinct setup offer next to the skip.
     assert_eq!(tree.nodes.len(), 3);
     assert!(node(&tree, Control::Phrase).is_none());
-    assert_eq!(node(&tree, Control::Recover).unwrap().label(), Some(matrix_desktop::SETUP_LABEL));
-    assert!(nav.action(&request(Control::Defer.id(), Action::Click)).is_some());
-    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_some());
+    assert_eq!(
+        node(&tree, Control::Recover).unwrap().label(),
+        Some(matrix_desktop::SETUP_LABEL)
+    );
+    assert!(
+        nav.action(&request(Control::Defer.id(), Action::Click))
+            .is_some()
+    );
+    assert!(
+        nav.action(&request(Control::Recover.id(), Action::Click))
+            .is_some()
+    );
 }
 
 #[test]
@@ -413,23 +468,53 @@ fn recovery_setup_projects_offer_masked_key_copy_and_confirm_without_the_key() {
     form.apply_setup(SetupEvent::Failed(SetupFailure::Network));
     let nav = navigation(Snapshot::new(&form, SignInMode::Password));
     let tree = nav.tree();
-    assert!(tree.nodes[0].1.description().unwrap().contains("non raggiungibile"));
-    assert_eq!(node(&tree, Control::Recover).unwrap().label(), Some(matrix_desktop::SETUP_RETRY_LABEL));
-    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_some());
+    assert!(
+        tree.nodes[0]
+            .1
+            .description()
+            .unwrap()
+            .contains("non raggiungibile")
+    );
+    assert_eq!(
+        node(&tree, Control::Recover).unwrap().label(),
+        Some(matrix_desktop::SETUP_RETRY_LABEL)
+    );
+    assert!(
+        nav.action(&request(Control::Recover.id(), Action::Click))
+            .is_some()
+    );
 
     form.apply_setup(SetupEvent::Failed(SetupFailure::Partial));
     let nav = navigation(Snapshot::new(&form, SignInMode::Password));
     let tree = nav.tree();
-    assert!(node(&tree, Control::Recover).is_none(), "a permanent refusal offers no retry");
-    assert!(nav.action(&request(Control::Recover.id(), Action::Click)).is_none());
-    assert!(nav.action(&request(Control::Defer.id(), Action::Click)).is_some());
+    assert!(
+        node(&tree, Control::Recover).is_none(),
+        "a permanent refusal offers no retry"
+    );
+    assert!(
+        nav.action(&request(Control::Recover.id(), Action::Click))
+            .is_none()
+    );
+    assert!(
+        nav.action(&request(Control::Defer.id(), Action::Click))
+            .is_some()
+    );
 
     form.apply_setup(SetupEvent::Ready(RecoverySecret::fixture(KEY)));
     let nav = navigation(Snapshot::new(&form, SignInMode::Password));
     let tree = nav.tree();
-    assert_eq!(tree.nodes[0].1.description(), Some(matrix_desktop::SETUP_KEY_MASKED));
-    assert_eq!(node(&tree, Control::Copy).unwrap().label(), Some(matrix_desktop::COPY_LABEL));
-    assert_eq!(node(&tree, Control::Defer).unwrap().label(), Some(matrix_desktop::SAVED_LABEL));
+    assert_eq!(
+        tree.nodes[0].1.description(),
+        Some(matrix_desktop::SETUP_KEY_MASKED)
+    );
+    assert_eq!(
+        node(&tree, Control::Copy).unwrap().label(),
+        Some(matrix_desktop::COPY_LABEL)
+    );
+    assert_eq!(
+        node(&tree, Control::Defer).unwrap().label(),
+        Some(matrix_desktop::SAVED_LABEL)
+    );
     assert!(node(&tree, Control::Recover).is_none() && node(&tree, Control::Phrase).is_none());
     for control in [Control::Copy, Control::Defer] {
         assert!(matches!(
@@ -438,5 +523,8 @@ fn recovery_setup_projects_offer_masked_key_copy_and_confirm_without_the_key() {
         ));
     }
     let dump = format!("{tree:?}");
-    assert!(!dump.contains("SENTINEL") && !dump.contains("4242"), "the key never reaches the a11y tree");
+    assert!(
+        !dump.contains("SENTINEL") && !dump.contains("4242"),
+        "the key never reaches the a11y tree"
+    );
 }

@@ -832,10 +832,7 @@ fn disposable_timeline_pages_preserve_server_order_and_ids() {
         assert_eq!(collected.len(), 65);
         for (i, (id, body)) in collected.iter().enumerate() {
             assert!(id == &ids[i], "server event identity/order retained");
-            assert!(
-                body == &format!("message {i:03}"),
-                "server text retained"
-            );
+            assert!(body == &format!("message {i:03}"), "server text retained");
         }
     });
 }
@@ -888,7 +885,11 @@ fn disposable_timeline_worker_routes_history_beside_sync() {
             .unwrap();
         assert!(
             commands
-                .send(HistoryRequest { tag, before: None, open: false })
+                .send(HistoryRequest {
+                    tag,
+                    before: None,
+                    open: false
+                })
                 .await
                 .is_ok()
         );
@@ -976,10 +977,7 @@ fn disposable_room_list_sync_tracks_created_room() {
             ))
             .bearer_auth(config["alice_token"].as_str().unwrap())
             .header("Content-Type", "application/json")
-            .body(
-                serde_json::json!({"name": "laboratorio", "visibility": "private"})
-                    .to_string(),
-            )
+            .body(serde_json::json!({"name": "laboratorio", "visibility": "private"}).to_string())
             .send()
             .await
             .unwrap();
@@ -1014,14 +1012,24 @@ fn disposable_spaces_room_details_from_sync() {
     use crate::{RoomListDiff, room_sync::RoomSync};
     let config = fixture();
     runtime().block_on(async {
-        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
-            serde_json::json!({"name":"Lab", "topic":"Topic from server", "visibility":"private"})).await;
+        let created = room_request(
+            &config,
+            "alice",
+            reqwest::Method::POST,
+            "createRoom",
+            serde_json::json!({"name":"Lab", "topic":"Topic from server", "visibility":"private"}),
+        )
+        .await;
         let id = created["room_id"].as_str().unwrap();
         let mut sync = RoomSync::new(login(&config, "alice", 29).await);
         let batch = sync.next_batch().await.unwrap();
-        let room = batch.iter().find_map(|d| match d {
-            RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == id => Some(r), _ => None,
-        }).unwrap();
+        let room = batch
+            .iter()
+            .find_map(|d| match d {
+                RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == id => Some(r),
+                _ => None,
+            })
+            .unwrap();
         assert_eq!(room.info.topic.as_deref(), Some("Topic from server"));
         assert_eq!(room.info.joined_members, 1);
         assert!(!room.info.is_space);
@@ -1187,21 +1195,51 @@ fn disposable_unnamed_room_is_listed_by_participants_not_by_id() {
     use crate::{RoomListDiff, room_sync::RoomSync};
     let config = fixture();
     runtime().block_on(async {
-        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
-            serde_json::json!({"visibility": "private", "invite": ["@bob:matrix-desktop.test"]})).await;
+        let created = room_request(
+            &config,
+            "alice",
+            reqwest::Method::POST,
+            "createRoom",
+            serde_json::json!({"visibility": "private", "invite": ["@bob:matrix-desktop.test"]}),
+        )
+        .await;
         let id = created["room_id"].as_str().unwrap().to_owned();
-        room_request(&config, "bob", reqwest::Method::POST, &format!("rooms/{id}/join"), serde_json::json!({})).await;
+        room_request(
+            &config,
+            "bob",
+            reqwest::Method::POST,
+            &format!("rooms/{id}/join"),
+            serde_json::json!({}),
+        )
+        .await;
         let mut sync = RoomSync::new(login(&config, "alice", 18).await);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         let name = loop {
-            let found = sync.next_batch().await.unwrap().into_iter().find_map(|change| match change {
-                RoomListDiff::Upsert(room) if room.scope.room_id.as_str() == id && room.name != id => Some(room.name),
-                _ => None,
-            });
-            if let Some(name) = found { break name; }
-            assert!(std::time::Instant::now() < deadline, "unnamed room never got a computed name");
+            let found =
+                sync.next_batch()
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .find_map(|change| match change {
+                        RoomListDiff::Upsert(room)
+                            if room.scope.room_id.as_str() == id && room.name != id =>
+                        {
+                            Some(room.name)
+                        }
+                        _ => None,
+                    });
+            if let Some(name) = found {
+                break name;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "unnamed room never got a computed name"
+            );
         };
-        assert!(name.contains("bob"), "computed name should come from the participant, got {name}");
+        assert!(
+            name.contains("bob"),
+            "computed name should come from the participant, got {name}"
+        );
     });
 }
 
@@ -1655,9 +1693,15 @@ fn disposable_persistent_restore_works_with_homeserver_unreachable() {
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
 fn disposable_persistent_room_list_shows_saved_rooms_with_homeserver_unreachable() {
-    use crate::{RoomListDiff, RoomListEvent, room_sync::{RoomListWorker, RoomSync}};
+    use crate::{
+        RoomListDiff, RoomListEvent,
+        room_sync::{RoomListWorker, RoomSync},
+    };
     let config = fixture();
-    let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap().to_owned();
+    let root = std::path::Path::new(config["ca"].as_str().unwrap())
+        .parent()
+        .unwrap()
+        .to_owned();
     let passphrase = "long disposable saved rooms fixture passphrase";
     runtime().block_on(async {
         let session = AccountStore::create(&root, AccountId::new(119))
@@ -1691,10 +1735,18 @@ fn disposable_persistent_room_list_shows_saved_rooms_with_homeserver_unreachable
     struct Resume(String);
     impl Drop for Resume {
         fn drop(&mut self) {
-            let _ = std::process::Command::new("/usr/bin/kill").args(["-CONT", &self.0]).status();
+            let _ = std::process::Command::new("/usr/bin/kill")
+                .args(["-CONT", &self.0])
+                .status();
         }
     }
-    assert!(std::process::Command::new("/usr/bin/kill").args(["-STOP", &pid]).status().unwrap().success());
+    assert!(
+        std::process::Command::new("/usr/bin/kill")
+            .args(["-STOP", &pid])
+            .status()
+            .unwrap()
+            .success()
+    );
     let _resume = Resume(pid);
     let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
     let (worker, mut receiver) = RoomListWorker::spawn(move || async move {
@@ -1711,7 +1763,10 @@ fn disposable_persistent_room_list_shows_saved_rooms_with_homeserver_unreachable
             assert_eq!(room.info.preview.as_deref(), Some("last saved message"));
             break;
         }
-        assert!(std::time::Instant::now() < deadline, "saved rooms must not wait for the first sync answer");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "saved rooms must not wait for the first sync answer"
+        );
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     worker.shutdown().unwrap();

@@ -75,13 +75,19 @@ pub fn bundle_launch_args(exe: &str, home: Option<&str>, args: &[String]) -> Opt
 
 /// Linux binary started with no arguments: open the connected sign-in like the macOS bundle.
 pub fn linux_launch_args(args: &[String]) -> Vec<String> {
-    if args.is_empty() { vec!["--signin".to_owned()] } else { args.to_vec() }
+    if args.is_empty() {
+        vec!["--signin".to_owned()]
+    } else {
+        args.to_vec()
+    }
 }
 
 /// `--signin` without a profile path (alone or followed by `--ca-file`) opens the profile under the app data directory.
 pub fn default_signin_args(args: &[String], dirs: &crate::AppDirs) -> Vec<String> {
     match args {
-        [flag, rest @ ..] if flag == "--signin" && rest.first().is_none_or(|a| a == "--ca-file") => {
+        [flag, rest @ ..]
+            if flag == "--signin" && rest.first().is_none_or(|a| a == "--ca-file") =>
+        {
             let profile = dirs.data.join("profile").to_string_lossy().into_owned();
             [vec![flag.clone(), profile], rest.to_vec()].concat()
         }

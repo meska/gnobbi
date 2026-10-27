@@ -60,23 +60,39 @@ fn store_new(profile: &std::path::Path, value: &[u8]) -> Result<(), VaultError> 
     if !existing.unlocked.is_empty() || !existing.locked.is_empty() {
         return Err(VaultError::AlreadyExists);
     }
-    if collection.is_locked().map_err(|_| VaultError::Unavailable)? {
+    if collection
+        .is_locked()
+        .map_err(|_| VaultError::Unavailable)?
+    {
         return Err(VaultError::Locked);
     }
     collection
-        .create_item("Gnobbi SDK protection", attributes, value, false, "text/plain")
+        .create_item(
+            "Gnobbi SDK protection",
+            attributes,
+            value,
+            false,
+            "text/plain",
+        )
         .map_err(|_| VaultError::Unavailable)?;
     Ok(())
 }
 
 /// Account folders of the adopted profile that still lack a gnobbi entry while the old profile
 /// folder has one: `(old key, new key)` pairs. Read-only.
-fn legacy_pairs(old: &std::path::Path, new: &std::path::Path) -> Vec<(std::path::PathBuf, std::path::PathBuf)> {
-    let Ok(dir) = std::fs::read_dir(new) else { return Vec::new() };
+fn legacy_pairs(
+    old: &std::path::Path,
+    new: &std::path::Path,
+) -> Vec<(std::path::PathBuf, std::path::PathBuf)> {
+    let Ok(dir) = std::fs::read_dir(new) else {
+        return Vec::new();
+    };
     dir.flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with("account-") && e.path().is_dir())
         .map(|e| (old.join(e.file_name()), e.path()))
-        .filter(|(o, n)| read_legacy(o).is_ok() && matches!(read_entry("gnobbi", n), Err(VaultError::Missing)))
+        .filter(|(o, n)| {
+            read_legacy(o).is_ok() && matches!(read_entry("gnobbi", n), Err(VaultError::Missing))
+        })
         .collect()
 }
 
@@ -86,7 +102,10 @@ pub fn legacy_pending(old: &std::path::Path, new: &std::path::Path) -> usize {
 }
 
 /// Explicit copy of old-name entries to the gnobbi name; the originals stay untouched.
-pub fn copy_legacy_profile(old: &std::path::Path, new: &std::path::Path) -> Result<usize, VaultError> {
+pub fn copy_legacy_profile(
+    old: &std::path::Path,
+    new: &std::path::Path,
+) -> Result<usize, VaultError> {
     let pairs = legacy_pairs(old, new);
     for (o, n) in &pairs {
         let value = read_raw("dime", o)?;
@@ -107,7 +126,10 @@ fn read_entry(application: &str, profile: &std::path::Path) -> Result<Secret, Va
     Secret::new(text.to_owned()).map_err(|_| VaultError::InvalidItem)
 }
 
-fn read_raw(application: &str, profile: &std::path::Path) -> Result<zeroize::Zeroizing<Vec<u8>>, VaultError> {
+fn read_raw(
+    application: &str,
+    profile: &std::path::Path,
+) -> Result<zeroize::Zeroizing<Vec<u8>>, VaultError> {
     let service =
         secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh)
             .map_err(|_| VaultError::Unavailable)?;

@@ -1,10 +1,13 @@
 //! Debug mode details: server event ids and the room line; none for unsent rows.
-use matrix_desktop::{debug_room_line, DemoHistory};
+use matrix_desktop::{DemoHistory, debug_room_line};
 use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
 use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn scope() -> RoomScope {
-    RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") }
+    RoomScope {
+        account_id: AccountId::new(1),
+        room_id: RoomId::new("!r:test"),
+    }
 }
 
 #[test]

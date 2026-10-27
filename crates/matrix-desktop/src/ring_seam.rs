@@ -47,7 +47,10 @@ impl Shell {
     fn chat_visible(&self, window: &Window) -> bool {
         self.connected
             && self.timeline.is_some()
-            && self.sidebar.selected().is_some_and(|room| room.scope == self.active_scope)
+            && self
+                .sidebar
+                .selected()
+                .is_some_and(|room| room.scope == self.active_scope)
             && (window.viewport_size().width >= px(800.) || self.compact_chat)
     }
 
@@ -191,7 +194,9 @@ impl Shell {
         }
         if !shift && self.chat_visible(window) {
             let editor = self.composer.read(cx);
-            if editor.send_is_focused(window) || (editor.tab_back_ready(window) && !editor.send_eligible()) {
+            if editor.send_is_focused(window)
+                || (editor.tab_back_ready(window) && !editor.send_eligible())
+            {
                 self.focus_first_nav_control(window, cx);
                 return true;
             }

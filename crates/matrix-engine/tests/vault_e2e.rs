@@ -89,7 +89,10 @@ fn phase() {
                 let who = session.whoami().await.unwrap();
                 (event, who.user_id().to_owned(), who.device_id().to_owned())
             });
-            assert!(matches!(event.0, Some(matrix_engine::signin::SignInEvent::Authenticated(_))));
+            assert!(matches!(
+                event.0,
+                Some(matrix_engine::signin::SignInEvent::Authenticated(_))
+            ));
             assert_eq!(event.1, ALICE);
             assert_eq!(event.2, std::fs::read_to_string(device_file).unwrap());
         }

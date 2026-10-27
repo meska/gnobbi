@@ -102,7 +102,10 @@ fn linux_launch_without_arguments_opens_the_sign_in_on_the_standard_profile() {
     };
     let args = linux_launch_args(&[]);
     assert_eq!(args, ["--signin"]);
-    assert_eq!(default_signin_args(&args, &dirs), ["--signin", "/d/dime/profile"]);
+    assert_eq!(
+        default_signin_args(&args, &dirs),
+        ["--signin", "/d/dime/profile"]
+    );
     // Explicit flags keep working for tests.
     let given = ["--signin", "/p"].map(str::to_owned);
     assert_eq!(linux_launch_args(&given), given);

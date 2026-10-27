@@ -1,10 +1,10 @@
 //! Cancellable media projection: one read at a time, images of the open room loaded on arrival.
 use matrix_domain::{EventId, RoomScope};
-use std::collections::HashSet;
 use matrix_engine::{
     ViewRequests,
     media::{MediaCommand, MediaError, MediaEvent, Preview},
 };
+use std::collections::HashSet;
 
 #[derive(Default)]
 pub struct LiveMedia {
@@ -28,7 +28,11 @@ impl LiveMedia {
         self.settled.clear();
     }
     /// Ask for the first candidate not yet answered, unless a read is in flight.
-    pub fn next_inline(&mut self, scope: RoomScope, candidates: impl IntoIterator<Item = EventId>) -> bool {
+    pub fn next_inline(
+        &mut self,
+        scope: RoomScope,
+        candidates: impl IntoIterator<Item = EventId>,
+    ) -> bool {
         if self.loading || self.command.is_some() {
             return false;
         }
