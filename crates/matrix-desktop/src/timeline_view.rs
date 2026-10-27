@@ -122,6 +122,7 @@ pub struct TimelineView {
     history: Rc<RefCell<DemoHistory>>,
     /// Joined members of the shown room; sender names appear only above 2.
     member_count: Cell<u64>,
+    peer_receipts: Rc<RefCell<Vec<matrix_engine::receipts::PublicReadReceipt>>>,
     debug: Cell<bool>,
     live: bool,
     state: ListState,
@@ -211,6 +212,10 @@ impl TimelineView {
         self.member_count.set(count);
     }
 
+    pub fn set_peer_receipts(&self, receipts: &[matrix_engine::receipts::PublicReadReceipt]) {
+        *self.peer_receipts.borrow_mut() = receipts.to_vec();
+    }
+
     pub fn connected(scope: RoomScope, focus: FocusHandle) -> Self {
         Self::with_history(DemoHistory::new(scope, 0), focus, true)
     }
@@ -254,6 +259,7 @@ impl TimelineView {
             history: Rc::new(RefCell::new(history)),
             // The offline fixture stands for a group chat.
             member_count: Cell::new(if live { 0 } else { 3 }),
+            peer_receipts: Rc::default(),
             debug: Cell::new(false),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             semantic_cursor: RefCell::default(),
@@ -1126,6 +1132,7 @@ impl TimelineView {
         let live = self.live;
         let probe = self.probe;
         let members = self.member_count.get();
+        let peer_receipts = self.peer_receipts.clone();
         let debug = self.debug.get();
         let constructed = Rc::new(RefCell::new(Vec::<usize>::new()));
         let layouts = Rc::new(RefCell::new(Vec::<RowLayout>::new()));
@@ -1342,7 +1349,10 @@ impl TimelineView {
                         None => if live { "server" } else { "fixture" },
                     };
                     let stamp = StyledText::new(if live || event.send_state.is_some() {
-                        event.stamp()
+                        // Only a 1:1 shows "read": in a group the check would claim too much.
+                        let read = members == 2
+                            && history.peer_read_index(&peer_receipts.borrow()).is_some_and(|i| index <= i);
+                        event.stamp_read(read)
                     } else {
                         format!("{} · demo locale", event.time)
                     });

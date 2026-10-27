@@ -24,3 +24,34 @@ fn confirmed_outgoing_shows_check() {
 fn incoming_shows_only_time() {
     assert_eq!(bubble_stamp("10:42", false, None), "10:42");
 }
+
+#[test]
+fn peer_receipt_marks_that_event_and_older_ones_with_the_double_check() {
+    use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
+    use matrix_engine::{
+        history::{HistoryEvent, HistorySender},
+        receipts::PublicReadReceipt,
+    };
+    let event = |id: &str, ts| HistoryEvent {
+        event_id: EventId::new(id),
+        body: id.into(),
+        outgoing: true,
+        timestamp_ms: ts,
+        sender: HistorySender::new("@me:test", None),
+        video: None,
+    };
+    let mut rows = matrix_desktop::DemoHistory::new(RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") }, 0);
+    rows.prepend_server(vec![event("$a", 0), event("$b", 1), event("$c", 2)]);
+    let read = |ids: &[&str]| -> Vec<bool> {
+        let receipts: Vec<_> = ids
+            .iter()
+            .map(|id| PublicReadReceipt { event_id: EventId::new(*id), readers: 1 })
+            .collect();
+        let upto = rows.peer_read_index(&receipts);
+        (0..3).map(|i| upto.is_some_and(|u| i <= u)).collect()
+    };
+    assert_eq!(read(&[]), [false; 3]);
+    assert_eq!(read(&["$b"]), [true, true, false]);
+    let e = &rows.events()[0];
+    assert!(e.stamp_read(true).ends_with("✓✓") && e.stamp_read(false).ends_with(" ✓"));
+}

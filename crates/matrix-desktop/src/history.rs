@@ -39,6 +39,15 @@ impl DemoEvent {
         bubble_stamp(&self.time, self.outgoing, self.send_state)
     }
 
+    /// Footer for a 1:1 row: a read own message gets the double check.
+    pub fn stamp_read(&self, read: bool) -> String {
+        if read && self.outgoing && self.send_state.is_none() {
+            format!("{} ✓✓", self.time)
+        } else {
+            self.stamp()
+        }
+    }
+
     /// Server event id shown in debug mode; unsent rows have none.
     pub fn debug_id(&self) -> Option<&str> {
         match &self.id.id {
@@ -405,6 +414,17 @@ impl DemoHistory {
                 });
             }
         }
+    }
+
+    /// Index of the newest event the peer has read; everything before it is read too.
+    pub fn peer_read_index(
+        &self,
+        receipts: &[matrix_engine::receipts::PublicReadReceipt],
+    ) -> Option<usize> {
+        self.events.iter().rposition(|e| match &e.id.id {
+            TimelineId::Server(id) => receipts.iter().any(|r| r.readers > 0 && r.event_id == *id),
+            _ => false,
+        })
     }
 
     pub fn events(&self) -> &[DemoEvent] {

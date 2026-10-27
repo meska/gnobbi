@@ -1428,6 +1428,9 @@ impl Render for Shell {
             return div().size_full().child(signin.clone()).into_any_element();
         }
         let compact = window.viewport_size().width < px(800.);
+        if let (Some(timeline), Some(room)) = (&self.timeline, self.sidebar.selected()) {
+            timeline.set_peer_receipts(&room.info.public_read_receipts);
+        }
         #[cfg(test)]
         if navigation_resize_test::FROZEN.load(std::sync::atomic::Ordering::SeqCst) {
             return div().size_full().into_any_element();
