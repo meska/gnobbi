@@ -522,6 +522,7 @@ pub struct RoomSync {
     /// Last real message per room as (event id, text); fed by sync only, so empty until a message arrives.
     previews: BTreeMap<String, (String, String, Option<u64>)>,
     receipts: crate::receipts::PeerReceipts,
+    sent_markers: std::sync::Mutex<crate::receipts::SentMarkers>,
     operation_state: std::sync::Arc<tokio::sync::Mutex<crate::operations::OperationJournal>>,
 }
 
@@ -585,6 +586,7 @@ impl RoomSync {
             timeline_heads: BTreeMap::new(),
             previews: BTreeMap::new(),
             receipts,
+            sent_markers: Default::default(),
             operation_state: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
         }
     }
@@ -633,7 +635,42 @@ impl RoomSync {
             .client
             .as_ref()
             .ok_or(crate::history::HistoryError::Unavailable)?;
-        open_page(client, tag).await
+        let scope = tag.scope().clone();
+        let opened = open_page(client, tag).await?;
+        if let Some(last) = opened.0.events.last() {
+            self.mark_read(client, &scope.room_id, &last.event_id).await;
+        }
+        Ok(opened)
+    }
+
+    /// Public receipt and fully_read for the newest event; best effort, retried on the next open.
+    async fn mark_read(
+        &self,
+        client: &matrix_sdk::Client,
+        room_id: &RoomId,
+        event: &matrix_domain::EventId,
+    ) {
+        if !self.sent_markers.lock().unwrap().is_new(room_id, event) {
+            return;
+        }
+        let (Ok(id), Ok(event_id)) = (
+            matrix_sdk::ruma::RoomId::parse(room_id.as_str()),
+            matrix_sdk::ruma::EventId::parse(event.as_str()),
+        ) else {
+            return;
+        };
+        let Some(room) = client.get_room(&id) else {
+            return;
+        };
+        let receipts = matrix_sdk::room::Receipts::new()
+            .public_read_receipt(event_id.clone())
+            .fully_read_marker(event_id);
+        if room.send_multiple_receipts(receipts).await.is_ok() {
+            self.sent_markers
+                .lock()
+                .unwrap()
+                .record(room_id.clone(), event.clone());
+        }
     }
 
     /// Await only on the backend runtime. SDK persists/reuses its sync cursor;

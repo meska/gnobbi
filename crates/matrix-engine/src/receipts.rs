@@ -95,6 +95,22 @@ impl PeerReceipts {
     }
 }
 
+/// Last event we marked as read per room; a failed send is not recorded, so the next open retries it.
+#[cfg(any(feature = "sdk", test))]
+#[derive(Default)]
+pub(crate) struct SentMarkers(std::collections::HashMap<matrix_domain::RoomId, EventId>);
+
+#[cfg(any(feature = "sdk", test))]
+impl SentMarkers {
+    pub(crate) fn is_new(&self, room: &matrix_domain::RoomId, event: &EventId) -> bool {
+        self.0.get(room) != Some(event)
+    }
+
+    pub(crate) fn record(&mut self, room: matrix_domain::RoomId, event: EventId) {
+        self.0.insert(room, event);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,5 +218,21 @@ mod tests {
         );
         receipts.retain_rooms(&[]);
         assert!(receipts.snapshot(&scope).is_empty());
+    }
+
+    #[test]
+    fn sent_marker_dedupes_per_event_and_failure_is_retried() {
+        let (room, a, b) = (
+            RoomId::new("!a:test"),
+            EventId::new("$a"),
+            EventId::new("$b"),
+        );
+        let mut sent = SentMarkers::default();
+        assert!(sent.is_new(&room, &a));
+        // failed send: nothing recorded, the next open tries again
+        assert!(sent.is_new(&room, &a));
+        sent.record(room.clone(), a.clone());
+        assert!(!sent.is_new(&room, &a), "same event is not sent twice");
+        assert!(sent.is_new(&room, &b), "a newer event is sent");
     }
 }
