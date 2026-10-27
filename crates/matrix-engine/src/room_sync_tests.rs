@@ -441,3 +441,57 @@ fn video_info_is_a_typed_value_for_every_combination() {
         (None, None, true)
     );
 }
+
+#[test]
+fn video_info_table_gives_the_values_the_bubble_shows() {
+    // (info, duration_ms, size, has_thumbnail, row label)
+    let table = [
+        (
+            serde_json::json!({"size":307200,"duration":75000,"thumbnail_url":"mxc://t/th",
+                "thumbnail_info":{"mimetype":"image/jpeg"}}),
+            Some(75000),
+            Some(307200),
+            true,
+            "Video · 1:15 · 300 KB",
+        ),
+        (
+            serde_json::json!({"size":3145728,"duration":12000}),
+            Some(12000),
+            Some(3145728),
+            false,
+            "Video · 0:12 · 3.0 MB",
+        ),
+        (
+            serde_json::json!({"size":10,"thumbnail_url":"mxc://t/th"}),
+            None,
+            Some(10),
+            true,
+            "Video · 10 B",
+        ),
+        (
+            serde_json::json!({"duration":500}),
+            Some(500),
+            None,
+            false,
+            "Video · 0:00",
+        ),
+        (serde_json::Value::Null, None, None, false, "Video"),
+    ];
+    for (info, duration_ms, size, thumb, label) in table {
+        let mut json = serde_json::json!({"msgtype":"m.video","body":"c.mp4","url":"mxc://t/v"});
+        if !info.is_null() {
+            json["info"] = info.clone();
+        }
+        let msgtype = serde_json::from_value::<MessageType>(json).unwrap();
+        let MessageType::Video(v) = &msgtype else {
+            unreachable!()
+        };
+        let got = video_info(v);
+        assert_eq!(
+            (got.duration_ms, got.size, got.thumbnail.is_some()),
+            (duration_ms, size, thumb),
+            "{info}"
+        );
+        assert_eq!(message_label(&msgtype), label, "{info}");
+    }
+}
