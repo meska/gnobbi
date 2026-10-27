@@ -52,8 +52,8 @@ async fn until(what: &str, mut cond: impl FnMut() -> bool) {
 async fn wait_message(events: &RoomEventCache, sender: &str, msgtype: &str) -> serde_json::Value {
     let start = Instant::now();
     loop {
-        if let Ok(list) = events.events().await {
-            if let Some(found) = list.iter().find_map(|event| {
+        if let Ok(list) = events.events().await
+            && let Some(found) = list.iter().find_map(|event| {
                 let value: serde_json::Value =
                     serde_json::from_str(event.raw().json().get()).ok()?;
                 let content = &value["content"];
@@ -61,9 +61,9 @@ async fn wait_message(events: &RoomEventCache, sender: &str, msgtype: &str) -> s
                     && value["type"] == "m.room.message"
                     && content["msgtype"] == msgtype)
                     .then_some(value)
-            }) {
-                return found;
-            }
+            })
+        {
+            return found;
         }
         assert!(
             start.elapsed() < Duration::from_secs(90),
@@ -148,7 +148,7 @@ fn attachment_probe_covers_image_file_voice_captions_encrypted_room() {
             .unwrap();
         let dm_id = dm.room_id().to_owned();
         until("bob sees the room invite", || {
-            b.invited_rooms().iter().any(|r| r.room_id() == &dm_id)
+            b.invited_rooms().iter().any(|r| r.room_id() == dm_id)
         })
         .await;
         b.get_room(&dm_id).unwrap().join().await.unwrap();
@@ -260,7 +260,7 @@ fn attachment_probe_covers_image_file_voice_captions_encrypted_room() {
             .unwrap();
         let enc_id = enc.room_id().to_owned();
         until("bob sees the encrypted-room invite", || {
-            b.invited_rooms().iter().any(|r| r.room_id() == &enc_id)
+            b.invited_rooms().iter().any(|r| r.room_id() == enc_id)
         })
         .await;
         b.get_room(&enc_id).unwrap().join().await.unwrap();
