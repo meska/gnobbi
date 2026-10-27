@@ -56,14 +56,13 @@ fn room_management_covers_dm_invite_join_directory_leave_members_profile() {
         let build = |_user: &str| {
             let (url, ca) = (url.clone(), ca.clone());
             async move {
-                let client = Client::builder()
+                Client::builder()
                     .homeserver_url(url)
                     .add_root_certificates(vec![Certificate::from_pem(&ca).unwrap()])
                     .sliding_sync_version_builder(VersionBuilder::DiscoverNative)
                     .build()
                     .await
-                    .unwrap();
-                client
+                    .unwrap()
             }
         };
         let a = build(config["alice_mxid"].as_str().unwrap()).await;
@@ -163,8 +162,8 @@ fn room_management_covers_dm_invite_join_directory_leave_members_profile() {
         println!("[probe] bob invited to {dm_id} and {decline_id}");
 
         // Accept the DM, decline the other invitation (leave).
-        b.get_room(&dm_id).unwrap().join().await.unwrap();
-        b.get_room(&decline_id).unwrap().leave().await.unwrap();
+        b.get_room(dm_id).unwrap().join().await.unwrap();
+        b.get_room(decline_id).unwrap().leave().await.unwrap();
         until("invites leave the invited list", || {
             let rooms = b.invited_rooms();
             rooms
@@ -175,7 +174,7 @@ fn room_management_covers_dm_invite_join_directory_leave_members_profile() {
         // Declining via leave() on an invited room also forgets it (SDK
         // room/mod.rs: Room::leave "If any room was in Invited state,
         // it'll also be forgotten").
-        assert!(b.get_room(&decline_id).is_none());
+        assert!(b.get_room(decline_id).is_none());
         println!("[probe] dm joined, invitation declined (room forgotten)");
 
         // Join the public room by alias.
