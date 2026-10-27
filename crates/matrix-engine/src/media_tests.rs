@@ -784,3 +784,79 @@ fn media_cached_bytes_are_decoded_with_their_own_format() {
     }
     assert_eq!(crate::media_sdk::mime_of(b"not an image"), None);
 }
+
+#[test]
+fn image_bubble_uses_thumbnail_and_keeps_original_a_separate_resource() {
+    runtime().block_on(async {
+        use crate::media::MediaVariant::{Original, Thumbnail};
+        use matrix_sdk::ruma::{api::MatrixVersion, events::room::EncryptedFile, owned_mxc_uri};
+        use std::{io::Read, sync::{Arc, Mutex}};
+        use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener};
+        // (case, encrypted, thumbnail reply, original size, expected variant, expected size, thumbnail requests, download requests)
+        let over_cap = { let mut b = media_generated_png(320, 240); b.resize(1_048_577, 0); b };
+        let table = vec![
+            ("small", false, Some(media_generated_png(100, 80)), (100, 80), Thumbnail, (100, 80), 1, 0),
+            ("large", false, Some(media_generated_png(320, 240)), (1000, 800), Thumbnail, (320, 240), 1, 0),
+            ("over-cap", false, Some(over_cap), (640, 480), Original, (320, 240), 1, 1),
+            ("encrypted", true, None, (640, 480), Original, (320, 240), 0, 1),
+            ("no-thumbnail", false, None, (640, 480), Original, (320, 240), 1, 1),
+        ];
+        for (case, encrypted, thumb, (ow, oh), variant, (w, h), thumb_requests, downloads) in table {
+            let mut original = media_generated_png(ow, oh);
+            let mut content = serde_json::json!({"msgtype":"m.image", "body":"a.png", "info":{"mimetype":"image/png"}});
+            if encrypted {
+                let mut input = std::io::Cursor::new(&original);
+                let mut encryptor = matrix_sdk_crypto::AttachmentEncryptor::new(&mut input);
+                let mut ciphertext = Vec::new();
+                encryptor.read_to_end(&mut ciphertext).unwrap();
+                let info = encryptor.finish();
+                content["file"] = serde_json::to_value(EncryptedFile::new(owned_mxc_uri!("mxc://fixture.invalid/original"), info.encryption_info, info.hashes)).unwrap();
+                original = ciphertext;
+            } else {
+                content["url"] = serde_json::json!("mxc://fixture.invalid/original");
+            }
+            let event = serde_json::json!({"type":"m.room.message", "event_id":"$image", "room_id":"!image:fixture.invalid", "sender":"@alice:fixture.invalid", "origin_server_ts":1, "content":content});
+            let sync = serde_json::json!({"next_batch":"s1", "rooms":{"join":{"!image:fixture.invalid":{"state":{"events":[{"type":"m.room.member", "state_key":"@alice:fixture.invalid", "sender":"@alice:fixture.invalid", "event_id":"$member", "origin_server_ts":1, "content":{"membership":"join"}}]}, "timeline":{"events":[], "limited":false, "prev_batch":"s0"}, "ephemeral":{"events":[]}, "account_data":{"events":[]}, "unread_notifications":{}}}}});
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let requests = Arc::new(Mutex::new(Vec::<String>::new()));
+            let recorded = requests.clone();
+            let server = tokio::spawn(async move {
+                loop {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    let mut headers = Vec::new();
+                    while !headers.ends_with(b"\r\n\r\n") { headers.push(stream.read_u8().await.unwrap()); }
+                    let path = String::from_utf8(headers).unwrap().split_whitespace().nth(1).unwrap().to_owned();
+                    recorded.lock().unwrap().push(path.clone());
+                    let (status, response) = if path.contains("/sync?") { ("200 OK", serde_json::to_vec(&sync).unwrap()) }
+                        else if path.contains("/event/") { ("200 OK", serde_json::to_vec(&event).unwrap()) }
+                        else if path.contains("/thumbnail/") { match &thumb { Some(b) => ("200 OK", b.clone()), None => ("404 Not Found", br#"{"errcode":"M_NOT_FOUND","error":"no thumbnail"}"#.to_vec()) } }
+                        else if path.contains("/download/") { ("200 OK", original.clone()) }
+                        else { ("200 OK", b"{}".to_vec()) };
+                    let header = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n", response.len());
+                    if stream.write_all(header.as_bytes()).await.is_ok() {
+                        let _ = stream.write_all(&response).await;
+                        let _ = stream.write_all(b"\r\n0\r\n\r\n").await;
+                    }
+                }
+            });
+            let client = matrix_sdk::Client::builder().homeserver_url(format!("http://{address}"))
+                .sliding_sync_version_builder(matrix_sdk::sliding_sync::VersionBuilder::None)
+                .request_config(matrix_sdk::config::RequestConfig::new().retry_limit(3))
+                .server_versions([MatrixVersion::V1_0]).build().await.unwrap();
+            let session: matrix_sdk::authentication::matrix::MatrixSession = serde_json::from_value(serde_json::json!({"user_id":"@alice:fixture.invalid", "device_id":"TEST", "access_token":"synthetic"})).unwrap();
+            client.restore_session(session).await.unwrap();
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            let mut views = crate::ViewRequests::new();
+            let tag = views.start(matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new("!image:fixture.invalid") }).unwrap();
+            let got = crate::media_sdk::download_png(&client, AccountId::new(26), &tag, &matrix_domain::EventId::new("$image")).await
+                .unwrap_or_else(|e| panic!("{case}: {e:?}"));
+            server.abort();
+            assert_eq!(got.variant, variant, "{case}");
+            assert_eq!((got.preview.width, got.preview.height), (w, h), "{case}");
+            let requests = requests.lock().unwrap();
+            let count = |needle: &str| requests.iter().filter(|p| p.contains(needle)).count();
+            assert_eq!((count("/thumbnail/"), count("/download/")), (thumb_requests, downloads), "{case}: {requests:?}");
+        }
+    });
+}

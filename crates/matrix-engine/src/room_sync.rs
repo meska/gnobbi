@@ -164,12 +164,17 @@ impl RoomListWorker {
                                     {
                                         continue;
                                     }
-                                    let key = crate::media::MediaKey {
+                                    let key = |variant| crate::media::MediaKey {
+                                        variant,
                                         scope: tag.scope().clone(),
                                         event_id: event.clone(),
                                     };
+                                    use crate::media::MediaVariant::{Original, Thumbnail};
+                                    let hit = [Thumbnail, Original]
+                                        .into_iter()
+                                        .find_map(|v| cache.get(&key(v)).map(|b| (v, b.to_vec())));
                                     let read = async {
-                                        if let Some(bytes) = cache.get(&key).map(<[u8]>::to_vec) {
+                                        if let Some((variant, bytes)) = hit {
                                             let preview = crate::media_sdk::decode_png(
                                                 bytes.clone(),
                                                 crate::media_sdk::mime_of(&bytes).ok_or(
@@ -178,7 +183,11 @@ impl RoomListWorker {
                                                 &tag,
                                             )
                                             .await?;
-                                            Ok(crate::media::DownloadedPng { bytes, preview })
+                                            Ok(crate::media::DownloadedPng {
+                                                variant,
+                                                bytes,
+                                                preview,
+                                            })
                                         } else {
                                             let downloaded = crate::media_sdk::download_png(
                                                 &media_client,
@@ -187,7 +196,10 @@ impl RoomListWorker {
                                                 &event,
                                             )
                                             .await?;
-                                            cache.insert(key, downloaded.bytes.clone());
+                                            cache.insert(
+                                                key(downloaded.variant),
+                                                downloaded.bytes.clone(),
+                                            );
                                             Ok(downloaded)
                                         }
                                     };

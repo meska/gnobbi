@@ -39,6 +39,7 @@ async fn cancellable<T>(
 }
 
 const VIDEO_THUMBNAIL_MAX_BYTES: usize = 1_048_576;
+const THUMBNAIL_MAX_BYTES: usize = 1_048_576;
 
 impl AccountSession {
     /// Fetch only the thumbnail of an exact scoped video event. SDK decryption
@@ -106,7 +107,11 @@ impl AccountSession {
                 })?;
             let mime = mime_of(&bytes).ok_or(MediaError::UnsupportedType)?;
             let preview = decode_png(bytes.clone(), mime, tag).await?;
-            Ok(Some(DownloadedPng { bytes, preview }))
+            Ok(Some(DownloadedPng {
+                bytes,
+                preview,
+                variant: MediaVariant::Thumbnail,
+            }))
         })
         .await
     }
@@ -190,6 +195,31 @@ pub(crate) async fn download_png(
                 (file.url.clone(), Some(file))
             }
         };
+        if encrypted_file.is_none() {
+            // Server thumbnail first; any miss (404, over the cap, not an image) falls back to the original.
+            let request = matrix_sdk::media::MediaRequestParameters {
+                source: matrix_sdk::ruma::events::room::MediaSource::Plain(uri.clone()),
+                format: matrix_sdk::media::MediaFormat::Thumbnail(
+                    matrix_sdk::media::MediaThumbnailSettings::new(320u32.into(), 240u32.into()),
+                ),
+            };
+            let config = client
+                .request_config()
+                .timeout(Some(Duration::MAX))
+                .max_response_size(Some(THUMBNAIL_MAX_BYTES));
+            if let Ok(bytes) = matrix_sdk::media::DefaultMediaFetcher
+                .fetch_media_content_with_request_config(client, &request, config)
+                .await
+                && let Some(thumb_mime) = mime_of(&bytes)
+                && let Ok(preview) = decode_png(bytes.clone(), thumb_mime, tag).await
+            {
+                return Ok(DownloadedPng {
+                    bytes,
+                    preview,
+                    variant: MediaVariant::Thumbnail,
+                });
+            }
+        }
         let (server, media_id) = uri.parts().map_err(|_| MediaError::InvalidScope)?;
         if media_id.is_empty()
             || !media_id
@@ -253,7 +283,11 @@ pub(crate) async fn download_png(
             .map_err(|_| MediaError::Failed)??;
         }
         let preview = decode_png(bytes.clone(), &mime, tag).await?;
-        Ok(DownloadedPng { bytes, preview })
+        Ok(DownloadedPng {
+            bytes,
+            preview,
+            variant: MediaVariant::Original,
+        })
     })
     .await
 }
@@ -301,7 +335,7 @@ pub(crate) async fn send_png(
     .map_err(|_| MediaError::Deadline)?
 }
 
-pub use crate::media::{DownloadedPng, MAX_MEDIA_BYTES, MediaError, Preview};
+pub use crate::media::{DownloadedPng, MAX_MEDIA_BYTES, MediaError, MediaVariant, Preview};
 
 /// MIME type of already-downloaded bytes (cache hits keep no metadata).
 pub(crate) fn mime_of(bytes: &[u8]) -> Option<&'static str> {

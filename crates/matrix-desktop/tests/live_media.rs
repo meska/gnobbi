@@ -28,6 +28,7 @@ fn completed_preview_rejects_duplicate_result_without_revealing_pixels() {
         tag,
         event,
         result: Ok(DownloadedPng {
+            variant: matrix_engine::media::MediaVariant::Original,
             bytes: vec![1],
             preview: Preview {
                 width: 1,
@@ -123,6 +124,7 @@ fn explicit_preview_request_accepts_only_matching_scoped_result() {
         tag,
         event,
         result: Ok(DownloadedPng {
+            variant: matrix_engine::media::MediaVariant::Original,
             bytes: vec![1],
             preview: Preview {
                 width: 1,
@@ -164,6 +166,7 @@ fn inline_loading_asks_for_one_image_at_a_time_and_never_repeats_a_settled_one()
         tag,
         event,
         result: Ok(DownloadedPng {
+            variant: matrix_engine::media::MediaVariant::Original,
             bytes: vec![1],
             preview: Preview {
                 width: 1,

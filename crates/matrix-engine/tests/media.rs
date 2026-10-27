@@ -3,6 +3,7 @@ use matrix_engine::media::{MediaCache, MediaKey};
 
 fn key(account: u64, event: &str) -> MediaKey {
     MediaKey {
+        variant: matrix_engine::media::MediaVariant::Thumbnail,
         scope: RoomScope {
             account_id: AccountId::new(account),
             room_id: RoomId::new("!media:test"),

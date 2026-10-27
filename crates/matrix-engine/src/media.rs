@@ -41,7 +41,16 @@ pub enum MediaError {
 pub const MAX_MEDIA_BYTES: usize = 25 * 1024 * 1024;
 pub const MAX_IMAGE_PIXELS: u64 = 40_000_000;
 
+/// Thumbnail and original are separate resources with separate cache entries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaVariant {
+    Thumbnail,
+    Original,
+}
+
 pub struct DownloadedPng {
+    /// Encoded bytes of the resource named by `variant`.
+    pub variant: MediaVariant,
     pub bytes: Vec<u8>,
     pub preview: Preview,
 }
@@ -57,6 +66,7 @@ pub struct Preview {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct MediaKey {
+    pub variant: MediaVariant,
     pub scope: RoomScope,
     pub event_id: EventId,
 }
