@@ -49,7 +49,12 @@ pub(crate) fn capture_rail(
     callback
 }
 fn painted_rail(scope: &Option<RoomScope>) -> PointerCallback {
-    RAILS.with_borrow(|rails| rails.get(scope).expect("rail entry was never painted").clone())
+    RAILS.with_borrow(|rails| {
+        rails
+            .get(scope)
+            .expect("rail entry was never painted")
+            .clone()
+    })
 }
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 thread_local! {
@@ -68,7 +73,12 @@ pub(crate) fn capture_space(
 }
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 fn painted_space(id: accesskit::NodeId) -> PointerCallback {
-    SPACE_NODES.with_borrow(|nodes| nodes.get(&id).expect("compact Spaces node was never painted").clone())
+    SPACE_NODES.with_borrow(|nodes| {
+        nodes
+            .get(&id)
+            .expect("compact Spaces node was never painted")
+            .clone()
+    })
 }
 fn painted_pointer(unread: bool) -> PointerCallback {
     assert!(
@@ -103,26 +113,45 @@ pub(crate) fn observe(label: String) -> Option<gpui::AnyElement> {
     })
 }
 
-
-const RING: [&str; 10] = ["list", "search", "theme", "unread", "devices", "notifications", "info", "entry", "back", "none"];
+const RING: [&str; 10] = [
+    "list",
+    "search",
+    "theme",
+    "unread",
+    "devices",
+    "notifications",
+    "info",
+    "entry",
+    "back",
+    "none",
+];
 
 fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
     use matrix_desktop::panel_openers::Control;
     let entry = {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        { this.history_focus.is_focused(window) || this.composer.read(cx).is_focused(window) }
+        {
+            this.history_focus.is_focused(window) || this.composer.read(cx).is_focused(window)
+        }
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-        { this.composer.read(cx).is_focused(window) }
+        {
+            this.composer.read(cx).is_focused(window)
+        }
     };
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    if this.back_ui.focus.is_focused(window) { return "back"; }
+    if this.back_ui.focus.is_focused(window) {
+        return "back";
+    }
     [
         (this.list_focus.is_focused(window), "list"),
         (this.search_focus.is_focused(window), "search"),
         (this.theme_focus.is_focused(window), "theme"),
         (this.unread_focus.is_focused(window), "unread"),
         (this.opener_ui.focused(Control::Devices, window), "devices"),
-        (this.opener_ui.focused(Control::Notifications, window), "notifications"),
+        (
+            this.opener_ui.focused(Control::Notifications, window),
+            "notifications",
+        ),
         (this.opener_ui.focused(Control::Info, window), "info"),
         (entry, "entry"),
     ]
@@ -133,7 +162,11 @@ fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
 
 fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Context<Shell>) {
     use matrix_desktop::panel_openers::{Control, Intent};
-    let opener = |control| Intent { control, source: 0, focus_only: true };
+    let opener = |control| Intent {
+        control,
+        source: 0,
+        focus_only: true,
+    };
     let control = match label {
         "list" => return this.list_focus.focus(window),
         "search" => return this.search_focus.focus(window),
@@ -145,13 +178,27 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         "entry" => return this.history_focus.focus(window),
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-        "entry" => return this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx)),
+        "entry" => {
+            return this
+                .composer
+                .update(cx, |v, cx| v.focus_from_accessibility(window, cx));
+        }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         "back" => return this.back_ui.focus.focus(window),
         _ => unreachable!(),
     };
-    let source = this.opener_ui.source(control).expect("opener must be visible to start");
-    this.apply_opener(Intent { source, ..opener(control) }, window, cx);
+    let source = this
+        .opener_ui
+        .source(control)
+        .expect("opener must be visible to start");
+    this.apply_opener(
+        Intent {
+            source,
+            ..opener(control)
+        },
+        window,
+        cx,
+    );
 }
 
 fn ring_visible(label: &str, wide: bool, chat: bool) -> bool {
@@ -203,9 +250,7 @@ fn preserve_drafts_and_capture(
                 .success()
         );
     }
-    eprintln!(
-        "{label}: exact dual multiline Unicode drafts and selected/active scope preserved"
-    );
+    eprintln!("{label}: exact dual multiline Unicode drafts and selected/active scope preserved");
 }
 
 fn pointer_transition(this: &mut Shell, transition: &str, away: bool) {
@@ -232,20 +277,38 @@ fn pointer_transition(this: &mut Shell, transition: &str, away: bool) {
 }
 
 fn upsert_space(this: &mut Shell, account: matrix_domain::AccountId, id: &str, name: &str) {
-    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
-        scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(id) },
-        name: name.into(), unread: 0,
-        info: matrix_engine::RoomInfo { is_space: true, ..Default::default() },
-    }));
+    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(
+        matrix_engine::RoomSummary {
+            scope: RoomScope {
+                account_id: account,
+                room_id: matrix_domain::RoomId::new(id),
+            },
+            name: name.into(),
+            unread: 0,
+            info: matrix_engine::RoomInfo {
+                is_space: true,
+                ..Default::default()
+            },
+        },
+    ));
 }
 
-fn focus_choice(this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>, scope: &Option<RoomScope>) {
+fn focus_choice(
+    this: &mut Shell,
+    window: &mut Window,
+    cx: &mut Context<Shell>,
+    scope: &Option<RoomScope>,
+) {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     {
         let view = this.semantic_spaces(window).unwrap();
         let id = view.choices.iter().find(|c| c.scope == *scope).unwrap().id;
         this.apply_semantic_spaces(
-            matrix_desktop::accessibility::spaces::SpacesAction::Focus { revision: view.revision, account: view.account, id },
+            matrix_desktop::accessibility::spaces::SpacesAction::Focus {
+                revision: view.revision,
+                account: view.account,
+                id,
+            },
             window,
             cx,
         );
@@ -1745,7 +1808,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             for name in ["backspace", "escape"] {
                 cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(name).unwrap(), cx); }).unwrap();
             }
-            this.update_in(cx, |this, window, cx| {
+            this.update_in(cx, |this, _window, cx| {
                 assert_eq!(this.sidebar.query(), "", "hidden Search must reject native edits");
                 assert!(this.compact_chat);
                 assert_eq!(this.active_scope, scopes[0]);
@@ -2438,7 +2501,10 @@ fn queued_focus_search_is_dropped_while_search_hidden() {
 #[test]
 #[ignore = "requires private display"]
 fn rail_requires_completed_current_key_gestures() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(12, Ordering::SeqCst);
     COMPACT.store(false, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
@@ -2450,7 +2516,10 @@ fn rail_requires_completed_current_key_gestures() {
 #[test]
 #[ignore = "requires private display"]
 fn compact_spaces_require_completed_current_key_gestures() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(12, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
@@ -2462,7 +2531,10 @@ fn compact_spaces_require_completed_current_key_gestures() {
 #[test]
 #[ignore = "requires private display"]
 fn painted_rail_pointer_callbacks_retire_with_their_source() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(13, Ordering::SeqCst);
     COMPACT.store(false, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
@@ -2475,7 +2547,10 @@ fn painted_rail_pointer_callbacks_retire_with_their_source() {
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 #[ignore = "requires private display"]
 fn painted_compact_spaces_callbacks_retire_with_their_source() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(14, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
@@ -2488,9 +2563,15 @@ fn painted_compact_spaces_callbacks_retire_with_their_source() {
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 #[ignore = "requires private display"]
 fn translated_spaces_intents_activate_once_and_reject_stale_sources() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(15, Ordering::SeqCst);
-    COMPACT.store(std::env::var("P111_COMPACT").as_deref() == Ok("1"), Ordering::SeqCst);
+    COMPACT.store(
+        std::env::var("P111_COMPACT").as_deref() == Ok("1"),
+        Ordering::SeqCst,
+    );
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
@@ -2500,7 +2581,10 @@ fn translated_spaces_intents_activate_once_and_reject_stale_sources() {
 #[test]
 #[ignore = "requires private display"]
 fn wide_list_chat_seam_runs_through_footer_and_info_both_ways() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(16, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
@@ -2510,7 +2594,10 @@ fn wide_list_chat_seam_runs_through_footer_and_info_both_ways() {
 #[test]
 #[ignore = "requires private display"]
 fn compact_list_seam_runs_through_footer_both_ways() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(16, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
@@ -2521,7 +2608,10 @@ fn compact_list_seam_runs_through_footer_both_ways() {
 #[test]
 #[ignore = "requires private display"]
 fn compact_chat_seam_runs_from_back_through_info_both_ways() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(16, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
@@ -2533,7 +2623,10 @@ fn compact_chat_seam_runs_from_back_through_info_both_ways() {
 #[test]
 #[ignore = "requires private display"]
 fn wide_chat_end_wraps_to_first_rail_control_both_ways() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(17, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2544,7 +2637,10 @@ fn wide_chat_end_wraps_to_first_rail_control_both_ways() {
 #[test]
 #[ignore = "requires private display"]
 fn wide_chat_end_without_eligible_send_wraps_from_composer() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(17, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2556,7 +2652,10 @@ fn wide_chat_end_without_eligible_send_wraps_from_composer() {
 #[test]
 #[ignore = "requires private display"]
 fn compact_chat_end_wraps_to_back_both_ways() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(17, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     COMPACT.store(true, Ordering::SeqCst);
@@ -2568,7 +2667,10 @@ fn compact_chat_end_wraps_to_back_both_ways() {
 #[test]
 #[ignore = "requires private display"]
 fn selected_hidden_list_keeps_ring_and_selection() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(18, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2579,7 +2681,10 @@ fn selected_hidden_list_keeps_ring_and_selection() {
 #[test]
 #[ignore = "requires private display"]
 fn empty_list_keeps_ring_and_selection() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(18, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2591,7 +2696,10 @@ fn empty_list_keeps_ring_and_selection() {
 #[test]
 #[ignore = "requires private display"]
 fn native_resize_moves_every_ring_control_to_a_visible_one() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(19, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2602,7 +2710,10 @@ fn native_resize_moves_every_ring_control_to_a_visible_one() {
 #[test]
 #[ignore = "requires private display"]
 fn theme_change_keeps_every_ring_control_focused() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(20, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2613,7 +2724,10 @@ fn theme_change_keeps_every_ring_control_focused() {
 #[test]
 #[ignore = "requires private display"]
 fn page_up_and_home_keep_the_row_being_read_in_place() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(21, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
@@ -2622,7 +2736,10 @@ fn page_up_and_home_keep_the_row_being_read_in_place() {
 #[test]
 #[ignore = "requires private display"]
 fn wheel_and_scrollbar_drag_keep_the_row_being_read_in_place() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(22, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
@@ -2631,7 +2748,10 @@ fn wheel_and_scrollbar_drag_keep_the_row_being_read_in_place() {
 #[test]
 #[ignore = "requires private display"]
 fn older_history_strip_shows_only_while_loading_or_after_a_failure() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(23, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2642,7 +2762,10 @@ fn older_history_strip_shows_only_while_loading_or_after_a_failure() {
 #[test]
 #[ignore = "requires private display"]
 fn room_row_shows_the_last_real_message_as_preview() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(24, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2653,7 +2776,10 @@ fn room_row_shows_the_last_real_message_as_preview() {
 #[test]
 #[ignore = "requires private display"]
 fn empty_rooms_are_hidden_until_the_control_shows_them() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(25, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2664,7 +2790,10 @@ fn empty_rooms_are_hidden_until_the_control_shows_them() {
 #[test]
 #[ignore = "requires private display"]
 fn menu_button_opens_and_closes_the_drawer_and_moves_focus() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(26, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2675,7 +2804,10 @@ fn menu_button_opens_and_closes_the_drawer_and_moves_focus() {
 #[test]
 #[ignore = "requires private display"]
 fn settings_entry_opens_the_panel_and_the_debug_switch_persists() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(27, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2686,7 +2818,10 @@ fn settings_entry_opens_the_panel_and_the_debug_switch_persists() {
 #[test]
 #[ignore = "requires private display"]
 fn debug_mode_shows_event_ids_and_the_room_line() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(28, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
@@ -2697,7 +2832,10 @@ fn debug_mode_shows_event_ids_and_the_room_line() {
 #[test]
 #[ignore = "requires private display"]
 fn drawer_offers_devices_and_notifications_and_the_footer_does_not() {
-    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
     DYNAMIC.store(29, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);

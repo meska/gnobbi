@@ -124,7 +124,11 @@ impl Shell {
             && self.sidebar.spaces().next().is_some()
             && self.spaces_ui.focus.is_focused(window)
         {
-            PressKind::Spaces(self.spaces_ui.target.clone())
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            let target = self.spaces_ui.target;
+            #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+            let target = self.spaces_ui.target.clone();
+            PressKind::Spaces(target)
         } else {
             return false;
         };
@@ -218,9 +222,13 @@ impl Shell {
             && !self.compact_chat
             && (self.composer.read(cx).is_focused(window) || {
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                { self.history_focus.is_focused(window) }
+                {
+                    self.history_focus.is_focused(window)
+                }
                 #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-                { false }
+                {
+                    false
+                }
             })
         {
             self.set_compact_chat(true);
@@ -306,7 +314,11 @@ impl Shell {
                 return true;
             } else if key.modifiers.shift && compact {
                 if self.connected
-                    && self.focus_opener(matrix_desktop::panel_openers::Control::Notifications, window, cx)
+                    && self.focus_opener(
+                        matrix_desktop::panel_openers::Control::Notifications,
+                        window,
+                        cx,
+                    )
                 {
                     cx.notify();
                     return true;

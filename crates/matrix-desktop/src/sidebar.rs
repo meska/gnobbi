@@ -327,7 +327,10 @@ impl Sidebar {
         if needle.is_empty() {
             let rooms = &self.rooms;
             self.visible.sort_by_cached_key(|&i| {
-                (std::cmp::Reverse(rooms[i].info.last_activity), rooms[i].name.to_lowercase())
+                (
+                    std::cmp::Reverse(rooms[i].info.last_activity),
+                    rooms[i].name.to_lowercase(),
+                )
             });
         }
     }
@@ -368,7 +371,9 @@ impl Sidebar {
 
     /// Position of a room in the visible order, if it is shown.
     pub fn position_of(&self, scope: &RoomScope) -> Option<usize> {
-        self.visible.iter().position(|&i| self.rooms[i].scope == *scope)
+        self.visible
+            .iter()
+            .position(|&i| self.rooms[i].scope == *scope)
     }
 
     pub fn rooms(&self) -> &[SidebarRoom] {
@@ -399,16 +404,27 @@ mod tests {
     use matrix_engine::{RoomInfo, RoomSummary};
 
     fn names(sidebar: &Sidebar) -> Vec<&str> {
-        sidebar.visible_indices().iter().map(|&i| sidebar.rooms()[i].name.as_str()).collect()
+        sidebar
+            .visible_indices()
+            .iter()
+            .map(|&i| sidebar.rooms()[i].name.as_str())
+            .collect()
     }
 
     fn fill(sidebar: &mut Sidebar, account: &AccountId, rooms: &[(&str, Option<u64>)]) {
         for (name, last_activity) in rooms {
             sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
-                scope: RoomScope { account_id: account.clone(), room_id: RoomId::new(format!("!{name}:t.invalid")) },
+                scope: RoomScope {
+                    account_id: *account,
+                    room_id: RoomId::new(format!("!{name}:t.invalid")),
+                },
                 name: (*name).into(),
                 unread: 0,
-                info: RoomInfo { last_activity: *last_activity, preview: Some("x".into()), ..Default::default() },
+                info: RoomInfo {
+                    last_activity: *last_activity,
+                    preview: Some("x".into()),
+                    ..Default::default()
+                },
             }));
         }
     }
@@ -416,9 +432,23 @@ mod tests {
     #[test]
     fn rooms_are_ordered_by_recent_activity_then_name_with_idle_rooms_last() {
         let account = AccountId::new(1);
-        let mut sidebar = Sidebar::connected(account.clone());
-        fill(&mut sidebar, &account, &[("zeta", None), ("beta", Some(10)), ("alfa", None), ("old", Some(5)), ("Gamma", Some(10)), ("new", Some(99))]);
-        assert_eq!(names(&sidebar), ["new", "beta", "Gamma", "old", "alfa", "zeta"]);
+        let mut sidebar = Sidebar::connected(account);
+        fill(
+            &mut sidebar,
+            &account,
+            &[
+                ("zeta", None),
+                ("beta", Some(10)),
+                ("alfa", None),
+                ("old", Some(5)),
+                ("Gamma", Some(10)),
+                ("new", Some(99)),
+            ],
+        );
+        assert_eq!(
+            names(&sidebar),
+            ["new", "beta", "Gamma", "old", "alfa", "zeta"]
+        );
         // a newer message moves the room to the top
         fill(&mut sidebar, &account, &[("old", Some(100))]);
         assert_eq!(names(&sidebar)[0], "old");
@@ -428,21 +458,31 @@ mod tests {
     }
 
     fn scope(account: &AccountId, name: &str) -> RoomScope {
-        RoomScope { account_id: account.clone(), room_id: RoomId::new(format!("!{name}:t.invalid")) }
+        RoomScope {
+            account_id: *account,
+            room_id: RoomId::new(format!("!{name}:t.invalid")),
+        }
     }
 
     #[test]
     fn a_new_message_keeps_the_open_room_selected_in_every_filter() {
         let account = AccountId::new(1);
-        let mut sidebar = Sidebar::connected(account.clone());
-        fill(&mut sidebar, &account, &[("a", Some(3)), ("b", Some(2)), ("c", Some(1))]);
+        let mut sidebar = Sidebar::connected(account);
+        fill(
+            &mut sidebar,
+            &account,
+            &[("a", Some(3)), ("b", Some(2)), ("c", Some(1))],
+        );
         let open = scope(&account, "c");
         assert!(sidebar.select(&open));
         sidebar.set_unread_only(false);
         // another room gets the newest message, the open one is pushed down
         fill(&mut sidebar, &account, &[("b", Some(50))]);
         assert_eq!(names(&sidebar), ["b", "a", "c"]);
-        assert_eq!(sidebar.selected().map(|r| r.scope.clone()), Some(open.clone()));
+        assert_eq!(
+            sidebar.selected().map(|r| r.scope.clone()),
+            Some(open.clone())
+        );
         // the open room itself moving to the top stays selected too
         fill(&mut sidebar, &account, &[("c", Some(60))]);
         assert_eq!(names(&sidebar)[0], "c");
@@ -452,25 +492,40 @@ mod tests {
     #[test]
     fn a_new_message_reorders_inside_a_selected_space_and_the_unread_filter() {
         let account = AccountId::new(1);
-        let mut sidebar = Sidebar::connected(account.clone());
-        fill(&mut sidebar, &account, &[("x", Some(1)), ("y", Some(2)), ("z", Some(3))]);
+        let mut sidebar = Sidebar::connected(account);
+        fill(
+            &mut sidebar,
+            &account,
+            &[("x", Some(1)), ("y", Some(2)), ("z", Some(3))],
+        );
         sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
             scope: scope(&account, "space"),
             name: "space".into(),
             unread: 0,
-            info: RoomInfo { is_space: true, children: vec![RoomId::new("!x:t.invalid"), RoomId::new("!y:t.invalid")], ..Default::default() },
+            info: RoomInfo {
+                is_space: true,
+                children: vec![RoomId::new("!x:t.invalid"), RoomId::new("!y:t.invalid")],
+                ..Default::default()
+            },
         }));
         assert!(sidebar.set_space(Some(scope(&account, "space"))));
         assert!(sidebar.select(&scope(&account, "x")));
         fill(&mut sidebar, &account, &[("x", Some(9))]);
-        assert_eq!(names(&sidebar), ["x", "y", "space"][..names(&sidebar).len()]);
+        assert_eq!(
+            names(&sidebar),
+            ["x", "y", "space"][..names(&sidebar).len()]
+        );
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
         sidebar.set_unread_only(true);
         sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
             scope: scope(&account, "y"),
             name: "y".into(),
             unread: 2,
-            info: RoomInfo { last_activity: Some(70), preview: Some("x".into()), ..Default::default() },
+            info: RoomInfo {
+                last_activity: Some(70),
+                preview: Some("x".into()),
+                ..Default::default()
+            },
         }));
         assert_eq!(names(&sidebar), ["y"]);
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
@@ -479,7 +534,7 @@ mod tests {
     #[test]
     fn position_of_gives_the_row_position_in_the_visible_order() {
         let account = AccountId::new(1);
-        let mut sidebar = Sidebar::connected(account.clone());
+        let mut sidebar = Sidebar::connected(account);
         fill(&mut sidebar, &account, &[("a", Some(3)), ("b", Some(2))]);
         assert_eq!(sidebar.position_of(&scope(&account, "b")), Some(1));
         assert_eq!(sidebar.position_of(&scope(&account, "nope")), None);

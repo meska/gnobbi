@@ -9,7 +9,7 @@ pub enum DetailsView {
     #[default]
     Unavailable,
     Closed(RoomScope),
-    Open(DetailsSnapshot),
+    Open(Box<DetailsSnapshot>),
 }
 #[derive(Debug, PartialEq)]
 pub enum DetailsAction {

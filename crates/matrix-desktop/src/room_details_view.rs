@@ -15,13 +15,13 @@ impl Shell {
             return DetailsView::Unavailable;
         };
         if self.room_details_open {
-            DetailsView::Open(DetailsSnapshot {
+            DetailsView::Open(Box::new(DetailsSnapshot {
                 scope: room.scope.clone(),
                 name: room.name.clone(),
                 info: room.info.clone(),
                 focus: self.details_focus,
                 bounds: self.a11y_details_bounds,
-            })
+            }))
         } else if window.viewport_size().width >= px(800.) || self.compact_chat {
             DetailsView::Closed(room.scope.clone())
         } else {

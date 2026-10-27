@@ -1,3 +1,5 @@
+#![cfg_attr(test, recursion_limit = "256")]
+
 //! Headless backend/UI boundary with an opt-in Matrix SDK adapter surface.
 //!
 //! Enable `sdk` only in backend consumers; domain/UI DTOs remain SDK-free.
@@ -15,9 +17,9 @@ pub mod auth;
 pub mod recovery;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
+pub mod verification;
 #[cfg(feature = "sdk")]
 mod warm;
-pub mod verification;
 
 /// A server-backed room-list projection; never log remote names or identities.
 #[derive(Clone, PartialEq, Eq)]
@@ -70,6 +72,8 @@ pub enum RoomSyncStatus {
 pub mod discovery;
 mod generation;
 pub mod history;
+#[cfg(all(feature = "mac-vault", target_os = "macos"))]
+pub mod keychain;
 pub mod media;
 #[cfg(feature = "sdk")]
 pub mod media_sdk;
@@ -83,8 +87,6 @@ pub mod sending;
 pub mod signin;
 #[cfg(all(feature = "linux-vault", target_os = "linux"))]
 pub mod vault;
-#[cfg(all(feature = "mac-vault", target_os = "macos"))]
-pub mod keychain;
 pub use generation::{GenerationExhausted, RequestTag, ViewRequests};
 mod channel;
 pub use channel::{Receiver, Sender, TryReceiveError, TrySendError, bounded};

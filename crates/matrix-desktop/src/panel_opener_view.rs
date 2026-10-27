@@ -504,7 +504,8 @@ mod tests {
                     assert!(this.opener_ui.focused(control, window));
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open);
                 }
-                for (control,name) in [(Control::Info,"space")] {
+                {
+                    let (control,name) = (Control::Info,"space");
                     let source=this.opener_ui.source(control).unwrap();
                     this.apply_opener(Intent {control,source,focus_only:true},window,cx);
                     let key=this.opener_key_callback();

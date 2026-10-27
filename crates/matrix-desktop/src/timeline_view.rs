@@ -59,7 +59,12 @@ fn offline_delivery_callback(
     }
 }
 
-fn close_viewer(viewing: &RefCell<Option<matrix_domain::EventId>>, focus: &FocusHandle, key: &str, window: &mut gpui::Window) -> bool {
+fn close_viewer(
+    viewing: &RefCell<Option<matrix_domain::EventId>>,
+    focus: &FocusHandle,
+    key: &str,
+    window: &mut gpui::Window,
+) -> bool {
     if key != "escape" || viewing.borrow_mut().take().is_none() {
         return false;
     }
@@ -87,7 +92,9 @@ pub struct TimelineView {
     viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
-    pub(crate) images: Rc<RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>>,
+    pub(crate) images: Rc<
+        RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>,
+    >,
     requested_link: Rc<RefCell<Option<matrix_desktop::MessageLinkTarget>>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     selection_cursor: Rc<
@@ -294,14 +301,20 @@ impl TimelineView {
 
     #[cfg(test)]
     pub(crate) fn scroll_to_row(&self, item_ix: usize, offset_in_item: gpui::Pixels) {
-        self.state.scroll_to(ListOffset { item_ix, offset_in_item });
+        self.state.scroll_to(ListOffset {
+            item_ix,
+            offset_in_item,
+        });
     }
 
     /// Event ID and pixel offset of the row at the top of the viewport.
     #[cfg(test)]
     pub(crate) fn top_row(&self) -> (matrix_domain::TimelineId, gpui::Pixels) {
         let top = self.state.logical_scroll_top();
-        (self.history.borrow().events()[top.item_ix].id.id.clone(), top.offset_in_item)
+        (
+            self.history.borrow().events()[top.item_ix].id.id.clone(),
+            top.offset_in_item,
+        )
     }
 
     #[cfg(test)]
@@ -833,8 +846,12 @@ impl TimelineView {
     }
 
     /// Open the large view of a loaded image; keyboard focus stays on the timeline, which handles Escape.
+    #[cfg(test)]
     pub(crate) fn open_image(&self, id: matrix_domain::EventId, window: &mut gpui::Window) {
-        if matches!(self.images.borrow().get(&id), Some(crate::media_view::InlineImage::Ready(_))) {
+        if matches!(
+            self.images.borrow().get(&id),
+            Some(crate::media_view::InlineImage::Ready(_))
+        ) {
             *self.viewing.borrow_mut() = Some(id);
             self.focus.focus(window);
         }
@@ -851,7 +868,12 @@ impl TimelineView {
 
     /// Re-measure the row of an image whose state changed.
     pub(crate) fn image_changed(&self, id: &matrix_domain::EventId) {
-        let index = self.history.borrow().events().iter().position(|e| matches!(&e.id.id, matrix_domain::TimelineId::Server(s) if s == id));
+        let index = self
+            .history
+            .borrow()
+            .events()
+            .iter()
+            .position(|e| matches!(&e.id.id, matrix_domain::TimelineId::Server(s) if s == id));
         if let Some(index) = index {
             self.state.splice(index..index + 1, 1);
         }
@@ -859,10 +881,17 @@ impl TimelineView {
 
     /// Image rows of this room, newest first, for loading on arrival.
     pub(crate) fn image_events(&self) -> Vec<matrix_domain::EventId> {
-        self.history.borrow().events().iter().rev().filter(|e| matrix_engine::history::is_image_body(&e.text)).filter_map(|e| match &e.id.id {
-            matrix_domain::TimelineId::Server(id) => Some(id.clone()),
-            _ => None,
-        }).collect()
+        self.history
+            .borrow()
+            .events()
+            .iter()
+            .rev()
+            .filter(|e| matrix_engine::history::is_image_body(&e.text))
+            .filter_map(|e| match &e.id.id {
+                matrix_domain::TimelineId::Server(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     pub fn first_visible_row(&self) -> usize {
@@ -994,7 +1023,7 @@ impl TimelineView {
                 .iter()
                 .position(|event| event.id == anchor)
                 .expect("prepend retains server anchor");
-                        self.state.scroll_to(ListOffset {
+            self.state.scroll_to(ListOffset {
                 item_ix: position,
                 offset_in_item: offset.offset_in_item,
             });
@@ -1349,8 +1378,8 @@ impl TimelineView {
                                     {
                                         let painted = row_actions_painted.clone();
                                         let id = event.id.clone();
-                                        return d.when(focused_actions.as_ref() == Some(&id), |d| d.border_2().border_color(rgb(t.accent)))
-                                            .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(id.clone(),bounds); }).absolute().inset_0());
+                                        d.when(focused_actions.as_ref() == Some(&id), |d| d.border_2().border_color(rgb(t.accent)))
+                                            .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(id.clone(),bounds); }).absolute().inset_0())
                                     }
                                     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                                     { d }
@@ -1772,6 +1801,29 @@ fn rectangle(bounds: Bounds<Pixels>) -> String {
     )
 }
 
+struct LinkTooltip {
+    url: String,
+    surface: u32,
+    border: u32,
+    text: u32,
+}
+
+impl gpui::Render for LinkTooltip {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        div()
+            .px_3()
+            .py_2()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(self.border))
+            .bg(rgb(self.surface))
+            .text_color(rgb(self.text))
+            .text_size(px(12.))
+            .max_w(px(480.))
+            .child(self.url.clone())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1793,8 +1845,17 @@ mod tests {
 
     struct ShotHost(TimelineView);
     impl Render for ShotHost {
-        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-            div().size_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, None))
+        fn render(
+            &mut self,
+            window: &mut gpui::Window,
+            _: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
+            div().size_full().flex().flex_col().child(self.0.render(
+                matrix_desktop::LIGHT,
+                window,
+                None,
+                None,
+            ))
         }
     }
 
@@ -1806,7 +1867,10 @@ mod tests {
                     window.set_window_title("Gnobbi sender names");
                     cx.new(|cx| {
                         let history = DemoHistory::new(
-                            RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!g:fixture.invalid") },
+                            RoomScope {
+                                account_id: AccountId::new(1),
+                                room_id: RoomId::new("!g:fixture.invalid"),
+                            },
                             12,
                         );
                         let v = TimelineView::with_history(history, cx.focus_handle(), false);
@@ -1819,7 +1883,13 @@ mod tests {
             cx.spawn(async move |cx| {
                 executor.timer(std::time::Duration::from_millis(1500)).await;
                 let shot = format!("/tmp/gui-out/p230-members-{members}.png");
-                assert!(std::process::Command::new("grim").arg(&shot).status().unwrap().success());
+                assert!(
+                    std::process::Command::new("grim")
+                        .arg(&shot)
+                        .status()
+                        .unwrap()
+                        .success()
+                );
                 view.update(cx, |_, _, cx| cx.quit()).unwrap();
             })
             .detach();
@@ -1964,9 +2034,7 @@ mod tests {
                         .unwrap();
                     }
                 }
-                eprintln!(
-                    "selected-message menu source/focus and read-only availability passed"
-                );
+                eprintln!("selected-message menu source/focus and read-only availability passed");
                 cx.update(|cx| cx.quit()).unwrap();
             })
             .detach();
@@ -1983,8 +2051,15 @@ mod tests {
                 .open_window(gpui::WindowOptions::default(), |window, cx| {
                     window.set_window_title("Gnobbi anchoring");
                     cx.new(|cx| {
-                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:fixture.invalid") };
-                        ShotHost(TimelineView::with_history(DemoHistory::new(scope, 60), cx.focus_handle(), false))
+                        let scope = RoomScope {
+                            account_id: AccountId::new(1),
+                            room_id: RoomId::new("!a:fixture.invalid"),
+                        };
+                        ShotHost(TimelineView::with_history(
+                            DemoHistory::new(scope, 60),
+                            cx.focus_handle(),
+                            false,
+                        ))
                     })
                 })
                 .unwrap();
@@ -1994,12 +2069,21 @@ mod tests {
                 pause().await;
                 let (id, offset) = view
                     .update(cx, |host, _, _| {
-                        host.0.state.scroll_to(ListOffset { item_ix: 20, offset_in_item: px(7.) });
+                        host.0.state.scroll_to(ListOffset {
+                            item_ix: 20,
+                            offset_in_item: px(7.),
+                        });
                         (host.0.history.borrow().events()[20].id.clone(), px(7.))
                     })
                     .unwrap();
                 pause().await;
-                assert!(std::process::Command::new("grim").arg("/tmp/gui-out/p177-before.png").status().unwrap().success());
+                assert!(
+                    std::process::Command::new("grim")
+                        .arg("/tmp/gui-out/p177-before.png")
+                        .status()
+                        .unwrap()
+                        .success()
+                );
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
@@ -2016,10 +2100,20 @@ mod tests {
                 })
                 .unwrap();
                 pause().await;
-                assert!(std::process::Command::new("grim").arg("/tmp/gui-out/p177-after.png").status().unwrap().success());
+                assert!(
+                    std::process::Command::new("grim")
+                        .arg("/tmp/gui-out/p177-after.png")
+                        .status()
+                        .unwrap()
+                        .success()
+                );
                 view.update(cx, |host, _, cx| {
                     let top = host.0.state.logical_scroll_top();
-                    assert_eq!(host.0.history.borrow().events()[top.item_ix].id, id, "same row at the top");
+                    assert_eq!(
+                        host.0.history.borrow().events()[top.item_ix].id,
+                        id,
+                        "same row at the top"
+                    );
                     assert_eq!(top.offset_in_item, offset, "same pixel offset inside it");
                     assert_eq!(top.item_ix, 45);
                     cx.quit();
@@ -2030,14 +2124,26 @@ mod tests {
         });
     }
 
-    struct ComposerHost(TimelineView, gpui::Entity<crate::composer_view::ComposerView>);
+    struct ComposerHost(
+        TimelineView,
+        gpui::Entity<crate::composer_view::ComposerView>,
+    );
     impl Render for ComposerHost {
-        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        fn render(
+            &mut self,
+            window: &mut gpui::Window,
+            _: &mut gpui::Context<Self>,
+        ) -> impl IntoElement {
             div()
                 .size_full()
                 .flex()
                 .flex_col()
-                .child(div().flex_1().child(self.0.render(matrix_desktop::LIGHT, window, None, None)))
+                .child(div().flex_1().child(self.0.render(
+                    matrix_desktop::LIGHT,
+                    window,
+                    None,
+                    None,
+                )))
                 .child(self.1.clone())
         }
     }
@@ -2049,10 +2155,23 @@ mod tests {
         use matrix_engine::history::{HistoryEvent, HistorySender};
         gpui::Application::new().run(|cx| {
             let view = cx
-                .open_window(gpui::WindowOptions::default(), |window, cx| {
-                    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:fixture.invalid") };
-                    let composer = cx.new(|cx| crate::composer_view::ComposerView::new(scope.clone(), cx));
-                    cx.new(|cx| ComposerHost(TimelineView::with_history(DemoHistory::new(scope, 60), cx.focus_handle(), false), composer))
+                .open_window(gpui::WindowOptions::default(), |_window, cx| {
+                    let scope = RoomScope {
+                        account_id: AccountId::new(1),
+                        room_id: RoomId::new("!a:fixture.invalid"),
+                    };
+                    let composer =
+                        cx.new(|cx| crate::composer_view::ComposerView::new(scope.clone(), cx));
+                    cx.new(|cx| {
+                        ComposerHost(
+                            TimelineView::with_history(
+                                DemoHistory::new(scope, 60),
+                                cx.focus_handle(),
+                                false,
+                            ),
+                            composer,
+                        )
+                    })
                 })
                 .unwrap();
             let executor = cx.background_executor().clone();
@@ -2062,21 +2181,39 @@ mod tests {
                 let (id, text) = view
                     .update(cx, |host, window, cx| {
                         host.1.update(cx, |c, cx| {
-                            gpui::EntityInputHandler::replace_text_in_range(c, None, "bozza caffè 🦀", window, cx);
+                            gpui::EntityInputHandler::replace_text_in_range(
+                                c,
+                                None,
+                                "bozza caffè 🦀",
+                                window,
+                                cx,
+                            );
                             c.focus_from_accessibility(window, cx);
                         });
-                        host.0.state.scroll_to(ListOffset { item_ix: 20, offset_in_item: px(3.) });
+                        host.0.state.scroll_to(ListOffset {
+                            item_ix: 20,
+                            offset_in_item: px(3.),
+                        });
                         let history = host.0.history.borrow();
                         let event = &history.events()[22];
-                        host.0.selection.borrow_mut().begin(event.id.clone(), &event.text, 0);
-                        host.0.selection.borrow_mut().extend(&event.id, &event.text, 4);
+                        host.0
+                            .selection
+                            .borrow_mut()
+                            .begin(event.id.clone(), &event.text, 0);
+                        host.0
+                            .selection
+                            .borrow_mut()
+                            .extend(&event.id, &event.text, 4);
                         (event.id.clone(), event.text.clone())
                     })
                     .unwrap();
                 pause().await;
                 let before = view
                     .update(cx, |host, window, cx| {
-                        assert!(host.1.read(cx).is_focused(window), "composer focused before");
+                        assert!(
+                            host.1.read(cx).is_focused(window),
+                            "composer focused before"
+                        );
                         host.1.read(cx).draft_state()
                     })
                     .unwrap();
@@ -2098,9 +2235,17 @@ mod tests {
                 .unwrap();
                 pause().await;
                 view.update(cx, |host, window, cx| {
-                    assert_eq!(host.1.read(cx).draft_state(), before, "draft text and cursor unchanged");
+                    assert_eq!(
+                        host.1.read(cx).draft_state(),
+                        before,
+                        "draft text and cursor unchanged"
+                    );
                     assert!(host.1.read(cx).is_focused(window), "composer keeps focus");
-                    assert_eq!(host.0.selection.borrow().range(&id, &text), Some(0..4), "message selection unchanged");
+                    assert_eq!(
+                        host.0.selection.borrow().range(&id, &text),
+                        Some(0..4),
+                        "message selection unchanged"
+                    );
                     cx.quit();
                 })
                 .unwrap();
@@ -2165,7 +2310,9 @@ mod tests {
 
     fn ready_image() -> crate::media_view::InlineImage {
         let buffer = image::RgbaImage::from_raw(2, 2, vec![255; 16]).unwrap();
-        crate::media_view::InlineImage::Ready(std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)])))
+        crate::media_view::InlineImage::Ready(std::sync::Arc::new(gpui::RenderImage::new([
+            image::Frame::new(buffer),
+        ])))
     }
 
     #[test]
@@ -2176,16 +2323,25 @@ mod tests {
             v.images.borrow_mut().insert(id.clone(), ready_image());
             let other = matrix_domain::EventId::new("$missing:fixture.invalid");
             v.open_image(other, window);
-            assert!(v.viewing().is_none(), "an image that is not loaded has no large view");
+            assert!(
+                v.viewing().is_none(),
+                "an image that is not loaded has no large view"
+            );
             v.open_image(id.clone(), window);
             assert_eq!(v.viewing(), Some(id.clone()));
-            assert!(v.focus.is_focused(window), "the large view owns keyboard focus");
+            assert!(
+                v.focus.is_focused(window),
+                "the large view owns keyboard focus"
+            );
             assert!(!v.viewer_key("a", window), "other keys leave the view open");
             assert_eq!(v.viewing(), Some(id));
             assert!(v.viewer_key("escape", window));
             assert!(v.viewing().is_none());
             assert!(v.focus.is_focused(window), "focus returns to the timeline");
-            assert!(!v.viewer_key("escape", window), "Escape with no view is not consumed");
+            assert!(
+                !v.viewer_key("escape", window),
+                "Escape with no view is not consumed"
+            );
         });
     }
 
@@ -2525,19 +2681,5 @@ mod tests {
             assert!(!current_cancel());
             assert!(current_open().is_none());
         }
-    }
-}
-
-struct LinkTooltip {
-    url: String,
-    surface: u32,
-    border: u32,
-    text: u32,
-}
-
-impl gpui::Render for LinkTooltip {
-    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-        div().px_3().py_2().rounded_md().border_1().border_color(rgb(self.border)).bg(rgb(self.surface))
-            .text_color(rgb(self.text)).text_size(px(12.)).max_w(px(480.)).child(self.url.clone())
     }
 }

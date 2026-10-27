@@ -6,7 +6,6 @@ mod filter_view;
 mod login_field;
 mod media_view;
 mod menu_view;
-mod settings_view;
 #[cfg(test)]
 mod navigation_resize_test;
 mod notification_view;
@@ -17,6 +16,7 @@ mod rail_view;
 mod ring_seam;
 mod room_details_view;
 mod scrollbar_view;
+mod settings_view;
 #[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(all(feature = "live", unix))]
@@ -28,11 +28,12 @@ use composer_view::{ComposerView, Submitted};
 
 use gpui::{
     App, Application, Bounds, Context, FocusHandle, KeyDownEvent, ScrollStrategy, TitlebarOptions,
-    UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, point, prelude::*, px, rgb, size,
-    uniform_list,
+    UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, point, prelude::*, px, rgb,
+    size, uniform_list,
 };
-use matrix_desktop::{opens_message_menu,
+use matrix_desktop::{
     DARK, DEMO_NOTICE, HistorySession, HistoryStatus, LIGHT, Navigation, Sidebar,
+    opens_message_menu,
 };
 use matrix_domain::{AccountId, RoomScope};
 use matrix_engine::{RoomListEvent, RoomSyncStatus};
@@ -138,201 +139,309 @@ struct Shell {
 impl Shell {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     fn drain_navigation_actions(this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>) {
-                                    for _ in 0..8 {
-                                        let Some(action) = this.accessibility.take_action() else {
-                                            break;
-                                        };
-                                        #[cfg(all(feature = "live", unix))]
-                                        if this.dispatch_signin_action(&action, window, cx) {
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::CompactBack(action) = action {
-                                            this.apply_semantic_back(action, window, cx);
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::OperationPanel(action) = action {
-                                            this.apply_semantic_operation_panel(action, window, cx);
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::Spaces(action) = action {
-                                            this.apply_semantic_spaces(action,window,cx);
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::Filter(action) = action {
-                                            this.apply_semantic_filter(action, window, cx);
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::Devices(action) = action {
-                                            this.apply_semantic_devices(action, window, cx);
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::Details(action) = action {
-                                            this.apply_semantic_details(action, window, cx);
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::Notifications(action) = action {
-                                            this.apply_semantic_notification(action, window, cx);
-                                            continue;
-                                        }
-                                        if this.notifications_open || this.verification_open || this.room_details_open {
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::LoadServerHistory(tag) = &action {
-                                            if this.connected && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && let Some(request) = this.history.load_older_if_current(tag) {
-                                                this.pending_history = Some(request);
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::FocusServerHistory(tag) = &action {
-                                            if this.connected && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && !tag.is_cancelled()
-                                                && this.history.pagination_tag().is_some_and(|current| current.generation() == tag.generation() && current.scope() == tag.scope()) {
-                                                this.history_focus.focus(window);
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::LinkConfirmation(intent) = &action {
-                                            if intent.request.source().event().scope == this.active_scope
-                                                && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.sidebar.selected().is_some_and(|room| room.scope == intent.request.source().event().scope)
-                                                && let Some(timeline) = &this.timeline {
-                                                timeline.apply_confirmation(intent, window, cx);
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::OfflineDelivery(intent) = &action {
-                                            if !this.connected && intent.target.event().scope == this.active_scope
-                                                && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.sidebar.selected().is_some_and(|room| room.scope == intent.target.event().scope)
-                                                && let Some(timeline) = &this.timeline {
-                                                timeline.apply_offline_delivery(intent, window);
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::CopyEventId(intent) = &action {
-                                            if intent.target.event().scope == this.active_scope
-                                                && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.sidebar.selected().is_some_and(|room| room.scope == intent.target.event().scope)
-                                                && let Some(timeline) = &this.timeline {
-                                                timeline.apply_event_id_copy(intent, window, cx);
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::MessageLink(intent) = &action {
-                                            if intent.target.event().scope == this.active_scope
-                                                && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.sidebar.selected().is_some_and(|room| room.scope == intent.target.event().scope)
-                                                && let Some(timeline) = &this.timeline {
-                                                timeline.apply_link(intent, window);
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::MessageSelection(intent) = &action {
-                                            if intent.target.scope == this.active_scope
-                                                && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.sidebar.selected().is_some_and(|room| room.scope == intent.target.scope)
-                                                && let Some(timeline) = &this.timeline {
-                                                timeline.apply_selection(intent, window, cx);
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::FocusMessageRetry(id) = &action {
-
-                                            if this.connected && id.scope == this.active_scope
-                                                && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.sidebar.selected().is_some_and(|room| room.scope == id.scope)
-                                                && this.timeline.as_ref().is_some_and(|timeline| timeline.semantic_snapshot(&mut this.a11y_history, window).allows_retry(id) && timeline.focus_semantic_retry(id,window)) {
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::OpenMessageActions(id) | matrix_desktop::accessibility::NavigationAction::FocusMessageActions(id) = &action {
-                                            if this.connected && id.scope == this.active_scope
-                                                && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.sidebar.selected().is_some_and(|room| room.scope == id.scope)
-                                                && this.timeline.as_ref().is_some_and(|timeline| timeline.semantic_snapshot(&mut this.a11y_history, window).allows_actions(id)) {
-                                                if matches!(action, matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_)) {
-                                                    this.operations.borrow_mut().select(id.clone());
-                                                } else if let Some(timeline) = &this.timeline {
-                                                    timeline.focus_semantic_actions(id, window);
-                                                }
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::RetryMessage(id) = &action {
-                                            if this.connected && id.scope == this.active_scope
-                                                && (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.sidebar.selected().is_some_and(|room| room.scope == id.scope)
-                                                && this.timeline.as_ref().is_some_and(|timeline| timeline.semantic_snapshot(&mut this.a11y_history, window).allows_retry(id))
-                                                && let matrix_domain::TimelineId::Pending(transaction) = &id.id
-                                                && this.delivery.borrow_mut().retry(&id.scope, transaction) {
-                                                this.refresh_delivery(false);
-                                                cx.notify();
-                                            }
-                                            continue;
-                                        }
-                                        if let matrix_desktop::accessibility::NavigationAction::FocusMessage(id) = &action {
-                                            if (window.viewport_size().width >= px(800.) || this.compact_chat)
-                                                && this.timeline.as_ref().is_some_and(|timeline| timeline.focus_semantic_message(id, window)) {
-                                                cx.notify();
-                                                let entity = cx.entity().clone();
-                                                window.on_next_frame(move |window, _| {
-                                                    window.on_next_frame(move |_, cx| entity.update(cx, |_, cx| cx.notify()));
-                                                });
-                                            }
-                                            continue;
-                                        }
-                                        if this.dispatch_sidebar_action(&action, window, cx) { continue; }
-                                        if this.dispatch_opener_action(&action, window, cx) { continue; }
-                                        if this.dispatch_composer_action(&action, window, cx) { continue; }
-                                        if let matrix_desktop::accessibility::NavigationAction::Scrollbar(action) = action {
-                                            this.apply_scrollbar(action, window);
-                                            cx.notify();
-                                            continue;
-                                        }
-                                        if window.viewport_size().width < px(800.) && this.compact_chat {
-                                            continue;
-                                        }
-                                        match action {
-                                            matrix_desktop::accessibility::NavigationAction::PanelOpener(_) => unreachable!(),
-                                            #[cfg(all(feature = "live", unix))]
-                                            matrix_desktop::accessibility::NavigationAction::SignIn(_) => (),
-                                            matrix_desktop::accessibility::NavigationAction::CopyEventId(_) | matrix_desktop::accessibility::NavigationAction::OfflineDelivery(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::MessageSelection(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::CompactBack(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::MessageLink(_) | matrix_desktop::accessibility::NavigationAction::LinkConfirmation(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::Scrollbar(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::OperationPanel(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::Spaces(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::Filter(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::Devices(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::LoadServerHistory(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::FocusServerHistory(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::Notifications(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::Details(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::FocusComposer | matrix_desktop::accessibility::NavigationAction::FocusSend { .. } | matrix_desktop::accessibility::NavigationAction::SubmitComposer { .. } => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::FocusMessage(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::FocusMessageRetry(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::RetryMessage(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::FocusMessageActions(_) | matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::ToggleTheme(_) | matrix_desktop::accessibility::NavigationAction::FocusTheme(_) => unreachable!(),
-                                            matrix_desktop::accessibility::NavigationAction::FocusSearch => {
-                                                this.search_focus.focus(window);
-                                                cx.notify();
-                                            }
-                                            matrix_desktop::accessibility::NavigationAction::FocusRoom(intent) => this.apply_semantic_room(intent, true, window, cx),
-                                            matrix_desktop::accessibility::NavigationAction::ActivateRoom(intent) => this.apply_semantic_room(intent, false, window, cx),
-                                        }
-                                    }
+        for _ in 0..8 {
+            let Some(action) = this.accessibility.take_action() else {
+                break;
+            };
+            #[cfg(all(feature = "live", unix))]
+            if this.dispatch_signin_action(&action, window, cx) {
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::CompactBack(action) = action {
+                this.apply_semantic_back(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::OperationPanel(action) = action
+            {
+                this.apply_semantic_operation_panel(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::Spaces(action) = action {
+                this.apply_semantic_spaces(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::Filter(action) = action {
+                this.apply_semantic_filter(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::Devices(action) = action {
+                this.apply_semantic_devices(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::Details(action) = action {
+                this.apply_semantic_details(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::Notifications(action) = action {
+                this.apply_semantic_notification(action, window, cx);
+                continue;
+            }
+            if this.notifications_open || this.verification_open || this.room_details_open {
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::LoadServerHistory(tag) = &action
+            {
+                if this.connected
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && let Some(request) = this.history.load_older_if_current(tag)
+                {
+                    this.pending_history = Some(request);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::FocusServerHistory(tag) =
+                &action
+            {
+                if this.connected
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && !tag.is_cancelled()
+                    && this.history.pagination_tag().is_some_and(|current| {
+                        current.generation() == tag.generation() && current.scope() == tag.scope()
+                    })
+                {
+                    this.history_focus.focus(window);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::LinkConfirmation(intent) =
+                &action
+            {
+                if intent.request.source().event().scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .sidebar
+                        .selected()
+                        .is_some_and(|room| room.scope == intent.request.source().event().scope)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.apply_confirmation(intent, window, cx);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::OfflineDelivery(intent) =
+                &action
+            {
+                if !this.connected
+                    && intent.target.event().scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .sidebar
+                        .selected()
+                        .is_some_and(|room| room.scope == intent.target.event().scope)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.apply_offline_delivery(intent, window);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::CopyEventId(intent) = &action {
+                if intent.target.event().scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .sidebar
+                        .selected()
+                        .is_some_and(|room| room.scope == intent.target.event().scope)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.apply_event_id_copy(intent, window, cx);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::MessageLink(intent) = &action {
+                if intent.target.event().scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .sidebar
+                        .selected()
+                        .is_some_and(|room| room.scope == intent.target.event().scope)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.apply_link(intent, window);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::MessageSelection(intent) =
+                &action
+            {
+                if intent.target.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .sidebar
+                        .selected()
+                        .is_some_and(|room| room.scope == intent.target.scope)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.apply_selection(intent, window, cx);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::FocusMessageRetry(id) = &action
+            {
+                if this.connected
+                    && id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .sidebar
+                        .selected()
+                        .is_some_and(|room| room.scope == id.scope)
+                    && this.timeline.as_ref().is_some_and(|timeline| {
+                        timeline
+                            .semantic_snapshot(&mut this.a11y_history, window)
+                            .allows_retry(id)
+                            && timeline.focus_semantic_retry(id, window)
+                    })
+                {
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::OpenMessageActions(id)
+            | matrix_desktop::accessibility::NavigationAction::FocusMessageActions(id) = &action
+            {
+                if this.connected
+                    && id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .sidebar
+                        .selected()
+                        .is_some_and(|room| room.scope == id.scope)
+                    && this.timeline.as_ref().is_some_and(|timeline| {
+                        timeline
+                            .semantic_snapshot(&mut this.a11y_history, window)
+                            .allows_actions(id)
+                    })
+                {
+                    if matches!(
+                        action,
+                        matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_)
+                    ) {
+                        this.operations.borrow_mut().select(id.clone());
+                    } else if let Some(timeline) = &this.timeline {
+                        timeline.focus_semantic_actions(id, window);
+                    }
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::RetryMessage(id) = &action {
+                if this.connected
+                    && id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .sidebar
+                        .selected()
+                        .is_some_and(|room| room.scope == id.scope)
+                    && this.timeline.as_ref().is_some_and(|timeline| {
+                        timeline
+                            .semantic_snapshot(&mut this.a11y_history, window)
+                            .allows_retry(id)
+                    })
+                    && let matrix_domain::TimelineId::Pending(transaction) = &id.id
+                    && this.delivery.borrow_mut().retry(&id.scope, transaction)
+                {
+                    this.refresh_delivery(false);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::FocusMessage(id) = &action {
+                if (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this
+                        .timeline
+                        .as_ref()
+                        .is_some_and(|timeline| timeline.focus_semantic_message(id, window))
+                {
+                    cx.notify();
+                    let entity = cx.entity().clone();
+                    window.on_next_frame(move |window, _| {
+                        window.on_next_frame(move |_, cx| entity.update(cx, |_, cx| cx.notify()));
+                    });
+                }
+                continue;
+            }
+            if this.dispatch_sidebar_action(&action, window, cx) {
+                continue;
+            }
+            if this.dispatch_opener_action(&action, window, cx) {
+                continue;
+            }
+            if this.dispatch_composer_action(&action, window, cx) {
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::Scrollbar(action) = action {
+                this.apply_scrollbar(action, window);
+                cx.notify();
+                continue;
+            }
+            if window.viewport_size().width < px(800.) && this.compact_chat {
+                continue;
+            }
+            match action {
+                matrix_desktop::accessibility::NavigationAction::PanelOpener(_) => unreachable!(),
+                #[cfg(all(feature = "live", unix))]
+                matrix_desktop::accessibility::NavigationAction::SignIn(_) => (),
+                matrix_desktop::accessibility::NavigationAction::CopyEventId(_)
+                | matrix_desktop::accessibility::NavigationAction::OfflineDelivery(_) => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::MessageSelection(_) => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::CompactBack(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::MessageLink(_)
+                | matrix_desktop::accessibility::NavigationAction::LinkConfirmation(_) => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::Scrollbar(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::OperationPanel(_) => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::Spaces(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::Filter(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::Devices(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::LoadServerHistory(_) => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::FocusServerHistory(_) => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::Notifications(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::Details(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::FocusComposer
+                | matrix_desktop::accessibility::NavigationAction::FocusSend { .. }
+                | matrix_desktop::accessibility::NavigationAction::SubmitComposer { .. } => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::FocusMessage(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::FocusMessageRetry(_) => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::RetryMessage(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::FocusMessageActions(_)
+                | matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_) => {
+                    unreachable!()
+                }
+                matrix_desktop::accessibility::NavigationAction::ToggleTheme(_)
+                | matrix_desktop::accessibility::NavigationAction::FocusTheme(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::FocusSearch => {
+                    this.search_focus.focus(window);
+                    cx.notify();
+                }
+                matrix_desktop::accessibility::NavigationAction::FocusRoom(intent) => {
+                    this.apply_semantic_room(intent, true, window, cx)
+                }
+                matrix_desktop::accessibility::NavigationAction::ActivateRoom(intent) => {
+                    this.apply_semantic_room(intent, false, window, cx)
+                }
+            }
+        }
     }
 
     #[cfg(all(feature = "live", feature = "linux-a11y", target_os = "linux"))]
@@ -471,8 +580,13 @@ impl Shell {
         if self.connected && !self.search_focus.is_focused(window) {
             let m = &key.modifiers;
             if opens_message_menu(&key.key, m.shift, m.control, m.alt, m.platform) {
-                let target = self.timeline.as_ref().and_then(|t| t.keyboard_menu_target());
-                if let Some(target) = target && self.operations.borrow_mut().select(target) {
+                let target = self
+                    .timeline
+                    .as_ref()
+                    .and_then(|t| t.keyboard_menu_target());
+                if let Some(target) = target
+                    && self.operations.borrow_mut().select(target)
+                {
                     self.actions_focus().focus(window);
                     cx.notify();
                 }
@@ -917,7 +1031,8 @@ impl Shell {
                 self.composer.update(cx, |editor, cx| {
                     editor.switch_room(self.active_scope.clone(), cx)
                 });
-                let timeline = TimelineView::connected(self.active_scope.clone(), cx.focus_handle());
+                let timeline =
+                    TimelineView::connected(self.active_scope.clone(), cx.focus_handle());
                 if let Some(room) = self.sidebar.selected() {
                     timeline.set_member_count(room.info.joined_members);
                 }
@@ -953,9 +1068,13 @@ impl Shell {
 
     fn actions_focus(&self) -> &FocusHandle {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        { &self.operation_ui.focus }
+        {
+            &self.operation_ui.focus
+        }
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-        { &self.actions_focus }
+        {
+            &self.actions_focus
+        }
     }
 
     /// Dismiss the message actions and hand focus back to the message they came from.
@@ -1098,9 +1217,16 @@ impl Shell {
     fn keep_reading_position(&mut self, anchor: Option<(RoomScope, usize)>) {
         let Some((scope, old)) = anchor else { return };
         let state = self.scroll.0.borrow();
-        let Some(size) = state.last_item_size else { return };
+        let Some(size) = state.last_item_size else {
+            return;
+        };
         let offset = -f32::from(state.base_handle.offset().y);
-        let shifted = matrix_desktop::reading_offset(offset, f32::from(size.item.height), Some(old), self.sidebar.position_of(&scope));
+        let shifted = matrix_desktop::reading_offset(
+            offset,
+            f32::from(size.item.height),
+            Some(old),
+            self.sidebar.position_of(&scope),
+        );
         state.base_handle.set_offset(point(px(0.), px(-shifted)));
     }
 
@@ -1787,7 +1913,9 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     #[cfg(target_os = "macos")]
     let args = {
-        let exe = std::env::current_exe().ok().and_then(|path| path.to_str().map(str::to_owned));
+        let exe = std::env::current_exe()
+            .ok()
+            .and_then(|path| path.to_str().map(str::to_owned));
         let home = std::env::var("HOME").ok();
         let bundled = exe
             .as_deref()
@@ -1799,29 +1927,50 @@ fn main() {
     };
     #[cfg(all(target_os = "linux", not(test)))]
     let args = matrix_desktop::linux_launch_args(&args);
-    let legacy_offer = (args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file"))
-        .then(|| {
-            let dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
-            let legacy = matrix_desktop::legacy_profile::legacy_path(std::path::Path::new(&std::env::var("HOME").ok()?));
-            let renamed = matrix_desktop::legacy_profile::renamed_path(&dirs.data);
-            [Some(legacy), renamed]
-                .into_iter()
-                .flatten()
-                .find(|old| matrix_desktop::legacy_profile::offered(old, &dirs.data))
-                .map(|old| (old, dirs.data))
-        })
-        .flatten();
+    #[cfg(all(feature = "live", unix))]
+    let legacy_offer = (args.first().is_some_and(|a| a == "--signin")
+        && args.get(1).is_none_or(|a| a == "--ca-file"))
+    .then(|| {
+        let dirs =
+            matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
+        let legacy = matrix_desktop::legacy_profile::legacy_path(std::path::Path::new(
+            &std::env::var("HOME").ok()?,
+        ));
+        let renamed = matrix_desktop::legacy_profile::renamed_path(&dirs.data);
+        [Some(legacy), renamed]
+            .into_iter()
+            .flatten()
+            .find(|old| matrix_desktop::legacy_profile::offered(old, &dirs.data))
+            .map(|old| (old, dirs.data))
+    })
+    .flatten();
     // Old profile folders whose vault keys may still be saved under the previous app name.
-    let vault_candidates = (args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file"))
-        .then(|| {
-            let dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
-            let home = std::env::var("HOME").ok()?;
-            let old = [Some(matrix_desktop::legacy_profile::legacy_path(std::path::Path::new(&home))), matrix_desktop::legacy_profile::renamed_path(&dirs.data)];
-            Some((old.into_iter().flatten().collect::<Vec<_>>(), dirs.data.join("profile")))
-        })
-        .flatten();
-    let args = match matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
-        Some(dirs) if args.first().is_some_and(|a| a == "--signin") && args.get(1).is_none_or(|a| a == "--ca-file") => {
+    #[cfg(all(feature = "live", unix))]
+    let vault_candidates = (args.first().is_some_and(|a| a == "--signin")
+        && args.get(1).is_none_or(|a| a == "--ca-file"))
+    .then(|| {
+        let dirs =
+            matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
+        let home = std::env::var("HOME").ok()?;
+        let old = [
+            Some(matrix_desktop::legacy_profile::legacy_path(
+                std::path::Path::new(&home),
+            )),
+            matrix_desktop::legacy_profile::renamed_path(&dirs.data),
+        ];
+        Some((
+            old.into_iter().flatten().collect::<Vec<_>>(),
+            dirs.data.join("profile"),
+        ))
+    })
+    .flatten();
+    let args = match matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| {
+        std::env::var(k).ok()
+    }) {
+        Some(dirs)
+            if args.first().is_some_and(|a| a == "--signin")
+                && args.get(1).is_none_or(|a| a == "--ca-file") =>
+        {
             #[cfg(unix)]
             if let Err(error) = dirs.ensure() {
                 eprintln!("Gnobbi: cannot create {}: {error}", dirs.data.display());
@@ -1855,6 +2004,7 @@ fn main() {
     let connected = options.is_some() || signin_options.is_some();
     #[cfg(all(feature = "live", unix))]
     let mut signin_ui = None;
+    #[cfg(all(feature = "live", unix))]
     let mut signin_vault = false;
     let account_id = options
         .as_ref()
@@ -1899,7 +2049,9 @@ fn main() {
             let vault = matrix_engine::signin::platform_source();
             signin_vault = vault.is_some();
             let (ui, pending) = match vault {
-                Some(source) => matrix_engine::signin::interactive_with_source(options.root, trust, source),
+                Some(source) => {
+                    matrix_engine::signin::interactive_with_source(options.root, trust, source)
+                }
                 None => matrix_engine::signin::interactive(options.root, trust),
             };
             signin_ui = Some(ui);

@@ -1,4 +1,5 @@
 #![cfg(all(feature = "linux-vault", target_os = "linux"))]
+#![recursion_limit = "256"]
 //! Encrypted history across real client restarts, for a vault-protected profile
 //! (alice) and a legacy local-phrase profile (bob), both with local account 1.
 //! One phase per process, so a phase boundary is a genuine restart. Driven by

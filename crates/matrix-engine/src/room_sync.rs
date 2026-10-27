@@ -1,8 +1,8 @@
 //! Backend-only Matrix /sync room projection. Owns one authenticated session.
 use crate::{RoomListDiff, RoomSummary, auth::AccountSession};
 use matrix_domain::{RoomId, RoomScope};
-use matrix_sdk::{RoomState, config::SyncSettings, ruma::presence::PresenceState};
 use matrix_sdk::ruma::events::room::message::MessageType;
+use matrix_sdk::{RoomState, config::SyncSettings, ruma::presence::PresenceState};
 use std::{collections::BTreeMap, time::Duration};
 
 pub use crate::{RoomListEvent, RoomSyncStatus};
@@ -172,8 +172,9 @@ impl RoomListWorker {
                                         if let Some(bytes) = cache.get(&key).map(<[u8]>::to_vec) {
                                             let preview = crate::media_sdk::decode_png(
                                                 bytes.clone(),
-                                                crate::media_sdk::mime_of(&bytes)
-                                                    .ok_or(crate::media::MediaError::InvalidImage)?,
+                                                crate::media_sdk::mime_of(&bytes).ok_or(
+                                                    crate::media::MediaError::InvalidImage,
+                                                )?,
                                                 &tag,
                                             )
                                             .await?;
@@ -319,7 +320,8 @@ impl RoomListWorker {
                             if request.open {
                                 opened.store(true, std::sync::atomic::Ordering::Release);
                             }
-                            if !serve_history(&client, account, request, &mut history_sender).await {
+                            if !serve_history(&client, account, request, &mut history_sender).await
+                            {
                                 break;
                             }
                         }
@@ -385,7 +387,8 @@ impl RoomListWorker {
                                 }
                                 ready = true;
                                 // Runtime drop ends it with the account; one pass after the first sync.
-                                let (client, opened, stop) = (warm_client.clone(), warm_opened.clone(), warm_stop.clone());
+                                let (client, opened, stop) =
+                                    (warm_client.clone(), warm_opened.clone(), warm_stop.clone());
                                 tokio::spawn(async move {
                                     crate::warm::warm(&client, &stop, &opened).await;
                                 });
@@ -605,7 +608,11 @@ impl RoomSync {
         &self,
         tag: crate::RequestTag,
     ) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
-        let client = self.session.client.as_ref().ok_or(crate::history::HistoryError::Unavailable)?;
+        let client = self
+            .session
+            .client
+            .as_ref()
+            .ok_or(crate::history::HistoryError::Unavailable)?;
         saved_page(client, self.session.account_id(), tag).await
     }
 
@@ -614,8 +621,18 @@ impl RoomSync {
     pub async fn open_history(
         &self,
         tag: crate::RequestTag,
-    ) -> Result<(crate::history::HistoryPage, Vec<crate::history::ReactionCount>), crate::history::HistoryError> {
-        let client = self.session.client.as_ref().ok_or(crate::history::HistoryError::Unavailable)?;
+    ) -> Result<
+        (
+            crate::history::HistoryPage,
+            Vec<crate::history::ReactionCount>,
+        ),
+        crate::history::HistoryError,
+    > {
+        let client = self
+            .session
+            .client
+            .as_ref()
+            .ok_or(crate::history::HistoryError::Unavailable)?;
         open_page(client, tag).await
     }
 
@@ -679,7 +696,11 @@ impl RoomSync {
                 ));
             }
             for event in &update.timeline.events {
-                apply_preview(&mut self.previews, room.as_str(), preview_change(event.raw().json().get()));
+                apply_preview(
+                    &mut self.previews,
+                    room.as_str(),
+                    preview_change(event.raw().json().get()),
+                );
             }
             for raw in update.ephemeral {
                 self.receipts.observe_event(&scope, &raw);
@@ -693,11 +714,26 @@ impl RoomSync {
 
     /// Joined rooms already in the SDK store, previews from the saved messages. No network.
     pub async fn saved_batch(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
-        let client = self.session.client.as_ref().ok_or(SyncError::LoggedOut)?.clone();
-        for room in client.rooms().into_iter().filter(|r| r.state() == RoomState::Joined) {
-            let Ok((saved, _, _)) = stored_events(&client, room.room_id()).await else { continue };
+        let client = self
+            .session
+            .client
+            .as_ref()
+            .ok_or(SyncError::LoggedOut)?
+            .clone();
+        for room in client
+            .rooms()
+            .into_iter()
+            .filter(|r| r.state() == RoomState::Joined)
+        {
+            let Ok((saved, _, _)) = stored_events(&client, room.room_id()).await else {
+                continue;
+            };
             for event in &saved {
-                apply_preview(&mut self.previews, room.room_id().as_str(), preview_change(event.raw().json().get()));
+                apply_preview(
+                    &mut self.previews,
+                    room.room_id().as_str(),
+                    preview_change(event.raw().json().get()),
+                );
             }
         }
         self.summarize().await
@@ -803,8 +839,14 @@ impl RoomSync {
 /// What one timeline event means for the room-list preview.
 #[derive(Debug, PartialEq, Eq)]
 enum PreviewChange {
-    Set { event_id: String, text: String, ts: Option<u64> },
-    Remove { target: String },
+    Set {
+        event_id: String,
+        text: String,
+        ts: Option<u64>,
+    },
+    Remove {
+        target: String,
+    },
     Ignore,
 }
 
@@ -816,17 +858,28 @@ fn preview_change(raw: &str) -> PreviewChange {
     let content = &event["content"];
     match event["type"].as_str() {
         Some("m.room.redaction") => text(event.get("redacts").or(content.get("redacts")))
-            .map_or(PreviewChange::Ignore, |target| PreviewChange::Remove { target }),
+            .map_or(PreviewChange::Ignore, |target| PreviewChange::Remove {
+                target,
+            }),
         Some("m.room.message")
             if event["unsigned"].get("redacted_because").is_none()
                 && content["m.relates_to"]["rel_type"] != "m.replace" =>
         {
-            let (Some(event_id), Some(body)) = (text(event.get("event_id")), text(content.get("body")))
+            let (Some(event_id), Some(body)) =
+                (text(event.get("event_id")), text(content.get("body")))
             else {
                 return PreviewChange::Ignore;
             };
-            let text = if content["msgtype"] == "m.image" { "Immagine".to_owned() } else { body };
-            PreviewChange::Set { event_id, text, ts: event["origin_server_ts"].as_u64() }
+            let text = if content["msgtype"] == "m.image" {
+                "Immagine".to_owned()
+            } else {
+                body
+            };
+            PreviewChange::Set {
+                event_id,
+                text,
+                ts: event["origin_server_ts"].as_u64(),
+            }
         }
         _ => PreviewChange::Ignore,
     }
@@ -947,30 +1000,55 @@ async fn saved_page(
 async fn open_page(
     client: &matrix_sdk::Client,
     tag: crate::RequestTag,
-) -> Result<(crate::history::HistoryPage, Vec<crate::history::ReactionCount>), crate::history::HistoryError> {
+) -> Result<
+    (
+        crate::history::HistoryPage,
+        Vec<crate::history::ReactionCount>,
+    ),
+    crate::history::HistoryError,
+> {
     use crate::history::HistoryError;
     let id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
         .map_err(|_| HistoryError::WrongScope)?;
-    let room = client.get_room(&id).filter(|r| r.state() == RoomState::Joined).ok_or(HistoryError::Unavailable)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == RoomState::Joined)
+        .ok_or(HistoryError::Unavailable)?;
     let (mut rows, _, next) = stored_events(client, &id).await?;
     let anchor = rows.last().and_then(|e| e.event_id());
     // Subscribed before the sync so the cache applies the missed messages as they arrive.
-    let (events, _drop) = room.event_cache().await.map_err(|_| HistoryError::Unavailable)?;
+    let (events, _drop) = room
+        .event_cache()
+        .await
+        .map_err(|_| HistoryError::Unavailable)?;
     client
         .sync_once(matrix_sdk::config::SyncSettings::default())
         .await
         .map_err(|_| HistoryError::Transport)?;
     // shortcut: at most 10 batches of 20 for the hole; a longer absence reopens to the newest part.
-    let mut fresh = events.events().await.map_err(|_| HistoryError::Unavailable)?;
+    let mut fresh = events
+        .events()
+        .await
+        .map_err(|_| HistoryError::Unavailable)?;
     for _ in 0..10 {
         if anchor.is_none() || fresh.iter().any(|e| e.event_id() == anchor) {
             break;
         }
-        events.pagination().run_backwards_until(20).await.map_err(|_| HistoryError::Transport)?;
-        fresh = events.events().await.map_err(|_| HistoryError::Unavailable)?;
+        events
+            .pagination()
+            .run_backwards_until(20)
+            .await
+            .map_err(|_| HistoryError::Transport)?;
+        fresh = events
+            .events()
+            .await
+            .map_err(|_| HistoryError::Unavailable)?;
     }
     // The saved list keeps its order; only what follows its last message is added.
-    let start = fresh.iter().position(|e| e.event_id() == anchor).map_or(0, |at| at + 1);
+    let start = fresh
+        .iter()
+        .position(|e| e.event_id() == anchor)
+        .map_or(0, |at| at + 1);
     rows.extend(fresh.into_iter().skip(start));
     let reactions = reaction_counts(&rows);
     let events = history_rows(client, &room, &id, rows.into_iter(), false).await?;
@@ -991,18 +1069,28 @@ pub(crate) async fn serve_history(
     let mut emit = async |result: crate::history::HistoryResult| {
         result.tag.is_cancelled() || out.send(result).await.is_ok()
     };
-    if request.open {
-        if let Ok(saved) = saved_page(client, account, tag.clone()).await
-            && !saved.events.is_empty()
+    if request.open
+        && let Ok(saved) = saved_page(client, account, tag.clone()).await
+        && !saved.events.is_empty()
+    {
+        if !emit(crate::history::HistoryResult {
+            tag: tag.clone(),
+            page: Ok(saved),
+        })
+        .await
         {
-            if !emit(crate::history::HistoryResult { tag: tag.clone(), page: Ok(saved) }).await {
-                return false;
-            }
-            return match open_page(client, tag.clone()).await {
-                Ok((page, _)) => emit(crate::history::HistoryResult { tag, page: Ok(page) }).await,
-                Err(_) => true,
-            };
+            return false;
         }
+        return match open_page(client, tag.clone()).await {
+            Ok((page, _)) => {
+                emit(crate::history::HistoryResult {
+                    tag,
+                    page: Ok(page),
+                })
+                .await
+            }
+            Err(_) => true,
+        };
     }
     let page = fetch_history(client, account, tag.clone(), request.before).await;
     emit(crate::history::HistoryResult { tag, page }).await
@@ -1104,7 +1192,7 @@ async fn history_rows(
                     .into(),
                     outgoing: client.user_id() == Some(sender.as_ref()),
                     timestamp_ms: timestamp,
-                    sender: history_sender(&room, &sender).await,
+                    sender: history_sender(room, &sender).await,
                     video: None,
                 });
             }
@@ -1118,16 +1206,29 @@ async fn history_rows(
             .and_then(|t| event_type_label(&t))
             && let (Some(id), Some(sender), Some(timestamp)) = (
                 event.event_id(),
-                event.raw().get_field::<matrix_sdk::ruma::OwnedUserId>("sender").ok().flatten(),
-                event.raw().get_field::<u64>("origin_server_ts").ok().flatten(),
+                event
+                    .raw()
+                    .get_field::<matrix_sdk::ruma::OwnedUserId>("sender")
+                    .ok()
+                    .flatten(),
+                event
+                    .raw()
+                    .get_field::<u64>("origin_server_ts")
+                    .ok()
+                    .flatten(),
             )
         {
             events.push(HistoryEvent {
                 event_id: matrix_domain::EventId::new(id.as_str()),
-                body: if redacted.contains(id) { "[Messaggio eliminato]" } else { label }.into(),
+                body: if redacted.contains(id) {
+                    "[Messaggio eliminato]"
+                } else {
+                    label
+                }
+                .into(),
                 outgoing: client.user_id() == Some(sender.as_ref()),
                 timestamp_ms: timestamp,
-                sender: history_sender(&room, &sender).await,
+                sender: history_sender(room, &sender).await,
                 video: None,
             });
             continue;
@@ -1137,14 +1238,18 @@ async fn history_rows(
         ))) = event.raw().deserialize()
         {
             let mut message = match message {
-                SyncMessageLikeEvent::Original(message) if !redacted.contains(&message.event_id) => message,
+                SyncMessageLikeEvent::Original(message)
+                    if !redacted.contains(&message.event_id) =>
+                {
+                    message
+                }
                 SyncMessageLikeEvent::Original(message) => {
                     events.push(HistoryEvent {
                         event_id: matrix_domain::EventId::new(message.event_id.as_str()),
                         body: "[Messaggio eliminato]".into(),
                         outgoing: client.user_id() == Some(message.sender.as_ref()),
                         timestamp_ms: message.origin_server_ts.0.into(),
-                        sender: history_sender(&room, &message.sender).await,
+                        sender: history_sender(room, &message.sender).await,
                         video: None,
                     });
                     continue;
@@ -1155,7 +1260,7 @@ async fn history_rows(
                         body: "[Messaggio eliminato]".into(),
                         outgoing: client.user_id() == Some(message.sender.as_ref()),
                         timestamp_ms: message.origin_server_ts.0.into(),
-                        sender: history_sender(&room, &message.sender).await,
+                        sender: history_sender(room, &message.sender).await,
                         video: None,
                     });
                     continue;
@@ -1263,7 +1368,7 @@ async fn history_rows(
                 body,
                 outgoing: client.user_id() == Some(message.sender.as_ref()),
                 timestamp_ms: message.origin_server_ts.0.into(),
-                sender: history_sender(&room, &message.sender).await,
+                sender: history_sender(room, &message.sender).await,
                 video,
             });
         }
@@ -1271,7 +1376,9 @@ async fn history_rows(
     Ok(events)
 }
 
-fn video_info(v: &matrix_sdk::ruma::events::room::message::VideoMessageEventContent) -> crate::history::VideoInfo {
+fn video_info(
+    v: &matrix_sdk::ruma::events::room::message::VideoMessageEventContent,
+) -> crate::history::VideoInfo {
     let info = v.info.as_deref();
     crate::history::VideoInfo {
         duration_ms: info.and_then(|i| i.duration).map(|d| d.as_millis() as u64),
@@ -1291,7 +1398,10 @@ fn human_size(bytes: u64) -> String {
 /// Row text for a message type: its content when textual, otherwise a short real label.
 fn message_label(msgtype: &MessageType) -> String {
     let join = |name: &str, parts: Vec<String>| {
-        std::iter::once(name.to_owned()).chain(parts).collect::<Vec<_>>().join(" · ")
+        std::iter::once(name.to_owned())
+            .chain(parts)
+            .collect::<Vec<_>>()
+            .join(" · ")
     };
     match msgtype {
         MessageType::Text(_) | MessageType::Notice(_) | MessageType::Emote(_)
@@ -1314,8 +1424,17 @@ fn message_label(msgtype: &MessageType) -> String {
         MessageType::Audio(a) if a.voice.is_some() => "Nota vocale".into(),
         MessageType::Audio(_) => "Audio".into(),
         MessageType::File(f) => {
-            let size = f.info.as_deref().and_then(|i| i.size).map(|s| human_size(s.into()));
-            join("File", std::iter::once(f.filename().to_owned()).chain(size).collect())
+            let size = f
+                .info
+                .as_deref()
+                .and_then(|i| i.size)
+                .map(|s| human_size(s.into()));
+            join(
+                "File",
+                std::iter::once(f.filename().to_owned())
+                    .chain(size)
+                    .collect(),
+            )
         }
         MessageType::Location(_) => "Posizione".into(),
         MessageType::VerificationRequest(_) => "Richiesta di verifica".into(),
@@ -1339,7 +1458,14 @@ fn redacted_ids(
 ) -> std::collections::HashSet<matrix_sdk::ruma::OwnedEventId> {
     events
         .iter()
-        .filter(|e| e.raw().get_field::<String>("type").ok().flatten().as_deref() == Some("m.room.redaction"))
+        .filter(|e| {
+            e.raw()
+                .get_field::<String>("type")
+                .ok()
+                .flatten()
+                .as_deref()
+                == Some("m.room.redaction")
+        })
         .filter_map(|e| {
             // Older room versions carry the target at the top, newer ones in the content.
             e.raw().get_field("redacts").ok().flatten().or_else(|| {
@@ -1392,7 +1518,10 @@ fn reaction_counts(
     let mut counts: std::collections::BTreeMap<(String, String), usize> = Default::default();
     let redacted = redacted_ids(events);
     for event in events {
-        if event.event_id().is_some_and(|id| redacted.contains(id.as_ref() as &matrix_sdk::ruma::EventId)) {
+        if event
+            .event_id()
+            .is_some_and(|id| redacted.contains(id as &matrix_sdk::ruma::EventId))
+        {
             continue;
         }
         if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Reaction(
@@ -1400,7 +1529,9 @@ fn reaction_counts(
         ))) = event.raw().deserialize()
         {
             let note = reaction.content.relates_to;
-            *counts.entry((note.event_id.to_string(), note.key)).or_default() += 1;
+            *counts
+                .entry((note.event_id.to_string(), note.key))
+                .or_default() += 1;
         }
     }
     counts
@@ -1464,23 +1595,44 @@ async fn older_via_event_cache(
     room: &matrix_sdk::room::Room,
     id: &matrix_sdk::ruma::RoomId,
     before: Option<&str>,
-) -> Result<(Vec<matrix_sdk::deserialized_responses::TimelineEvent>, Option<String>), crate::history::HistoryError> {
+) -> Result<
+    (
+        Vec<matrix_sdk::deserialized_responses::TimelineEvent>,
+        Option<String>,
+    ),
+    crate::history::HistoryError,
+> {
     use crate::history::HistoryError;
     let saved = stored_events(client, id).await?.0;
     let shown: std::collections::HashSet<_> = saved.iter().filter_map(|e| e.event_id()).collect();
-    let (events, _drop) = room.event_cache().await.map_err(|_| HistoryError::Unavailable)?;
+    let (events, _drop) = room
+        .event_cache()
+        .await
+        .map_err(|_| HistoryError::Unavailable)?;
     // shortcut: at most 50 steps over saved chunks already shown, then the page comes from the server.
     let (mut older, mut reached_start) = (Vec::new(), false);
     for _ in 0..50 {
-        let step = events.pagination().run_backwards_once(25).await.map_err(|_| HistoryError::Transport)?;
+        let step = events
+            .pagination()
+            .run_backwards_once(25)
+            .await
+            .map_err(|_| HistoryError::Transport)?;
         reached_start = step.reached_start;
-        older = step.events.into_iter().filter(|e| e.event_id().is_none_or(|i| !shown.contains(&i))).collect();
+        older = step
+            .events
+            .into_iter()
+            .filter(|e| e.event_id().is_none_or(|i| !shown.contains(&i)))
+            .collect();
         if !older.is_empty() || reached_start {
             break;
         }
     }
     older.reverse();
-    let next = if reached_start { None } else { stored_events(client, id).await?.2 };
+    let next = if reached_start {
+        None
+    } else {
+        stored_events(client, id).await?.2
+    };
     Ok((older, next.filter(|n| Some(n.as_str()) != before)))
 }
 
@@ -1488,7 +1640,14 @@ async fn older_via_event_cache(
 pub(crate) async fn stored_events(
     client: &matrix_sdk::Client,
     id: &matrix_sdk::ruma::RoomId,
-) -> Result<(Vec<matrix_sdk::deserialized_responses::TimelineEvent>, bool, Option<String>), crate::history::HistoryError> {
+) -> Result<
+    (
+        Vec<matrix_sdk::deserialized_responses::TimelineEvent>,
+        bool,
+        Option<String>,
+    ),
+    crate::history::HistoryError,
+> {
     use crate::history::HistoryError;
     use matrix_sdk::linked_chunk::{ChunkContent, LinkedChunkId};
     let lock = client
@@ -1507,7 +1666,10 @@ pub(crate) async fn stored_events(
         .into_iter()
         .map(|c| (c.identifier, c))
         .collect();
-    let mut next = chunks.values().find(|c| c.previous.is_none()).map(|c| c.identifier);
+    let mut next = chunks
+        .values()
+        .find(|c| c.previous.is_none())
+        .map(|c| c.identifier);
     let (mut cached, mut hole, mut older) = (Vec::new(), false, None);
     while let Some(chunk) = next.and_then(|n| chunks.remove(&n)) {
         next = chunk.next;

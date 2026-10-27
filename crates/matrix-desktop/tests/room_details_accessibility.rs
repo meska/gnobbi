@@ -42,7 +42,7 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
         composer: None,
     };
     assert!(snapshot.tree().nodes.iter().any(|(id, _)| *id == OPEN));
-    snapshot.details = DetailsView::Open(panel);
+    snapshot.details = DetailsView::Open(Box::new(panel));
     let tree = snapshot.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Informazioni stanza"));
     assert!(!tree.nodes.iter().any(|(id, _)| *id == THEME));
@@ -121,7 +121,7 @@ fn details_actions_revalidate_room_scope_and_reject_hidden_targets() {
     let snapshot = panel();
     let scope = snapshot.scope.clone();
     let closed = DetailsView::Closed(scope.clone());
-    let open = DetailsView::Open(snapshot);
+    let open = DetailsView::Open(Box::new(snapshot));
     assert_eq!(
         closed.action(&request(OPEN, Action::Click)),
         Some(DetailsAction::Open(scope.clone()))
@@ -145,7 +145,7 @@ fn details_actions_revalidate_room_scope_and_reject_hidden_targets() {
     let mut later = panel();
     later.scope.account_id = AccountId::new(99);
     assert!(
-        !DetailsView::Open(later).allows(&copy),
+        !DetailsView::Open(Box::new(later)).allows(&copy),
         "queued action must not copy another account's ID"
     );
     assert!(!open.allows(&DetailsAction::Open(scope.clone())));

@@ -80,16 +80,14 @@ fn room_list_arrives_and_a_new_message_updates_it() {
                 .await
                 .expect("stream ended")
             {
-                if let VectorDiff::Set { value, .. } = diff {
-                    if value.room_id().as_str() == room_id {
-                        if let matrix_engine::sdk::latest_events::LatestEventValue::Remote(event) =
-                            value.latest_event()
-                        {
-                            let json: serde_json::Value =
-                                serde_json::from_str(event.raw().json().get()).unwrap();
-                            updated = json["content"]["body"] == body.as_str();
-                        }
-                    }
+                if let VectorDiff::Set { value, .. } = diff
+                    && value.room_id().as_str() == room_id
+                    && let matrix_engine::sdk::latest_events::LatestEventValue::Remote(event) =
+                        value.latest_event()
+                {
+                    let json: serde_json::Value =
+                        serde_json::from_str(event.raw().json().get()).unwrap();
+                    updated = json["content"]["body"] == body.as_str();
                 }
             }
         }
