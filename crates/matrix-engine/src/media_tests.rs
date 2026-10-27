@@ -1,6 +1,182 @@
 const MEDIA_PNG: &[u8] = include_bytes!("../tests/fixtures/checker.png");
 
 #[test]
+fn video_thumbnail_receive_cap_precedes_mime_and_decode() {
+    runtime().block_on(async {
+        use std::{cell::Cell, io::Read, sync::{Arc, Mutex}};
+        use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::TcpListener};
+        use matrix_sdk::ruma::{api::MatrixVersion, events::room::EncryptedFile, owned_mxc_uri};
+        const CAP: usize = 1_048_576;
+        for case in ["plain-over", "encrypted-over", "plain-exact", "encrypted-exact", "plain", "encrypted", "bad-hash", "no-source", "no-info"] {
+            let oversized = case.ends_with("over");
+            let encrypted = case.starts_with("encrypted") || case == "bad-hash";
+            let mut body = MEDIA_PNG.to_vec();
+            if oversized { body.resize(CAP + 1, 0); }
+            if case.ends_with("exact") { body.resize(CAP, 0); }
+            let expected_bytes = body.clone();
+            let mut content = serde_json::json!({"msgtype":"m.video", "body":"synthetic.mp4", "url":"mxc://fixture.invalid/full-video", "info":{}});
+            if encrypted {
+                let mut input = std::io::Cursor::new(&body);
+                let mut encryptor = matrix_sdk_crypto::AttachmentEncryptor::new(&mut input);
+                let mut ciphertext = Vec::new();
+                encryptor.read_to_end(&mut ciphertext).unwrap();
+                let info = encryptor.finish();
+                let mut file = EncryptedFile::new(owned_mxc_uri!("mxc://fixture.invalid/thumbnail"), info.encryption_info, info.hashes);
+                if case == "bad-hash" { file.hashes = matrix_sdk::ruma::events::room::EncryptedFileHashes::with_sha256([0; 32]); }
+                content["info"]["thumbnail_file"] = serde_json::to_value(file).unwrap();
+                body = ciphertext;
+            } else if case != "no-source" && case != "no-info" {
+                content["info"]["thumbnail_url"] = serde_json::json!("mxc://fixture.invalid/thumbnail");
+            }
+            if case == "no-info" { content.as_object_mut().unwrap().remove("info"); }
+            let event = serde_json::json!({"type":"m.room.message", "event_id":"$video", "room_id":"!video:fixture.invalid", "sender":"@alice:fixture.invalid", "origin_server_ts":1, "content":content});
+            let sync = serde_json::json!({"next_batch":"s1", "rooms":{"join":{"!video:fixture.invalid":{"state":{"events":[{"type":"m.room.member", "state_key":"@alice:fixture.invalid", "sender":"@alice:fixture.invalid", "event_id":"$member", "origin_server_ts":1, "content":{"membership":"join"}}]}, "timeline":{"events":[], "limited":false, "prev_batch":"s0"}, "ephemeral":{"events":[]}, "account_data":{"events":[]}, "unread_notifications":{}}}}});
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let recorded = requests.clone();
+            let server = tokio::spawn(async move {
+                loop {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    let mut headers = Vec::new();
+                    while !headers.ends_with(b"\r\n\r\n") { headers.push(stream.read_u8().await.unwrap()); }
+                    let headers = String::from_utf8(headers).unwrap();
+                    let path = headers.split_whitespace().nth(1).unwrap().to_owned();
+                    recorded.lock().unwrap().push(path.clone());
+                    let response = if path.contains("/sync?") { serde_json::to_vec(&sync).unwrap() }
+                        else if path.contains("/event/") { serde_json::to_vec(&event).unwrap() }
+                        else if path.contains("/thumbnail/") || path.contains("/download/") { body.clone() }
+                        else { b"{}".to_vec() };
+                    // Chunked exercises receive-time counting rather than a header-only rejection.
+                    let header = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n", response.len());
+                    if stream.write_all(header.as_bytes()).await.is_ok() {
+                        let _ = stream.write_all(&response).await;
+                        let _ = stream.write_all(b"\r\n0\r\n\r\n").await;
+                    }
+                }
+            });
+            let client = matrix_sdk::Client::builder().homeserver_url(format!("http://{address}"))
+                .sliding_sync_version_builder(matrix_sdk::sliding_sync::VersionBuilder::None)
+                .request_config(matrix_sdk::config::RequestConfig::new().retry_limit(3))
+                .server_versions([MatrixVersion::V1_0]).build().await.unwrap();
+            let session: matrix_sdk::authentication::matrix::MatrixSession = serde_json::from_value(serde_json::json!({"user_id":"@alice:fixture.invalid", "device_id":"TEST", "access_token":"synthetic"})).unwrap();
+            client.restore_session(session).await.unwrap();
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            let session = AccountSession { account_id: AccountId::new(26), client: Some(client), #[cfg(unix)] store: None };
+            let mut views = crate::ViewRequests::new();
+            let tag = views.start(matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new("!video:fixture.invalid") }).unwrap();
+            crate::media_sdk::VIDEO_DECODE_ENTRIES.scope(Cell::new((0, 0)), async {
+                let result = session.download_video_thumbnail(&tag, &matrix_domain::EventId::new("$video")).await;
+                let entries = crate::media_sdk::VIDEO_DECODE_ENTRIES.with(Cell::get);
+                if oversized {
+                    assert!(matches!(result, Err(crate::media::MediaError::TooLarge)), "{case}: expected TooLarge, error={:?}, decoder entries={entries:?}", result.as_ref().err());
+                    assert_eq!(entries, (0, 0), "{case}: no MIME sniff or decode");
+                } else if case == "bad-hash" {
+                    assert!(matches!(result, Err(crate::media::MediaError::Failed)));
+                    assert_eq!(entries, (0, 0));
+                } else if case.starts_with("no-") {
+                    assert!(matches!(result, Ok(None)));
+                    assert_eq!(entries, (0, 0));
+                } else {
+                    let downloaded = result.unwrap().unwrap();
+                    assert_eq!(downloaded.bytes, expected_bytes);
+                    assert_eq!((downloaded.preview.width, downloaded.preview.height), (2, 2));
+                    assert_eq!(downloaded.preview.rgba, image::load_from_memory(MEDIA_PNG).unwrap().into_rgba8().into_raw());
+                    assert_eq!(entries, (1, 1), "positive control for both probes");
+                }
+            }).await;
+            server.abort();
+            assert!(server.await.unwrap_err().is_cancelled());
+            let requests = requests.lock().unwrap();
+            assert!(!requests.iter().any(|p| p.contains("full-video")), "no MP4 fallback");
+            let media: Vec<_> = requests.iter().filter(|p| p.contains("/thumbnail/") || p.contains("/download/")).collect();
+            assert_eq!(media.len(), usize::from(!case.starts_with("no-")), "{case}: {requests:?}");
+            if case.starts_with("plain") { assert!(media[0].contains("width=320") && media[0].contains("height=240")); }
+        }
+    });
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse and a synthetic MP4 fixture"]
+fn disposable_video_thumbnail_decodes_without_persistent_cache() {
+    runtime().block_on(async {
+        use matrix_sdk::attachment::{AttachmentConfig, Thumbnail};
+        use matrix_sdk::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
+        use matrix_sdk::ruma::events::room::{MediaSource, message::{MessageType, RoomMessageEventContent}};
+        let config = fixture();
+        let mp4 = std::fs::read(std::env::var("FIXTURE_VIDEO_MP4").unwrap()).unwrap();
+        for encrypted in [false, true] {
+            let mut create = serde_json::json!({"visibility":"private", "name":"video thumbnail", "creation_content":{"m.federate":false}});
+            if encrypted {
+                create["initial_state"] = serde_json::json!([{"type":"m.room.encryption", "state_key":"", "content":{"algorithm":"m.megolm.v1.aes-sha2"}}]);
+            }
+            let room_id = room_request(&config, "alice", reqwest::Method::POST, "createRoom", create).await["room_id"].as_str().unwrap().to_owned();
+            // A persistent store makes the no-cache assertion meaningful for disk-backed clients too.
+            let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap().join(format!("video-{encrypted}"));
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+            let session = AccountStore::create(&root, AccountId::new(26)).unwrap().password_login_with_http(
+                HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+                "@alice:matrix-desktop.test", config["alice_password"].as_str().unwrap(),
+                "disposable video store passphrase", http(&config),
+            ).await.unwrap();
+            let client = session.client.as_ref().unwrap();
+            client.encryption().wait_for_e2ee_initialization_tasks().await;
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            let room = client.get_room(&matrix_sdk::ruma::RoomId::parse(&room_id).unwrap()).unwrap();
+            let scope = matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new(&room_id) };
+            let mut requests = crate::ViewRequests::new();
+            let tag = requests.start(scope).unwrap();
+            for with_thumbnail in [true, false] {
+                let thumbnail = with_thumbnail.then(|| Thumbnail {
+                    data: MEDIA_PNG.to_vec(), content_type: "image/png".parse().unwrap(),
+                    width: 2u32.into(), height: 2u32.into(), size: (MEDIA_PNG.len() as u32).into(),
+                });
+                let event = room.send_attachment("synthetic.mp4", &"video/mp4".parse().unwrap(), mp4.clone(), AttachmentConfig::new().thumbnail(thumbnail)).await.unwrap().event_id;
+                let wire = room_request(&config, "alice", reqwest::Method::GET, &format!("rooms/{room_id}/event/{event}"), serde_json::json!({})).await;
+                assert_eq!(wire["type"], if encrypted { "m.room.encrypted" } else { "m.room.message" });
+                let sdk_event = room.event(&event, None).await.unwrap();
+                let content = sdk_event.raw().get_field::<RoomMessageEventContent>("content").unwrap().unwrap();
+                let MessageType::Video(video) = content.msgtype else { panic!("video required") };
+                let source = video.info.as_ref().and_then(|i| i.thumbnail_source.clone());
+                assert_eq!(source.is_some(), with_thumbnail);
+                if let Some(source) = &source {
+                    assert_eq!(matches!(source, MediaSource::Encrypted(_)), encrypted);
+                    if let MediaSource::Encrypted(file) = source {
+                        let (server, id) = file.url.parts().unwrap();
+                        let bytes = http(&config).get(format!("{}_matrix/client/v1/media/download/{server}/{id}", config["url"].as_str().unwrap())).bearer_auth(config["alice_token"].as_str().unwrap()).send().await.unwrap().bytes().await.unwrap();
+                        assert!(bytes.as_ref() != MEDIA_PNG, "server stores ciphertext, not the thumbnail PNG");
+                    }
+                    // Upload helpers may cache: remove that entry before testing the download.
+                    client.media().remove_media_content_for_uri(match source { MediaSource::Plain(uri) => uri, MediaSource::Encrypted(file) => &file.url }).await.unwrap();
+                }
+                let downloaded = session.download_video_thumbnail(&tag, &matrix_domain::EventId::new(event.as_str())).await.unwrap();
+                assert_eq!(downloaded.is_some(), with_thumbnail);
+                if let Some(downloaded) = downloaded {
+                    assert_eq!((downloaded.preview.width, downloaded.preview.height), (2, 2));
+                    assert_eq!(downloaded.preview.rgba[0..4], [255, 0, 0, 255]);
+                    let expected = image::load_from_memory(MEDIA_PNG).unwrap().into_rgba8();
+                    assert_eq!(downloaded.preview.rgba, expected.into_raw());
+                    assert_eq!(image::load_from_memory(&downloaded.bytes).unwrap().into_rgba8().into_raw(), downloaded.preview.rgba);
+                    if encrypted {
+                        assert_eq!(downloaded.bytes, MEDIA_PNG, "SDK decrypts the original encrypted thumbnail");
+                    }
+                }
+                if let Some(source) = source {
+                    let request = MediaRequestParameters { source, format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(320u32.into(), 240u32.into())) };
+                    assert!(client.media_store().lock().await.unwrap().get_media_content(&request).await.unwrap().is_none(), "download must not persist decrypted media");
+                }
+            }
+            let wrong = requests.start(matrix_domain::RoomScope { account_id: AccountId::new(999), room_id: matrix_domain::RoomId::new(&room_id) }).unwrap();
+            assert!(matches!(session.download_video_thumbnail(&wrong, &matrix_domain::EventId::new("$not-fetched")).await, Err(crate::media::MediaError::InvalidScope)));
+            requests.cancel();
+            assert!(matches!(session.download_video_thumbnail(&tag, &matrix_domain::EventId::new("$not-fetched")).await, Err(crate::media::MediaError::Cancelled)));
+        }
+    });
+}
+
+#[test]
 fn media_preview_rejects_unsupported_types_before_decode() {
     runtime().block_on(async {
         let mut requests = crate::ViewRequests::new();
@@ -41,7 +217,9 @@ fn media_ceiling_is_25_mib_and_a_five_mib_png_is_accepted() {
         let mut data = MEDIA_PNG.to_vec();
         data.resize(5 * 1024 * 1024, 0);
         assert!(
-            crate::media_sdk::decode_png(data, "image/png", &tag).await.is_ok(),
+            crate::media_sdk::decode_png(data, "image/png", &tag)
+                .await
+                .is_ok(),
             "a 5 MiB file is below the ceiling"
         );
         let mut data = MEDIA_PNG.to_vec();
@@ -77,9 +255,10 @@ fn media_preview_decodes_png_jpeg_webp_and_gif() {
             (image::ImageFormat::WebP, "image/webp"),
             (image::ImageFormat::Gif, "image/gif"),
         ] {
-            let preview = crate::media_sdk::decode_png(media_generated(format, 640, 480), mime, &tag)
-                .await
-                .unwrap_or_else(|e| panic!("{mime}: {e:?}"));
+            let preview =
+                crate::media_sdk::decode_png(media_generated(format, 640, 480), mime, &tag)
+                    .await
+                    .unwrap_or_else(|e| panic!("{mime}: {e:?}"));
             assert_eq!((preview.width, preview.height), (320, 240), "{mime}");
         }
     });
@@ -598,7 +777,10 @@ fn media_cached_bytes_are_decoded_with_their_own_format() {
         (image::ImageFormat::WebP, "image/webp"),
         (image::ImageFormat::Gif, "image/gif"),
     ] {
-        assert_eq!(crate::media_sdk::mime_of(&media_generated(format, 8, 8)), Some(mime));
+        assert_eq!(
+            crate::media_sdk::mime_of(&media_generated(format, 8, 8)),
+            Some(mime)
+        );
     }
     assert_eq!(crate::media_sdk::mime_of(b"not an image"), None);
 }
