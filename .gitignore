@@ -8,20 +8,27 @@
 # Output di test e artefatti locali
 /artifacts/
 
-# Segreti e credenziali
+# Segreti e credenziali (mai nel repository)
 .env
 .env.*
 *.key
 *.pem
 credentials*
 session-store/
+matrix-test-*.yaml
+*-config.yaml
 
-# Python (script in tools/)
+# Log e file temporanei locali
+*.log
+*.tmp
+
+# Python (script di supporto)
 __pycache__/
 *.pyc
 
 # Editor / OS
 .idea/
 .vscode/
+.obsidian/
 *.swp
 .DS_Store
