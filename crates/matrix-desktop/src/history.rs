@@ -459,6 +459,20 @@ impl DemoHistory {
         &self.events
     }
 
+    /// Avatar beside bubble `index`, drawn where the sender name would be: the picture's mxc
+    /// (None = no picture, show the initials) and the initials. Same rule as the name.
+    pub fn sender_avatar(&self, index: usize, member_count: u64) -> Option<(Option<&str>, String)> {
+        let name = self.sender_label(index, member_count)?;
+        let sender = self.events.get(index)?.sender.as_ref()?;
+        let initials = name.trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+        Some((sender.avatar.as_deref(), initials))
+    }
+
+    /// Pictures the senders of this room's bubbles have.
+    pub fn sender_avatar_mxcs(&self) -> impl Iterator<Item = &str> {
+        self.events.iter().rev().filter_map(|e| e.sender.as_ref()?.avatar.as_deref())
+    }
+
     /// Sender name to draw above bubble `index`, per `matrix_domain::shows_sender_label`.
     /// Falls back to the Matrix ID when the sender has no display name.
     pub fn sender_label(&self, index: usize, member_count: u64) -> Option<String> {
@@ -484,5 +498,35 @@ pub fn bubble_stamp(time: &str, outgoing: bool, state: Option<DemoSendState>) ->
         (_, Some(DemoSendState::Failed)) => format!("{time} !"),
         (true, None) => format!("{time} ✓"),
         (false, None) => time.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod sender_avatar_tests {
+    use super::*;
+
+    #[test]
+    fn avatar_beside_the_sender_name_with_initials_when_there_is_no_picture() {
+        let scope = RoomScope {
+            account_id: matrix_domain::AccountId::new(0),
+            room_id: matrix_domain::RoomId::new("!r:fixture.invalid"),
+        };
+        let mut history = DemoHistory::new(scope, 4);
+        let with = HistorySender::new("@bruno:fixture.invalid", None)
+            .with_avatar(Some("mxc://fixture.invalid/b".into()));
+        history.events[0].sender = Some(with);
+        // Index 0 has a picture, index 2 (Anna) none; index 1 is our own message.
+        assert_eq!(
+            history.sender_avatar(0, 3),
+            Some((Some("mxc://fixture.invalid/b"), "BR".to_owned()))
+        );
+        assert_eq!(history.sender_avatar(2, 3), Some((None, "AN".to_owned())));
+        assert_eq!(history.sender_avatar(1, 3), None);
+        // A chat of two: the header already shows the other person, so no name and no avatar.
+        assert_eq!(history.sender_avatar(0, 2), None);
+        assert_eq!(
+            history.sender_avatar_mxcs().collect::<Vec<_>>(),
+            ["mxc://fixture.invalid/b"]
+        );
     }
 }

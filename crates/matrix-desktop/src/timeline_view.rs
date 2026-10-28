@@ -76,6 +76,8 @@ fn close_viewer(
 type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
+const SENDER_AVATAR_PX: f32 = 32.;
+
 pub struct TimelineView {
     offline_delivery: Rc<RefCell<matrix_desktop::OfflineDelivery>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -107,6 +109,9 @@ pub struct TimelineView {
         RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>,
     >,
     requested_link: Rc<RefCell<Option<matrix_desktop::MessageLinkTarget>>>,
+    /// Sender pictures by mxc, copied from the shell's avatar cache.
+    pub(crate) sender_pictures:
+        Rc<RefCell<std::collections::HashMap<String, std::sync::Arc<gpui::RenderImage>>>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     selection_cursor: Rc<
         RefCell<
@@ -256,6 +261,7 @@ impl TimelineView {
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
+            sender_pictures: Rc::default(),
             video_painted: Rc::default(),
             requested_link: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -899,6 +905,26 @@ impl TimelineView {
         }
     }
 
+    /// A sender picture arrived: redraw the rows that use it.
+    pub(crate) fn avatar_changed(&self, mxc: &str) {
+        let rows: Vec<usize> = {
+            let history = self.history.borrow();
+            let rows = history.events().iter().enumerate();
+            rows.filter(|(_, e)| e.sender.as_ref().and_then(|s| s.avatar.as_deref()) == Some(mxc))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        for index in rows {
+            self.state.splice(index..index + 1, 1);
+        }
+    }
+
+    pub(crate) fn sender_avatar_mxcs(&self) -> Vec<String> {
+        let history = self.history.borrow();
+        let unique: std::collections::BTreeSet<_> = history.sender_avatar_mxcs().collect();
+        unique.into_iter().map(str::to_owned).collect()
+    }
+
     /// Video rows of this room: their picture is the thumbnail, when there is one.
     pub(crate) fn video_events(&self) -> Vec<matrix_domain::EventId> {
         self.history
@@ -1230,6 +1256,7 @@ impl TimelineView {
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
         let images = self.images.clone();
+        let sender_pictures = self.sender_pictures.clone();
         let video_painted = self.video_painted.clone();
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
@@ -1289,6 +1316,14 @@ impl TimelineView {
                     let history = history.borrow();
                     let event = &history.events()[index];
                     let sender_label = history.sender_label(index, members);
+                    let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
+                        match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
+                            Some(image) => crate::avatar_view::round(image, SENDER_AVATAR_PX),
+                            None => div().flex().items_center().justify_center().size(px(SENDER_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(0x5288b5)).text_color(rgb(t.avatar_text)).text_size(px(12.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
+                        }
+                    });
+                    // Groups only: the room header already shows the one other person of a chat.
+                    let avatar_gutter = members > 2 && !event.outgoing && event.sender.is_some();
                     let offline_target = (!live).then(|| offline_delivery.borrow_mut().target(event)).flatten();
                     let offline_callback = offline_target.clone().map(|target| offline_delivery_callback(offline_delivery.clone(), delivery_history.clone(), target, live));
                     let video_picture = event.video.as_ref().map(|facts| {
@@ -1417,6 +1452,10 @@ impl TimelineView {
                         .py_2()
                         .flex()
                         .when(event.outgoing, |d| d.justify_end())
+                        .when(avatar_gutter, |d| d.gap_2().items_start().child(match sender_avatar {
+                            Some(avatar) => avatar,
+                            None => div().size(px(SENDER_AVATAR_PX)).flex_shrink_0().into_any_element(),
+                        }))
                         .child(
                             div()
                                 .w(relative(0.85))

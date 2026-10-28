@@ -1573,6 +1573,7 @@ impl Render for Shell {
         let header_initials = selected.map_or(String::new(), |room| room.initials.clone());
         let (list_name, list_initials, list_color) = self.sidebar.list_header();
         let header_color = selected.map_or(t.disabled, |room| room.color);
+        let header_picture = self.avatars.get(selected.and_then(|room| room.info.avatar.as_deref()));
         let connection_label = if !self.connected {
             "demo offline"
         } else {
@@ -1937,15 +1938,19 @@ impl Render for Shell {
                                 })
                                 .when(!compact, |d| {
                                     d.child(
-                                        div()
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .size(px(40.))
-                                            .rounded_full()
-                                            .bg(rgb(header_color))
-                                            .text_color(rgb(t.avatar_text))
-                                            .child(header_initials),
+                                        match header_picture {
+                                            Some(image) => avatar_view::round(image, 40.),
+                                            None => div()
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .size(px(40.))
+                                                .rounded_full()
+                                                .bg(rgb(header_color))
+                                                .text_color(rgb(t.avatar_text))
+                                                .child(header_initials)
+                                                .into_any_element(),
+                                        },
                                     )
                                 })
                                 .child(

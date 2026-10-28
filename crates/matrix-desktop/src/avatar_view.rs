@@ -89,12 +89,29 @@ impl crate::Shell {
     pub(crate) fn drive_avatars(&mut self) -> bool {
         let rooms = self.sidebar.rooms();
         let visible = self.sidebar.visible_indices().iter().map(|&i| &rooms[i]);
-        let wanted = self
+        let senders = self.timeline.as_ref().map(|t| t.sender_avatar_mxcs()).unwrap_or_default();
+        let listed = self
             .sidebar
             .spaces()
             .chain(visible)
             .chain(rooms)
             .filter_map(|room| room.info.avatar.as_deref());
-        self.avatars.drive(&self.routes.avatars, wanted)
+        let wanted = senders.iter().map(String::as_str).chain(listed);
+        let arrived = self.avatars.drive(&self.routes.avatars, wanted);
+        let mut changed = Vec::new();
+        if let Some(timeline) = &self.timeline {
+            let mut pictures = timeline.sender_pictures.borrow_mut();
+            for mxc in &senders {
+                if !pictures.contains_key(mxc)
+                    && let Some(image) = self.avatars.get(Some(mxc))
+                {
+                    pictures.insert(mxc.clone(), image);
+                    changed.push(mxc.clone());
+                }
+            }
+            drop(pictures);
+            changed.iter().for_each(|mxc| timeline.avatar_changed(mxc));
+        }
+        arrived
     }
 }
