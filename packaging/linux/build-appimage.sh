@@ -8,7 +8,7 @@ src="$root/packaging/linux"
 APP_ID=net.meskatech.gnobbi
 NAME=Gnobbi-x86_64.AppImage
 out=${1:-$root/artifacts/appimage}
-bin="${CARGO_TARGET_DIR:-$root/target}/dist/matrix-desktop"
+bin="${CARGO_TARGET_DIR:-$root/target}/dist/gnobbi"
 [ -x "$bin" ] || { echo "build first: cargo build --locked -p matrix-desktop --features live,linux-vault --profile dist" >&2; exit 1; }
 command -v mksquashfs >/dev/null || { echo "mksquashfs (squashfs-tools) is required" >&2; exit 1; }
 tooldir=${APPIMAGETOOL_DIR:-$HOME/.local/share/appimagetool}; tool="$tooldir/appimagetool"

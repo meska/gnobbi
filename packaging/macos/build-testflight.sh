@@ -12,7 +12,7 @@ OUT=${1:-$root/artifacts/macos}
 TEAM=T4RJLVSR79; BID=net.meskatech.gnobbi; APPID="$TEAM.$BID"
 VERSION=${GNOBBI_VERSION:-0.1.0}
 BUILD=${GNOBBI_BUILD:-$(git -C "$root" rev-list --count HEAD)}
-bin="${CARGO_TARGET_DIR:-$root/target}/dist/matrix-desktop"
+bin="${CARGO_TARGET_DIR:-$root/target}/dist/gnobbi"
 [ -x "$bin" ] || { echo "build first: cargo build --locked -p matrix-desktop --features live,mac-vault --profile dist" >&2; exit 1; }
 lipo -archs "$bin" | grep -q arm64 || { echo "binary is not arm64" >&2; exit 1; }
 if grep -aq "Live restore requires" "$bin"; then echo "binary was built without the live feature" >&2; exit 1; fi

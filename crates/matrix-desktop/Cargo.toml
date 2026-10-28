@@ -41,6 +41,6 @@ linux-vault = ["live", "matrix-engine/linux-vault"]
 mac-vault = ["live", "matrix-engine/mac-vault"]
 
 [[bin]]
-name = "matrix-desktop"
+name = "gnobbi"
 path = "src/main.rs"
 required-features = ["desktop"]
