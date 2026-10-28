@@ -384,10 +384,8 @@ fn activation_callback(this: &Shell, window: &Window, unread: bool) -> PointerCa
                 n.label()
                     == Some(if unread {
                         "Solo stanze non lette"
-                    } else if this.dark {
-                        "Attiva tema chiaro"
                     } else {
-                        "Attiva tema scuro"
+                        "Menu elenco"
                     })
             })
             .unwrap()
@@ -515,7 +513,6 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before, "fresh paint resurrected old pointer");
                         activation_callback(this, window, unread)(this, window, cx);
                         assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before + 1, "reacquired painted callback must activate exactly once");
-                        if !unread { this.toggle_theme(cx); }
                         this.sidebar.set_unread_only(false);
                         assert!(history(this));
                         preserve_drafts_and_capture(this, &scopes, window, cx, &format!("pointer-{unread}-{transition}"));
@@ -1016,7 +1013,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     this.update_in(cx, |this, window, cx| {
                         assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before + 1, "exactly one actual callback activation per gesture");
                         eprintln!("current release {unread}/{key}: exact callback count {} -> {}", before, before+1);
-                        assert_eq!(this.dark, !unread, "completed gesture must activate Theme once");
+                        assert!(!this.dark, "⋮ never changes the theme");
                         assert_eq!(this.sidebar.unread_only(), unread, "completed gesture must activate Unread once");
                         if this.dark { this.toggle_theme(cx); }
                         this.sidebar.set_unread_only(false);
@@ -1513,6 +1510,39 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, cx| { this.prefs.debug = true; cx.notify(); }).unwrap();
             wait(500).await;
             shot("p185-on");
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 30 {
+            // List header: ⋮ leftmost, then the space icon and name, search full width below; «Tutte» and a space.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
+                let _ = ok; // grim exists only on Wayland; the X11 run has no screenshots
+            };
+            let layout = |label: &str| {
+                let p = PAINTED.lock().unwrap();
+                let (menu, icon, name, search, list) = (p["theme"], p["list-avatar"], p["list-name"], p["search"], p["list"]);
+                assert!(menu.left() < icon.left() && menu.right() <= icon.left(), "{label}: ⋮ {menu:?} left of icon {icon:?}");
+                assert!(icon.right() <= name.left(), "{label}: icon {icon:?} left of name {name:?}");
+                assert!(search.top() >= menu.bottom() && search.top() >= name.bottom(), "{label}: search {search:?} below the row");
+                assert!(search.left() <= menu.left() + px(16.) && search.right() + px(1.) >= name.right(), "{label}: search {search:?} spans the row");
+                assert!(search.bottom() <= list.top(), "{label}: list below search");
+            };
+            wait(500).await;
+            assert_eq!(this.update_in(cx, |this, _, _| this.sidebar.list_header().0).unwrap(), "Tutte");
+            layout("Tutte");
+            shot("p289-tutte");
+            this.update_in(cx, |this, _, cx| {
+                let scope = this.sidebar.spaces().next().unwrap().scope.clone();
+                assert!(this.sidebar.set_space(Some(scope)));
+                cx.notify();
+            }).unwrap();
+            wait(500).await;
+            let (name, initials, _) = this.update_in(cx, |this, _, _| this.sidebar.list_header()).unwrap();
+            assert_eq!((name.as_str(), initials.as_str()), ("Alpha", "Al"));
+            layout("Alpha");
+            shot("p289-alpha");
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
@@ -2818,6 +2848,20 @@ fn empty_rooms_are_hidden_until_the_control_shows_them() {
         Ok("1")
     );
     DYNAMIC.store(25, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn list_header_puts_menu_icon_and_space_name_above_a_full_width_search() {
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
+    DYNAMIC.store(30, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);

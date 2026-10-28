@@ -770,9 +770,7 @@ impl NavigationSnapshot {
             (COMPOSER, Action::Focus) if self.composer.is_some() => {
                 Some(NavigationAction::FocusComposer)
             }
-            (THEME, Action::Click) if self.visible => {
-                Some(NavigationAction::ToggleTheme(self.navigation_revision))
-            }
+            (THEME, Action::Click) if self.visible => None, // placeholder list menu
             (THEME, Action::Focus) if self.visible => {
                 Some(NavigationAction::FocusTheme(self.navigation_revision))
             }
@@ -1239,11 +1237,8 @@ pub fn theme_tree(dark: bool) -> TreeUpdate {
     root.set_label("Gnobbi");
     root.set_children(vec![THEME]);
     let mut theme = Node::new(Role::Button);
-    theme.set_label(if dark {
-        "Attiva tema chiaro"
-    } else {
-        "Attiva tema scuro"
-    });
+    let _ = dark; // theme now lives on Ctrl+Shift+D only
+    theme.set_label("Menu elenco");
     theme.add_action(Action::Click);
     theme.add_action(Action::Focus);
     TreeUpdate {

@@ -258,6 +258,14 @@ impl Sidebar {
         self.rooms.iter().filter(|room| room.info.is_space)
     }
 
+    /// List header: name, initials and colour of the selected space; «Tutte» (no colour) otherwise.
+    pub fn list_header(&self) -> (String, String, Option<u32>) {
+        match self.space.as_ref().and_then(|s| self.spaces().find(|r| r.scope == *s)) {
+            Some(space) => (space.name.clone(), space.initials.clone(), Some(space.color)),
+            None => ("Tutte".into(), "▦".into(), None),
+        }
+    }
+
     /// Counts each joined row once; independent of transient search/unread filters.
     pub fn navigation_entries(&self) -> Vec<NavigationEntry> {
         let total = |keep: &dyn Fn(&SidebarRoom) -> bool| {
@@ -587,6 +595,23 @@ mod tests {
         }));
         assert_eq!(names(&sidebar), ["y"]);
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
+    }
+
+    #[test]
+    fn list_header_names_the_selected_space_with_initials_or_tutte() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        assert_eq!(sidebar.list_header(), ("Tutte".into(), "▦".into(), None));
+        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            scope: scope(&account, "bots"),
+            name: "Bots".into(),
+            unread: 0,
+            info: RoomInfo { is_space: true, ..Default::default() },
+        }));
+        assert!(sidebar.set_space(Some(scope(&account, "bots"))));
+        let (name, initials, color) = sidebar.list_header();
+        assert_eq!((name.as_str(), initials.as_str()), ("Bots", "Bo"));
+        assert!(color.is_some());
     }
 
     #[test]

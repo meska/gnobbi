@@ -38,7 +38,7 @@ fn theme_handle_retires_when_the_filtered_sidebar_source_changes() {
         .tree()
         .nodes
         .into_iter()
-        .find(|(_, n)| n.label() == Some("Attiva tema scuro"))
+        .find(|(_, n)| n.label() == Some("Menu elenco"))
         .unwrap()
         .0;
     view.query = "different eligibility".into();

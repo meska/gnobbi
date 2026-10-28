@@ -730,16 +730,13 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
 }
 
 #[test]
-fn theme_control_exports_its_current_action_label_and_role() {
+fn list_menu_control_exports_its_label_and_role() {
     let update = theme_tree(false);
     let (id, button) = update.nodes.iter().find(|(id, _)| *id == THEME).unwrap();
     assert_eq!(*id, THEME);
     assert_eq!(button.role(), accesskit::Role::Button);
-    assert_eq!(button.label(), Some("Attiva tema scuro"));
+    assert_eq!(button.label(), Some("Menu elenco"));
     assert!(button.supports_action(accesskit::Action::Click));
-    let dark = theme_tree(true);
-    let (_, button) = dark.nodes.iter().find(|(id, _)| *id == THEME).unwrap();
-    assert_eq!(button.label(), Some("Attiva tema chiaro"));
     let root = update.tree.unwrap().root;
     assert!(
         update

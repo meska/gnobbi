@@ -1547,6 +1547,7 @@ impl Render for Shell {
         let selected = self.sidebar.selected();
         let header_name = selected.map_or("Nessuna stanza".to_owned(), |room| room.name.clone());
         let header_initials = selected.map_or(String::new(), |room| room.initials.clone());
+        let (list_name, list_initials, list_color) = self.sidebar.list_header();
         let header_color = selected.map_or(t.disabled, |room| room.color);
         let connection_label = if !self.connected {
             "demo offline"
@@ -1604,37 +1605,67 @@ impl Render for Shell {
                                 .flex_shrink_0()
                                 .flex()
                                 .items_center()
-                                .px_5()
-                                .gap_3()
+                                .px_4()
+                                .gap_2()
                                 .when(compact, |d| d.child(self.render_menu_button(t, window, cx)))
                                 .child(
-                                    div()
-                                        .text_size(px(18.))
-                                        .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .child("Gnobbi"),
-                                )
-                                .child(
+                                    // Placeholder list menu: takes the old theme-link focus slot; theme stays on Ctrl+Shift+D.
                                     div()
                                         .id("theme-toggle")
                                         .relative()
                                         .children(self.theme_observer(cx))
-                                .children({
-                                    #[cfg(test)] { sidebar_navigation_test::observe("theme".into()) }
-                                    #[cfg(not(test))] { None::<gpui::AnyElement> }
-                                })
+                                        .children({
+                                            #[cfg(test)] { sidebar_navigation_test::observe("theme".into()) }
+                                            #[cfg(not(test))] { None::<gpui::AnyElement> }
+                                        })
                                         .map(|d| self.track_theme_focus(d, window))
-                                        .px_2()
-                                        .py_2()
+                                        .w(px(28.))
+                                        .h(px(36.))
+                                        .flex_shrink_0()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .rounded_lg()
                                         .cursor_pointer()
-                                        .text_size(px(12.))
-                                        .text_color(rgb(t.accent))
-                                        .child(if self.dark { "Chiaro" } else { "Scuro" })
+                                        .text_size(px(20.))
+                                        .child("⋮")
                                         .on_click({
                                             let callback = self.sidebar_pointer_callback(false);
                                             #[cfg(test)]
                                             let callback = sidebar_navigation_test::capture_pointer(false, callback);
                                             cx.listener(move |this, _, window, cx| callback(this, window, cx))
                                         }),
+                                )
+                                .child(
+                                    div()
+                                        .relative()
+                                        .children({
+                                            #[cfg(test)] { sidebar_navigation_test::observe("list-avatar".into()) }
+                                            #[cfg(not(test))] { None::<gpui::AnyElement> }
+                                        })
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .size(px(32.))
+                                        .flex_shrink_0()
+                                        .rounded_full()
+                                        .bg(rgb(list_color.unwrap_or(t.input)))
+                                        .text_color(rgb(if list_color.is_some() { t.avatar_text } else { t.secondary }))
+                                        .child(list_initials),
+                                )
+                                .child(
+                                    div()
+                                        .relative()
+                                        .children({
+                                            #[cfg(test)] { sidebar_navigation_test::observe("list-name".into()) }
+                                            #[cfg(not(test))] { None::<gpui::AnyElement> }
+                                        })
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_size(px(18.))
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .child(list_name),
                                 ),
                         )
                         .child(
