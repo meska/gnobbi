@@ -120,12 +120,14 @@ impl AccountSession {
         &self,
         tag: &RequestTag,
         event: &EventId,
+        original: bool,
     ) -> Result<DownloadedPng, MediaError> {
         download_png(
             self.client.as_ref().ok_or(MediaError::LoggedOut)?,
             self.account_id,
             tag,
             event,
+            original,
         )
         .await
     }
@@ -155,6 +157,7 @@ pub(crate) async fn download_png(
     account: matrix_domain::AccountId,
     tag: &RequestTag,
     event: &EventId,
+    original: bool,
 ) -> Result<DownloadedPng, MediaError> {
     if tag.scope().account_id != account {
         return Err(MediaError::InvalidScope);
@@ -195,7 +198,7 @@ pub(crate) async fn download_png(
                 (file.url.clone(), Some(file))
             }
         };
-        if encrypted_file.is_none() {
+        if !original && encrypted_file.is_none() {
             // Server thumbnail first; any miss (404, over the cap, not an image) falls back to the original.
             let request = matrix_sdk::media::MediaRequestParameters {
                 source: matrix_sdk::ruma::events::room::MediaSource::Plain(uri.clone()),
@@ -220,69 +223,36 @@ pub(crate) async fn download_png(
                 });
             }
         }
-        let (server, media_id) = uri.parts().map_err(|_| MediaError::InvalidScope)?;
-        if media_id.is_empty()
-            || !media_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-        {
-            return Err(MediaError::InvalidScope);
-        }
-        let mut url = client.homeserver();
-        url.path_segments_mut()
-            .map_err(|_| MediaError::InvalidScope)?
-            .pop_if_empty()
-            .extend([
-                "_matrix",
-                "client",
-                "v1",
-                "media",
-                "download",
-                server.as_str(),
-                media_id,
-            ]);
-        url.query_pairs_mut().append_pair("allow_redirect", "false");
-        let token = zeroize::Zeroizing::new(client.access_token().ok_or(MediaError::LoggedOut)?);
-        let mut response = client
-            .http_client()
-            .get(url)
-            .bearer_auth(token.as_str())
-            .send()
+        // The SDK fetches the original (File format) and decrypts encrypted media in memory.
+        let request = matrix_sdk::media::MediaRequestParameters {
+            source: if let Some(file) = encrypted_file {
+                matrix_sdk::ruma::events::room::MediaSource::Encrypted(file)
+            } else {
+                matrix_sdk::ruma::events::room::MediaSource::Plain(uri)
+            },
+            format: matrix_sdk::media::MediaFormat::File,
+        };
+        let config = client
+            .request_config()
+            .timeout(Some(Duration::MAX))
+            .max_response_size(Some(MAX_MEDIA_BYTES));
+        let bytes = matrix_sdk::media::DefaultMediaFetcher
+            .fetch_media_content_with_request_config(client, &request, config)
             .await
-            .map_err(|_| MediaError::Failed)?;
-        if !response.status().is_success() {
-            return Err(MediaError::Failed);
-        }
-        if response
-            .content_length()
-            .is_some_and(|n| n > MAX_MEDIA_BYTES as u64)
-        {
-            return Err(MediaError::TooLarge);
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| MediaError::Failed)? {
-            if chunk.len() > MAX_MEDIA_BYTES - bytes.len() {
-                return Err(MediaError::TooLarge);
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        if let Some(file) = encrypted_file {
-            bytes = tokio::task::spawn_blocking(move || {
-                use std::io::Read;
-                let mut cursor = std::io::Cursor::new(bytes);
-                let mut decryptor =
-                    matrix_sdk_crypto::AttachmentDecryptor::new(&mut cursor, (*file).into())
-                        .map_err(|_| MediaError::InvalidImage)?;
-                let mut plaintext = Vec::new();
-                decryptor
-                    .read_to_end(&mut plaintext)
-                    .map_err(|_| MediaError::InvalidImage)?;
-                Ok::<_, MediaError>(plaintext)
-            })
-            .await
-            .map_err(|_| MediaError::Failed)??;
-        }
-        let preview = decode_png(bytes.clone(), &mime, tag).await?;
+            .map_err(|error| match error {
+                matrix_sdk::Error::Http(error)
+                    if matches!(*error, matrix_sdk::HttpError::ResponseTooLarge { .. }) =>
+                {
+                    MediaError::TooLarge
+                }
+                _ => MediaError::Failed,
+            })?;
+        let limit = if original {
+            (LARGE_VIEW_SIDE, LARGE_VIEW_SIDE)
+        } else {
+            (320, 240)
+        };
+        let preview = decode_within(bytes.clone(), &mime, tag, limit).await?;
         Ok(DownloadedPng {
             bytes,
             preview,
@@ -361,11 +331,24 @@ fn format_for_mime(mime: &str) -> Option<image::ImageFormat> {
     }
 }
 
-/// Decodes a PNG, JPEG, WebP or static GIF into a bounded preview.
+/// Largest side of the picture handed to the large view (keeps the GPU texture bounded).
+pub const LARGE_VIEW_SIDE: u32 = 4096;
+
+/// Decodes a PNG, JPEG, WebP or static GIF into a bounded bubble preview.
 pub async fn decode_png(
     data: Vec<u8>,
     mime: &str,
     tag: &RequestTag,
+) -> Result<Preview, MediaError> {
+    decode_within(data, mime, tag, (320, 240)).await
+}
+
+/// Same decode, downscaled only when larger than `limit` (width, height).
+pub async fn decode_within(
+    data: Vec<u8>,
+    mime: &str,
+    tag: &RequestTag,
+    limit: (u32, u32),
 ) -> Result<Preview, MediaError> {
     #[cfg(test)]
     let _ = VIDEO_DECODE_ENTRIES
@@ -398,8 +381,8 @@ pub async fn decode_png(
             return Err(MediaError::TooLarge);
         }
         let image = reader().decode().map_err(|_| MediaError::InvalidImage)?;
-        let image = if image.width() > 320 || image.height() > 240 {
-            image.thumbnail(320, 240)
+        let image = if image.width() > limit.0 || image.height() > limit.1 {
+            image.thumbnail(limit.0, limit.1)
         } else {
             image
         };

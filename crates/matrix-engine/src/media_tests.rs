@@ -457,7 +457,7 @@ fn disposable_media_download_png_returns_exact_bytes_and_preview() {
         let mut requests = crate::ViewRequests::new();
         let tag = requests.start(scope).unwrap();
         let downloaded = session
-            .download_png(&tag, &event)
+            .download_png(&tag, &event, false)
             .await
             .expect("download succeeds");
         assert!(downloaded.bytes == MEDIA_PNG);
@@ -501,7 +501,7 @@ fn disposable_media_encrypted_png_is_ciphertext_and_preview_decrypts() {
         assert!(wire_bytes.as_ref() != MEDIA_PNG, "media blob must also be ciphertext");
         let mut requests = crate::ViewRequests::new();
         let tag = requests.start(scope).unwrap();
-        let downloaded = session.download_png(&tag, &event).await.expect("SDK attachment decryption succeeds");
+        let downloaded = session.download_png(&tag, &event, false).await.expect("SDK attachment decryption succeeds");
         assert!(downloaded.bytes == MEDIA_PNG);
         assert_eq!(downloaded.preview.rgba[0..4], [255,0,0,255]);
     });
@@ -551,7 +551,7 @@ fn disposable_media_cancel_interrupts_blocked_network_read() {
             requests.cancel();
         });
         let start = std::time::Instant::now();
-        assert!(session.download_png(&tag, &event).await.is_err());
+        assert!(session.download_png(&tag, &event, false).await.is_err());
         assert!(
             start.elapsed() < std::time::Duration::from_millis(750),
             "view cancellation must interrupt network I/O promptly"
@@ -624,7 +624,8 @@ fn disposable_media_worker_routes_upload_download_and_clean_shutdown() {
             commands
                 .send(crate::media::MediaCommand::Download {
                     tag: tag.clone(),
-                    event: event.clone()
+                    event: event.clone(),
+                    original: false
                 })
                 .await
                 .is_ok()
@@ -642,7 +643,7 @@ fn disposable_media_worker_routes_upload_download_and_clean_shutdown() {
         let paused = PausedServer::new(&fixture());
         assert!(
             commands
-                .send(crate::media::MediaCommand::Download { tag, event })
+                .send(crate::media::MediaCommand::Download { tag, event, original: false })
                 .await
                 .is_ok()
         );
@@ -681,10 +682,10 @@ fn disposable_media_rejects_untrusted_payloads_and_wrong_account() {
             let response: serde_json::Value = serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
             let uri = response["content_uri"].as_str().unwrap().to_owned();
             let event = room_request(&config,"alice",reqwest::Method::PUT,&format!("rooms/{room}/send/m.room.message/negative{index}"),serde_json::json!({"msgtype":"m.image","body":"image","url":uri,"info":{"mimetype":mime,"size":1}})).await["event_id"].as_str().unwrap().to_owned();
-            assert!(matches!(session.download_png(&tag, &matrix_domain::EventId::new(event)).await, Err(error) if error == expected));
+            assert!(matches!(session.download_png(&tag, &matrix_domain::EventId::new(event), false).await, Err(error) if error == expected));
         }
         let wrong = requests.start(matrix_domain::RoomScope { account_id: AccountId::new(999), ..scope.clone() }).unwrap();
-        assert!(matches!(session.download_png(&wrong, &matrix_domain::EventId::new("$no-network")).await, Err(crate::media::MediaError::InvalidScope)));
+        assert!(matches!(session.download_png(&wrong, &matrix_domain::EventId::new("$no-network"), false).await, Err(crate::media::MediaError::InvalidScope)));
         assert!(matches!(session.send_png(&scope, &matrix_domain::TransactionId::new("invalid"), b"not PNG".to_vec()).await, Err(crate::media::MediaError::InvalidImage)));
         let messages = room_request(&config,"alice",reqwest::Method::GET,&format!("rooms/{room}/messages?dir=b&limit=100"),serde_json::json!({})).await;
         assert_eq!(messages["chunk"].as_array().unwrap().iter().filter(|event| event["type"] == "m.room.message").count(), 3, "invalid upload must not create a message");
@@ -849,14 +850,25 @@ fn image_bubble_uses_thumbnail_and_keeps_original_a_separate_resource() {
             client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
             let mut views = crate::ViewRequests::new();
             let tag = views.start(matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new("!image:fixture.invalid") }).unwrap();
-            let got = crate::media_sdk::download_png(&client, AccountId::new(26), &tag, &matrix_domain::EventId::new("$image")).await
+            let got = crate::media_sdk::download_png(&client, AccountId::new(26), &tag, &matrix_domain::EventId::new("$image"), false).await
                 .unwrap_or_else(|e| panic!("{case}: {e:?}"));
-            server.abort();
             assert_eq!(got.variant, variant, "{case}");
             assert_eq!((got.preview.width, got.preview.height), (w, h), "{case}");
+            {
+                let requests = requests.lock().unwrap();
+                let count = |needle: &str| requests.iter().filter(|p| p.contains(needle)).count();
+                assert_eq!((count("/thumbnail/"), count("/download/")), (thumb_requests, downloads), "{case}: {requests:?}");
+            }
+            // The large view asks for the original (File format, decrypted by the SDK) and gets more pixels than the bubble.
+            let large = crate::media_sdk::download_png(&client, AccountId::new(26), &tag, &matrix_domain::EventId::new("$image"), true).await
+                .unwrap_or_else(|e| panic!("{case} original: {e:?}"));
+            server.abort();
+            assert_eq!(large.variant, Original, "{case}");
+            assert_eq!((large.preview.width, large.preview.height), (ow, oh), "{case}");
+            assert!(u64::from(large.preview.width) * u64::from(large.preview.height) >= u64::from(w) * u64::from(h), "{case}");
+            if case == "large" { assert!(large.preview.width > w && large.preview.height > h); }
             let requests = requests.lock().unwrap();
-            let count = |needle: &str| requests.iter().filter(|p| p.contains(needle)).count();
-            assert_eq!((count("/thumbnail/"), count("/download/")), (thumb_requests, downloads), "{case}: {requests:?}");
+            assert_eq!(requests.iter().filter(|p| p.contains("/thumbnail/")).count(), thumb_requests, "{case}: original skips the thumbnail");
         }
     });
 }

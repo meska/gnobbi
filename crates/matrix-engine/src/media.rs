@@ -11,6 +11,8 @@ pub enum MediaCommand {
     Download {
         tag: crate::RequestTag,
         event: EventId,
+        /// The full-resolution original for the large view, not the bubble thumbnail.
+        original: bool,
     },
 }
 

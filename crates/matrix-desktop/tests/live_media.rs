@@ -16,7 +16,7 @@ fn completed_preview_rejects_duplicate_result_without_revealing_pixels() {
         matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
     view.request(scope(), EventId::new("$png"));
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag, event }) = receiver.try_recv() else {
+    let Ok(MediaCommand::Download { tag, event, .. }) = receiver.try_recv() else {
         panic!("read required")
     };
     assert!(view.apply(MediaEvent::Downloaded {
@@ -51,7 +51,7 @@ fn switching_room_cancels_queued_read_and_rejects_stale_pixels() {
         matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
     view.request(scope(), EventId::new("$old"));
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag, event }) = receiver.try_recv() else {
+    let Ok(MediaCommand::Download { tag, event, .. }) = receiver.try_recv() else {
         panic!("read required");
     };
     view.clear();
@@ -75,13 +75,13 @@ fn preview_preserves_request_when_backend_queue_is_full() {
     view.flush(&mut sender);
     view.request(scope(), EventId::new("$second"));
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag: stale, event }) = receiver.try_recv() else {
+    let Ok(MediaCommand::Download { tag: stale, event, .. }) = receiver.try_recv() else {
         panic!("first queued read required");
     };
     assert_eq!(event.as_str(), "$first");
     assert!(stale.is_cancelled());
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag, event }) = receiver.try_recv() else {
+    let Ok(MediaCommand::Download { tag, event, .. }) = receiver.try_recv() else {
         panic!("full queue must not drop new request");
     };
     assert_eq!(event.as_str(), "$second");
@@ -116,7 +116,7 @@ fn explicit_preview_request_accepts_only_matching_scoped_result() {
     let (mut sender, mut receiver) =
         matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag, event }) = receiver.try_recv() else {
+    let Ok(MediaCommand::Download { tag, event, .. }) = receiver.try_recv() else {
         panic!("explicit read required");
     };
     assert!(view.loading());
@@ -146,7 +146,7 @@ fn inline_loading_asks_for_one_image_at_a_time_and_never_repeats_a_settled_one()
     let order = || [b.clone(), a.clone()];
     assert!(view.next_inline(scope(), order()));
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag, event }) = receiver.try_recv() else {
+    let Ok(MediaCommand::Download { tag, event, .. }) = receiver.try_recv() else {
         panic!("first inline read required");
     };
     assert_eq!(event.as_str(), "$b");
@@ -158,7 +158,7 @@ fn inline_loading_asks_for_one_image_at_a_time_and_never_repeats_a_settled_one()
     }));
     assert!(view.next_inline(scope(), order()));
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag, event }) = receiver.try_recv() else {
+    let Ok(MediaCommand::Download { tag, event, .. }) = receiver.try_recv() else {
         panic!("second inline read required");
     };
     assert_eq!(event.as_str(), "$a", "failed $b is not retried");
@@ -177,4 +177,57 @@ fn inline_loading_asks_for_one_image_at_a_time_and_never_repeats_a_settled_one()
     }));
     assert!(view.take_preview().is_some());
     assert!(!view.next_inline(scope(), order()), "all settled");
+}
+
+#[test]
+fn large_view_original_is_its_own_lane_and_larger_than_the_thumbnail() {
+    let png = |side: u32| DownloadedPng {
+        variant: matrix_engine::media::MediaVariant::Original,
+        bytes: vec![1],
+        preview: Preview {
+            width: side,
+            height: side,
+            rgba: vec![0; (side * side * 4) as usize],
+        },
+    };
+    let mut view = LiveMedia::default();
+    let (mut sender, mut receiver) =
+        matrix_engine::bounded(std::num::NonZeroUsize::new(2).unwrap());
+    view.request(scope(), EventId::new("$png"));
+    view.request_original(scope(), EventId::new("$png"));
+    assert!(view.original_pending());
+    view.flush(&mut sender);
+    let Ok(MediaCommand::Download {
+        tag: large_tag,
+        original: true,
+        ..
+    }) = receiver.try_recv()
+    else {
+        panic!("the original is asked first, with original set")
+    };
+    let Ok(MediaCommand::Download {
+        tag,
+        event,
+        original: false,
+    }) = receiver.try_recv()
+    else {
+        panic!("the bubble read is still asked, as a thumbnail")
+    };
+    assert!(view.apply(MediaEvent::Downloaded {
+        tag,
+        event: event.clone(),
+        result: Ok(png(2)),
+    }));
+    let thumbnail = view.take_preview().unwrap();
+    assert!(view.original_pending(), "bubble answer leaves the original pending");
+    assert!(view.apply(MediaEvent::Downloaded {
+        tag: large_tag,
+        event,
+        result: Ok(png(8)),
+    }));
+    let (id, original) = view.take_original().unwrap();
+    let original = original.unwrap();
+    assert_eq!(id, EventId::new("$png"));
+    assert!(original.width > thumbnail.width && original.height > thumbnail.height);
+    assert!(!view.original_pending());
 }

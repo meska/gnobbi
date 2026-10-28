@@ -90,6 +90,10 @@ pub struct TimelineView {
     link_cursor: Rc<Cell<Option<u64>>>,
     link_hover: Rc<Cell<Option<u64>>>,
     viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// Full-resolution picture of the open large view (loading, ready or failed).
+    pub(crate) original: Rc<RefCell<Option<(matrix_domain::EventId, crate::media_view::InlineImage)>>>,
+    /// Set by a click or «Riprova»; the shell turns it into the original read.
+    pub(crate) want_original: Rc<RefCell<Option<matrix_domain::EventId>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     pub(crate) images: Rc<
@@ -240,6 +244,8 @@ impl TimelineView {
             link_cursor: Rc::default(),
             link_hover: Rc::default(),
             viewing: Rc::default(),
+            original: Rc::default(),
+            want_original: Rc::default(),
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
@@ -1203,6 +1209,7 @@ impl TimelineView {
         let link_menu_at = self.link_menu_at.clone();
         let images = self.images.clone();
         let viewing = self.viewing.clone();
+        let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1271,9 +1278,12 @@ impl TimelineView {
                         match (&event.id.id, opened) {
                             (matrix_domain::TimelineId::Server(id), true) => {
                                 let (id, viewing, focus) = (id.clone(), viewing.clone(), focus.clone());
+                                let (original, want_original) = (original.clone(), want_original.clone());
                                 div().id(gpui::SharedString::from(id.as_str().to_owned())).cursor_pointer()
                                     .on_click(move |_, window, _| {
                                         *viewing.borrow_mut() = Some(id.clone());
+                                        *original.borrow_mut() = None;
+                                        *want_original.borrow_mut() = Some(id.clone());
                                         focus.focus(window);
                                         window.refresh();
                                     })
@@ -1613,8 +1623,14 @@ impl TimelineView {
             .children(self.viewing().and_then(|id| match self.images.borrow().get(&id) {
                 Some(crate::media_view::InlineImage::Ready(image)) => {
                     let (viewing, focus) = (self.viewing.clone(), self.focus.clone());
-                    Some(crate::media_view::large_view(image.clone(), move |window| {
+                    let original = self.original.borrow().clone().filter(|(o, _)| *o == id).map(|(_, state)| state);
+                    let (retry_original, retry_want, retry_id) = (self.original.clone(), self.want_original.clone(), id.clone());
+                    Some(crate::media_view::large_view(image.clone(), original, t, move |window| {
                         close_viewer(&viewing, &focus, "escape", window);
+                        window.refresh();
+                    }, move |window| {
+                        *retry_original.borrow_mut() = None;
+                        *retry_want.borrow_mut() = Some(retry_id.clone());
                         window.refresh();
                     }))
                 }

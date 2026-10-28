@@ -158,7 +158,11 @@ impl RoomListWorker {
                                         result,
                                     }
                                 }
-                                MediaCommand::Download { tag, event } => {
+                                MediaCommand::Download {
+                                    tag,
+                                    event,
+                                    original,
+                                } => {
                                     if tag.is_cancelled()
                                         || media_stop.load(std::sync::atomic::Ordering::Acquire)
                                     {
@@ -170,17 +174,26 @@ impl RoomListWorker {
                                         event_id: event.clone(),
                                     };
                                     use crate::media::MediaVariant::{Original, Thumbnail};
-                                    let hit = [Thumbnail, Original]
-                                        .into_iter()
+                                    let variants: &[_] =
+                                        if original { &[Original] } else { &[Thumbnail, Original] };
+                                    let hit = variants
+                                        .iter()
+                                        .copied()
                                         .find_map(|v| cache.get(&key(v)).map(|b| (v, b.to_vec())));
                                     let read = async {
                                         if let Some((variant, bytes)) = hit {
-                                            let preview = crate::media_sdk::decode_png(
+                                            let limit = if original {
+                                                (crate::media_sdk::LARGE_VIEW_SIDE, crate::media_sdk::LARGE_VIEW_SIDE)
+                                            } else {
+                                                (320, 240)
+                                            };
+                                            let preview = crate::media_sdk::decode_within(
                                                 bytes.clone(),
                                                 crate::media_sdk::mime_of(&bytes).ok_or(
                                                     crate::media::MediaError::InvalidImage,
                                                 )?,
                                                 &tag,
+                                                limit,
                                             )
                                             .await?;
                                             Ok(crate::media::DownloadedPng {
@@ -194,6 +207,7 @@ impl RoomListWorker {
                                                 account,
                                                 &tag,
                                                 &event,
+                                                original,
                                             )
                                             .await?;
                                             cache.insert(
