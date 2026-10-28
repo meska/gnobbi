@@ -6,6 +6,44 @@ const RAIL_ENTRY_HEIGHT: f32 = 63.;
 const RAIL_INDICATOR_TOP: f32 = 8.;
 const RAIL_BADGE_TOP: f32 = 1.;
 
+const RAIL_LABEL_UNITS: usize = 10;
+
+// shortcut: width is estimated (wide chars count 2), not measured; measure text if fonts change.
+fn rail_label(name: &str) -> String {
+    let w = |c: char| if c.is_ascii() || (c as u32) < 0x2000 { 1 } else { 2 };
+    if name.chars().map(w).sum::<usize>() <= RAIL_LABEL_UNITS {
+        return name.to_owned();
+    }
+    let (mut used, mut out) = (0, String::new());
+    for c in name.chars() {
+        used += w(c);
+        if used > RAIL_LABEL_UNITS - 1 {
+            break;
+        }
+        out.push(c);
+    }
+    format!("{}…", out.trim_end())
+}
+
+#[cfg(test)]
+mod rail_label_tests {
+    use super::rail_label;
+
+    #[test]
+    fn truncates_with_final_ellipsis() {
+        for (name, want) in [
+            ("Casa", "Casa"),
+            ("Softair", "Softair"),
+            ("Direct Messages", "Direct Me…"),
+            ("Softair Team", "Softair T…"),
+            ("🎮🎮🎮🎮🎮🎮", "🎮🎮🎮🎮…"),
+            ("🎮🎮🎮🎮🎮", "🎮🎮🎮🎮🎮"),
+        ] {
+            assert_eq!(rail_label(name), want, "{name}");
+        }
+    }
+}
+
 struct RailTooltip {
     label: String,
     theme: Theme,
@@ -308,7 +346,7 @@ impl Shell {
                                     .truncate()
                                     .text_center()
                                     .text_size(px(11.))
-                                    .child(entry.name),
+                                    .child(rail_label(&entry.name)),
                             )
                             .when(entry.selected, |d| {
                                 d.child(
