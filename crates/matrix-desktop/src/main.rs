@@ -1930,8 +1930,9 @@ impl Render for Shell {
                                         .flex_1().min_w_0().overflow_hidden()
                                         .child(
                                             div()
+                                                .truncate()
                                                 .font_weight(gpui::FontWeight::SEMIBOLD)
-                                                .child(header_name),
+                                                .child(matrix_desktop::row_text::one_line(&header_name)),
                                         )
                                         .when(!self.connected, |d| d.child(
                                             div()

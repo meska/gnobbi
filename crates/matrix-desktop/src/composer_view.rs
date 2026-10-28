@@ -931,15 +931,20 @@ impl Render for ComposerView {
                                 .py_1()
                                 .flex()
                                 .gap_2()
+                                .min_w_0()
+                                .overflow_hidden()
                                 .text_size(px(14.))
                                 .text_color(rgb(t.text))
                                 .when(i == mention_selected, |d| d.bg(rgb(t.selection)))
-                                .child(member.name.clone())
+                                .child(div().min_w_0().truncate().child(matrix_desktop::row_text::one_line(&member.name)))
                                 .when(member.name != member.user_id, |d| {
                                     d.child(
                                         div()
+                                            .flex_shrink_0()
+                                            .max_w(px(160.))
+                                            .truncate()
                                             .text_color(rgb(t.secondary))
-                                            .child(member.user_id.clone()),
+                                            .child(matrix_desktop::row_text::one_line(&member.user_id)),
                                     )
                                 })
                                 .on_click(

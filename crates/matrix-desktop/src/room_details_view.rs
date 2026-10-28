@@ -309,7 +309,8 @@ impl Shell {
                         div()
                             .text_size(px(20.))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .child(room.name.clone()),
+                            .truncate()
+                            .child(matrix_desktop::row_text::one_line(&room.name)),
                     )
                     .child(format!(
                         "{} {}",
