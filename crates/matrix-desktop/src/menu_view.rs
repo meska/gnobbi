@@ -3,8 +3,8 @@
 use crate::*;
 
 pub(crate) const DRAWER_WIDTH: f32 = 280.;
-/// Settings, Devices, Notifications.
-pub(crate) const DRAWER_ROWS: usize = 3;
+/// Settings, Devices, Notifications, Add account.
+pub(crate) const DRAWER_ROWS: usize = 4;
 
 impl Shell {
     pub(crate) fn set_menu_open(
@@ -17,6 +17,9 @@ impl Shell {
             return;
         }
         self.menu_open = open;
+        if open && let Some(dirs) = &self.prefs_dirs {
+            self.accounts = matrix_desktop::AccountCatalog::load(dirs);
+        }
         self.settings_open = false;
         self.drawer_row = 0;
         if open {
@@ -38,6 +41,51 @@ impl Shell {
         open(self, window);
         cx.notify();
     }
+
+    /// Records this window's account in the catalog once the SDK has told us who it is.
+    /// The catalog is re-read first: another window may have added an account meanwhile.
+    pub(crate) fn record_profile(&mut self) {
+        let (Some(dirs), Some((root, _)), Some((user_id, name))) = (
+            &self.prefs_dirs,
+            &self.account_root,
+            self.verification.profile(),
+        ) else {
+            return;
+        };
+        let mut catalog = matrix_desktop::AccountCatalog::load(dirs);
+        let label = name.as_deref().unwrap_or_default();
+        if catalog.record_login(dirs, root, user_id, label) && catalog.save(dirs).is_ok() {
+            self.accounts = catalog;
+        }
+    }
+
+    /// Starts the sign-in for a new account in its own window and profile folder; this window
+    /// and its account stay connected. The new window registers itself once it is signed in.
+    #[cfg(unix)]
+    pub(crate) fn add_account(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(dirs), Some((_, ca_file))) = (&self.prefs_dirs, &self.account_root) else {
+            return;
+        };
+        let catalog = matrix_desktop::AccountCatalog::load(dirs);
+        let root = catalog.next_root(dirs);
+        if catalog.is_damaged() || matrix_desktop::create_private_dir(&root).is_err() {
+            return;
+        }
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap_or_default());
+        command.arg("--signin").arg(&root);
+        if let Some(ca) = ca_file {
+            command.arg("--ca-file").arg(ca);
+        }
+        if let Ok(mut child) = command.spawn() {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        self.set_menu_open(false, window, cx);
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn add_account(&mut self, _: &mut Window, _: &mut Context<Self>) {}
 
     /// Runs before every other key handler; true when the key was consumed.
     pub(crate) fn menu_key(
@@ -61,6 +109,7 @@ impl Shell {
                 "enter" | "space" if activate => match self.drawer_row {
                     1 => self.open_from_drawer(window, cx, Shell::open_devices_panel),
                     2 => self.open_from_drawer(window, cx, Shell::open_notifications_panel),
+                    3 if self.connected => self.add_account(window, cx),
                     _ => self.set_settings_open(true, window, cx),
                 },
                 // The drawer holds one focus stop; Up/Down/Tab move between its rows.
@@ -204,7 +253,7 @@ impl Shell {
                         .bg(rgb(0x5288b5))
                         .text_size(px(20.))
                         .text_color(rgb(t.avatar_text))
-                        .child(name.trim_start_matches('@').chars().take(2).collect::<String>()),
+                        .child(matrix_desktop::initials(&name)),
                 )
                 .child(
                     div()

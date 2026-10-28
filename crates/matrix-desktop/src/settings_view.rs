@@ -42,6 +42,66 @@ impl Shell {
         cx.notify();
     }
 
+    /// One row per catalog account (avatar, name, user ID); a dot marks this window's account.
+    fn render_account_list(&self, t: matrix_desktop::DesignTokens) -> Vec<gpui::AnyElement> {
+        let current = self.verification.profile().map(|(id, _)| id.as_str());
+        matrix_desktop::account_rows(&self.accounts, current)
+            .into_iter()
+            .map(|a| {
+                div()
+                    .id(("menu-account", a.id.as_u64() as usize))
+                    .h(px(52.))
+                    .mx_2()
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        div()
+                            .size(px(36.))
+                            .flex_shrink_0()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_full()
+                            .bg(rgb(0x5288b5))
+                            .text_color(rgb(t.avatar_text))
+                            .child(a.initials.clone()),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_color(rgb(t.text))
+                                    .child(a.name.clone()),
+                            )
+                            .when(a.name != a.user_id, |d| {
+                                d.child(
+                                    div()
+                                        .truncate()
+                                        .text_size(px(12.))
+                                        .text_color(rgb(t.secondary))
+                                        .child(a.user_id.clone()),
+                                )
+                            }),
+                    )
+                    .when(a.current, |d| {
+                        d.child(
+                            div()
+                                .size(px(8.))
+                                .flex_shrink_0()
+                                .rounded_full()
+                                .bg(rgb(t.accent)),
+                        )
+                    })
+                    .into_any_element()
+            })
+            .collect()
+    }
+
     pub(crate) fn render_drawer_body(
         &self,
         t: matrix_desktop::DesignTokens,
@@ -72,6 +132,7 @@ impl Shell {
             };
             return div()
                 .mt_2()
+                .when(self.connected, |d| d.children(self.render_account_list(t)))
                 .child(
                     row("menu-settings")
                         .border_1()
@@ -102,6 +163,16 @@ impl Shell {
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_from_drawer(window, cx, Shell::open_notifications_panel)
                             })),
+                    )
+                    .child(
+                        row("menu-add-account")
+                            .border_1()
+                            .border_color(ring(3))
+                            .text_color(rgb(t.accent))
+                            .child("Aggiungi account")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.add_account(window, cx)),
+                            ),
                     )
                 })
                 .into_any_element();

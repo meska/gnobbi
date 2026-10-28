@@ -57,6 +57,10 @@ struct Shell {
     settings_focus: FocusHandle,
     prefs: matrix_desktop::Preferences,
     prefs_dirs: Option<matrix_desktop::AppDirs>,
+    /// Catalog as last read; reloaded whenever the drawer opens or this window signs in.
+    accounts: matrix_desktop::AccountCatalog,
+    /// Profile folder and trust root this window was started with.
+    account_root: Option<(std::path::PathBuf, Option<std::path::PathBuf>)>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     back_ui: compact_view::BackUi,
     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -2088,6 +2092,10 @@ fn main() {
                 std::process::exit(2);
             });
     let connected = options.is_some() || signin_options.is_some();
+    let account_root = signin_options
+        .as_ref()
+        .map(|o| (o.root.clone(), o.ca_file.clone()))
+        .or_else(|| options.as_ref().map(|o| (o.root.clone(), o.ca_file.clone())));
     #[cfg(all(feature = "live", unix))]
     let mut signin_ui = None;
     #[cfg(all(feature = "live", unix))]
@@ -2433,6 +2441,7 @@ fn main() {
                                         }
                                         for event in verifications {
                                             this.verification.apply(event);
+                                            this.record_profile();
                                         }
                                         for result in deliveries {
                                             this.delivery.borrow_mut().apply(result);
@@ -2626,6 +2635,8 @@ fn main() {
                         settings_open: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),
+                        accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),
+                        account_root: account_root.clone(),
                         prefs_dirs,
                         prefs,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

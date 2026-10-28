@@ -35,7 +35,11 @@ pub struct AccountCatalog {
 
 impl Default for AccountCatalog {
     fn default() -> Self {
-        AccountCatalog { accounts: vec![], next_id: 1, damaged: false }
+        AccountCatalog {
+            accounts: vec![],
+            next_id: 1,
+            damaged: false,
+        }
     }
 }
 
@@ -67,16 +71,26 @@ fn parse(bytes: &[u8]) -> Option<AccountCatalog> {
             dir,
         });
     }
-    Some(AccountCatalog { accounts, next_id, damaged: false })
+    Some(AccountCatalog {
+        accounts,
+        next_id,
+        damaged: false,
+    })
 }
 
 impl AccountCatalog {
     /// Missing file: empty catalog. Corrupt or unknown version: empty and `damaged`.
     pub fn load(dirs: &AppDirs) -> Self {
         match std::fs::read(dirs.config.join(FILE)) {
-            Ok(bytes) => parse(&bytes).unwrap_or(AccountCatalog { damaged: true, ..Default::default() }),
+            Ok(bytes) => parse(&bytes).unwrap_or(AccountCatalog {
+                damaged: true,
+                ..Default::default()
+            }),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Self::default(),
-            Err(_) => AccountCatalog { damaged: true, ..Default::default() },
+            Err(_) => AccountCatalog {
+                damaged: true,
+                ..Default::default()
+            },
         }
     }
 
@@ -123,6 +137,60 @@ impl AccountCatalog {
             dir: Path::new("accounts").join(id.as_u64().to_string()),
         });
         id
+    }
+
+    /// Folder a sign-in for a new account must use: the one `add` will give the next entry.
+    pub fn next_root(&self, dirs: &AppDirs) -> PathBuf {
+        dirs.data.join("accounts").join(self.next_id.to_string())
+    }
+
+    /// A sign-in on `root` succeeded as `user_id`: fill in the entry that owns `root`, or
+    /// register a new one when `root` is `next_root` (or the first-install `profile` folder). Other roots and users already listed
+    /// are ignored. Returns true when the catalog changed (the caller saves it).
+    pub fn record_login(
+        &mut self,
+        dirs: &AppDirs,
+        root: &Path,
+        user_id: &str,
+        label: &str,
+    ) -> bool {
+        if self.damaged {
+            return false;
+        }
+        if let Some(entry) = self
+            .accounts
+            .iter_mut()
+            .find(|a| dirs.data.join(&a.dir) == root)
+        {
+            let same = entry.user_id.as_deref() == Some(user_id) && entry.label == label;
+            entry.user_id = Some(user_id.into());
+            entry.label = label.into();
+            return !same;
+        }
+        let first_install = root == dirs.data.join(LEGACY_DIR);
+        if (!first_install && root != self.next_root(dirs))
+            || self
+                .accounts
+                .iter()
+                .any(|a| a.user_id.as_deref() == Some(user_id))
+        {
+            return false;
+        }
+        let id = self.allocate();
+        let dir = if first_install {
+            LEGACY_DIR.into()
+        } else {
+            Path::new("accounts").join(id.as_u64().to_string())
+        };
+        let (user_id, label) = (Some(user_id.into()), label.into());
+        self.accounts.push(AccountEntry {
+            id,
+            user_id,
+            homeserver: None,
+            label,
+            dir,
+        });
+        true
     }
 
     fn allocate(&mut self) -> AccountId {
