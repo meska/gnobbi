@@ -24,6 +24,10 @@ gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["runtime_shaders", "font-kit"], optional = true }
 
+# Windows: the comctl32 v6 manifest gpui ships; without it the exe dies at load (TaskDialogIndirect not found).
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"], optional = true }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit = { version = "=0.24.1", optional = true }
 accesskit_unix = { version = "=0.22.1", optional = true }

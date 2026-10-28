@@ -150,7 +150,7 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         div().size_full().flex().flex_col().bg(rgb(t.surface)).text_color(rgb(t.text))
-            .font_family("DejaVu Sans").text_size(px(14.))
+            .font_family(matrix_desktop::UI_FONT).text_size(px(14.))
             .track_focus(&self.list_focus).capture_key_down(cx.listener(Self::navigation_key))
             .child(div().h(px(64.)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .border_b_1().border_color(rgb(t.border))

@@ -676,7 +676,7 @@ impl Render for SignInView {
                             .p_3()
                             .border_2()
                             .border_color(rgb(LIGHT.accent))
-                            .font_family("DejaVu Sans Mono")
+                            .font_family(matrix_desktop::MONO_FONT)
                             .text_size(px(15.))
                             .child(key.to_owned()),
                     )
@@ -964,7 +964,7 @@ impl Render for SignInView {
             .size_full()
             .bg(rgb(LIGHT.surface))
             .text_color(rgb(LIGHT.text))
-            .font_family("DejaVu Sans")
+            .font_family(matrix_desktop::UI_FONT)
             .flex()
             .flex_col()
             .items_center()

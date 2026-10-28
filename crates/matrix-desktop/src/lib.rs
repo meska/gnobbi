@@ -3,6 +3,15 @@
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
 pub mod notifications;
+/// The Linux build pins DejaVu; Windows has no DejaVu and gpui panics on a missing family.
+#[cfg(not(windows))]
+pub const UI_FONT: &str = "DejaVu Sans";
+#[cfg(windows)]
+pub const UI_FONT: &str = "Segoe UI";
+#[cfg(not(windows))]
+pub const MONO_FONT: &str = "DejaVu Sans Mono";
+#[cfg(windows)]
+pub const MONO_FONT: &str = "Consolas";
 mod verification;
 #[cfg(feature = "desktop")]
 pub mod window;

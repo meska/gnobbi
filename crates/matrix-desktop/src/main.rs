@@ -1623,7 +1623,7 @@ impl Render for Shell {
             .size_full()
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
-            .font_family("DejaVu Sans")
+            .font_family(matrix_desktop::UI_FONT)
             .text_size(px(14.))
             .when(!compact, |d| d.child(self.render_rail(window, cx)))
             .when(!compact || !self.compact_chat, |d| {
