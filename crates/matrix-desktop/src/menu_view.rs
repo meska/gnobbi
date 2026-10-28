@@ -126,7 +126,7 @@ impl Shell {
             .into_any_element()
     }
 
-    /// Scrim and drawer start below the header so the button stays clickable.
+    /// Scrim and drawer cover the whole window (rail and list included); the scrim takes every click.
     pub(crate) fn render_drawer(
         &self,
         t: matrix_desktop::DesignTokens,
@@ -140,13 +140,17 @@ impl Shell {
             .left_0()
             .right_0()
             .bottom_0()
-            .top(px(t.header))
+            .top_0()
             .bg(gpui::rgba(0x00000066))
             .on_click(cx.listener(|this, _, window, cx| this.set_menu_open(false, window, cx)))
             .child(
                 div()
                     .id("menu-drawer")
                     .track_focus(&self.drawer_focus)
+                    .children({
+                        #[cfg(test)] { crate::sidebar_navigation_test::observe("menu-drawer".into()) }
+                        #[cfg(not(test))] { None::<gpui::AnyElement> }
+                    })
                     .absolute()
                     .top_0()
                     .bottom_0()

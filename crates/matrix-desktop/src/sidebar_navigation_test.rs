@@ -1654,9 +1654,17 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             click!(bx, by);
             wait(500).await;
             this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window), "click opens the drawer and moves focus")).unwrap();
-            click!(bx, by);
+            // Layering: the open drawer spans the full height from the left edge and covers the rail, which gets no click.
+            let drawer = { PAINTED.lock().unwrap()["menu-drawer"] };
+            assert!(drawer.left() <= px(0.) && drawer.top() <= px(0.) && drawer.right() >= first.right() && drawer.bottom() >= first.bottom(), "drawer {drawer:?} covers menu {menu:?} and rail {first:?}");
+            let selected = this.update_in(cx, |this, _, _| this.active_scope.clone()).unwrap();
+            let ups = ACTIVATIONS[2].load(Ordering::SeqCst);
+            // Just under the drawer's last row, still over the bottom edge of «Tutte».
+            click!(f32::from(first.center().x), f32::from(first.bottom()) - 3.);
             wait(500).await;
-            this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "second click closes, focus returns to the button")).unwrap();
+            // The point may land on a drawer row (which closes it); either way the rail entry underneath stays untouched.
+            this.update_in(cx, |this, _, _| assert!(this.active_scope == selected && ACTIVATIONS[2].load(Ordering::SeqCst) == ups, "the rail entry under the drawer received the click")).unwrap();
+            this.update_in(cx, |this, _, _| assert!(this.menu_open, "a click over the rail leaves the drawer open")).unwrap();
             click!(bx, by);
             wait(500).await;
             this.update_in(cx, |this, _, _| assert!(this.menu_open)).unwrap();
