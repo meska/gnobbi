@@ -248,6 +248,14 @@ fn non_text_message_types_get_real_labels() {
             "Audio",
         ),
         (
+            serde_json::json!({"msgtype":"m.audio","body":"a.ogg","url":"mxc://t/a","info":{"duration":75000},"org.matrix.msc3245.voice":{}}),
+            "Nota vocale · 1:15",
+        ),
+        (
+            serde_json::json!({"msgtype":"m.audio","body":"a.mp3","url":"mxc://t/a","info":{"duration":12000}}),
+            "Audio · 0:12",
+        ),
+        (
             serde_json::json!({"msgtype":"m.file","body":"r.pdf","filename":"relazione.pdf","url":"mxc://t/f","info":{"size":2097152}}),
             "File · relazione.pdf · 2.0 MB",
         ),
@@ -371,4 +379,16 @@ fn video_info_table_gives_the_values_the_bubble_shows() {
         );
         assert_eq!(message_label(&msgtype), label, "{info}");
     }
+}
+
+#[test]
+fn audio_info_takes_duration_and_size_from_info_and_never_has_a_thumbnail() {
+    let audio = |json: serde_json::Value| match serde_json::from_value::<MessageType>(json).unwrap() {
+        MessageType::Audio(a) => audio_info(&a),
+        _ => unreachable!(),
+    };
+    let got = audio(serde_json::json!({"msgtype":"m.audio","body":"a","url":"mxc://t/a","info":{"duration":3000,"size":10}}));
+    assert_eq!((got.duration_ms, got.size, got.thumbnail.is_none()), (Some(3000), Some(10), true));
+    let bare = audio(serde_json::json!({"msgtype":"m.audio","body":"a","url":"mxc://t/a"}));
+    assert_eq!((bare.duration_ms, bare.size), (None, None));
 }

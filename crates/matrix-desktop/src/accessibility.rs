@@ -982,7 +982,7 @@ impl NavigationSnapshot {
                 }
                 if let Some(id) = message.play {
                     let mut play = Node::new(Role::Button);
-                    play.set_label("Riproduci video");
+                    play.set_label("Riproduci");
                     play.add_action(Action::Click);
                     if let Some(bounds) = message.play_bounds {
                         play.set_bounds(bounds);

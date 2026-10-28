@@ -16,8 +16,8 @@ pub(crate) fn failure_label(error: Option<MediaError>, video: bool) -> &'static 
     match (video, error) {
         (false, Some(MediaError::TooLarge)) => "Immagine troppo grande",
         (false, _) => "Immagine non disponibile",
-        (true, Some(MediaError::TooLarge)) => "Video troppo grande",
-        (true, _) => "Video non disponibile",
+        (true, Some(MediaError::TooLarge)) => "File troppo grande",
+        (true, _) => "Riproduzione non disponibile",
     }
 }
 
@@ -331,9 +331,9 @@ mod tests {
         );
         assert_eq!(
             super::failure_label(Some(MediaError::TooLarge), true),
-            "Video troppo grande"
+            "File troppo grande"
         );
-        assert_eq!(super::failure_label(None, true), "Video non disponibile");
+        assert_eq!(super::failure_label(None, true), "Riproduzione non disponibile");
         for error in [
             None,
             Some(MediaError::Failed),

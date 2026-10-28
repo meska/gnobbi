@@ -37,6 +37,11 @@ fn extension(mime: Option<&str>) -> &'static str {
         Some("video/webm") => "webm",
         Some("video/quicktime") => "mov",
         Some("video/x-matroska") => "mkv",
+        Some("audio/ogg" | "audio/opus") => "ogg",
+        Some("audio/mpeg") => "mp3",
+        Some("audio/mp4" | "audio/aac") => "m4a",
+        Some("audio/wav" | "audio/x-wav") => "wav",
+        Some("audio/flac") => "flac",
         _ => "mp4",
     }
 }
@@ -142,7 +147,7 @@ impl AccountSession {
     }
 }
 
-/// Download the original of an exact scoped `m.video` event into a private temp file
+/// Download the original of an exact scoped `m.video` or `m.audio` event into a private temp file
 /// under `profile`. Over `max_bytes` (declared or received) is `TooLarge`.
 pub async fn download_video(
     client: &matrix_sdk::Client,
@@ -174,20 +179,23 @@ pub async fn download_video(
         .get_field::<RoomMessageEventContent>("content")
         .map_err(|_| MediaError::UnsupportedType)?
         .ok_or(MediaError::UnsupportedType)?;
-    let MessageType::Video(video) = content.msgtype else {
-        return Err(MediaError::UnsupportedType);
+    let (source, size, mime) = match content.msgtype {
+        MessageType::Video(v) => {
+            let i = v.info.as_deref();
+            (v.source, i.and_then(|i| i.size), i.and_then(|i| i.mimetype.clone()))
+        }
+        MessageType::Audio(a) => {
+            let i = a.info.as_deref();
+            (a.source, i.and_then(|i| i.size), i.and_then(|i| i.mimetype.clone()))
+        }
+        _ => return Err(MediaError::UnsupportedType),
     };
-    let info = video.info.as_deref();
-    if info
-        .and_then(|i| i.size)
-        .is_some_and(|size| u64::from(size) > max_bytes as u64)
-    {
+    if size.is_some_and(|size| u64::from(size) > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
-    let mime = info.and_then(|i| i.mimetype.clone());
     fetch_to_file(
         client,
-        video.source,
+        source,
         mime.as_deref(),
         profile,
         max_bytes,

@@ -1580,6 +1580,7 @@ async fn history_rows(
             }
             let video = match &message.content.msgtype {
                 MessageType::Video(v) => Some(video_info(v)),
+                MessageType::Audio(a) => Some(audio_info(a)),
                 _ => None,
             };
             let (body, styles) = match message.content.msgtype {
@@ -1608,6 +1609,18 @@ fn video_info(
         duration_ms: info.and_then(|i| i.duration).map(|d| d.as_millis() as u64),
         size: info.and_then(|i| i.size).map(Into::into),
         thumbnail: info.and_then(|i| i.thumbnail_source.clone()),
+    }
+}
+
+/// Audio and voice notes play through the video path: same facts, never a thumbnail.
+fn audio_info(
+    a: &matrix_sdk::ruma::events::room::message::AudioMessageEventContent,
+) -> crate::history::VideoInfo {
+    let info = a.info.as_deref();
+    crate::history::VideoInfo {
+        duration_ms: info.and_then(|i| i.duration).map(|d| d.as_millis() as u64),
+        size: info.and_then(|i| i.size).map(Into::into),
+        thumbnail: None,
     }
 }
 
@@ -1655,8 +1668,17 @@ fn message_label(msgtype: &MessageType) -> String {
                 .map(|s| crate::history::human_size(s.into()));
             join("Video", duration.into_iter().chain(size).collect())
         }
-        MessageType::Audio(a) if a.voice.is_some() => "Nota vocale".into(),
-        MessageType::Audio(_) => "Audio".into(),
+        MessageType::Audio(a) => {
+            let duration = a
+                .info
+                .as_deref()
+                .and_then(|i| i.duration)
+                .map(|d| crate::history::duration_label(d.as_millis() as u64));
+            join(
+                if a.voice.is_some() { "Nota vocale" } else { "Audio" },
+                duration.into_iter().collect(),
+            )
+        }
         MessageType::File(f) => {
             let size = f
                 .info
