@@ -20,6 +20,7 @@ pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
 mod app_dirs;
+pub mod desktop_entry;
 pub use app_dirs::{AppDirs, Platform, app_dirs};
 pub mod legacy_profile;
 mod preferences;

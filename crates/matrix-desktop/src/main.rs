@@ -1983,6 +1983,24 @@ fn main() {
         return login_field::mac_clipboard_probe::run();
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--install-desktop-entry") {
+        // $APPIMAGE is the AppImage file; current_exe would point into the temporary mount.
+        let exec = std::env::var("APPIMAGE")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .or_else(|| std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned()));
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        let done = match (home, exec) {
+            (Some(home), Some(exec)) => matrix_desktop::desktop_entry::install_desktop_entry(&home, &exec)
+                .map_err(|e| e.to_string()),
+            _ => Err("HOME or executable path unknown".into()),
+        };
+        if let Err(e) = done {
+            eprintln!("install-desktop-entry: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     #[cfg(target_os = "macos")]
     let args = {
         let exe = std::env::current_exe()
