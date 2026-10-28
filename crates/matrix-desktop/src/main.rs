@@ -2059,6 +2059,11 @@ fn main() {
             }
             #[cfg(unix)]
             let _ = matrix_desktop::create_private_dir(&dirs.data.join("profile"));
+            // A pre-catalog install is listed in place; the profile folder does not move.
+            let mut catalog = matrix_desktop::AccountCatalog::load(&dirs);
+            if catalog.migrate_legacy(&dirs) {
+                let _ = catalog.save(&dirs);
+            }
             matrix_desktop::default_signin_args(&args, &dirs)
         }
         _ => args,

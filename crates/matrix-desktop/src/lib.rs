@@ -19,8 +19,10 @@ pub use signin_form::{
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
+mod account_catalog;
 mod app_dirs;
 pub mod desktop_entry;
+pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use app_dirs::{AppDirs, Platform, app_dirs};
 pub mod legacy_profile;
 mod preferences;
