@@ -95,12 +95,14 @@ pub struct TimelineView {
     link_sources: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     link_cursor: Rc<Cell<Option<u64>>>,
     link_hover: Rc<Cell<Option<u64>>>,
-    viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    pub(crate) viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Full-resolution picture of the open large view (loading, ready or failed).
     pub(crate) original:
         Rc<RefCell<Option<(matrix_domain::EventId, crate::media_view::InlineImage)>>>,
     /// Set by a click or «Riprova»; the shell turns it into the original read.
     pub(crate) want_original: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// A video whose download for the system player was asked for and not yet sent.
+    pub(crate) want_video: Rc<RefCell<Option<matrix_domain::EventId>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
@@ -258,6 +260,7 @@ impl TimelineView {
             viewing: Rc::default(),
             original: Rc::default(),
             want_original: Rc::default(),
+            want_video: Rc::default(),
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
@@ -531,6 +534,20 @@ impl TimelineView {
                     ));
                 }
             }
+            if message.play.is_some()
+                && let matrix_domain::TimelineId::Server(id) = &message.event.id
+                && let Some(bounds) = self
+                    .video_painted
+                    .borrow()
+                    .get(&(matrix_domain::TimelineId::Server(id.clone()), "picture"))
+            {
+                message.play_bounds = Some(accesskit::Rect::new(
+                    f64::from(f32::from(bounds.left())) * scale,
+                    f64::from(f32::from(bounds.top())) * scale,
+                    f64::from(f32::from(bounds.right())) * scale,
+                    f64::from(f32::from(bounds.bottom())) * scale,
+                ));
+            }
             if message.retry.is_some() {
                 message.retry_focused = self.focus.is_focused(window)
                     && self.retry_cursor.borrow().as_ref() == Some(&message.event);
@@ -652,6 +669,17 @@ impl TimelineView {
         };
         self.offline_cursor.set(Some(target.instance()));
         true
+    }
+
+    /// Screen-reader click or Enter on a video message: same path as a click on its picture.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn play_video(&self, target: &matrix_domain::ScopedTimelineId, window: &mut gpui::Window) {
+        if let matrix_domain::TimelineId::Server(id) = &target.id {
+            *self.viewing.borrow_mut() = Some(id.clone());
+            *self.original.borrow_mut() = None;
+            *self.want_video.borrow_mut() = Some(id.clone());
+            self.focus.focus(window);
+        }
     }
 
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1260,6 +1288,7 @@ impl TimelineView {
         let video_painted = self.video_painted.clone();
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
+        let want_video = self.want_video.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1332,7 +1361,23 @@ impl TimelineView {
                             _ => None,
                         };
                         let (parts, id) = (video_painted.clone(), event.id.clone());
-                        crate::media_view::video_picture(state, facts.duration.clone(), facts.size.clone(), t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.id.clone(), part), bounds); }))
+                        let picture = crate::media_view::video_picture(state, facts.duration.clone(), facts.size.clone(), t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.id.clone(), part), bounds); }));
+                        match &event.id.id {
+                            matrix_domain::TimelineId::Server(id) => {
+                                let (id, viewing, focus) = (id.clone(), viewing.clone(), focus.clone());
+                                let (original, want_video) = (original.clone(), want_video.clone());
+                                div().id(gpui::SharedString::from(id.as_str().to_owned())).cursor_pointer()
+                                    .on_click(move |_, window, _| {
+                                        *viewing.borrow_mut() = Some(id.clone());
+                                        *original.borrow_mut() = None;
+                                        *want_video.borrow_mut() = Some(id.clone());
+                                        focus.focus(window);
+                                        window.refresh();
+                                    })
+                                    .child(picture).into_any_element()
+                            }
+                            _ => picture,
+                        }
                     });
                     let picture = video_picture.or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
                         let state = match &event.id.id {
@@ -1698,21 +1743,27 @@ impl TimelineView {
                 })
                 .size_full(),
             )
-            .children(self.viewing().and_then(|id| match self.images.borrow().get(&id) {
-                Some(crate::media_view::InlineImage::Ready(image)) => {
-                    let (viewing, focus) = (self.viewing.clone(), self.focus.clone());
-                    let original = self.original.borrow().clone().filter(|(o, _)| *o == id).map(|(_, state)| state);
-                    let (retry_original, retry_want, retry_id) = (self.original.clone(), self.want_original.clone(), id.clone());
-                    Some(crate::media_view::large_view(image.clone(), original, t, move |window| {
-                        close_viewer(&viewing, &focus, "escape", window);
-                        window.refresh();
-                    }, move |window| {
-                        *retry_original.borrow_mut() = None;
-                        *retry_want.borrow_mut() = Some(retry_id.clone());
-                        window.refresh();
-                    }))
+            .children(self.viewing().and_then(|id| {
+                let is_video = self.video_events().contains(&id);
+                let thumbnail = match self.images.borrow().get(&id) {
+                    Some(crate::media_view::InlineImage::Ready(image)) => Some(image.clone()),
+                    _ => None,
+                };
+                if thumbnail.is_none() && !is_video {
+                    return None;
                 }
-                _ => None,
+                let (viewing, focus) = (self.viewing.clone(), self.focus.clone());
+                let original = self.original.borrow().clone().filter(|(o, _)| *o == id).map(|(_, state)| state);
+                let (retry_original, retry_id) = (self.original.clone(), id.clone());
+                let retry_want = if is_video { self.want_video.clone() } else { self.want_original.clone() };
+                Some(crate::media_view::large_view(thumbnail, original, is_video, t, move |window| {
+                    close_viewer(&viewing, &focus, "escape", window);
+                    window.refresh();
+                }, move |window| {
+                    *retry_original.borrow_mut() = None;
+                    *retry_want.borrow_mut() = Some(retry_id.clone());
+                    window.refresh();
+                }))
             }))
             .map(|d| {
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

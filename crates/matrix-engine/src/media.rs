@@ -14,6 +14,11 @@ pub enum MediaCommand {
         /// The full-resolution original for the large view, not the bubble thumbnail.
         original: bool,
     },
+    /// Download the original video to a private temp file for the system player.
+    OpenVideo {
+        tag: crate::RequestTag,
+        event: EventId,
+    },
     /// The thumbnail of a video row; the answer is a `Downloaded` event like an image's.
     VideoThumbnail {
         tag: crate::RequestTag,
@@ -32,6 +37,32 @@ pub enum MediaEvent {
         event: EventId,
         result: Result<DownloadedPng, MediaError>,
     },
+    VideoDownloaded {
+        tag: crate::RequestTag,
+        event: EventId,
+        result: Result<VideoFile, MediaError>,
+    },
+}
+
+/// A plaintext video in the account's private temp dir; the file is removed on drop.
+#[derive(Debug)]
+pub struct VideoFile {
+    path: std::path::PathBuf,
+}
+
+impl VideoFile {
+    pub(crate) fn new(path: std::path::PathBuf) -> Self {
+        Self { path }
+    }
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl Drop for VideoFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

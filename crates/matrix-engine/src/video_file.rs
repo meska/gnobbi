@@ -14,23 +14,7 @@ use std::{io::Write, time::Duration};
 /// Default cap for one video; the caller may pass a lower one.
 pub const MAX_VIDEO_BYTES: usize = 256 * 1024 * 1024;
 
-/// A plaintext video in the profile's private temp dir; the file is removed on drop.
-#[derive(Debug)]
-pub struct VideoFile {
-    path: PathBuf,
-}
-
-impl VideoFile {
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for VideoFile {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
+pub use crate::media::VideoFile;
 
 /// Create (0700) or reuse `<profile>/video-tmp`, deleting leftovers of a crashed run.
 fn private_dir(profile: &Path) -> std::io::Result<PathBuf> {
@@ -123,12 +107,12 @@ pub(crate) async fn fetch_to_file(
         NAMES.fetch_add(1, Ordering::Relaxed),
         extension(mime)
     ));
-    let file = VideoFile { path };
+    let file = VideoFile::new(path);
     std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
-        .open(&file.path)
+        .open(file.path())
         .and_then(|mut f| f.write_all(&bytes))
         .map_err(|_| MediaError::Failed)?;
     Ok(file)

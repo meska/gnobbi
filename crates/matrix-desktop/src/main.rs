@@ -28,6 +28,7 @@ mod signin_view;
 mod spaces_view;
 mod timeline_view;
 mod verification_view;
+mod video_player;
 mod voice_recorder;
 use composer_view::{ComposerView, Submitted};
 
@@ -261,6 +262,16 @@ impl Shell {
                 }
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::PlayVideo(id) = &action {
+                if id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.play_video(id, window);
+                    cx.notify();
+                }
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::CopyEventId(intent) = &action {
                 if intent.target.event().scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
@@ -411,6 +422,7 @@ impl Shell {
                 #[cfg(all(feature = "live", unix))]
                 matrix_desktop::accessibility::NavigationAction::SignIn(_) => (),
                 matrix_desktop::accessibility::NavigationAction::CopyEventId(_)
+                | matrix_desktop::accessibility::NavigationAction::PlayVideo(_)
                 | matrix_desktop::accessibility::NavigationAction::OfflineDelivery(_) => {
                     unreachable!()
                 }
@@ -935,6 +947,7 @@ impl Shell {
                     .or_else(|| snapshot.link_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.selection_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.offline_delivery_key(&key.key, key.modifiers.shift))
+                    .or_else(|| snapshot.video_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.retry_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.actions_key(&key.key, key.modifiers.shift))
             }
@@ -946,6 +959,9 @@ impl Shell {
                 }
                 NavigationAction::CopyEventId(intent) => {
                     timeline.apply_event_id_copy(&intent, window, cx);
+                }
+                NavigationAction::PlayVideo(id) => {
+                    timeline.play_video(&id, window);
                 }
                 NavigationAction::LinkConfirmation(intent) => {
                     timeline.apply_confirmation(&intent, window, cx);
@@ -1573,7 +1589,9 @@ impl Render for Shell {
         let header_initials = selected.map_or(String::new(), |room| room.initials.clone());
         let (list_name, list_initials, list_color) = self.sidebar.list_header();
         let header_color = selected.map_or(t.disabled, |room| room.color);
-        let header_picture = self.avatars.get(selected.and_then(|room| room.info.avatar.as_deref()));
+        let header_picture = self
+            .avatars
+            .get(selected.and_then(|room| room.info.avatar.as_deref()));
         let connection_label = if !self.connected {
             "demo offline"
         } else {

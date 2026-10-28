@@ -92,6 +92,9 @@ pub struct SemanticMessage {
     pub retry_bounds: Option<accesskit::Rect>,
     pub retry_focused: bool,
     pub retry: Option<NodeId>,
+    /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
+    pub play: Option<NodeId>,
+    pub play_bounds: Option<accesskit::Rect>,
     pub bounds: Option<accesskit::Rect>,
     pub id: NodeId,
     pub event: matrix_domain::ScopedTimelineId,
@@ -148,6 +151,7 @@ impl HistorySnapshot {
                 .description
                 .push_str(" · Demo offline · Nessuna consegna Matrix");
             message.retry = None;
+            message.play = None;
             message.event_id_copy = None;
             message.actions = None;
         }
@@ -180,6 +184,16 @@ impl HistorySnapshot {
             }
             _ => None,
         }
+    }
+    /// Enter on the focused message plays it when it is a video.
+    pub fn video_key(&self, key: &str, shift: bool) -> Option<NavigationAction> {
+        let message = self.messages.first().filter(|_| self.focused)?;
+        let free = !self
+            .messages
+            .iter()
+            .any(|m| m.actions_focused || m.retry_focused);
+        (key == "enter" && !shift && free && message.play.is_some())
+            .then(|| NavigationAction::PlayVideo(message.event.clone()))
     }
     /// Route unmodified keyboard input within the focused message/retry pair.
     pub fn retry_key(&self, key: &str, shift: bool) -> Option<NavigationAction> {
@@ -295,6 +309,10 @@ impl HistoryNodes {
                     retry: (event.send_state == Some(crate::DemoSendState::Failed)
                         && matches!(event.id.id, matrix_domain::TimelineId::Pending(_)))
                     .then_some(NodeId(id.0 + 1)),
+                    play: (event.video.is_some()
+                        && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
+                    .then_some(NodeId(id.0 + 6)),
+                    play_bounds: None,
                     bounds: None,
                     id,
                     event: event.id.clone(),
@@ -703,6 +721,13 @@ impl NavigationSnapshot {
             if let Some(message) = history
                 .messages
                 .iter()
+                .find(|m| m.play == Some(request.target_node))
+            {
+                return Some(NavigationAction::PlayVideo(message.event.clone()));
+            }
+            if let Some(message) = history
+                .messages
+                .iter()
                 .find(|m| m.actions == Some(request.target_node))
             {
                 return Some(NavigationAction::OpenMessageActions(message.event.clone()));
@@ -954,6 +979,16 @@ impl NavigationSnapshot {
                     }
                     node.push_child(id);
                     tree.nodes.push((id, button));
+                }
+                if let Some(id) = message.play {
+                    let mut play = Node::new(Role::Button);
+                    play.set_label("Riproduci video");
+                    play.add_action(Action::Click);
+                    if let Some(bounds) = message.play_bounds {
+                        play.set_bounds(bounds);
+                    }
+                    node.push_child(id);
+                    tree.nodes.push((id, play));
                 }
                 if let Some(id) = message.retry {
                     let mut retry = Node::new(Role::Button);
@@ -1277,6 +1312,7 @@ pub enum NavigationAction {
     MessageLink(links::Intent),
     Scrollbar(scrollbars::ScrollbarAction),
     OperationPanel(operation_panel::PanelAction),
+    PlayVideo(matrix_domain::ScopedTimelineId),
     FocusMessageActions(matrix_domain::ScopedTimelineId),
     OpenMessageActions(matrix_domain::ScopedTimelineId),
     FocusMessageRetry(matrix_domain::ScopedTimelineId),

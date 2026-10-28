@@ -287,11 +287,20 @@ impl AccountStore {
         Ok(())
     }
 
+    /// Parent of the private `video-tmp` dir; created 0700 on first use, removed at logout.
+    pub(crate) fn video_dir(&self) -> PathBuf {
+        let mut name = self.path.file_name().unwrap_or_default().to_owned();
+        name.push("-video");
+        self.path.with_file_name(name)
+    }
+
     pub(crate) fn forget(&self) -> Result<(), StoreError> {
         Self::private_directory(&self.path)?;
-        match fs::remove_dir_all(self.avatars.dir()) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(StoreError::Io),
-            _ => (),
+        for dir in [self.avatars.dir().to_owned(), self.video_dir()] {
+            match fs::remove_dir_all(dir) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(StoreError::Io),
+                _ => (),
+            }
         }
         // The credential goes first, then the whole saved cache (state, crypto, events, media).
         let mut names = vec![std::ffi::OsString::from("session.sealed")];

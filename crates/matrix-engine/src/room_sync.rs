@@ -165,6 +165,15 @@ impl RoomListWorker {
                     {
                         *slot = Some(Box::new(fetcher));
                     }
+                    #[cfg(unix)]
+                    let video_dir = sync.session.store.as_ref().and_then(|s| {
+                        let dir = s.video_dir();
+                        use std::os::unix::fs::DirBuilderExt;
+                        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+                            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => None,
+                            _ => Some(dir),
+                        }
+                    });
                     let media_stop = cancelled.clone();
                     let mut media_task = tokio::spawn(async move {
                         let mut clean = true;
@@ -263,6 +272,36 @@ impl RoomListWorker {
                                         continue;
                                     };
                                     MediaEvent::Downloaded { tag, event, result }
+                                }
+                                MediaCommand::OpenVideo { tag, event } => {
+                                    if tag.is_cancelled()
+                                        || media_stop.load(std::sync::atomic::Ordering::Acquire)
+                                    {
+                                        continue;
+                                    }
+                                    #[cfg(unix)]
+                                    let read = async {
+                                        let profile = video_dir
+                                            .as_deref()
+                                            .ok_or(crate::media::MediaError::Failed)?;
+                                        crate::video_file::download_video(
+                                            &media_client,
+                                            account,
+                                            &tag,
+                                            &event,
+                                            profile,
+                                            crate::video_file::MAX_VIDEO_BYTES,
+                                            |_| (),
+                                        )
+                                        .await
+                                    };
+                                    #[cfg(not(unix))]
+                                    let read = async { Err(crate::media::MediaError::Failed) };
+                                    let Some(result) = until_stopped(&media_stop, read).await
+                                    else {
+                                        continue;
+                                    };
+                                    MediaEvent::VideoDownloaded { tag, event, result }
                                 }
                                 MediaCommand::VideoThumbnail { tag, event } => {
                                     if tag.is_cancelled()

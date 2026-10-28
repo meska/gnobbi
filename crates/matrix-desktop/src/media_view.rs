@@ -12,10 +12,12 @@ pub(crate) enum InlineImage {
     Failed(Option<MediaError>),
 }
 
-pub(crate) fn failure_label(error: Option<MediaError>) -> &'static str {
-    match error {
-        Some(MediaError::TooLarge) => "Immagine troppo grande",
-        _ => "Immagine non disponibile",
+pub(crate) fn failure_label(error: Option<MediaError>, video: bool) -> &'static str {
+    match (video, error) {
+        (false, Some(MediaError::TooLarge)) => "Immagine troppo grande",
+        (false, _) => "Immagine non disponibile",
+        (true, Some(MediaError::TooLarge)) => "Video troppo grande",
+        (true, _) => "Video non disponibile",
     }
 }
 
@@ -44,7 +46,7 @@ pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> Any
             .bg(rgb(t.timeline))
             .text_size(px(12.))
             .text_color(rgb(t.error))
-            .child(failure_label(error))
+            .child(failure_label(error, false))
             .into_any_element(),
         _ => div()
             .w(px(200.))
@@ -139,15 +141,17 @@ pub(crate) fn video_picture(
 
 /// Full-area dark scrim: the cached thumbnail until the original is ready, then the original (same
 /// frame, no flicker). A click closes it; a failed original shows one row with «Riprova».
+/// For a video there may be no thumbnail, and `original` only carries a failed download.
 pub(crate) fn large_view(
-    thumbnail: Arc<gpui::RenderImage>,
+    thumbnail: Option<Arc<gpui::RenderImage>>,
     original: Option<InlineImage>,
+    video: bool,
     t: DesignTokens,
     close: impl Fn(&mut gpui::Window) + 'static,
     retry: impl Fn(&mut gpui::Window) + 'static,
 ) -> AnyElement {
     let (image, failure) = match original {
-        Some(InlineImage::Ready(image)) => (image, None),
+        Some(InlineImage::Ready(image)) => (Some(image), None),
         Some(InlineImage::Failed(error)) => (thumbnail, Some(error)),
         _ => (thumbnail, None),
     };
@@ -165,12 +169,12 @@ pub(crate) fn large_view(
                 .bg(gpui::rgba(0x000000d9))
                 .cursor_pointer()
                 .on_click(move |_, window, _| close(window))
-                .child(
+                .children(image.map(|image| {
                     img(image)
                         .max_w_full()
                         .max_h_full()
-                        .object_fit(gpui::ObjectFit::Contain),
-                ),
+                        .object_fit(gpui::ObjectFit::Contain)
+                })),
         )
         .children(failure.map(|error| {
             div()
@@ -192,7 +196,7 @@ pub(crate) fn large_view(
                         .bg(rgb(t.timeline))
                         .text_size(px(12.))
                         .text_color(rgb(t.error))
-                        .child(failure_label(error))
+                        .child(failure_label(error, video))
                         .children(retryable(error).then(|| {
                             div()
                                 .id("large-image-retry")
@@ -216,7 +220,12 @@ impl Shell {
         if let Some(id) = timeline.want_original.borrow_mut().take() {
             self.media.request_original(self.active_scope.clone(), id);
             changed = true;
-        } else if timeline.viewing().is_none() && timeline.original.borrow().is_some() {
+        } else if let Some(id) = timeline.want_video.borrow_mut().take() {
+            self.media.request_video(self.active_scope.clone(), id);
+            changed = true;
+        } else if timeline.viewing().is_none()
+            && (timeline.original.borrow().is_some() || self.media.original_pending())
+        {
             // Closed: drop the full-resolution picture and stop its read.
             self.media.cancel_original();
             *timeline.original.borrow_mut() = None;
@@ -245,6 +254,26 @@ impl Shell {
 
     /// Store the answer of the finished read under its message.
     pub(crate) fn update_media_image(&mut self) {
+        if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_video()) {
+            let opened = result.and_then(|file| {
+                crate::video_player::open(file.path()).map_err(|_| MediaError::Failed)?;
+                Ok(file)
+            });
+            match opened {
+                Ok(file) => {
+                    // The player has its own window: the large view has done its job.
+                    self.media.hold_playing(file);
+                    if timeline.viewing().as_ref() == Some(&id) {
+                        *timeline.viewing.borrow_mut() = None;
+                    }
+                }
+                Err(error) if timeline.viewing().as_ref() == Some(&id) => {
+                    *timeline.original.borrow_mut() = Some((id, InlineImage::Failed(Some(error))));
+                }
+                Err(_) => {}
+            }
+            return;
+        }
         if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_original()) {
             let state = match result {
                 Ok(preview) => render_image(preview),
@@ -297,16 +326,24 @@ mod tests {
     #[test]
     fn only_oversized_images_say_too_large() {
         assert_eq!(
-            super::failure_label(Some(MediaError::TooLarge)),
+            super::failure_label(Some(MediaError::TooLarge), false),
             "Immagine troppo grande"
         );
+        assert_eq!(
+            super::failure_label(Some(MediaError::TooLarge), true),
+            "Video troppo grande"
+        );
+        assert_eq!(super::failure_label(None, true), "Video non disponibile");
         for error in [
             None,
             Some(MediaError::Failed),
             Some(MediaError::InvalidImage),
             Some(MediaError::UnsupportedType),
         ] {
-            assert_eq!(super::failure_label(error), "Immagine non disponibile");
+            assert_eq!(
+                super::failure_label(error, false),
+                "Immagine non disponibile"
+            );
         }
     }
 }
