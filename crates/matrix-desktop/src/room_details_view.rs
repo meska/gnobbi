@@ -107,7 +107,7 @@ impl Shell {
         }
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         {
-            let t = if self.dark { DARK } else { LIGHT };
+            let t = self.theme.tokens();
             let active = self.sidebar.active_space();
             let label = self
                 .sidebar
@@ -241,7 +241,7 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         let Some(room) = self.sidebar.selected() else {
             return div().into_any_element();
         };

@@ -260,7 +260,7 @@ impl Shell {
     }
 
     pub(crate) fn render_back(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         let control = div()
             .id("back-to-rooms")
             .relative()

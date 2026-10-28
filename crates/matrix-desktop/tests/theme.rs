@@ -42,7 +42,7 @@ fn light_small_text_has_aa_contrast_on_message_and_panel_surfaces() {
 
 #[test]
 fn dark_and_light_semantic_roles_keep_small_text_readable() {
-    for t in [LIGHT, matrix_desktop::DARK] {
+    for t in matrix_desktop::Theme::ALL.map(matrix_desktop::Theme::tokens) {
         for background in [
             t.surface,
             t.outgoing,

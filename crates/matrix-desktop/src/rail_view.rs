@@ -8,11 +8,11 @@ const RAIL_BADGE_TOP: f32 = 1.;
 
 struct RailTooltip {
     label: String,
-    dark: bool,
+    theme: Theme,
 }
 impl Render for RailTooltip {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         div()
             .px_3()
             .py_2()
@@ -156,7 +156,7 @@ impl Shell {
     }
 
     pub(crate) fn render_rail(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         // The menu button stays on top of the rail, above «Tutte» and the scrolling entries.
         div()
             .w(px(72.))
@@ -259,7 +259,7 @@ impl Shell {
                             };
                         #[cfg(test)]
                         let pointer = sidebar_navigation_test::capture_rail(&scope_key, pointer);
-                        let dark = self.dark;
+                        let theme = self.theme;
                         div()
                             .id(("rail-entry", index))
                             .relative()
@@ -267,7 +267,7 @@ impl Shell {
                             .tooltip(move |_, cx| {
                                 cx.new(|_| RailTooltip {
                                     label: label.clone(),
-                                    dark,
+                                    theme,
                                 })
                                 .into()
                             })

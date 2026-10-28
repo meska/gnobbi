@@ -398,7 +398,7 @@ impl Shell {
         let Some(view) = self.semantic_spaces(window) else {
             return div().into_any_element();
         };
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         let focused = view.focused;
         self.spaces_ui
             .anchors

@@ -34,7 +34,7 @@ use gpui::{
     size, uniform_list,
 };
 use matrix_desktop::{
-    DARK, DEMO_NOTICE, HistorySession, HistoryStatus, LIGHT, Navigation, Sidebar,
+    DEMO_NOTICE, HistorySession, HistoryStatus, LIGHT, Navigation, Sidebar, Theme,
     opens_message_menu,
 };
 use matrix_domain::{AccountId, RoomScope};
@@ -136,7 +136,7 @@ struct Shell {
     history_commands: Option<matrix_engine::Sender<matrix_engine::history::HistoryRequest>>,
     pending_history: Option<matrix_engine::history::HistoryRequest>,
     compact_chat: bool,
-    dark: bool,
+    theme: Theme,
     search_focus: FocusHandle,
     list_focus: FocusHandle,
     scroll: UniformListScrollHandle,
@@ -560,13 +560,17 @@ impl Shell {
         true
     }
 
+    #[cfg(test)]
     fn toggle_theme(&mut self, cx: &mut Context<Self>) {
         #[cfg(test)]
         sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.dark = !self.dark;
-        let theme = if self.dark { DARK } else { LIGHT };
+        self.set_theme(if self.theme.is_dark() { Theme::Classic } else { Theme::Dark }, cx);
+    }
+
+    fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
+        self.theme = theme;
         self.composer
-            .update(cx, |editor, cx| editor.set_theme(theme, cx));
+            .update(cx, |editor, cx| editor.set_theme(theme.tokens(), cx));
         cx.notify();
     }
 
@@ -1308,7 +1312,7 @@ impl Shell {
         if !selected && !busy && error.is_none() {
             return div().into_any_element();
         }
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         let probe = std::env::var("MATRIX_DESKTOP_TIMELINE_PROBE").as_deref() == Ok("1");
         let controls = if confirming {
             vec![
@@ -1476,7 +1480,7 @@ impl Render for Shell {
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
-                dark: self.dark,
+                dark: self.theme.is_dark(),
                 visible: !self.notifications_open
                     && !self.verification_open
                     && (window.viewport_size().width >= px(800.) || !self.compact_chat),
@@ -1530,7 +1534,7 @@ impl Render for Shell {
         if self.verification_open {
             return self.render_verification(cx);
         }
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         let selected = self.sidebar.selected();
         let header_name = selected.map_or("Nessuna stanza".to_owned(), |room| room.name.clone());
         let header_initials = selected.map_or(String::new(), |room| room.initials.clone());
@@ -2265,13 +2269,19 @@ fn main() {
                         });
                     let prefs_dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok());
                     let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
-                    let dark = prefs.theme.is_dark(matches!(
-                        window.appearance(),
-                        gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
-                    ));
+                    let theme = prefs.theme.unwrap_or(
+                        if matches!(
+                            window.appearance(),
+                            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+                        ) {
+                            Theme::Dark
+                        } else {
+                            Theme::Classic
+                        },
+                    );
                     let composer = cx.new(|cx| {
                         let mut editor = ComposerView::new(active_scope.clone(), cx);
-                        editor.set_theme(if dark { DARK } else { LIGHT }, cx);
+                        editor.set_theme(theme.tokens(), cx);
                         editor.set_live(connected);
                         editor
                     });
@@ -2717,7 +2727,7 @@ fn main() {
                         history_commands: history_commands.take(),
                         pending_history: None,
                         compact_chat: false,
-                        dark,
+                        theme,
                         search_focus,
                         list_focus: cx.focus_handle(),
                         scroll: UniformListScrollHandle::new(),

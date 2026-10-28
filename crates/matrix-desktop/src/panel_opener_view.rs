@@ -184,7 +184,7 @@ impl Shell {
         let Some(source) = self.opener_ui.source(control) else {
             return div().into_any_element();
         };
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         let callback = self.opener_callback(Intent {
             control,
             source,

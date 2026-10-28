@@ -218,3 +218,37 @@ pub const DARK: DesignTokens = DesignTokens {
     on_accent: 0x101922,
     ..LIGHT
 };
+
+/// «Giorno»: bright and neutral, stronger text than «Classico».
+pub const DAY: DesignTokens = DesignTokens {
+    text: 0x111418,
+    secondary: 0x474f58,
+    accent: 0x0b5cad,
+    timeline: 0xf4f6f8,
+    outgoing: 0xe3f1ff,
+    selected: 0xe8f0fa,
+    border: 0xd5dbe1,
+    input: 0xf1f3f5,
+    disabled: 0xe6e9ec,
+    selection: 0xcfe3fb,
+    error: 0xb00020,
+    ..LIGHT
+};
+
+/// «Notte»: near-black surfaces for dark rooms.
+pub const NIGHT: DesignTokens = DesignTokens {
+    surface: 0x0b0e12,
+    text: 0xe8edf2,
+    secondary: 0xa9b6c3,
+    accent: 0x7cc4ff,
+    timeline: 0x000000,
+    outgoing: 0x16301f,
+    selected: 0x16222e,
+    border: 0x3a4856,
+    input: 0x151a20,
+    disabled: 0x1b222a,
+    selection: 0x1f3a56,
+    error: 0xffb3b3,
+    on_accent: 0x000000,
+    ..LIGHT
+};

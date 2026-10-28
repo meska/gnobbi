@@ -360,7 +360,7 @@ fn sidebar_session(
         devices: Default::default(),
         details: Default::default(),
         notifications: Default::default(),
-        dark: this.dark,
+        dark: this.theme.is_dark(),
         visible: true,
         query: this.sidebar.query().into(),
         search_focused: false,
@@ -618,7 +618,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert_eq!(this.compact_chat, chat);
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                     assert_eq!(this.active_scope, scopes[0]);
-                    assert!(!this.dark && !this.sidebar.unread_only());
+                    assert!(!this.theme.is_dark() && !this.sidebar.unread_only());
                     assert!(history(this));
                     this.composer.update(cx, |v, cx| {
                         let mut actual = None;
@@ -758,10 +758,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let dark_before = this.update_in(cx, |this, window, cx| {
                     ring_focus(this, start, window, cx);
                     assert_eq!(ring_label(this, window, cx), start, "setup must focus {start}");
-                    let dark = this.dark;
+                    let dark = this.theme.is_dark();
                     let toggles = ACTIVATIONS[0].load(Ordering::SeqCst);
                     this.toggle_theme(cx);
-                    assert_eq!(this.dark, !dark, "theme must flip");
+                    assert_eq!(this.theme.is_dark(), !dark, "theme must flip");
                     assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), toggles + 1);
                     assert_eq!(ring_label(this, window, cx), start, "theme change moved focus off {start}");
                     cx.notify();
@@ -770,9 +770,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 wait(300).await;
                 this.update_in(cx, |this, window, cx| {
                     let landed = ring_label(this, window, cx);
-                    eprintln!("theme wide={wide} chat={chat}: {start} -> {landed} after repaint, dark={}", this.dark);
+                    eprintln!("theme wide={wide} chat={chat}: {start} -> {landed} after repaint, dark={}", this.theme.is_dark());
                     assert_eq!(landed, start, "focus must survive the repaint of the new theme");
-                    assert_eq!(this.dark, !dark_before);
+                    assert_eq!(this.theme.is_dark(), !dark_before);
                     assert_eq!(this.compact_chat, chat);
                     // Hidden sidebar callbacks and openers stay inert after the theme change.
                     let before = [0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst));
@@ -793,7 +793,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert!(history(this));
                     assert_eq!(ring_label(this, window, cx), start);
                     this.toggle_theme(cx); // back to the starting theme for the next case
-                    assert_eq!(this.dark, dark_before);
+                    assert_eq!(this.theme.is_dark(), dark_before);
                     cx.notify();
                 }).unwrap();
                 wait(200).await;
@@ -848,7 +848,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 }
                 assert!(this.list_focus.is_focused(window), "retired callbacks must not steal focus");
                 assert_eq!([0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst)), before, "retired callbacks must not act");
-                assert!(!this.dark && this.sidebar.unread_only() == unread);
+                assert!(!this.theme.is_dark() && this.sidebar.unread_only() == unread);
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                 eprintln!("hidden-ring empty={empty}: retired Theme/unread callbacks inert");
             }).unwrap();
@@ -960,7 +960,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert_eq!(this.compact_chat, chat);
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                     assert_eq!(this.active_scope, scopes[0]);
-                    assert!(!this.dark && !this.sidebar.unread_only());
+                    assert!(!this.theme.is_dark() && !this.sidebar.unread_only());
                     assert!(history(this));
                     if !empty {
                         this.composer.update(cx, |v, cx| {
@@ -994,7 +994,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     native_key(key, false);
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     this.update_in(cx, |this, _, _| {
-                        assert!(!this.dark, "unmatched release activated Theme");
+                        assert!(!this.theme.is_dark(), "unmatched release activated Theme");
                         assert!(!this.sidebar.unread_only(), "unmatched release activated Unread");
                     }).unwrap();
                     let downs_before = KEYDOWNS.load(Ordering::SeqCst);
@@ -1002,7 +1002,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     for wait in [100, 900, 150] {
                         executor.timer(std::time::Duration::from_millis(wait)).await;
                         this.update_in(cx, |this, _, _| {
-                            assert!(!this.dark, "press/repeat activated Theme before release");
+                            assert!(!this.theme.is_dark(), "press/repeat activated Theme before release");
                             assert!(!this.sidebar.unread_only(), "press/repeat activated Unread before release");
                             assert!(history(this));
                         }).unwrap();
@@ -1013,9 +1013,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     this.update_in(cx, |this, window, cx| {
                         assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before + 1, "exactly one actual callback activation per gesture");
                         eprintln!("current release {unread}/{key}: exact callback count {} -> {}", before, before+1);
-                        assert!(!this.dark, "⋮ never changes the theme");
+                        assert!(!this.theme.is_dark(), "⋮ never changes the theme");
                         assert_eq!(this.sidebar.unread_only(), unread, "completed gesture must activate Unread once");
-                        if this.dark { this.toggle_theme(cx); }
+                        if this.theme.is_dark() { this.toggle_theme(cx); }
                         this.sidebar.set_unread_only(false);
                         preserve_drafts_and_capture(this, &scopes, window, cx, &format!("release-{unread}-{key}"));
                         cx.notify();
@@ -1068,7 +1068,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         }
                         cx.notify();
                         assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), stale_before, "release after source retirement must not activate a replacement");
-                        assert!(!this.dark);
+                        assert!(!this.theme.is_dark());
                         assert!(!this.sidebar.unread_only());
                         assert!(history(this));
                     }).unwrap();
@@ -1085,7 +1085,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     this.update_in(cx, |this, window, cx| {
                         assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), stale_before, "release after focus away-back must not activate");
-                        assert!(!this.dark);
+                        assert!(!this.theme.is_dark());
                         assert!(!this.sidebar.unread_only());
                         assert!(history(this));
                         preserve_drafts_and_capture(this, &scopes, window, cx, &format!("focus-retired-{unread}-{key}"));
@@ -1973,7 +1973,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             for dark in [false, true] {
                 for (query, unread, group, count) in [("",false,false,302), ("",true,false,1), ("",true,true,1), ("no matches ",true,true,0), ("",false,true,2), ("",false,false,302)] {
                     this.update_in(cx, |this, _, cx| {
-                        if this.dark != dark { this.toggle_theme(cx); }
+                        if this.theme.is_dark() != dark { this.toggle_theme(cx); }
                         this.sidebar.set_query(query);
                         this.sidebar.set_unread_only(unread);
                         this.sidebar.set_space(group.then(|| space.clone()));
@@ -2201,7 +2201,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                 assert_eq!(this.active_scope, scopes[0]);
-                assert!(!this.dark && !this.sidebar.unread_only());
+                assert!(!this.theme.is_dark() && !this.sidebar.unread_only());
                 assert_eq!(this.sidebar.active_space(), None);
                 assert_eq!(this.spaces_open, OPEN.load(Ordering::SeqCst));
                 assert!(!this.compact_chat);

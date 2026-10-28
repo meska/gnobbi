@@ -22,9 +22,9 @@ impl Shell {
         self.save_prefs(cx);
     }
 
-    pub(crate) fn toggle_dark_setting(&mut self, cx: &mut Context<Self>) {
-        self.toggle_theme(cx);
-        self.prefs.theme = if self.dark { matrix_desktop::Theme::Dark } else { matrix_desktop::Theme::Light };
+    pub(crate) fn choose_theme(&mut self, theme: matrix_desktop::Theme, cx: &mut Context<Self>) {
+        self.set_theme(theme, cx);
+        self.prefs.theme = Some(theme);
         self.save_prefs(cx);
     }
 
@@ -148,13 +148,13 @@ impl Shell {
                     .child(switch(self.prefs.debug))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_debug(cx))),
             )
-            .child(
-                row("settings-theme")
+            .children(matrix_desktop::Theme::ALL.map(|theme| {
+                row(["settings-theme-classic", "settings-theme-day", "settings-theme-dark", "settings-theme-night"][theme as usize])
                     .text_color(rgb(t.text))
-                    .child("Tema scuro")
-                    .child(switch(self.dark))
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_dark_setting(cx))),
-            )
+                    .child(theme.label())
+                    .child(switch(self.theme == theme))
+                    .on_click(cx.listener(move |this, _, _, cx| this.choose_theme(theme, cx)))
+            }))
             .child(
                 div()
                     .h(px(t.header))

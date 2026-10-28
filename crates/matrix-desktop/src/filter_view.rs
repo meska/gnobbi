@@ -426,7 +426,7 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         let focused = self.unread_focus.is_focused(window);
         let control = div()
             .id("unread-filter")
@@ -539,7 +539,7 @@ impl Shell {
         control: gpui::Stateful<gpui::Div>,
         window: &Window,
     ) -> gpui::Stateful<gpui::Div> {
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         control
             .track_focus(&self.theme_focus)
             .border_1()

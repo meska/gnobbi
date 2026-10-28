@@ -202,7 +202,7 @@ impl Shell {
     }
 
     pub(crate) fn render_verification(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let semantic_rows = self.semantic_device_rows();
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

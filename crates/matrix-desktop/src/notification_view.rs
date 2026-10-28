@@ -139,7 +139,7 @@ impl Shell {
     }
 
     pub(crate) fn render_notifications(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let t = if self.dark { DARK } else { LIGHT };
+        let t = self.theme.tokens();
         let enabled = self.notifications.enabled();
         let preview = self.notifications.count_preview();
         let selected = self.sidebar.selected();
