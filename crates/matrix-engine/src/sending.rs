@@ -30,7 +30,9 @@ pub fn mention_markdown<'a>(body: &str, mentions: &'a [Mention]) -> (String, Vec
             .filter(|_| !mention.label.is_empty())
         {
             let (start, end) = (from + found, from + found + mention.label.len());
-            if spans.iter().all(|&(s, e, _)| end <= s || start >= e) {
+            // «@Anna» inside a hand-typed «@Annabella» is not her.
+            let whole_word = !body[end..].starts_with(char::is_alphanumeric);
+            if whole_word && spans.iter().all(|&(s, e, _)| end <= s || start >= e) {
                 spans.push((start, end, &mention.user_id));
                 break;
             }
@@ -51,26 +53,8 @@ pub fn mention_markdown<'a>(body: &str, mentions: &'a [Mention]) -> (String, Vec
         at = end;
     }
     source.push_str(&escape(&body[at..]));
-    (hard_breaks(&source), spans.into_iter().map(|(_, _, user)| user).collect())
-}
-
-/// A typed line break stays a line break in the HTML (markdown folds it into a space), except inside code fences.
-fn hard_breaks(source: &str) -> String {
-    let (mut fenced, mut out) = (false, String::new());
-    let mut lines = source.split('\n').peekable();
-    while let Some(line) = lines.next() {
-        out.push_str(line);
-        if line.trim_start().starts_with("```") || line.trim_start().starts_with("~~~") {
-            fenced = !fenced;
-        }
-        if lines.peek().is_some() {
-            if !fenced && !line.trim().is_empty() {
-                out.push_str("  ");
-            }
-            out.push('\n');
-        }
-    }
-    out
+    // Typed newlines stay line breaks: the SDK markdown pass turns soft breaks into <br>.
+    (source, spans.into_iter().map(|(_, _, user)| user).collect())
 }
 
 /// The message to send: the typed text as `body`, its markdown as `formatted_body` (the SDK `markdown`
@@ -160,8 +144,8 @@ mod tests {
         for tag in ["<strong>forte</strong>", "<em>corsivo</em>", "<code>codice</code>", "<li>uno</li>", "<blockquote>", "<a href=\"https://e.org\">sito</a>"] {
             assert!(html.contains(tag), "{tag} missing in {html}");
         }
-        // Single newlines stay line breaks.
-        assert!(sent("a\nb", &[])["formatted_body"].as_str().is_some_and(|h| h.contains("<br")));
+        // A plain multi-line text needs no HTML: every client shows the newlines of `body`.
+        assert!(sent("a\nb", &[]).get("formatted_body").is_none());
     }
 
     #[test]
@@ -184,6 +168,48 @@ mod tests {
         assert!(html.contains("<strong>ciao</strong>") && html.contains("<em>ok</em>"), "{html}");
         assert!(html.contains("<a href=\"https://matrix.to/#/@a:x\">@Anna_B</a>"), "{html}");
         assert_eq!(v["m.mentions"]["user_ids"], serde_json::json!(["@a:x"]));
+    }
+
+    #[test]
+    fn mention_labels_with_special_characters_link_the_right_user() {
+        // A display name that is itself markdown or HTML must stay a literal label.
+        for name in ["@A]n[na *B*", "@](https://evil.example)", "@<b>x</b>", "@Zoë 👩‍💻", "@a\\b"] {
+            let body = format!("ciao {name} ok");
+            let v = sent(&body, &[Mention { user_id: "@a:x".into(), label: name.into() }]);
+            assert_eq!(v["body"], body);
+            let html = v["formatted_body"].as_str().unwrap();
+            assert!(html.contains("<a href=\"https://matrix.to/#/@a:x\">"), "{html}");
+            assert!(!html.contains("evil.example\">") && !html.contains("<b>"), "{html}");
+            assert_eq!(v["m.mentions"]["user_ids"], serde_json::json!(["@a:x"]));
+        }
+    }
+
+    #[test]
+    fn a_mention_label_is_not_linked_inside_a_longer_word() {
+        // The picked «@Anna» was deleted and «@Annabella» typed by hand: no link, no ping.
+        let v = sent("ciao @Annabella", &[Mention { user_id: "@a:x".into(), label: "@Anna".into() }]);
+        assert!(v.get("formatted_body").is_none(), "{v}");
+        assert!(v.get("m.mentions").is_none(), "{v}");
+        let v = sent("ciao @Anna, @Annabella", &[Mention { user_id: "@a:x".into(), label: "@Anna".into() }]);
+        assert_eq!(v["m.mentions"]["user_ids"], serde_json::json!(["@a:x"]));
+        assert!(v["formatted_body"].as_str().unwrap().contains(">@Anna</a>, @Annabella"), "{v}");
+    }
+
+    #[test]
+    fn newlines_markup_and_code_blocks_survive_the_markdown_pass() {
+        // Markup plus a typed newline: the SDK turns the soft break into <br>.
+        let html = sent("**a**\nb", &[])["formatted_body"].as_str().unwrap().to_owned();
+        assert!(html.contains("<strong>a</strong><br") , "{html}");
+        // An indented code block keeps its lines verbatim (no trailing blanks added).
+        let v = sent("x\n\n    riga 1\n    riga 2\n", &[]);
+        let html = v["formatted_body"].as_str().unwrap();
+        assert!(html.contains("<pre><code>riga 1\nriga 2\n</code></pre>"), "{html}");
+        // Long and emoji-heavy text goes through untouched (no trailing blank: the SDK treats
+        // trailing whitespace as markup and emits an identical formatted_body).
+        let long = "👩‍👩‍👧‍👦 ".repeat(3000).trim_end().to_owned();
+        let v = sent(&long, &[]);
+        assert_eq!(v["body"], long);
+        assert!(v.get("formatted_body").is_none(), "{}", v["formatted_body"].as_str().map_or(0, str::len));
     }
 
     #[test]

@@ -297,4 +297,58 @@ mod tests {
         let (text, _) = from_html(&html);
         assert!(text.len() < 200_000);
     }
+
+    fn spans_fit(text: &str, spans: &[super::StyleSpan]) {
+        for s in spans {
+            assert!(s.range.start < s.range.end && s.range.end <= text.len(), "{s:?} in {text:?}");
+            assert!(text.is_char_boundary(s.range.start) && text.is_char_boundary(s.range.end), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn composed_emoji_and_nested_styles_keep_spans_on_character_boundaries() {
+        let (text, spans) = from_html(
+            "<blockquote><ul><li>è <strong>👩‍👩‍👧‍👦 <em>ñ</em></strong> <code>🇮🇹</code></li></ul></blockquote>",
+        );
+        assert_eq!(text, "▎ • è 👩‍👩‍👧‍👦 ñ 🇮🇹");
+        spans_fit(&text, &spans);
+        assert_eq!(styled(&text, &spans, Style::Bold), ["👩‍👩‍👧‍👦 ñ"]);
+        assert_eq!(styled(&text, &spans, Style::Italic), ["ñ"]);
+        assert_eq!(styled(&text, &spans, Style::Code), ["🇮🇹"]);
+        assert_eq!(styled(&text, &spans, Style::Quote), [text.as_str()]);
+    }
+
+    #[test]
+    fn messages_from_other_clients_flatten_to_their_text() {
+        // Element: reply fallback, matrix.to mention pill, colour, spoiler, custom emoji, heading.
+        let (text, spans) = from_html(
+            "<mx-reply><blockquote>quoted</blockquote></mx-reply><h2>Titolo</h2>\
+             <a href=\"https://matrix.to/#/@anna:x\">Anna</a>: <font color=\"#ff0000\">rosso</font> \
+             <span data-mx-spoiler>segreto</span> <img data-mx-emoticon src=\"mxc://x/y\" alt=\":gatto:\" \
+             title=\":gatto:\" height=\"32\"><br>fine <a href=\"https://good.example\">https://evil.example</a>",
+        );
+        assert_eq!(
+            text,
+            "Titolo\nAnna: rosso segreto :gatto:\nfine https://evil.example (https://good.example)"
+        );
+        spans_fit(&text, &spans);
+        assert_eq!(styled(&text, &spans, Style::Bold), ["Titolo"]);
+    }
+
+    #[test]
+    fn hostile_markup_never_reaches_the_text_and_wide_bodies_stay_bounded() {
+        let (text, _) = from_html(
+            "<a href=\"data:text/html,x\">d</a><a href=\"vbscript:x\">v</a><iframe src=\"https://e.org\"></iframe>\
+             <svg onload=\"x\"><script>y</script></svg><style>z</style><form action=\"https://e.org\"><input value=\"i\"></form>\
+             <a href=\"https://e.org\" onclick=\"c\" target=\"_blank\">ok</a><span style=\"display:none\">hidden</span>",
+        );
+        // Dropped elements leave no text (a form field is not a message), a bad href keeps only its label.
+        assert_eq!(text, "dvok (https://e.org)hidden");
+        // The event size cap is 64 KiB: a body made of thousands of styled fragments must finish and fit.
+        let wide = "<b>x</b><i>y</i>".repeat(4096);
+        let (text, spans) = from_html(&wide);
+        assert_eq!(text.len(), 8192);
+        assert_eq!(spans.len(), 8192);
+        spans_fit(&text, &spans);
+    }
 }
