@@ -1,6 +1,11 @@
 //! Persistent desktop grouping navigation; no network operations or synthetic Spaces.
 use crate::*;
 
+// Rail entry geometry in one place; indicator/badge offsets follow the icon (36x32, label 11 px).
+const RAIL_ENTRY_HEIGHT: f32 = 63.;
+const RAIL_INDICATOR_TOP: f32 = 8.;
+const RAIL_BADGE_TOP: f32 = 1.;
+
 struct RailTooltip {
     label: String,
     dark: bool,
@@ -267,7 +272,7 @@ impl Shell {
                                 .into()
                             })
                             .w_full()
-                            .h(px(84.))
+                            .h(px(RAIL_ENTRY_HEIGHT))
                             .flex_shrink_0()
                             .flex()
                             .flex_col()
@@ -310,7 +315,7 @@ impl Shell {
                                     div()
                                         .absolute()
                                         .left_0()
-                                        .top(px(16.))
+                                        .top(px(RAIL_INDICATOR_TOP))
                                         .w(px(3.))
                                         .h(px(28.))
                                         .bg(rgb(t.accent)),
@@ -321,7 +326,7 @@ impl Shell {
                                     div()
                                         .absolute()
                                         .right(px(3.))
-                                        .top(px(6.))
+                                        .top(px(RAIL_BADGE_TOP))
                                         .rounded_full()
                                         .px_1()
                                         .bg(rgb(t.accent))
