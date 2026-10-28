@@ -26,7 +26,7 @@ fn installs_idempotently_and_only_on_request() {
     assert!(run(&home, &["--install-desktop-entry"]).success());
     let first = fs::read_to_string(&desktop).unwrap();
     for line in [
-        format!("Exec=\"/opt/my apps/Gnobbi.AppImage\""),
+        "Exec=\"/opt/my apps/Gnobbi.AppImage\"".to_string(),
         format!("Icon={ID}"),
         format!("StartupWMClass={ID}"),
     ] {

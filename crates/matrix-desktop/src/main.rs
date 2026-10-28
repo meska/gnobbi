@@ -1,3 +1,4 @@
+mod account_switch;
 mod compact_view;
 mod composer_view;
 mod editing_command;
@@ -105,7 +106,12 @@ struct Shell {
     notifications_open: bool,
     notification_failed: bool,
     media: matrix_desktop::LiveMedia,
-    media_commands: Option<matrix_engine::Sender<matrix_engine::media::MediaCommand>>,
+    /// Channels to the shown account's worker.
+    routes: matrix_desktop::AccountRoutes,
+    /// Accounts running in the background, by catalog ID; only the shown one has its state in this struct.
+    parked: HashMap<AccountId, matrix_desktop::AccountState>,
+    /// Catalog ID of the shown account (unknown until a new sign-in is recorded).
+    active_id: Option<AccountId>,
     verification: matrix_desktop::DeviceVerification,
     verification_open: bool,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -116,12 +122,8 @@ struct Shell {
     device_scroll: verification_view::DeviceScroll,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_device_nodes: std::cell::RefCell<matrix_desktop::accessibility::devices::DeviceNodes>,
-    verification_commands:
-        Option<matrix_engine::Sender<matrix_engine::verification::VerificationCommand>>,
     delivery: std::rc::Rc<std::cell::RefCell<matrix_desktop::LiveDelivery>>,
-    send_commands: Option<matrix_engine::Sender<matrix_engine::sending::SendRequest>>,
     operations: std::rc::Rc<std::cell::RefCell<matrix_desktop::LiveOperations>>,
-    operation_commands: Option<matrix_engine::Sender<matrix_engine::operations::OperationCommand>>,
     pending_operation_command: Option<matrix_engine::operations::OperationCommand>,
     /// Room whose members were asked for the @ completion.
     members_requested: Option<RoomScope>,
@@ -137,7 +139,6 @@ struct Shell {
     timeline: Option<TimelineView>,
     saved_timelines: HashMap<RoomScope, TimelineView>,
     history: HistorySession,
-    history_commands: Option<matrix_engine::Sender<matrix_engine::history::HistoryRequest>>,
     pending_history: Option<matrix_engine::history::HistoryRequest>,
     compact_chat: bool,
     theme: Theme,
@@ -1030,9 +1031,9 @@ impl Shell {
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
                 self.active_scope = request.tag.scope().clone();
-                self.composer.update(cx, |editor, cx| {
-                    editor.switch_room(self.active_scope.clone(), cx)
-                });
+                let draft_scope = self.draft_scope();
+                self.composer
+                    .update(cx, |editor, cx| editor.switch_room(draft_scope, cx));
                 let timeline =
                     TimelineView::connected(self.active_scope.clone(), cx.focus_handle());
                 if let Some(room) = self.sidebar.selected() {
@@ -1256,9 +1257,11 @@ impl Shell {
         };
         if self.members_requested.as_ref() != Some(&self.active_scope)
             && self.sidebar.selected().is_some()
-            && let Some(sender) = &mut self.operation_commands
+            && let Some((sender, _)) = &mut self.routes.operation
             && sender
-                .try_send(OperationCommand::Members { scope: self.active_scope.clone() })
+                .try_send(OperationCommand::Members {
+                    scope: self.active_scope.clone(),
+                })
                 .is_ok()
         {
             self.members_requested = Some(self.active_scope.clone());
@@ -1267,7 +1270,7 @@ impl Shell {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
         if let Some(command) = self.pending_operation_command.take()
-            && let Some(sender) = &mut self.operation_commands
+            && let Some((sender, _)) = &mut self.routes.operation
         {
             match sender.try_send(command) {
                 Ok(()) => (),
@@ -1415,7 +1418,7 @@ impl Shell {
 
     fn flush_history(&mut self) {
         if let Some(request) = self.pending_history.take()
-            && let Some(sender) = &mut self.history_commands
+            && let Some((sender, _)) = &mut self.routes.history
         {
             match sender.try_send(request) {
                 Ok(()) => (),
@@ -2103,20 +2106,7 @@ fn main() {
     let account_id = options
         .as_ref()
         .map_or(AccountId::new(0), |options| options.account_id);
-    let mut receiver: Option<matrix_engine::Receiver<RoomListEvent>> = None;
-    let mut media_commands = None;
-    let mut media_events: Option<matrix_engine::Receiver<matrix_engine::media::MediaEvent>> = None;
-    let mut history_commands = None;
-    let mut send_commands = None;
-    let mut operation_commands = None;
-    let mut operation_events = None;
-    let mut verification_commands = None;
-    let mut verification_events: Option<
-        matrix_engine::Receiver<matrix_engine::verification::VerificationEvent>,
-    > = None;
-    let mut send_events: Option<matrix_engine::Receiver<matrix_engine::sending::SendResult>> = None;
-    let mut history_events: Option<matrix_engine::Receiver<matrix_engine::history::HistoryResult>> =
-        None;
+    let mut routes = matrix_desktop::AccountRoutes::default();
     #[cfg(all(feature = "live", unix))]
     let mut signin_options = signin_options;
     #[cfg(all(feature = "live", unix))]
@@ -2199,27 +2189,12 @@ fn main() {
             eprintln!("Could not start Matrix backend worker");
             std::process::exit(1);
         });
-        receiver = Some(route);
-        if let Some((commands, events)) = worker.take_media_route() {
-            media_commands = Some(commands);
-            media_events = Some(events);
-        }
-        if let Some((commands, events)) = worker.take_verification_route() {
-            verification_commands = Some(commands);
-            verification_events = Some(events);
-        }
-        if let Some((commands, events)) = worker.take_operation_route() {
-            operation_commands = Some(commands);
-            operation_events = Some(events);
-        }
-        if let Some((commands, events)) = worker.take_send_route() {
-            send_commands = Some(commands);
-            send_events = Some(events);
-        }
-        if let Some((commands, events)) = worker.take_history_route() {
-            history_commands = Some(commands);
-            history_events = Some(events);
-        }
+        routes.events = Some(route);
+        routes.media = worker.take_media_route();
+        routes.verification = worker.take_verification_route();
+        routes.operation = worker.take_operation_route();
+        routes.send = worker.take_send_route();
+        routes.history = worker.take_history_route();
         worker
     });
     #[cfg(not(all(feature = "live", unix)))]
@@ -2227,6 +2202,14 @@ fn main() {
         eprintln!("Live restore requires a Unix build with --features live");
         std::process::exit(2);
     }
+    #[cfg(all(feature = "live", unix))]
+    let (mut background_workers, mut background, active_id) =
+        account_switch::start_background(account_root.as_ref());
+    #[cfg(not(all(feature = "live", unix)))]
+    let (mut background, active_id): (
+        Vec<(AccountId, matrix_desktop::AccountState)>,
+        Option<AccountId>,
+    ) = (vec![], None);
     let notification_worker = connected
         .then(matrix_desktop::notifications::NotificationWorker::spawn)
         .and_then(Result::ok);
@@ -2303,7 +2286,7 @@ fn main() {
                         |this: &mut Shell, _, submitted: &Submitted, cx| {
                             if this.connected {
                                 #[cfg(feature = "live")]
-                                if this.sidebar.selected().is_some() && this.send_commands.is_some()
+                                if this.sidebar.selected().is_some() && this.routes.send.is_some()
                                 {
                                     let transaction_id =
                                         matrix_engine::sending::fresh_transaction_id();
@@ -2326,75 +2309,25 @@ fn main() {
                     .detach();
                     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                     cx.observe(&composer, |_, _, cx| cx.notify()).detach();
-                    if let Some(mut route) = receiver.take() {
-                        let mut media_route = media_events.take();
-                        let mut verification_route = verification_events.take();
-                        let mut history_route = history_events.take();
-                        let mut send_route = send_events.take();
-                        let mut operation_route: Option<
-                            matrix_engine::Receiver<matrix_engine::operations::OperationResult>,
-                        > = operation_events.take();
+                    if routes.events.is_some() {
                         let executor = cx.background_executor().clone();
                         cx.spawn(async move |this, cx| {
                             loop {
                                 executor.timer(std::time::Duration::from_millis(16)).await;
-                                let mut events = Vec::new();
-                                let mut pages = Vec::new();
-                                let mut deliveries = Vec::new();
-                                let mut operations = Vec::new();
-                                let mut verifications = Vec::new();
-                                let mut media = Vec::new();
-                                if let Some(route) = &mut media_route {
-                                    for _ in 0..2 {
-                                        match route.try_recv() {
-                                            Ok(event) => media.push(event),
-                                            Err(_) => break,
-                                        }
-                                    }
-                                }
-                                if let Some(route) = &mut verification_route {
-                                    for _ in 0..8 {
-                                        match route.try_recv() {
-                                            Ok(event) => verifications.push(event),
-                                            Err(_) => break,
-                                        }
-                                    }
-                                }
-                                if let Some(route) = &mut operation_route {
-                                    for _ in 0..8 {
-                                        match route.try_recv() {
-                                            Ok(result) => operations.push(result),
-                                            Err(_) => break,
-                                        }
-                                    }
-                                }
-                                if let Some(route) = &mut send_route {
-                                    for _ in 0..8 {
-                                        match route.try_recv() {
-                                            Ok(result) => deliveries.push(result),
-                                            Err(_) => break,
-                                        }
-                                    }
-                                }
-                                if let Some(route) = &mut history_route {
-                                    for _ in 0..8 {
-                                        match route.try_recv() {
-                                            Ok(page) => pages.push(page),
-                                            Err(_) => break,
-                                        }
-                                    }
-                                }
-                                let mut closed = false;
-                                for _ in 0..32 {
-                                    match route.try_recv() {
-                                        Ok(event) => events.push(event),
-                                        Err(matrix_engine::TryReceiveError::Closed) => {
-                                            closed = true;
-                                            break;
-                                        }
-                                        Err(_) => break,
-                                    }
-                                }
+                                let Ok(matrix_desktop::Drained {
+                                    events,
+                                    media,
+                                    verifications,
+                                    operations,
+                                    deliveries,
+                                    pages,
+                                    closed,
+                                }) = this.update(cx, |this: &mut Shell, _| {
+                                    this.pump_parked();
+                                    this.routes.drain()
+                                }) else {
+                                    break;
+                                };
                                 if this
                                     .update(cx, |this: &mut Shell, cx| {
                                         #[cfg(all(feature = "live", unix))]
@@ -2537,15 +2470,15 @@ fn main() {
                                         if this.drive_inline_images() {
                                             cx.notify();
                                         }
-                                        if let Some(sender) = &mut this.media_commands {
+                                        if let Some((sender, _)) = &mut this.routes.media {
                                             this.media.flush(sender);
                                         }
                                         this.mark_open_room_read(cx);
                                         this.flush_operations();
-                                        if let Some(sender) = &mut this.verification_commands {
+                                        if let Some((sender, _)) = &mut this.routes.verification {
                                             this.verification.flush(sender);
                                         }
-                                        if let Some(sender) = &mut this.send_commands {
+                                        if let Some((sender, _)) = &mut this.routes.send {
                                             this.delivery.borrow_mut().flush(sender);
                                         }
                                     })
@@ -2710,7 +2643,9 @@ fn main() {
                         navigation_wide: true,
                         notification_failed: false,
                         media: matrix_desktop::LiveMedia::default(),
-                        media_commands: media_commands.take(),
+                        routes: std::mem::take(&mut routes),
+                        parked: background.drain(..).collect(),
+                        active_id,
                         verification: matrix_desktop::DeviceVerification::new(account_id),
                         verification_open: false,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -2721,11 +2656,8 @@ fn main() {
                         device_scroll: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_device_nodes: Default::default(),
-                        verification_commands: verification_commands.take(),
                         delivery: std::rc::Rc::default(),
-                        send_commands: send_commands.take(),
                         operations: std::rc::Rc::default(),
-                        operation_commands: operation_commands.take(),
                         pending_operation_command: None,
                         members_requested: None,
                         read_dirty: false,
@@ -2740,7 +2672,6 @@ fn main() {
                         active_scope,
                         saved_timelines: HashMap::new(),
                         history: HistorySession::new(),
-                        history_commands: history_commands.take(),
                         pending_history: None,
                         compact_chat: false,
                         theme,
@@ -2768,6 +2699,10 @@ fn main() {
         .detach();
     });
     if let Some(worker) = notification_worker {
+        let _ = worker.shutdown();
+    }
+    #[cfg(all(feature = "live", unix))]
+    for worker in background_workers.drain(..) {
         let _ = worker.shutdown();
     }
     #[cfg(all(feature = "live", unix))]

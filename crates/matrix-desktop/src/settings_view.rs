@@ -42,17 +42,46 @@ impl Shell {
         cx.notify();
     }
 
-    /// One row per catalog account (avatar, name, user ID); a dot marks this window's account.
-    fn render_account_list(&self, t: matrix_desktop::DesignTokens) -> Vec<gpui::AnyElement> {
-        let current = self.verification.profile().map(|(id, _)| id.as_str());
+    /// The drawer's account rows: none while offline; the shown account is marked current.
+    pub(crate) fn drawer_accounts(&self) -> Vec<matrix_desktop::AccountRow> {
+        if !self.connected {
+            return vec![];
+        }
+        let shown = self.active_id.and_then(|id| self.accounts.get(id));
+        let current = shown
+            .and_then(|a| a.user_id.as_deref())
+            .or_else(|| self.verification.profile().map(|(id, _)| id.as_str()));
         matrix_desktop::account_rows(&self.accounts, current)
+    }
+
+    /// One row per catalog account (avatar, name, user ID); a dot marks the shown account and a
+    /// click shows another one.
+    fn render_account_list(
+        &self,
+        t: matrix_desktop::DesignTokens,
+        ring: &dyn Fn(usize) -> gpui::Rgba,
+        cx: &mut Context<Self>,
+    ) -> Vec<gpui::AnyElement> {
+        self.drawer_accounts()
             .into_iter()
-            .map(|a| {
+            .enumerate()
+            .map(|(index, a)| {
+                let id = a.id;
+                let switchable = self.can_switch_to(id);
                 div()
                     .id(("menu-account", a.id.as_u64() as usize))
                     .h(px(52.))
                     .mx_2()
                     .px_3()
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(ring(index))
+                    .when(switchable, |d| {
+                        d.cursor_pointer()
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.switch_account(id, window, cx)
+                            }))
+                    })
                     .flex()
                     .items_center()
                     .gap_3()
@@ -121,6 +150,7 @@ impl Shell {
                 .cursor_pointer()
         };
         if !self.settings_open {
+            let n = self.drawer_accounts().len();
             let ring = |i: usize| {
                 rgb(
                     if self.drawer_row == i && self.drawer_focus.is_focused(window) {
@@ -132,11 +162,11 @@ impl Shell {
             };
             return div()
                 .mt_2()
-                .when(self.connected, |d| d.children(self.render_account_list(t)))
+                .children(self.render_account_list(t, &ring, cx))
                 .child(
                     row("menu-settings")
                         .border_1()
-                        .border_color(ring(0))
+                        .border_color(ring(n))
                         .text_color(rgb(t.text))
                         .child("Impostazioni")
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -147,7 +177,7 @@ impl Shell {
                     d.child(
                         row("menu-devices")
                             .border_1()
-                            .border_color(ring(1))
+                            .border_color(ring(n + 1))
                             .text_color(rgb(t.text))
                             .child("Dispositivi")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -157,7 +187,7 @@ impl Shell {
                     .child(
                         row("menu-notifications")
                             .border_1()
-                            .border_color(ring(2))
+                            .border_color(ring(n + 2))
                             .text_color(rgb(t.text))
                             .child("Notifiche")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -167,7 +197,7 @@ impl Shell {
                     .child(
                         row("menu-add-account")
                             .border_1()
-                            .border_color(ring(3))
+                            .border_color(ring(n + 3))
                             .text_color(rgb(t.accent))
                             .child("Aggiungi account")
                             .on_click(

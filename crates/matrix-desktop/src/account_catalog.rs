@@ -199,6 +199,14 @@ impl AccountCatalog {
         id
     }
 
+    /// The account whose profile folder is `root`.
+    pub fn id_for_root(&self, dirs: &AppDirs, root: &Path) -> Option<AccountId> {
+        self.accounts
+            .iter()
+            .find(|a| dirs.data.join(&a.dir) == root)
+            .map(|a| a.id)
+    }
+
     /// Store root of the account (SDK store, crypto DB, drafts).
     pub fn data_dir(&self, dirs: &AppDirs, id: AccountId) -> Option<PathBuf> {
         Some(dirs.data.join(&self.get(id)?.dir))

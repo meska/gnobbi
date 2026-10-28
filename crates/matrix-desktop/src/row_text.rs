@@ -44,8 +44,9 @@ mod tests {
             assert!(content_height(name, preview) <= ROW_HEIGHT_PX - 2. * ROW_PAD_Y, "{name:?}/{preview:?}");
             assert!(!one_line(preview).contains(['\n', '\r', '\u{2028}']));
         }
-        assert!(AVATAR_PX + 2. * ROW_PAD_Y <= ROW_HEIGHT_PX);
     }
+
+    const _: () = assert!(AVATAR_PX + 2. * ROW_PAD_Y <= ROW_HEIGHT_PX);
 
     #[test]
     fn one_line_collapses_breaks() {

@@ -72,6 +72,10 @@ fn close_viewer(
     true
 }
 
+/// Painted bounds of the parts of a video bubble, by event and part name.
+type VideoParts =
+    std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
+
 pub struct TimelineView {
     offline_delivery: Rc<RefCell<matrix_desktop::OfflineDelivery>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -97,7 +101,7 @@ pub struct TimelineView {
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
-    pub(crate) video_painted: Rc<RefCell<std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>>>,
+    pub(crate) video_painted: Rc<RefCell<VideoParts>>,
     pub(crate) images: Rc<
         RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>,
     >,

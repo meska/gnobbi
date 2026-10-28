@@ -3,7 +3,7 @@
 use crate::*;
 
 pub(crate) const DRAWER_WIDTH: f32 = 280.;
-/// Settings, Devices, Notifications, Add account.
+/// Settings, Devices, Notifications, Add account (after the account rows).
 pub(crate) const DRAWER_ROWS: usize = 4;
 
 impl Shell {
@@ -55,8 +55,9 @@ impl Shell {
         let mut catalog = matrix_desktop::AccountCatalog::load(dirs);
         let label = name.as_deref().unwrap_or_default();
         if catalog.record_login(dirs, root, user_id, label) && catalog.save(dirs).is_ok() {
-            self.accounts = catalog;
+            self.accounts = catalog.clone();
         }
+        self.active_id = catalog.id_for_root(dirs, root);
     }
 
     /// Starts the sign-in for a new account in its own window and profile folder; this window
@@ -101,23 +102,29 @@ impl Shell {
             return true;
         }
         if self.menu_open {
+            let accounts = self.drawer_accounts();
             let activate = !m.modified() && matches!(key.key.as_str(), "enter" | "space");
             match key.key.as_str() {
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
                 "escape" => self.set_menu_open(false, window, cx),
                 "enter" | "space" if activate && self.settings_open => self.toggle_debug(cx),
-                "enter" | "space" if activate => match self.drawer_row {
-                    1 => self.open_from_drawer(window, cx, Shell::open_devices_panel),
-                    2 => self.open_from_drawer(window, cx, Shell::open_notifications_panel),
-                    3 if self.connected => self.add_account(window, cx),
-                    _ => self.set_settings_open(true, window, cx),
-                },
+                "enter" | "space" if activate => {
+                    match self.drawer_row.checked_sub(accounts.len()) {
+                        None => self.switch_account(accounts[self.drawer_row].id, window, cx),
+                        Some(1) => self.open_from_drawer(window, cx, Shell::open_devices_panel),
+                        Some(2) => {
+                            self.open_from_drawer(window, cx, Shell::open_notifications_panel)
+                        }
+                        Some(3) if self.connected => self.add_account(window, cx),
+                        _ => self.set_settings_open(true, window, cx),
+                    }
+                }
                 // The drawer holds one focus stop; Up/Down/Tab move between its rows.
                 "tab" if self.settings_open => self.settings_focus.focus(window),
                 "up" | "down" | "tab" => {
                     let back = key.key == "up" || m.shift;
-                    self.drawer_row =
-                        (self.drawer_row + if back { DRAWER_ROWS - 1 } else { 1 }) % DRAWER_ROWS;
+                    let rows = DRAWER_ROWS + accounts.len();
+                    self.drawer_row = (self.drawer_row + if back { rows - 1 } else { 1 }) % rows;
                     self.drawer_focus.focus(window);
                     cx.notify();
                 }
