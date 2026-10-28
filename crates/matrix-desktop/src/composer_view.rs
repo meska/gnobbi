@@ -1822,4 +1822,144 @@ mod tests {
             .detach();
         });
     }
+
+    /// One live composer; for each case `attach_paths` runs and, once the file read is done, the
+    /// pending file name and whether an error line is shown are compared with the expectation.
+    fn attach_cases(cases: Vec<(Vec<std::path::PathBuf>, Option<&'static str>, bool)>) {
+        assert_eq!(
+            std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+            Ok("1")
+        );
+        gpui::Application::new().run(move |cx| {
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |_, cx| {
+                    cx.new(|cx| {
+                        let mut v = ComposerView::new(
+                            RoomScope {
+                                account_id: matrix_domain::AccountId::new(1),
+                                room_id: matrix_domain::RoomId::new("!attach:fixture.invalid"),
+                            },
+                            cx,
+                        );
+                        v.set_live(true);
+                        v
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                for (paths, name, error) in cases {
+                    let shown = format!("{paths:?}");
+                    view.update(cx, |v, _, cx| {
+                        v.attachment = None;
+                        v.attach_error = None;
+                        v.attach_paths(paths, cx);
+                    })
+                    .unwrap();
+                    executor.timer(std::time::Duration::from_millis(400)).await;
+                    view.update(cx, |v, _, _| {
+                        assert_eq!(v.attachment.as_ref().map(|p| p.filename.as_str()), name, "{shown}");
+                        assert_eq!(v.attach_error.is_some(), error, "{shown}");
+                    })
+                    .unwrap();
+                }
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("gnobbi-attach-{}-{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn dropped_paths_keep_only_a_readable_file_within_the_cap() {
+        let dir = scratch("paths");
+        let (good, other, big) = (dir.join("uno.txt"), dir.join("due.txt"), dir.join("grande.bin"));
+        std::fs::write(&good, b"uno").unwrap();
+        std::fs::write(&other, b"due").unwrap();
+        std::fs::File::create(&big).unwrap().set_len(MAX_ATTACHMENT + 1).unwrap(); // sparse: only the size is read
+        attach_cases(vec![
+            // Several files dropped together: only the first becomes the pending file, the rest is ignored.
+            (vec![good.clone(), other], Some("uno.txt"), false),
+            (vec![dir.clone()], None, true),               // a folder
+            (vec![dir.join("manca.txt")], None, true),     // vanished before the read
+            (vec![big], None, true),                       // one byte over the cap
+            (vec![], None, false),                         // nothing dropped
+        ]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[ignore = "known bug: an empty file is attached and every send then fails"]
+    fn empty_file_is_refused_before_sending() {
+        let dir = scratch("empty");
+        let empty = dir.join("vuoto.txt");
+        std::fs::write(&empty, b"").unwrap();
+        // A zero-byte upload is rejected by Synapse, so the file must not become attachable.
+        attach_cases(vec![(vec![empty], None, true)]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn pasting_an_image_attaches_it_and_text_does_not() {
+        command_probe(|v, window, cx| {
+            let mut png = Vec::new();
+            image::DynamicImage::new_rgb8(4, 3)
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            let picture = gpui::Image::from_bytes(gpui::ImageFormat::Png, png);
+            let before = v.draft.text().to_owned();
+            // Not connected: the image is not taken.
+            cx.write_to_clipboard(ClipboardItem::new_image(&picture));
+            command(v, "ctrl-v", false, window, cx);
+            assert!(v.attachment.is_none());
+            v.set_live(true);
+            command(v, "ctrl-v", false, window, cx);
+            let pending = v.attachment.as_ref().expect("pasted image becomes the pending file");
+            assert_eq!(pending.filename, "immagine.png");
+            assert_eq!(v.draft.text(), before, "the image is not also pasted as text");
+            // Text afterwards goes to the draft and leaves the pending image alone.
+            cx.write_to_clipboard(ClipboardItem::new_string("incollato".into()));
+            command(v, "ctrl-v", false, window, cx);
+            assert!(v.attachment.is_some());
+            assert!(v.draft.text().contains("incollato"));
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn recording_without_microphone_or_interrupted_leaves_no_half_note() {
+        command_probe(|v, window, cx| {
+            v.set_live(true);
+            let scope = RoomScope {
+                account_id: matrix_domain::AccountId::new(1),
+                room_id: matrix_domain::RoomId::new("!other:fixture.invalid"),
+            };
+            for _ in 0..3 {
+                v.start_recording(cx);
+                if v.recorder.is_none() {
+                    // No input device or no permission: one error line, nothing pending.
+                    assert_eq!(v.attach_error, Some("Microfono non disponibile"));
+                    assert!(v.attachment.is_none());
+                    continue;
+                }
+                v.stop_recording(false, cx);
+                assert!(v.recorder.is_none() && v.attachment.is_none(), "cancel discards the note");
+                v.start_recording(cx);
+                v.switch_room(scope.clone(), cx);
+                assert!(v.recorder.is_none() && v.attachment.is_none(), "leaving the room drops the recording");
+            }
+            // Stopping with nothing recording is a no-op.
+            v.stop_recording(true, cx);
+            v.stop_recording(false, cx);
+            assert!(v.recorder.is_none());
+            let _ = window;
+        });
+    }
 }

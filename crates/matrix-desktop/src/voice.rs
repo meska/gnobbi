@@ -58,4 +58,30 @@ mod tests {
         assert_eq!(voice.waveform[0], 0.0);
         assert_eq!(voice.waveform[99], 0.5);
     }
+
+    #[test]
+    fn waveform_stays_within_the_matrix_limit_for_any_length() {
+        for len in [1usize, 99, 100, 101, 250, 1999, 100_001] {
+            let samples: Vec<i16> = (0..len).map(|i| if i % 2 == 0 { i16::MIN } else { 100 }).collect();
+            let voice = voice_attachment(&samples, 48_000).unwrap().voice.unwrap();
+            assert!((1..=100).contains(&voice.waveform.len()), "{len}: {}", voice.waveform.len());
+            assert!(voice.waveform.iter().all(|v| (0.0..=1.0).contains(v)), "{len}");
+            assert_eq!(voice.waveform[0], 1.0, "i16::MIN is full scale, no overflow");
+        }
+    }
+
+    #[test]
+    fn degenerate_recordings_are_still_valid_files_or_refused() {
+        assert!(voice_attachment(&[1, 2, 3], 0).is_none());
+        let tiny = voice_attachment(&[5], 48_000).unwrap();
+        assert_eq!((tiny.data.len(), tiny.voice.unwrap().duration_ms), (46, 0));
+    }
+
+    /// Tuwunel's default upload limit is 24 MiB; the 5-minute recording cap at 48 kHz mono 16-bit is 27.5 MiB.
+    #[test]
+    #[ignore = "known bug: a maximum-length note exceeds the Tuwunel upload limit"]
+    fn longest_note_fits_the_smallest_default_upload_limit() {
+        let long = voice_attachment(&vec![0; 48_000 * 300], 48_000).unwrap();
+        assert!(long.data.len() <= 24 << 20, "{} bytes", long.data.len());
+    }
 }

@@ -308,3 +308,68 @@ fn attachment_is_sent_with_the_draft_as_caption_and_survives_retry() {
     assert_eq!(again.body, "");
     assert_eq!(again.attachment.unwrap().filename, "foto.png");
 }
+
+fn note_file(name: &str) -> matrix_engine::sending::Attachment {
+    matrix_engine::sending::Attachment {
+        filename: name.into(),
+        data: vec![7; 4],
+        voice: Some(matrix_engine::sending::Voice {
+            duration_ms: 1500,
+            waveform: vec![0.5],
+        }),
+    }
+}
+
+#[test]
+fn attachment_stays_with_the_composer_when_the_queue_is_full_or_the_id_repeats() {
+    let mut delivery = LiveDelivery::new();
+    let mut draft = Composer::default();
+    for n in 0..8 {
+        let mut pending = Some(note_file("n.wav"));
+        assert!(delivery.submit_with(scope(), TransactionId::new(format!("q{n}")), &mut draft, &mut pending));
+    }
+    // Ninth send while eight are staged: refused, the recording is not lost.
+    let mut pending = Some(note_file("nona.wav"));
+    assert!(!delivery.submit_with(scope(), TransactionId::new("q9"), &mut draft, &mut pending));
+    assert_eq!(pending.as_ref().unwrap().filename, "nona.wav");
+    // Same for a transaction id already on the timeline.
+    while delivery.take_request().is_some() {}
+    let mut pending = Some(note_file("bis.wav"));
+    assert!(!delivery.submit_with(scope(), TransactionId::new("q0"), &mut draft, &mut pending));
+    assert!(pending.is_some());
+    assert!(delivery.take_request().is_none());
+}
+
+#[test]
+fn whitespace_caption_shows_the_file_name_and_voice_markers_survive_retry() {
+    use matrix_engine::sending::{SendError, SendResult};
+    let mut delivery = LiveDelivery::new();
+    let mut draft = Composer::default();
+    draft.replace(None, "  \n ");
+    let tx = TransactionId::new("voce");
+    let mut pending = Some(note_file("nota-vocale.wav"));
+    assert!(delivery.submit_with(scope(), tx.clone(), &mut draft, &mut pending));
+    assert_eq!(delivery.items(&scope()).last().unwrap().body, "nota-vocale.wav");
+    delivery.take_request().unwrap();
+    assert!(delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Err(SendError::Transport) }));
+    assert!(delivery.retry(&scope(), &tx));
+    let again = delivery.take_request().unwrap();
+    let file = again.attachment.expect("retry resends the file, not only the caption");
+    assert_eq!((file.data, file.voice.unwrap().duration_ms), (vec![7; 4], 1500));
+}
+
+#[test]
+fn a_confirmed_attachment_cannot_be_retried_as_caption_only() {
+    use matrix_domain::EventId;
+    use matrix_engine::sending::SendResult;
+    let mut delivery = LiveDelivery::new();
+    let mut draft = Composer::default();
+    draft.replace(None, "didascalia");
+    let tx = TransactionId::new("ok");
+    let mut pending = Some(note_file("a.wav"));
+    assert!(delivery.submit_with(scope(), tx.clone(), &mut draft, &mut pending));
+    delivery.take_request().unwrap();
+    assert!(delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Ok(EventId::new("$e")) }));
+    assert!(!delivery.retry(&scope(), &tx));
+    assert!(delivery.take_request().is_none(), "no text-only resend of a delivered file");
+}
