@@ -590,7 +590,7 @@ impl Shell {
         true
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, all(feature = "linux-a11y", target_os = "linux")))]
     fn toggle_theme(&mut self, cx: &mut Context<Self>) {
         #[cfg(test)]
         sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -2079,7 +2079,8 @@ fn main() {
         }
         bundled.unwrap_or(args)
     };
-    #[cfg(all(target_os = "linux", not(test)))]
+    // Without `live` there is no connected sign-in to open: the bare launch stays the offline fixture.
+    #[cfg(all(target_os = "linux", feature = "live", not(test)))]
     let args = matrix_desktop::linux_launch_args(&args);
     #[cfg(all(feature = "live", unix))]
     let legacy_offer = (args.first().is_some_and(|a| a == "--signin")
