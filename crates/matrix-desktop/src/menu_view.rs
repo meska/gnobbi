@@ -154,12 +154,23 @@ impl Shell {
                     .absolute()
                     .top_0()
                     .bottom_0()
+                    .flex()
+                    .flex_col()
                     .w(px(DRAWER_WIDTH))
                     .bg(rgb(t.surface))
                     .border_r_1()
                     .border_color(rgb(t.border))
                     .on_click(|_, _, cx| cx.stop_propagation())
-                    .child(self.render_drawer_body(t, window, cx))
+                    .when(!self.settings_open, |d| d.children(self.render_drawer_header(t)))
+                    .child(div().flex_1().child(self.render_drawer_body(t, window, cx)))
+                    .child(
+                        div()
+                            .px_4()
+                            .py_3()
+                            .text_size(px(12.))
+                            .text_color(rgb(t.secondary))
+                            .child(concat!("Gnobbi ", env!("CARGO_PKG_VERSION"))),
+                    )
                     .with_animation(
                         "menu-drawer-slide",
                         Animation::new(std::time::Duration::from_millis(140)),
@@ -167,5 +178,47 @@ impl Shell {
                     ),
             )
             .into_any_element()
+    }
+
+    /// Telegram-style profile block: initials avatar, name and Matrix ID, both from the SDK.
+    fn render_drawer_header(&self, t: matrix_desktop::DesignTokens) -> Option<gpui::AnyElement> {
+        let (id, name) = self.verification.profile()?;
+        let name = name.clone().unwrap_or_else(|| id.clone());
+        Some(
+            div()
+                .id("menu-profile")
+                .p_4()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .border_b_1()
+                .border_color(rgb(t.border))
+                .child(
+                    div()
+                        .size(px(56.))
+                        .mb_2()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(rgb(0x5288b5))
+                        .text_size(px(20.))
+                        .text_color(rgb(t.avatar_text))
+                        .child(name.trim_start_matches('@').chars().take(2).collect::<String>()),
+                )
+                .child(
+                    div()
+                        .truncate()
+                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(rgb(t.text))
+                        .child(name.clone()),
+                )
+                .when(name != *id, |d| {
+                    d.child(
+                        div().truncate().text_size(px(13.)).text_color(rgb(t.secondary)).child(id.clone()),
+                    )
+                })
+                .into_any_element(),
+        )
     }
 }

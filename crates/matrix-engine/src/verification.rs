@@ -92,6 +92,12 @@ pub enum VerificationCommand {
     },
 }
 pub enum VerificationEvent {
+    /// Own identity as the SDK reports it (display name is the account's profile name, if set).
+    Profile {
+        account_id: AccountId,
+        user_id: String,
+        display_name: Option<String>,
+    },
     Devices {
         account_id: AccountId,
         devices: Vec<VerificationDevice>,

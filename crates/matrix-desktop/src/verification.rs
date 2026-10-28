@@ -12,6 +12,7 @@ pub struct DeviceVerification {
     deciding: bool,
     devices: Vec<matrix_engine::verification::VerificationDevice>,
     failed: bool,
+    profile: Option<(String, Option<String>)>,
 }
 impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
@@ -22,7 +23,12 @@ impl DeviceVerification {
             deciding: false,
             devices: Vec::new(),
             failed: false,
+            profile: None,
         }
+    }
+    /// (user id, display name) from the SDK; None until the first sync starts.
+    pub fn profile(&self) -> Option<&(String, Option<String>)> {
+        self.profile.as_ref()
     }
     pub fn devices(&self) -> &[matrix_engine::verification::VerificationDevice] {
         &self.devices
@@ -60,6 +66,11 @@ impl DeviceVerification {
     }
     pub fn apply(&mut self, event: VerificationEvent) {
         match event {
+            VerificationEvent::Profile { account_id, user_id, display_name }
+                if account_id == self.account =>
+            {
+                self.profile = Some((user_id, display_name))
+            }
             VerificationEvent::Snapshot(snapshot) if snapshot.account_id == self.account => {
                 self.snapshot = Some(snapshot);
                 self.deciding = false;
@@ -176,5 +187,24 @@ impl DeviceVerification {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::*;
+
+    #[test]
+    fn profile_is_kept_only_for_own_account() {
+        let mut v = DeviceVerification::new(AccountId::new(1));
+        let ev = |n, name: Option<&str>| VerificationEvent::Profile {
+            account_id: AccountId::new(n),
+            user_id: "@a:x".into(),
+            display_name: name.map(Into::into),
+        };
+        v.apply(ev(2, Some("Altro")));
+        assert!(v.profile().is_none());
+        v.apply(ev(1, Some("Ada")));
+        assert_eq!(v.profile(), Some(&("@a:x".to_string(), Some("Ada".to_string()))));
     }
 }

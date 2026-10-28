@@ -219,6 +219,13 @@ pub(crate) async fn run_service(
     let mut active: Option<VerificationFlow> = None;
     let mut previous = None;
     let mut ticks = tokio::time::interval(std::time::Duration::from_millis(200));
+    if let Some(user_id) = client.user_id() {
+        let display_name = client.account().get_display_name().await.ok().flatten();
+        let user_id = user_id.to_string();
+        if events.send(VerificationEvent::Profile { account_id, user_id, display_name }).await.is_err() {
+            return;
+        }
+    }
     loop {
         let result = tokio::select! {
             command = commands.recv() => {
