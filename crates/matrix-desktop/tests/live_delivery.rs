@@ -271,3 +271,39 @@ fn accepted_send_retains_exact_body_in_pending_row() {
     assert_eq!(request.transaction_id, tx);
     assert!(delivery.take_request().is_none());
 }
+
+#[test]
+fn attachment_is_sent_with_the_draft_as_caption_and_survives_retry() {
+    use matrix_engine::sending::{Attachment, SendError, SendResult};
+    let mut delivery = LiveDelivery::new();
+    let mut draft = Composer::default();
+    let tx = TransactionId::new("file");
+    let file = || Attachment {
+        filename: "foto.png".into(),
+        data: vec![1, 2, 3],
+    };
+    // No text and no file: nothing to send; a refused send keeps the file.
+    assert!(!delivery.submit_with(scope(), tx.clone(), &mut draft, &mut None));
+    draft.replace(None, "didascalia");
+    let mut pending = Some(file());
+    assert!(delivery.submit_with(scope(), tx.clone(), &mut draft, &mut pending));
+    assert!(pending.is_none(), "an accepted send takes the file");
+    let request = delivery.take_request().unwrap();
+    assert_eq!(request.body, "didascalia");
+    assert_eq!(request.attachment.unwrap().data, vec![1, 2, 3]);
+    // File without caption: the local row shows the file name.
+    let tx2 = TransactionId::new("file-only");
+    let mut pending = Some(file());
+    assert!(delivery.submit_with(scope(), tx2.clone(), &mut draft, &mut pending));
+    assert_eq!(delivery.items(&scope()).last().unwrap().body, "foto.png");
+    delivery.take_request().unwrap();
+    assert!(delivery.apply(SendResult {
+        scope: scope(),
+        transaction_id: tx2.clone(),
+        result: Err(SendError::Transport),
+    }));
+    assert!(delivery.retry(&scope(), &tx2));
+    let again = delivery.take_request().unwrap();
+    assert_eq!(again.body, "");
+    assert_eq!(again.attachment.unwrap().filename, "foto.png");
+}

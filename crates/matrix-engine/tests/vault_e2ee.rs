@@ -4,8 +4,8 @@
 //! (alice) and a legacy local-phrase profile (bob), both with local account 1.
 //! One phase per process, so a phase boundary is a genuine restart. Driven by
 //! the vault_e2e script inside a private namespace; disposable accounts only.
-use matrix_domain::{RoomId, RoomScope, TransactionId};
 use futures_util::FutureExt;
+use matrix_domain::{RoomId, RoomScope, TransactionId};
 use matrix_engine::{
     RoomListEvent, RoomSyncStatus, ViewRequests,
     auth::AccountSession,
@@ -160,6 +160,7 @@ fn phase() {
                             scope,
                             transaction_id: TransactionId::new(format!("vault-e2ee-{}", who.key)),
                             body: env("DIME_E2E_OWN_BODY"),
+                            attachment: None,
                         })
                         .await
                         .unwrap();

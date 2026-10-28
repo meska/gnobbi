@@ -13,7 +13,11 @@ fn failed_restore_reports_fixed_status_then_closes_the_route() {
     loop {
         match route.try_recv() {
             Ok(RoomListEvent::Status(status)) => statuses.push(status),
-            Ok(RoomListEvent::Diff(_) | RoomListEvent::TimelineActivity(_) | RoomListEvent::Order(_)) => {
+            Ok(
+                RoomListEvent::Diff(_)
+                | RoomListEvent::TimelineActivity(_)
+                | RoomListEvent::Order(_),
+            ) => {
                 panic!("failed restore must not invent room activity")
             }
             Err(TryReceiveError::Closed) => break,
@@ -45,7 +49,8 @@ fn shutdown_during_restore_does_not_claim_to_flush_queued_sends() {
                     room_id: RoomId::new("!fixture:invalid")
                 },
                 transaction_id: TransactionId::new("p022-before-restore"),
-                body: "Unconfirmed".into()
+                body: "Unconfirmed".into(),
+                attachment: None
             })
             .is_ok()
     );

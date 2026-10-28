@@ -114,8 +114,9 @@ fn disposable_lifecycle_full_result_queue_does_not_deadlock_shutdown() {
                                 room_id: RoomId::new(&room)
                             },
                             transaction_id: TransactionId::new(format!("p022-drain-{index}")),
-                            body: format!("queued {index}")
-                        })
+                            body: format!("queued {index}"),
+ attachment: None,
+ })
                         .await
                         .is_ok()
                 );
@@ -321,8 +322,9 @@ fn disposable_lifecycle_shutdown_reports_unconfirmed_writes() {
                         room_id: RoomId::new(&room)
                     },
                     transaction_id: TransactionId::new("p022-offline-shutdown"),
-                    body: "Unconfirmed shutdown".into()
-                })
+                    body: "Unconfirmed shutdown".into(),
+ attachment: None,
+ })
                 .await
                 .is_ok()
         );
@@ -351,7 +353,8 @@ fn disposable_lifecycle_dropped_results_cannot_hide_unconfirmed_send() {
             scope: RoomScope { account_id: AccountId::new(22), room_id: RoomId::new(room) },
             transaction_id: TransactionId::new("p022-dropped-results"),
             body: "Unconfirmed after UI drop".into(),
-        }).await.is_ok());
+ attachment: None,
+ }).await.is_ok());
     });
     // Let the failed send hit the closed result route before requesting stop.
     std::thread::sleep(Duration::from_secs(6));
@@ -371,7 +374,8 @@ fn disposable_lifecycle_reconnect_restores_ready_without_duplicate_send() {
         },
         transaction_id: TransactionId::new("p022-reconnect-identity"),
         body: "survives reconnect".into(),
-    };
+ attachment: None,
+ };
     runtime().block_on(async {
         assert!(sends.send(request.clone()).await.is_ok());
         let original = tokio::time::timeout(Duration::from_secs(8), results.recv())
@@ -444,8 +448,9 @@ fn disposable_lifecycle_shutdown_deadline_is_explicit() {
                             room_id: RoomId::new(&room)
                         },
                         transaction_id: TransactionId::new(format!("p022-deadline-{index}")),
-                        body: "Unconfirmed".into()
-                    })
+                        body: "Unconfirmed".into(),
+ attachment: None,
+ })
                     .await
                     .is_ok()
             );

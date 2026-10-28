@@ -1840,6 +1840,11 @@ impl Render for Shell {
             .when(!compact || self.compact_chat, |d| {
                 d.child(
                     div()
+                        .id("chat-column")
+                        .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+                            let paths = paths.paths().to_vec();
+                            this.composer.update(cx, |editor, cx| editor.attach_paths(paths, cx));
+                        }))
                         .flex()
                         .flex_col()
                         .flex_1()

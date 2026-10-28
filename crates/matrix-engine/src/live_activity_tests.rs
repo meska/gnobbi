@@ -45,7 +45,8 @@ fn activity_route_shutdown(close: bool) {
             scope: matrix_domain::RoomScope { account_id: AccountId::new(22), room_id: matrix_domain::RoomId::new(&room) },
             transaction_id: matrix_domain::TransactionId::new("p055-drain"),
             body: "accepted write survives activity backpressure".into(),
-        }).await.is_ok());
+ attachment: None,
+ }).await.is_ok());
     });
     let mut retained = if close { drop(events); None } else { Some(&mut events) };
     worker.shutdown().unwrap();

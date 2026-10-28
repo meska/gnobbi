@@ -32,6 +32,14 @@ impl SendVisit {
     }
 }
 
+/// File or image waiting to be sent with the draft text as caption.
+struct Pending {
+    filename: String,
+    data: Vec<u8>,
+}
+/// Bound on a file read into memory for the SDK upload.
+const MAX_ATTACHMENT: u64 = 50 * 1024 * 1024; // shortcut: fixed cap, read the server limit (media config) when uploads need more
+
 pub struct Submitted(pub String);
 impl gpui::EventEmitter<Submitted> for ComposerView {}
 
@@ -43,6 +51,8 @@ pub struct ComposerView {
     send_bounds: Option<(u64, accesskit::Rect)>,
     live: bool,
     draft: Composer,
+    attachment: Option<Pending>,
+    attach_error: Option<&'static str>,
     rooms: RoomDrafts,
     focus: FocusHandle,
     send_focus: FocusHandle,
@@ -69,6 +79,8 @@ impl ComposerView {
             send_bounds: None,
             live: false,
             draft: Composer::default(),
+            attachment: None,
+            attach_error: None,
             rooms: RoomDrafts::new(scope),
             focus: cx.focus_handle(),
             send_focus: cx.focus_handle(),
@@ -85,6 +97,9 @@ impl ComposerView {
 
     pub fn switch_room(&mut self, scope: RoomScope, cx: &mut Context<Self>) {
         self.rooms.switch(scope, &mut self.draft);
+        // A pending file belongs to the room it was added in, never to the next one.
+        self.attachment = None;
+        self.attach_error = None;
         self.layout = None;
         self.scroll = ScrollHandle::new();
         self.dragging = false;
@@ -103,7 +118,19 @@ impl ComposerView {
         transaction_id: matrix_domain::TransactionId,
         cx: &mut Context<Self>,
     ) {
-        delivery.submit(scope, transaction_id, &mut self.draft);
+        let mut file = self
+            .attachment
+            .take()
+            .map(|p| matrix_engine::sending::Attachment {
+                filename: p.filename,
+                data: p.data,
+            });
+        delivery.submit_with(scope, transaction_id, &mut self.draft, &mut file);
+        // Not accepted (queue full): keep the file for the next try.
+        self.attachment = file.map(|f| Pending {
+            filename: f.filename,
+            data: f.data,
+        });
         self.changed(cx);
     }
 
@@ -144,6 +171,7 @@ impl ComposerView {
             scope,
             composing: self.draft.marked().is_some(),
             send_focused: self.send_is_focused(window),
+            attachment: self.attachment.as_ref().map(|p| p.filename.clone()),
             send_bounds: self
                 .send_bounds
                 .filter(|(source, _)| self.visit.source() == Some(*source))
@@ -262,7 +290,7 @@ impl ComposerView {
 
     fn submit(&mut self, cx: &mut Context<Self>) {
         if self.live {
-            if self.draft.marked().is_none() && !self.draft.text().trim().is_empty() {
+            if self.sendable() {
                 cx.emit(Submitted(self.draft.text().to_owned()));
             }
         } else if let Some(text) = self.draft.enter(false) {
@@ -271,16 +299,74 @@ impl ComposerView {
         self.changed(cx);
     }
 
+    fn sendable(&self) -> bool {
+        self.draft.marked().is_none()
+            && (!self.draft.text().trim().is_empty() || self.attachment.is_some())
+    }
+
+    /// Reads the first path off the UI thread and keeps it as the pending attachment.
+    pub fn attach_paths(&mut self, paths: Vec<std::path::PathBuf>, cx: &mut Context<Self>) {
+        let Some(path) = paths.into_iter().next().filter(|_| self.live) else {
+            return;
+        };
+        let read = cx.background_executor().spawn(async move {
+            let name = path.file_name()?.to_string_lossy().into_owned();
+            let size = std::fs::metadata(&path).ok()?.len();
+            Some((
+                name,
+                (size <= MAX_ATTACHMENT)
+                    .then(|| std::fs::read(&path).ok())
+                    .flatten(),
+            ))
+        });
+        cx.spawn(async move |this, cx| {
+            let read = read.await;
+            let _ = this.update(cx, |this, cx| {
+                match read {
+                    Some((filename, Some(data))) => {
+                        this.attachment = Some(Pending { filename, data });
+                        this.attach_error = None;
+                    }
+                    _ => this.attach_error = Some("File non allegabile"),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn attach_image(&mut self, image: &gpui::Image, cx: &mut Context<Self>) {
+        let ext = image.format.mime_type().rsplit('/').next().unwrap_or("png");
+        let ext = ext.split('+').next().unwrap_or(ext);
+        self.attachment = Some(Pending {
+            filename: format!("immagine.{ext}"),
+            data: image.bytes.clone(),
+        });
+        self.attach_error = None;
+        cx.notify();
+    }
+
+    fn pick_file(&mut self, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: false,
+            prompt: None,
+        });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = picked.await {
+                let _ = this.update(cx, |this, cx| this.attach_paths(paths, cx));
+            }
+        })
+        .detach();
+    }
+
     pub(crate) fn send_callback(
         &self,
     ) -> impl Fn(&mut Self, &mut Window, &mut Context<Self>) + use<> {
         let source = self.visit.source();
         move |this, window, cx| {
-            if source.is_some()
-                && this.visit.source() == source
-                && this.draft.marked().is_none()
-                && !this.draft.text().trim().is_empty()
-            {
+            if source.is_some() && this.visit.source() == source && this.sendable() {
                 this.focus.focus(window);
                 this.submit(cx);
             }
@@ -370,7 +456,19 @@ impl ComposerView {
                     }
                 }
                 "v" => {
-                    if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                    let item = cx.read_from_clipboard();
+                    let image = self.live.then(|| {
+                        item.as_ref()?
+                            .entries()
+                            .iter()
+                            .find_map(|entry| match entry {
+                                gpui::ClipboardEntry::Image(image) => Some(image.clone()),
+                                _ => None,
+                            })
+                    });
+                    if let Some(Some(image)) = image {
+                        self.attach_image(&image, cx);
+                    } else if let Some(text) = item.and_then(|item| item.text()) {
                         self.draft.replace(None, &text);
                         self.changed(cx);
                     }
@@ -575,7 +673,8 @@ impl Render for ComposerView {
                 },
             ));
         }
-        let sendable = self.draft.marked().is_none() && !self.draft.text().trim().is_empty();
+        let sendable = self.sendable();
+        let attachment_name = self.attachment.as_ref().map(|p| p.filename.clone());
         let body = StyledText::new(text).with_highlights(highlights);
         let layout = body.layout().clone();
         let entity = cx.entity();
@@ -605,11 +704,55 @@ impl Render for ComposerView {
             .flex_col()
             .justify_center()
             .gap_1()
+            .when(
+                attachment_name.is_some() || self.attach_error.is_some(),
+                |d| {
+                    d.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .text_size(px(12.))
+                            .text_color(rgb(if self.attach_error.is_some() {
+                                t.text
+                            } else {
+                                t.secondary
+                            }))
+                            .child(attachment_name.clone().unwrap_or_default())
+                            .children(self.attach_error)
+                            .child(
+                                div()
+                                    .id("composer-attachment-remove")
+                                    .cursor_pointer()
+                                    .px_2()
+                                    .child("×")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.attachment = None;
+                                        this.attach_error = None;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                },
+            )
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap_4()
+                    .when(self.live, |d| {
+                        d.child(
+                            div()
+                                .id("composer-attach")
+                                .cursor_pointer()
+                                .flex_shrink_0()
+                                .px_2()
+                                .py_2()
+                                .text_color(rgb(t.accent))
+                                .child("Allega")
+                                .on_click(cx.listener(|this, _, _, cx| this.pick_file(cx))),
+                        )
+                    })
                     .child(
                         div()
                             .id("composer-editor")

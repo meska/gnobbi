@@ -46,7 +46,8 @@ fn disposable_accounts_join_logout_one_worker_does_not_stop_the_other() {
     let request = |id, transaction: &str, body: &str| SendRequest {
         scope: RoomScope { account_id: AccountId::new(id), room_id: RoomId::new(&room) },
         transaction_id: TransactionId::new(transaction), body: body.into(),
-    };
+ attachment: None,
+ };
     runtime().block_on(async {
         for (events, id) in [(&mut a_rooms, 28), (&mut b_rooms, 29)] {
             tokio::time::timeout(std::time::Duration::from_secs(15), async {

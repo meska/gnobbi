@@ -4188,6 +4188,7 @@ dependencies = [
  "matrix-sdk-crypto",
  "matrix-sdk-store-encryption",
  "matrix-sdk-ui",
+ "mime_guess",
  "reqwest",
  "secret-service",
  "security-framework",

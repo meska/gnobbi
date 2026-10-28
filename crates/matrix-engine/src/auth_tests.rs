@@ -93,7 +93,8 @@ fn disposable_lifecycle_shutdown_drains_accepted_send_before_join() {
                         room_id: RoomId::new(&room)
                     },
                     transaction_id: TransactionId::new("p022-drain"),
-                    body: "Shutdown città".into()
+                    body: "Shutdown città".into(),
+                    attachment: None
                 })
                 .await
                 .is_ok()
@@ -645,6 +646,7 @@ fn disposable_send_reuses_transaction_and_reads_actual_event() {
             },
             transaction_id: TransactionId::new("p020-stable-transaction"),
             body: "città · prima riga\nseconda riga".into(),
+            attachment: None,
         };
         let first = sync.send_text(&request).await.expect("SDK send accepted");
         let second = sync
@@ -705,6 +707,7 @@ fn disposable_send_worker_survives_offline_retry() {
             },
             transaction_id: TransactionId::new("p020-offline-retry"),
             body: "Offline retry preserves città\nsecond line".into(),
+            attachment: None,
         };
         let pid = config["server_pid"].to_string();
         struct Resume(String);

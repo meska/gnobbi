@@ -114,6 +114,7 @@ fn composer_snapshot(room: &str) -> NavigationSnapshot {
         send_source: Some(1),
         send_focused: false,
         send_bounds: None,
+        attachment: None,
         scope: matrix_domain::RoomScope {
             account_id: matrix_domain::AccountId::new(1),
             room_id: matrix_domain::RoomId::new(room),

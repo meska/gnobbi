@@ -27,6 +27,10 @@ pub const SEARCH: NodeId = NodeId(3);
 pub const ROOM_LIST: NodeId = NodeId(4);
 pub const COMPOSER: NodeId = NodeId(5);
 pub const SEND: NodeId = NodeId(6);
+// Above the composer text runs ((1 << 63) + n) and below the link/room ranges.
+pub const ATTACH: NodeId = NodeId((1 << 63) - 1);
+pub const ATTACHMENT: NodeId = NodeId((1 << 63) - 2);
+pub const ATTACHMENT_REMOVE: NodeId = NodeId((1 << 63) - 3);
 
 #[derive(Clone)]
 pub struct ComposerSnapshot {
@@ -35,6 +39,8 @@ pub struct ComposerSnapshot {
     pub composing: bool,
     pub send_focused: bool,
     pub send_bounds: Option<accesskit::Rect>,
+    /// File name of the pending attachment, sent with the text as caption.
+    pub attachment: Option<String>,
     pub text: String,
     /// UTF-8 byte positions from the editor, including selection direction.
     pub anchor: usize,
@@ -55,7 +61,7 @@ impl ComposerSnapshot {
             && self.scope == *scope
             && self.text == text
             && !self.composing
-            && !text.trim().is_empty()
+            && (!text.trim().is_empty() || self.attachment.is_some())
     }
 }
 
@@ -726,23 +732,23 @@ impl NavigationSnapshot {
             (SEND, Action::Focus) => {
                 let composer = self.composer.as_ref()?;
                 let source = composer.send_source?;
-                (!composer.composing && !composer.text.trim().is_empty()).then(|| {
-                    NavigationAction::FocusSend {
-                        scope: composer.scope.clone(),
-                        text: composer.text.clone(),
-                        source,
-                    }
+                (!composer.composing
+                    && (!composer.text.trim().is_empty() || composer.attachment.is_some()))
+                .then(|| NavigationAction::FocusSend {
+                    scope: composer.scope.clone(),
+                    text: composer.text.clone(),
+                    source,
                 })
             }
             (SEND, Action::Click) => {
                 let composer = self.composer.as_ref()?;
                 let source = composer.send_source?;
-                (!composer.composing && !composer.text.trim().is_empty()).then(|| {
-                    NavigationAction::SubmitComposer {
-                        scope: composer.scope.clone(),
-                        text: composer.text.clone(),
-                        source,
-                    }
+                (!composer.composing
+                    && (!composer.text.trim().is_empty() || composer.attachment.is_some()))
+                .then(|| NavigationAction::SubmitComposer {
+                    scope: composer.scope.clone(),
+                    text: composer.text.clone(),
+                    source,
                 })
             }
             (COMPOSER, Action::Focus) if self.composer.is_some() => {
@@ -1071,7 +1077,9 @@ impl NavigationSnapshot {
             if let Some(bounds) = composer.send_bounds {
                 send.set_bounds(bounds);
             }
-            if composer.composing || composer.text.trim().is_empty() {
+            if composer.composing
+                || (composer.text.trim().is_empty() && composer.attachment.is_none())
+            {
                 send.set_disabled();
             } else {
                 send.add_action(Action::Focus);
@@ -1079,6 +1087,20 @@ impl NavigationSnapshot {
             }
             tree.nodes[0].1.push_child(SEND);
             tree.nodes.push((SEND, send));
+            let mut attach = Node::new(Role::Button);
+            attach.set_label("Allega file");
+            tree.nodes[0].1.push_child(ATTACH);
+            tree.nodes.push((ATTACH, attach));
+            if let Some(name) = &composer.attachment {
+                let mut chip = Node::new(Role::Label);
+                chip.set_label(format!("Allegato: {name}"));
+                tree.nodes[0].1.push_child(ATTACHMENT);
+                tree.nodes.push((ATTACHMENT, chip));
+                let mut remove = Node::new(Role::Button);
+                remove.set_label("Rimuovi allegato");
+                tree.nodes[0].1.push_child(ATTACHMENT_REMOVE);
+                tree.nodes.push((ATTACHMENT_REMOVE, remove));
+            }
             if composer.focused {
                 tree.focus = COMPOSER;
             } else if composer.send_focused {

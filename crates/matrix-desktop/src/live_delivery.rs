@@ -1,7 +1,7 @@
 //! UI-local outgoing projection; payloads never logged, not persisted.
 use crate::Composer;
 use matrix_domain::{RoomScope, Timeline, TimelineItem, TimelineUpdate, TransactionId};
-use matrix_engine::sending::SendRequest;
+use matrix_engine::sending::{Attachment, SendRequest};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
@@ -9,6 +9,8 @@ pub struct LiveDelivery {
     rooms: HashMap<RoomScope, Timeline>,
     staged: VecDeque<SendRequest>,
     failures: HashMap<(RoomScope, TransactionId), matrix_engine::sending::SendError>,
+    /// Attachment sends kept until confirmed so Retry can resend the file.
+    attachments: HashMap<(RoomScope, TransactionId), (String, Attachment)>,
 }
 impl LiveDelivery {
     pub fn new() -> Self {
@@ -26,8 +28,18 @@ impl LiveDelivery {
         transaction_id: TransactionId,
         draft: &mut Composer,
     ) -> bool {
+        self.submit_with(scope, transaction_id, draft, &mut None)
+    }
+    /// The draft text is the caption of `attachment`; it is taken only when accepted.
+    pub fn submit_with(
+        &mut self,
+        scope: RoomScope,
+        transaction_id: TransactionId,
+        draft: &mut Composer,
+        attachment: &mut Option<Attachment>,
+    ) -> bool {
         if self.staged.len() >= 8
-            || draft.text().trim().is_empty()
+            || (draft.text().trim().is_empty() && attachment.is_none())
             || draft.marked().is_some()
             || transaction_id.as_str().is_empty()
         {
@@ -45,22 +57,34 @@ impl LiveDelivery {
             return false;
         }
         let body = draft.text().to_owned();
+        let shown = match &*attachment {
+            Some(file) if body.trim().is_empty() => file.filename.clone(),
+            _ => body.clone(),
+        };
         if timeline
             .apply(
                 &scope,
                 TimelineUpdate::LocalSend {
                     transaction_id: transaction_id.clone(),
-                    body: body.clone(),
+                    body: shown,
                 },
             )
             .is_err()
         {
             return false;
         }
+        let attachment = attachment.take();
+        if let Some(file) = &attachment {
+            self.attachments.insert(
+                (scope.clone(), transaction_id.clone()),
+                (body.clone(), file.clone()),
+            );
+        }
         self.staged.push_back(SendRequest {
             scope,
             transaction_id,
             body,
+            attachment,
         });
         draft.enter(false);
         true
@@ -82,6 +106,9 @@ impl LiveDelivery {
         };
         if timeline.apply(&result.scope, update).is_err() {
             return false;
+        }
+        if error.is_none() {
+            self.attachments.remove(&key);
         }
         if let Some(error) = error
             && timeline.items().iter().any(|item| {
@@ -123,12 +150,17 @@ impl LiveDelivery {
         let Some(timeline) = self.rooms.get_mut(scope) else {
             return false;
         };
-        let Some(body) = timeline
-            .items()
-            .iter()
-            .find(|i| i.transaction_id.as_ref() == Some(transaction_id))
-            .map(|i| i.body.clone())
-        else {
+        let key = (scope.clone(), transaction_id.clone());
+        let Some((body, attachment)) = self.attachments.get(&key).cloned().map_or_else(
+            || {
+                timeline
+                    .items()
+                    .iter()
+                    .find(|i| i.transaction_id.as_ref() == Some(transaction_id))
+                    .map(|i| (i.body.clone(), None))
+            },
+            |(caption, file)| Some((caption, Some(file))),
+        ) else {
             return false;
         };
         if timeline
@@ -148,6 +180,7 @@ impl LiveDelivery {
             scope: scope.clone(),
             transaction_id: transaction_id.clone(),
             body,
+            attachment,
         });
         true
     }
