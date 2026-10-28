@@ -62,6 +62,7 @@ pub use history::{
 mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 mod sidebar;
+pub mod row_text;
 pub use sidebar::{Navigation, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]

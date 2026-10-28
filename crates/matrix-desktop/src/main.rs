@@ -1784,7 +1784,7 @@ impl Render for Shell {
                                             }))
                                             .flex()
                                             .items_center()
-                                            .h(px(68.))
+                                            .h(px(matrix_desktop::row_text::ROW_HEIGHT_PX))
                                             .flex_shrink_0()
                                             .px_4()
                                             .gap_3()
@@ -1808,36 +1808,42 @@ impl Render for Shell {
                                                     .flex_col()
                                                     .flex_1()
                                                     .min_w_0()
-                                                    .gap_1()
+                                                    .gap(px(matrix_desktop::row_text::TEXT_GAP_PX))
                                                     .child(
                                                         div()
                                                             .flex()
-                                                            .justify_between()
+                                                            .items_center()
                                                             .gap_2()
+                                                            .h(px(matrix_desktop::row_text::NAME_LINE_PX))
                                                             .child(
                                                                 div()
-                                                                    .font_weight(
-                                                                        gpui::FontWeight::SEMIBOLD,
-                                                                    )
-                                                                    .child(room.name.clone()),
+                                                                    .flex_1()
+                                                                    .min_w_0()
+                                                                    .truncate()
+                                                                    .text_size(px(matrix_desktop::row_text::NAME_PX))
+                                                                    .line_height(px(matrix_desktop::row_text::NAME_LINE_PX))
+                                                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                                    .child(matrix_desktop::row_text::one_line(&room.name)),
                                                             )
                                                             .child(
                                                                 div()
+                                                                    .flex_shrink_0()
                                                                     .text_size(px(11.))
+                                                                    .line_height(px(matrix_desktop::row_text::NAME_LINE_PX))
                                                                     .text_color(rgb(t.secondary))
                                                                     .when(this.connected && (room.unread > 0 || room.info.marked_unread), |d| d.px_2().rounded_full().bg(rgb(t.accent)).text_color(rgb(t.on_accent)))
                                                                     .child(if this.connected && room.unread > 0 { room.unread.to_string() } else if this.connected && room.info.marked_unread { "•".to_owned() } else { room.time.to_owned() }),
                                                             ),
                                                     )
-                                                    .when(!room.preview.is_empty(), |d| {
-                                                        d.child(
-                                                            div()
-                                                                .text_size(px(12.))
-                                                                .text_color(rgb(t.secondary))
-                                                                .overflow_hidden()
-                                                                .child(room.preview.clone()),
-                                                        )
-                                                    }),
+                                                    .child(
+                                                        div()
+                                                            .h(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
+                                                            .truncate()
+                                                            .text_size(px(matrix_desktop::row_text::PREVIEW_PX))
+                                                            .line_height(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
+                                                            .text_color(rgb(t.secondary))
+                                                            .child(matrix_desktop::row_text::one_line(&room.preview)),
+                                                    ),
                                             )
                                             })
                                             .collect::<Vec<_>>()
