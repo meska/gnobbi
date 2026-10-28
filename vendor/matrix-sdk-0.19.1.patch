@@ -1,25 +1,29 @@
 diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/config/request.rs b/src/config/request.rs
---- a/src/config/request.rs	2026-10-26 18:52:13.535684282 +0000
-+++ b/src/config/request.rs	2026-10-26 18:23:49.000000000 +0000
-@@ -44,6 +44,8 @@
+--- a/src/config/request.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/config/request.rs	2026-10-28 12:52:48.756410991 +0100
+@@ -44,6 +44,10 @@
  pub struct RequestConfig {
      pub(crate) timeout: Option<Duration>,
      pub(crate) read_timeout: Option<Duration>,
 +    #[cfg(not(target_family = "wasm"))]
 +    pub(crate) max_response_size: Option<usize>,
++    #[cfg(not(target_family = "wasm"))]
++    pub(crate) response_progress: Option<&'static std::sync::atomic::AtomicUsize>,
      pub(crate) retry_limit: Option<usize>,
      pub(crate) max_retry_time: Option<Duration>,
      pub(crate) max_concurrent_requests: Option<NonZeroUsize>,
-@@ -57,6 +59,8 @@
+@@ -57,6 +61,10 @@
          let Self {
              timeout,
              read_timeout,
 +            #[cfg(not(target_family = "wasm"))]
 +            max_response_size,
++            #[cfg(not(target_family = "wasm"))]
++            response_progress: _,
              retry_limit,
              max_retry_time: retry_timeout,
              force_auth,
-@@ -71,6 +75,9 @@
+@@ -71,6 +79,9 @@
              .maybe_field("max_retry_time", retry_timeout)
              .maybe_field("max_concurrent_requests", max_concurrent_requests);
  
@@ -29,16 +33,18 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/config/request.r
          if *force_auth {
              res.field("force_auth", &true);
          }
-@@ -88,6 +95,8 @@
+@@ -88,6 +99,10 @@
          Self {
              timeout: Some(DEFAULT_REQUEST_TIMEOUT),
              read_timeout: None,
 +            #[cfg(not(target_family = "wasm"))]
 +            max_response_size: None,
++            #[cfg(not(target_family = "wasm"))]
++            response_progress: None,
              retry_limit: Default::default(),
              max_retry_time: Default::default(),
              max_concurrent_requests: Default::default(),
-@@ -98,6 +107,17 @@
+@@ -98,6 +113,30 @@
  }
  
  impl RequestConfig {
@@ -53,12 +59,25 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/config/request.r
 +        self
 +    }
 +
++    /// Publish the body bytes received so far into `progress` while a size-limited
++    /// response (see [`Self::max_response_size`]) is read. `&'static` keeps the
++    /// config `Copy`; callers leak one atomic per download.
++    #[cfg(not(target_family = "wasm"))]
++    #[must_use]
++    pub fn response_progress(
++        mut self,
++        progress: Option<&'static std::sync::atomic::AtomicUsize>,
++    ) -> Self {
++        self.response_progress = progress;
++        self
++    }
++
      /// Create a new default `RequestConfig`.
      #[must_use]
      pub fn new() -> Self {
 diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/error.rs b/src/error.rs
---- a/src/error.rs	2026-10-26 18:52:13.541684366 +0000
-+++ b/src/error.rs	2026-10-26 18:24:42.000000000 +0000
+--- a/src/error.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/error.rs	2026-10-28 12:52:48.765602862 +0100
 @@ -64,6 +64,13 @@
  /// converting the raw HTTP response into a Matrix response.
  #[derive(Error, Debug)]
@@ -74,8 +93,8 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/error.rs b/src/e
      #[error(transparent)]
      Reqwest(#[from] ReqwestError),
 diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/http_client/native.rs b/src/http_client/native.rs
---- a/src/http_client/native.rs	2026-10-26 18:52:13.549684477 +0000
-+++ b/src/http_client/native.rs	2026-10-26 18:23:49.000000000 +0000
+--- a/src/http_client/native.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/http_client/native.rs	2026-10-28 12:52:48.697263096 +0100
 @@ -75,7 +75,7 @@
          async fn send_request_inner(
              http_client: &reqwest::Client,
@@ -112,7 +131,7 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/http_client/nati
      send_progress: SharedObservable<TransmissionProgress>,
  ) -> Result<http::Response<Bytes>, HttpError> {
      use std::convert::Infallible;
-@@ -277,12 +277,42 @@
+@@ -277,12 +277,48 @@
              reqwest::Request::try_from(request)?
          };
  
@@ -124,7 +143,9 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/http_client/nati
      let response = client.execute(request).await?;
 -    Ok(response_to_http_response(response).await?)
 +    match config.max_response_size {
-+        Some(limit) => bounded_response_to_http_response(response, limit).await,
++        Some(limit) => {
++            bounded_response_to_http_response(response, limit, config.response_progress).await
++        }
 +        None => Ok(response_to_http_response(response).await?),
 +    }
 +}
@@ -132,6 +153,7 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/http_client/nati
 +async fn bounded_response_to_http_response(
 +    mut response: reqwest::Response,
 +    limit: usize,
++    progress: Option<&'static std::sync::atomic::AtomicUsize>,
 +) -> HttpResult<http::Response<Bytes>> {
 +    if response.content_length().is_some_and(|n| n > limit as u64) {
 +        return Err(HttpError::ResponseTooLarge { limit });
@@ -151,6 +173,9 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/http_client/nati
 +            return Err(HttpError::ResponseTooLarge { limit });
 +        }
 +        body.extend_from_slice(&chunk);
++        if let Some(progress) = progress {
++            progress.store(body.len(), Ordering::Relaxed);
++        }
 +    }
 +
 +    Ok(http_builder.body(Bytes::from(body)).expect("Can't construct a response using the given body"))
@@ -158,8 +183,8 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/http_client/nati
  
  struct BytesChunks {
 diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/media.rs b/src/media.rs
---- a/src/media.rs	2026-10-26 18:52:13.551684505 +0000
-+++ b/src/media.rs	2026-10-26 18:44:35.000000000 +0000
+--- a/src/media.rs	2006-07-24 03:21:28.000000000 +0200
++++ b/src/media.rs	2026-10-28 12:52:48.782948189 +0100
 @@ -804,98 +804,110 @@
  #[derive(Debug, Clone)]
  pub struct DefaultMediaFetcher;

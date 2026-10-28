@@ -283,7 +283,9 @@ pub(super) async fn execute_request(
 
     let response = client.execute(request).await?;
     match config.max_response_size {
-        Some(limit) => bounded_response_to_http_response(response, limit).await,
+        Some(limit) => {
+            bounded_response_to_http_response(response, limit, config.response_progress).await
+        }
         None => Ok(response_to_http_response(response).await?),
     }
 }
@@ -291,6 +293,7 @@ pub(super) async fn execute_request(
 async fn bounded_response_to_http_response(
     mut response: reqwest::Response,
     limit: usize,
+    progress: Option<&'static std::sync::atomic::AtomicUsize>,
 ) -> HttpResult<http::Response<Bytes>> {
     if response.content_length().is_some_and(|n| n > limit as u64) {
         return Err(HttpError::ResponseTooLarge { limit });
@@ -310,6 +313,9 @@ async fn bounded_response_to_http_response(
             return Err(HttpError::ResponseTooLarge { limit });
         }
         body.extend_from_slice(&chunk);
+        if let Some(progress) = progress {
+            progress.store(body.len(), Ordering::Relaxed);
+        }
     }
 
     Ok(http_builder.body(Bytes::from(body)).expect("Can't construct a response using the given body"))

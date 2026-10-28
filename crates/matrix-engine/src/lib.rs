@@ -93,6 +93,8 @@ pub mod media;
 pub mod media_sdk;
 pub mod operations;
 #[cfg(all(feature = "sdk", unix))]
+pub mod video_file;
+#[cfg(all(feature = "sdk", unix))]
 pub mod persistence;
 pub mod receipts;
 pub mod rich_text;

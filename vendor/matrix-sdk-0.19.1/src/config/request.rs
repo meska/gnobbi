@@ -46,6 +46,8 @@ pub struct RequestConfig {
     pub(crate) read_timeout: Option<Duration>,
     #[cfg(not(target_family = "wasm"))]
     pub(crate) max_response_size: Option<usize>,
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) response_progress: Option<&'static std::sync::atomic::AtomicUsize>,
     pub(crate) retry_limit: Option<usize>,
     pub(crate) max_retry_time: Option<Duration>,
     pub(crate) max_concurrent_requests: Option<NonZeroUsize>,
@@ -61,6 +63,8 @@ impl Debug for RequestConfig {
             read_timeout,
             #[cfg(not(target_family = "wasm"))]
             max_response_size,
+            #[cfg(not(target_family = "wasm"))]
+            response_progress: _,
             retry_limit,
             max_retry_time: retry_timeout,
             force_auth,
@@ -97,6 +101,8 @@ impl Default for RequestConfig {
             read_timeout: None,
             #[cfg(not(target_family = "wasm"))]
             max_response_size: None,
+            #[cfg(not(target_family = "wasm"))]
+            response_progress: None,
             retry_limit: Default::default(),
             max_retry_time: Default::default(),
             max_concurrent_requests: Default::default(),
@@ -115,6 +121,19 @@ impl RequestConfig {
     #[must_use]
     pub fn max_response_size(mut self, limit: Option<usize>) -> Self {
         self.max_response_size = limit;
+        self
+    }
+
+    /// Publish the body bytes received so far into `progress` while a size-limited
+    /// response (see [`Self::max_response_size`]) is read. `&'static` keeps the
+    /// config `Copy`; callers leak one atomic per download.
+    #[cfg(not(target_family = "wasm"))]
+    #[must_use]
+    pub fn response_progress(
+        mut self,
+        progress: Option<&'static std::sync::atomic::AtomicUsize>,
+    ) -> Self {
+        self.response_progress = progress;
         self
     }
 
