@@ -904,3 +904,92 @@ fn image_bubble_uses_thumbnail_and_keeps_original_a_separate_resource() {
         }
     });
 }
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse"]
+fn disposable_avatar_thumbnails_download_cache_cap_and_logout() {
+    use crate::avatar_cache::{AVATAR_MAX_BYTES, AVATAR_PX, AvatarCache};
+    use image::GenericImageView;
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let png = |w: u32, h: u32, f: &dyn Fn(u32, u32) -> [u8; 3]| {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_fn(w, h, |x, y| image::Rgb(f(x, y))).write_to(&mut out, image::ImageFormat::Png).unwrap();
+        out.into_inner()
+    };
+    let colour = |c: u8| png(400, 400, &move |x, y| [c, (x / 2) as u8, (y / 2) as u8]);
+    let noise = png(400, 400, &|x, y| { let n = x.wrapping_mul(2654435761) ^ y.wrapping_mul(40503) ^ (x * y); [n as u8, (n >> 8) as u8, (n >> 16) as u8] });
+    runtime().block_on(async {
+        let config = fixture();
+        let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap().join("avatars");
+        std::fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let mut session = AccountStore::create(&root, AccountId::new(195)).unwrap().password_login_with_http(
+            HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+            "@alice:matrix-desktop.test", config["alice_password"].as_str().unwrap(),
+            "disposable avatar store passphrase", http(&config),
+        ).await.unwrap();
+        let client = session.client.clone().unwrap();
+        let mime: mime_guess::mime::Mime = "image/png".parse().unwrap();
+        let mut mxcs = vec![client.account().upload_avatar(&mime, colour(10)).await.unwrap().to_string()];
+        for (name, kind) in [("gnobbi-test-room", None), ("gnobbi-test-space", Some("m.space"))] {
+            let mut create = serde_json::json!({"visibility":"private", "name":name});
+            if let Some(kind) = kind { create["creation_content"] = serde_json::json!({"type":kind}); }
+            let id = room_request(&config, "alice", reqwest::Method::POST, "createRoom", create).await["room_id"].as_str().unwrap().to_owned();
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            let room = client.get_room(&matrix_sdk::ruma::RoomId::parse(&id).unwrap()).unwrap();
+            room.upload_avatar(&mime, colour(if kind.is_some() { 200 } else { 100 }), None).await.unwrap();
+            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            mxcs.push(room.avatar_url().unwrap().to_string());
+        }
+        let upload = |data: Vec<u8>| { let client = client.clone(); let mime = mime.clone(); async move { client.media().upload(&mime, data, None).await.unwrap().content_uri.to_string() } };
+        let cache = session.avatar_cache().unwrap();
+        let dir = cache.dir().to_owned();
+
+        // Download: user, room and space avatars arrive as 96x96 thumbnails, not the 400x400 originals.
+        for mxc in &mxcs {
+            let bytes = session.avatar_thumbnail(mxc).await.unwrap().expect("thumbnail");
+            assert_eq!(image::load_from_memory(&bytes).unwrap().dimensions(), (AVATAR_PX, AVATAR_PX));
+            assert!(bytes.len() <= AVATAR_MAX_BYTES);
+        }
+        assert_eq!(cache.downloads(), 3);
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        let files: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).collect();
+        assert_eq!(files.len(), 3);
+        assert!(files.iter().all(|f| mode(f) == 0o600));
+
+        // Cache: a second round does no network request; broken or missing avatars give the initials.
+        for mxc in &mxcs { assert!(session.avatar_thumbnail(mxc).await.unwrap().is_some()); }
+        assert_eq!(cache.downloads(), 3);
+        let server = mxcs[0].trim_start_matches("mxc://").split('/').next().unwrap().to_owned();
+        assert!(session.avatar_thumbnail(&format!("mxc://{server}/doesnotexist")).await.unwrap().is_none());
+        assert!(session.avatar_thumbnail("https://example.invalid/a.png").await.unwrap().is_none());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 3, "failures leave no file");
+
+        // Cap: a thumbnail over the byte cap is cut while received and not stored.
+        let capped = AvatarCache::with_limits(root.join("cap"), 2048, 8, 4);
+        assert!(capped.get(&client, &upload(noise).await).await.is_none());
+        assert_eq!((capped.downloads(), capped.dir().exists()), (1, false));
+        // Cap on entries: the oldest file goes.
+        let few = AvatarCache::with_limits(root.join("few"), AVATAR_MAX_BYTES, 2, 4);
+        for mxc in &mxcs { assert!(few.get(&client, mxc).await.is_some()); }
+        assert_eq!(std::fs::read_dir(few.dir()).unwrap().count(), 2);
+        // Cap on concurrency and no duplicate requests.
+        let mut many = Vec::new();
+        for c in 0..12 { many.push(upload(colour(c)).await); }
+        let narrow = AvatarCache::with_limits(root.join("narrow"), AVATAR_MAX_BYTES, 512, 2);
+        let got = futures_util::future::join_all(many.iter().map(|m| narrow.get(&client, m))).await;
+        assert!(got.iter().all(Option::is_some));
+        assert_eq!(narrow.downloads(), 12);
+        assert!(narrow.peak_concurrent() <= 2, "peak {}", narrow.peak_concurrent());
+        let same = AvatarCache::with_limits(root.join("same"), AVATAR_MAX_BYTES, 512, 4);
+        let got = futures_util::future::join_all((0..8).map(|_| same.get(&client, &many[0]))).await;
+        assert!(got.iter().all(Option::is_some));
+        assert_eq!(same.downloads(), 1);
+
+        // Logout deletes the whole cache; nothing is served afterwards.
+        session.logout().await.unwrap();
+        assert!(!dir.exists());
+        assert!(matches!(session.avatar_thumbnail(&mxcs[0]).await, Err(crate::media::MediaError::LoggedOut)));
+    });
+}

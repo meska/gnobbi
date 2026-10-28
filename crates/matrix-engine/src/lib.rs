@@ -11,6 +11,8 @@ pub use matrix_sdk as sdk;
 pub use matrix_sdk_ui as sdk_ui;
 #[cfg(feature = "sdk")]
 pub mod accounts;
+#[cfg(all(feature = "sdk", unix))]
+pub mod avatar_cache;
 #[cfg(feature = "sdk")]
 pub mod auth;
 #[cfg(feature = "sdk")]

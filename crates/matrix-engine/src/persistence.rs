@@ -35,6 +35,7 @@ pub struct AccountStore {
     pub(crate) account_id: AccountId,
     pub(crate) path: PathBuf,
     _lock: fs::File,
+    pub(crate) avatars: Box<crate::avatar_cache::AvatarCache>,
 }
 
 impl AccountStore {
@@ -230,6 +231,7 @@ impl AccountStore {
         let lock = Self::lock(&path)?;
         Ok(Self {
             account_id,
+            avatars: Box::new(crate::avatar_cache::AvatarCache::new(avatar_dir(&path))),
             path,
             _lock: lock,
         })
@@ -243,6 +245,7 @@ impl AccountStore {
         let lock = Self::lock(&path)?;
         Ok(Self {
             account_id,
+            avatars: Box::new(crate::avatar_cache::AvatarCache::new(avatar_dir(&path))),
             path,
             _lock: lock,
         })
@@ -286,6 +289,10 @@ impl AccountStore {
 
     pub(crate) fn forget(&self) -> Result<(), StoreError> {
         Self::private_directory(&self.path)?;
+        match fs::remove_dir_all(self.avatars.dir()) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(StoreError::Io),
+            _ => (),
+        }
         // The credential goes first, then the whole saved cache (state, crypto, events, media).
         let mut names = vec![std::ffi::OsString::from("session.sealed")];
         for entry in fs::read_dir(&self.path).map_err(|_| StoreError::Io)? {
@@ -377,4 +384,11 @@ impl AccountStore {
         }
         Ok(plain["value"].clone())
     }
+}
+
+/// Beside the account dir, not inside it: that dir may hold regular files only.
+fn avatar_dir(account: &Path) -> PathBuf {
+    let mut name = account.file_name().unwrap_or_default().to_owned();
+    name.push("-avatars");
+    account.with_file_name(name)
 }
