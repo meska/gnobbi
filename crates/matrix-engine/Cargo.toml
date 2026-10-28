@@ -69,3 +69,7 @@ required-features = ["sdk"]
 [[test]]
 name = "thread_timeline"
 required-features = ["threads"]
+
+[[test]]
+name = "thread_qa"
+required-features = ["threads"]

@@ -94,7 +94,7 @@ fn thread_timeline_lists_root_and_replies() {
 
         let timeline = thread_timeline::open(&ra, root.clone()).await.unwrap();
         let start = Instant::now();
-        let bodies = loop {
+        let _bodies = loop {
             // Pagination is the portable read path: a server may not push thread events by sync.
             thread_timeline::load_older(&timeline, 20).await.unwrap();
             let bodies: Vec<_> =
