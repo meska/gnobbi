@@ -15,6 +15,8 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - aho-corasick 1.1.5 — Unlicense OR MIT — https://github.com/BurntSushi/aho-corasick
 - aligned 0.4.3 — MIT OR Apache-2.0 — https://github.com/rust-embedded-community/aligned
 - aligned-vec 0.6.4 — MIT — https://github.com/sarah-ek/aligned-vec/
+- alsa 0.11.0 — Apache-2.0/MIT — https://github.com/diwic/alsa-rs
+- alsa-sys 0.4.0 — MIT — https://github.com/diwic/alsa-sys
 - android_system_properties 0.1.6 — MIT OR Apache-2.0 — https://github.com/nical/android_system_properties
 - anyhow 1.0.104 — MIT OR Apache-2.0 — https://github.com/dtolnay/anyhow
 - anymap2 0.13.0 — MIT/Apache-2.0 — https://github.com/azriel91/anymap2
@@ -145,7 +147,9 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - core-video 0.4.3 — MIT OR Apache-2.0 — https://github.com/rust-media/apple-media-rs
 - core_detect 1.0.0 — MIT/Apache-2.0 — https://github.com/thomcc/core_detect
 - core_maths 0.1.1 — MIT — https://github.com/robertbastian/core_maths
+- coreaudio-rs 0.14.2 — MIT/Apache-2.0 — https://github.com/RustAudio/coreaudio-rs.git
 - cosmic-text 0.14.2 — MIT OR Apache-2.0 — https://github.com/pop-os/cosmic-text
+- cpal 0.18.2 — Apache-2.0 — https://github.com/RustAudio/cpal
 - cpubits 0.1.1 — MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - cpufeatures 0.2.17 — MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - cpufeatures 0.3.1 — MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
@@ -163,6 +167,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - ctutils 0.4.3 — Apache-2.0 OR MIT — https://github.com/RustCrypto/utils
 - curve25519-dalek 5.0.0 — BSD-3-Clause — https://github.com/dalek-cryptography/curve25519-dalek/tree/main/curve25519-dalek
 - curve25519-dalek-derive 0.1.1 — MIT/Apache-2.0 — https://github.com/dalek-cryptography/curve25519-dalek
+- dasp_sample 0.11.0 — MIT OR Apache-2.0 — https://github.com/rustaudio/sample.git
 - data-url 0.3.2 — MIT OR Apache-2.0 — https://github.com/servo/rust-url
 - date_header 1.0.5 — MIT/Apache-2.0 — https://github.com/jayshua/date_header
 - deadpool 0.13.1 — MIT OR Apache-2.0 — https://github.com/deadpool-rs/deadpool
@@ -351,6 +356,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - itoa 1.0.18 — MIT OR Apache-2.0 — https://github.com/dtolnay/itoa
 - jni 0.22.4 — MIT OR Apache-2.0 — https://github.com/jni-rs/jni-rs
 - jni-macros 0.22.4 — MIT OR Apache-2.0 — https://github.com/jni-rs/jni-rs
+- jni-sys 0.3.1 — MIT OR Apache-2.0 — https://github.com/jni-rs/jni-sys
 - jni-sys 0.4.1 — MIT OR Apache-2.0 — https://github.com/jni-rs/jni-sys
 - jni-sys-macros 0.4.1 — MIT OR Apache-2.0 — https://github.com/jni-rs/jni-sys
 - jobserver 0.1.35 — MIT OR Apache-2.0 — https://github.com/rust-lang/jobserver-rs
@@ -386,6 +392,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - lyon_path 1.0.19 — MIT OR Apache-2.0 — https://github.com/nical/lyon
 - lyon_tessellation 1.0.22 — MIT OR Apache-2.0 — https://github.com/nical/lyon
 - mac 0.1.1 — MIT/Apache-2.0 — https://github.com/reem/rust-mac.git
+- mach2 0.6.0 — BSD-2-Clause OR MIT OR Apache-2.0 — https://github.com/JohnTitor/mach2
 - macroific 2.0.0 — Apache-2.0 — https://github.com/Alorel/macroific-rs
 - macroific 3.1.0 — Apache-2.0 — https://github.com/Alorel/macroific-rs
 - macroific_attr_parse 2.0.0 — Apache-2.0 — https://github.com/Alorel/macroific-rs
@@ -428,6 +435,9 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - multiversion_no_op 1.0.0 — Apache-2.0 OR MIT — https://github.com/hsivonen/multiversion_no_op
 - naga 25.0.1 — MIT OR Apache-2.0 — https://github.com/gfx-rs/wgpu/tree/trunk/naga
 - nanorand 0.7.0 — Zlib — https://github.com/Absolucy/nanorand-rs
+- ndk 0.9.0 — MIT OR Apache-2.0 — https://github.com/rust-mobile/ndk
+- ndk-context 0.1.1 — MIT OR Apache-2.0 — https://github.com/rust-windowing/android-ndk-rs
+- ndk-sys 0.6.0+11769913 — MIT OR Apache-2.0 — https://github.com/rust-mobile/ndk
 - new_debug_unreachable 1.0.6 — MIT — https://github.com/mbrubeck/rust-debug-unreachable
 - nix 0.29.0 — MIT — https://github.com/nix-rust/nix
 - nix 0.30.1 — MIT — https://github.com/nix-rust/nix
@@ -448,12 +458,18 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - num-rational 0.4.2 — MIT OR Apache-2.0 — https://github.com/rust-num/num-rational
 - num-traits 0.2.19 — MIT OR Apache-2.0 — https://github.com/rust-num/num-traits
 - num_cpus 1.17.0 — MIT OR Apache-2.0 — https://github.com/seanmonstar/num_cpus
+- num_enum 0.7.6 — BSD-3-Clause OR MIT OR Apache-2.0 — https://github.com/illicitonion/num_enum
+- num_enum_derive 0.7.6 — BSD-3-Clause OR MIT OR Apache-2.0 — https://github.com/illicitonion/num_enum
 - oauth2 5.0.0 — MIT OR Apache-2.0 — https://github.com/ramosbugs/oauth2-rs
 - oauth2-reqwest 0.1.0-alpha.3 — MIT — https://github.com/ramosbugs/oauth2-rs
 - objc 0.2.7 — MIT — http://github.com/SSheldon/rust-objc
 - objc-foundation 0.1.1 — MIT — http://github.com/SSheldon/rust-objc-foundation
 - objc2 0.6.5 — MIT — https://github.com/madsmtm/objc2
 - objc2-app-kit 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
+- objc2-audio-toolbox 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
+- objc2-avf-audio 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
+- objc2-core-audio 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
+- objc2-core-audio-types 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
 - objc2-core-foundation 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
 - objc2-encode 4.1.0 — MIT — https://github.com/madsmtm/objc2
 - objc2-foundation 0.3.2 — MIT — https://github.com/madsmtm/objc2
@@ -511,6 +527,8 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - prost 0.14.4 — Apache-2.0 — https://github.com/tokio-rs/prost
 - prost-derive 0.14.4 — Apache-2.0 — https://github.com/tokio-rs/prost
 - psm 0.1.32 — MIT OR Apache-2.0 — https://github.com/rust-lang/stacker/
+- pulldown-cmark 0.13.5 — MIT — https://github.com/raphlinus/pulldown-cmark
+- pulldown-cmark-escape 0.11.0 — MIT — https://github.com/raphlinus/pulldown-cmark
 - pulp 0.22.3 — MIT — https://github.com/sarah-quinones/pulp/
 - pulp-wasm-simd-flag 0.1.1 — MIT — https://github.com/sarah-quinones/pulp/
 - pxfm 0.1.30 — BSD-3-Clause OR Apache-2.0 — https://github.com/awxkee/pxfm
@@ -797,12 +815,15 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - winapi-x86_64-pc-windows-gnu 0.4.0 — MIT/Apache-2.0 — https://github.com/retep998/winapi-rs
 - windows 0.57.0 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows 0.61.3 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
+- windows 0.62.2 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-capture 1.5.0 — MIT — https://github.com/NiiightmareXD/windows-capture
 - windows-collections 0.2.0 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
+- windows-collections 0.3.2 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-core 0.57.0 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-core 0.61.2 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-core 0.62.2 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-future 0.2.1 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
+- windows-future 0.3.2 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-implement 0.57.0 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-implement 0.60.2 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-interface 0.57.0 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
@@ -810,6 +831,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - windows-link 0.1.3 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-link 0.2.1 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-numerics 0.2.0 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
+- windows-numerics 0.3.1 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-registry 0.4.0 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-registry 0.5.3 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-result 0.1.2 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
@@ -826,6 +848,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - windows-targets 0.52.6 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-targets 0.53.5 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows-threading 0.1.0 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
+- windows-threading 0.2.1 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows_aarch64_gnullvm 0.48.5 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows_aarch64_gnullvm 0.52.6 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
 - windows_aarch64_gnullvm 0.53.1 — MIT OR Apache-2.0 — https://github.com/microsoft/windows-rs
