@@ -5,7 +5,7 @@ use matrix_sdk::ruma::events::room::message::MessageType;
 use matrix_sdk::RoomState;
 use std::{collections::BTreeMap, time::Duration};
 
-pub use crate::{RoomListEvent, RoomSyncStatus};
+pub use crate::{RoomListEvent, RoomSyncStatus, WorkerControl};
 
 #[cfg(test)]
 #[path = "room_sync_tests.rs"]
@@ -39,12 +39,21 @@ pub struct RoomListWorker {
         crate::Receiver<crate::sending::SendResult>,
     )>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    logout: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    done: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<Result<(), ShutdownError>>>,
     history_route: Option<(
         crate::Sender<crate::history::HistoryRequest>,
         crate::Receiver<crate::history::HistoryResult>,
     )>,
 }
+struct DoneOnDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
+impl Drop for DoneOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
 impl Drop for RoomListWorker {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::Release);
@@ -78,6 +87,9 @@ impl RoomListWorker {
         let (verification_results, verification_events) =
             crate::bounded(std::num::NonZeroUsize::new(8).unwrap());
         let cancelled = stop.clone();
+        let logout = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (worker_logout, worker_done) = (logout.clone(), done.clone());
         let (media_commands, mut media_requests) =
             crate::bounded::<crate::media::MediaCommand>(std::num::NonZeroUsize::new(2).unwrap());
         let (mut media_results, media_events) =
@@ -85,6 +97,8 @@ impl RoomListWorker {
         let thread = std::thread::Builder::new()
             .name("matrix-room-sync".into())
             .spawn(move || {
+                // Declared first, so it drops after the runtime and the session.
+                let _done = DoneOnDrop(worker_done);
                 let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
@@ -449,6 +463,11 @@ impl RoomListWorker {
                         media_task.abort();
                         let _ = media_task.await;
                     }
+                    if worker_logout.load(std::sync::atomic::Ordering::Acquire) {
+                        let _ =
+                            tokio::time::timeout(Duration::from_secs(15), sync.session.logout())
+                                .await;
+                    }
                     drop(sync);
                     drained
                 })
@@ -460,11 +479,17 @@ impl RoomListWorker {
                 operation_route: Some((operation_commands, operation_events)),
                 send_route: Some((send_commands, send_events)),
                 stop,
+                logout,
+                done,
                 thread: Some(thread),
                 history_route: Some((history_commands, history_events)),
             },
             receiver,
         ))
+    }
+
+    pub fn control(&self) -> WorkerControl {
+        WorkerControl::new(self.stop.clone(), self.logout.clone(), self.done.clone())
     }
 
     /// Single-owner, bounded two-command media route.

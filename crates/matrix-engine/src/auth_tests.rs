@@ -2019,6 +2019,47 @@ fn disposable_remotely_revoked_session_can_be_cleared() {
 
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_worker_logout_and_stop_revokes_only_its_session() {
+    use crate::room_sync::RoomListWorker;
+    let config = fixture();
+    let (token_tx, token_rx) = std::sync::mpsc::channel();
+    let worker_config = config.clone();
+    let (worker, _events) = RoomListWorker::spawn(move || async move {
+        let session = login(&worker_config, "alice", 30).await;
+        let _ = token_tx.send(session.client.as_ref().unwrap().access_token().unwrap());
+        Ok(session)
+    })
+    .unwrap();
+    let token = token_rx
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("worker signed in");
+    runtime().block_on(async {
+        assert_eq!(token_status(&config, &token).await, 200);
+    });
+    let control = worker.control();
+    control.logout_and_stop();
+    let start = std::time::Instant::now();
+    while !control.is_done() {
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(60),
+            "worker ends"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let _ = worker.shutdown();
+    runtime().block_on(async {
+        assert_eq!(token_status(&config, &token).await, 401);
+        for other in ["alice_token", "bob_token"] {
+            assert_eq!(
+                token_status(&config, config[other].as_str().unwrap()).await,
+                200
+            );
+        }
+    });
+}
+
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
 fn disposable_logout_revokes_only_this_session() {
     let config = fixture();
     runtime().block_on(async {

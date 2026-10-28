@@ -93,6 +93,8 @@ pub struct AccountState {
     pub delivery: LiveDelivery,
     pub operations: LiveOperations,
     pub media: LiveMedia,
+    /// Ends this account's worker (removal); None when it is not ours to end.
+    pub control: Option<matrix_engine::WorkerControl>,
 }
 
 impl AccountState {
@@ -112,6 +114,7 @@ impl AccountState {
             delivery: LiveDelivery::new(),
             operations: LiveOperations::default(),
             media: LiveMedia::default(),
+            control: None,
         }
     }
 

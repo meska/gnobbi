@@ -108,6 +108,8 @@ pub mod signin;
 pub mod vault;
 pub use generation::{GenerationExhausted, RequestTag, ViewRequests};
 mod channel;
+mod worker_control;
+pub use worker_control::WorkerControl;
 pub use channel::{Receiver, Sender, TryReceiveError, TrySendError, bounded};
 use matrix_domain::{EventId, RoomScope, TimelineUpdate, TransactionId};
 

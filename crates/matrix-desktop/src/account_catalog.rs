@@ -193,6 +193,13 @@ impl AccountCatalog {
         true
     }
 
+    /// Drops the entry (its ID is never reused). The caller deletes the dirs and saves.
+    pub fn remove(&mut self, id: AccountId) -> bool {
+        let before = self.accounts.len();
+        self.accounts.retain(|a| a.id != id);
+        self.accounts.len() != before
+    }
+
     fn allocate(&mut self) -> AccountId {
         let id = AccountId::new(self.next_id);
         self.next_id += 1;

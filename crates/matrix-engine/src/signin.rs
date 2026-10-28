@@ -348,6 +348,31 @@ pub fn platform_source() -> Option<Box<dyn ProtectionSource + Send + Sync>> {
     #[allow(unreachable_code)]
     None
 }
+/// Deletes from the OS vault everything kept for one account: its stable-ID item and the
+/// path-keyed item of each of its stores. Already absent items are fine; blocking.
+pub fn forget_secrets(id: AccountId, stores: &[PathBuf]) -> Result<(), VaultError> {
+    #[cfg(all(feature = "linux-vault", target_os = "linux"))]
+    {
+        crate::vault::delete_account_secret(id)?;
+        stores
+            .iter()
+            .try_for_each(|s| crate::vault::delete_store_secret(s))
+    }
+    #[cfg(all(feature = "mac-vault", target_os = "macos"))]
+    {
+        let keychain = crate::keychain::AccountKeychain::new();
+        keychain.delete(id)?;
+        stores.iter().try_for_each(|s| keychain.delete_store(s))
+    }
+    #[cfg(not(any(
+        all(feature = "linux-vault", target_os = "linux"),
+        all(feature = "mac-vault", target_os = "macos")
+    )))]
+    {
+        let _ = (id, stores);
+        Ok(())
+    }
+}
 fn route(
     root: PathBuf,
     trust_root: Option<Vec<u8>>,

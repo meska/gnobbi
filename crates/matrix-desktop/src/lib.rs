@@ -20,6 +20,8 @@ pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
 mod account_catalog;
+mod account_erase;
+pub use account_erase::erase_account;
 mod account_list;
 mod account_state;
 pub use account_state::{AccountRoutes, AccountState, Drained};

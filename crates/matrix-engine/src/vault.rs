@@ -122,10 +122,19 @@ pub fn read_account_secret(id: AccountId) -> Result<Secret, VaultError> {
 
 /// Removes only this account's item; an already absent item is fine.
 pub fn delete_account_secret(id: AccountId) -> Result<(), VaultError> {
+    delete_key(&Key::Account(id))
+}
+
+/// Removes the path-keyed item of one account store; an already absent item is fine.
+pub fn delete_store_secret(path: &std::path::Path) -> Result<(), VaultError> {
+    delete_key(&Key::Store(path))
+}
+
+fn delete_key(key: &Key) -> Result<(), VaultError> {
     let service =
         secret_service::blocking::SecretService::connect(secret_service::EncryptionType::Dh)
             .map_err(|_| VaultError::Unavailable)?;
-    let pairs = attributes("gnobbi", &Key::Account(id))?;
+    let pairs = attributes("gnobbi", key)?;
     let items = service
         .search_items(as_map(&pairs))
         .map_err(|_| VaultError::Unavailable)?;

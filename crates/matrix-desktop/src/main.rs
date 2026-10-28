@@ -1,3 +1,4 @@
+mod account_remove;
 mod account_switch;
 mod compact_view;
 mod composer_view;
@@ -110,6 +111,11 @@ struct Shell {
     routes: matrix_desktop::AccountRoutes,
     /// Accounts running in the background, by catalog ID; only the shown one has its state in this struct.
     parked: HashMap<AccountId, matrix_desktop::AccountState>,
+    /// Ends the shown account's worker.
+    control: Option<matrix_engine::WorkerControl>,
+    /// Account the drawer asks to remove, until confirmed or cancelled.
+    confirm_removal: Option<AccountId>,
+    removals: Vec<account_remove::Removal>,
     /// Catalog ID of the shown account (unknown until a new sign-in is recorded).
     active_id: Option<AccountId>,
     verification: matrix_desktop::DeviceVerification,
@@ -2210,6 +2216,10 @@ fn main() {
         Vec<(AccountId, matrix_desktop::AccountState)>,
         Option<AccountId>,
     ) = (vec![], None);
+    #[cfg(all(feature = "live", unix))]
+    let mut active_control = worker.as_ref().map(|w| w.control());
+    #[cfg(not(all(feature = "live", unix)))]
+    let mut active_control: Option<matrix_engine::WorkerControl> = None;
     let notification_worker = connected
         .then(matrix_desktop::notifications::NotificationWorker::spawn)
         .and_then(Result::ok);
@@ -2322,8 +2332,9 @@ fn main() {
                                     deliveries,
                                     pages,
                                     closed,
-                                }) = this.update(cx, |this: &mut Shell, _| {
+                                }) = this.update(cx, |this: &mut Shell, cx| {
                                     this.pump_parked();
+                                    this.finish_removals(cx);
                                     this.routes.drain()
                                 }) else {
                                     break;
@@ -2645,6 +2656,9 @@ fn main() {
                         media: matrix_desktop::LiveMedia::default(),
                         routes: std::mem::take(&mut routes),
                         parked: background.drain(..).collect(),
+                        control: active_control.take(),
+                        confirm_removal: None,
+                        removals: vec![],
                         active_id,
                         verification: matrix_desktop::DeviceVerification::new(account_id),
                         verification_open: false,

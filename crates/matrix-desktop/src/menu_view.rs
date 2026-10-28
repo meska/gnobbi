@@ -21,6 +21,7 @@ impl Shell {
             self.accounts = matrix_desktop::AccountCatalog::load(dirs);
         }
         self.settings_open = false;
+        self.confirm_removal = None;
         self.drawer_row = 0;
         if open {
             self.drawer_focus.focus(window)
@@ -64,29 +65,43 @@ impl Shell {
     /// and its account stay connected. The new window registers itself once it is signed in.
     #[cfg(unix)]
     pub(crate) fn add_account(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.launch_signin() {
+            self.set_menu_open(false, window, cx);
+        }
+    }
+
+    /// Spawns the sign-in window for the next free profile folder; false when it cannot start.
+    #[cfg(unix)]
+    pub(crate) fn launch_signin(&self) -> bool {
         let (Some(dirs), Some((_, ca_file))) = (&self.prefs_dirs, &self.account_root) else {
-            return;
+            return false;
         };
         let catalog = matrix_desktop::AccountCatalog::load(dirs);
         let root = catalog.next_root(dirs);
         if catalog.is_damaged() || matrix_desktop::create_private_dir(&root).is_err() {
-            return;
+            return false;
         }
         let mut command = std::process::Command::new(std::env::current_exe().unwrap_or_default());
         command.arg("--signin").arg(&root);
         if let Some(ca) = ca_file {
             command.arg("--ca-file").arg(ca);
         }
-        if let Ok(mut child) = command.spawn() {
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
-        }
-        self.set_menu_open(false, window, cx);
+        let Ok(mut child) = command.spawn() else {
+            return false;
+        };
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+        true
     }
 
     #[cfg(not(unix))]
     pub(crate) fn add_account(&mut self, _: &mut Window, _: &mut Context<Self>) {}
+
+    #[cfg(not(unix))]
+    pub(crate) fn launch_signin(&self) -> bool {
+        false
+    }
 
     /// Runs before every other key handler; true when the key was consumed.
     pub(crate) fn menu_key(
@@ -99,6 +114,15 @@ impl Shell {
         let m = &key.modifiers;
         if self.connected && m.control && m.shift && key.key == "m" {
             self.set_menu_open(!self.menu_open, window, cx);
+            return true;
+        }
+        if self.menu_open && self.confirm_removal.is_some() {
+            match key.key.as_str() {
+                "escape" => self.confirm_removal = None,
+                "enter" => self.remove_account(window, cx),
+                _ => return true,
+            }
+            cx.notify();
             return true;
         }
         if self.menu_open {
@@ -119,6 +143,10 @@ impl Shell {
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }
+                "delete" if !self.settings_open && self.drawer_row < accounts.len() => {
+                    self.confirm_removal = Some(accounts[self.drawer_row].id);
+                    cx.notify();
+                }
                 // The drawer holds one focus stop; Up/Down/Tab move between its rows.
                 "tab" if self.settings_open => self.settings_focus.focus(window),
                 "up" | "down" | "tab" => {
@@ -130,7 +158,10 @@ impl Shell {
                 }
                 _ => (),
             }
-            return matches!(key.key.as_str(), "escape" | "tab" | "up" | "down") || activate;
+            return matches!(
+                key.key.as_str(),
+                "escape" | "tab" | "up" | "down" | "delete"
+            ) || activate;
         }
         if !m.modified()
             && matches!(key.key.as_str(), "enter" | "space")
@@ -233,6 +264,7 @@ impl Shell {
                         |d, delta| d.left(px(-DRAWER_WIDTH * (1. - delta))),
                     ),
             )
+            .children(self.render_removal_dialog(t, cx))
             .into_any_element()
     }
 

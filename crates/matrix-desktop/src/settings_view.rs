@@ -51,7 +51,9 @@ impl Shell {
         let current = shown
             .and_then(|a| a.user_id.as_deref())
             .or_else(|| self.verification.profile().map(|(id, _)| id.as_str()));
-        matrix_desktop::account_rows(&self.accounts, current)
+        let mut rows = matrix_desktop::account_rows(&self.accounts, current);
+        rows.retain(|a| !self.removals.iter().any(|r| r.id == a.id));
+        rows
     }
 
     /// One row per catalog account (avatar, name, user ID); a dot marks the shown account and a
@@ -117,15 +119,30 @@ impl Shell {
                                 )
                             }),
                     )
-                    .when(a.current, |d| {
-                        d.child(
-                            div()
-                                .size(px(8.))
-                                .flex_shrink_0()
-                                .rounded_full()
-                                .bg(rgb(t.accent)),
-                        )
-                    })
+                    .child(
+                        div()
+                            .id(("menu-account-remove", a.id.as_u64() as usize))
+                            .flex_shrink_0()
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .cursor_pointer()
+                            .text_size(px(18.))
+                            .text_color(rgb(t.secondary))
+                            .child("×")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.confirm_removal = Some(id);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .size(px(8.))
+                            .flex_shrink_0()
+                            .rounded_full()
+                            .when(a.current, |d| d.bg(rgb(t.accent))),
+                    )
                     .into_any_element()
             })
             .collect()

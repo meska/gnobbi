@@ -75,10 +75,9 @@ pub(crate) fn start_background(
             send: worker.take_send_route(),
             history: worker.take_history_route(),
         };
-        accounts.push((
-            entry.id,
-            AccountState::new(store_id, Some((root, ca_file.clone())), routes),
-        ));
+        let mut state = AccountState::new(store_id, Some((root, ca_file.clone())), routes);
+        state.control = Some(worker.control());
+        accounts.push((entry.id, state));
         workers.push(worker);
     }
     (workers, accounts, active)
@@ -125,6 +124,7 @@ impl Shell {
             delivery: std::mem::take(&mut *self.delivery.borrow_mut()),
             operations: std::mem::take(&mut *self.operations.borrow_mut()),
             media: std::mem::take(&mut self.media),
+            control: self.control.take(),
         }
     }
 
@@ -142,6 +142,7 @@ impl Shell {
         *self.delivery.borrow_mut() = state.delivery;
         *self.operations.borrow_mut() = state.operations;
         self.media = state.media;
+        self.control = state.control;
     }
 
     /// Whether `id` is another account that can be shown now.

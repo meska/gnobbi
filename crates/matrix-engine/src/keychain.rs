@@ -201,6 +201,18 @@ impl AccountKeychain {
         Ok(())
     }
 
+    /// Removes the path-keyed item of one account store; an already absent item is fine.
+    pub fn delete_store(&self, path: &std::path::Path) -> Result<(), VaultError> {
+        let _no_prompt = SecKeychain::disable_user_interaction().map_err(|e| classify(&e))?;
+        let name = path.to_str().ok_or(VaultError::Unavailable)?;
+        match self.keychain()?.find_generic_password(SERVICE, name) {
+            Ok((_, item)) => item.delete(),
+            Err(e) if classify(&e) == VaultError::Missing => {}
+            Err(e) => return Err(classify(&e)),
+        }
+        Ok(())
+    }
+
     /// Copies the single path-keyed item of the old install to the account's own item (the
     /// first account of the catalog); the original stays. No-op when the account has one.
     pub fn migrate_store_secret(

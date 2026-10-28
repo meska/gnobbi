@@ -2,7 +2,7 @@ use crate::{
     persistence::AccountStore,
     vault::{
         ProtectionVault, VaultError, create_account_secret, delete_account_secret,
-        migrate_store_secret, read_account_secret,
+        delete_store_secret, migrate_store_secret, read_account_secret,
     },
 };
 use matrix_domain::AccountId;
@@ -205,4 +205,34 @@ fn per_account_items_are_isolated_and_the_old_item_migrates() {
     delete_account_secret(two).unwrap();
     assert!(matches!(read_account_secret(two), Err(VaultError::Missing)));
     assert_eq!(read_account_secret(one).unwrap().0.as_str(), old.0.as_str());
+}
+
+#[test]
+#[ignore = "requires disposable Secret Service on an isolated bus"]
+fn forgetting_an_account_removes_its_two_items_and_no_other() {
+    let (one, two) = (AccountId::new(11), AccountId::new(12));
+    let (root_one, root_two) = (private_root("forget-one"), private_root("forget-two"));
+    let store_one = AccountStore::create(&root_one, AccountId::new(1)).unwrap();
+    let store_two = AccountStore::create(&root_two, AccountId::new(1)).unwrap();
+    create_account_secret(one).unwrap();
+    let kept = create_account_secret(two).unwrap();
+    ProtectionVault::new(&store_one).create().unwrap();
+    let kept_store = ProtectionVault::new(&store_two).create().unwrap();
+    crate::signin::forget_secrets(one, std::slice::from_ref(&store_one.path)).unwrap();
+    assert!(matches!(read_account_secret(one), Err(VaultError::Missing)));
+    assert!(matches!(
+        ProtectionVault::new(&store_one).read(),
+        Err(VaultError::Missing)
+    ));
+    assert_eq!(
+        read_account_secret(two).unwrap().0.as_str(),
+        kept.0.as_str()
+    );
+    assert_eq!(
+        ProtectionVault::new(&store_two).read().unwrap().0.as_str(),
+        kept_store.0.as_str()
+    );
+    crate::signin::forget_secrets(one, std::slice::from_ref(&store_one.path)).unwrap();
+    delete_account_secret(two).unwrap();
+    delete_store_secret(&store_two.path).unwrap();
 }
