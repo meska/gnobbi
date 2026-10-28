@@ -1,0 +1,66 @@
+GNOBBI — VERSIONE DI TEST PER WINDOWS
+=====================================
+
+Grazie per provare Gnobbi, il programma di chat per Matrix. Questa e' una
+versione di test: incompleta e con difetti noti, serve a raccogliere
+commenti prima del rilascio pubblico.
+
+REQUISITI
+- Windows 10 o Windows 11 a 64 bit.
+- Un account Matrix (server, nome utente e password). Se non sai cosa sia,
+  chiedi a chi ti ha dato questo pacchetto.
+
+INSTALLAZIONE
+1. Estrai lo ZIP in una cartella qualsiasi (per esempio Documenti\Gnobbi).
+2. Non c'e' niente da installare: il programma e' il file gnobbi.exe.
+
+Al primo avvio Windows puo' mostrare l'avviso "Windows ha protetto il
+computer" perche' l'eseguibile non e' firmato: clicca "Ulteriori
+informazioni" e poi "Esegui comunque".
+
+PRIMO AVVIO E ACCESSO
+1. Avvia gnobbi.exe: compare la schermata "Accedi a Gnobbi".
+2. Inserisci il server Matrix (homeserver), il tuo ID Matrix completo e la
+   password, poi conferma con "Accedi".
+3. Ai riavvii successivi l'account viene ripristinato da solo: la password
+   non viene chiesta di nuovo.
+
+DOVE VENGONO SALVATI I DATI
+- Impostazioni ed elenco account:
+  %APPDATA%\Gnobbi
+  (per esempio C:\Users\<tuo-nome>\AppData\Roaming\Gnobbi)
+- Profili, messaggi e cache:
+  %LOCALAPPDATA%\Gnobbi
+  (per esempio C:\Users\<tuo-nome>\AppData\Local\Gnobbi)
+- Le chiavi che proteggono i dati sono nel Gestore credenziali di Windows
+  (Pannello di controllo -> Gestore credenziali -> Credenziali generiche,
+  voci che iniziano per "gnobbi").
+La password del tuo account Matrix non viene mai salvata sul disco.
+
+PER RIMUOVERE TUTTO
+1. Chiudi Gnobbi ed elimina la cartella dove hai estratto lo ZIP.
+2. Elimina le cartelle %APPDATA%\Gnobbi e %LOCALAPPDATA%\Gnobbi.
+3. Dal Gestore credenziali elimina le voci generiche che iniziano per
+   "gnobbi".
+
+COME SEGNALARE PROBLEMI
+Scrivi a chi ti ha fornito il pacchetto, indicando:
+- cosa facevi e cosa e' successo, passo per passo;
+- il testo esatto di eventuali messaggi di errore;
+- uno screenshot, se possibile;
+- se il problema si ripete sempre o solo a volte.
+Per privacy non inviare screenshot con contenuti sensibili di chat.
+
+LIMITI NOTI (non serve segnalarli)
+- L'eseguibile non e' firmato: compare l'avviso di Windows gia' descritto.
+- L'icona del file e' quella generica di Windows.
+- Non e' ancora utilizzabile con screen reader e lettori di schermo
+  (l'accessibilita' via UI Automation non e' implementata su Windows).
+- Un messaggio ricevuto con molte citazioni annidate una dentro l'altra
+  puo' chiudere improvvisamente il programma: riavvia e segnalalo se ti
+  capita.
+- Le notifiche sono spente per impostazione predefinita: si attivano dal
+  pannello Notifiche di ogni account.
+- Il testo digitato ma non inviato (la bozza) si perde chiudendo il
+  programma.
+- I video si aprono nel lettore video di Windows, non dentro l'app.

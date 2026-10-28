@@ -2080,7 +2080,8 @@ fn main() {
         bundled.unwrap_or(args)
     };
     // Without `live` there is no connected sign-in to open: the bare launch stays the offline fixture.
-    #[cfg(all(target_os = "linux", feature = "live", not(test)))]
+    // Windows tester builds launch like Linux: a double-click opens the sign-in, not the offline demo.
+    #[cfg(all(any(target_os = "linux", target_os = "windows"), feature = "live", not(test)))]
     let args = matrix_desktop::linux_launch_args(&args);
     #[cfg(feature = "live")]
     let legacy_offer = (args.first().is_some_and(|a| a == "--signin")
