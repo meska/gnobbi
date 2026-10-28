@@ -51,7 +51,8 @@ impl Shell {
         let current = shown
             .and_then(|a| a.user_id.as_deref())
             .or_else(|| self.verification.profile().map(|(id, _)| id.as_str()));
-        let mut rows = matrix_desktop::account_rows(&self.accounts, current);
+        let mut rows =
+            matrix_desktop::account_rows(&self.accounts, current, &self.account_counts());
         rows.retain(|a| !self.removals.iter().any(|r| r.id == a.id));
         rows
     }
@@ -119,6 +120,22 @@ impl Shell {
                                 )
                             }),
                     )
+                    .when(a.unread > 0, |d| {
+                        d.child(
+                            div()
+                                .flex_shrink_0()
+                                .rounded_full()
+                                .px_2()
+                                .text_size(px(11.))
+                                .bg(rgb(if a.mentions > 0 { t.accent } else { t.disabled }))
+                                .text_color(rgb(if a.mentions > 0 { t.on_accent } else { t.text }))
+                                .child(if a.unread > 99 {
+                                    "99+".to_string()
+                                } else {
+                                    a.unread.to_string()
+                                }),
+                        )
+                    })
                     .child(
                         div()
                             .id(("menu-account-remove", a.id.as_u64() as usize))

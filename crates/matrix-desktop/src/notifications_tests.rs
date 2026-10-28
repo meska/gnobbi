@@ -68,7 +68,7 @@ fn isolated_os_notification_roundtrip() {
     let bus = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
     assert_eq!(std::env::var("MATRIX_NOTIFICATION_TEST_BUS").unwrap(), bus);
     let expected = std::env::var("MATRIX_NOTIFICATION_EXPECT").unwrap();
-    let result = deliver_os(alert());
+    let result = deliver_os(alert(), &Click::default());
     if expected == "timeout" {
         assert_eq!(result, Err(NotificationError::Timeout));
     } else if expected == "unavailable" {
@@ -128,4 +128,42 @@ fn macos_alert_passes_text_only_as_argv_never_inside_the_script() {
     assert!(script.contains("display notification (item 2 of argv) with title (item 1 of argv)"));
     assert!(!script.contains("Gnobbi") && !script.contains("Nuovi messaggi"));
     assert_eq!(&args[script_end + 1..], ["Gnobbi", "Nuovi messaggi"]);
+}
+
+#[test]
+fn delivered_alert_names_its_account_and_a_click_is_handed_back_once() {
+    let click = Click::default();
+    let slot = click.clone();
+    let (sender, receiver) = mpsc::channel();
+    let worker = NotificationWorker::spawn_clicks(click, move |notification| {
+        let (account, scope) = notification.target();
+        sender
+            .send((notification.title().to_owned(), account))
+            .unwrap();
+        // What the OS adapter does when the user clicks the alert.
+        *slot.lock().unwrap() = Some((account, scope.clone()));
+        Ok(())
+    })
+    .unwrap();
+    let handle = worker.handle();
+    assert!(handle.take_click().is_none());
+    let alert = alert().from_account(AccountId::new(7), "gnobbi-test-bob".into());
+    assert!(handle.submit(alert));
+    let (title, account) = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(
+        (title.as_str(), account),
+        ("gnobbi-test-bob", Some(AccountId::new(7)))
+    );
+    let end = std::time::Instant::now() + Duration::from_secs(2);
+    let clicked = loop {
+        if let Some(c) = handle.take_click() {
+            break c;
+        }
+        assert!(std::time::Instant::now() < end);
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    assert_eq!(clicked.0, Some(AccountId::new(7)));
+    assert_eq!(clicked.1.room_id, RoomId::new("!secret:fixture.invalid"));
+    assert!(handle.take_click().is_none(), "a click is taken once");
+    worker.shutdown().unwrap();
 }

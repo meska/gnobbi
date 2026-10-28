@@ -154,3 +154,54 @@ fn drafts_follow_the_account_even_when_both_report_the_same_account_and_room_id(
     drafts.switch(b, &mut editor);
     assert_eq!(editor.text(), "bozza di bob");
 }
+
+fn room(account: u64, id: &str, unread: u64, mentions: u64) -> RoomListEvent {
+    RoomListEvent::Diff(RoomListDiff::Upsert(RoomSummary {
+        scope: scope(account, id),
+        name: id.to_owned(),
+        unread,
+        info: matrix_engine::RoomInfo {
+            mentions,
+            ..Default::default()
+        },
+    }))
+}
+
+#[test]
+fn each_account_counts_its_own_unread_from_its_own_sync() {
+    let (mut a, mut a_tx) = account(8);
+    let (mut b, mut b_tx) = account(8);
+    assert_eq!(a.unread(), (0, 0));
+    assert!(a_tx.try_send(room(1, "!x:test", 3, 1)).is_ok());
+    assert!(a_tx.try_send(room(1, "!y:test", 2, 0)).is_ok());
+    assert!(b_tx.try_send(room(1, "!x:test", 7, 4)).is_ok());
+    a.pump();
+    b.pump();
+    // Same engine account ID and room ID in both: nothing is shared.
+    assert_eq!((a.unread(), b.unread()), ((5, 1), (7, 4)));
+    // A later sync of one account moves only that account's badge.
+    assert!(a_tx.try_send(room(1, "!x:test", 0, 0)).is_ok());
+    a.pump();
+    assert_eq!((a.unread(), b.unread()), ((2, 0), (7, 4)));
+}
+
+#[test]
+fn an_alert_from_a_background_account_opens_that_room_when_the_account_is_shown() {
+    let (mut state, mut tx) = account(8);
+    state.notifications.set_enabled(true);
+    assert!(tx.try_send(room(1, "!x:test", 0, 0)).is_ok());
+    assert!(tx.try_send(room(1, "!y:test", 0, 0)).is_ok());
+    state.pump();
+    assert!(tx.try_send(room(1, "!y:test", 1, 0)).is_ok());
+    let alerts = state.pump();
+    let (account_id, target) = alerts[0].target();
+    assert_eq!((account_id, target), (None, &scope(1, "!y:test")));
+    assert_ne!(
+        state.sidebar.selected().map(|r| &r.scope),
+        Some(target),
+        "the room is not open yet"
+    );
+    assert!(state.open_room(target));
+    assert_eq!(state.sidebar.selected().unwrap().scope, scope(1, "!y:test"));
+    assert!(!state.open_room(&scope(1, "!gone:test")), "unknown room");
+}

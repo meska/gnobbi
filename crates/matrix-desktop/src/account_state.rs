@@ -3,7 +3,7 @@
 //! syncing (`pump`) so no bounded route ever fills up and stalls its worker.
 use crate::{DeviceVerification, LiveDelivery, LiveMedia, LiveOperations, Sidebar};
 use matrix_domain::{
-    AccountId,
+    AccountId, RoomScope,
     notifications::{Notification, NotificationPolicy},
 };
 use matrix_engine::{
@@ -124,6 +124,17 @@ impl AccountState {
         self.sidebar.set_query("");
         self.media.clear();
         self.operations.clear_selection();
+    }
+
+    /// Unread messages and mentions over all rooms of the account.
+    pub fn unread(&self) -> (u64, u64) {
+        let all = &self.sidebar.navigation_entries()[0];
+        (all.unread, all.mentions)
+    }
+
+    /// Selects `scope` so the room is open when the account is shown. False when it is not listed.
+    pub fn open_room(&mut self, scope: &RoomScope) -> bool {
+        self.sidebar.select(scope)
     }
 
     /// One tick of a parked account: apply what its worker sent and send what is queued.

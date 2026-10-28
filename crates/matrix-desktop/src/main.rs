@@ -2436,7 +2436,7 @@ fn main() {
                                                                 && let Some(handle) =
                                                                     &this.notification_handle
                                                             {
-                                                                handle.submit(alert);
+                                                                handle.submit(Shell::alert_from(&this.accounts, this.active_id, alert));
                                                             }
                                                         }
                                                         matrix_engine::RoomListDiff::Remove(
@@ -2588,6 +2588,14 @@ fn main() {
                             }
                         }).detach();
                     }
+                    cx.spawn_in(window, async move |this, cx| {
+                        loop {
+                            cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
+                            if this.update_in(cx, |this, window, cx| this.open_clicked_alert(window, cx)).is_err() {
+                                break;
+                            }
+                        }
+                    }).detach();
                     cx.observe_window_bounds(window, |this: &mut Shell, window, cx| {
                         this.navigation_wide = window.viewport_size().width >= px(800.);
                         this.refresh_navigation_visibility();

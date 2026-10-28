@@ -13,9 +13,9 @@ fn dirs() -> AppDirs {
 #[test]
 fn one_two_three_accounts_in_catalog_order_with_current_marked() {
     let mut c = AccountCatalog::default();
-    assert!(account_rows(&c, None).is_empty());
+    assert!(account_rows(&c, None, &Default::default()).is_empty());
     c.add("@ada:x.org", "https://x.org", "Ada");
-    let rows = account_rows(&c, Some("@ada:x.org"));
+    let rows = account_rows(&c, Some("@ada:x.org"), &Default::default());
     assert_eq!(rows.len(), 1);
     assert_eq!(
         (
@@ -27,7 +27,7 @@ fn one_two_three_accounts_in_catalog_order_with_current_marked() {
     );
     c.add("@bob:x.org", "https://x.org", "");
     c.add("@cy:y.org", "https://y.org", "Cy");
-    let rows = account_rows(&c, Some("@bob:x.org"));
+    let rows = account_rows(&c, Some("@bob:x.org"), &Default::default());
     let seen: Vec<_> = rows
         .iter()
         .map(|r| (r.name.as_str(), r.user_id.as_str(), r.current))
@@ -68,10 +68,13 @@ fn login_fills_the_adopted_legacy_entry_in_place() {
     std::fs::write(d.data.join("profile/account-1/s"), b"x").unwrap();
     let mut c = AccountCatalog::default();
     assert!(c.migrate_legacy(&d));
-    assert!(account_rows(&c, None).is_empty());
+    assert!(account_rows(&c, None, &Default::default()).is_empty());
     assert!(c.record_login(&d, &d.data.join("profile"), "@ada:x.org", "Ada"));
     assert_eq!(c.accounts().len(), 1);
-    assert_eq!(account_rows(&c, Some("@ada:x.org"))[0].name, "Ada");
+    assert_eq!(
+        account_rows(&c, Some("@ada:x.org"), &Default::default())[0].name,
+        "Ada"
+    );
 }
 
 #[test]
@@ -86,4 +89,19 @@ fn first_login_on_a_fresh_install_is_listed() {
     let next = c.next_root(&d);
     assert!(c.record_login(&d, &next, "@bob:x.org", "Bob"));
     assert_eq!(c.accounts().len(), 2);
+}
+
+#[test]
+fn each_row_carries_the_counts_of_its_own_account() {
+    use matrix_domain::AccountId;
+    let mut c = AccountCatalog::default();
+    c.add("@ada:x.org", "https://x.org", "Ada");
+    c.add("@bob:x.org", "https://x.org", "Bob");
+    let (ada, bob) = (c.accounts()[0].id, c.accounts()[1].id);
+    let mut counts = std::collections::HashMap::new();
+    counts.insert(bob, (5, 2));
+    counts.insert(AccountId::new(999), (9, 9)); // not in the catalog: ignored
+    let rows = account_rows(&c, Some("@ada:x.org"), &counts);
+    assert_eq!((rows[0].id, rows[0].unread, rows[0].mentions), (ada, 0, 0));
+    assert_eq!((rows[1].id, rows[1].unread, rows[1].mentions), (bob, 5, 2));
 }

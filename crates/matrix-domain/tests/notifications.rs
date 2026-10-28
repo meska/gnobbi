@@ -99,3 +99,17 @@ fn notifications_are_off_by_default_even_when_unread_increases() {
     assert!(policy.update(&scope(1), 3).is_none());
     assert!(policy.update(&scope(1), 4).is_none());
 }
+
+#[test]
+fn an_alert_names_its_account_and_room_for_the_click() {
+    let mut policy = NotificationPolicy::new(AccountId::new(1));
+    policy.set_enabled(true);
+    policy.update(&scope(1), 0);
+    let alert = policy.update(&scope(1), 1).unwrap();
+    assert_eq!(alert.target(), (None, &scope(1)));
+    // The window gives the catalog ID: worker IDs repeat between profile folders.
+    let alert = alert.from_account(AccountId::new(7), "gnobbi-test-bob".into());
+    assert_eq!(alert.title(), "gnobbi-test-bob");
+    assert_eq!(alert.target(), (Some(AccountId::new(7)), &scope(1)));
+    assert_eq!(alert.body(), "Nuovi messaggi");
+}

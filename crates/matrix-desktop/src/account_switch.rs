@@ -3,6 +3,7 @@
 //! `AccountState::pump`) and clears every view that depended on it.
 use crate::*;
 use matrix_desktop::AccountState;
+use matrix_domain::notifications::Notification;
 
 /// Starts a worker for each other catalog account that can unlock from the OS vault without
 /// asking (a profile busy in another window, a phrase profile or a missing vault entry is
@@ -86,10 +87,63 @@ pub(crate) fn start_background(
 impl Shell {
     /// Keeps the background accounts syncing; their new-message alerts go out like the shown one's.
     pub(crate) fn pump_parked(&mut self) {
-        for state in self.parked.values_mut() {
+        for (id, state) in self.parked.iter_mut() {
             for alert in state.pump() {
                 if let Some(handle) = &self.notification_handle {
-                    handle.submit(alert);
+                    handle.submit(Self::alert_from(&self.accounts, Some(*id), alert));
+                }
+            }
+        }
+    }
+
+    /// Names the account an alert came from, once there is more than one to tell apart.
+    pub(crate) fn alert_from(
+        accounts: &matrix_desktop::AccountCatalog,
+        id: Option<AccountId>,
+        alert: Notification,
+    ) -> Notification {
+        let entry = id.and_then(|id| accounts.get(id));
+        match entry {
+            Some(a) if accounts.accounts().len() > 1 => {
+                let name = Some(a.label.clone())
+                    .filter(|l| !l.is_empty())
+                    .or(a.user_id.clone());
+                alert.from_account(a.id, name.unwrap_or_default())
+            }
+            _ => alert,
+        }
+    }
+
+    /// Unread messages and mentions per catalog account: the shown one from the window, the
+    /// others from their own sync.
+    pub(crate) fn account_counts(&self) -> HashMap<AccountId, (u64, u64)> {
+        let all = &self.sidebar.navigation_entries()[0];
+        let shown = self.active_id.map(|id| (id, (all.unread, all.mentions)));
+        let parked = self.parked.iter().map(|(id, s)| (*id, s.unread()));
+        shown.into_iter().chain(parked).collect()
+    }
+
+    /// A clicked alert: shows its account (when it is not the shown one) with its room open.
+    pub(crate) fn open_clicked_alert(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((id, scope)) = self
+            .notification_handle
+            .as_ref()
+            .and_then(|h| h.take_click())
+        else {
+            return;
+        };
+        window.activate_window();
+        match id.filter(|id| Some(*id) != self.active_id) {
+            None => {
+                if self.sidebar.select(&scope) {
+                    self.sync_room(cx);
+                    cx.notify();
+                }
+            }
+            Some(id) => {
+                if let Some(state) = self.parked.get_mut(&id) {
+                    state.open_room(&scope);
+                    self.switch_account(id, window, cx);
                 }
             }
         }

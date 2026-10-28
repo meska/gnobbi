@@ -1,7 +1,7 @@
 //! Bounded local OS notification adapter, separate from the Matrix runtime.
-use matrix_domain::notifications::Notification;
+use matrix_domain::{AccountId, RoomScope, notifications::Notification};
 use std::sync::{
-    Arc,
+    Arc, Mutex,
     atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc,
 };
@@ -14,8 +14,12 @@ pub enum NotificationError {
     Worker,
 }
 
+/// The last clicked alert: its catalog account (None: the shown one) and room.
+type Click = Arc<Mutex<Option<(Option<AccountId>, RoomScope)>>>;
+
 #[derive(Clone)]
 pub struct NotificationHandle {
+    click: Click,
     sender: mpsc::SyncSender<(u64, Notification)>,
     revision: Arc<AtomicU64>,
     failed: Arc<AtomicBool>,
@@ -31,6 +35,10 @@ impl NotificationHandle {
     pub fn cancel_pending(&self) {
         self.revision.fetch_add(1, Ordering::AcqRel);
     }
+    /// The alert the user clicked since the last call, if any (only the latest is kept).
+    pub fn take_click(&self) -> Option<(Option<AccountId>, RoomScope)> {
+        self.click.lock().ok()?.take()
+    }
     pub fn failed(&self) -> bool {
         self.failed.load(Ordering::Acquire)
     }
@@ -43,9 +51,18 @@ pub struct NotificationWorker {
 }
 impl NotificationWorker {
     pub fn spawn() -> std::io::Result<Self> {
-        Self::spawn_with(deliver_os)
+        let click = Click::default();
+        let slot = click.clone();
+        Self::spawn_clicks(click, move |n| deliver_os(n, &slot))
     }
-    fn spawn_with<F>(mut deliver: F) -> std::io::Result<Self>
+    #[cfg(test)]
+    fn spawn_with<F>(deliver: F) -> std::io::Result<Self>
+    where
+        F: FnMut(Notification) -> Result<(), NotificationError> + Send + 'static,
+    {
+        Self::spawn_clicks(Click::default(), deliver)
+    }
+    fn spawn_clicks<F>(click: Click, mut deliver: F) -> std::io::Result<Self>
     where
         F: FnMut(Notification) -> Result<(), NotificationError> + Send + 'static,
     {
@@ -75,6 +92,7 @@ impl NotificationWorker {
             })?;
         Ok(Self {
             handle: NotificationHandle {
+                click,
                 sender,
                 revision,
                 failed,
@@ -104,10 +122,14 @@ impl Drop for NotificationWorker {
     }
 }
 
-/// Blocking platform boundary: only the notification worker may call this.
+/// Blocking platform boundary: only the notification worker may call this. The alert carries an
+/// action; a short-lived thread per alert (at most `WAITERS` at once) reports a click.
 #[cfg(target_os = "linux")]
-fn deliver_os(notification: Notification) -> Result<(), NotificationError> {
+fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
+    use std::io::Read;
     use std::process::{Command, Stdio};
+    static WAITERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    const WAITERS_MAX: usize = 4;
     let mut child = Command::new("/usr/bin/notify-send")
         .args([
             "--app-name=Gnobbi",
@@ -116,35 +138,64 @@ fn deliver_os(notification: Notification) -> Result<(), NotificationError> {
             "--hint=boolean:suppress-sound:true",
             "--hint=boolean:transient:true",
             "--category=im.received",
+            "--action=open=Apri",
+            "--wait",
             "--",
             notification.title(),
             &notification.body(),
         ])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .map_err(|_| NotificationError::Unavailable)?;
-    let end = std::time::Instant::now() + Duration::from_secs(2);
-    loop {
+    // A failure (no service, unknown option) shows within a moment; a live alert keeps running.
+    let early = std::time::Instant::now() + Duration::from_millis(300);
+    while std::time::Instant::now() < early {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                return if status.success() {
-                    Ok(())
-                } else {
-                    Err(NotificationError::Unavailable)
-                };
-            }
-            Ok(None) if std::time::Instant::now() < end => {
-                std::thread::sleep(Duration::from_millis(10))
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(NotificationError::Timeout);
-            }
+            Ok(Some(status)) if !status.success() => return Err(NotificationError::Unavailable),
+            Ok(Some(_)) => break,
+            _ => std::thread::sleep(Duration::from_millis(10)),
         }
     }
+    let (account, scope) = {
+        let (account, scope) = notification.target();
+        (account, scope.clone())
+    };
+    if WAITERS.fetch_add(1, Ordering::AcqRel) >= WAITERS_MAX {
+        WAITERS.fetch_sub(1, Ordering::AcqRel);
+        let _ = child.kill();
+        let _ = child.wait();
+        return Ok(());
+    }
+    let click = click.clone();
+    std::thread::spawn(move || {
+        let end = std::time::Instant::now() + Duration::from_secs(10);
+        let done = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break status.success(),
+                Ok(None) if std::time::Instant::now() < end => {
+                    std::thread::sleep(Duration::from_millis(50))
+                }
+                _ => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    break false;
+                }
+            }
+        };
+        let mut out = String::new();
+        if done && let Some(pipe) = child.stdout.as_mut() {
+            let _ = pipe.take(64).read_to_string(&mut out);
+        }
+        if out.trim() == "open"
+            && let Ok(mut slot) = click.lock()
+        {
+            *slot = Some((account, scope));
+        }
+        WAITERS.fetch_sub(1, Ordering::AcqRel);
+    });
+    Ok(())
 }
 /// Fixed AppleScript; title/body travel only as argv, so message text can never become script.
 #[cfg(any(target_os = "macos", test))]
@@ -164,7 +215,8 @@ fn macos_osascript_args(notification: &Notification) -> Vec<String> {
 
 /// Blocking platform boundary: only the notification worker may call this.
 #[cfg(target_os = "macos")]
-fn deliver_os(notification: Notification) -> Result<(), NotificationError> {
+// shortcut: osascript alerts report no click, so on macOS they only name the account.
+fn deliver_os(notification: Notification, _: &Click) -> Result<(), NotificationError> {
     use std::process::{Command, Stdio};
     let mut child = Command::new("/usr/bin/osascript")
         .args(macos_osascript_args(&notification))
@@ -190,7 +242,7 @@ fn deliver_os(notification: Notification) -> Result<(), NotificationError> {
     }
 }
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn deliver_os(_: Notification) -> Result<(), NotificationError> {
+fn deliver_os(_: Notification, _: &Click) -> Result<(), NotificationError> {
     Err(NotificationError::Unavailable)
 }
 

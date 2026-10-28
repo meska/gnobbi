@@ -57,6 +57,8 @@ impl NotificationPolicy {
         }
         Some(Notification {
             count: self.count_preview.then_some(unread - previous),
+            scope: scope.clone(),
+            origin: None,
         })
     }
 }
@@ -64,10 +66,23 @@ impl NotificationPolicy {
 /// Only fixed strings and counts may cross the OS boundary; never message data.
 pub struct Notification {
     count: Option<u64>,
+    /// The room the alert is about (the worker's own account ID).
+    scope: RoomScope,
+    /// Catalog ID and display name of the account it came from; set by the window.
+    origin: Option<(AccountId, String)>,
 }
 impl Notification {
-    pub fn title(&self) -> &'static str {
-        "Gnobbi"
+    /// Names the account the alert came from; its name becomes the title.
+    pub fn from_account(mut self, id: AccountId, name: String) -> Self {
+        self.origin = Some((id, name));
+        self
+    }
+    /// Where a click goes: the catalog account (None when unnamed) and the room.
+    pub fn target(&self) -> (Option<AccountId>, &RoomScope) {
+        (self.origin.as_ref().map(|(id, _)| *id), &self.scope)
+    }
+    pub fn title(&self) -> &str {
+        self.origin.as_ref().map_or("Gnobbi", |(_, name)| name)
     }
     pub fn body(&self) -> String {
         match self.count {
