@@ -36,6 +36,7 @@ impl SendVisit {
 struct Pending {
     filename: String,
     data: Vec<u8>,
+    voice: Option<matrix_engine::sending::Voice>,
 }
 /// Bound on a file read into memory for the SDK upload.
 const MAX_ATTACHMENT: u64 = 50 * 1024 * 1024; // shortcut: fixed cap, read the server limit (media config) when uploads need more
@@ -53,6 +54,7 @@ pub struct ComposerView {
     draft: Composer,
     attachment: Option<Pending>,
     attach_error: Option<&'static str>,
+    recorder: Option<crate::voice_recorder::Recorder>,
     rooms: RoomDrafts,
     focus: FocusHandle,
     send_focus: FocusHandle,
@@ -81,6 +83,7 @@ impl ComposerView {
             draft: Composer::default(),
             attachment: None,
             attach_error: None,
+            recorder: None,
             rooms: RoomDrafts::new(scope),
             focus: cx.focus_handle(),
             send_focus: cx.focus_handle(),
@@ -100,6 +103,7 @@ impl ComposerView {
         // A pending file belongs to the room it was added in, never to the next one.
         self.attachment = None;
         self.attach_error = None;
+        self.recorder = None;
         self.layout = None;
         self.scroll = ScrollHandle::new();
         self.dragging = false;
@@ -124,12 +128,14 @@ impl ComposerView {
             .map(|p| matrix_engine::sending::Attachment {
                 filename: p.filename,
                 data: p.data,
+                voice: p.voice,
             });
         delivery.submit_with(scope, transaction_id, &mut self.draft, &mut file);
         // Not accepted (queue full): keep the file for the next try.
         self.attachment = file.map(|f| Pending {
             filename: f.filename,
             data: f.data,
+            voice: f.voice,
         });
         self.changed(cx);
     }
@@ -172,6 +178,7 @@ impl ComposerView {
             composing: self.draft.marked().is_some(),
             send_focused: self.send_is_focused(window),
             attachment: self.attachment.as_ref().map(|p| p.filename.clone()),
+            recording: self.recorder.as_ref().map(|r| r.elapsed_secs()),
             send_bounds: self
                 .send_bounds
                 .filter(|(source, _)| self.visit.source() == Some(*source))
@@ -324,7 +331,7 @@ impl ComposerView {
             let _ = this.update(cx, |this, cx| {
                 match read {
                     Some((filename, Some(data))) => {
-                        this.attachment = Some(Pending { filename, data });
+                        this.attachment = Some(Pending { filename, data, voice: None });
                         this.attach_error = None;
                     }
                     _ => this.attach_error = Some("File non allegabile"),
@@ -341,8 +348,57 @@ impl ComposerView {
         self.attachment = Some(Pending {
             filename: format!("immagine.{ext}"),
             data: image.bytes.clone(),
+            voice: None,
         });
         self.attach_error = None;
+        cx.notify();
+    }
+
+    fn start_recording(&mut self, cx: &mut Context<Self>) {
+        match crate::voice_recorder::Recorder::start() {
+            Ok(recorder) => {
+                self.recorder = Some(recorder);
+                self.attach_error = None;
+                // Repaints the elapsed time until the recording ends.
+                cx.spawn(async move |this, cx| {
+                    while this
+                        .update(cx, |this, cx| {
+                            cx.notify();
+                            this.recorder.is_some()
+                        })
+                        .unwrap_or(false)
+                    {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(500))
+                            .await;
+                    }
+                })
+                .detach();
+            }
+            Err(error) => self.attach_error = Some(error),
+        }
+        cx.notify();
+    }
+
+    /// Ends the recording; `send` queues the note, otherwise it is discarded.
+    fn stop_recording(&mut self, send: bool, cx: &mut Context<Self>) {
+        let Some(recorder) = self.recorder.take() else {
+            return;
+        };
+        let (samples, rate) = recorder.finish();
+        if send {
+            match matrix_desktop::voice_attachment(&samples, rate) {
+                Some(note) => {
+                    self.attachment = Some(Pending {
+                        filename: note.filename,
+                        data: note.data,
+                        voice: note.voice,
+                    });
+                    self.submit(cx);
+                }
+                None => self.attach_error = Some("Nessun audio registrato"),
+            }
+        }
         cx.notify();
     }
 
@@ -740,7 +796,7 @@ impl Render for ComposerView {
                     .flex()
                     .items_center()
                     .gap_4()
-                    .when(self.live, |d| {
+                    .when(self.live && self.recorder.is_none(), |d| {
                         d.child(
                             div()
                                 .id("composer-attach")
@@ -752,10 +808,54 @@ impl Render for ComposerView {
                                 .child("Allega")
                                 .on_click(cx.listener(|this, _, _, cx| this.pick_file(cx))),
                         )
+                        .child(
+                            div()
+                                .id("composer-record")
+                                .cursor_pointer()
+                                .flex_shrink_0()
+                                .px_2()
+                                .py_2()
+                                .text_color(rgb(t.accent))
+                                .child("Voce")
+                                .on_click(cx.listener(|this, _, _, cx| this.start_recording(cx))),
+                        )
+                    })
+                    .when_some(self.recorder.as_ref().map(|r| r.elapsed_secs()), |d, secs| {
+                        d.child(
+                            div()
+                                .id("composer-recording")
+                                .flex_shrink_0()
+                                .px_2()
+                                .text_color(rgb(t.error))
+                                .child(format!("● {}:{:02}", secs / 60, secs % 60)),
+                        )
+                        .child(
+                            div()
+                                .id("composer-record-cancel")
+                                .cursor_pointer()
+                                .flex_shrink_0()
+                                .px_2()
+                                .py_2()
+                                .text_color(rgb(t.secondary))
+                                .child("Annulla")
+                                .on_click(cx.listener(|this, _, _, cx| this.stop_recording(false, cx))),
+                        )
+                        .child(
+                            div()
+                                .id("composer-record-send")
+                                .cursor_pointer()
+                                .flex_shrink_0()
+                                .px_2()
+                                .py_2()
+                                .text_color(rgb(t.accent))
+                                .child("Invia nota")
+                                .on_click(cx.listener(|this, _, _, cx| this.stop_recording(true, cx))),
+                        )
                     })
                     .child(
                         div()
                             .id("composer-editor")
+                            .when(self.recorder.is_some(), |d| d.hidden())
                             .flex_1()
                             .min_w_0()
                             .min_h(px(36.))

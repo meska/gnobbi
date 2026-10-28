@@ -281,6 +281,7 @@ fn attachment_is_sent_with_the_draft_as_caption_and_survives_retry() {
     let file = || Attachment {
         filename: "foto.png".into(),
         data: vec![1, 2, 3],
+        voice: None,
     };
     // No text and no file: nothing to send; a refused send keeps the file.
     assert!(!delivery.submit_with(scope(), tx.clone(), &mut draft, &mut None));

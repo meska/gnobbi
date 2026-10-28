@@ -24,6 +24,7 @@ mod sidebar_navigation_test;
 mod signin_view;
 mod spaces_view;
 mod timeline_view;
+mod voice_recorder;
 mod verification_view;
 use composer_view::{ComposerView, Submitted};
 

@@ -15,6 +15,15 @@ pub struct SendRequest {
 pub struct Attachment {
     pub filename: String,
     pub data: Vec<u8>,
+    /// Set for a recorded voice note: sent with the voice markers, duration and waveform.
+    pub voice: Option<Voice>,
+}
+
+#[derive(Clone)]
+pub struct Voice {
+    pub duration_ms: u64,
+    /// Amplitudes in 0..=1.
+    pub waveform: Vec<f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,7 +86,7 @@ pub async fn send_text(
     request: &SendRequest,
 ) -> Result<EventId, SendError> {
     use matrix_sdk::{
-        attachment::{AttachmentConfig, AttachmentInfo, BaseImageInfo},
+        attachment::{AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseImageInfo},
         ruma::{
             RoomId,
             events::room::message::{RoomMessageEventContent, TextMessageEventContent},
@@ -110,7 +119,13 @@ pub async fn send_text(
         Some(file) => {
             let mime = mime_guess::from_path(&file.filename).first_or_octet_stream();
             let mut config = AttachmentConfig::new().txn_id(transaction);
-            if mime.type_().as_str() == "image"
+            if let Some(voice) = &file.voice {
+                config = config.info(AttachmentInfo::Voice(BaseAudioInfo {
+                    duration: Some(std::time::Duration::from_millis(voice.duration_ms)),
+                    waveform: Some(voice.waveform.clone()),
+                    size: u32::try_from(file.data.len()).ok().map(Into::into),
+                }));
+            } else if mime.type_().as_str() == "image"
                 && let Some((w, h)) = image_size(&file.data)
             {
                 config = config.info(AttachmentInfo::Image(BaseImageInfo {

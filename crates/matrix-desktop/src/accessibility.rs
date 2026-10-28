@@ -31,6 +31,10 @@ pub const SEND: NodeId = NodeId(6);
 pub const ATTACH: NodeId = NodeId((1 << 63) - 1);
 pub const ATTACHMENT: NodeId = NodeId((1 << 63) - 2);
 pub const ATTACHMENT_REMOVE: NodeId = NodeId((1 << 63) - 3);
+pub const RECORD: NodeId = NodeId((1 << 63) - 4);
+pub const RECORDING: NodeId = NodeId((1 << 63) - 5);
+pub const RECORD_CANCEL: NodeId = NodeId((1 << 63) - 6);
+pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
 
 #[derive(Clone)]
 pub struct ComposerSnapshot {
@@ -41,6 +45,8 @@ pub struct ComposerSnapshot {
     pub send_bounds: Option<accesskit::Rect>,
     /// File name of the pending attachment, sent with the text as caption.
     pub attachment: Option<String>,
+    /// Elapsed seconds of a voice note being recorded.
+    pub recording: Option<u64>,
     pub text: String,
     /// UTF-8 byte positions from the editor, including selection direction.
     pub anchor: usize,
@@ -1091,6 +1097,26 @@ impl NavigationSnapshot {
             attach.set_label("Allega file");
             tree.nodes[0].1.push_child(ATTACH);
             tree.nodes.push((ATTACH, attach));
+            let buttons: &[(NodeId, &str)] = if composer.recording.is_some() {
+                &[
+                    (RECORD_CANCEL, "Annulla registrazione"),
+                    (RECORD_SEND, "Invia nota vocale"),
+                ]
+            } else {
+                &[(RECORD, "Registra nota vocale")]
+            };
+            if let Some(secs) = composer.recording {
+                let mut status = Node::new(Role::Label);
+                status.set_label(format!("Registrazione in corso, {secs} secondi"));
+                tree.nodes[0].1.push_child(RECORDING);
+                tree.nodes.push((RECORDING, status));
+            }
+            for (id, label) in buttons {
+                let mut button = Node::new(Role::Button);
+                button.set_label(*label);
+                tree.nodes[0].1.push_child(*id);
+                tree.nodes.push((*id, button));
+            }
             if let Some(name) = &composer.attachment {
                 let mut chip = Node::new(Role::Label);
                 chip.set_label(format!("Allegato: {name}"));

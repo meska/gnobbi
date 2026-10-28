@@ -393,6 +393,7 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
             send_focused: false,
             send_bounds: None,
             attachment: None,
+            recording: None,
             text: "caffè 🙂\nseconda riga".into(),
             anchor: 0,
             cursor: 0,
@@ -419,10 +420,23 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
     assert!(tree.nodes[0].1.children().contains(&COMPOSER));
     let hidden = NavigationSnapshot {
         composer: None,
-        ..snapshot
+        ..snapshot.clone()
     }
     .tree();
     assert!(!hidden.nodes.iter().any(|(id, _)| *id == COMPOSER));
+    use matrix_desktop::accessibility::{RECORD, RECORD_CANCEL, RECORD_SEND, RECORDING};
+    let label_of = |tree: &accesskit::TreeUpdate, id| {
+        tree.nodes.iter().find(|(n, _)| *n == id).map(|(_, node)| node.label().unwrap().to_owned())
+    };
+    assert_eq!(label_of(&tree, RECORD).as_deref(), Some("Registra nota vocale"));
+    assert_eq!(label_of(&tree, RECORDING), None);
+    let mut recording = snapshot.clone();
+    recording.composer.as_mut().unwrap().recording = Some(7);
+    let tree = recording.tree();
+    assert_eq!(label_of(&tree, RECORD), None);
+    assert_eq!(label_of(&tree, RECORDING).as_deref(), Some("Registrazione in corso, 7 secondi"));
+    assert_eq!(label_of(&tree, RECORD_CANCEL).as_deref(), Some("Annulla registrazione"));
+    assert_eq!(label_of(&tree, RECORD_SEND).as_deref(), Some("Invia nota vocale"));
 }
 
 #[test]
@@ -456,6 +470,7 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
             send_focused: false,
             send_bounds: None,
             attachment: None,
+            recording: None,
             text: "caffè 🙂\nseconda riga\n".into(),
             anchor: "caffè 🙂\nseconda riga\n".len(),
             cursor: "caffè ".len(),
@@ -523,6 +538,7 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
             send_focused: false,
             send_bounds: None,
             attachment: None,
+            recording: None,
             text: "hello".into(),
             anchor: 5,
             cursor: 5,
@@ -595,6 +611,7 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
             send_focused: false,
             send_bounds: None,
             attachment: None,
+            recording: None,
             scope: scope.clone(),
             composing: false,
             text: "draft 🙂".into(),

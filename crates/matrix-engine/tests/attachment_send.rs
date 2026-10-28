@@ -23,7 +23,7 @@ use matrix_engine::{
         sliding_sync::VersionBuilder,
     },
     sdk_ui::sync_service::SyncService,
-    sending::{Attachment, SendRequest, fresh_transaction_id, send_text},
+    sending::{Attachment, SendRequest, Voice, fresh_transaction_id, send_text},
 };
 use std::time::{Duration, Instant};
 
@@ -71,6 +71,7 @@ async fn send(
     body: &str,
     name: &str,
     data: &[u8],
+    voice: Option<Voice>,
 ) {
     let request = SendRequest {
         scope: RoomScope {
@@ -82,6 +83,7 @@ async fn send(
         attachment: Some(Attachment {
             filename: name.to_owned(),
             data: data.to_vec(),
+            voice,
         }),
     };
     // An encrypted room may reject the first attempts until the Megolm session reaches B.
@@ -97,7 +99,7 @@ async fn send(
 
 #[test]
 #[ignore = "requires the attachment_send script"]
-fn app_sends_image_and_file_with_caption_plain_and_encrypted() {
+fn app_sends_image_file_and_voice_note_plain_and_encrypted() {
     let config: serde_json::Value =
         serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
     let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
@@ -176,8 +178,11 @@ fn app_sends_image_and_file_with_caption_plain_and_encrypted() {
                 tokio::time::sleep(Duration::from_millis(300)).await;
             }
 
-            send(&a, &room_a, "didascalia immagine", "foto.png", &image).await;
-            send(&a, &room_a, "", "nota.txt", b"contenuto del file\n").await;
+            send(&a, &room_a, "didascalia immagine", "foto.png", &image, None).await;
+            send(&a, &room_a, "", "nota.txt", b"contenuto del file\n", None).await;
+            let wav = b"RIFF....WAVEfmt synthetic".to_vec();
+            let voice = Voice { duration_ms: 2500, waveform: vec![0.0, 0.5, 1.0] };
+            send(&a, &room_a, "", "nota-vocale.wav", &wav, Some(voice)).await;
 
             let img = wait_message(&events, alice.as_str(), "m.image").await["content"].clone();
             assert_eq!(img["body"], "didascalia immagine");
@@ -189,6 +194,20 @@ fn app_sends_image_and_file_with_caption_plain_and_encrypted() {
             assert_eq!(file["body"], "nota.txt");
             assert_eq!(file["info"]["mimetype"], "text/plain");
 
+            let note = wait_message(&events, alice.as_str(), "m.audio").await["content"].clone();
+            assert!(note.get("org.matrix.msc3245.voice").is_some(), "voice marker: {note}");
+            assert_eq!(note["org.matrix.msc1767.audio"]["duration"], 2500, "{note}");
+            assert_eq!(note["org.matrix.msc1767.audio"]["waveform"].as_array().map(Vec::len), Some(3), "{note}");
+            assert_eq!(note["info"]["duration"], 2500, "{note}");
+            assert_eq!(note.get("file").is_some(), encrypted);
+            let voice_source: MediaSource = serde_json::from_value(note).unwrap();
+            let voice_bytes = b
+                .media()
+                .get_media_content(&MediaRequestParameters { source: voice_source, format: MediaFormat::File }, false)
+                .await
+                .unwrap();
+            assert_eq!(voice_bytes, wav, "B downloads the exact voice note");
+
             let source: MediaSource = serde_json::from_value(img).unwrap();
             let bytes = b
                 .media()
@@ -196,7 +215,7 @@ fn app_sends_image_and_file_with_caption_plain_and_encrypted() {
                 .await
                 .unwrap();
             assert_eq!(bytes, image, "B downloads (and decrypts) the exact image A sent");
-            println!("[send] encrypted={encrypted}: B received image+caption and file");
+            println!("[send] encrypted={encrypted}: B received image+caption, file and voice note");
         }
         service_a.stop().await;
         service_b.stop().await;
