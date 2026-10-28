@@ -11,6 +11,7 @@ use matrix_sdk::ruma::{
     MxcUri, api::client::media::get_content_thumbnail::v3::Method, events::room::MediaSource,
 };
 use std::collections::HashMap;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -141,12 +142,16 @@ impl AvatarCache {
     }
 
     fn store(&self, name: &str, bytes: &[u8]) -> std::io::Result<()> {
-        match crate::fsx::create_private_dir(&self.dir) {
+        match std::fs::DirBuilder::new().mode(0o700).create(&self.dir) {
             Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return Err(e),
             _ => {}
         }
         let tmp = self.dir.join(format!(".{name}.tmp"));
-        crate::fsx::private_file(std::fs::OpenOptions::new().write(true).create(true).truncate(true))
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
             .open(&tmp)?
             .write_all(bytes)?;
         std::fs::rename(&tmp, self.dir.join(name))?;
