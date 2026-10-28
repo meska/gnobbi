@@ -19,6 +19,14 @@ impl Theme {
             Theme::Dark => "dark",
         }
     }
+    /// `System` follows the OS appearance; an explicit choice wins.
+    pub fn is_dark(self, system_dark: bool) -> bool {
+        match self {
+            Theme::System => system_dark,
+            Theme::Light => false,
+            Theme::Dark => true,
+        }
+    }
     fn parse(s: &str) -> Option<Theme> {
         [Theme::System, Theme::Light, Theme::Dark]
             .into_iter()

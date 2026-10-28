@@ -87,3 +87,13 @@ fn read_receipts_default_on_and_invalid_value_falls_back_to_on() {
     std::fs::write(d.config.join("settings.json"), br#"{"read_receipts":false}"#).unwrap();
     assert!(!Preferences::load(&d).read_receipts);
 }
+
+#[test]
+fn theme_saved_choice_wins_and_invalid_value_follows_system() {
+    assert!(Theme::Dark.is_dark(false) && !Theme::Light.is_dark(true));
+    assert!(Theme::System.is_dark(true) && !Theme::System.is_dark(false));
+    let d = dirs(&tmp("badtheme"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    std::fs::write(d.config.join("settings.json"), br#"{"theme":42}"#).unwrap();
+    assert_eq!(Preferences::load(&d).theme, Theme::System);
+}

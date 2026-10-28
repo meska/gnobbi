@@ -700,9 +700,6 @@ impl Shell {
             if key.key == "escape" {
                 self.set_room_details_open(false);
             }
-            if key.modifiers.control && key.modifiers.shift && key.key == "d" {
-                self.toggle_theme(cx);
-            }
             cx.notify();
             cx.stop_propagation();
             return;
@@ -758,9 +755,6 @@ impl Shell {
                 "p" if !key.modifiers.control => self.change_notification_preference(2),
                 _ => (),
             }
-            if key.modifiers.control && key.modifiers.shift && key.key == "d" {
-                self.toggle_theme(cx);
-            }
             cx.notify();
             cx.stop_propagation();
             return;
@@ -811,16 +805,9 @@ impl Shell {
             if key.key == "escape" {
                 self.set_verification_open(false);
             }
-            if key.modifiers.control && key.modifiers.shift && key.key == "d" {
-                self.toggle_theme(cx);
-            }
             cx.notify();
             cx.stop_propagation();
             return;
-        }
-        if key.modifiers.control && key.modifiers.shift && key.key == "d" {
-            self.toggle_theme(cx);
-            cx.stop_propagation();
         }
         if self.sidebar_tab(event, window, cx) {
             cx.stop_propagation();
@@ -1602,7 +1589,7 @@ impl Render for Shell {
                                 .gap_2()
                                 .when(compact, |d| d.child(self.render_menu_button(t, window, cx)))
                                 .child(
-                                    // Placeholder list menu: takes the old theme-link focus slot; theme stays on Ctrl+Shift+D.
+                                    // Placeholder list menu: takes the old theme-link focus slot; the theme control lives only in Settings.
                                     div()
                                         .id("theme-toggle")
                                         .relative()
@@ -2276,8 +2263,15 @@ fn main() {
                             account_id,
                             room_id: matrix_domain::RoomId::new("!not-selected:local.invalid"),
                         });
+                    let prefs_dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok());
+                    let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
+                    let dark = prefs.theme.is_dark(matches!(
+                        window.appearance(),
+                        gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+                    ));
                     let composer = cx.new(|cx| {
                         let mut editor = ComposerView::new(active_scope.clone(), cx);
+                        editor.set_theme(if dark { DARK } else { LIGHT }, cx);
                         editor.set_live(connected);
                         editor
                     });
@@ -2617,9 +2611,8 @@ fn main() {
                         settings_open: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),
-                        prefs_dirs: matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()),
-                        prefs: matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())
-                            .map(|dirs| matrix_desktop::Preferences::load(&dirs)).unwrap_or_default(),
+                        prefs_dirs,
+                        prefs,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         back_ui: compact_view::BackUi::new(cx),
                         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -2724,7 +2717,7 @@ fn main() {
                         history_commands: history_commands.take(),
                         pending_history: None,
                         compact_chat: false,
-                        dark: false,
+                        dark,
                         search_focus,
                         list_focus: cx.focus_handle(),
                         scroll: UniformListScrollHandle::new(),

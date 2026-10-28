@@ -1,4 +1,4 @@
-//! Settings inside the side drawer: one switch, «Modalità debug», saved to the preferences file.
+//! Settings inside the side drawer: switches (debug, theme, read receipts), saved to the preferences file.
 use crate::*;
 
 impl Shell {
@@ -19,6 +19,12 @@ impl Shell {
 
     pub(crate) fn toggle_debug(&mut self, cx: &mut Context<Self>) {
         self.prefs.debug = !self.prefs.debug;
+        self.save_prefs(cx);
+    }
+
+    pub(crate) fn toggle_dark_setting(&mut self, cx: &mut Context<Self>) {
+        self.toggle_theme(cx);
+        self.prefs.theme = if self.dark { matrix_desktop::Theme::Dark } else { matrix_desktop::Theme::Light };
         self.save_prefs(cx);
     }
 
@@ -141,6 +147,13 @@ impl Shell {
                     .child("Modalità debug")
                     .child(switch(self.prefs.debug))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_debug(cx))),
+            )
+            .child(
+                row("settings-theme")
+                    .text_color(rgb(t.text))
+                    .child("Tema scuro")
+                    .child(switch(self.dark))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_dark_setting(cx))),
             )
             .child(
                 div()
