@@ -52,6 +52,8 @@ pub struct HistoryEvent {
     pub timestamp_ms: u64,
     pub sender: HistorySender,
     pub video: Option<VideoInfo>,
+    /// Bold, italic, code… of a formatted body, as byte ranges of `body` (empty for plain text).
+    pub styles: Vec<crate::rich_text::StyleSpan>,
 }
 
 /// How many people reacted to a message with one emoji.

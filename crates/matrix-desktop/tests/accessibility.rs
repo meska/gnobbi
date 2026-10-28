@@ -395,6 +395,7 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
             attachment: None,
             mentions: None,
             recording: None,
+            emoji_open: false,
             text: "caffè 🙂\nseconda riga".into(),
             anchor: 0,
             cursor: 0,
@@ -446,6 +447,14 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
         label_of(&mentioning.tree(), MENTIONS).as_deref(),
         Some("Menzioni: alice; Bruno Verdi, selezionato")
     );
+    use matrix_desktop::accessibility::{EMOJI, EMOJI_PICKER};
+    assert_eq!(label_of(&tree, EMOJI).as_deref(), Some("Apri selettore emoji"));
+    assert_eq!(label_of(&tree, EMOJI_PICKER), None);
+    let mut picking = snapshot.clone();
+    picking.composer.as_mut().unwrap().emoji_open = true;
+    let tree = picking.tree();
+    assert_eq!(label_of(&tree, EMOJI).as_deref(), Some("Chiudi selettore emoji"));
+    assert_eq!(label_of(&tree, EMOJI_PICKER).as_deref(), Some("Selettore emoji"));
 }
 
 #[test]
@@ -481,6 +490,7 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
             attachment: None,
             mentions: None,
             recording: None,
+            emoji_open: false,
             text: "caffè 🙂\nseconda riga\n".into(),
             anchor: "caffè 🙂\nseconda riga\n".len(),
             cursor: "caffè ".len(),
@@ -550,6 +560,7 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
             attachment: None,
             mentions: None,
             recording: None,
+            emoji_open: false,
             text: "hello".into(),
             anchor: 5,
             cursor: 5,
@@ -624,6 +635,7 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
             attachment: None,
             mentions: None,
             recording: None,
+            emoji_open: false,
             scope: scope.clone(),
             composing: false,
             text: "draft 🙂".into(),

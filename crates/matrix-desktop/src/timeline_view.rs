@@ -1297,6 +1297,9 @@ impl TimelineView {
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
                     let selected = selection.borrow().range(&event.id, &event.text);
                     let mut cuts = vec![0, event.text.len()];
+                    // Only spans that fit the text: a stale range must never slice inside a character.
+                    let styles: Vec<_> = event.styles.iter().filter(|s| s.range.start < s.range.end && s.range.end <= event.text.len() && event.text.is_char_boundary(s.range.start) && event.text.is_char_boundary(s.range.end)).collect();
+                    for style in &styles { cuts.extend([style.range.start, style.range.end]); }
                     for link in &links { cuts.extend([link.range.start, link.range.end]); }
                     if let Some(range) = &selected { cuts.extend([range.start, range.end]); }
                     cuts.sort_unstable();
@@ -1304,11 +1307,16 @@ impl TimelineView {
                     body = body.with_highlights(cuts.windows(2).map(|pair| {
                         let range = pair[0]..pair[1];
                         let is_link = links.iter().any(|link| link.range.contains(&range.start));
+                        use matrix_engine::rich_text::Style;
+                        let has = |kind| styles.iter().any(|s| s.style == kind && s.range.contains(&range.start));
                         let style = HighlightStyle {
-                            color: is_link.then(|| rgb(t.accent).into()),
+                            font_weight: has(Style::Bold).then_some(gpui::FontWeight::BOLD),
+                            font_style: has(Style::Italic).then_some(gpui::FontStyle::Italic),
+                            strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
+                            color: if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
                             underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
-                            background_color: (selected.as_ref().is_some_and(|r| r.contains(&range.start))
-                                || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start))).then(|| rgb(t.selection).into()),
+                            background_color: if selected.as_ref().is_some_and(|r| r.contains(&range.start))
+                                || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { has(Style::Code).then(|| rgb(t.input).into()) },
                             ..Default::default()
                         };
                         (range, style)
@@ -2119,6 +2127,7 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
+                            styles: Vec::new(),
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2253,6 +2262,7 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
+                            styles: Vec::new(),
                         })
                         .collect();
                     host.0.prepend_server(older);

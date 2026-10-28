@@ -108,6 +108,7 @@ fn fixture() -> (DemoHistory, LiveOperations) {
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
+        styles: Vec::new(),
     }]);
     let mut actions = LiveOperations::default();
     actions.select(ScopedTimelineId {
@@ -157,6 +158,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
+        styles: Vec::new(),
     }]);
     let mut actions = LiveOperations::default();
     actions.select(ScopedTimelineId {
@@ -210,6 +212,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
+        styles: Vec::new(),
     }]);
     other.project_operations(actions.confirmed());
     assert_eq!(other.events()[0].text, "other");

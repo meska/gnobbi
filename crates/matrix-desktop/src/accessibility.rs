@@ -36,6 +36,8 @@ pub const RECORDING: NodeId = NodeId((1 << 63) - 5);
 pub const RECORD_CANCEL: NodeId = NodeId((1 << 63) - 6);
 pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
 pub const MENTIONS: NodeId = NodeId((1 << 63) - 8);
+pub const EMOJI: NodeId = NodeId((1 << 63) - 9);
+pub const EMOJI_PICKER: NodeId = NodeId((1 << 63) - 10);
 
 #[derive(Clone)]
 pub struct ComposerSnapshot {
@@ -50,6 +52,8 @@ pub struct ComposerSnapshot {
     pub mentions: Option<(Vec<String>, usize)>,
     /// Elapsed seconds of a voice note being recorded.
     pub recording: Option<u64>,
+    /// The emoji picker is open.
+    pub emoji_open: bool,
     pub text: String,
     /// UTF-8 byte positions from the editor, including selection direction.
     pub anchor: usize,
@@ -1100,6 +1104,16 @@ impl NavigationSnapshot {
             attach.set_label("Allega file");
             tree.nodes[0].1.push_child(ATTACH);
             tree.nodes.push((ATTACH, attach));
+            let mut emoji = Node::new(Role::Button);
+            emoji.set_label(if composer.emoji_open { "Chiudi selettore emoji" } else { "Apri selettore emoji" });
+            tree.nodes[0].1.push_child(EMOJI);
+            tree.nodes.push((EMOJI, emoji));
+            if composer.emoji_open {
+                let mut picker = Node::new(Role::Label);
+                picker.set_label("Selettore emoji");
+                tree.nodes[0].1.push_child(EMOJI_PICKER);
+                tree.nodes.push((EMOJI_PICKER, picker));
+            }
             let buttons: &[(NodeId, &str)] = if composer.recording.is_some() {
                 &[
                     (RECORD_CANCEL, "Annulla registrazione"),

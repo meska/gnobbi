@@ -15,6 +15,7 @@ fn event(id: &str) -> HistoryEvent {
         timestamp_ms: 1,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
+        styles: Vec::new(),
     }
 }
 fn page(
@@ -673,4 +674,18 @@ fn selecting_a_room_asks_to_open_it_and_the_saved_page_then_the_gap_both_land() 
         !view.refresh().unwrap().open,
         "live refresh stays a plain page"
     );
+}
+
+#[test]
+fn a_formatted_refresh_replaces_the_row_styles_even_with_the_same_text() {
+    use matrix_engine::rich_text::{Style, StyleSpan};
+    let mut history = DemoHistory::new(scope("!fmt:test"), 0);
+    history.append_server(vec![event("$m")]);
+    assert!(history.events()[0].styles.is_empty());
+    let mut formatted = event("$m");
+    formatted.styles = vec![StyleSpan { range: 0..4, style: Style::Bold }];
+    assert!(history.refresh_server(vec![formatted]));
+    assert_eq!(history.events()[0].styles.len(), 1);
+    assert!(history.refresh_server(vec![event("$m")]));
+    assert!(history.events()[0].styles.is_empty());
 }

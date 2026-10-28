@@ -42,6 +42,13 @@ struct Pending {
 const MAX_ATTACHMENT: u64 = 50 * 1024 * 1024; // shortcut: fixed cap, read the server limit (media config) when uploads need more
 
 pub struct Submitted(pub String);
+
+/// Offered by the emoji picker; no search or recents.
+// shortcut: fixed set picked with the mouse, upgrade to a searchable picker with keyboard navigation.
+const EMOJI: [&str; 32] = [
+    "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔", "😅", "😉", "🙃", "😢", "😭", "😡", "😱", "👍",
+    "👎", "👏", "🙏", "💪", "👋", "🤝", "🙌", "🎉", "🔥", "✨", "💯", "✅", "❌", "👀", "☕",
+];
 impl gpui::EventEmitter<Submitted> for ComposerView {}
 
 pub struct ComposerView {
@@ -60,6 +67,7 @@ pub struct ComposerView {
     mention_selected: usize,
     /// Start of the `@` whose list was closed with Esc.
     mention_closed: Option<usize>,
+    emoji_open: bool,
     attach_error: Option<&'static str>,
     recorder: Option<crate::voice_recorder::Recorder>,
     rooms: RoomDrafts,
@@ -93,6 +101,7 @@ impl ComposerView {
             mentions: Vec::new(),
             mention_selected: 0,
             mention_closed: None,
+            emoji_open: false,
             attach_error: None,
             recorder: None,
             rooms: RoomDrafts::new(scope),
@@ -115,6 +124,7 @@ impl ComposerView {
         self.attachment = None;
         self.members.clear();
         self.mentions.clear();
+        self.emoji_open = false;
         self.attach_error = None;
         self.recorder = None;
         self.layout = None;
@@ -167,6 +177,18 @@ impl ComposerView {
                 label,
             });
         }
+        self.changed(cx);
+    }
+
+    /// Insert `EMOJI[index]` at the caret (over the selection) and give the focus back to the text.
+    fn pick_emoji(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.emoji_open = false;
+        if let Some(emoji) = EMOJI.get(index)
+            && self.draft.marked().is_none()
+        {
+            self.draft.replace(None, emoji);
+        }
+        window.focus(&self.focus);
         self.changed(cx);
     }
 
@@ -255,6 +277,7 @@ impl ComposerView {
                     )
                 }),
             recording: self.recorder.as_ref().map(|r| r.elapsed_secs()),
+            emoji_open: self.emoji_open,
             send_bounds: self
                 .send_bounds
                 .filter(|(source, _)| self.visit.source() == Some(*source))
@@ -547,6 +570,12 @@ impl ComposerView {
     ) {
         self.refresh_send_focus(cx);
         let key = &event.keystroke;
+        if self.emoji_open && key.key == "escape" && self.focus.is_focused(window) {
+            self.emoji_open = false;
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
         let options = self.mention_options();
         if !options.is_empty() && self.focus.is_focused(window) {
             let last = options.len() - 1;
@@ -911,6 +940,21 @@ impl Render for ComposerView {
                         })),
                 )
             })
+            .when(self.emoji_open, |d| {
+                d.child(div().flex().flex_wrap().gap_1().children(EMOJI.iter().enumerate().map(
+                    |(i, emoji)| {
+                        div()
+                            .id(("composer-emoji", i))
+                            .cursor_pointer()
+                            .px_1()
+                            .text_size(px(20.))
+                            .child(*emoji)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.pick_emoji(i, window, cx)
+                            }))
+                    },
+                )))
+            })
             .when(
                 attachment_name.is_some() || self.attach_error.is_some(),
                 |d| {
@@ -969,6 +1013,20 @@ impl Render for ComposerView {
                                 .text_color(rgb(t.accent))
                                 .child("Voce")
                                 .on_click(cx.listener(|this, _, _, cx| this.start_recording(cx))),
+                        )
+                        .child(
+                            div()
+                                .id("composer-emoji-toggle")
+                                .cursor_pointer()
+                                .flex_shrink_0()
+                                .px_2()
+                                .py_2()
+                                .text_color(rgb(t.accent))
+                                .child("Emoji")
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.emoji_open = !this.emoji_open;
+                                    cx.notify();
+                                })),
                         )
                     })
                     .when_some(
@@ -2080,6 +2138,32 @@ mod tests {
             command(v, "escape", false, window, cx);
             assert!(v.mention_options().is_empty());
             assert_eq!(v.draft.text(), "ciao @Bruno Verdi @");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn emoji_picker_inserts_at_the_caret_and_closes_with_esc() {
+        command_probe(|v, window, cx| {
+            v.set_live(true);
+            v.replace_text_in_range(None, "", window, cx);
+            v.draft.select(0..v.draft.text().len());
+            v.draft.replace(None, "ciao  fine");
+            v.draft.select(5..5);
+            v.changed(cx);
+            v.emoji_open = true;
+            v.pick_emoji(0, window, cx);
+            assert_eq!(v.draft.text(), "ciao 😀 fine");
+            assert!(!v.emoji_open);
+            // A selection is replaced, like typing; Esc closes without touching the text.
+            v.draft.select(0..4);
+            v.emoji_open = true;
+            v.pick_emoji(16, window, cx);
+            assert_eq!(v.draft.text(), "👍 😀 fine");
+            v.emoji_open = true;
+            command(v, "escape", false, window, cx);
+            assert!(!v.emoji_open);
+            assert_eq!(v.draft.text(), "👍 😀 fine");
         });
     }
 

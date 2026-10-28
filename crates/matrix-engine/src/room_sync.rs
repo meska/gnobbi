@@ -1241,6 +1241,7 @@ async fn history_rows(
                     .get_field::<u64>("origin_server_ts")
                     .ok()
                     .flatten(),
+                    styles: Vec::new(),
             )
         {
             events.push(HistoryEvent {
@@ -1277,6 +1278,7 @@ async fn history_rows(
                         sender: history_sender(room, &message.sender).await,
                         video: None,
                     });
+                styles: Vec::new(),
                     continue;
                 }
                 SyncMessageLikeEvent::Redacted(message) => {
@@ -1298,6 +1300,7 @@ async fn history_rows(
             if let Some(edit) = message.unsigned.relations.replace.as_ref()
                 && edit.sender == message.sender
                 && let Some(Relation::Replacement(replacement)) = &edit.content.relates_to
+                        styles: Vec::new(),
                 && replacement.event_id == message.event_id
                 && replacement.new_content.msgtype.msgtype() == message.content.msgtype.msgtype()
             {
@@ -1309,6 +1312,7 @@ async fn history_rows(
                 && edit.sender == message.sender
                 && let Some(Relation::Replacement(replacement)) = &edit.content.relates_to
                 && replacement.new_content.msgtype.msgtype() == message.content.msgtype.msgtype()
+                        styles: Vec::new(),
             {
                 message
                     .content
@@ -1384,9 +1388,9 @@ async fn history_rows(
                 MessageType::Video(v) => Some(video_info(v)),
                 _ => None,
             };
-            let body = match message.content.msgtype {
-                MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
-                other => message_label(&other),
+            let (body, styles) = match message.content.msgtype {
+                MessageType::Image(_) => (crate::history::IMAGE_BODY.into(), Vec::new()),
+                other => message_rich(&other),
             };
             events.push(HistoryEvent {
                 event_id: matrix_domain::EventId::new(message.event_id.as_str()),
@@ -1417,6 +1421,7 @@ fn human_size(bytes: u64) -> String {
         0..1024 => format!("{bytes} B"),
         1024..1_048_576 => format!("{} KB", bytes / 1024),
         _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+                styles,
     }
 }
 
@@ -1442,6 +1447,23 @@ fn message_label(msgtype: &MessageType) -> String {
             let duration = info.and_then(|i| i.duration).map(|d| {
                 let s = d.as_secs();
                 format!("{}:{:02}", s / 60, s % 60)
+/// Row text and styles of a message: its sanitized HTML body when the sender gave one, else `message_label`.
+fn message_rich(msgtype: &MessageType) -> (String, Vec<crate::rich_text::StyleSpan>) {
+    use matrix_sdk::ruma::events::room::message::MessageFormat;
+    let formatted = match msgtype {
+        MessageType::Text(t) => t.formatted.as_ref(),
+        MessageType::Notice(n) => n.formatted.as_ref(),
+        _ => None,
+    };
+    if let Some(f) = formatted.filter(|f| f.format == MessageFormat::Html) {
+        let (text, styles) = crate::rich_text::from_html(&f.body);
+        if !text.is_empty() {
+            return (text, styles);
+        }
+    }
+    (message_label(msgtype), Vec::new())
+}
+
             });
             let size = info.and_then(|i| i.size).map(|s| human_size(s.into()));
             join("Video", duration.into_iter().chain(size).collect())

@@ -19,8 +19,9 @@ pub struct Mention {
     pub label: String,
 }
 
-/// `body` as HTML with each mention's first free occurrence turned into a matrix.to link; None when none of them is still in the text.
-pub fn mention_html(body: &str, mentions: &[Mention]) -> Option<String> {
+/// Markdown source of `body`: each mention's first free occurrence becomes a matrix.to link, a literal `<` is
+/// escaped (the sender never types HTML). Also returns the user ids that were linked.
+pub fn mention_markdown<'a>(body: &str, mentions: &'a [Mention]) -> (String, Vec<&'a str>) {
     let mut spans: Vec<(usize, usize, &str)> = Vec::new();
     for mention in mentions {
         let mut from = 0;
@@ -36,27 +37,65 @@ pub fn mention_html(body: &str, mentions: &[Mention]) -> Option<String> {
             from = end;
         }
     }
-    if spans.is_empty() {
-        return None;
-    }
     spans.sort();
-    let escape = |text: &str| {
-        text.replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('\n', "<br>")
-    };
-    let (mut html, mut at) = (String::new(), 0);
-    for (start, end, user) in spans {
-        html.push_str(&escape(&body[at..start]));
-        html.push_str(&format!(
-            "<a href=\"https://matrix.to/#/{user}\">{}</a>",
-            escape(&body[start..end])
-        ));
+    let escape = |text: &str| text.replace('<', "\\<");
+    let (mut source, mut at) = (String::new(), 0);
+    for &(start, end, user) in &spans {
+        source.push_str(&escape(&body[at..start]));
+        let label = body[start..end]
+            .replace('\\', "\\\\")
+            .replace('[', "\\[")
+            .replace(']', "\\]");
+        let user = user.replace('(', "%28").replace(')', "%29");
+        source.push_str(&format!("[{}](https://matrix.to/#/{user})", escape(&label)));
         at = end;
     }
-    html.push_str(&escape(&body[at..]));
-    Some(html)
+    source.push_str(&escape(&body[at..]));
+    (hard_breaks(&source), spans.into_iter().map(|(_, _, user)| user).collect())
+}
+
+/// A typed line break stays a line break in the HTML (markdown folds it into a space), except inside code fences.
+fn hard_breaks(source: &str) -> String {
+    let (mut fenced, mut out) = (false, String::new());
+    let mut lines = source.split('\n').peekable();
+    while let Some(line) = lines.next() {
+        out.push_str(line);
+        if line.trim_start().starts_with("```") || line.trim_start().starts_with("~~~") {
+            fenced = !fenced;
+        }
+        if lines.peek().is_some() {
+            if !fenced && !line.trim().is_empty() {
+                out.push_str("  ");
+            }
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// The message to send: the typed text as `body`, its markdown as `formatted_body` (the SDK `markdown`
+/// feature; none when the text has no markup) and `m.mentions` for the linked users.
+#[cfg(feature = "sdk")]
+pub fn markdown_content(
+    body: &str,
+    mentions: &[Mention],
+) -> matrix_sdk::ruma::events::room::message::RoomMessageEventContent {
+    use matrix_sdk::ruma::events::{
+        Mentions,
+        room::message::{MessageType, RoomMessageEventContent},
+    };
+    let (source, linked) = mention_markdown(body, mentions);
+    let mut content = RoomMessageEventContent::text_markdown(source);
+    if let MessageType::Text(text) = &mut content.msgtype {
+        text.body = body.to_owned();
+    }
+    if linked.is_empty() {
+        content
+    } else {
+        content.add_mentions(Mentions::with_user_ids(
+            linked.into_iter().filter_map(|id| id.parse().ok()),
+        ))
+    }
 }
 
 /// File or image sent with the request body as caption.
@@ -103,6 +142,50 @@ mod tests {
         assert_eq!(super::image_size(b"not an image"), None);
     }
 
+    use super::{Mention, markdown_content};
+    use matrix_sdk::ruma::events::room::message::MessageType;
+
+    fn sent(body: &str, mentions: &[Mention]) -> serde_json::Value {
+        let content = markdown_content(body, mentions);
+        assert!(matches!(content.msgtype, MessageType::Text(_)));
+        serde_json::to_value(&content).unwrap()
+    }
+
+    #[test]
+    fn markdown_goes_out_as_html_with_the_typed_body() {
+        let v = sent("**forte** _corsivo_ `codice`\n- uno\n- due\n\n> cita [sito](https://e.org)", &[]);
+        assert_eq!(v["format"], "org.matrix.custom.html");
+        assert_eq!(v["body"], "**forte** _corsivo_ `codice`\n- uno\n- due\n\n> cita [sito](https://e.org)");
+        let html = v["formatted_body"].as_str().unwrap();
+        for tag in ["<strong>forte</strong>", "<em>corsivo</em>", "<code>codice</code>", "<li>uno</li>", "<blockquote>", "<a href=\"https://e.org\">sito</a>"] {
+            assert!(html.contains(tag), "{tag} missing in {html}");
+        }
+        // Single newlines stay line breaks.
+        assert!(sent("a\nb", &[])["formatted_body"].as_str().is_some_and(|h| h.contains("<br")));
+    }
+
+    #[test]
+    fn plain_text_stays_plain_and_typed_html_is_escaped() {
+        assert!(sent("ciao a tutti", &[]).get("formatted_body").is_none());
+        let v = sent("<script>x</script> & ok", &[]);
+        let html = v["formatted_body"].as_str().unwrap_or_default();
+        assert!(!html.contains("<script"), "{html}");
+        assert_eq!(v["body"], "<script>x</script> & ok");
+    }
+
+    #[test]
+    fn mentions_coexist_with_markdown() {
+        let v = sent(
+            "**ciao** @Anna_B *ok*",
+            &[Mention { user_id: "@a:x".into(), label: "@Anna_B".into() }],
+        );
+        assert_eq!(v["body"], "**ciao** @Anna_B *ok*");
+        let html = v["formatted_body"].as_str().unwrap();
+        assert!(html.contains("<strong>ciao</strong>") && html.contains("<em>ok</em>"), "{html}");
+        assert!(html.contains("<a href=\"https://matrix.to/#/@a:x\">@Anna_B</a>"), "{html}");
+        assert_eq!(v["m.mentions"]["user_ids"], serde_json::json!(["@a:x"]));
+    }
+
     #[test]
     fn fresh_transaction_ids_do_not_repeat_across_sends() {
         let first = super::fresh_transaction_id();
@@ -138,10 +221,7 @@ pub async fn send_text(
         attachment::{AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseImageInfo},
         ruma::{
             RoomId,
-            events::{
-                Mentions,
-                room::message::{RoomMessageEventContent, TextMessageEventContent},
-            },
+            events::room::message::TextMessageEventContent,
         },
     };
     if request.scope.account_id != account {
@@ -161,17 +241,7 @@ pub async fn send_text(
     let response = match &request.attachment {
         None => tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            room.send(match mention_html(&request.body, &request.mentions) {
-                Some(html) => {
-                    let ids = request
-                        .mentions
-                        .iter()
-                        .filter_map(|m| m.user_id.parse().ok());
-                    RoomMessageEventContent::text_html(&request.body, html)
-                        .add_mentions(Mentions::with_user_ids(ids))
-                }
-                None => RoomMessageEventContent::text_plain(&request.body),
-            })
+            room.send(markdown_content(&request.body, &request.mentions))
             .with_transaction_id(transaction),
         )
         .await
@@ -223,7 +293,7 @@ pub async fn send_text(
 
 #[cfg(test)]
 mod mention_tests {
-    use super::{Mention, mention_html};
+    use super::{Mention, mention_markdown};
     fn m(user: &str, label: &str) -> Mention {
         Mention {
             user_id: user.into(),
@@ -231,21 +301,14 @@ mod mention_tests {
         }
     }
     #[test]
-    fn links_each_mention_once_and_escapes_the_rest() {
-        let html = mention_html(
-            "<hi> @Anna & @Anna",
-            &[m("@a:x", "@Anna"), m("@b:x", "@Anna")],
-        )
-        .unwrap();
+    fn links_each_mention_once_and_escapes_html() {
+        let mentions = [m("@a:x", "@Anna"), m("@b:x", "@Anna")];
+        let (source, linked) = mention_markdown("<hi> @Anna & @Anna", &mentions);
         assert_eq!(
-            html,
-            "&lt;hi&gt; <a href=\"https://matrix.to/#/@a:x\">@Anna</a> &amp; <a href=\"https://matrix.to/#/@b:x\">@Anna</a>"
+            source,
+            "\\<hi> [@Anna](https://matrix.to/#/@a:x) & [@Anna](https://matrix.to/#/@b:x)"
         );
-        assert_eq!(mention_html("ciao", &[m("@a:x", "@Anna")]), None);
-        assert!(
-            mention_html("a\n@Anna", &[m("@a:x", "@Anna")])
-                .unwrap()
-                .starts_with("a<br>")
-        );
+        assert_eq!(linked, ["@a:x", "@b:x"]);
+        assert_eq!(mention_markdown("ciao", &[m("@a:x", "@Anna")]), ("ciao".into(), vec![]));
     }
 }

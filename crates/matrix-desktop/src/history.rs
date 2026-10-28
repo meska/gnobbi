@@ -24,6 +24,8 @@ pub struct DemoEvent {
     pub transaction_id: Option<TransactionId>,
     pub id: ScopedTimelineId,
     pub text: String,
+    /// Bold, italic, code… of `text` for a formatted message.
+    pub styles: Vec<matrix_engine::rich_text::StyleSpan>,
     pub annotation: String,
     pub outgoing: bool,
     pub time: String,
@@ -117,6 +119,7 @@ impl DemoHistory {
                     outgoing: index % 3 == 1,
                     send_state: None,
                     timestamp_ms: index as u64 * 60_000,
+                    styles: Vec::new(),
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
@@ -187,6 +190,7 @@ impl DemoHistory {
             send_state: Some(DemoSendState::Pending),
             sender: None,
             timestamp_ms: 0,
+            styles: Vec::new(),
         });
     }
 
@@ -230,9 +234,10 @@ impl DemoHistory {
                 .events
                 .iter_mut()
                 .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
-                && row.text != event.body
+                && (row.text != event.body || row.styles != event.styles)
             {
                 row.text.clone_from(&event.body);
+                row.styles.clone_from(&event.styles);
                 changed_body = true;
             }
         }
@@ -269,6 +274,7 @@ impl DemoHistory {
                 send_state: None,
                 sender: (!event.outgoing).then_some(event.sender),
                 timestamp_ms: event.timestamp_ms,
+                styles: event.styles,
             })
             .collect::<Vec<_>>();
         let count = rows.len();
@@ -301,6 +307,7 @@ impl DemoHistory {
                 .find(|row| row.id.id == TimelineId::Server(operation.request.target.clone()))
             {
                 row.text = "[Messaggio eliminato]".into();
+                row.styles.clear();
                 row.redacted = true;
                 row.annotation.clear();
             }
@@ -343,6 +350,7 @@ impl DemoHistory {
                     send_state: None,
                     sender: None,
                     timestamp_ms: 0,
+                    styles: Vec::new(),
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -353,6 +361,7 @@ impl DemoHistory {
                     .find(|row| row.id.id == TimelineId::Server(operation.request.target.clone()))
             {
                 row.text = body.clone();
+                row.styles.clear();
                 row.time = format!(
                     "{} · modificato",
                     row.time.trim_end_matches(" · modificato")
@@ -385,6 +394,7 @@ impl DemoHistory {
                 // Delivery ACKs carry the original body, not authoritative edited/redacted content.
                 if !row.server_confirmed {
                     row.text = item.body.clone();
+                    row.styles.clear();
                 }
                 row.send_state = state;
                 row.server_confirmed = state.is_none();
@@ -411,6 +421,7 @@ impl DemoHistory {
                     send_state: state,
                     sender: None,
                     timestamp_ms: 0,
+                    styles: Vec::new(),
                 });
             }
         }

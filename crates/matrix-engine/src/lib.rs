@@ -91,6 +91,7 @@ pub mod operations;
 #[cfg(all(feature = "sdk", unix))]
 pub mod persistence;
 pub mod receipts;
+pub mod rich_text;
 pub mod reconnect;
 pub mod sending;
 #[cfg(all(feature = "sdk", unix))]
