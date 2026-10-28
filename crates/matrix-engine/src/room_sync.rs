@@ -428,6 +428,9 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
+                                OperationCommand::EditTags(edit) => OperationResult::TagsEdited {
+                                    result: crate::room_tags::edit(&operation_client, &edit).await,
+                                },
                                 OperationCommand::Apply(request) => {
                                     let result = crate::operations::perform(
                                         &operation_client,

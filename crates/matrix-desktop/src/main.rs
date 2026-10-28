@@ -5,6 +5,7 @@ mod compact_view;
 mod composer_view;
 mod editing_command;
 mod filter_view;
+mod groups_edit_view;
 mod login_field;
 mod media_view;
 mod menu_view;
@@ -58,6 +59,7 @@ struct Shell {
     drawer_focus: FocusHandle,
     settings_open: bool,
     new_room: Option<new_room_view::NewRoom>,
+    groups_edit: Option<groups_edit_view::GroupsEdit>,
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
     refocus_menu: bool,
     drawer_row: usize,
@@ -1330,6 +1332,9 @@ impl Shell {
                             scope,
                             members: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::EditTags(_) => OperationResult::TagsEdited {
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::StartDm { .. } | OperationCommand::CreateRoom { .. } => {
                             OperationResult::RoomStarted {
                                 result: Err(OperationError::Unavailable),
@@ -2025,6 +2030,7 @@ impl Render for Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, cx))
+            .children(self.render_groups_edit(t, cx))
             .into_any_element()
     }
 }
@@ -2436,6 +2442,10 @@ fn main() {
                                                 }
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::TagsEdited { result } = result {
+                                                this.groups_edited(result, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::RoomStarted { result } = result {
                                                 this.room_started(result, cx);
                                                 continue;
@@ -2653,6 +2663,7 @@ fn main() {
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
                         new_room: None,
+                        groups_edit: None,
                         refocus_menu: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),

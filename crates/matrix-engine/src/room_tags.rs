@@ -1,7 +1,8 @@
 //! Room groups from the standard Matrix room tags (`m.favourite`, `m.lowpriority`, `u.*` with
 //! `order`), as the SDK keeps them from /sync. Read-only: nothing here writes to the server, so
 //! another device changing a tag shows up here on the next sync and nowhere else is stored.
-use matrix_sdk::{Client, ruma::events::tag::{TagName, Tags}};
+use crate::operations::{OperationError, TagEdit};
+use matrix_sdk::{Client, ruma::events::tag::{TagInfo, TagName, Tags}};
 use std::collections::BTreeMap;
 
 /// Rooms of one tag, in the order the tags ask for.
@@ -65,6 +66,56 @@ impl RoomGroups {
             if let Some(tags) = room.tags().await? { all.push((room.room_id().to_string(), tags)); }
         }
         Ok(Self::from_tags(all.iter().map(|(r, t)| (r.as_str(), t))))
+    }
+}
+
+/// Writes one explicit group change through the SDK. Called only for a user action, never from sync.
+pub async fn edit(client: &Client, edit: &TagEdit) -> Result<(), OperationError> {
+    let tag = |name: &str| -> Result<TagName, OperationError> {
+        let t = TagName::from(name);
+        // Only groups are ours to write; a bare `u.` or an over-long name is rejected, not truncated.
+        let ok = is_group(&t) && name.len() <= 255 && name.strip_prefix("u.").is_none_or(|n| !n.trim().is_empty());
+        ok.then_some(t).ok_or(OperationError::InvalidInput)
+    };
+    let user_only = |name: &str| tag(name).and_then(|t| matches!(t, TagName::User(_)).then_some(t).ok_or(OperationError::InvalidInput));
+    let sdk = |e: matrix_sdk::Error| match e.as_client_api_error().map(|e| e.status_code.as_u16()) {
+        Some(403) => OperationError::Forbidden,
+        _ => OperationError::Transport,
+    };
+    match edit {
+        TagEdit::Assign { room_id, tag: name, on } => {
+            let id = matrix_sdk::ruma::RoomId::parse(room_id).map_err(|_| OperationError::InvalidInput)?;
+            let room = client.get_room(&id).ok_or(OperationError::Unavailable)?;
+            match (tag(name)?, on) {
+                (TagName::Favorite, on) => room.set_is_favourite(*on, None).await,
+                (TagName::LowPriority, on) => room.set_is_low_priority(*on, None).await,
+                (t, true) => room.set_tag(t, TagInfo::new()).await.map(drop),
+                (t, false) => room.remove_tag(t).await.map(drop),
+            }
+            .map_err(sdk)
+        }
+        TagEdit::Rename { from, to } => {
+            let (from, to) = (user_only(from)?, user_only(to)?);
+            if from == to {
+                return Err(OperationError::InvalidInput);
+            }
+            for room in client.joined_rooms() {
+                if let Some(info) = room.tags().await.map_err(|_| OperationError::Unavailable)?.and_then(|t| t.get(&from).cloned()) {
+                    room.set_tag(to.clone(), info).await.map_err(sdk)?;
+                    room.remove_tag(from.clone()).await.map_err(sdk)?;
+                }
+            }
+            Ok(())
+        }
+        TagEdit::Delete { tag: name } => {
+            let t = user_only(name)?;
+            for room in client.joined_rooms() {
+                if room.tags().await.map_err(|_| OperationError::Unavailable)?.is_some_and(|tags| tags.contains_key(&t)) {
+                    room.remove_tag(t.clone()).await.map_err(sdk)?;
+                }
+            }
+            Ok(())
+        }
     }
 }
 

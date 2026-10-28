@@ -49,8 +49,23 @@ pub enum OperationCommand {
         name: String,
         public: bool,
     },
+    /// Group (room tag) change asked for by the user in «Modifica»; the only writer of tags.
+    EditTags(TagEdit),
+}
+/// One explicit change of the personal groups. `tag` is the full tag name (`m.favourite`,
+/// `m.lowpriority` or `u.<name>`); a group exists as long as one room carries its tag.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TagEdit {
+    Assign { room_id: String, tag: String, on: bool },
+    /// Moves every room of user group `from` to `to` (both `u.*`).
+    Rename { from: String, to: String },
+    /// Removes user group `tag` from every room.
+    Delete { tag: String },
 }
 pub enum OperationResult {
+    TagsEdited {
+        result: Result<(), OperationError>,
+    },
     RoomStarted {
         result: Result<RoomScope, OperationError>,
     },

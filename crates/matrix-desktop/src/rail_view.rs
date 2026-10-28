@@ -586,6 +586,23 @@ impl Shell {
             .flex()
             .flex_col()
             .overflow_y_scroll()
+            .child(
+                div()
+                    .id("rail-edit-groups")
+                    .h(px(44.))
+                    .flex_shrink_0()
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .cursor_pointer()
+                    .text_size(px(14.))
+                    .text_color(rgb(t.accent))
+                    .child("Gruppi")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.rail_ui.edit_open = false;
+                        this.open_groups_edit(window, cx);
+                    })),
+            )
             .children(spaces.into_iter().enumerate().map(|(row, (entry, hidden))| {
                 let on = focused && row == cursor;
                 let color = if hidden { t.secondary } else { t.text };
