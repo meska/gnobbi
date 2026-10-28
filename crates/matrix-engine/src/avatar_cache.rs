@@ -182,3 +182,71 @@ impl AccountSession {
         self.store.as_ref().map(|store| &*store.avatars)
     }
 }
+
+/// The worker's avatar source: the account client, the shared cache and the worker runtime.
+#[derive(Clone)]
+pub struct AvatarFetcher {
+    client: matrix_sdk::Client,
+    cache: Arc<AvatarCache>,
+    runtime: tokio::runtime::Handle,
+}
+
+impl AvatarFetcher {
+    pub fn new(session: &AccountSession, runtime: tokio::runtime::Handle) -> Option<Self> {
+        Some(Self {
+            client: session.client.clone()?,
+            cache: session.store.as_ref()?.avatars.clone(),
+            runtime,
+        })
+    }
+}
+
+impl crate::avatar::AvatarSource for AvatarFetcher {
+    fn request(&self, mxc: String, out: std::sync::mpsc::Sender<crate::avatar::AvatarPicture>) {
+        let me = self.clone();
+        self.runtime.spawn(async move {
+            let rgba = async {
+                let bytes = me.cache.get(&me.client, &mxc).await?;
+                tokio::task::spawn_blocking(move || decode(&bytes))
+                    .await
+                    .ok()?
+            }
+            .await;
+            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba });
+        });
+    }
+}
+
+/// Square thumbnails are 96 px; anything much larger is not an avatar we asked for.
+fn decode(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(512);
+    limits.max_image_height = Some(512);
+    limits.max_alloc = Some(8 * 1024 * 1024);
+    reader.limits(limits);
+    let rgba = reader.decode().ok()?.to_rgba8();
+    Some((rgba.width(), rgba.height(), rgba.into_raw()))
+}
+
+#[cfg(test)]
+mod decode_tests {
+    #[test]
+    fn decodes_a_small_png_and_refuses_junk_and_oversize() {
+        let mut png = Vec::new();
+        let write = |w, h, out: &mut Vec<u8>| {
+            image::RgbaImage::new(w, h)
+                .write_to(&mut std::io::Cursor::new(out), image::ImageFormat::Png)
+                .unwrap()
+        };
+        write(96, 96, &mut png);
+        let (w, h, rgba) = super::decode(&png).unwrap();
+        assert_eq!((w, h, rgba.len()), (96, 96, 96 * 96 * 4));
+        assert!(super::decode(b"not an image").is_none());
+        let mut big = Vec::new();
+        write(600, 10, &mut big);
+        assert!(super::decode(&big).is_none());
+    }
+}

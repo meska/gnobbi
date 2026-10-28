@@ -27,6 +27,8 @@ pub struct AccountRoutes {
     pub operation: Route<OperationCommand, OperationResult>,
     pub send: Route<SendRequest, SendResult>,
     pub history: Route<HistoryRequest, HistoryResult>,
+    /// Where the worker offers avatar downloads once its session is up.
+    pub avatars: matrix_engine::avatar::AvatarSlot,
 }
 
 #[derive(Default)]

@@ -6,6 +6,7 @@ const RAIL_ENTRY_HEIGHT: f32 = 63.;
 const RAIL_INDICATOR_TOP: f32 = 8.;
 const RAIL_BADGE_TOP: f32 = 1.;
 
+const RAIL_ICON_PX: f32 = 34.;
 const RAIL_LABEL_UNITS: usize = 10;
 
 // shortcut: width is estimated (wide chars count 2), not measured; measure text if fonts change.
@@ -29,25 +30,6 @@ fn rail_label(name: &str) -> String {
         out.push(c);
     }
     format!("{}…", out.trim_end())
-}
-
-#[cfg(test)]
-mod rail_label_tests {
-    use super::rail_label;
-
-    #[test]
-    fn truncates_with_final_ellipsis() {
-        for (name, want) in [
-            ("Casa", "Casa"),
-            ("Softair", "Softair"),
-            ("Direct Messages", "Direct Me…"),
-            ("Softair Team", "Softair T…"),
-            ("🎮🎮🎮🎮🎮🎮", "🎮🎮🎮🎮…"),
-            ("🎮🎮🎮🎮🎮", "🎮🎮🎮🎮🎮"),
-        ] {
-            assert_eq!(rail_label(name), want, "{name}");
-        }
-    }
 }
 
 struct RailTooltip {
@@ -334,18 +316,20 @@ impl Shell {
                                     }))
                                     .cursor_pointer()
                                     .children(self.rail_observer(&scope_key, window, cx))
-                                    .child(
-                                        div()
-                                            .w(px(36.))
-                                            .h(px(32.))
-                                            .rounded_lg()
+                                    .child(match self.avatars.get(entry.avatar.as_deref()) {
+                                        Some(image) => avatar_view::round(image, RAIL_ICON_PX),
+                                        None => div()
+                                            .size(px(RAIL_ICON_PX))
+                                            .flex_shrink_0()
+                                            .rounded_full()
                                             .bg(rgb(t.surface))
                                             .flex()
                                             .items_center()
                                             .justify_center()
-                                            .text_size(px(18.))
-                                            .child(initials),
-                                    )
+                                            .text_size(px(16.))
+                                            .child(initials)
+                                            .into_any_element(),
+                                    })
                                     .child(
                                         div()
                                             .w_full()
@@ -391,5 +375,24 @@ impl Shell {
                     ),
             )
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod rail_label_tests {
+    use super::rail_label;
+
+    #[test]
+    fn truncates_with_final_ellipsis() {
+        for (name, want) in [
+            ("Casa", "Casa"),
+            ("Softair", "Softair"),
+            ("Direct Messages", "Direct Me…"),
+            ("Softair Team", "Softair T…"),
+            ("🎮🎮🎮🎮🎮🎮", "🎮🎮🎮🎮…"),
+            ("🎮🎮🎮🎮🎮", "🎮🎮🎮🎮🎮"),
+        ] {
+            assert_eq!(rail_label(name), want, "{name}");
+        }
     }
 }

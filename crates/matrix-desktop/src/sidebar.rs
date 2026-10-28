@@ -31,6 +31,8 @@ pub struct NavigationEntry {
     pub unread: u64,
     pub mentions: u64,
     pub selected: bool,
+    /// mxc URI of the space avatar; None for «Tutte» and for spaces without one.
+    pub avatar: Option<String>,
 }
 
 pub enum Navigation {
@@ -307,6 +309,7 @@ impl Sidebar {
             unread,
             mentions,
             selected: self.space.is_none(),
+            avatar: None,
         }];
         entries.extend(self.spaces().map(|space| {
             let (unread, mentions) = total(&|room| {
@@ -318,6 +321,7 @@ impl Sidebar {
                 unread,
                 mentions,
                 selected: self.space.as_ref() == Some(&space.scope),
+                avatar: space.info.avatar.clone(),
             }
         }));
         entries

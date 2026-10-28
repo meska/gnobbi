@@ -38,6 +38,7 @@ pub struct RoomListWorker {
         crate::Sender<crate::sending::SendRequest>,
         crate::Receiver<crate::sending::SendResult>,
     )>,
+    avatars: crate::avatar::AvatarSlot,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     logout: std::sync::Arc<std::sync::atomic::AtomicBool>,
     done: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -46,6 +47,14 @@ pub struct RoomListWorker {
         crate::Sender<crate::history::HistoryRequest>,
         crate::Receiver<crate::history::HistoryResult>,
     )>,
+}
+struct EmptyOnDrop(crate::avatar::AvatarSlot);
+impl Drop for EmptyOnDrop {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = None;
+        }
+    }
 }
 struct DoneOnDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
 impl Drop for DoneOnDrop {
@@ -90,6 +99,8 @@ impl RoomListWorker {
         let logout = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (worker_logout, worker_done) = (logout.clone(), done.clone());
+        let avatars = crate::avatar::AvatarSlot::default();
+        let worker_avatars = avatars.clone();
         let (media_commands, mut media_requests) =
             crate::bounded::<crate::media::MediaCommand>(std::num::NonZeroUsize::new(2).unwrap());
         let (mut media_results, media_events) =
@@ -99,6 +110,8 @@ impl RoomListWorker {
             .spawn(move || {
                 // Declared first, so it drops after the runtime and the session.
                 let _done = DoneOnDrop(worker_done);
+                // Dropped before `_done`, after the runtime: the window must not keep the client.
+                let _avatars = EmptyOnDrop(worker_avatars.clone());
                 let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
@@ -144,6 +157,14 @@ impl RoomListWorker {
                     let client = sync.session.client.as_ref().unwrap().clone();
                     let account = sync.session.account_id();
                     let media_client = client.clone();
+                    #[cfg(unix)]
+                    if let Some(fetcher) = crate::avatar_cache::AvatarFetcher::new(
+                        &sync.session,
+                        tokio::runtime::Handle::current(),
+                    ) && let Ok(mut slot) = worker_avatars.lock()
+                    {
+                        *slot = Some(Box::new(fetcher));
+                    }
                     let media_stop = cancelled.clone();
                     let mut media_task = tokio::spawn(async move {
                         let mut clean = true;
@@ -508,6 +529,7 @@ impl RoomListWorker {
                 verification_route: Some((verification_commands, verification_events)),
                 operation_route: Some((operation_commands, operation_events)),
                 send_route: Some((send_commands, send_events)),
+                avatars,
                 stop,
                 logout,
                 done,
@@ -516,6 +538,11 @@ impl RoomListWorker {
             },
             receiver,
         ))
+    }
+
+    /// Filled once the session is up, empty again when the worker ends.
+    pub fn avatar_slot(&self) -> crate::avatar::AvatarSlot {
+        self.avatars.clone()
     }
 
     pub fn control(&self) -> WorkerControl {

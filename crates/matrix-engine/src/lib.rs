@@ -13,6 +13,7 @@ pub use matrix_sdk_ui as sdk_ui;
 pub mod accounts;
 #[cfg(feature = "sdk")]
 pub mod auth;
+pub mod avatar;
 #[cfg(all(feature = "sdk", unix))]
 pub mod avatar_cache;
 #[cfg(feature = "sdk")]

@@ -75,6 +75,7 @@ pub(crate) fn start_background(
             operation: worker.take_operation_route(),
             send: worker.take_send_route(),
             history: worker.take_history_route(),
+            avatars: worker.avatar_slot(),
         };
         let mut state = AccountState::new(store_id, Some((root, ca_file.clone())), routes);
         state.control = Some(worker.control());

@@ -1,5 +1,6 @@
 mod account_remove;
 mod account_switch;
+mod avatar_view;
 mod compact_view;
 mod composer_view;
 mod editing_command;
@@ -109,6 +110,7 @@ struct Shell {
     notification_handle: Option<matrix_desktop::notifications::NotificationHandle>,
     notifications_open: bool,
     notification_failed: bool,
+    avatars: avatar_view::Avatars,
     media: matrix_desktop::LiveMedia,
     /// Channels to the shown account's worker.
     routes: matrix_desktop::AccountRoutes,
@@ -1804,19 +1806,21 @@ impl Render for Shell {
                                             .px_4()
                                             .gap_3()
                                             .bg(rgb(background))
-                                            .child(
-                                                div()
+                                            .child(match this.avatars.get(room.info.avatar.as_deref()) {
+                                                Some(image) => avatar_view::round(image, matrix_desktop::row_text::AVATAR_PX),
+                                                None => div()
                                                     .flex()
                                                     .items_center()
                                                     .justify_center()
-                                                    .size(px(46.))
+                                                    .size(px(matrix_desktop::row_text::AVATAR_PX))
                                                     .flex_shrink_0()
                                                     .rounded_full()
                                                     .bg(rgb(room.color))
                                                     .text_color(rgb(t.avatar_text))
                                                     .font_weight(gpui::FontWeight::SEMIBOLD)
-                                                    .child(room.initials.clone()),
-                                            )
+                                                    .child(room.initials.clone())
+                                                    .into_any_element(),
+                                            })
                                             .child(
                                                 div()
                                                     .flex()
@@ -2230,6 +2234,7 @@ fn main() {
         routes.operation = worker.take_operation_route();
         routes.send = worker.take_send_route();
         routes.history = worker.take_history_route();
+        routes.avatars = worker.avatar_slot();
         worker
     });
     #[cfg(not(all(feature = "live", unix)))]
@@ -2514,6 +2519,9 @@ fn main() {
                                         if this.drive_inline_images() {
                                             cx.notify();
                                         }
+                                        if this.drive_avatars() {
+                                            cx.notify();
+                                        }
                                         if let Some((sender, _)) = &mut this.routes.media {
                                             this.media.flush(sender);
                                         }
@@ -2696,6 +2704,7 @@ fn main() {
                         spaces_open: false,
                         navigation_wide: true,
                         notification_failed: false,
+                        avatars: Default::default(),
                         media: matrix_desktop::LiveMedia::default(),
                         routes: std::mem::take(&mut routes),
                         parked: background.drain(..).collect(),

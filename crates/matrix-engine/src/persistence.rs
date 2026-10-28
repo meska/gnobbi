@@ -35,7 +35,7 @@ pub struct AccountStore {
     pub(crate) account_id: AccountId,
     pub(crate) path: PathBuf,
     _lock: fs::File,
-    pub(crate) avatars: Box<crate::avatar_cache::AvatarCache>,
+    pub(crate) avatars: std::sync::Arc<crate::avatar_cache::AvatarCache>,
 }
 
 impl AccountStore {
@@ -231,7 +231,7 @@ impl AccountStore {
         let lock = Self::lock(&path)?;
         Ok(Self {
             account_id,
-            avatars: Box::new(crate::avatar_cache::AvatarCache::new(avatar_dir(&path))),
+            avatars: std::sync::Arc::new(crate::avatar_cache::AvatarCache::new(avatar_dir(&path))),
             path,
             _lock: lock,
         })
@@ -245,7 +245,7 @@ impl AccountStore {
         let lock = Self::lock(&path)?;
         Ok(Self {
             account_id,
-            avatars: Box::new(crate::avatar_cache::AvatarCache::new(avatar_dir(&path))),
+            avatars: std::sync::Arc::new(crate::avatar_cache::AvatarCache::new(avatar_dir(&path))),
             path,
             _lock: lock,
         })
