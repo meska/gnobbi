@@ -21,6 +21,8 @@ pub mod recovery;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
 #[cfg(feature = "sdk")]
+pub mod room_tags;
+#[cfg(feature = "sdk")]
 pub mod sliding;
 #[cfg(feature = "threads")]
 pub mod thread_timeline;
