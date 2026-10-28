@@ -10,7 +10,13 @@ const RAIL_LABEL_UNITS: usize = 10;
 
 // shortcut: width is estimated (wide chars count 2), not measured; measure text if fonts change.
 fn rail_label(name: &str) -> String {
-    let w = |c: char| if c.is_ascii() || (c as u32) < 0x2000 { 1 } else { 2 };
+    let w = |c: char| {
+        if c.is_ascii() || (c as u32) < 0x2000 {
+            1
+        } else {
+            2
+        }
+    };
     if name.chars().map(w).sum::<usize>() <= RAIL_LABEL_UNITS {
         return name.to_owned();
     }
@@ -216,28 +222,28 @@ impl Shell {
                     .child(self.render_menu_button(t, window, cx)),
             )
             .child(
-        div()
-            .id("navigation-rail")
-            .track_focus(&self.rail_ui.focus)
-            .w_full()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .overflow_y_scroll()
-            .track_scroll(&self.rail_ui.scroll)
-            .children(
-                self.sidebar
-                    .navigation_entries()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, entry)| {
-                        let scope = entry.scope;
-                        let source_visit = self.sidebar.navigation_callback();
-                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        let callback = self.semantic_spaces(window).and_then(|view| {
-                            let choice = view.choices.iter().find(|c| c.scope == scope)?;
-                            Some(crate::spaces_view::space_callback(
+                div()
+                    .id("navigation-rail")
+                    .track_focus(&self.rail_ui.focus)
+                    .w_full()
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.rail_ui.scroll)
+                    .children(
+                        self.sidebar
+                            .navigation_entries()
+                            .into_iter()
+                            .enumerate()
+                            .map(|(index, entry)| {
+                                let scope = entry.scope;
+                                let source_visit = self.sidebar.navigation_callback();
+                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                                let callback = self.semantic_spaces(window).and_then(|view| {
+                                    let choice = view.choices.iter().find(|c| c.scope == scope)?;
+                                    Some(crate::spaces_view::space_callback(
                                 matrix_desktop::accessibility::spaces::SpacesAction::Choose {
                                     revision: view.revision,
                                     account: view.account,
@@ -246,30 +252,30 @@ impl Shell {
                                     previous: view.active.clone(),
                                 },
                             ))
-                        });
-                        let anchor = self
-                            .rail_ui
-                            .anchors
-                            .borrow_mut()
-                            .entry(scope.clone())
-                            .or_insert_with(|| {
-                                gpui::ScrollAnchor::for_handle(self.rail_ui.scroll.clone())
-                            })
-                            .clone();
-                        let focused =
-                            self.rail_ui.focus.is_focused(window) && self.rail_ui.target == scope;
-                        let initials: String = if scope.is_none() {
-                            "▦".into()
-                        } else {
-                            entry.name.chars().take(2).collect()
-                        };
-                        let label = if scope.is_none() {
-                            "Tutte le conversazioni".to_owned()
-                        } else {
-                            format!("Spazio Matrix: {}", entry.name)
-                        };
-                        let scope_key = scope.clone();
-                        let pointer =
+                                });
+                                let anchor = self
+                                    .rail_ui
+                                    .anchors
+                                    .borrow_mut()
+                                    .entry(scope.clone())
+                                    .or_insert_with(|| {
+                                        gpui::ScrollAnchor::for_handle(self.rail_ui.scroll.clone())
+                                    })
+                                    .clone();
+                                let focused = self.rail_ui.focus.is_focused(window)
+                                    && self.rail_ui.target == scope;
+                                let initials: String = if scope.is_none() {
+                                    "▦".into()
+                                } else {
+                                    entry.name.chars().take(2).collect()
+                                };
+                                let label = if scope.is_none() {
+                                    "Tutte le conversazioni".to_owned()
+                                } else {
+                                    format!("Spazio Matrix: {}", entry.name)
+                                };
+                                let scope_key = scope.clone();
+                                let pointer =
                             move |this: &mut Shell,
                                   window: &mut Window,
                                   cx: &mut Context<Shell>| {
@@ -295,93 +301,95 @@ impl Shell {
                                     cx.notify();
                                 }
                             };
-                        #[cfg(test)]
-                        let pointer = sidebar_navigation_test::capture_rail(&scope_key, pointer);
-                        let theme = self.theme;
-                        div()
-                            .id(("rail-entry", index))
-                            .relative()
-                            .anchor_scroll(Some(anchor))
-                            .tooltip(move |_, cx| {
-                                cx.new(|_| RailTooltip {
-                                    label: label.clone(),
-                                    theme,
-                                })
-                                .into()
-                            })
-                            .w_full()
-                            .h(px(RAIL_ENTRY_HEIGHT))
-                            .flex_shrink_0()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .justify_center()
-                            .gap_1()
-                            .border_2()
-                            .border_color(rgb(if focused { t.accent } else { t.input }))
-                            .bg(rgb(if entry.selected { t.selected } else { t.input }))
-                            .text_color(rgb(if entry.selected {
-                                t.accent
-                            } else {
-                                t.secondary
-                            }))
-                            .cursor_pointer()
-                            .children(self.rail_observer(&scope_key, window, cx))
-                            .child(
+                                #[cfg(test)]
+                                let pointer =
+                                    sidebar_navigation_test::capture_rail(&scope_key, pointer);
+                                let theme = self.theme;
                                 div()
-                                    .w(px(36.))
-                                    .h(px(32.))
-                                    .rounded_lg()
-                                    .bg(rgb(t.surface))
+                                    .id(("rail-entry", index))
+                                    .relative()
+                                    .anchor_scroll(Some(anchor))
+                                    .tooltip(move |_, cx| {
+                                        cx.new(|_| RailTooltip {
+                                            label: label.clone(),
+                                            theme,
+                                        })
+                                        .into()
+                                    })
+                                    .w_full()
+                                    .h(px(RAIL_ENTRY_HEIGHT))
+                                    .flex_shrink_0()
                                     .flex()
+                                    .flex_col()
                                     .items_center()
                                     .justify_center()
-                                    .text_size(px(18.))
-                                    .child(initials),
-                            )
-                            .child(
-                                div()
-                                    .w_full()
-                                    .px_1()
-                                    .truncate()
-                                    .text_center()
-                                    .text_size(px(11.))
-                                    .child(rail_label(&entry.name)),
-                            )
-                            .when(entry.selected, |d| {
-                                d.child(
-                                    div()
-                                        .absolute()
-                                        .left_0()
-                                        .top(px(RAIL_INDICATOR_TOP))
-                                        .w(px(3.))
-                                        .h(px(28.))
-                                        .bg(rgb(t.accent)),
-                                )
-                            })
-                            .when(entry.unread > 0, |d| {
-                                d.child(
-                                    div()
-                                        .absolute()
-                                        .right(px(3.))
-                                        .top(px(RAIL_BADGE_TOP))
-                                        .rounded_full()
-                                        .px_1()
-                                        .bg(rgb(t.accent))
-                                        .text_color(rgb(t.on_accent))
-                                        .text_size(px(10.))
-                                        .child(if entry.unread > 99 {
-                                            "99+".into()
-                                        } else {
-                                            entry.unread.to_string()
-                                        }),
-                                )
-                            })
-                            .on_click(
-                                cx.listener(move |this, _, window, cx| pointer(this, window, cx)),
-                            )
-                    }),
-            ))
+                                    .gap_1()
+                                    .border_2()
+                                    .border_color(rgb(if focused { t.accent } else { t.input }))
+                                    .bg(rgb(if entry.selected { t.selected } else { t.input }))
+                                    .text_color(rgb(if entry.selected {
+                                        t.accent
+                                    } else {
+                                        t.secondary
+                                    }))
+                                    .cursor_pointer()
+                                    .children(self.rail_observer(&scope_key, window, cx))
+                                    .child(
+                                        div()
+                                            .w(px(36.))
+                                            .h(px(32.))
+                                            .rounded_lg()
+                                            .bg(rgb(t.surface))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .text_size(px(18.))
+                                            .child(initials),
+                                    )
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .px_1()
+                                            .truncate()
+                                            .text_center()
+                                            .text_size(px(11.))
+                                            .child(rail_label(&entry.name)),
+                                    )
+                                    .when(entry.selected, |d| {
+                                        d.child(
+                                            div()
+                                                .absolute()
+                                                .left_0()
+                                                .top(px(RAIL_INDICATOR_TOP))
+                                                .w(px(3.))
+                                                .h(px(28.))
+                                                .bg(rgb(t.accent)),
+                                        )
+                                    })
+                                    .when(entry.unread > 0, |d| {
+                                        d.child(
+                                            div()
+                                                .absolute()
+                                                .right(px(3.))
+                                                .top(px(RAIL_BADGE_TOP))
+                                                .rounded_full()
+                                                .px_1()
+                                                .bg(rgb(t.accent))
+                                                .text_color(rgb(t.on_accent))
+                                                .text_size(px(10.))
+                                                .child(if entry.unread > 99 {
+                                                    "99+".into()
+                                                } else {
+                                                    entry.unread.to_string()
+                                                }),
+                                        )
+                                    })
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        pointer(this, window, cx)
+                                    }))
+                            }),
+                    ),
+            )
             .into_any_element()
     }
 }

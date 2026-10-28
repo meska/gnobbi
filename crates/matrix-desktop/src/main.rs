@@ -7,9 +7,9 @@ mod filter_view;
 mod login_field;
 mod media_view;
 mod menu_view;
-mod new_room_view;
 #[cfg(test)]
 mod navigation_resize_test;
+mod new_room_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 mod operation_panel_view;
@@ -26,8 +26,8 @@ mod sidebar_navigation_test;
 mod signin_view;
 mod spaces_view;
 mod timeline_view;
-mod voice_recorder;
 mod verification_view;
+mod voice_recorder;
 use composer_view::{ComposerView, Submitted};
 
 use gpui::{
@@ -578,7 +578,14 @@ impl Shell {
     fn toggle_theme(&mut self, cx: &mut Context<Self>) {
         #[cfg(test)]
         sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.set_theme(if self.theme.is_dark() { Theme::Classic } else { Theme::Dark }, cx);
+        self.set_theme(
+            if self.theme.is_dark() {
+                Theme::Classic
+            } else {
+                Theme::Dark
+            },
+            cx,
+        );
     }
 
     fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
@@ -2004,11 +2011,17 @@ fn main() {
         let exec = std::env::var("APPIMAGE")
             .ok()
             .filter(|v| !v.is_empty())
-            .or_else(|| std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned()));
+            .or_else(|| {
+                std::env::current_exe()
+                    .ok()
+                    .map(|p| p.to_string_lossy().into_owned())
+            });
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
         let done = match (home, exec) {
-            (Some(home), Some(exec)) => matrix_desktop::desktop_entry::install_desktop_entry(&home, &exec)
-                .map_err(|e| e.to_string()),
+            (Some(home), Some(exec)) => {
+                matrix_desktop::desktop_entry::install_desktop_entry(&home, &exec)
+                    .map_err(|e| e.to_string())
+            }
             _ => Err("HOME or executable path unknown".into()),
         };
         if let Err(e) = done {
@@ -2116,7 +2129,11 @@ fn main() {
     let account_root = signin_options
         .as_ref()
         .map(|o| (o.root.clone(), o.ca_file.clone()))
-        .or_else(|| options.as_ref().map(|o| (o.root.clone(), o.ca_file.clone())));
+        .or_else(|| {
+            options
+                .as_ref()
+                .map(|o| (o.root.clone(), o.ca_file.clone()))
+        });
     #[cfg(all(feature = "live", unix))]
     let mut signin_ui = None;
     #[cfg(all(feature = "live", unix))]

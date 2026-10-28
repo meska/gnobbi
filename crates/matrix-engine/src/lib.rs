@@ -11,10 +11,10 @@ pub use matrix_sdk as sdk;
 pub use matrix_sdk_ui as sdk_ui;
 #[cfg(feature = "sdk")]
 pub mod accounts;
-#[cfg(all(feature = "sdk", unix))]
-pub mod avatar_cache;
 #[cfg(feature = "sdk")]
 pub mod auth;
+#[cfg(all(feature = "sdk", unix))]
+pub mod avatar_cache;
 #[cfg(feature = "sdk")]
 pub mod recovery;
 #[cfg(feature = "sdk")]
@@ -95,23 +95,23 @@ pub mod media;
 pub mod media_sdk;
 pub mod operations;
 #[cfg(all(feature = "sdk", unix))]
-pub mod video_file;
-#[cfg(all(feature = "sdk", unix))]
 pub mod persistence;
 pub mod receipts;
-pub mod rich_text;
 pub mod reconnect;
+pub mod rich_text;
 pub mod sending;
 #[cfg(all(feature = "sdk", unix))]
 pub mod signin;
 #[cfg(all(feature = "linux-vault", target_os = "linux"))]
 pub mod vault;
+#[cfg(all(feature = "sdk", unix))]
+pub mod video_file;
 pub use generation::{GenerationExhausted, RequestTag, ViewRequests};
 mod channel;
 mod worker_control;
-pub use worker_control::WorkerControl;
 pub use channel::{Receiver, Sender, TryReceiveError, TrySendError, bounded};
 use matrix_domain::{EventId, RoomScope, TimelineUpdate, TransactionId};
+pub use worker_control::WorkerControl;
 
 /// Typed UI requests. Message bodies are private data, never log these DTOs.
 pub enum EngineCommand {

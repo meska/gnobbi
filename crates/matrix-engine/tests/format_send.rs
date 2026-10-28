@@ -7,23 +7,21 @@
 #![recursion_limit = "256"]
 use matrix_domain::{AccountId, RoomId, RoomScope};
 use matrix_engine::{
-    operations::members,
     ViewRequests,
-    room_sync::RoomSync,
+    operations::members,
     rich_text::Style,
+    room_sync::RoomSync,
     sdk::{
         Client,
         reqwest::Certificate,
         ruma::{
-            api::client::{
-                room::{
-                    create_room::v3::{CreationContent, Request as CreateRoomRequest, RoomPreset},
-                    get_room_event::v3::Request as GetEventRequest,
-                },
+            OwnedRoomId,
+            api::client::room::{
+                create_room::v3::{CreationContent, Request as CreateRoomRequest, RoomPreset},
+                get_room_event::v3::Request as GetEventRequest,
             },
             assign,
             serde::Raw,
-            OwnedRoomId,
         },
     },
     sending::{Mention, SendRequest, fresh_transaction_id, send_text},
@@ -204,5 +202,8 @@ fn formatted_text_is_sent_and_rendered_by_the_receiver() {
 }
 
 fn scope_of(account: u64, room_id: &OwnedRoomId) -> RoomScope {
-    RoomScope { account_id: AccountId::new(account), room_id: RoomId::new(room_id.as_str()) }
+    RoomScope {
+        account_id: AccountId::new(account),
+        room_id: RoomId::new(room_id.as_str()),
+    }
 }

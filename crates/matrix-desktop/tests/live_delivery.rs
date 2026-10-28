@@ -330,7 +330,12 @@ fn attachment_stays_with_the_composer_when_the_queue_is_full_or_the_id_repeats()
     let mut draft = Composer::default();
     for n in 0..8 {
         let mut pending = Some(note_file("n.wav"));
-        assert!(delivery.submit_with(scope(), TransactionId::new(format!("q{n}")), &mut draft, &mut pending));
+        assert!(delivery.submit_with(
+            scope(),
+            TransactionId::new(format!("q{n}")),
+            &mut draft,
+            &mut pending
+        ));
     }
     // Ninth send while eight are staged: refused, the recording is not lost.
     let mut pending = Some(note_file("nona.wav"));
@@ -353,13 +358,25 @@ fn whitespace_caption_shows_the_file_name_and_voice_markers_survive_retry() {
     let tx = TransactionId::new("voce");
     let mut pending = Some(note_file("nota-vocale.wav"));
     assert!(delivery.submit_with(scope(), tx.clone(), &mut draft, &mut pending));
-    assert_eq!(delivery.items(&scope()).last().unwrap().body, "nota-vocale.wav");
+    assert_eq!(
+        delivery.items(&scope()).last().unwrap().body,
+        "nota-vocale.wav"
+    );
     delivery.take_request().unwrap();
-    assert!(delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Err(SendError::Transport) }));
+    assert!(delivery.apply(SendResult {
+        scope: scope(),
+        transaction_id: tx.clone(),
+        result: Err(SendError::Transport)
+    }));
     assert!(delivery.retry(&scope(), &tx));
     let again = delivery.take_request().unwrap();
-    let file = again.attachment.expect("retry resends the file, not only the caption");
-    assert_eq!((file.data, file.voice.unwrap().duration_ms), (vec![7; 4], 1500));
+    let file = again
+        .attachment
+        .expect("retry resends the file, not only the caption");
+    assert_eq!(
+        (file.data, file.voice.unwrap().duration_ms),
+        (vec![7; 4], 1500)
+    );
 }
 
 #[test]
@@ -373,7 +390,14 @@ fn a_confirmed_attachment_cannot_be_retried_as_caption_only() {
     let mut pending = Some(note_file("a.wav"));
     assert!(delivery.submit_with(scope(), tx.clone(), &mut draft, &mut pending));
     delivery.take_request().unwrap();
-    assert!(delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Ok(EventId::new("$e")) }));
+    assert!(delivery.apply(SendResult {
+        scope: scope(),
+        transaction_id: tx.clone(),
+        result: Ok(EventId::new("$e"))
+    }));
     assert!(!delivery.retry(&scope(), &tx));
-    assert!(delivery.take_request().is_none(), "no text-only resend of a delivered file");
+    assert!(
+        delivery.take_request().is_none(),
+        "no text-only resend of a delivered file"
+    );
 }

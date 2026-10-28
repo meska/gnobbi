@@ -271,9 +271,18 @@ mod tests {
             .sees_last_message()
         );
         for hidden in [
-            ReadVisibility { window_focused: false, ..seen },
-            ReadVisibility { room_foreground: false, ..seen },
-            ReadVisibility { bottom_gap_px: 5000.0, ..seen },
+            ReadVisibility {
+                window_focused: false,
+                ..seen
+            },
+            ReadVisibility {
+                room_foreground: false,
+                ..seen
+            },
+            ReadVisibility {
+                bottom_gap_px: 5000.0,
+                ..seen
+            },
         ] {
             assert!(!hidden.sees_last_message());
         }
@@ -300,9 +309,21 @@ mod tests {
     fn setting_off_sends_the_private_receipt_not_the_public_one() {
         let id = matrix_sdk::ruma::event_id!("$e:x").to_owned();
         let on = marker_receipts(id.clone(), true);
-        assert_eq!((on.public_read_receipt.as_ref(), on.private_read_receipt.as_ref()), (Some(&id), None));
+        assert_eq!(
+            (
+                on.public_read_receipt.as_ref(),
+                on.private_read_receipt.as_ref()
+            ),
+            (Some(&id), None)
+        );
         let off = marker_receipts(id.clone(), false);
-        assert_eq!((off.public_read_receipt.as_ref(), off.private_read_receipt.as_ref()), (None, Some(&id)));
+        assert_eq!(
+            (
+                off.public_read_receipt.as_ref(),
+                off.private_read_receipt.as_ref()
+            ),
+            (None, Some(&id))
+        );
         assert_eq!(off.fully_read.as_ref(), Some(&id));
     }
 }

@@ -80,11 +80,23 @@ fn read_receipts_default_on_and_invalid_value_falls_back_to_on() {
     assert!(Preferences::default().read_receipts);
     let d = dirs(&tmp("receipts"));
     std::fs::create_dir_all(&d.config).unwrap();
-    for body in [&br#"{"read_receipts":"no"}"#[..], br#"{"read_receipts":null}"#, br#"{"debug":true}"#] {
+    for body in [
+        &br#"{"read_receipts":"no"}"#[..],
+        br#"{"read_receipts":null}"#,
+        br#"{"debug":true}"#,
+    ] {
         std::fs::write(d.config.join("settings.json"), body).unwrap();
-        assert!(Preferences::load(&d).read_receipts, "{}", String::from_utf8_lossy(body));
+        assert!(
+            Preferences::load(&d).read_receipts,
+            "{}",
+            String::from_utf8_lossy(body)
+        );
     }
-    std::fs::write(d.config.join("settings.json"), br#"{"read_receipts":false}"#).unwrap();
+    std::fs::write(
+        d.config.join("settings.json"),
+        br#"{"read_receipts":false}"#,
+    )
+    .unwrap();
     assert!(!Preferences::load(&d).read_receipts);
 }
 
@@ -101,12 +113,26 @@ fn theme_saved_values_map_to_the_four_themes_and_unknown_follows_system() {
         (r#""sepia""#, None),
         ("42", None),
     ] {
-        std::fs::write(d.config.join("settings.json"), format!(r#"{{"theme":{saved}}}"#)).unwrap();
+        std::fs::write(
+            d.config.join("settings.json"),
+            format!(r#"{{"theme":{saved}}}"#),
+        )
+        .unwrap();
         assert_eq!(Preferences::load(&d).theme, want, "{saved}");
     }
     for t in Theme::ALL {
-        Preferences { theme: Some(t), ..Preferences::default() }.save(&d).unwrap();
+        Preferences {
+            theme: Some(t),
+            ..Preferences::default()
+        }
+        .save(&d)
+        .unwrap();
         assert_eq!(Preferences::load(&d).theme, Some(t));
     }
-    assert!(Theme::Dark.is_dark() && Theme::Night.is_dark() && !Theme::Classic.is_dark() && !Theme::Day.is_dark());
+    assert!(
+        Theme::Dark.is_dark()
+            && Theme::Night.is_dark()
+            && !Theme::Classic.is_dark()
+            && !Theme::Day.is_dark()
+    );
 }

@@ -683,7 +683,10 @@ fn a_formatted_refresh_replaces_the_row_styles_even_with_the_same_text() {
     history.append_server(vec![event("$m")]);
     assert!(history.events()[0].styles.is_empty());
     let mut formatted = event("$m");
-    formatted.styles = vec![StyleSpan { range: 0..4, style: Style::Bold }];
+    formatted.styles = vec![StyleSpan {
+        range: 0..4,
+        style: Style::Bold,
+    }];
     assert!(history.refresh_server(vec![formatted]));
     assert_eq!(history.events()[0].styles.len(), 1);
     assert!(history.refresh_server(vec![event("$m")]));

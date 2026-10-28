@@ -7,10 +7,12 @@ use matrix_engine::{
         Client,
         reqwest::Certificate,
         ruma::{
-            api::client::room::create_room::v3::{CreationContent, Request as CreateRoomRequest, RoomPreset},
+            api::client::room::create_room::v3::{
+                CreationContent, Request as CreateRoomRequest, RoomPreset,
+            },
             assign,
-            events::room::message::{Relation, RoomMessageEventContent},
             events::relation::Thread,
+            events::room::message::{Relation, RoomMessageEventContent},
             serde::Raw,
         },
         sliding_sync::VersionBuilder,
@@ -31,7 +33,10 @@ fn thread_timeline_lists_root_and_replies() {
         serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
     let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
     let url = config["url"].as_str().unwrap().to_owned();
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(async {
         let build = || async {
             Client::builder()
@@ -85,31 +90,55 @@ fn thread_timeline_lists_root_and_replies() {
         let ra = until(&|| a.get_room(&room_id)).await;
         let rb = until(&|| b.get_room(&room_id)).await;
 
-        let root = ra.send(RoomMessageEventContent::text_plain("root")).await.unwrap().response.event_id;
+        let root = ra
+            .send(RoomMessageEventContent::text_plain("root"))
+            .await
+            .unwrap()
+            .response
+            .event_id;
         let mut reply = RoomMessageEventContent::text_plain("in thread");
         reply.relates_to = Some(Relation::Thread(Thread::plain(root.clone(), root.clone())));
         rb.send(reply).await.unwrap();
         // A message outside the thread must not appear in it.
-        ra.send(RoomMessageEventContent::text_plain("elsewhere")).await.unwrap();
+        ra.send(RoomMessageEventContent::text_plain("elsewhere"))
+            .await
+            .unwrap();
 
         let timeline = thread_timeline::open(&ra, root.clone()).await.unwrap();
         let start = Instant::now();
         let _bodies = loop {
             // Pagination is the portable read path: a server may not push thread events by sync.
             thread_timeline::load_older(&timeline, 20).await.unwrap();
-            let bodies: Vec<_> =
-                thread_timeline::events(&timeline).await.into_iter().filter_map(|e| e.body).collect();
+            let bodies: Vec<_> = thread_timeline::events(&timeline)
+                .await
+                .into_iter()
+                .filter_map(|e| e.body)
+                .collect();
             if bodies.contains(&"in thread".to_owned()) {
                 break bodies;
             }
-            assert!(start.elapsed() < Duration::from_secs(40), "timeout: thread reply, got {}", bodies.len());
+            assert!(
+                start.elapsed() < Duration::from_secs(40),
+                "timeout: thread reply, got {}",
+                bodies.len()
+            );
             tokio::time::sleep(Duration::from_millis(300)).await;
         };
         // The thread opens on its latest events; paging back reaches the root.
-        assert!(thread_timeline::load_older(&timeline, 20).await.unwrap(), "root not reached");
-        let bodies: Vec<_> =
-            thread_timeline::events(&timeline).await.into_iter().filter_map(|e| e.body).collect();
-        assert!(bodies.contains(&"root".to_owned()) && !bodies.contains(&"elsewhere".to_owned()), "{}", bodies.len());
+        assert!(
+            thread_timeline::load_older(&timeline, 20).await.unwrap(),
+            "root not reached"
+        );
+        let bodies: Vec<_> = thread_timeline::events(&timeline)
+            .await
+            .into_iter()
+            .filter_map(|e| e.body)
+            .collect();
+        assert!(
+            bodies.contains(&"root".to_owned()) && !bodies.contains(&"elsewhere".to_owned()),
+            "{}",
+            bodies.len()
+        );
         println!("[probe] thread timeline: root + reply, main-timeline message excluded");
         let _ = (sa.stop().await, sb.stop().await);
         let _ = a.matrix_auth().logout().await;

@@ -34,8 +34,13 @@ fn installs_idempotently_and_only_on_request() {
     }
     let linux = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/linux");
     for size in ["256", "512"] {
-        let icon = home.join(format!(".local/share/icons/hicolor/{size}x{size}/apps/{ID}.png"));
-        assert_eq!(fs::read(icon).unwrap(), fs::read(linux.join(format!("icon-{size}.png"))).unwrap());
+        let icon = home.join(format!(
+            ".local/share/icons/hicolor/{size}x{size}/apps/{ID}.png"
+        ));
+        assert_eq!(
+            fs::read(icon).unwrap(),
+            fs::read(linux.join(format!("icon-{size}.png"))).unwrap()
+        );
     }
 
     assert!(run(&home, &["--install-desktop-entry"]).success());

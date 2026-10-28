@@ -160,7 +160,8 @@ fn phase() {
                             scope,
                             transaction_id: TransactionId::new(format!("vault-e2ee-{}", who.key)),
                             body: env("DIME_E2E_OWN_BODY"),
-                            attachment: None, mentions: Vec::new(),
+                            attachment: None,
+                            mentions: Vec::new(),
                         })
                         .await
                         .unwrap();

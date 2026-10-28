@@ -15,7 +15,10 @@ pub enum MediaCommand {
         original: bool,
     },
     /// The thumbnail of a video row; the answer is a `Downloaded` event like an image's.
-    VideoThumbnail { tag: crate::RequestTag, event: EventId },
+    VideoThumbnail {
+        tag: crate::RequestTag,
+        event: EventId,
+    },
 }
 
 pub enum MediaEvent {

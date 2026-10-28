@@ -15,7 +15,11 @@ fn executable_is_named_gnobbi() {
 fn appdir_desktop_entry_matches_app_id() {
     let linux = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../packaging/linux");
     let desktop = std::fs::read_to_string(linux.join(format!("{APP_ID}.desktop"))).unwrap();
-    for line in [format!("StartupWMClass={APP_ID}"), format!("Icon={APP_ID}"), "Exec=gnobbi".into()] {
+    for line in [
+        format!("StartupWMClass={APP_ID}"),
+        format!("Icon={APP_ID}"),
+        "Exec=gnobbi".into(),
+    ] {
         assert!(desktop.lines().any(|l| l == line), "missing {line}");
     }
     // The AppDir is filled from that file, with the binary installed as usr/bin/gnobbi.

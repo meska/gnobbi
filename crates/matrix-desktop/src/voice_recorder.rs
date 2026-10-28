@@ -31,9 +31,7 @@ impl Recorder {
     /// Starts capturing from the default input device; the error is the one line shown to the user.
     pub fn start() -> Result<Self, &'static str> {
         const NO_MIC: &str = "Microfono non disponibile";
-        let device = cpal::default_host()
-            .default_input_device()
-            .ok_or(NO_MIC)?;
+        let device = cpal::default_host().default_input_device().ok_or(NO_MIC)?;
         let config = device.default_input_config().map_err(|_| NO_MIC)?;
         let channels = usize::from(config.channels()).max(1);
         let rate = config.sample_rate();
@@ -81,7 +79,12 @@ impl Recorder {
 
     /// Stops the stream and returns what was captured.
     pub fn finish(self) -> (Vec<i16>, u32) {
-        let Self { _stream, samples, rate, .. } = self;
+        let Self {
+            _stream,
+            samples,
+            rate,
+            ..
+        } = self;
         drop(_stream);
         let samples = std::mem::take(&mut *samples.lock().unwrap_or_else(|e| e.into_inner()));
         (samples, rate)

@@ -575,8 +575,16 @@ impl ComposerView {
         if self.emoji_open && self.focus.is_focused(window) {
             let last = matrix_desktop::EMOJI_SET.len() - 1;
             match key.key.as_str() {
-                "right" | "down" => self.emoji_selected = if self.emoji_selected >= last { 0 } else { self.emoji_selected + 1 },
-                "left" | "up" => self.emoji_selected = self.emoji_selected.checked_sub(1).unwrap_or(last),
+                "right" | "down" => {
+                    self.emoji_selected = if self.emoji_selected >= last {
+                        0
+                    } else {
+                        self.emoji_selected + 1
+                    }
+                }
+                "left" | "up" => {
+                    self.emoji_selected = self.emoji_selected.checked_sub(1).unwrap_or(last)
+                }
                 "enter" => self.pick_emoji(self.emoji_selected, window, cx),
                 _ => return self.key_down_text(event, mac, window, cx),
             }
@@ -936,7 +944,12 @@ impl Render for ComposerView {
                                 .text_size(px(14.))
                                 .text_color(rgb(t.text))
                                 .when(i == mention_selected, |d| d.bg(rgb(t.selection)))
-                                .child(div().min_w_0().truncate().child(matrix_desktop::row_text::one_line(&member.name)))
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .truncate()
+                                        .child(matrix_desktop::row_text::one_line(&member.name)),
+                                )
                                 .when(member.name != member.user_id, |d| {
                                     d.child(
                                         div()
@@ -944,7 +957,9 @@ impl Render for ComposerView {
                                             .max_w(px(160.))
                                             .truncate()
                                             .text_color(rgb(t.secondary))
-                                            .child(matrix_desktop::row_text::one_line(&member.user_id)),
+                                            .child(matrix_desktop::row_text::one_line(
+                                                &member.user_id,
+                                            )),
                                     )
                                 })
                                 .on_click(
@@ -954,20 +969,25 @@ impl Render for ComposerView {
                 )
             })
             .when(self.emoji_open, |d| {
-                d.child(div().flex().flex_wrap().gap_1().children(matrix_desktop::EMOJI_SET.iter().enumerate().map(
-                    |(i, (_, emoji))| {
-                        div()
-                            .when(i == self.emoji_selected, |d| d.bg(rgb(t.selection)))
-                            .id(("composer-emoji", i))
-                            .cursor_pointer()
-                            .px_1()
-                            .text_size(px(20.))
-                            .child(*emoji)
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.pick_emoji(i, window, cx)
-                            }))
-                    },
-                )))
+                d.child(
+                    div().flex().flex_wrap().gap_1().children(
+                        matrix_desktop::EMOJI_SET
+                            .iter()
+                            .enumerate()
+                            .map(|(i, (_, emoji))| {
+                                div()
+                                    .when(i == self.emoji_selected, |d| d.bg(rgb(t.selection)))
+                                    .id(("composer-emoji", i))
+                                    .cursor_pointer()
+                                    .px_1()
+                                    .text_size(px(20.))
+                                    .child(*emoji)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.pick_emoji(i, window, cx)
+                                    }))
+                            }),
+                    ),
+                )
             })
             .when(
                 attachment_name.is_some() || self.attach_error.is_some(),

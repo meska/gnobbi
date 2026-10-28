@@ -9,14 +9,19 @@ use matrix_engine::{
         Client, Room,
         reqwest::Certificate,
         ruma::{
-            OwnedEventId, assign,
-            api::client::room::create_room::v3::{CreationContent, Request as CreateRoomRequest, RoomPreset},
+            OwnedEventId,
+            api::client::room::create_room::v3::{
+                CreationContent, Request as CreateRoomRequest, RoomPreset,
+            },
+            assign,
             events::{
                 InitialStateEvent,
                 relation::Thread,
                 room::{
                     encryption::RoomEncryptionEventContent,
-                    message::{Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
+                    message::{
+                        Relation, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+                    },
                 },
             },
             serde::Raw,
@@ -49,7 +54,14 @@ fn report(failed: &mut Vec<String>, name: &str, ok: bool, detail: String) {
 
 /// A confirmed matrix-sdk(-ui) 0.19.1 limitation: never fails the run, but flips to PASS once fixed.
 fn known(name: &str, ok: bool, detail: String) {
-    eprintln!("QA {name} {} {detail}", if ok { "PASS(limit gone)" } else { "KNOWN-LIMIT" });
+    eprintln!(
+        "QA {name} {} {detail}",
+        if ok {
+            "PASS(limit gone)"
+        } else {
+            "KNOWN-LIMIT"
+        }
+    );
 }
 
 async fn until<T>(what: &str, secs: u64, mut f: impl AsyncFnMut() -> Option<T>) -> Option<T> {
@@ -130,7 +142,10 @@ async fn page_to_start(t: &Timeline, per_page: u16) -> (u32, bool) {
     let mut out = (6, false);
     for page in 1..=6 {
         let hit = t.paginate_backwards(per_page).await.unwrap();
-        eprintln!("page {page}: hit_start={hit} items_now={}", bodies(t).await.len());
+        eprintln!(
+            "page {page}: hit_start={hit} items_now={}",
+            bodies(t).await.len()
+        );
         if hit {
             out = (page, true);
             break;
@@ -142,11 +157,15 @@ async fn page_to_start(t: &Timeline, per_page: u16) -> (u32, bool) {
 }
 
 async fn summary_replies(t: &Timeline, root_body: &str) -> Option<u32> {
-    t.items().await.iter().filter_map(|i| i.as_event()).find_map(|e| {
-        (e.content().as_message().map(|m| m.body()) == Some(root_body))
-            .then(|| e.content().thread_summary().map(|s| s.num_replies))
-            .flatten()
-    })
+    t.items()
+        .await
+        .iter()
+        .filter_map(|i| i.as_event())
+        .find_map(|e| {
+            (e.content().as_message().map(|m| m.body()) == Some(root_body))
+                .then(|| e.content().thread_summary().map(|s| s.num_replies))
+                .flatten()
+        })
 }
 
 async fn raw_relation(room: &Room, id: &OwnedEventId) -> serde_json::Value {
@@ -156,7 +175,13 @@ async fn raw_relation(room: &Room, id: &OwnedEventId) -> serde_json::Value {
 }
 
 /// Core scenarios on one room (plain or encrypted). Returns the thread root id.
-async fn core(tag: &str, strict: bool, ra: &Room, rb: &Room, failed: &mut Vec<String>) -> (OwnedEventId, OwnedEventId) {
+async fn core(
+    tag: &str,
+    strict: bool,
+    ra: &Room,
+    rb: &Room,
+    failed: &mut Vec<String>,
+) -> (OwnedEventId, OwnedEventId) {
     let root = ra.send(plain("root")).await.unwrap().response.event_id;
     for i in 1..=N {
         rb.send(in_thread(&format!("r{i}"), &root)).await.unwrap();
@@ -175,9 +200,20 @@ async fn core(tag: &str, strict: bool, ra: &Room, rb: &Room, failed: &mut Vec<St
     let (pages, reached) = page_to_start(&tl, 20).await;
     let b = bodies(&tl).await;
     let replies: Vec<String> = (1..=N).map(|i| format!("r{i}")).collect();
-    let got: Vec<String> = b.iter().filter(|x| x.starts_with('r') && *x != "root").cloned().collect();
+    let got: Vec<String> = b
+        .iter()
+        .filter(|x| x.starts_with('r') && *x != "root")
+        .cloned()
+        .collect();
     // Tuwunel 1.9.4 leaves holes in a thread bigger than the sync window: recorded, not asserted.
-    let (name, detail) = (format!("{tag}.thread-load-replies"), format!("first={first:?} n={} in_order={}", got.len(), got == replies));
+    let (name, detail) = (
+        format!("{tag}.thread-load-replies"),
+        format!(
+            "first={first:?} n={} in_order={}",
+            got.len(),
+            got == replies
+        ),
+    );
     if strict {
         report(failed, &name, got == replies, detail);
     } else {
@@ -185,32 +221,92 @@ async fn core(tag: &str, strict: bool, ra: &Room, rb: &Room, failed: &mut Vec<St
     }
     let mut want = vec!["root".to_owned()];
     want.extend(replies);
-    known(&format!("{tag}.thread-load-root-and-start"), reached && b == want,
-        format!("pages_after_open={pages} hit_start={reached} root_loaded={} n={} head={:?}", b.contains(&"root".to_owned()), b.len(), &b[..b.len().min(2)]));
+    known(
+        &format!("{tag}.thread-load-root-and-start"),
+        reached && b == want,
+        format!(
+            "pages_after_open={pages} hit_start={reached} root_loaded={} n={} head={:?}",
+            b.contains(&"root".to_owned()),
+            b.len(),
+            &b[..b.len().min(2)]
+        ),
+    );
 
     // 2. Live updates into the open thread timeline (no pagination).
     expected += 1;
     rb.send(in_thread("live1", &root)).await.unwrap();
-    let live = until("live1 in thread timeline", 25, async || bodies(&tl).await.contains(&"live1".to_owned()).then_some(())).await;
-    report(failed, &format!("{tag}.thread-live"), live.is_some(), "bob reply appears with no pagination".into());
+    let live = until("live1 in thread timeline", 25, async || {
+        bodies(&tl)
+            .await
+            .contains(&"live1".to_owned())
+            .then_some(())
+    })
+    .await;
+    report(
+        failed,
+        &format!("{tag}.thread-live"),
+        live.is_some(),
+        "bob reply appears with no pagination".into(),
+    );
 
     // 3. hide_threaded_events on the main timeline.
-    let hidden = ra.timeline_builder().with_focus(TimelineFocus::Live { hide_threaded_events: true }).build().await.unwrap();
-    let shown = ra.timeline_builder().with_focus(TimelineFocus::Live { hide_threaded_events: false }).build().await.unwrap();
+    let hidden = ra
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live {
+            hide_threaded_events: true,
+        })
+        .build()
+        .await
+        .unwrap();
+    let shown = ra
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live {
+            hide_threaded_events: false,
+        })
+        .build()
+        .await
+        .unwrap();
     let (_, hr) = page_to_start(&hidden, 50).await;
     let (_, sr) = page_to_start(&shown, 50).await;
     let (hb, sb) = (bodies(&hidden).await, bodies(&shown).await);
-    let hide_ok = hb.contains(&"root".to_owned()) && hb.contains(&"main1".to_owned()) && !hb.iter().any(|x| x.starts_with('r') && x != "root");
-    report(failed, &format!("{tag}.hide-threaded"), hide_ok && hr,
-        format!("hidden={} reached={hr} shown={} reached={sr} replies_in_shown={}", hb.len(), sb.len(), sb.iter().filter(|x| x.starts_with('r') && *x != "root").count()));
+    let hide_ok = hb.contains(&"root".to_owned())
+        && hb.contains(&"main1".to_owned())
+        && !hb.iter().any(|x| x.starts_with('r') && x != "root");
+    report(
+        failed,
+        &format!("{tag}.hide-threaded"),
+        hide_ok && hr,
+        format!(
+            "hidden={} reached={hr} shown={} reached={sr} replies_in_shown={}",
+            hb.len(),
+            sb.len(),
+            sb.iter()
+                .filter(|x| x.starts_with('r') && *x != "root")
+                .count()
+        ),
+    );
     let sum = summary_replies(&hidden, "root").await;
-    report(failed, &format!("{tag}.summary-under-root"), sum == Some(expected),
-        format!("num_replies={sum:?} expected={expected}"));
+    report(
+        failed,
+        &format!("{tag}.summary-under-root"),
+        sum == Some(expected),
+        format!("num_replies={sum:?} expected={expected}"),
+    );
     expected += 1;
     rb.send(in_thread("live2", &root)).await.unwrap();
-    let bump = until("summary bump", 25, async || (summary_replies(&hidden, "root").await == Some(expected)).then_some(())).await;
-    report(failed, &format!("{tag}.summary-live"), bump.is_some() && !bodies(&hidden).await.contains(&"live2".to_owned()),
-        format!("summary now {:?}, live2 hidden from main", summary_replies(&hidden, "root").await));
+    let bump = until("summary bump", 25, async || {
+        (summary_replies(&hidden, "root").await == Some(expected)).then_some(())
+    })
+    .await;
+    report(
+        failed,
+        &format!("{tag}.summary-live"),
+        bump.is_some() && !bodies(&hidden).await.contains(&"live2".to_owned()),
+        format!(
+            "summary now {:?}, live2 hidden from main",
+            summary_replies(&hidden, "root").await
+        ),
+    );
 
     // 4. Reply in thread: plain send from the thread timeline, local echo then remote echo.
     expected += 1;
@@ -230,65 +326,157 @@ async fn core(tag: &str, strict: bool, ra: &Room, rb: &Room, failed: &mut Vec<St
         None
     })
     .await;
-    let count = bodies(&tl).await.iter().filter(|x| *x == "alice-thread").count();
-    report(failed, &format!("{tag}.reply-echo"), done.is_some() && count == 1,
-        format!("local_echo_seen={seen_local} remote_echo={} copies={count}", event_id.is_some()));
+    let count = bodies(&tl)
+        .await
+        .iter()
+        .filter(|x| *x == "alice-thread")
+        .count();
+    report(
+        failed,
+        &format!("{tag}.reply-echo"),
+        done.is_some() && count == 1,
+        format!(
+            "local_echo_seen={seen_local} remote_echo={} copies={count}",
+            event_id.is_some()
+        ),
+    );
     if let Some(id) = &event_id {
         let rel = raw_relation(ra, id).await;
-        let ok = rel["rel_type"] == "m.thread" && rel["event_id"] == root.as_str() && rel["is_falling_back"] == true;
-        report(failed, &format!("{tag}.reply-relation"), ok, format!("{rel}"));
+        let ok = rel["rel_type"] == "m.thread"
+            && rel["event_id"] == root.as_str()
+            && rel["is_falling_back"] == true;
+        report(
+            failed,
+            &format!("{tag}.reply-relation"),
+            ok,
+            format!("{rel}"),
+        );
     }
     let seen_by_bob = {
         let tb = thread_timeline::open(rb, root.clone()).await.unwrap();
         let (_, _) = page_to_start(&tb, 50).await;
         let b = bodies(&tb).await;
-        report(failed, &format!("{tag}.bob-thread-view"), b.len() as u32 == expected + 1 && b.contains(&"alice-thread".to_owned()),
-            format!("n={} expected={}", b.len(), expected + 1));
+        report(
+            failed,
+            &format!("{tag}.bob-thread-view"),
+            b.len() as u32 == expected + 1 && b.contains(&"alice-thread".to_owned()),
+            format!("n={} expected={}", b.len(), expected + 1),
+        );
         b.len()
     };
     let _ = seen_by_bob;
     let hid = !bodies(&hidden).await.contains(&"alice-thread".to_owned());
-    report(failed, &format!("{tag}.reply-not-in-hidden-main"), hid, String::new());
+    report(
+        failed,
+        &format!("{tag}.reply-not-in-hidden-main"),
+        hid,
+        String::new(),
+    );
 
     // 4b. Real reply (send_reply) inside the thread, and from the main timeline to a thread event.
-    let target = tl.items().await.iter().filter_map(|i| i.as_event()).find(|e| e.content().as_message().map(|m| m.body()) == Some("r3")).and_then(|e| e.event_id().map(ToOwned::to_owned));
+    let target = tl
+        .items()
+        .await
+        .iter()
+        .filter_map(|i| i.as_event())
+        .find(|e| e.content().as_message().map(|m| m.body()) == Some("r3"))
+        .and_then(|e| e.event_id().map(ToOwned::to_owned));
     if target.is_none() {
-        known(&format!("{tag}.reply-to-in-thread"), false, "r3 not loaded in the thread timeline (skipped)".into());
+        known(
+            &format!("{tag}.reply-to-in-thread"),
+            false,
+            "r3 not loaded in the thread timeline (skipped)".into(),
+        );
     }
     if let Some(target) = target {
         expected += 1;
-        tl.send_reply(RoomMessageEventContentWithoutRelation::text_plain("reply-r3"), target.clone()).await.unwrap();
+        tl.send_reply(
+            RoomMessageEventContentWithoutRelation::text_plain("reply-r3"),
+            target.clone(),
+        )
+        .await
+        .unwrap();
         let id = until("send_reply echo", 25, async || {
-            tl.items().await.iter().filter_map(|i| i.as_event()).find_map(|e| {
-                (e.content().as_message().map(|m| m.body()) == Some("reply-r3") && !e.is_local_echo()).then(|| e.event_id().map(ToOwned::to_owned)).flatten()
-            })
+            tl.items()
+                .await
+                .iter()
+                .filter_map(|i| i.as_event())
+                .find_map(|e| {
+                    (e.content().as_message().map(|m| m.body()) == Some("reply-r3")
+                        && !e.is_local_echo())
+                    .then(|| e.event_id().map(ToOwned::to_owned))
+                    .flatten()
+                })
         })
         .await;
         match id {
             Some(id) => {
                 let rel = raw_relation(ra, &id).await;
-                let ok = rel["rel_type"] == "m.thread" && rel["event_id"] == root.as_str()
-                    && rel["is_falling_back"] != true && rel["m.in_reply_to"]["event_id"] == target.as_str();
-                report(failed, &format!("{tag}.reply-to-in-thread"), ok, format!("{rel}"));
+                let ok = rel["rel_type"] == "m.thread"
+                    && rel["event_id"] == root.as_str()
+                    && rel["is_falling_back"] != true
+                    && rel["m.in_reply_to"]["event_id"] == target.as_str();
+                report(
+                    failed,
+                    &format!("{tag}.reply-to-in-thread"),
+                    ok,
+                    format!("{rel}"),
+                );
             }
-            None => report(failed, &format!("{tag}.reply-to-in-thread"), false, "no remote echo".into()),
+            None => report(
+                failed,
+                &format!("{tag}.reply-to-in-thread"),
+                false,
+                "no remote echo".into(),
+            ),
         }
         // from the main timeline, replying to a thread event
         expected += 1;
-        shown.send_reply(RoomMessageEventContentWithoutRelation::text_plain("reply-main-r4"), {
-            shown.items().await.iter().filter_map(|i| i.as_event()).find(|e| e.content().as_message().map(|m| m.body()) == Some("r4")).and_then(|e| e.event_id().map(ToOwned::to_owned)).unwrap()
-        }).await.unwrap();
+        shown
+            .send_reply(
+                RoomMessageEventContentWithoutRelation::text_plain("reply-main-r4"),
+                {
+                    shown
+                        .items()
+                        .await
+                        .iter()
+                        .filter_map(|i| i.as_event())
+                        .find(|e| e.content().as_message().map(|m| m.body()) == Some("r4"))
+                        .and_then(|e| e.event_id().map(ToOwned::to_owned))
+                        .unwrap()
+                },
+            )
+            .await
+            .unwrap();
         let id = until("main send_reply echo", 25, async || {
-            shown.items().await.iter().filter_map(|i| i.as_event()).find_map(|e| {
-                (e.content().as_message().map(|m| m.body()) == Some("reply-main-r4") && !e.is_local_echo()).then(|| e.event_id().map(ToOwned::to_owned)).flatten()
-            })
+            shown
+                .items()
+                .await
+                .iter()
+                .filter_map(|i| i.as_event())
+                .find_map(|e| {
+                    (e.content().as_message().map(|m| m.body()) == Some("reply-main-r4")
+                        && !e.is_local_echo())
+                    .then(|| e.event_id().map(ToOwned::to_owned))
+                    .flatten()
+                })
         })
         .await;
         if let Some(id) = id {
             let rel = raw_relation(ra, &id).await;
-            report(failed, &format!("{tag}.reply-from-main-forwards-thread"), rel["rel_type"] == "m.thread" && rel["event_id"] == root.as_str(), format!("{rel}"));
+            report(
+                failed,
+                &format!("{tag}.reply-from-main-forwards-thread"),
+                rel["rel_type"] == "m.thread" && rel["event_id"] == root.as_str(),
+                format!("{rel}"),
+            );
         } else {
-            report(failed, &format!("{tag}.reply-from-main-forwards-thread"), false, "no remote echo".into());
+            report(
+                failed,
+                &format!("{tag}.reply-from-main-forwards-thread"),
+                false,
+                "no remote echo".into(),
+            );
         }
     }
 
@@ -309,26 +497,64 @@ async fn core(tag: &str, strict: bool, ra: &Room, rb: &Room, failed: &mut Vec<St
             let one = items.iter().find(|i| i.root_event.event_id == root);
             let two = items.iter().find(|i| i.root_event.event_id == root2);
             let last_ok = one.is_some_and(|i| i.latest_event.is_some());
-            report(failed, &format!("{tag}.thread-list"),
-                items.len() == 2 && one.is_some_and(|i| i.num_replies >= expected - 2) && two.is_some_and(|i| i.num_replies == 1) && last_ok,
-                format!("n={} replies1={:?} (sent {expected}) replies2={:?} order_first_is_root2={} state={:?} tries={tries}",
-                    items.len(), one.map(|i| i.num_replies), two.map(|i| i.num_replies),
-                    items.first().is_some_and(|i| i.root_event.event_id == root2), svc.pagination_state()));
-            assert!(matches!(svc.pagination_state(), ThreadListPaginationState::Idle { .. }));
+            report(
+                failed,
+                &format!("{tag}.thread-list"),
+                items.len() == 2
+                    && one.is_some_and(|i| i.num_replies >= expected - 2)
+                    && two.is_some_and(|i| i.num_replies == 1)
+                    && last_ok,
+                format!(
+                    "n={} replies1={:?} (sent {expected}) replies2={:?} order_first_is_root2={} state={:?} tries={tries}",
+                    items.len(),
+                    one.map(|i| i.num_replies),
+                    two.map(|i| i.num_replies),
+                    items
+                        .first()
+                        .is_some_and(|i| i.root_event.event_id == root2),
+                    svc.pagination_state()
+                ),
+            );
+            assert!(matches!(
+                svc.pagination_state(),
+                ThreadListPaginationState::Idle { .. }
+            ));
             rb.send(in_thread("t2r2", &root2)).await.unwrap();
             let live = until("thread list live", 25, async || {
-                svc.items().iter().find(|i| i.root_event.event_id == root2).is_some_and(|i| i.num_replies >= 2).then_some(())
+                svc.items()
+                    .iter()
+                    .find(|i| i.root_event.event_id == root2)
+                    .is_some_and(|i| i.num_replies >= 2)
+                    .then_some(())
             })
             .await;
-            let n2 = svc.items().iter().find(|i| i.root_event.event_id == root2).map(|i| i.num_replies);
+            let n2 = svc
+                .items()
+                .iter()
+                .find(|i| i.root_event.event_id == root2)
+                .map(|i| i.num_replies);
             // Tuwunel 1.9.4 sometimes counts the live reply twice (3 instead of 2): recorded, not asserted.
             if strict {
-                report(failed, &format!("{tag}.thread-list-live"), live.is_some() && n2 == Some(2), format!("replies2={n2:?}"));
+                report(
+                    failed,
+                    &format!("{tag}.thread-list-live"),
+                    live.is_some() && n2 == Some(2),
+                    format!("replies2={n2:?}"),
+                );
             } else {
-                known(&format!("{tag}.thread-list-live"), n2 == Some(2), format!("replies2={n2:?} (expected 2)"));
+                known(
+                    &format!("{tag}.thread-list-live"),
+                    n2 == Some(2),
+                    format!("replies2={n2:?} (expected 2)"),
+                );
             }
         }
-        None => report(failed, &format!("{tag}.thread-list"), false, format!("fewer than 2 items after {tries} tries")),
+        None => report(
+            failed,
+            &format!("{tag}.thread-list"),
+            false,
+            format!("fewer than 2 items after {tries} tries"),
+        ),
     }
     (root, root2)
 }
@@ -336,7 +562,10 @@ async fn core(tag: &str, strict: bool, ra: &Room, rb: &Room, failed: &mut Vec<St
 #[test]
 #[ignore = "requires the timeline_probe script"]
 fn thread_qa_scenarios() {
-    let config: serde_json::Value = serde_json::from_slice(&std::fs::read(std::env::var("FIXTURE_AUTH_CONFIG").unwrap()).unwrap()).unwrap();
+    let config: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(std::env::var("FIXTURE_AUTH_CONFIG").unwrap()).unwrap(),
+    )
+    .unwrap();
     let home = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join("stores");
     let dir = |n: &str| {
         let p = home.join(n);
@@ -344,7 +573,10 @@ fn thread_qa_scenarios() {
         p
     };
     let mut failed: Vec<String> = Vec::new();
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(async {
         let strict = config["kind"] == "synapse";
         let (s_a, s_b) = (dir("account-1"), dir("account-2"));

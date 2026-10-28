@@ -1,8 +1,8 @@
 //! Backend-only Matrix /sync room projection. Owns one authenticated session.
 use crate::{RoomListDiff, RoomSummary, auth::AccountSession};
 use matrix_domain::{RoomId, RoomScope};
-use matrix_sdk::ruma::events::room::message::MessageType;
 use matrix_sdk::RoomState;
+use matrix_sdk::ruma::events::room::message::MessageType;
 use std::{collections::BTreeMap, time::Duration};
 
 pub use crate::{RoomListEvent, RoomSyncStatus, WorkerControl};
@@ -188,8 +188,11 @@ impl RoomListWorker {
                                         event_id: event.clone(),
                                     };
                                     use crate::media::MediaVariant::{Original, Thumbnail};
-                                    let variants: &[_] =
-                                        if original { &[Original] } else { &[Thumbnail, Original] };
+                                    let variants: &[_] = if original {
+                                        &[Original]
+                                    } else {
+                                        &[Thumbnail, Original]
+                                    };
                                     let hit = variants
                                         .iter()
                                         .copied()
@@ -197,7 +200,10 @@ impl RoomListWorker {
                                     let read = async {
                                         if let Some((variant, bytes)) = hit {
                                             let limit = if original {
-                                                (crate::media_sdk::LARGE_VIEW_SIDE, crate::media_sdk::LARGE_VIEW_SIDE)
+                                                (
+                                                    crate::media_sdk::LARGE_VIEW_SIDE,
+                                                    crate::media_sdk::LARGE_VIEW_SIDE,
+                                                )
                                             } else {
                                                 (320, 240)
                                             };
@@ -245,9 +251,14 @@ impl RoomListWorker {
                                     }
                                     let read = async {
                                         // No thumbnail is not an error for the video, but there is no picture to draw.
-                                        crate::media_sdk::download_video_thumbnail(&media_client, account, &tag, &event)
-                                            .await?
-                                            .ok_or(crate::media::MediaError::UnsupportedType)
+                                        crate::media_sdk::download_video_thumbnail(
+                                            &media_client,
+                                            account,
+                                            &tag,
+                                            &event,
+                                        )
+                                        .await?
+                                        .ok_or(crate::media::MediaError::UnsupportedType)
                                     };
                                     let Some(result) = until_stopped(&media_stop, read).await
                                     else {
@@ -729,8 +740,13 @@ impl RoomSync {
         let scope = tag.scope().clone();
         let opened = open_page(client, tag).await?;
         if let (true, Some(last)) = (visibility.sees_last_message(), opened.0.events.last()) {
-            self.mark_read(client, &scope.room_id, &last.event_id, visibility.public_receipts)
-                .await;
+            self.mark_read(
+                client,
+                &scope.room_id,
+                &last.event_id,
+                visibility.public_receipts,
+            )
+            .await;
         }
         Ok(opened)
     }
@@ -861,7 +877,12 @@ impl RoomSync {
     /// Every stored room, in store order: classic fixtures and recovery from missed deliveries.
     /// The app projects through `summarize_rooms` with the `RoomListService` list.
     pub(crate) async fn summarize(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
-        let rooms = self.session.client.as_ref().ok_or(SyncError::LoggedOut)?.rooms();
+        let rooms = self
+            .session
+            .client
+            .as_ref()
+            .ok_or(SyncError::LoggedOut)?
+            .rooms();
         self.summarize_rooms(rooms).await
     }
 
@@ -879,7 +900,11 @@ impl RoomSync {
             let id = room.room_id().as_str().to_owned();
             // Once per room: the SDK computes a missing latest event from the event cache.
             if room.state() == RoomState::Joined && self.latest_watched.insert(id.clone()) {
-                let _ = client.latest_events().await.listen_to_room(room.room_id()).await;
+                let _ = client
+                    .latest_events()
+                    .await
+                    .listen_to_room(room.room_id())
+                    .await;
             }
             // Sliding sync does not replay receipts sent before the app started: read the SDK store (1:1 only, the only place they are drawn).
             if room.state() == RoomState::Joined && room.joined_members_count() <= 2 {
@@ -892,12 +917,24 @@ impl RoomSync {
                 if self.members_loaded.insert(id.clone()) {
                     let _ = room.sync_members().await;
                 }
-                for member in room.members_no_sync(matrix_sdk::RoomMemberships::JOIN).await.unwrap_or_default() {
+                for member in room
+                    .members_no_sync(matrix_sdk::RoomMemberships::JOIN)
+                    .await
+                    .unwrap_or_default()
+                {
                     if let Ok(Some((event, _))) = room
-                        .load_user_receipt(ReceiptType::Read, &ReceiptThread::Unthreaded, member.user_id())
+                        .load_user_receipt(
+                            ReceiptType::Read,
+                            &ReceiptThread::Unthreaded,
+                            member.user_id(),
+                        )
                         .await
                     {
-                        self.receipts.observe(&scope, member.user_id().as_str(), &matrix_domain::EventId::new(event.as_str()));
+                        self.receipts.observe(
+                            &scope,
+                            member.user_id().as_str(),
+                            &matrix_domain::EventId::new(event.as_str()),
+                        );
                     }
                 }
             }
@@ -1212,7 +1249,12 @@ async fn history_sender(
 ) -> crate::history::HistorySender {
     let member = room.get_member_no_sync(id).await.ok().flatten();
     crate::history::HistorySender::new(id.as_str(), member.as_ref().and_then(|m| m.display_name()))
-        .with_avatar(member.as_ref().and_then(|m| m.avatar_url()).map(|u| u.to_string()))
+        .with_avatar(
+            member
+                .as_ref()
+                .and_then(|m| m.avatar_url())
+                .map(|u| u.to_string()),
+        )
 }
 
 async fn fetch_history(

@@ -4,7 +4,11 @@ use std::path::PathBuf;
 fn dirs(name: &str) -> AppDirs {
     let root = std::env::temp_dir().join(format!("gnobbi-catalog-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    AppDirs { config: root.join("config"), data: root.join("data"), cache: root.join("cache") }
+    AppDirs {
+        config: root.join("config"),
+        data: root.join("data"),
+        cache: root.join("cache"),
+    }
 }
 
 fn legacy_install(d: &AppDirs) {
@@ -58,7 +62,10 @@ fn legacy_single_account_install_is_adopted_in_place() {
     assert!(!again.migrate_legacy(&d), "second start changes nothing");
     // a new account gets its own dir and the legacy one keeps its id
     let new = again.add("@n:x", "https://x", "");
-    assert_eq!(again.data_dir(&d, new), Some(d.data.join("accounts").join(new.as_u64().to_string())));
+    assert_eq!(
+        again.data_dir(&d, new),
+        Some(d.data.join("accounts").join(new.as_u64().to_string()))
+    );
     assert_eq!(again.accounts()[0].id, id);
 }
 
@@ -82,7 +89,10 @@ fn failed_write_keeps_previous_file() {
     std::fs::create_dir(d.config.join("accounts.json.tmp")).unwrap();
     c.add("@b:x", "https://x", "due");
     assert!(c.save(&d).is_err());
-    assert_eq!(std::fs::read(d.config.join("accounts.json")).unwrap(), before);
+    assert_eq!(
+        std::fs::read(d.config.join("accounts.json")).unwrap(),
+        before
+    );
     std::fs::remove_dir(d.config.join("accounts.json.tmp")).unwrap();
     c.save(&d).unwrap();
     assert!(!d.config.join("accounts.json.tmp").exists());

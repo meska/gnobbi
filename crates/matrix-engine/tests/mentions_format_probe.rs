@@ -13,6 +13,7 @@ use matrix_engine::sdk::{
     Client,
     reqwest::Certificate,
     ruma::{
+        OwnedEventId, OwnedRoomId,
         api::client::{
             push::{
                 get_notifications::v3::Request as NotificationsRequest,
@@ -25,14 +26,13 @@ use matrix_engine::sdk::{
         },
         assign,
         events::{
+            Mentions,
             reaction::ReactionEventContent,
             relation::Annotation,
             room::message::{MessageType, RoomMessageEventContent},
-            Mentions,
         },
         html::{HtmlSanitizerMode, RemoveReplyFallback},
         serde::Raw,
-        OwnedEventId, OwnedRoomId,
     },
 };
 use std::time::{Duration, Instant};
@@ -124,14 +124,21 @@ fn mentions_formatting_emoji_round_trip_on_disposable_server() {
         let plain_body = format!("ping {bob} 😀 old");
         let content = RoomMessageEventContent::text_html(&plain_body, formatted)
             .add_mentions(Mentions::with_user_ids([bob.clone()]));
-        let sent = room.send(content).with_transaction_id("p254-1".into()).await.unwrap();
+        let sent = room
+            .send(content)
+            .with_transaction_id("p254-1".into())
+            .await
+            .unwrap();
         let mention_event: OwnedEventId = sent.response.event_id.clone();
         let raw = raw_event(&b, &room_id, &mention_event).await;
         assert_eq!(raw["type"], "m.room.message");
         let stored = &raw["content"];
         assert_eq!(stored["format"], "org.matrix.custom.html");
         let stored_html = stored["formatted_body"].as_str().unwrap();
-        assert!(stored_html.contains("matrix.to"), "no matrix.to link: {stored_html}");
+        assert!(
+            stored_html.contains("matrix.to"),
+            "no matrix.to link: {stored_html}"
+        );
         assert!(
             stored_html.contains("<script>alert(1)</script>"),
             "server altered the formatted_body: {stored_html}"
@@ -140,13 +147,15 @@ fn mentions_formatting_emoji_round_trip_on_disposable_server() {
             .as_array()
             .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default();
-        assert!(mentioned.contains(&bob.as_str()), "m.mentions: {mentioned:?}");
+        assert!(
+            mentioned.contains(&bob.as_str()),
+            "m.mentions: {mentioned:?}"
+        );
         println!("[probe] formatted mention stored verbatim, m.mentions={mentioned:?}");
 
         // 2. SDK receive path: deserialize and sanitize (what matrix-sdk-ui
         //    does with DEFAULT_SANITIZER_MODE = Compat).
-        let mut received: RoomMessageEventContent =
-            serde_json::from_value(stored.clone()).unwrap();
+        let mut received: RoomMessageEventContent = serde_json::from_value(stored.clone()).unwrap();
         assert!(
             received
                 .mentions
@@ -159,9 +168,18 @@ fn mentions_formatting_emoji_round_trip_on_disposable_server() {
             panic!("not a text message");
         };
         let sanitized = text.formatted.as_ref().unwrap().body.clone();
-        assert!(!sanitized.contains("<script"), "script survived sanitize: {sanitized}");
-        assert!(sanitized.contains("<strong>"), "allowed tag stripped: {sanitized}");
-        assert!(sanitized.contains("matrix.to"), "mention link stripped: {sanitized}");
+        assert!(
+            !sanitized.contains("<script"),
+            "script survived sanitize: {sanitized}"
+        );
+        assert!(
+            sanitized.contains("<strong>"),
+            "allowed tag stripped: {sanitized}"
+        );
+        assert!(
+            sanitized.contains("matrix.to"),
+            "mention link stripped: {sanitized}"
+        );
         println!("[probe] sanitized html keeps allowed tags and drops <script>");
 
         // 3. Emoji in a plain body round-trips.
@@ -178,9 +196,16 @@ fn mentions_formatting_emoji_round_trip_on_disposable_server() {
         // 4. @room intentional mention.
         let content = RoomMessageEventContent::text_html("@room check", "<b>@room</b> check")
             .add_mentions(Mentions::with_room_mention());
-        let sent = room.send(content).with_transaction_id("p254-3".into()).await.unwrap();
+        let sent = room
+            .send(content)
+            .with_transaction_id("p254-3".into())
+            .await
+            .unwrap();
         let raw = raw_event(&b, &room_id, &sent.response.event_id).await;
-        assert_eq!(raw["content"]["m.mentions"]["room"], true, "@room mention lost");
+        assert_eq!(
+            raw["content"]["m.mentions"]["room"], true,
+            "@room mention lost"
+        );
         println!("[probe] @room mention (m.mentions.room=true) stored");
 
         // 5. Reaction with a unicode emoji key via the SDK event content.
@@ -195,7 +220,10 @@ fn mentions_formatting_emoji_round_trip_on_disposable_server() {
         assert_eq!(raw["type"], "m.reaction");
         assert_eq!(raw["content"]["m.relates_to"]["rel_type"], "m.annotation");
         assert_eq!(raw["content"]["m.relates_to"]["key"], "👍");
-        assert_eq!(raw["content"]["m.relates_to"]["event_id"], mention_event.as_str());
+        assert_eq!(
+            raw["content"]["m.relates_to"]["event_id"],
+            mention_event.as_str()
+        );
         println!("[probe] emoji reaction (m.reaction, key 👍) round-trips");
 
         // 6. Default push rules mention coverage.

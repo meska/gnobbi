@@ -47,7 +47,9 @@ mod tests {
     #[test]
     fn wav_has_header_duration_and_bounded_waveform() {
         assert!(voice_attachment(&[], 16000).is_none());
-        let samples: Vec<i16> = (0..32000).map(|i| if i < 16000 { 0 } else { 16384 }).collect();
+        let samples: Vec<i16> = (0..32000)
+            .map(|i| if i < 16000 { 0 } else { 16384 })
+            .collect();
         let note = voice_attachment(&samples, 16000).unwrap();
         assert_eq!(&note.data[..4], b"RIFF");
         assert_eq!(&note.data[8..16], b"WAVEfmt ");
@@ -62,11 +64,23 @@ mod tests {
     #[test]
     fn waveform_stays_within_the_matrix_limit_for_any_length() {
         for len in [1usize, 99, 100, 101, 250, 1999, 100_001] {
-            let samples: Vec<i16> = (0..len).map(|i| if i % 2 == 0 { i16::MIN } else { 100 }).collect();
+            let samples: Vec<i16> = (0..len)
+                .map(|i| if i % 2 == 0 { i16::MIN } else { 100 })
+                .collect();
             let voice = voice_attachment(&samples, 48_000).unwrap().voice.unwrap();
-            assert!((1..=100).contains(&voice.waveform.len()), "{len}: {}", voice.waveform.len());
-            assert!(voice.waveform.iter().all(|v| (0.0..=1.0).contains(v)), "{len}");
-            assert_eq!(voice.waveform[0], 1.0, "i16::MIN is full scale, no overflow");
+            assert!(
+                (1..=100).contains(&voice.waveform.len()),
+                "{len}: {}",
+                voice.waveform.len()
+            );
+            assert!(
+                voice.waveform.iter().all(|v| (0.0..=1.0).contains(v)),
+                "{len}"
+            );
+            assert_eq!(
+                voice.waveform[0], 1.0,
+                "i16::MIN is full scale, no overflow"
+            );
         }
     }
 

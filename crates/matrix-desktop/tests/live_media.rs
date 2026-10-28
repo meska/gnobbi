@@ -75,7 +75,10 @@ fn preview_preserves_request_when_backend_queue_is_full() {
     view.flush(&mut sender);
     view.request(scope(), EventId::new("$second"));
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag: stale, event, .. }) = receiver.try_recv() else {
+    let Ok(MediaCommand::Download {
+        tag: stale, event, ..
+    }) = receiver.try_recv()
+    else {
         panic!("first queued read required");
     };
     assert_eq!(event.as_str(), "$first");
@@ -219,7 +222,10 @@ fn large_view_original_is_its_own_lane_and_larger_than_the_thumbnail() {
         result: Ok(png(2)),
     }));
     let thumbnail = view.take_preview().unwrap();
-    assert!(view.original_pending(), "bubble answer leaves the original pending");
+    assert!(
+        view.original_pending(),
+        "bubble answer leaves the original pending"
+    );
     assert!(view.apply(MediaEvent::Downloaded {
         tag: large_tag,
         event,
@@ -237,23 +243,45 @@ fn second_original_replaces_the_first_and_closing_drops_the_running_read() {
     let png = || DownloadedPng {
         variant: matrix_engine::media::MediaVariant::Original,
         bytes: vec![1],
-        preview: Preview { width: 8, height: 8, rgba: vec![0; 256] },
+        preview: Preview {
+            width: 8,
+            height: 8,
+            rgba: vec![0; 256],
+        },
     };
     let mut view = LiveMedia::default();
     let (mut sender, mut receiver) =
         matrix_engine::bounded(std::num::NonZeroUsize::new(4).unwrap());
     view.request_original(scope(), EventId::new("$a"));
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag: first, .. }) = receiver.try_recv() else { panic!() };
+    let Ok(MediaCommand::Download { tag: first, .. }) = receiver.try_recv() else {
+        panic!()
+    };
     view.request_original(scope(), EventId::new("$b"));
     view.flush(&mut sender);
-    let Ok(MediaCommand::Download { tag: second, .. }) = receiver.try_recv() else { panic!() };
-    assert!(first.is_cancelled(), "opening another view cancels the first read");
-    assert!(!view.apply(MediaEvent::Downloaded { tag: first, event: EventId::new("$a"), result: Ok(png()) }));
-    assert!(view.take_original().is_none(), "never two originals decoded at once");
+    let Ok(MediaCommand::Download { tag: second, .. }) = receiver.try_recv() else {
+        panic!()
+    };
+    assert!(
+        first.is_cancelled(),
+        "opening another view cancels the first read"
+    );
+    assert!(!view.apply(MediaEvent::Downloaded {
+        tag: first,
+        event: EventId::new("$a"),
+        result: Ok(png())
+    }));
+    assert!(
+        view.take_original().is_none(),
+        "never two originals decoded at once"
+    );
     view.cancel_original();
     assert!(second.is_cancelled(), "closing cancels the read");
-    assert!(!view.apply(MediaEvent::Downloaded { tag: second, event: EventId::new("$b"), result: Ok(png()) }));
+    assert!(!view.apply(MediaEvent::Downloaded {
+        tag: second,
+        event: EventId::new("$b"),
+        result: Ok(png())
+    }));
     assert!(view.take_original().is_none() && !view.original_pending());
 }
 
@@ -274,6 +302,9 @@ fn a_video_row_asks_for_its_thumbnail_and_an_image_row_for_the_picture() {
     view.flush(&mut sender);
     assert!(matches!(
         receiver.try_recv(),
-        Ok(MediaCommand::Download { original: false, .. })
+        Ok(MediaCommand::Download {
+            original: false,
+            ..
+        })
     ));
 }

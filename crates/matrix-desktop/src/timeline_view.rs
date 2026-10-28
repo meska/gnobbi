@@ -95,7 +95,8 @@ pub struct TimelineView {
     link_hover: Rc<Cell<Option<u64>>>,
     viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Full-resolution picture of the open large view (loading, ready or failed).
-    pub(crate) original: Rc<RefCell<Option<(matrix_domain::EventId, crate::media_view::InlineImage)>>>,
+    pub(crate) original:
+        Rc<RefCell<Option<(matrix_domain::EventId, crate::media_view::InlineImage)>>>,
     /// Set by a click or «Riprova»; the shell turns it into the original read.
     pub(crate) want_original: Rc<RefCell<Option<matrix_domain::EventId>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
@@ -2411,7 +2412,9 @@ mod tests {
                             styles: Vec::new(),
                         }]);
                         if thumbnail {
-                            let buffer = image::RgbaImage::from_raw(160, 90, vec![255; 160 * 90 * 4]).unwrap();
+                            let buffer =
+                                image::RgbaImage::from_raw(160, 90, vec![255; 160 * 90 * 4])
+                                    .unwrap();
                             v.images.borrow_mut().insert(
                                 id.clone(),
                                 crate::media_view::InlineImage::Ready(std::sync::Arc::new(
@@ -2430,25 +2433,51 @@ mod tests {
                     let parts = host.0.video_painted.borrow();
                     let part = |name| {
                         parts
-                            .get(&(TimelineId::Server(EventId::new("$video:fixture.invalid")), name))
+                            .get(&(
+                                TimelineId::Server(EventId::new("$video:fixture.invalid")),
+                                name,
+                            ))
                             .copied()
                             .unwrap_or_else(|| panic!("{name} was not painted"))
                     };
-                    let (picture, play, duration, size) =
-                        (part("picture"), part("play"), part("duration"), part("size"));
+                    let (picture, play, duration, size) = (
+                        part("picture"),
+                        part("play"),
+                        part("duration"),
+                        part("size"),
+                    );
                     let (w, h) = if thumbnail { (160., 90.) } else { (200., 150.) };
-                    assert_eq!(f32::from(picture.size.width), w, "thumbnail size or neutral box");
+                    assert_eq!(
+                        f32::from(picture.size.width),
+                        w,
+                        "thumbnail size or neutral box"
+                    );
                     assert_eq!(f32::from(picture.size.height), h);
                     for inner in [play, duration, size] {
                         let (tl, br) = (inner.origin, inner.bottom_right());
-                        assert!(tl.x >= picture.left() - px(1.) && tl.y >= picture.top() - px(1.)
-                            && br.x <= picture.right() + px(1.) && br.y <= picture.bottom() + px(1.),
-                            "overlay inside the picture");
+                        assert!(
+                            tl.x >= picture.left() - px(1.)
+                                && tl.y >= picture.top() - px(1.)
+                                && br.x <= picture.right() + px(1.)
+                                && br.y <= picture.bottom() + px(1.),
+                            "overlay inside the picture"
+                        );
                     }
                     let (cx_, cy_) = (picture.center().x, picture.center().y);
-                    assert!((play.center().x - cx_).abs() < px(1.) && (play.center().y - cy_).abs() < px(1.), "play at the centre");
-                    assert!(duration.origin.x < picture.center().x && size.origin.x > picture.center().x, "duration left, size right");
-                    assert!(duration.origin.y > cy_ && size.origin.y > cy_, "labels along the bottom");
+                    assert!(
+                        (play.center().x - cx_).abs() < px(1.)
+                            && (play.center().y - cy_).abs() < px(1.),
+                        "play at the centre"
+                    );
+                    assert!(
+                        duration.origin.x < picture.center().x
+                            && size.origin.x > picture.center().x,
+                        "duration left, size right"
+                    );
+                    assert!(
+                        duration.origin.y > cy_ && size.origin.y > cy_,
+                        "labels along the bottom"
+                    );
                     cx.quit();
                 })
                 .unwrap();

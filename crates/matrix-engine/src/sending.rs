@@ -137,11 +137,24 @@ mod tests {
 
     #[test]
     fn markdown_goes_out_as_html_with_the_typed_body() {
-        let v = sent("**forte** _corsivo_ `codice`\n- uno\n- due\n\n> cita [sito](https://e.org)", &[]);
+        let v = sent(
+            "**forte** _corsivo_ `codice`\n- uno\n- due\n\n> cita [sito](https://e.org)",
+            &[],
+        );
         assert_eq!(v["format"], "org.matrix.custom.html");
-        assert_eq!(v["body"], "**forte** _corsivo_ `codice`\n- uno\n- due\n\n> cita [sito](https://e.org)");
+        assert_eq!(
+            v["body"],
+            "**forte** _corsivo_ `codice`\n- uno\n- due\n\n> cita [sito](https://e.org)"
+        );
         let html = v["formatted_body"].as_str().unwrap();
-        for tag in ["<strong>forte</strong>", "<em>corsivo</em>", "<code>codice</code>", "<li>uno</li>", "<blockquote>", "<a href=\"https://e.org\">sito</a>"] {
+        for tag in [
+            "<strong>forte</strong>",
+            "<em>corsivo</em>",
+            "<code>codice</code>",
+            "<li>uno</li>",
+            "<blockquote>",
+            "<a href=\"https://e.org\">sito</a>",
+        ] {
             assert!(html.contains(tag), "{tag} missing in {html}");
         }
         // A plain multi-line text needs no HTML: every client shows the newlines of `body`.
@@ -161,25 +174,52 @@ mod tests {
     fn mentions_coexist_with_markdown() {
         let v = sent(
             "**ciao** @Anna_B *ok*",
-            &[Mention { user_id: "@a:x".into(), label: "@Anna_B".into() }],
+            &[Mention {
+                user_id: "@a:x".into(),
+                label: "@Anna_B".into(),
+            }],
         );
         assert_eq!(v["body"], "**ciao** @Anna_B *ok*");
         let html = v["formatted_body"].as_str().unwrap();
-        assert!(html.contains("<strong>ciao</strong>") && html.contains("<em>ok</em>"), "{html}");
-        assert!(html.contains("<a href=\"https://matrix.to/#/@a:x\">@Anna_B</a>"), "{html}");
+        assert!(
+            html.contains("<strong>ciao</strong>") && html.contains("<em>ok</em>"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<a href=\"https://matrix.to/#/@a:x\">@Anna_B</a>"),
+            "{html}"
+        );
         assert_eq!(v["m.mentions"]["user_ids"], serde_json::json!(["@a:x"]));
     }
 
     #[test]
     fn mention_labels_with_special_characters_link_the_right_user() {
         // A display name that is itself markdown or HTML must stay a literal label.
-        for name in ["@A]n[na *B*", "@](https://evil.example)", "@<b>x</b>", "@Zoë 👩‍💻", "@a\\b"] {
+        for name in [
+            "@A]n[na *B*",
+            "@](https://evil.example)",
+            "@<b>x</b>",
+            "@Zoë 👩‍💻",
+            "@a\\b",
+        ] {
             let body = format!("ciao {name} ok");
-            let v = sent(&body, &[Mention { user_id: "@a:x".into(), label: name.into() }]);
+            let v = sent(
+                &body,
+                &[Mention {
+                    user_id: "@a:x".into(),
+                    label: name.into(),
+                }],
+            );
             assert_eq!(v["body"], body);
             let html = v["formatted_body"].as_str().unwrap();
-            assert!(html.contains("<a href=\"https://matrix.to/#/@a:x\">"), "{html}");
-            assert!(!html.contains("evil.example\">") && !html.contains("<b>"), "{html}");
+            assert!(
+                html.contains("<a href=\"https://matrix.to/#/@a:x\">"),
+                "{html}"
+            );
+            assert!(
+                !html.contains("evil.example\">") && !html.contains("<b>"),
+                "{html}"
+            );
             assert_eq!(v["m.mentions"]["user_ids"], serde_json::json!(["@a:x"]));
         }
     }
@@ -187,29 +227,57 @@ mod tests {
     #[test]
     fn a_mention_label_is_not_linked_inside_a_longer_word() {
         // The picked «@Anna» was deleted and «@Annabella» typed by hand: no link, no ping.
-        let v = sent("ciao @Annabella", &[Mention { user_id: "@a:x".into(), label: "@Anna".into() }]);
+        let v = sent(
+            "ciao @Annabella",
+            &[Mention {
+                user_id: "@a:x".into(),
+                label: "@Anna".into(),
+            }],
+        );
         assert!(v.get("formatted_body").is_none(), "{v}");
         assert!(v.get("m.mentions").is_none(), "{v}");
-        let v = sent("ciao @Anna, @Annabella", &[Mention { user_id: "@a:x".into(), label: "@Anna".into() }]);
+        let v = sent(
+            "ciao @Anna, @Annabella",
+            &[Mention {
+                user_id: "@a:x".into(),
+                label: "@Anna".into(),
+            }],
+        );
         assert_eq!(v["m.mentions"]["user_ids"], serde_json::json!(["@a:x"]));
-        assert!(v["formatted_body"].as_str().unwrap().contains(">@Anna</a>, @Annabella"), "{v}");
+        assert!(
+            v["formatted_body"]
+                .as_str()
+                .unwrap()
+                .contains(">@Anna</a>, @Annabella"),
+            "{v}"
+        );
     }
 
     #[test]
     fn newlines_markup_and_code_blocks_survive_the_markdown_pass() {
         // Markup plus a typed newline: the SDK turns the soft break into <br>.
-        let html = sent("**a**\nb", &[])["formatted_body"].as_str().unwrap().to_owned();
-        assert!(html.contains("<strong>a</strong><br") , "{html}");
+        let html = sent("**a**\nb", &[])["formatted_body"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(html.contains("<strong>a</strong><br"), "{html}");
         // An indented code block keeps its lines verbatim (no trailing blanks added).
         let v = sent("x\n\n    riga 1\n    riga 2\n", &[]);
         let html = v["formatted_body"].as_str().unwrap();
-        assert!(html.contains("<pre><code>riga 1\nriga 2\n</code></pre>"), "{html}");
+        assert!(
+            html.contains("<pre><code>riga 1\nriga 2\n</code></pre>"),
+            "{html}"
+        );
         // Long and emoji-heavy text goes through untouched (no trailing blank: the SDK treats
         // trailing whitespace as markup and emits an identical formatted_body).
         let long = "👩‍👩‍👧‍👦 ".repeat(3000).trim_end().to_owned();
         let v = sent(&long, &[]);
         assert_eq!(v["body"], long);
-        assert!(v.get("formatted_body").is_none(), "{}", v["formatted_body"].as_str().map_or(0, str::len));
+        assert!(
+            v.get("formatted_body").is_none(),
+            "{}",
+            v["formatted_body"].as_str().map_or(0, str::len)
+        );
     }
 
     #[test]
@@ -245,10 +313,7 @@ pub async fn send_text(
 ) -> Result<EventId, SendError> {
     use matrix_sdk::{
         attachment::{AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseImageInfo},
-        ruma::{
-            RoomId,
-            events::room::message::TextMessageEventContent,
-        },
+        ruma::{RoomId, events::room::message::TextMessageEventContent},
     };
     if request.scope.account_id != account {
         return Err(SendError::WrongScope);
@@ -268,7 +333,7 @@ pub async fn send_text(
         None => tokio::time::timeout(
             std::time::Duration::from_secs(5),
             room.send(markdown_content(&request.body, &request.mentions))
-            .with_transaction_id(transaction),
+                .with_transaction_id(transaction),
         )
         .await
         .map_err(|_| SendError::Transport)?
@@ -335,6 +400,9 @@ mod mention_tests {
             "\\<hi> [@Anna](https://matrix.to/#/@a:x) & [@Anna](https://matrix.to/#/@b:x)"
         );
         assert_eq!(linked, ["@a:x", "@b:x"]);
-        assert_eq!(mention_markdown("ciao", &[m("@a:x", "@Anna")]), ("ciao".into(), vec![]));
+        assert_eq!(
+            mention_markdown("ciao", &[m("@a:x", "@Anna")]),
+            ("ciao".into(), vec![])
+        );
     }
 }

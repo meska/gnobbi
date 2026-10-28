@@ -59,10 +59,11 @@ impl Rich {
     fn append(&mut self, other: Rich) {
         let base = self.text.len();
         self.text.push_str(&other.text);
-        self.spans.extend(other.spans.into_iter().map(|s| StyleSpan {
-            range: s.range.start + base..s.range.end + base,
-            style: s.style,
-        }));
+        self.spans
+            .extend(other.spans.into_iter().map(|s| StyleSpan {
+                range: s.range.start + base..s.range.end + base,
+                style: s.style,
+            }));
     }
 
     fn styled(&mut self, inner: Rich, style: Style) {
@@ -183,17 +184,21 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool) -> Rich {
                 let first = attr("start")
                     .and_then(|s| s.parse::<i64>().ok())
                     .unwrap_or(1);
-                for (number, item) in (first..).zip(node.children().filter(|n| {
-                    n.as_element()
-                        .is_some_and(|e| &*e.name.local == "li")
-                })) {
+                for (number, item) in (first..).zip(
+                    node.children()
+                        .filter(|n| n.as_element().is_some_and(|e| &*e.name.local == "li")),
+                ) {
                     let marker = if name == "ol" {
                         format!("{number}. ")
                     } else {
                         "• ".to_owned()
                     };
                     let rest = " ".repeat(marker.chars().count());
-                    out.append(render(item.children(), false).trimmed().prefixed(&marker, &rest));
+                    out.append(
+                        render(item.children(), false)
+                            .trimmed()
+                            .prefixed(&marker, &rest),
+                    );
                     out.text.push('\n');
                 }
             }
@@ -240,10 +245,12 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool) -> Rich {
 pub fn from_html(html: &str) -> (String, Vec<StyleSpan>) {
     use matrix_sdk::ruma::html::{Html, SanitizerConfig};
     let html = Html::parse(html);
-    html.sanitize_with(&SanitizerConfig::compat()
+    html.sanitize_with(
+        &SanitizerConfig::compat()
             .remove_reply_fallback()
             .remove_elements(["script", "style"])
-            .max_depth(24));
+            .max_depth(24),
+    );
     let rich = render(html.children(), false).trimmed();
     (rich.text, rich.spans)
 }
@@ -262,7 +269,8 @@ mod tests {
 
     #[test]
     fn inline_styles_become_spans() {
-        let (text, spans) = from_html("a <strong>b</strong> <em>c</em> <del>d</del> <code>e</code>");
+        let (text, spans) =
+            from_html("a <strong>b</strong> <em>c</em> <del>d</del> <code>e</code>");
         assert_eq!(text, "a b c d e");
         assert_eq!(styled(&text, &spans, Style::Bold), ["b"]);
         assert_eq!(styled(&text, &spans, Style::Italic), ["c"]);
@@ -293,15 +301,25 @@ mod tests {
 
     #[test]
     fn deep_nesting_is_capped() {
-        let html = format!("{}x{}", "<blockquote>".repeat(5000), "</blockquote>".repeat(5000));
+        let html = format!(
+            "{}x{}",
+            "<blockquote>".repeat(5000),
+            "</blockquote>".repeat(5000)
+        );
         let (text, _) = from_html(&html);
         assert!(text.len() < 200_000);
     }
 
     fn spans_fit(text: &str, spans: &[super::StyleSpan]) {
         for s in spans {
-            assert!(s.range.start < s.range.end && s.range.end <= text.len(), "{s:?} in {text:?}");
-            assert!(text.is_char_boundary(s.range.start) && text.is_char_boundary(s.range.end), "{s:?}");
+            assert!(
+                s.range.start < s.range.end && s.range.end <= text.len(),
+                "{s:?} in {text:?}"
+            );
+            assert!(
+                text.is_char_boundary(s.range.start) && text.is_char_boundary(s.range.end),
+                "{s:?}"
+            );
         }
     }
 

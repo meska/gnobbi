@@ -94,7 +94,8 @@ fn disposable_lifecycle_shutdown_drains_accepted_send_before_join() {
                     },
                     transaction_id: TransactionId::new("p022-drain"),
                     body: "Shutdown città".into(),
-                    attachment: None, mentions: Vec::new()
+                    attachment: None,
+                    mentions: Vec::new()
                 })
                 .await
                 .is_ok()
@@ -646,7 +647,8 @@ fn disposable_send_reuses_transaction_and_reads_actual_event() {
             },
             transaction_id: TransactionId::new("p020-stable-transaction"),
             body: "città · prima riga\nseconda riga".into(),
-            attachment: None, mentions: Vec::new(),
+            attachment: None,
+            mentions: Vec::new(),
         };
         let first = sync.send_text(&request).await.expect("SDK send accepted");
         let second = sync
@@ -707,7 +709,8 @@ fn disposable_send_worker_survives_offline_retry() {
             },
             transaction_id: TransactionId::new("p020-offline-retry"),
             body: "Offline retry preserves città\nsecond line".into(),
-            attachment: None, mentions: Vec::new(),
+            attachment: None,
+            mentions: Vec::new(),
         };
         let pid = config["server_pid"].to_string();
         struct Resume(String);
@@ -1034,7 +1037,10 @@ fn disposable_spaces_room_details_from_sync() {
             })
             .unwrap();
         assert_eq!(room.info.topic.as_deref(), Some("Topic from server"));
-        assert_eq!(room.info.avatar, None, "no avatar from the server means None");
+        assert_eq!(
+            room.info.avatar, None,
+            "no avatar from the server means None"
+        );
         assert_eq!(room.info.joined_members, 1);
         assert!(!room.info.is_space);
         assert_eq!(room.info.encrypted, Some(false));

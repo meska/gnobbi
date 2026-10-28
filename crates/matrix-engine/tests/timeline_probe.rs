@@ -7,14 +7,18 @@
 use matrix_engine::{
     sdk::{
         Client,
-        room::edit::EditedContent,
         reqwest::Certificate,
+        room::edit::EditedContent,
         ruma::{
-            api::client::room::create_room::v3::{CreationContent, Request as CreateRoomRequest, RoomPreset},
-            assign,
-            events::room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
-            serde::Raw,
             OwnedEventId,
+            api::client::room::create_room::v3::{
+                CreationContent, Request as CreateRoomRequest, RoomPreset,
+            },
+            assign,
+            events::room::message::{
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+            },
+            serde::Raw,
         },
         sliding_sync::VersionBuilder,
     },
@@ -61,7 +65,10 @@ fn timeline_reads_and_acts_on_disposable_server() {
     let kind = config["kind"].as_str().unwrap().to_owned();
     let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
     let url = config["url"].as_str().unwrap().to_owned();
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(async {
         let build = || {
             let (url, ca) = (url.clone(), ca.clone());
@@ -113,21 +120,38 @@ fn timeline_reads_and_acts_on_disposable_server() {
 
         // Alice: 30 plain messages, to be paged later by Bob.
         for i in 0..30 {
-            ra.send(RoomMessageEventContent::text_plain(format!("old {i:02}"))).await.unwrap();
+            ra.send(RoomMessageEventContent::text_plain(format!("old {i:02}")))
+                .await
+                .unwrap();
         }
         // Live: Alice sends m1, Bob sees it on his Timeline.
-        let m1 = ra.send(RoomMessageEventContent::text_plain("m1 hello")).await.unwrap().response.event_id;
+        let m1 = ra
+            .send(RoomMessageEventContent::text_plain("m1 hello"))
+            .await
+            .unwrap()
+            .response
+            .event_id;
         until("bob sees m1", async || item(&tb, &m1).await).await;
         println!("[probe] live message arrives on the other Timeline");
 
         // Edit by Alice through Timeline::edit; Bob sees the edited body in the same item.
         let id1 = TimelineEventItemId::EventId(m1.clone());
-        until("alice m1 editable", async || item(&ta, &m1).await.filter(|e| e.is_editable())).await;
-        ta.edit(&id1, EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain("m1 edited")))
-            .await
-            .unwrap();
+        until("alice m1 editable", async || {
+            item(&ta, &m1).await.filter(|e| e.is_editable())
+        })
+        .await;
+        ta.edit(
+            &id1,
+            EditedContent::RoomMessage(RoomMessageEventContentWithoutRelation::text_plain(
+                "m1 edited",
+            )),
+        )
+        .await
+        .unwrap();
         let e = until("bob sees edit", async || {
-            item(&tb, &m1).await.filter(|e| body(e).as_deref() == Some("m1 edited"))
+            item(&tb, &m1)
+                .await
+                .filter(|e| body(e).as_deref() == Some("m1 edited"))
         })
         .await;
         assert!(e.content().as_message().unwrap().is_edited());
@@ -136,30 +160,56 @@ fn timeline_reads_and_acts_on_disposable_server() {
         // Reaction by Bob through toggle_reaction; Alice sees one reaction key with Bob.
         assert!(tb.toggle_reaction(&id1, "👍").await.unwrap());
         let e = until("alice sees reaction", async || {
-            item(&ta, &m1).await.filter(|e| e.content().reactions().is_some_and(|r| r.contains_key("👍")))
+            item(&ta, &m1).await.filter(|e| {
+                e.content()
+                    .reactions()
+                    .is_some_and(|r| r.contains_key("👍"))
+            })
         })
         .await;
         assert!(e.content().reactions().unwrap()["👍"].contains_key(&bob));
         // Toggling again removes it (redaction of the reaction).
         assert!(!tb.toggle_reaction(&id1, "👍").await.unwrap());
         until("alice sees reaction gone", async || {
-            item(&ta, &m1).await.filter(|e| e.content().reactions().is_none_or(|r| !r.contains_key("👍")))
+            item(&ta, &m1).await.filter(|e| {
+                e.content()
+                    .reactions()
+                    .is_none_or(|r| !r.contains_key("👍"))
+            })
         })
         .await;
         println!("[probe] reaction aggregated and removed by toggle");
 
         // Reply by Bob; Alice sees in_reply_to the event id.
-        tb.send_reply(RoomMessageEventContentWithoutRelation::text_plain("re: m1"), m1.clone()).await.unwrap();
+        tb.send_reply(
+            RoomMessageEventContentWithoutRelation::text_plain("re: m1"),
+            m1.clone(),
+        )
+        .await
+        .unwrap();
         let reply = until("alice sees reply", async || {
-            ta.items().await.iter().filter_map(|i| i.as_event()).find(|e| body(e).is_some_and(|b| b.contains("re: m1"))).cloned()
+            ta.items()
+                .await
+                .iter()
+                .filter_map(|i| i.as_event())
+                .find(|e| body(e).is_some_and(|b| b.contains("re: m1")))
+                .cloned()
         })
         .await;
-        assert_eq!(reply.content().in_reply_to().map(|r| r.event_id.clone()), Some(m1.clone()));
+        assert_eq!(
+            reply.content().in_reply_to().map(|r| r.event_id.clone()),
+            Some(m1.clone())
+        );
         println!("[probe] reply carries in_reply_to");
 
         // Redaction by Alice; Bob sees the message gone from the text.
         ta.redact(&id1, None).await.unwrap();
-        until("bob sees redaction", async || item(&tb, &m1).await.filter(|e| e.content().as_message().is_none())).await;
+        until("bob sees redaction", async || {
+            item(&tb, &m1)
+                .await
+                .filter(|e| e.content().as_message().is_none())
+        })
+        .await;
         println!("[probe] redaction visible as non-message content");
 
         // Backwards pagination on a fresh Timeline of Bob's: 30 old messages + the rest.
@@ -167,9 +217,16 @@ fn timeline_reads_and_acts_on_disposable_server() {
         let mut total = 0;
         for _ in 0..6 {
             let start = fresh.paginate_backwards(10).await.unwrap();
-            total = fresh.items().await.iter().filter(|i| i.as_event().is_some()).count();
+            total = fresh
+                .items()
+                .await
+                .iter()
+                .filter(|i| i.as_event().is_some())
+                .count();
             println!("[probe] paginate_backwards(10) reached_start={start} events={total}");
-            if start { break; }
+            if start {
+                break;
+            }
         }
         assert!(total >= 30, "expected 30 old messages, got {total}");
         let _ = (sa.stop().await, sb.stop().await);

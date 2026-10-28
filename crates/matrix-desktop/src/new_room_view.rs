@@ -21,7 +21,13 @@ impl Shell {
         });
         cx.observe(&field, |_, _, cx| cx.notify()).detach();
         field.read(cx).focus.focus(window);
-        self.new_room = Some(NewRoom { dm, public: false, field, busy: false, error: false });
+        self.new_room = Some(NewRoom {
+            dm,
+            public: false,
+            field,
+            busy: false,
+            error: false,
+        });
         cx.notify();
     }
 
@@ -32,7 +38,9 @@ impl Shell {
     }
 
     fn submit_new_room(&mut self, cx: &mut Context<Self>) {
-        let Some(room) = &mut self.new_room else { return };
+        let Some(room) = &mut self.new_room else {
+            return;
+        };
         let text = room.field.read(cx).input.display_text().trim().to_owned();
         if room.busy || text.is_empty() || self.pending_operation_command.is_some() {
             return;
@@ -42,14 +50,23 @@ impl Shell {
         self.pending_operation_command = Some(if room.dm {
             OperationCommand::StartDm { user_id: text }
         } else {
-            OperationCommand::CreateRoom { name: text, public: room.public }
+            OperationCommand::CreateRoom {
+                name: text,
+                public: room.public,
+            }
         });
         cx.notify();
     }
 
     /// The engine's answer: success closes the dialog (the room arrives with the next sync).
-    pub(crate) fn room_started(&mut self, result: Result<RoomScope, OperationError>, cx: &mut Context<Self>) {
-        let Some(room) = &mut self.new_room else { return };
+    pub(crate) fn room_started(
+        &mut self,
+        result: Result<RoomScope, OperationError>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(room) = &mut self.new_room else {
+            return;
+        };
         room.busy = false;
         match result {
             Ok(scope) => {
@@ -62,10 +79,21 @@ impl Shell {
         cx.notify();
     }
 
-    pub(crate) fn render_new_room(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    pub(crate) fn render_new_room(
+        &self,
+        t: matrix_desktop::DesignTokens,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
         let room = self.new_room.as_ref()?;
         let button = |id: &'static str, label: &'static str, color: u32| {
-            div().id(id).px_4().py_2().rounded_md().cursor_pointer().text_color(rgb(color)).child(label)
+            div()
+                .id(id)
+                .px_4()
+                .py_2()
+                .rounded_md()
+                .cursor_pointer()
+                .text_color(rgb(color))
+                .child(label)
         };
         let public = room.public;
         Some(
@@ -103,7 +131,11 @@ impl Shell {
                             div()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(rgb(t.text))
-                                .child(if room.dm { "Nuova chat" } else { "Nuova stanza" }),
+                                .child(if room.dm {
+                                    "Nuova chat"
+                                } else {
+                                    "Nuova stanza"
+                                }),
                         )
                         .child(room.field.clone())
                         .when(!room.dm, |d| {
@@ -127,7 +159,12 @@ impl Shell {
                                             .px(px(2.))
                                             .bg(rgb(if public { t.accent } else { t.disabled }))
                                             .when(public, |d| d.justify_end())
-                                            .child(div().size(px(16.)).rounded_full().bg(rgb(t.on_accent))),
+                                            .child(
+                                                div()
+                                                    .size(px(16.))
+                                                    .rounded_full()
+                                                    .bg(rgb(t.on_accent)),
+                                            ),
                                     )
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         if let Some(room) = &mut this.new_room {
@@ -140,11 +177,13 @@ impl Shell {
                             )
                         })
                         .when(room.error, |d| {
-                            d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child(if room.dm {
-                                "Non riuscito. Controlla l'ID utente e riprova."
-                            } else {
-                                "Non riuscito. Riprova."
-                            }))
+                            d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child(
+                                if room.dm {
+                                    "Non riuscito. Controlla l'ID utente e riprova."
+                                } else {
+                                    "Non riuscito. Riprova."
+                                },
+                            ))
                         })
                         .child(
                             div()
@@ -152,11 +191,19 @@ impl Shell {
                                 .justify_end()
                                 .gap_2()
                                 .child(button("new-room-cancel", "Annulla", t.accent).on_click(
-                                    cx.listener(|this, _, window, cx| this.close_new_room(window, cx)),
+                                    cx.listener(|this, _, window, cx| {
+                                        this.close_new_room(window, cx)
+                                    }),
                                 ))
                                 .child(
-                                    button("new-room-submit", if room.dm { "Avvia" } else { "Crea" }, if room.busy { t.disabled } else { t.accent })
-                                        .on_click(cx.listener(|this, _, _, cx| this.submit_new_room(cx))),
+                                    button(
+                                        "new-room-submit",
+                                        if room.dm { "Avvia" } else { "Crea" },
+                                        if room.busy { t.disabled } else { t.accent },
+                                    )
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.submit_new_room(cx)),
+                                    ),
                                 ),
                         ),
                 )

@@ -206,7 +206,11 @@ pub(crate) async fn first_sync(client: &matrix_sdk::Client) -> Result<(), ()> {
         .build()
         .await
         .map_err(|_| ())?;
-    let list = service.room_list_service().all_rooms().await.map_err(|_| ())?;
+    let list = service
+        .room_list_service()
+        .all_rooms()
+        .await
+        .map_err(|_| ())?;
     let mut loading = list.loading_state();
     service.start().await;
     let loaded = async {
@@ -219,5 +223,9 @@ pub(crate) async fn first_sync(client: &matrix_sdk::Client) -> Result<(), ()> {
     };
     let done = tokio::time::timeout(std::time::Duration::from_secs(30), loaded).await;
     service.stop().await;
-    if matches!(done, Ok(true)) { Ok(()) } else { Err(()) }
+    if matches!(done, Ok(true)) {
+        Ok(())
+    } else {
+        Err(())
+    }
 }

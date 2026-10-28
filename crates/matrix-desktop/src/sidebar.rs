@@ -257,7 +257,10 @@ impl Sidebar {
 
     /// Rooms that are empty, whether or not they are currently shown.
     pub fn hidden_empty_count(&self) -> usize {
-        self.rooms.iter().filter(|room| room.is_empty() && !self.kept.contains(&room.scope)).count()
+        self.rooms
+            .iter()
+            .filter(|room| room.is_empty() && !self.kept.contains(&room.scope))
+            .count()
     }
 
     pub fn unread_only(&self) -> bool {
@@ -270,8 +273,16 @@ impl Sidebar {
 
     /// List header: name, initials and colour of the selected space; «Tutte» (no colour) otherwise.
     pub fn list_header(&self) -> (String, String, Option<u32>) {
-        match self.space.as_ref().and_then(|s| self.spaces().find(|r| r.scope == *s)) {
-            Some(space) => (space.name.clone(), space.initials.clone(), Some(space.color)),
+        match self
+            .space
+            .as_ref()
+            .and_then(|s| self.spaces().find(|r| r.scope == *s))
+        {
+            Some(space) => (
+                space.name.clone(),
+                space.initials.clone(),
+                Some(space.color),
+            ),
             None => ("Tutte".into(), "▦".into(), None),
         }
     }
@@ -616,7 +627,10 @@ mod tests {
             scope: scope(&account, "bots"),
             name: "Bots".into(),
             unread: 0,
-            info: RoomInfo { is_space: true, ..Default::default() },
+            info: RoomInfo {
+                is_space: true,
+                ..Default::default()
+            },
         }));
         assert!(sidebar.set_space(Some(scope(&account, "bots"))));
         let (name, initials, color) = sidebar.list_header();

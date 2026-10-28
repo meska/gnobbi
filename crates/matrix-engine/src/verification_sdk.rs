@@ -222,7 +222,15 @@ pub(crate) async fn run_service(
     if let Some(user_id) = client.user_id() {
         let display_name = client.account().get_display_name().await.ok().flatten();
         let user_id = user_id.to_string();
-        if events.send(VerificationEvent::Profile { account_id, user_id, display_name }).await.is_err() {
+        if events
+            .send(VerificationEvent::Profile {
+                account_id,
+                user_id,
+                display_name,
+            })
+            .await
+            .is_err()
+        {
             return;
         }
     }

@@ -428,34 +428,63 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
     assert!(!hidden.nodes.iter().any(|(id, _)| *id == COMPOSER));
     use matrix_desktop::accessibility::{RECORD, RECORD_CANCEL, RECORD_SEND, RECORDING};
     let label_of = |tree: &accesskit::TreeUpdate, id| {
-        tree.nodes.iter().find(|(n, _)| *n == id).map(|(_, node)| node.label().unwrap().to_owned())
+        tree.nodes
+            .iter()
+            .find(|(n, _)| *n == id)
+            .map(|(_, node)| node.label().unwrap().to_owned())
     };
-    assert_eq!(label_of(&tree, RECORD).as_deref(), Some("Registra nota vocale"));
+    assert_eq!(
+        label_of(&tree, RECORD).as_deref(),
+        Some("Registra nota vocale")
+    );
     assert_eq!(label_of(&tree, RECORDING), None);
     let mut recording = snapshot.clone();
     recording.composer.as_mut().unwrap().recording = Some(7);
     let tree = recording.tree();
     assert_eq!(label_of(&tree, RECORD), None);
-    assert_eq!(label_of(&tree, RECORDING).as_deref(), Some("Registrazione in corso, 7 secondi"));
-    assert_eq!(label_of(&tree, RECORD_CANCEL).as_deref(), Some("Annulla registrazione"));
-    assert_eq!(label_of(&tree, RECORD_SEND).as_deref(), Some("Invia nota vocale"));
+    assert_eq!(
+        label_of(&tree, RECORDING).as_deref(),
+        Some("Registrazione in corso, 7 secondi")
+    );
+    assert_eq!(
+        label_of(&tree, RECORD_CANCEL).as_deref(),
+        Some("Annulla registrazione")
+    );
+    assert_eq!(
+        label_of(&tree, RECORD_SEND).as_deref(),
+        Some("Invia nota vocale")
+    );
     use matrix_desktop::accessibility::MENTIONS;
     assert_eq!(label_of(&tree, MENTIONS), None);
     let mut mentioning = snapshot.clone();
-    mentioning.composer.as_mut().unwrap().mentions = Some((vec!["alice".into(), "Bruno Verdi".into()], 1));
+    mentioning.composer.as_mut().unwrap().mentions =
+        Some((vec!["alice".into(), "Bruno Verdi".into()], 1));
     assert_eq!(
         label_of(&mentioning.tree(), MENTIONS).as_deref(),
         Some("Menzioni: alice; Bruno Verdi, selezionato")
     );
     use matrix_desktop::accessibility::{EMOJI, EMOJI_PICKER};
-    assert_eq!(label_of(&tree, EMOJI).as_deref(), Some("Apri selettore emoji"));
+    assert_eq!(
+        label_of(&tree, EMOJI).as_deref(),
+        Some("Apri selettore emoji")
+    );
     assert_eq!(label_of(&tree, EMOJI_PICKER), None);
     let mut picking = snapshot.clone();
     picking.composer.as_mut().unwrap().emoji_open = true;
     let tree = picking.tree();
-    assert_eq!(label_of(&tree, EMOJI).as_deref(), Some("Chiudi selettore emoji"));
-    assert_eq!(label_of(&tree, EMOJI_PICKER).as_deref(), Some("Selettore emoji"));
-    let (_, picker) = tree.nodes.iter().find(|(id, _)| *id == EMOJI_PICKER).unwrap();
+    assert_eq!(
+        label_of(&tree, EMOJI).as_deref(),
+        Some("Chiudi selettore emoji")
+    );
+    assert_eq!(
+        label_of(&tree, EMOJI_PICKER).as_deref(),
+        Some("Selettore emoji")
+    );
+    let (_, picker) = tree
+        .nodes
+        .iter()
+        .find(|(id, _)| *id == EMOJI_PICKER)
+        .unwrap();
     let labels: std::collections::BTreeSet<String> = picker
         .children()
         .iter()

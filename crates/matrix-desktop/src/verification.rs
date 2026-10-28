@@ -66,11 +66,11 @@ impl DeviceVerification {
     }
     pub fn apply(&mut self, event: VerificationEvent) {
         match event {
-            VerificationEvent::Profile { account_id, user_id, display_name }
-                if account_id == self.account =>
-            {
-                self.profile = Some((user_id, display_name))
-            }
+            VerificationEvent::Profile {
+                account_id,
+                user_id,
+                display_name,
+            } if account_id == self.account => self.profile = Some((user_id, display_name)),
             VerificationEvent::Snapshot(snapshot) if snapshot.account_id == self.account => {
                 self.snapshot = Some(snapshot);
                 self.deciding = false;
@@ -205,6 +205,9 @@ mod profile_tests {
         v.apply(ev(2, Some("Altro")));
         assert!(v.profile().is_none());
         v.apply(ev(1, Some("Ada")));
-        assert_eq!(v.profile(), Some(&("@a:x".to_string(), Some("Ada".to_string()))));
+        assert_eq!(
+            v.profile(),
+            Some(&("@a:x".to_string(), Some("Ada".to_string())))
+        );
     }
 }

@@ -1,7 +1,10 @@
 //! Isolated adapter over `matrix-sdk-ui` for thread timelines (feature `threads`).
 //! The caller passes a `Room` from the per-account client (SQLite store and session already set
 //! up by `auth`); nothing here builds a client, touches the main timeline or logs content.
-use matrix_sdk::{Room, ruma::{OwnedEventId, OwnedUserId}};
+use matrix_sdk::{
+    Room,
+    ruma::{OwnedEventId, OwnedUserId},
+};
 use matrix_sdk_ui::timeline::{Error, RoomExt, Timeline, TimelineFocus};
 
 /// One event of a thread, root first. `body` is None for non-message content.
@@ -14,7 +17,12 @@ pub struct ThreadEvent {
 
 /// A `Timeline` focused on the thread whose root is `root`.
 pub async fn open(room: &Room, root: OwnedEventId) -> Result<Timeline, Error> {
-    room.timeline_builder().with_focus(TimelineFocus::Thread { root_event_id: root }).build().await
+    room.timeline_builder()
+        .with_focus(TimelineFocus::Thread {
+            root_event_id: root,
+        })
+        .build()
+        .await
 }
 
 /// Snapshot of the thread events currently loaded in `timeline`.

@@ -39,7 +39,6 @@ async fn until(what: &str, mut cond: impl FnMut() -> bool) {
     }
 }
 
-
 /// Raw JSON of the event with this id, polled from the accumulated room event cache.
 async fn wait_event(events: &RoomEventCache, event_id: &str) -> serde_json::Value {
     let start = Instant::now();
@@ -53,12 +52,22 @@ async fn wait_event(events: &RoomEventCache, event_id: &str) -> serde_json::Valu
         {
             return found;
         }
-        assert!(start.elapsed() < Duration::from_secs(90), "timeout: event {event_id}");
+        assert!(
+            start.elapsed() < Duration::from_secs(90),
+            "timeout: event {event_id}"
+        );
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
 
-fn request(room: &matrix_engine::sdk::Room, tx: TransactionId, body: &str, name: &str, data: Vec<u8>, voice: Option<Voice>) -> SendRequest {
+fn request(
+    room: &matrix_engine::sdk::Room,
+    tx: TransactionId,
+    body: &str,
+    name: &str,
+    data: Vec<u8>,
+    voice: Option<Voice>,
+) -> SendRequest {
     SendRequest {
         scope: RoomScope {
             account_id: AccountId::new(1),
@@ -66,7 +75,11 @@ fn request(room: &matrix_engine::sdk::Room, tx: TransactionId, body: &str, name:
         },
         transaction_id: tx,
         body: body.to_owned(),
-        attachment: Some(Attachment { filename: name.to_owned(), data, voice }),
+        attachment: Some(Attachment {
+            filename: name.to_owned(),
+            data,
+            voice,
+        }),
         mentions: Vec::new(),
     }
 }
@@ -85,7 +98,9 @@ async fn try_send(client: &Client, req: &SendRequest) -> Result<String, SendErro
 }
 
 async fn send_ok(client: &Client, req: &SendRequest) -> String {
-    try_send(client, req).await.unwrap_or_else(|error| panic!("send failed: {error:?}"))
+    try_send(client, req)
+        .await
+        .unwrap_or_else(|error| panic!("send failed: {error:?}"))
 }
 
 /// Pseudo-random bytes, so compression or dedup can't hide a truncation.
@@ -119,7 +134,10 @@ fn attachment_edge_cases_plain_and_encrypted() {
     let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
     let url = config["url"].as_str().unwrap().to_owned();
     let image = std::fs::read(config["image_png"].as_str().unwrap()).unwrap();
-    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     rt.block_on(async {
         let login = |user: &'static str| {
             let (url, ca, config) = (url.clone(), ca.clone(), config.clone());

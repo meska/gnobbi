@@ -59,7 +59,11 @@ pub struct Preferences {
 
 impl Default for Preferences {
     fn default() -> Self {
-        Preferences { theme: None, debug: false, read_receipts: true }
+        Preferences {
+            theme: None,
+            debug: false,
+            read_receipts: true,
+        }
     }
 }
 

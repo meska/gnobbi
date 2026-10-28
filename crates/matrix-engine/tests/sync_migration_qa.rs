@@ -81,7 +81,10 @@ async fn until(
                 Some(RoomListEvent::Status(_)) => st.failed = true,
                 Some(RoomListEvent::TimelineActivity(_)) => {}
                 Some(RoomListEvent::Order(order)) => {
-                    st.order = order.iter().map(|s| s.room_id.as_str().to_owned()).collect();
+                    st.order = order
+                        .iter()
+                        .map(|s| s.room_id.as_str().to_owned())
+                        .collect();
                 }
                 None => return,
             }

@@ -110,8 +110,8 @@ pub(crate) async fn download_video_thumbnail(
     }
     let room_id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
         .map_err(|_| MediaError::InvalidScope)?;
-    let event_id = matrix_sdk::ruma::EventId::parse(event.as_str())
-        .map_err(|_| MediaError::InvalidScope)?;
+    let event_id =
+        matrix_sdk::ruma::EventId::parse(event.as_str()).map_err(|_| MediaError::InvalidScope)?;
     let room = client
         .get_room(&room_id)
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)

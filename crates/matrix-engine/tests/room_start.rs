@@ -32,7 +32,10 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
             let (url, ca) = (config["url"].as_str().unwrap().to_owned(), ca.clone());
             let (user, pass) = (
                 config[format!("{who}_mxid")].as_str().unwrap().to_owned(),
-                config[format!("{who}_password")].as_str().unwrap().to_owned(),
+                config[format!("{who}_password")]
+                    .as_str()
+                    .unwrap()
+                    .to_owned(),
             );
             async move {
                 let client = Client::builder()
@@ -42,7 +45,12 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
                     .build()
                     .await
                     .unwrap();
-                client.matrix_auth().login_username(&user, &pass).send().await.unwrap();
+                client
+                    .matrix_auth()
+                    .login_username(&user, &pass)
+                    .send()
+                    .await
+                    .unwrap();
                 let service = SyncService::builder(client.clone()).build().await.unwrap();
                 service.start().await;
                 (client, service)
@@ -63,17 +71,26 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
         ));
 
         let dm = start_dm(&a, account, &bob).await.unwrap();
-        let private = create_room(&a, account, "gnobbi-test-private", false).await.unwrap();
-        let public = create_room(&a, account, "gnobbi-test-public", true).await.unwrap();
+        let private = create_room(&a, account, "gnobbi-test-private", false)
+            .await
+            .unwrap();
+        let public = create_room(&a, account, "gnobbi-test-public", true)
+            .await
+            .unwrap();
         assert!(dm.room_id != private.room_id && private.room_id != public.room_id);
 
         // The SDK recorded m.direct: asking again reuses the chat instead of making a second one.
-        until("A sees the DM in m.direct", || a.get_dm_room(b.user_id().unwrap()).is_some()).await;
+        until("A sees the DM in m.direct", || {
+            a.get_dm_room(b.user_id().unwrap()).is_some()
+        })
+        .await;
         assert_eq!(start_dm(&a, account, &bob).await.unwrap(), dm);
 
         // B is invited to the DM; the DM is flagged direct for B. B is not invited to the rooms.
         until("B sees the DM invite", || {
-            b.invited_rooms().iter().any(|r| r.room_id().as_str() == dm.room_id.as_str())
+            b.invited_rooms()
+                .iter()
+                .any(|r| r.room_id().as_str() == dm.room_id.as_str())
         })
         .await;
         let invited = b
@@ -90,8 +107,19 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
         // Visibility: the public room is joinable by B without invitation; the private one is not.
         let public_id = matrix_engine::sdk::ruma::RoomId::parse(public.room_id.as_str()).unwrap();
         let private_id = matrix_engine::sdk::ruma::RoomId::parse(private.room_id.as_str()).unwrap();
-        assert!(b.join_room_by_id(&public_id).await.is_ok(), "B joins the public room");
-        assert!(b.join_room_by_id(&private_id).await.is_err(), "B cannot join the private room");
-        println!("[start] dm {} public {} private {} ok", dm.room_id.as_str(), public.room_id.as_str(), private.room_id.as_str());
+        assert!(
+            b.join_room_by_id(&public_id).await.is_ok(),
+            "B joins the public room"
+        );
+        assert!(
+            b.join_room_by_id(&private_id).await.is_err(),
+            "B cannot join the private room"
+        );
+        println!(
+            "[start] dm {} public {} private {} ok",
+            dm.room_id.as_str(),
+            public.room_id.as_str(),
+            private.room_id.as_str()
+        );
     });
 }

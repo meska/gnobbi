@@ -92,38 +92,48 @@ pub(crate) fn video_picture(
             .child(probe(part))
     };
     // A flex row gives the bubble the picture's own width instead of the row's.
-    div().flex().child(div()
-        .relative()
-        .child(base)
-        .child(probe("picture"))
-        .child(
-            div().absolute().inset_0().flex().items_center().justify_center().child(
-                div()
-                    .relative()
-                    .size(px(44.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded_full()
-                    .bg(gpui::rgba(0x000000a6))
-                    .text_size(px(20.))
-                    .text_color(gpui::white())
-                    .child("▶")
-                    .child(probe("play")),
-            ),
-        )
+    div()
+        .flex()
         .child(
             div()
-                .absolute()
-                .left_0()
-                .right_0()
-                .bottom_0()
-                .p_1()
-                .flex()
-                .justify_between()
-                .children(duration.map(|d| chip("duration", d)))
-                .children(size.map(|s| chip("size", s))),
-        ))
+                .relative()
+                .child(base)
+                .child(probe("picture"))
+                .child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            div()
+                                .relative()
+                                .size(px(44.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded_full()
+                                .bg(gpui::rgba(0x000000a6))
+                                .text_size(px(20.))
+                                .text_color(gpui::white())
+                                .child("▶")
+                                .child(probe("play")),
+                        ),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .right_0()
+                        .bottom_0()
+                        .p_1()
+                        .flex()
+                        .justify_between()
+                        .children(duration.map(|d| chip("duration", d)))
+                        .children(size.map(|s| chip("size", s))),
+                ),
+        )
         .into_any_element()
 }
 

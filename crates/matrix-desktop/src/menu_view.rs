@@ -186,8 +186,14 @@ impl Shell {
             .id("menu-button")
             .relative()
             .children({
-                #[cfg(test)] { crate::sidebar_navigation_test::observe("menu-button".into()) }
-                #[cfg(not(test))] { None::<gpui::AnyElement> }
+                #[cfg(test)]
+                {
+                    crate::sidebar_navigation_test::observe("menu-button".into())
+                }
+                #[cfg(not(test))]
+                {
+                    None::<gpui::AnyElement>
+                }
             })
             .track_focus(&self.menu_focus)
             .w(px(36.))
@@ -237,8 +243,14 @@ impl Shell {
                     .id("menu-drawer")
                     .track_focus(&self.drawer_focus)
                     .children({
-                        #[cfg(test)] { crate::sidebar_navigation_test::observe("menu-drawer".into()) }
-                        #[cfg(not(test))] { None::<gpui::AnyElement> }
+                        #[cfg(test)]
+                        {
+                            crate::sidebar_navigation_test::observe("menu-drawer".into())
+                        }
+                        #[cfg(not(test))]
+                        {
+                            None::<gpui::AnyElement>
+                        }
                     })
                     .absolute()
                     .top_0()
@@ -250,7 +262,9 @@ impl Shell {
                     .border_r_1()
                     .border_color(rgb(t.border))
                     .on_click(|_, _, cx| cx.stop_propagation())
-                    .when(!self.settings_open, |d| d.children(self.render_drawer_header(t)))
+                    .when(!self.settings_open, |d| {
+                        d.children(self.render_drawer_header(t))
+                    })
                     .child(div().flex_1().child(self.render_drawer_body(t, window, cx)))
                     .child(
                         div()
@@ -305,7 +319,11 @@ impl Shell {
                 )
                 .when(name != *id, |d| {
                     d.child(
-                        div().truncate().text_size(px(13.)).text_color(rgb(t.secondary)).child(id.clone()),
+                        div()
+                            .truncate()
+                            .text_size(px(13.))
+                            .text_color(rgb(t.secondary))
+                            .child(id.clone()),
                     )
                 })
                 .into_any_element(),

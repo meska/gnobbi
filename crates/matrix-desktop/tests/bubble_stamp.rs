@@ -41,12 +41,21 @@ fn peer_receipt_marks_that_event_and_older_ones_with_the_double_check() {
         video: None,
         styles: Vec::new(),
     };
-    let mut rows = matrix_desktop::DemoHistory::new(RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:test") }, 0);
+    let mut rows = matrix_desktop::DemoHistory::new(
+        RoomScope {
+            account_id: AccountId::new(1),
+            room_id: RoomId::new("!r:test"),
+        },
+        0,
+    );
     rows.prepend_server(vec![event("$a", 0), event("$b", 1), event("$c", 2)]);
     let read = |ids: &[&str]| -> Vec<bool> {
         let receipts: Vec<_> = ids
             .iter()
-            .map(|id| PublicReadReceipt { event_id: EventId::new(*id), readers: 1 })
+            .map(|id| PublicReadReceipt {
+                event_id: EventId::new(*id),
+                readers: 1,
+            })
             .collect();
         let upto = rows.peer_read_index(&receipts);
         (0..3).map(|i| upto.is_some_and(|u| i <= u)).collect()

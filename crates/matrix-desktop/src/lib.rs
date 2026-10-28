@@ -3,9 +3,9 @@
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
 pub mod notifications;
+mod verification;
 #[cfg(feature = "desktop")]
 pub mod window;
-mod verification;
 pub use verification::DeviceVerification;
 #[cfg(all(feature = "live", unix))]
 mod signin_form;
@@ -72,8 +72,8 @@ pub use history::{
 };
 mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
-mod sidebar;
 pub mod row_text;
+mod sidebar;
 pub use sidebar::{Navigation, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]

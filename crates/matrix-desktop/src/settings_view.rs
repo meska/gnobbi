@@ -227,9 +227,9 @@ impl Shell {
                             .border_color(ring(n + 4))
                             .text_color(rgb(t.text))
                             .child("Nuova chat")
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.open_new_room(true, window, cx)),
-                            ),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_new_room(true, window, cx)
+                            })),
                     )
                     .child(
                         row("menu-new-room")
@@ -237,9 +237,9 @@ impl Shell {
                             .border_color(ring(n + 5))
                             .text_color(rgb(t.text))
                             .child("Nuova stanza")
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.open_new_room(false, window, cx)),
-                            ),
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_new_room(false, window, cx)
+                            })),
                     )
                 })
                 .into_any_element();
@@ -287,11 +287,16 @@ impl Shell {
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_debug(cx))),
             )
             .children(matrix_desktop::Theme::ALL.map(|theme| {
-                row(["settings-theme-classic", "settings-theme-day", "settings-theme-dark", "settings-theme-night"][theme as usize])
-                    .text_color(rgb(t.text))
-                    .child(theme.label())
-                    .child(switch(self.theme == theme))
-                    .on_click(cx.listener(move |this, _, _, cx| this.choose_theme(theme, cx)))
+                row([
+                    "settings-theme-classic",
+                    "settings-theme-day",
+                    "settings-theme-dark",
+                    "settings-theme-night",
+                ][theme as usize])
+                .text_color(rgb(t.text))
+                .child(theme.label())
+                .child(switch(self.theme == theme))
+                .on_click(cx.listener(move |this, _, _, cx| this.choose_theme(theme, cx)))
             }))
             .child(
                 div()

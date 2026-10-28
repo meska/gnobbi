@@ -41,7 +41,6 @@ pub const EMOJI_PICKER: NodeId = NodeId((1 << 63) - 10);
 /// First of the 32 consecutive ids of the picker's emoji buttons.
 pub const EMOJI_ITEM: u64 = (1 << 63) - 100;
 
-
 #[derive(Clone)]
 pub struct ComposerSnapshot {
     pub send_source: Option<u64>,
@@ -1106,7 +1105,11 @@ impl NavigationSnapshot {
             tree.nodes[0].1.push_child(ATTACH);
             tree.nodes.push((ATTACH, attach));
             let mut emoji = Node::new(Role::Button);
-            emoji.set_label(if composer.emoji_open { "Chiudi selettore emoji" } else { "Apri selettore emoji" });
+            emoji.set_label(if composer.emoji_open {
+                "Chiudi selettore emoji"
+            } else {
+                "Apri selettore emoji"
+            });
             tree.nodes[0].1.push_child(EMOJI);
             tree.nodes.push((EMOJI, emoji));
             if composer.emoji_open {
@@ -1159,7 +1162,11 @@ impl NavigationSnapshot {
                     names
                         .iter()
                         .enumerate()
-                        .map(|(i, n)| if i == *selected { format!("{n}, selezionato") } else { n.clone() })
+                        .map(|(i, n)| if i == *selected {
+                            format!("{n}, selezionato")
+                        } else {
+                            n.clone()
+                        })
                         .collect::<Vec<_>>()
                         .join("; ")
                 ));
