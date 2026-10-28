@@ -10,6 +10,8 @@ rust-version = "1.96"
 default = []
 linux-vault = ["sdk", "dep:secret-service", "dep:getrandom"]
 mac-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
+# Thread timelines through matrix-sdk-ui (adapter spike); off by default.
+threads = ["sdk"]
 sdk = ["dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:zeroize", "dep:image", "dep:mime_guess", "dep:matrix-sdk-crypto", "dep:matrix-sdk-ui", "dep:eyeball-im", "dep:futures-util"]
 
 [dependencies]
@@ -63,3 +65,7 @@ required-features = ["sdk"]
 [[test]]
 name = "sync_migration_qa"
 required-features = ["sdk"]
+
+[[test]]
+name = "thread_timeline"
+required-features = ["threads"]

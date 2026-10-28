@@ -19,6 +19,8 @@ pub mod recovery;
 pub mod room_sync;
 #[cfg(feature = "sdk")]
 pub mod sliding;
+#[cfg(feature = "threads")]
+pub mod thread_timeline;
 pub mod verification;
 #[cfg(feature = "sdk")]
 mod warm;
