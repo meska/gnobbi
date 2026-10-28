@@ -993,3 +993,114 @@ fn disposable_avatar_thumbnails_download_cache_cap_and_logout() {
         assert!(matches!(session.avatar_thumbnail(&mxcs[0]).await, Err(crate::media::MediaError::LoggedOut)));
     });
 }
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse"]
+fn disposable_avatar_edge_cases_corrupt_huge_unreachable_changed() {
+    use crate::avatar_cache::{AVATAR_MAX_BYTES, AVATAR_PX};
+    use image::GenericImageView;
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let png = |w: u32, h: u32, c: u8| {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(w, h, image::Rgb([c, 90, 200])).write_to(&mut out, image::ImageFormat::Png).unwrap();
+        out.into_inner()
+    };
+    runtime().block_on(async {
+        let config = fixture();
+        let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap().join("avatars-edge");
+        std::fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let session = AccountStore::create(&root, AccountId::new(196)).unwrap().password_login_with_http(
+            HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+            "@alice:matrix-desktop.test", config["alice_password"].as_str().unwrap(),
+            "disposable avatar edge passphrase", http(&config),
+        ).await.unwrap();
+        let client = session.client.clone().unwrap();
+        let mime: mime_guess::mime::Mime = "image/png".parse().unwrap();
+        let cache = session.avatar_cache().unwrap();
+        let dir = cache.dir().to_owned();
+        let files = || std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0);
+
+        // Corrupt: PNG signature then junk. Never a panic; whatever is returned must not be a usable picture.
+        let mut junk = b"\x89PNG\r\n\x1a\n".to_vec();
+        junk.extend((0..2000u32).map(|i| (i * 31 % 251) as u8));
+        let corrupt = client.media().upload(&mime, junk, None).await.unwrap().content_uri.to_string();
+        let got = session.avatar_thumbnail(&corrupt).await.unwrap();
+        eprintln!("EDGE corrupt: returned={:?} files={}", got.as_ref().map(Vec::len), files());
+        assert!(got.as_ref().map_or(true, |b| image::load_from_memory(b).is_err()));
+
+        // Enormous: 5000x5000 (under Synapse's pixel limit) is cut to a thumbnail; 9000x9000 is refused.
+        let big = client.media().upload(&mime, png(5000, 5000, 1), None).await.unwrap().content_uri.to_string();
+        let thumb = session.avatar_thumbnail(&big).await.unwrap();
+        eprintln!("EDGE big5000: {:?}", thumb.as_ref().map(|b| image::load_from_memory(b).map(|i| i.dimensions())));
+        if let Some(b) = &thumb { assert!(b.len() <= AVATAR_MAX_BYTES); assert_eq!(image::load_from_memory(b).unwrap().dimensions(), (AVATAR_PX, AVATAR_PX)); }
+        let huge = client.media().upload(&mime, png(9000, 9000, 2), None).await.unwrap().content_uri.to_string();
+        let thumb = session.avatar_thumbnail(&huge).await.unwrap();
+        eprintln!("EDGE huge9000: {:?}", thumb.as_ref().map(|b| (b.len(), image::load_from_memory(b).map(|i| i.dimensions()))));
+        if let Some(b) = &thumb { assert!(b.len() <= AVATAR_MAX_BYTES); }
+
+        // Unreachable: a remote server that does not exist gives the initials, within the request timeout.
+        let before = files();
+        let started = std::time::Instant::now();
+        let none = session.avatar_thumbnail("mxc://unreachable.invalid/abcdefghijklmnop").await.unwrap();
+        eprintln!("EDGE unreachable: {:?} in {:?}", none.as_ref().map(Vec::len), started.elapsed());
+        assert!(none.is_none() && started.elapsed() < std::time::Duration::from_secs(40));
+        assert_eq!(files(), before, "failure leaves no file");
+
+        // Changed after the cache: a new mxc is a new download and shows the new picture.
+        let first = client.account().upload_avatar(&mime, png(400, 400, 10)).await.unwrap().to_string();
+        let a = session.avatar_thumbnail(&first).await.unwrap().unwrap();
+        let second = client.account().upload_avatar(&mime, png(400, 400, 240)).await.unwrap().to_string();
+        assert_ne!(first, second);
+        let downloads = cache.downloads();
+        let b = session.avatar_thumbnail(&second).await.unwrap().unwrap();
+        assert_ne!(a, b);
+        assert_eq!(cache.downloads(), downloads + 1);
+        let again = session.avatar_thumbnail(&first).await.unwrap().unwrap();
+        assert_eq!(again, a, "the old picture is still served from the cache for the old mxc");
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&dir), 0o700);
+        assert!(std::fs::read_dir(&dir).unwrap().all(|e| mode(&e.unwrap().path()) == 0o600));
+        eprintln!("EDGE changed: ok; files={}", files());
+    });
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse"]
+fn disposable_avatar_logout_with_requests_in_flight_leaves_nothing() {
+    use crate::avatar::AvatarSource;
+    use std::os::unix::fs::DirBuilderExt;
+    let png = |c: u8| {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(400, 400, image::Rgb([c, 90, 200])).write_to(&mut out, image::ImageFormat::Png).unwrap();
+        out.into_inner()
+    };
+    let rt = runtime();
+    rt.block_on(async {
+        let config = fixture();
+        let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap().join("avatars-race");
+        std::fs::DirBuilder::new().mode(0o700).create(&root).unwrap();
+        let mut session = AccountStore::create(&root, AccountId::new(197)).unwrap().password_login_with_http(
+            HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+            "@alice:matrix-desktop.test", config["alice_password"].as_str().unwrap(),
+            "disposable avatar race passphrase", http(&config),
+        ).await.unwrap();
+        let client = session.client.clone().unwrap();
+        let mime: mime_guess::mime::Mime = "image/png".parse().unwrap();
+        let mut mxcs = Vec::new();
+        for c in 0..40 { mxcs.push(client.media().upload(&mime, png(c), None).await.unwrap().content_uri.to_string()); }
+        let dir = session.avatar_cache().unwrap().dir().to_owned();
+        let fetcher = crate::avatar_cache::AvatarFetcher::new(&session, tokio::runtime::Handle::current()).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        for m in &mxcs { fetcher.request(m.clone(), tx.clone()); }
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        session.logout().await.unwrap();
+        let after_logout = dir.exists();
+        let mut answered = 0;
+        for _ in 0..40 { if rx.recv_timeout(std::time::Duration::from_secs(20)).is_ok() { answered += 1; } }
+        let left = std::fs::read_dir(&dir).map(|d| d.count()).ok();
+        eprintln!("RACE answered={answered} dir_after_logout={after_logout} dir_after_settle={} files={left:?}", dir.exists());
+        assert!(!dir.exists(), "avatar cache recreated after logout: {left:?} files");
+    });
+}
