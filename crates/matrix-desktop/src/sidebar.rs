@@ -52,6 +52,8 @@ pub struct Sidebar {
     query: String,
     unread_only: bool,
     show_empty: bool,
+    /// Rooms the user just created: shown although still empty.
+    kept: std::collections::HashSet<RoomScope>,
     space: Option<RoomScope>,
     selected: Option<usize>,
 }
@@ -69,6 +71,7 @@ impl Sidebar {
             query: String::new(),
             unread_only: false,
             show_empty: false,
+            kept: Default::default(),
             selected: None,
             space: None,
         }
@@ -178,6 +181,7 @@ impl Sidebar {
             query: String::new(),
             unread_only: false,
             show_empty: false,
+            kept: Default::default(),
             selected: Some(0),
             space: None,
         }
@@ -245,9 +249,15 @@ impl Sidebar {
         self.show_empty
     }
 
+    /// Keeps a just-created room in the list while it has no message yet.
+    pub fn keep_visible(&mut self, scope: RoomScope) {
+        self.kept.insert(scope);
+        self.set_query(&self.query.clone());
+    }
+
     /// Rooms that are empty, whether or not they are currently shown.
     pub fn hidden_empty_count(&self) -> usize {
-        self.rooms.iter().filter(|room| room.is_empty()).count()
+        self.rooms.iter().filter(|room| room.is_empty() && !self.kept.contains(&room.scope)).count()
     }
 
     pub fn unread_only(&self) -> bool {
@@ -363,7 +373,7 @@ impl Sidebar {
             .filter(|(_, room)| {
                 room.name.to_lowercase().contains(&needle)
                     && (!self.unread_only || room.unread > 0)
-                    && (self.show_empty || !room.is_empty())
+                    && (self.show_empty || !room.is_empty() || self.kept.contains(&room.scope))
                     && space.is_none_or(|s| {
                         room.scope == s.scope || s.info.children.contains(&room.scope.room_id)
                     })

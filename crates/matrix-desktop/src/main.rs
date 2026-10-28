@@ -4,10 +4,10 @@ mod compact_view;
 mod composer_view;
 mod editing_command;
 mod filter_view;
-#[cfg(all(feature = "live", unix))]
 mod login_field;
 mod media_view;
 mod menu_view;
+mod new_room_view;
 #[cfg(test)]
 mod navigation_resize_test;
 mod notification_view;
@@ -55,6 +55,9 @@ struct Shell {
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
     settings_open: bool,
+    new_room: Option<new_room_view::NewRoom>,
+    /// Set when the new-room dialog closed from an engine result: the next render restores focus.
+    refocus_menu: bool,
     drawer_row: usize,
     settings_focus: FocusHandle,
     prefs: matrix_desktop::Preferences,
@@ -1302,6 +1305,11 @@ impl Shell {
                             scope,
                             members: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::StartDm { .. } | OperationCommand::CreateRoom { .. } => {
+                            OperationResult::RoomStarted {
+                                result: Err(OperationError::Unavailable),
+                            }
+                        }
                     };
                     self.operations.borrow_mut().apply(result);
                 }
@@ -1445,6 +1453,9 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if std::mem::take(&mut self.refocus_menu) {
+            self.menu_focus.focus(window);
+        }
         #[cfg(all(feature = "live", unix))]
         if let Some(signin) = &self.signin {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1977,6 +1988,7 @@ impl Render for Shell {
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
+            .children(self.render_new_room(t, cx))
             .into_any_element()
     }
 }
@@ -2376,6 +2388,10 @@ fn main() {
                                                 }
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::RoomStarted { result } = result {
+                                                this.room_started(result, cx);
+                                                continue;
+                                            }
                                             this.operations.borrow_mut().apply(result);
                                         }
                                         for event in media {
@@ -2577,6 +2593,8 @@ fn main() {
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
+                        new_room: None,
+                        refocus_menu: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),

@@ -1592,11 +1592,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(300).await;
             this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window), "shortcut reopens the drawer")).unwrap();
             key!("up");
-            this.update_in(cx, |this, _, _| assert_eq!(this.drawer_row, 3, "Up from the first row wraps to the last")).unwrap();
-            key!("up");
+            this.update_in(cx, |this, _, _| assert_eq!(this.drawer_row, 5, "Up from the first row wraps to the last")).unwrap();
+            for _ in 0..3 {
+                key!("up");
+            }
             key!("enter");
             this.update_in(cx, |this, window, cx| {
-                assert!(this.notifications_open, "Up twice from the first row reaches Notifications");
+                assert!(this.notifications_open, "Up four times from the first row reaches Notifications");
                 this.set_notifications_open(false);
                 this.set_menu_open(true, window, cx);
             }).unwrap();

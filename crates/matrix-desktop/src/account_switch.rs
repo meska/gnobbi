@@ -187,6 +187,7 @@ impl Shell {
         self.saved_timelines.clear();
         self.pending_history = None;
         self.pending_operation_command = None;
+        self.new_room = None;
         self.members_requested = None;
         self.read_dirty = false;
         self.confirm_redaction = None;

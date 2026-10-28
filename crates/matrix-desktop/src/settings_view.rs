@@ -221,6 +221,26 @@ impl Shell {
                                 cx.listener(|this, _, window, cx| this.add_account(window, cx)),
                             ),
                     )
+                    .child(
+                        row("menu-new-chat")
+                            .border_1()
+                            .border_color(ring(n + 4))
+                            .text_color(rgb(t.text))
+                            .child("Nuova chat")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_new_room(true, window, cx)),
+                            ),
+                    )
+                    .child(
+                        row("menu-new-room")
+                            .border_1()
+                            .border_color(ring(n + 5))
+                            .text_color(rgb(t.text))
+                            .child("Nuova stanza")
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.open_new_room(false, window, cx)),
+                            ),
+                    )
                 })
                 .into_any_element();
         }

@@ -338,6 +338,25 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomMarked { scope, result }
                                 }
+                                OperationCommand::StartDm { user_id } => {
+                                    let result = crate::operations::start_dm(
+                                        &operation_client,
+                                        account,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::RoomStarted { result }
+                                }
+                                OperationCommand::CreateRoom { name, public } => {
+                                    let result = crate::operations::create_room(
+                                        &operation_client,
+                                        account,
+                                        &name,
+                                        public,
+                                    )
+                                    .await;
+                                    OperationResult::RoomStarted { result }
+                                }
                                 OperationCommand::Apply(request) => {
                                     let result = crate::operations::perform(
                                         &operation_client,

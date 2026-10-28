@@ -40,8 +40,20 @@ pub enum OperationCommand {
         read: bool,
         public: bool,
     },
+    /// New direct chat with `user_id` (reuses an existing one).
+    StartDm {
+        user_id: String,
+    },
+    /// New room; `public` joins by anyone and lists it in the directory.
+    CreateRoom {
+        name: String,
+        public: bool,
+    },
 }
 pub enum OperationResult {
+    RoomStarted {
+        result: Result<RoomScope, OperationError>,
+    },
     Members {
         scope: RoomScope,
         members: Result<Vec<Member>, OperationError>,
@@ -174,6 +186,64 @@ pub(crate) async fn mark_room(
     }
     room.set_unread_flag(!read)
         .await
+        .map_err(|_| OperationError::Transport)
+}
+
+/// Direct chat: the SDK writes `m.direct`; an existing DM with the user is returned instead of a duplicate.
+#[cfg(feature = "sdk")]
+pub async fn start_dm(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    user_id: &str,
+) -> Result<RoomScope, OperationError> {
+    let user = matrix_sdk::ruma::UserId::parse(user_id.trim())
+        .map_err(|_| OperationError::InvalidInput)?;
+    let room = match client.get_dm_room(&user) {
+        Some(room) => room,
+        None => timeout_create(client.create_dm(&user)).await?,
+    };
+    Ok(RoomScope {
+        account_id: account,
+        room_id: matrix_domain::RoomId::new(room.room_id().as_str()),
+    })
+}
+
+#[cfg(feature = "sdk")]
+pub async fn create_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    name: &str,
+    public: bool,
+) -> Result<RoomScope, OperationError> {
+    use matrix_sdk::ruma::api::client::room::{
+        Visibility,
+        create_room::v3::{Request, RoomPreset},
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(OperationError::InvalidInput);
+    }
+    let mut request = Request::new();
+    request.name = Some(name.to_owned());
+    (request.preset, request.visibility) = if public {
+        (Some(RoomPreset::PublicChat), Visibility::Public)
+    } else {
+        (Some(RoomPreset::PrivateChat), Visibility::Private)
+    };
+    let room = timeout_create(client.create_room(request)).await?;
+    Ok(RoomScope {
+        account_id: account,
+        room_id: matrix_domain::RoomId::new(room.room_id().as_str()),
+    })
+}
+
+#[cfg(feature = "sdk")]
+async fn timeout_create(
+    create: impl std::future::Future<Output = matrix_sdk::Result<matrix_sdk::Room>>,
+) -> Result<matrix_sdk::Room, OperationError> {
+    tokio::time::timeout(std::time::Duration::from_secs(20), create)
+        .await
+        .map_err(|_| OperationError::Transport)?
         .map_err(|_| OperationError::Transport)
 }
 

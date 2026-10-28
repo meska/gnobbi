@@ -3,8 +3,8 @@
 use crate::*;
 
 pub(crate) const DRAWER_WIDTH: f32 = 280.;
-/// Settings, Devices, Notifications, Add account (after the account rows).
-pub(crate) const DRAWER_ROWS: usize = 4;
+/// Settings, Devices, Notifications, Add account, New chat, New room (after the account rows).
+pub(crate) const DRAWER_ROWS: usize = 6;
 
 impl Shell {
     pub(crate) fn set_menu_open(
@@ -140,6 +140,8 @@ impl Shell {
                             self.open_from_drawer(window, cx, Shell::open_notifications_panel)
                         }
                         Some(3) if self.connected => self.add_account(window, cx),
+                        Some(4) if self.connected => self.open_new_room(true, window, cx),
+                        Some(5) if self.connected => self.open_new_room(false, window, cx),
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }
