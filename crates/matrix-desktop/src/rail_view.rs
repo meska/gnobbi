@@ -53,8 +53,33 @@ impl Render for RailTooltip {
     }
 }
 
+/// Where focus sits around the «Modifica» button and its panel.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum EditFocus {
+    Rail,
+    Button,
+    Panel,
+    Theme,
+}
+
+/// Keyboard transition for the edit button/panel: (new focus, panel open); None = not ours.
+fn edit_step(at: EditFocus, open: bool, key: &str, shift: bool) -> Option<(EditFocus, bool)> {
+    match (at, key) {
+        (EditFocus::Button, "enter" | "space") if open => Some((EditFocus::Button, false)),
+        (EditFocus::Button, "enter" | "space") => Some((EditFocus::Panel, true)),
+        (EditFocus::Button, "tab") if shift => Some((EditFocus::Rail, open)),
+        (EditFocus::Button, "tab") => Some((EditFocus::Theme, open)),
+        (EditFocus::Button | EditFocus::Panel, "escape") => Some((EditFocus::Button, false)),
+        (EditFocus::Panel, "tab") => Some((EditFocus::Panel, true)), // empty panel: nothing to tab to
+        _ => None,
+    }
+}
+
 pub(crate) struct RailUi {
     pub(crate) focus: FocusHandle,
+    pub(crate) edit_focus: FocusHandle,
+    edit_panel_focus: FocusHandle,
+    edit_open: bool,
     pub(crate) target: Option<RoomScope>,
     scroll: gpui::ScrollHandle,
     anchors: std::cell::RefCell<HashMap<Option<RoomScope>, gpui::ScrollAnchor>>,
@@ -63,6 +88,9 @@ impl RailUi {
     pub(crate) fn new(cx: &mut Context<Shell>) -> Self {
         Self {
             focus: cx.focus_handle(),
+            edit_focus: cx.focus_handle(),
+            edit_panel_focus: cx.focus_handle(),
+            edit_open: false,
             target: None,
             scroll: gpui::ScrollHandle::new(),
             anchors: Default::default(),
@@ -115,6 +143,30 @@ impl Shell {
         {
             return false;
         }
+        let at = if self.rail_ui.edit_focus.is_focused(window) {
+            Some(EditFocus::Button)
+        } else if self.rail_ui.edit_panel_focus.is_focused(window) {
+            Some(EditFocus::Panel)
+        } else {
+            None
+        };
+        if let Some(at) = at
+            && !key.modifiers.control
+            && !key.modifiers.alt
+            && !key.modifiers.platform
+            && !event.is_held
+            && let Some((to, open)) = edit_step(at, self.rail_ui.edit_open, &key.key, key.modifiers.shift)
+        {
+            self.rail_ui.edit_open = open;
+            match to {
+                EditFocus::Rail => self.rail_ui.focus.focus(window),
+                EditFocus::Button => self.rail_ui.edit_focus.focus(window),
+                EditFocus::Panel => self.rail_ui.edit_panel_focus.focus(window),
+                EditFocus::Theme => self.theme_focus.focus(window),
+            }
+            cx.notify();
+            return true;
+        }
         if key.modifiers.control && key.modifiers.shift && key.key == "s" {
             self.rail_ui.target = self.sidebar.active_space().cloned();
             self.rail_ui.focus.focus(window);
@@ -149,7 +201,7 @@ impl Shell {
             "tab" if key.modifiers.shift && index > 0 => Some(index - 1),
             "tab" if !key.modifiers.shift && index < last => Some(index + 1),
             "tab" if !key.modifiers.shift => {
-                self.theme_focus.focus(window);
+                self.rail_ui.edit_focus.focus(window);
                 None
             }
             "tab" | "escape" => {
@@ -374,7 +426,85 @@ impl Shell {
                             }),
                     ),
             )
+            .child(self.render_edit_button(window, cx))
             .into_any_element()
+    }
+
+    fn render_edit_button(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let t = self.theme.tokens();
+        let focused = self.rail_ui.edit_focus.is_focused(window);
+        div()
+            .id("rail-edit")
+            .track_focus(&self.rail_ui.edit_focus)
+            .w_full()
+            .h(px(40.))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .border_2()
+            .border_color(rgb(if focused { t.accent } else { t.input }))
+            .bg(rgb(if self.rail_ui.edit_open { t.selected } else { t.input }))
+            .text_color(rgb(t.accent))
+            .text_size(px(12.))
+            .cursor_pointer()
+            .child("Modifica")
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.rail_ui.edit_open = !this.rail_ui.edit_open;
+                let focus = if this.rail_ui.edit_open {
+                    &this.rail_ui.edit_panel_focus
+                } else {
+                    &this.rail_ui.edit_focus
+                };
+                focus.focus(window);
+                cx.notify();
+            }))
+            .into_any_element()
+    }
+
+    /// Empty on purpose: the editing controls arrive with later work.
+    pub(crate) fn rail_edit_open(&self) -> bool {
+        self.rail_ui.edit_open
+    }
+
+    pub(crate) fn render_edit_panel(&self, window: &Window) -> gpui::AnyElement {
+        let t = self.theme.tokens();
+        let focused = self.rail_ui.edit_panel_focus.is_focused(window);
+        div()
+            .id("rail-edit-panel")
+            .track_focus(&self.rail_ui.edit_panel_focus)
+            .absolute()
+            .left(px(72.))
+            .top_0()
+            .bottom_0()
+            .w(window.viewport_size().width.min(px(320.)))
+            .bg(rgb(t.surface))
+            .border_r_1()
+            .border_color(rgb(if focused { t.accent } else { t.border }))
+            .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod edit_focus_tests {
+    use super::{EditFocus::*, edit_step};
+
+    #[test]
+    fn open_close_and_return_focus() {
+        assert_eq!(edit_step(Button, false, "enter", false), Some((Panel, true)));
+        assert_eq!(edit_step(Button, false, "space", false), Some((Panel, true)));
+        assert_eq!(edit_step(Panel, true, "escape", false), Some((Button, false)));
+        assert_eq!(edit_step(Button, true, "enter", false), Some((Button, false)));
+        assert_eq!(edit_step(Button, true, "escape", false), Some((Button, false)));
+    }
+
+    #[test]
+    fn tab_order_around_the_button() {
+        assert_eq!(edit_step(Button, false, "tab", true), Some((Rail, false)));
+        assert_eq!(edit_step(Button, false, "tab", false), Some((Theme, false)));
+        assert_eq!(edit_step(Panel, true, "tab", false), Some((Panel, true)));
+        assert_eq!(edit_step(Panel, true, "tab", true), Some((Panel, true)));
+        assert_eq!(edit_step(Button, false, "x", false), None);
     }
 }
 

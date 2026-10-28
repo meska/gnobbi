@@ -338,7 +338,7 @@ impl Shell {
                     .unwrap()
                     .scope
                     .clone();
-                &self.rail_ui.focus
+                &self.rail_ui.edit_focus
             } else if self.connected {
                 &self.unread_focus
             } else {

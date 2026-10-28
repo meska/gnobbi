@@ -1997,6 +1997,7 @@ impl Render for Shell {
                 )
             })
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
+            .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, cx))
