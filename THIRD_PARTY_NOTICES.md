@@ -932,3 +932,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 ## AppImage package
 
 The Linux AppImage bundles only the application binary, its desktop entry, metadata and icons (own assets). No system libraries are bundled; GPU, Wayland and Vulkan libraries come from the host. The AppImage file embeds the upstream type 2 runtime from the AppImage project (MIT; it statically links squashfuse, BSD-2-Clause, and libfuse, LGPL-2.1-or-later): https://github.com/AppImage/type2-runtime
+
+## App icons
+
+The Gnobbi app icons (the default "minimal mark", the gnome and the monster variants) were generated with an AI image model and then only cropped and resized. They are offered under the project license (MIT OR Apache-2.0). They are not a registered trademark.

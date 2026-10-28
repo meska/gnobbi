@@ -19,7 +19,7 @@ if [ ! -x "$tool" ]; then
 fi
 mkdir -p "$out"; d="$out/AppDir"; rm -rf "$d"
 mkdir -p "$d/usr/bin" "$d/usr/share/metainfo" "$d/usr/share/applications"
-for s in 256 512; do mkdir -p "$d/usr/share/icons/hicolor/${s}x${s}/apps"; cp "$src/icon-$s.png" "$d/usr/share/icons/hicolor/${s}x${s}/apps/$APP_ID.png"; done
+for s in 16 32 64 128 256 512; do mkdir -p "$d/usr/share/icons/hicolor/${s}x${s}/apps"; cp "$src/icon-$s.png" "$d/usr/share/icons/hicolor/${s}x${s}/apps/$APP_ID.png"; done
 cp "$src/icon-512.png" "$d/$APP_ID.png"
 cp "$bin" "$d/usr/bin/gnobbi"
 cp "$src/$APP_ID.desktop" "$d/$APP_ID.desktop"; cp "$src/$APP_ID.desktop" "$d/usr/share/applications/"
