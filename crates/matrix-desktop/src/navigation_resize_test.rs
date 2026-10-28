@@ -136,7 +136,7 @@ fn send_intents(
 ) -> [matrix_desktop::accessibility::NavigationAction; 2] {
     use matrix_desktop::accessibility::{NavigationSnapshot, semantic_session::SemanticSession};
     let snapshot = NavigationSnapshot {
-        #[cfg(all(feature = "live", unix))]
+        #[cfg(feature = "live")]
         signin: None,
         openers: vec![],
         back: None,
@@ -278,7 +278,7 @@ fn send_sources_retire_on_unpainted_shell_and_native_bounds_transitions() {
 }
 
 /// Under the Wayland test runner (WL_INPUT set) the runner starts one process per test, so the only window is tiled at the output origin and window and output coordinates agree.
-#[cfg(all(feature = "live", unix))]
+#[cfg(feature = "live")]
 pub(crate) fn click(x: i32, y: i32) {
     let ok = match std::env::var("WL_INPUT") {
         Ok(helper) => std::process::Command::new(helper)

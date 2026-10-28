@@ -1,3 +1,4 @@
+#![cfg(unix)] // POSIX path literals / Linux desktop entry: is_absolute is host-specific.
 use matrix_desktop::SignInOptions;
 #[test]
 fn graphical_signin_uses_explicit_private_profile_without_argv_credentials() {

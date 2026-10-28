@@ -97,10 +97,7 @@ fn disposable_open_room_clears_unread_counter() {
         room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
         // open_history needs the SDK event cache, which only the store-backed session has.
         let root = std::env::temp_dir().join(format!("gnobbi-test-unread-{}", std::process::id()));
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).unwrap();
-        }
+        crate::fsx::create_private_dir(&root).unwrap();
         let bob = AccountStore::create(&root, AccountId::new(56)).unwrap()
             .password_login_with_http(
                 HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
@@ -173,10 +170,7 @@ fn disposable_room_menu_marks_read_and_unread() {
         };
         send("a").await;
         let root = std::env::temp_dir().join(format!("gnobbi-test-menu-{}", std::process::id()));
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&root).unwrap();
-        }
+        crate::fsx::create_private_dir(&root).unwrap();
         let bob = AccountStore::create(&root, AccountId::new(57)).unwrap()
             .password_login_with_http(
                 HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),

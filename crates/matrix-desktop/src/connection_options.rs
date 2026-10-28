@@ -96,11 +96,11 @@ pub fn default_signin_args(args: &[String], dirs: &crate::AppDirs) -> Vec<String
 }
 
 /// Create `path` (and missing parents) readable by the owner only; the profile store refuses looser modes.
-#[cfg(unix)]
 pub fn create_private_dir(path: &std::path::Path) -> std::io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(path)
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    // Windows has no mode bits: the user-profile ACL already keeps the folder private.
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(path)
 }

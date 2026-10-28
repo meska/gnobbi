@@ -16,7 +16,6 @@ fn activity_sync() -> RoomSync {
     let mut sync = RoomSync::new(AccountSession {
         account_id: matrix_domain::AccountId::new(55),
         client: None,
-        #[cfg(unix)]
         store: None,
     });
     let scope = RoomScope {

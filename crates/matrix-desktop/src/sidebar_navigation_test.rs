@@ -346,7 +346,7 @@ fn sidebar_session(
 ) -> matrix_desktop::accessibility::semantic_session::SemanticSession {
     use matrix_desktop::accessibility::{NavigationSnapshot, semantic_session::SemanticSession};
     SemanticSession::new(NavigationSnapshot {
-        #[cfg(all(feature = "live", unix))]
+        #[cfg(feature = "live")]
         signin: None,
         openers: vec![],
         back: None,

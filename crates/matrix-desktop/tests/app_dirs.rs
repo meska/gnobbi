@@ -11,6 +11,7 @@ fn env<'a>(pairs: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> +
 }
 
 #[test]
+#[cfg(unix)] // POSIX paths are not absolute on a Windows host
 fn linux_defaults_to_home_relative_xdg_directories() {
     let d = app_dirs(Platform::Linux, env(&[("HOME", "/home/u")])).unwrap();
     assert_eq!(d.config, Path::new("/home/u/.config/gnobbi"));
@@ -19,6 +20,7 @@ fn linux_defaults_to_home_relative_xdg_directories() {
 }
 
 #[test]
+#[cfg(unix)] // POSIX paths are not absolute on a Windows host
 fn linux_honours_absolute_xdg_variables() {
     let vars = [
         ("HOME", "/home/u"),
@@ -33,6 +35,7 @@ fn linux_honours_absolute_xdg_variables() {
 }
 
 #[test]
+#[cfg(unix)] // POSIX paths are not absolute on a Windows host
 fn linux_ignores_empty_and_relative_xdg_variables() {
     let vars = [
         ("HOME", "/home/u"),
@@ -45,12 +48,14 @@ fn linux_ignores_empty_and_relative_xdg_variables() {
 }
 
 #[test]
+#[cfg(unix)] // POSIX paths are not absolute on a Windows host
 fn linux_without_a_usable_home_has_no_directories() {
     assert!(app_dirs(Platform::Linux, env(&[])).is_none());
     assert!(app_dirs(Platform::Linux, env(&[("HOME", "relative")])).is_none());
 }
 
 #[test]
+#[cfg(unix)] // POSIX paths are not absolute on a Windows host
 fn macos_uses_application_support_and_caches_under_the_sandbox_home() {
     let home = "/Users/x/Library/Containers/net.meskatech.dime/Data";
     let d = app_dirs(Platform::MacOs, env(&[("HOME", home)])).unwrap();

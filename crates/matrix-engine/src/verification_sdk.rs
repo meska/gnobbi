@@ -213,7 +213,6 @@ pub(crate) async fn run_service(
     let session = AccountSession {
         account_id,
         client: Some(client.clone()),
-        #[cfg(unix)]
         store: None,
     };
     let mut active: Option<VerificationFlow> = None;

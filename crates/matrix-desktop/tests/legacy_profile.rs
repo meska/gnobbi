@@ -1,3 +1,4 @@
+#![cfg(unix)] // Old Linux/macOS install layout; Windows never had it.
 use matrix_desktop::legacy_profile::{adopt, legacy_path, offered, renamed_path};
 use std::path::{Path, PathBuf};
 

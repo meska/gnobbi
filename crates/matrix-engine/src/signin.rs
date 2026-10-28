@@ -28,7 +28,7 @@ mod vault_tests;
 /// let secret = matrix_engine::signin::Secret::new("fixture password".into()).unwrap();
 /// let duplicate = secret.clone();
 /// ```
-pub struct Secret(zeroize::Zeroizing<String>);
+pub struct Secret(pub(crate) zeroize::Zeroizing<String>);
 impl zeroize::ZeroizeOnDrop for Secret {}
 impl Secret {
     pub fn new(value: String) -> Result<Self, SignInError> {
@@ -345,6 +345,8 @@ pub fn platform_source() -> Option<Box<dyn ProtectionSource + Send + Sync>> {
     return Some(Box::new(crate::vault::SecretService));
     #[cfg(all(feature = "mac-vault", target_os = "macos"))]
     return Some(Box::new(crate::keychain::MacKeychain));
+    #[cfg(all(feature = "windows-vault", windows))]
+    return Some(Box::new(crate::wincred::CredentialManager));
     #[allow(unreachable_code)]
     None
 }
@@ -364,9 +366,17 @@ pub fn forget_secrets(id: AccountId, stores: &[PathBuf]) -> Result<(), VaultErro
         keychain.delete(id)?;
         stores.iter().try_for_each(|s| keychain.delete_store(s))
     }
+    #[cfg(all(feature = "windows-vault", windows))]
+    {
+        crate::wincred::delete_account_secret(id)?;
+        stores
+            .iter()
+            .try_for_each(|s| crate::wincred::delete_store_secret(s))
+    }
     #[cfg(not(any(
         all(feature = "linux-vault", target_os = "linux"),
-        all(feature = "mac-vault", target_os = "macos")
+        all(feature = "mac-vault", target_os = "macos"),
+        all(feature = "windows-vault", windows)
     )))]
     {
         let _ = (id, stores);
@@ -622,15 +632,12 @@ pub struct SignInProfile {
 impl SignInProfile {
     /// Backend-only filesystem work. The explicitly selected parent must exist.
     pub fn open(root: PathBuf) -> Result<Self, SignInError> {
-        use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
         if !root.is_absolute() {
             return Err(SignInError::InvalidStorePath);
         }
         match std::fs::symlink_metadata(&root) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::DirBuilder::new()
-                    .mode(0o700)
-                    .create(&root)
+                crate::fsx::create_private_dir(&root)
                     .map_err(|_| SignInError::Storage)?;
             }
             Err(_) => return Err(SignInError::Storage),
@@ -643,13 +650,14 @@ impl SignInProfile {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
             Err(_) => return Err(SignInError::Storage),
         }
-        let lock = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(lock_path)
+        let lock = crate::fsx::private_file(
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false),
+        )
+        .open(lock_path)
             .map_err(|_| SignInError::Storage)?;
         lock.try_lock().map_err(|_| SignInError::ProfileBusy)?;
         match std::fs::symlink_metadata(root.join("active-account.pending")) {
@@ -737,7 +745,6 @@ impl SignInProfile {
         trust_root: Option<Vec<u8>>,
     ) -> Result<AccountSession, SignInError> {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
         if self.active.is_some() {
             return Err(SignInError::AlreadySignedIn);
         }
@@ -780,10 +787,7 @@ impl SignInProfile {
         let session = login.run_with(source).await?;
         if source.is_some() && !self.vault_mode {
             let mode = self.root.join("protection-mode");
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
+            let mut file = crate::fsx::private_file(std::fs::OpenOptions::new().write(true).create_new(true))
                 .open(&mode)
                 .map_err(|_| SignInError::Storage)?;
             file.write_all(b"vault-v1")
@@ -794,10 +798,7 @@ impl SignInProfile {
         // No secret in this small selector. Publish only after sealed login and
         // remote whoami, and never overwrite another profile's selection.
         let pending = self.root.join("active-account.pending");
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
+        let mut file = crate::fsx::private_file(std::fs::OpenOptions::new().write(true).create_new(true))
             .open(&pending)
             .map_err(|_| SignInError::Storage)?;
         file.write_all(account.as_u64().to_string().as_bytes())
@@ -806,9 +807,7 @@ impl SignInProfile {
         std::fs::hard_link(&pending, self.root.join("active-account"))
             .map_err(|_| SignInError::Storage)?;
         std::fs::remove_file(pending).map_err(|_| SignInError::Storage)?;
-        std::fs::File::open(&self.root)
-            .and_then(|dir| dir.sync_all())
-            .map_err(|_| SignInError::Storage)?;
+        crate::fsx::sync_dir(&self.root).map_err(|_| SignInError::Storage)?;
         self.active = Some(account);
         Ok(session)
     }
@@ -886,11 +885,10 @@ fn ensure_no_sealed_attempt(root: &std::path::Path) -> Result<(), SignInError> {
 }
 
 fn profile_regular_file(path: &std::path::Path, max_len: u64) -> Result<(), SignInError> {
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     let meta = std::fs::symlink_metadata(path).map_err(|_| SignInError::Storage)?;
     if !meta.is_file()
-        || meta.permissions().mode() & 0o777 != 0o600
-        || meta.nlink() != 1
+        || !crate::fsx::mode_is(&meta, 0o600)
+        || !crate::fsx::single_link(&meta)
         || meta.len() > max_len
     {
         return Err(SignInError::Storage);

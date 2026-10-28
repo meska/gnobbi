@@ -6,7 +6,6 @@ use crate::{RequestTag, media::MediaError};
 use matrix_domain::EventId;
 use matrix_sdk::media::{DefaultMediaFetcher, MediaFormat, MediaRequestParameters};
 use matrix_sdk::ruma::events::room::MediaSource;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::{io::Write, time::Duration};
@@ -19,10 +18,10 @@ pub use crate::media::VideoFile;
 /// Create (0700) or reuse `<profile>/video-tmp`, deleting leftovers of a crashed run.
 fn private_dir(profile: &Path) -> std::io::Result<PathBuf> {
     let dir = profile.join("video-tmp");
-    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+    match crate::fsx::create_private_dir(&dir) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+            crate::fsx::tighten_dir(&dir)?;
             for entry in std::fs::read_dir(&dir)? {
                 let _ = std::fs::remove_file(entry?.path());
             }
@@ -113,10 +112,7 @@ pub(crate) async fn fetch_to_file(
         extension(mime)
     ));
     let file = VideoFile::new(path);
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    crate::fsx::private_file(std::fs::OpenOptions::new().write(true).create_new(true))
         .open(file.path())
         .and_then(|mut f| f.write_all(&bytes))
         .map_err(|_| MediaError::Failed)?;
@@ -205,9 +201,10 @@ pub async fn download_video(
     .await
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use matrix_domain::{AccountId, RoomId, RoomScope};
     use matrix_sdk::ruma::{api::MatrixVersion, owned_mxc_uri};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};

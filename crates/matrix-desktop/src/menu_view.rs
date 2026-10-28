@@ -63,7 +63,6 @@ impl Shell {
 
     /// Starts the sign-in for a new account in its own window and profile folder; this window
     /// and its account stay connected. The new window registers itself once it is signed in.
-    #[cfg(unix)]
     pub(crate) fn add_account(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.launch_signin() {
             self.set_menu_open(false, window, cx);
@@ -71,7 +70,6 @@ impl Shell {
     }
 
     /// Spawns the sign-in window for the next free profile folder; false when it cannot start.
-    #[cfg(unix)]
     pub(crate) fn launch_signin(&self) -> bool {
         let (Some(dirs), Some((_, ca_file))) = (&self.prefs_dirs, &self.account_root) else {
             return false;
@@ -93,14 +91,6 @@ impl Shell {
             let _ = child.wait();
         });
         true
-    }
-
-    #[cfg(not(unix))]
-    pub(crate) fn add_account(&mut self, _: &mut Window, _: &mut Context<Self>) {}
-
-    #[cfg(not(unix))]
-    pub(crate) fn launch_signin(&self) -> bool {
-        false
     }
 
     /// Runs before every other key handler; true when the key was consumed.

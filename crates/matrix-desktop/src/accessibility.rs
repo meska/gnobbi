@@ -17,7 +17,7 @@ pub use crate::panel_openers;
 pub mod scrollbars;
 pub mod selection;
 pub mod semantic_session;
-#[cfg(all(feature = "live", unix))]
+#[cfg(feature = "live")]
 pub mod signin;
 pub mod spaces;
 
@@ -506,7 +506,7 @@ pub struct RoomIntent {
 #[derive(Clone)]
 pub struct NavigationSnapshot {
     pub openers: Vec<panel_openers::Snapshot>,
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     pub signin: Option<signin::Snapshot>,
     pub back: Option<compact::BackSnapshot>,
     pub scrollbars: Vec<scrollbars::ScrollbarSnapshot>,
@@ -533,7 +533,7 @@ pub struct NavigationSnapshot {
 impl NavigationSnapshot {
     /// Convert an AT request to an owned, bounded-queue command, not a UI callback.
     pub fn action(&self, request: &accesskit::ActionRequest) -> Option<NavigationAction> {
-        #[cfg(all(feature = "live", unix))]
+        #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.action(request);
         }
@@ -819,7 +819,7 @@ impl NavigationSnapshot {
     }
 
     pub fn tree(&self) -> TreeUpdate {
-        #[cfg(all(feature = "live", unix))]
+        #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.tree();
         }
@@ -1302,7 +1302,7 @@ impl accesskit::ActivationHandler for Activation {
 
 pub enum NavigationAction {
     PanelOpener(panel_openers::Intent),
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     SignIn(signin::Intent),
     CopyEventId(event_id_copy::Intent),
     OfflineDelivery(offline_delivery::Intent),

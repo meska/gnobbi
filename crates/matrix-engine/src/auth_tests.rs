@@ -4,7 +4,6 @@ include!("live_activity_tests.rs");
 
 use crate::auth::{AccountSession, AuthError};
 use crate::discovery::HomeserverUrl;
-#[cfg(unix)]
 use crate::persistence::AccountStore;
 use matrix_domain::AccountId;
 

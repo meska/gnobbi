@@ -22,7 +22,7 @@ fn fixture_gui_verification_peer() {
         client.encryption().wait_for_e2ee_initialization_tasks().await;
         verification_sync(&client).await;
         verification_sync(&client).await;
-        let peer = AccountSession { account_id: AccountId::new(24), client: Some(client.clone()), #[cfg(unix)] store: None };
+        let peer = AccountSession { account_id: AccountId::new(24), client: Some(client.clone()), store: None };
         std::fs::write(root.join("peer-ready"), "ready").unwrap();
         let mut flow: Option<crate::verification::VerificationFlow> = None;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(85);
@@ -119,7 +119,6 @@ fn disposable_verification_sas_confirmation_verifies_exact_devices() {
         let bob = AccountSession {
             account_id: AccountId::new(24),
             client: Some(peer.clone()),
-            #[cfg(unix)]
             store: None,
         };
         let client = alice.client.as_ref().unwrap();
@@ -206,7 +205,6 @@ fn disposable_verification_cancel_keeps_both_devices_untrusted() {
         let bob = AccountSession {
             account_id: AccountId::new(24),
             client: Some(peer.clone()),
-            #[cfg(unix)]
             store: None,
         };
         let mut flow = alice
@@ -244,7 +242,6 @@ fn disposable_verification_mismatch_never_trusts_devices() {
         let bob = AccountSession {
             account_id: AccountId::new(24),
             client: Some(peer.clone()),
-            #[cfg(unix)]
             store: None,
         };
         let (mut flow, incoming) = verification_comparison(&alice, &bob).await;
@@ -272,7 +269,6 @@ fn disposable_verification_start_failure_is_terminal_untrusted() {
         let bob = AccountSession {
             account_id: AccountId::new(24),
             client: Some(peer.clone()),
-            #[cfg(unix)]
             store: None,
         };
         let mut flow = alice

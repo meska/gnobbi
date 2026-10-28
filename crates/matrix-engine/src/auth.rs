@@ -40,7 +40,6 @@ impl SessionIdentity {
 pub struct AccountSession {
     pub(crate) account_id: AccountId,
     pub(crate) client: Option<Client>,
-    #[cfg(unix)]
     pub(crate) store: Option<crate::persistence::AccountStore>,
 }
 
@@ -110,7 +109,6 @@ impl AccountSession {
             let session = Self {
                 account_id,
                 client: Some(client),
-                #[cfg(unix)]
                 store: None,
             };
             let identity = session.whoami().await?;
@@ -140,7 +138,6 @@ impl AccountSession {
             {
                 return Err(AuthError::Transport);
             }
-            #[cfg(unix)]
             if let Some(store) = self.store.as_ref() {
                 store.forget().map_err(|_| AuthError::Storage)?;
             }

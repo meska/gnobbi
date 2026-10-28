@@ -16,15 +16,15 @@ mod verification;
 #[cfg(feature = "desktop")]
 pub mod window;
 pub use verification::DeviceVerification;
-#[cfg(all(feature = "live", unix))]
+#[cfg(feature = "live")]
 mod signin_form;
-#[cfg(all(feature = "live", unix))]
+#[cfg(feature = "live")]
 pub use signin_form::{
     COPY_LABEL, DEFER_LABEL, RECOVER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_NOTE, RECOVERY_PENDING,
     RECOVERY_WARNING, RETRY_LABEL, SAVED_LABEL, SETUP_KEY_LABEL, SETUP_KEY_MASKED, SETUP_KEY_NOTE,
     SETUP_LABEL, SETUP_NOTE, SETUP_PENDING, SETUP_RETRY_LABEL,
 };
-#[cfg(all(feature = "live", unix))]
+#[cfg(feature = "live")]
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
@@ -48,7 +48,6 @@ mod composer;
 mod connection_options;
 pub mod panel_openers;
 pub use composer::{Composer, EMOJI_SET, mention_matches, mention_token};
-#[cfg(unix)]
 pub use connection_options::create_private_dir;
 pub use connection_options::{
     RestoreOptions, SignInOptions, bundle_launch_args, default_signin_args, linux_launch_args,

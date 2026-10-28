@@ -157,7 +157,6 @@ impl RoomListWorker {
                     let client = sync.session.client.as_ref().unwrap().clone();
                     let account = sync.session.account_id();
                     let media_client = client.clone();
-                    #[cfg(unix)]
                     if let Some(fetcher) = crate::avatar_cache::AvatarFetcher::new(
                         &sync.session,
                         tokio::runtime::Handle::current(),
@@ -165,11 +164,9 @@ impl RoomListWorker {
                     {
                         *slot = Some(Box::new(fetcher));
                     }
-                    #[cfg(unix)]
                     let video_dir = sync.session.store.as_ref().and_then(|s| {
                         let dir = s.video_dir();
-                        use std::os::unix::fs::DirBuilderExt;
-                        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+                        match crate::fsx::create_private_dir(&dir) {
                             Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => None,
                             _ => Some(dir),
                         }
@@ -279,7 +276,6 @@ impl RoomListWorker {
                                     {
                                         continue;
                                     }
-                                    #[cfg(unix)]
                                     let read = async {
                                         let profile = video_dir
                                             .as_deref()
@@ -295,8 +291,6 @@ impl RoomListWorker {
                                         )
                                         .await
                                     };
-                                    #[cfg(not(unix))]
-                                    let read = async { Err(crate::media::MediaError::Failed) };
                                     let Some(result) = until_stopped(&media_stop, read).await
                                     else {
                                         continue;
@@ -742,7 +736,6 @@ impl RoomSync {
         Self::new(AccountSession {
             account_id,
             client: Some(client),
-            #[cfg(unix)]
             store: None,
         })
     }

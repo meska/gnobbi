@@ -1,3 +1,4 @@
+#![cfg(unix)] // POSIX path literals: is_absolute is host-specific.
 use matrix_desktop::RestoreOptions;
 
 #[test]

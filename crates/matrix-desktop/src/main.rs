@@ -24,7 +24,7 @@ mod scrollbar_view;
 mod settings_view;
 #[cfg(test)]
 mod sidebar_navigation_test;
-#[cfg(all(feature = "live", unix))]
+#[cfg(feature = "live")]
 mod signin_view;
 mod spaces_view;
 mod timeline_view;
@@ -49,7 +49,7 @@ use timeline_view::TimelineView;
 
 // GPUI owns projections only. Optional live restore and sync run on a worker.
 struct Shell {
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     signin: Option<gpui::Entity<signin_view::SignInView>>,
     rail_ui: rail_view::RailUi,
     opener_ui: panel_opener_view::OpenerUi,
@@ -169,7 +169,7 @@ impl Shell {
             let Some(action) = this.accessibility.take_action() else {
                 break;
             };
-            #[cfg(all(feature = "live", unix))]
+            #[cfg(feature = "live")]
             if this.dispatch_signin_action(&action, window, cx) {
                 continue;
             }
@@ -421,7 +421,7 @@ impl Shell {
             }
             match action {
                 matrix_desktop::accessibility::NavigationAction::PanelOpener(_) => unreachable!(),
-                #[cfg(all(feature = "live", unix))]
+                #[cfg(feature = "live")]
                 matrix_desktop::accessibility::NavigationAction::SignIn(_) => (),
                 matrix_desktop::accessibility::NavigationAction::CopyEventId(_)
                 | matrix_desktop::accessibility::NavigationAction::PlayVideo(_)
@@ -1486,7 +1486,7 @@ impl Render for Shell {
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
         }
-        #[cfg(all(feature = "live", unix))]
+        #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             self.accessibility.update(
@@ -1520,7 +1520,7 @@ impl Render for Shell {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         self.accessibility.update(
             matrix_desktop::accessibility::NavigationSnapshot {
-                #[cfg(all(feature = "live", unix))]
+                #[cfg(feature = "live")]
                 signin: None,
                 openers: self.semantic_openers(window),
                 back: self.semantic_back(window),
@@ -2082,7 +2082,7 @@ fn main() {
     // Without `live` there is no connected sign-in to open: the bare launch stays the offline fixture.
     #[cfg(all(target_os = "linux", feature = "live", not(test)))]
     let args = matrix_desktop::linux_launch_args(&args);
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let legacy_offer = (args.first().is_some_and(|a| a == "--signin")
         && args.get(1).is_none_or(|a| a == "--ca-file"))
     .then(|| {
@@ -2100,7 +2100,7 @@ fn main() {
     })
     .flatten();
     // Old profile folders whose vault keys may still be saved under the previous app name.
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let vault_candidates = (args.first().is_some_and(|a| a == "--signin")
         && args.get(1).is_none_or(|a| a == "--ca-file"))
     .then(|| {
@@ -2126,12 +2126,10 @@ fn main() {
             if args.first().is_some_and(|a| a == "--signin")
                 && args.get(1).is_none_or(|a| a == "--ca-file") =>
         {
-            #[cfg(unix)]
             if let Err(error) = dirs.ensure() {
                 eprintln!("Gnobbi: cannot create {}: {error}", dirs.data.display());
                 std::process::exit(2);
             }
-            #[cfg(unix)]
             let _ = matrix_desktop::create_private_dir(&dirs.data.join("profile"));
             // A pre-catalog install is listed in place; the profile folder does not move.
             let mut catalog = matrix_desktop::AccountCatalog::load(&dirs);
@@ -2170,17 +2168,17 @@ fn main() {
                 .as_ref()
                 .map(|o| (o.root.clone(), o.ca_file.clone()))
         });
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let mut signin_ui = None;
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let mut signin_vault = false;
     let account_id = options
         .as_ref()
         .map_or(AccountId::new(0), |options| options.account_id);
     let mut routes = matrix_desktop::AccountRoutes::default();
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let mut signin_options = signin_options;
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let worker = connected.then(|| {
         use std::io::{IsTerminal, Read};
         let (mut worker, route) = if let Some(options) = signin_options.take() {
@@ -2269,22 +2267,22 @@ fn main() {
         routes.avatars = worker.avatar_slot();
         worker
     });
-    #[cfg(not(all(feature = "live", unix)))]
+    #[cfg(not(feature = "live"))]
     if connected {
         eprintln!("Live restore requires a Unix build with --features live");
         std::process::exit(2);
     }
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let (mut background_workers, mut background, active_id) =
         account_switch::start_background(account_root.as_ref());
-    #[cfg(not(all(feature = "live", unix)))]
+    #[cfg(not(feature = "live"))]
     let (mut background, active_id): (
         Vec<(AccountId, matrix_desktop::AccountState)>,
         Option<AccountId>,
     ) = (vec![], None);
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let mut active_control = worker.as_ref().map(|w| w.control());
-    #[cfg(not(all(feature = "live", unix)))]
+    #[cfg(not(feature = "live"))]
     let mut active_control: Option<matrix_engine::WorkerControl> = None;
     let notification_worker = connected
         .then(matrix_desktop::notifications::NotificationWorker::spawn)
@@ -2317,13 +2315,13 @@ fn main() {
                         }).detach();
                     }
                     search_focus.focus(window);
-                    #[cfg(all(feature = "live", unix))]
+                    #[cfg(feature = "live")]
                     let signin = signin_ui.take().map(|route| cx.new(|cx| {
                         let mut view = signin_view::SignInView::new(route, cx).with_vault(signin_vault).with_legacy(legacy_offer.clone());
                         if let Some((candidates, profile)) = &vault_candidates { view.check_vault_copy(candidates.clone(), profile.clone(), cx); }
                         view
                     }));
-                    #[cfg(all(feature = "live", unix))]
+                    #[cfg(feature = "live")]
                     if let Some(signin) = &signin {
                         cx.observe(signin, |_, _, cx| cx.notify()).detach();
                     }
@@ -2408,7 +2406,7 @@ fn main() {
                                 };
                                 if this
                                     .update(cx, |this: &mut Shell, cx| {
-                                        #[cfg(all(feature = "live", unix))]
+                                        #[cfg(feature = "live")]
                                         if let Some(signin) = &this.signin
                                             && let Some(account) = signin.update(cx, |view, cx| view.poll(cx)) {
                                             this.signin = None;
@@ -2653,7 +2651,7 @@ fn main() {
                     #[cfg(test)]
                     sidebar_navigation_test::install(window, cx);
                     Shell {
-                        #[cfg(all(feature = "live", unix))]
+                        #[cfg(feature = "live")]
                         signin: signin.clone(),
                         pending_sidebar_key: None,
                         rail_ui,
@@ -2683,7 +2681,7 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         accessibility: matrix_desktop::accessibility::LinuxAccessibility::new(
                             matrix_desktop::accessibility::NavigationSnapshot {
-                                #[cfg(all(feature = "live", unix))]
+                                #[cfg(feature = "live")]
                                 signin: signin.as_ref().map(|view| view.read(cx).semantic_snapshot(window, cx)),
                                 openers: vec![],
                                 back: None,
@@ -2805,11 +2803,11 @@ fn main() {
     if let Some(worker) = notification_worker {
         let _ = worker.shutdown();
     }
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     for worker in background_workers.drain(..) {
         let _ = worker.shutdown();
     }
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     if let Some(worker) = worker
         && worker.shutdown().is_err()
     {

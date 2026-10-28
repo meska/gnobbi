@@ -107,7 +107,7 @@ impl Shell {
             && !self.notifications_open
             && !self.verification_open
             && !self.room_details_open;
-        #[cfg(all(feature = "live", unix))]
+        #[cfg(feature = "live")]
         let available = available && self.signin.is_none();
         let visible = [
             available
@@ -304,7 +304,7 @@ mod tests {
     /// Devices and Notifications moved into the drawer; only Info is still a root button.
     const ROOT: [Control; 1] = [Control::Info];
     static PAINT: AtomicBool = AtomicBool::new(false);
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     static AVAILABILITY: AtomicBool = AtomicBool::new(false);
 
     fn install_paint(window: &mut Window, cx: &mut Context<Shell>) {
@@ -430,7 +430,7 @@ mod tests {
             NavigationSnapshot, semantic_session::SemanticSession,
         };
         let navigation = NavigationSnapshot {
-            #[cfg(all(feature = "live", unix))]
+            #[cfg(feature = "live")]
             signin: None,
             openers: this.semantic_openers(window),
             back: None,
@@ -483,7 +483,7 @@ mod tests {
         if !ACTIVE.load(Ordering::SeqCst) {
             return;
         }
-        #[cfg(all(feature = "live", unix))]
+        #[cfg(feature = "live")]
         if AVAILABILITY.load(Ordering::SeqCst) {
             install_availability(window, cx);
             return;
@@ -600,7 +600,7 @@ mod tests {
             }).unwrap();
         }).detach();
     }
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     fn install_availability(window: &mut Window, cx: &mut Context<Shell>) {
         let executor = cx.background_executor().clone();
         cx.spawn_in(window, async move |this, cx| {
@@ -716,7 +716,7 @@ mod tests {
         }).detach();
     }
     #[test]
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     #[ignore = "requires private display"]
     fn covered_signin_retires_root_openers_before_dispatch() {
         assert_eq!(

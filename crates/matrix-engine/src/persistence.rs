@@ -1,20 +1,19 @@
-//! Explicit passphrase-unlocked storage. Linux/Unix only; never falls back to plaintext.
+//! Explicit passphrase-unlocked storage; never falls back to plaintext.
 //! All filesystem/KDF work belongs on a backend worker, not the UI thread.
 use matrix_domain::AccountId;
 use matrix_sdk_store_encryption::StoreCipher;
 use serde_json::{Value, json};
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
 };
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "persistence_tests.rs"]
 mod tests;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "cached_history_tests.rs"]
 mod cached_history_tests;
 
@@ -218,9 +217,7 @@ impl AccountStore {
     pub fn create(root: &Path, account_id: AccountId) -> Result<Self, StoreError> {
         Self::private_directory(root)?;
         let path = root.join(format!("account-{}", account_id.as_u64()));
-        fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&path)
+        crate::fsx::create_private_dir(&path)
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::AlreadyExists {
                     StoreError::AlreadyExists
@@ -252,13 +249,14 @@ impl AccountStore {
     }
 
     fn lock(path: &Path) -> Result<fs::File, StoreError> {
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(path.join(".lock"))
+        let file = crate::fsx::private_file(
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false),
+        )
+        .open(path.join(".lock"))
             .map_err(|_| StoreError::Io)?;
         file.try_lock().map_err(|_| StoreError::Busy)?;
         Ok(file)
@@ -268,7 +266,7 @@ impl AccountStore {
         for entry in fs::read_dir(path).map_err(|_| StoreError::UnsafePath)? {
             let meta = fs::symlink_metadata(entry.map_err(|_| StoreError::UnsafePath)?.path())
                 .map_err(|_| StoreError::UnsafePath)?;
-            if !meta.is_file() || meta.nlink() != 1 {
+            if !meta.is_file() || !crate::fsx::single_link(&meta) {
                 return Err(StoreError::UnsafePath);
             }
         }
@@ -279,8 +277,8 @@ impl AccountStore {
         let meta = fs::symlink_metadata(path).map_err(|_| StoreError::UnsafePath)?;
         if !path.is_absolute()
             || !meta.is_dir()
-            || meta.permissions().mode() & 0o777 != 0o700
-            || fs::canonicalize(path).map_err(|_| StoreError::UnsafePath)? != path
+            || !crate::fsx::mode_is(&meta, 0o700)
+            || !crate::fsx::is_canonical(path)
         {
             return Err(StoreError::UnsafePath);
         }
@@ -317,9 +315,7 @@ impl AccountStore {
                 Err(_) => return Err(StoreError::Io),
             }
         }
-        fs::File::open(&self.path)
-            .and_then(|dir| dir.sync_all())
-            .map_err(|_| StoreError::Io)
+        crate::fsx::sync_dir(&self.path).map_err(|_| StoreError::Io)
     }
 
     pub(crate) fn seal(&self, passphrase: &str, value: &Value) -> Result<(), StoreError> {
@@ -339,10 +335,7 @@ impl AccountStore {
                 .map_err(|_| StoreError::LockedOrCorrupt)?;
         // Publish only a fully written encrypted record; never overwrite another session.
         let pending = self.path.join("session.pending");
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
+        let mut file = crate::fsx::private_file(fs::OpenOptions::new().write(true).create_new(true))
             .open(&pending)
             .map_err(|_| StoreError::AlreadyExists)?;
         let result = (|| {
@@ -350,8 +343,7 @@ impl AccountStore {
             file.sync_all().map_err(|_| StoreError::Io)?;
             fs::hard_link(&pending, self.path.join("session.sealed"))
                 .map_err(|_| StoreError::AlreadyExists)?;
-            fs::File::open(&self.path)
-                .and_then(|dir| dir.sync_all())
+            crate::fsx::sync_dir(&self.path)
                 .map_err(|_| StoreError::Io)
         })();
         let cleanup = fs::remove_file(pending).map_err(|_| StoreError::Io);
@@ -362,7 +354,7 @@ impl AccountStore {
         Self::private_directory(&self.path)?;
         let path = self.path.join("session.sealed");
         let meta = fs::symlink_metadata(&path).map_err(|_| StoreError::Io)?;
-        if !meta.is_file() || meta.permissions().mode() & 0o777 != 0o600 || meta.len() > 1_048_576 {
+        if !meta.is_file() || !crate::fsx::mode_is(&meta, 0o600) || meta.len() > 1_048_576 {
             return Err(StoreError::UnsafePath);
         }
         let mut bytes = Vec::new();

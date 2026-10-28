@@ -62,7 +62,7 @@ fn video_thumbnail_receive_cap_precedes_mime_and_decode() {
             let session: matrix_sdk::authentication::matrix::MatrixSession = serde_json::from_value(serde_json::json!({"user_id":"@alice:fixture.invalid", "device_id":"TEST", "access_token":"synthetic"})).unwrap();
             client.restore_session(session).await.unwrap();
             client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
-            let session = AccountSession { account_id: AccountId::new(26), client: Some(client), #[cfg(unix)] store: None };
+            let session = AccountSession { account_id: AccountId::new(26), client: Some(client), store: None };
             let mut views = crate::ViewRequests::new();
             let tag = views.start(matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new("!video:fixture.invalid") }).unwrap();
             crate::media_sdk::VIDEO_DECODE_ENTRIES.scope(Cell::new((0, 0)), async {

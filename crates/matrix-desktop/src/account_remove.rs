@@ -10,11 +10,11 @@ pub(crate) struct Removal {
     result: std::sync::mpsc::Receiver<bool>,
 }
 
-#[cfg(all(feature = "live", unix))]
+#[cfg(feature = "live")]
 fn forget(id: AccountId, stores: &[std::path::PathBuf]) -> bool {
     matrix_engine::signin::forget_secrets(id, stores).is_ok()
 }
-#[cfg(not(all(feature = "live", unix)))]
+#[cfg(not(feature = "live"))]
 fn forget(_: AccountId, _: &[std::path::PathBuf]) -> bool {
     true
 }
@@ -36,7 +36,7 @@ fn erase(
         }
     }
     // Another window may hold this profile: its files are not ours to delete.
-    #[cfg(all(feature = "live", unix))]
+    #[cfg(feature = "live")]
     let _lock = match matrix_desktop::AccountCatalog::load(dirs)
         .data_dir(dirs, id)
         .map(matrix_engine::signin::SignInProfile::open)

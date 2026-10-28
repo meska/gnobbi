@@ -210,7 +210,7 @@ impl Shell {
     }
 
     pub(crate) fn reconcile_sidebar_focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        #[cfg(all(feature = "live", unix))]
+        #[cfg(feature = "live")]
         if self.signin.is_some() {
             return;
         }

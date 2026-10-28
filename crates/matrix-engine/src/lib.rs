@@ -14,7 +14,7 @@ pub mod accounts;
 #[cfg(feature = "sdk")]
 pub mod auth;
 pub mod avatar;
-#[cfg(all(feature = "sdk", unix))]
+#[cfg(feature = "sdk")]
 pub mod avatar_cache;
 #[cfg(feature = "sdk")]
 pub mod recovery;
@@ -99,17 +99,21 @@ pub mod media;
 #[cfg(feature = "sdk")]
 pub mod media_sdk;
 pub mod operations;
-#[cfg(all(feature = "sdk", unix))]
+#[cfg(feature = "sdk")]
+mod fsx;
+#[cfg(feature = "sdk")]
 pub mod persistence;
 pub mod receipts;
 pub mod reconnect;
 pub mod rich_text;
 pub mod sending;
-#[cfg(all(feature = "sdk", unix))]
+#[cfg(feature = "sdk")]
 pub mod signin;
 #[cfg(all(feature = "linux-vault", target_os = "linux"))]
 pub mod vault;
-#[cfg(all(feature = "sdk", unix))]
+#[cfg(all(feature = "windows-vault", windows))]
+pub mod wincred;
+#[cfg(feature = "sdk")]
 pub mod video_file;
 pub use generation::{GenerationExhausted, RequestTag, ViewRequests};
 mod channel;

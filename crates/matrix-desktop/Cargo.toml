@@ -43,6 +43,7 @@ perf-probe = ["desktop"]
 # New profiles keep their protection secret in the OS vault instead of a local phrase.
 linux-vault = ["live", "matrix-engine/linux-vault"]
 mac-vault = ["live", "matrix-engine/mac-vault"]
+windows-vault = ["live", "matrix-engine/windows-vault"]
 
 [[bin]]
 name = "gnobbi"

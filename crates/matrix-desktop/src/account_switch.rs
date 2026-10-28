@@ -8,7 +8,7 @@ use matrix_domain::notifications::Notification;
 /// Starts a worker for each other catalog account that can unlock from the OS vault without
 /// asking (a profile busy in another window, a phrase profile or a missing vault entry is
 /// skipped). Also returns the catalog ID of `active_root`.
-#[cfg(all(feature = "live", unix))]
+#[cfg(feature = "live")]
 pub(crate) fn start_background(
     active_root: Option<&(std::path::PathBuf, Option<std::path::PathBuf>)>,
 ) -> (

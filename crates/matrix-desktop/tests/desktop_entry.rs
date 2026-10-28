@@ -1,3 +1,4 @@
+#![cfg(unix)] // POSIX path literals / Linux desktop entry: is_absolute is host-specific.
 //! `--install-desktop-entry` writes the launcher and icons under a temporary HOME, only on request.
 #![cfg(feature = "desktop")]
 use std::{fs, path::Path, process::Command};
