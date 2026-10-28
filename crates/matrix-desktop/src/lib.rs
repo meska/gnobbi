@@ -3,6 +3,8 @@
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
 pub mod notifications;
+#[cfg(feature = "desktop")]
+pub mod window;
 mod verification;
 pub use verification::DeviceVerification;
 #[cfg(all(feature = "live", unix))]

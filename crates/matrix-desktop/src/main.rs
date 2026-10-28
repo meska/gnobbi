@@ -29,7 +29,7 @@ mod verification_view;
 use composer_view::{ComposerView, Submitted};
 
 use gpui::{
-    App, Application, Bounds, Context, FocusHandle, KeyDownEvent, ScrollStrategy, TitlebarOptions,
+    App, Application, Bounds, Context, FocusHandle, KeyDownEvent, ScrollStrategy,
     UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, point, prelude::*, px, rgb,
     size, uniform_list,
 };
@@ -1559,13 +1559,6 @@ impl Render for Shell {
                 RoomSyncStatus::SyncFailed => "sync interrotta",
             }
         };
-        window.set_window_title(&format!(
-            "{} — Gnobbi — {} ({}/{})",
-            header_name,
-            connection_label,
-            self.sidebar.visible_indices().len(),
-            self.sidebar.rooms().len()
-        ));
         div()
             .track_focus(&self.list_focus)
             .relative()
@@ -2225,13 +2218,9 @@ fn main() {
         cx.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Gnobbi — demo offline".into()),
-                    ..Default::default()
-                }),
                 focus: false,
                 window_min_size: Some(size(px(360.), px(480.))),
-                ..Default::default()
+                ..matrix_desktop::window::window_options()
             },
             |window, cx| {
                 cx.new(|cx| {
