@@ -1,4 +1,10 @@
-use crate::{persistence::AccountStore, vault::ProtectionVault};
+use crate::{
+    persistence::AccountStore,
+    vault::{
+        ProtectionVault, VaultError, create_account_secret, delete_account_secret,
+        migrate_store_secret, read_account_secret,
+    },
+};
 use matrix_domain::AccountId;
 use std::{
     io::{Read, Write},
@@ -166,4 +172,37 @@ fn exact_profile_account_namespace_never_creates_on_missing_read() {
         assert!(ProtectionVault::new(store).read().unwrap().0.as_str() == other.0.as_str());
     }
     assert!(ProtectionVault::new(&a).read().unwrap().0.as_str() == key.0.as_str());
+}
+
+#[test]
+#[ignore = "requires disposable Secret Service on an isolated bus"]
+fn per_account_items_are_isolated_and_the_old_item_migrates() {
+    let (one, two) = (AccountId::new(1), AccountId::new(2));
+    let a = create_account_secret(one).unwrap();
+    let b = create_account_secret(two).unwrap();
+    assert!(a.0.as_str() != b.0.as_str());
+    assert!(matches!(
+        create_account_secret(one),
+        Err(VaultError::AlreadyExists)
+    ));
+    delete_account_secret(one).unwrap();
+    assert!(matches!(read_account_secret(one), Err(VaultError::Missing)));
+    assert_eq!(read_account_secret(two).unwrap().0.as_str(), b.0.as_str());
+    delete_account_secret(one).unwrap();
+    // The path-keyed item of the old install is not an account item and survives deletes.
+    let root = private_root("migrate");
+    let store = AccountStore::create(&root, AccountId::new(1)).unwrap();
+    let old = ProtectionVault::new(&store).create().unwrap();
+    assert!(matches!(read_account_secret(one), Err(VaultError::Missing)));
+    migrate_store_secret(&store, one).unwrap();
+    assert_eq!(read_account_secret(one).unwrap().0.as_str(), old.0.as_str());
+    assert_eq!(read_account_secret(two).unwrap().0.as_str(), b.0.as_str());
+    assert_eq!(
+        ProtectionVault::new(&store).read().unwrap().0.as_str(),
+        old.0.as_str()
+    );
+    migrate_store_secret(&store, one).unwrap();
+    delete_account_secret(two).unwrap();
+    assert!(matches!(read_account_secret(two), Err(VaultError::Missing)));
+    assert_eq!(read_account_secret(one).unwrap().0.as_str(), old.0.as_str());
 }

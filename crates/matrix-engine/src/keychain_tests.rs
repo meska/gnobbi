@@ -1,6 +1,6 @@
 //! Real macOS Keychain API against a DISPOSABLE keychain file; owner keychains are never opened.
 use crate::{
-    keychain::{Keychain, VaultError},
+    keychain::{AccountKeychain, Keychain, VaultError},
     persistence::AccountStore,
 };
 use matrix_domain::AccountId;
@@ -192,4 +192,35 @@ fn default_keychain_in_a_background_session_reports_locked_without_prompting() {
         kc.delete().unwrap();
     }
     assert_eq!(got, Err(VaultError::Locked));
+}
+
+#[test]
+fn per_account_items_are_isolated_and_the_old_item_migrates() {
+    let kc_file = Disposable::new("acct");
+    let k = || AccountKeychain::in_keychain(kc_file.keychain());
+    let (one, two) = (AccountId::new(1), AccountId::new(2));
+    let a = k().create(one).unwrap().0.as_str().to_owned();
+    let b = k().create(two).unwrap().0.as_str().to_owned();
+    assert!(a != b);
+    assert!(matches!(k().create(one), Err(VaultError::AlreadyExists)));
+    k().delete(one).unwrap();
+    assert!(matches!(k().read(one), Err(VaultError::Missing)));
+    assert_eq!(k().read(two).unwrap().0.as_str(), b);
+    k().delete(one).unwrap();
+    // Migration: the path-keyed item of the old install becomes the first account's item.
+    let store = AccountStore::create(&private_dir("acct-store"), AccountId::new(1)).unwrap();
+    let old = Keychain::in_keychain(&store, kc_file.keychain())
+        .create()
+        .unwrap();
+    k().migrate_store_secret(&store, one).unwrap();
+    assert_eq!(k().read(one).unwrap().0.as_str(), old.0.as_str());
+    assert_eq!(k().read(two).unwrap().0.as_str(), b);
+    assert_eq!(
+        Keychain::in_keychain(&store, kc_file.keychain())
+            .read()
+            .unwrap()
+            .0
+            .as_str(),
+        old.0.as_str()
+    );
 }
