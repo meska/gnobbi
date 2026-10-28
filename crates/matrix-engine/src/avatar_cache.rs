@@ -11,7 +11,6 @@ use matrix_sdk::ruma::{
     MxcUri, api::client::media::get_content_thumbnail::v3::Method, events::room::MediaSource,
 };
 use std::collections::HashMap;
-use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -83,6 +82,7 @@ impl AvatarCache {
     /// The avatar thumbnail bytes for `mxc`, from disk when cached.
     pub async fn get(&self, client: &matrix_sdk::Client, mxc: &str) -> Option<Vec<u8>> {
         let uri = <&MxcUri>::from(mxc);
+        crate::media_sdk::checked_source(MediaSource::Plain(uri.to_owned())).ok()?;
         // The file name comes from the validated URI: media id is [A-Za-z0-9_-], server name is sanitised.
         let (server, id) = uri.parts().ok()?;
         let name = format!("{}-{id}", server.as_str().replace([':', '[', ']'], "_"));
@@ -141,16 +141,12 @@ impl AvatarCache {
     }
 
     fn store(&self, name: &str, bytes: &[u8]) -> std::io::Result<()> {
-        match std::fs::DirBuilder::new().mode(0o700).create(&self.dir) {
+        match crate::fsx::create_private_dir(&self.dir) {
             Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return Err(e),
             _ => {}
         }
         let tmp = self.dir.join(format!(".{name}.tmp"));
-        std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
+        crate::fsx::private_file(std::fs::OpenOptions::new().write(true).create(true).truncate(true))
             .open(&tmp)?
             .write_all(bytes)?;
         std::fs::rename(&tmp, self.dir.join(name))?;

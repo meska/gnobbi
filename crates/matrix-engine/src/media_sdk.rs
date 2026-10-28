@@ -9,6 +9,55 @@ tokio::task_local! {
     pub(crate) static VIDEO_DECODE_ENTRIES: std::cell::Cell<(usize, usize)>;
 }
 
+/// Refuse a media source before any SDK request: ruma 0.20 `MxcUri::parts` keeps the slash
+/// index in a `u8` and panics on server names of 250+ bytes, which would kill the media task.
+pub(crate) fn checked_source(
+    source: matrix_sdk::ruma::events::room::MediaSource,
+) -> Result<matrix_sdk::ruma::events::room::MediaSource, MediaError> {
+    use matrix_sdk::ruma::events::room::MediaSource;
+    let uri = match &source {
+        MediaSource::Plain(uri) => uri,
+        MediaSource::Encrypted(file) => &file.url,
+    };
+    let server_fits = uri
+        .as_str()
+        .strip_prefix("mxc://")
+        .and_then(|rest| rest.find('/'))
+        .is_some_and(|slash| slash < 250);
+    (server_fits && uri.validate().is_ok())
+        .then_some(source)
+        .ok_or(MediaError::UnsupportedType)
+}
+
+#[cfg(test)]
+mod checked_source_tests {
+    use super::checked_source;
+    use matrix_sdk::ruma::{MxcUri, OwnedMxcUri, events::room::MediaSource};
+
+    #[test]
+    fn hostile_mxc_sources_are_refused_before_the_sdk_can_panic() {
+        let long = format!("mxc://{}/abc", "a".repeat(250));
+        // Upstream defect this guard exists for; when it goes away the guard can go too.
+        assert!(
+            std::panic::catch_unwind(|| <&MxcUri>::from(long.as_str()).parts().is_ok()).is_err()
+        );
+        for bad in [
+            long.as_str(),
+            "mxc://x/../../etc/passwd",
+            "mxc://x",
+            "https://x/y",
+            "",
+        ] {
+            assert!(
+                checked_source(MediaSource::Plain(OwnedMxcUri::from(bad))).is_err(),
+                "{bad}"
+            );
+        }
+        let ok = OwnedMxcUri::from("mxc://matrix.example.org:8448/abcDEF-_09");
+        assert!(checked_source(MediaSource::Plain(ok)).is_ok());
+    }
+}
+
 async fn cancellable<T>(
     tag: &RequestTag,
     future: impl std::future::Future<Output = Result<T, MediaError>>,
@@ -132,6 +181,7 @@ pub(crate) async fn download_video_thumbnail(
         let Some(source) = video.info.and_then(|info| info.thumbnail_source) else {
             return Ok(None);
         };
+        let source = checked_source(source)?;
         // shortcut: server events use remote MXC URIs; revisit for local send-queue previews.
         // Calling the fetcher directly bypasses all persistent media-store reads/writes.
         let request = MediaRequestParameters {
@@ -209,7 +259,7 @@ pub(crate) async fn download_png(
             .and_then(|i| i.mimetype.clone())
             .ok_or(MediaError::UnsupportedType)?;
         format_for_mime(&mime).ok_or(MediaError::UnsupportedType)?;
-        let (uri, encrypted_file) = match image.source {
+        let (uri, encrypted_file) = match checked_source(image.source)? {
             matrix_sdk::ruma::events::room::MediaSource::Plain(uri) => (uri, None),
             matrix_sdk::ruma::events::room::MediaSource::Encrypted(file) => {
                 (file.url.clone(), Some(file))
