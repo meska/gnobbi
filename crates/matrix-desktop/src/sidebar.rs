@@ -35,6 +35,24 @@ pub struct NavigationEntry {
     pub avatar: Option<String>,
 }
 
+/// Personal group filter (from the standard room tags), shown like a Telegram folder.
+pub struct GroupEntry {
+    /// Tag name; None is «Tutte» (no group filter).
+    pub tag: Option<String>,
+    pub name: String,
+    pub unread: u64,
+    pub selected: bool,
+}
+
+/// Label of a tag: the part after `u.`, or the Italian name of the two standard ones.
+pub fn group_label(tag: &str) -> String {
+    match tag {
+        "m.favourite" => "Preferiti".into(),
+        "m.lowpriority" => "Bassa priorità".into(),
+        _ => tag.strip_prefix("u.").unwrap_or(tag).to_owned(),
+    }
+}
+
 pub enum Navigation {
     Previous,
     Next,
@@ -57,6 +75,7 @@ pub struct Sidebar {
     /// Rooms the user just created: shown although still empty.
     kept: std::collections::HashSet<RoomScope>,
     space: Option<RoomScope>,
+    group: Option<String>,
     selected: Option<usize>,
 }
 
@@ -76,6 +95,7 @@ impl Sidebar {
             kept: Default::default(),
             selected: None,
             space: None,
+            group: None,
         }
     }
 
@@ -186,6 +206,7 @@ impl Sidebar {
             kept: Default::default(),
             selected: Some(0),
             space: None,
+            group: None,
         }
     }
 
@@ -327,6 +348,57 @@ impl Sidebar {
         entries
     }
 
+    /// «Tutte» plus one entry per tag in use (favourites, low priority, then `u.*` by name); empty
+    /// when no room has a group tag. Unread counts every room of the group, whatever the other filters.
+    pub fn group_entries(&self) -> Vec<GroupEntry> {
+        let mut tags: Vec<&str> = self
+            .rooms
+            .iter()
+            .filter(|room| !room.info.is_space)
+            .flat_map(|room| room.info.tags.iter().map(String::as_str))
+            .collect();
+        let rank = |t: &str| match t {
+            "m.favourite" => 0,
+            "m.lowpriority" => 1,
+            _ => 2,
+        };
+        tags.sort_by_key(|t| (rank(t), *t));
+        tags.dedup();
+        if tags.is_empty() {
+            return Vec::new();
+        }
+        let mut entries = vec![GroupEntry {
+            tag: None,
+            name: "Tutte".into(),
+            unread: 0,
+            selected: self.group.is_none(),
+        }];
+        entries.extend(tags.into_iter().map(|tag| GroupEntry {
+            tag: Some(tag.to_owned()),
+            name: group_label(tag),
+            unread: self
+                .rooms
+                .iter()
+                .filter(|room| !room.info.is_space && room.info.tags.iter().any(|t| t == tag))
+                .fold(0, |sum, room| sum.saturating_add(room.unread)),
+            selected: self.group.as_deref() == Some(tag),
+        }));
+        entries
+    }
+
+    pub fn active_group(&self) -> Option<&str> {
+        self.group.as_deref()
+    }
+
+    /// Filters the list by one group tag; None shows every room. Never changes the open conversation.
+    pub fn set_group(&mut self, tag: Option<String>) {
+        if self.group != tag {
+            self.retire_navigation();
+        }
+        self.group = tag;
+        self.set_query(&self.query.clone());
+    }
+
     /// Optimistic drop once the read receipt is sent: zero this room's counters now,
     /// the next server projection of the room (apply_diff) overwrites them. Other accounts are ignored.
     pub fn mark_read_optimistic(&mut self, scope: &RoomScope) -> bool {
@@ -376,6 +448,10 @@ impl Sidebar {
         {
             self.space = None;
         }
+        // A group nobody carries any more is dropped, like a vanished space.
+        if self.group.as_ref().is_some_and(|g| !self.rooms.iter().any(|r| r.info.tags.contains(g))) {
+            self.group = None;
+        }
         let needle = query.trim().to_lowercase();
         let space = self
             .space
@@ -389,6 +465,7 @@ impl Sidebar {
                 room.name.to_lowercase().contains(&needle)
                     && (!self.unread_only || room.unread > 0)
                     && (self.show_empty || !room.is_empty() || self.kept.contains(&room.scope))
+                    && self.group.as_ref().is_none_or(|g| room.info.tags.contains(g))
                     && space.is_none_or(|s| {
                         room.scope == s.scope || s.info.children.contains(&room.scope.room_id)
                     })
@@ -711,5 +788,64 @@ mod tests {
         // the next server projection wins
         upsert(&mut sidebar, "a", 1, 0, &[]);
         assert_eq!(counts(&sidebar), [(5, 1), (1, 0)]);
+    }
+
+    fn tagged(sidebar: &mut Sidebar, account: &AccountId, name: &str, unread: u64, tags: &[&str]) {
+        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            scope: scope(account, name),
+            name: name.into(),
+            unread,
+            info: RoomInfo {
+                preview: Some("x".into()),
+                tags: tags.iter().map(|t| (*t).into()).collect(),
+                ..Default::default()
+            },
+        }));
+    }
+
+    #[test]
+    fn groups_filter_the_list_and_count_unread_per_group() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        assert!(sidebar.group_entries().is_empty());
+        tagged(&mut sidebar, &account, "a", 2, &["m.favourite", "u.work"]);
+        tagged(&mut sidebar, &account, "b", 3, &["u.work"]);
+        tagged(&mut sidebar, &account, "c", 5, &["m.lowpriority"]);
+        tagged(&mut sidebar, &account, "d", 7, &[]);
+        let summary = |s: &Sidebar| {
+            s.group_entries().into_iter().map(|e| (e.name, e.unread, e.selected)).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            summary(&sidebar),
+            [
+                ("Tutte".into(), 0, true),
+                ("Preferiti".into(), 2, false),
+                ("Bassa priorità".into(), 5, false),
+                ("work".into(), 5, false),
+            ]
+        );
+        assert_eq!(names(&sidebar).len(), 4);
+        sidebar.set_group(Some("u.work".into()));
+        let mut got = names(&sidebar);
+        got.sort();
+        assert_eq!(got, ["a", "b"]);
+        assert_eq!(sidebar.group_entries()[3].selected, true);
+        // Counters ignore the group, search and unread filters; the unread filter still applies on top.
+        sidebar.set_unread_only(true);
+        sidebar.set_query("b");
+        assert_eq!(names(&sidebar), ["b"]);
+        assert_eq!(summary(&sidebar)[1], ("Preferiti".into(), 2, false));
+        sidebar.set_query("");
+        sidebar.set_unread_only(false);
+        // A new message lifts the counter; read rooms drop out of it.
+        tagged(&mut sidebar, &account, "b", 10, &["u.work"]);
+        assert_eq!(sidebar.group_entries()[3].unread, 12);
+        sidebar.mark_read_optimistic(&scope(&account, "b"));
+        assert_eq!(sidebar.group_entries()[3].unread, 2);
+        // The server drops the tag from the last room that had it: the filter falls back to «Tutte».
+        tagged(&mut sidebar, &account, "a", 2, &["m.favourite"]);
+        tagged(&mut sidebar, &account, "b", 0, &[]);
+        assert_eq!(sidebar.active_group(), None);
+        assert_eq!(names(&sidebar).len(), 4);
     }
 }

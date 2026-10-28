@@ -419,6 +419,50 @@ impl Shell {
         cx.notify();
     }
 
+    /// Personal groups as chips under the search field; pointer only (no tab stop yet).
+    pub(crate) fn render_groups(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let t = self.theme.tokens();
+        div()
+            .id("room-groups")
+            .flex()
+            .flex_wrap()
+            .gap_2()
+            .mx_4()
+            .mb_3()
+            .children(self.sidebar.group_entries().into_iter().enumerate().map(|(i, entry)| {
+                let tag = entry.tag.clone();
+                div()
+                    .id(("room-group", i))
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .px_3()
+                    .py_1()
+                    .rounded_full()
+                    .cursor_pointer()
+                    .text_size(px(12.))
+                    .bg(rgb(if entry.selected { t.accent } else { t.input }))
+                    .text_color(rgb(if entry.selected { t.on_accent } else { t.secondary }))
+                    .child(entry.name)
+                    .when(entry.unread > 0, |d| {
+                        d.child(
+                            div()
+                                .px_1()
+                                .rounded_full()
+                                .bg(rgb(if entry.selected { t.on_accent } else { t.accent }))
+                                .text_color(rgb(if entry.selected { t.accent } else { t.on_accent }))
+                                .child(entry.unread.to_string()),
+                        )
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.sidebar.set_group(tag.clone());
+                        this.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
+                        cx.notify();
+                    }))
+            }))
+            .into_any_element()
+    }
+
     pub(crate) fn render_unread(
         &self,
         window: &Window,

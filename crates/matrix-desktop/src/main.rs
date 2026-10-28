@@ -1739,6 +1739,7 @@ impl Render for Shell {
                                     format!("{}│", self.sidebar.query())
                                 }),
                         )
+                        .when(self.connected && !self.sidebar.group_entries().is_empty(), |d| d.child(self.render_groups(cx)))
                         .when(compact && self.connected && self.sidebar.spaces().next().is_some(), |d| d.child(self.render_spaces(window, cx)))
                         .child(
                             div().relative().flex_1().min_h_0().children({

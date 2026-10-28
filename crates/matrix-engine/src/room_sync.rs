@@ -1025,6 +1025,10 @@ impl RoomSync {
                 children.sort_by(|a, b| a.as_str().cmp(b.as_str()));
                 children.dedup();
             }
+            let tags = match room.tags().await {
+                Ok(Some(tags)) => crate::room_tags::group_names(&tags),
+                _ => Vec::new(),
+            };
             current.insert(
                 id.clone(),
                 RoomSummary {
@@ -1058,6 +1062,7 @@ impl RoomSync {
                         children,
                         encrypted: (!room.encryption_state().is_unknown())
                             .then(|| room.encryption_state().is_encrypted()),
+                        tags,
                     },
                 },
             );

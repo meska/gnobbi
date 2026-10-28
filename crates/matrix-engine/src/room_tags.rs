@@ -15,14 +15,25 @@ pub struct RoomGroups {
     pub user: BTreeMap<String, TagRooms>,
 }
 
+/// Names of the tags that are groups (`m.favourite`, `m.lowpriority`, `u.*`), sorted.
+pub fn group_names(tags: &Tags) -> Vec<String> {
+    let mut names: Vec<String> = tags.keys().filter(|n| is_group(n)).map(|n| n.to_string()).collect();
+    names.sort();
+    names
+}
+
+// Other tags (m.server_notice, unknown) are not groups.
+fn is_group(name: &TagName) -> bool {
+    matches!(name, TagName::Favorite | TagName::LowPriority | TagName::User(_))
+}
+
 impl RoomGroups {
     /// Lowest `order` first; rooms without one follow, then ties break by room id (stable per spec).
     pub fn from_tags<'a>(rooms: impl IntoIterator<Item = (&'a str, &'a Tags)>) -> Self {
         let mut buckets: BTreeMap<String, Vec<(Option<f64>, &str)>> = BTreeMap::new();
         for (room, tags) in rooms {
             for (name, info) in tags {
-                // Other tags (m.server_notice, unknown) are not groups.
-                if matches!(name, TagName::Favorite | TagName::LowPriority | TagName::User(_)) {
+                if is_group(name) {
                     buckets.entry(name.to_string()).or_default().push((info.order.filter(|o| o.is_finite()), room));
                 }
             }
@@ -64,6 +75,12 @@ mod tests {
 
     fn tags(list: &[(&str, Option<f64>)]) -> Tags {
         list.iter().map(|(n, o)| { let mut i = TagInfo::new(); i.order = *o; (TagName::from(*n), i) }).collect()
+    }
+
+    #[test]
+    fn group_names_keep_only_groups_sorted() {
+        let t = tags(&[("u.work", None), ("m.server_notice", None), ("m.favourite", None), ("m.weird", None)]);
+        assert_eq!(group_names(&t), ["m.favourite", "u.work"]);
     }
 
     #[test]

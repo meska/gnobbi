@@ -63,6 +63,8 @@ pub struct RoomInfo {
     pub children: Vec<matrix_domain::RoomId>,
     /// None means the SDK has insufficient state, not unencrypted.
     pub encrypted: Option<bool>,
+    /// Group tags of the room (`m.favourite`, `m.lowpriority`, `u.*`), sorted; see `room_tags`.
+    pub tags: Vec<String>,
 }
 
 /// Stable-ID updates independent of the current UI filter or selection.
