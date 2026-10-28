@@ -455,6 +455,19 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
     let tree = picking.tree();
     assert_eq!(label_of(&tree, EMOJI).as_deref(), Some("Chiudi selettore emoji"));
     assert_eq!(label_of(&tree, EMOJI_PICKER).as_deref(), Some("Selettore emoji"));
+    let (_, picker) = tree.nodes.iter().find(|(id, _)| *id == EMOJI_PICKER).unwrap();
+    let labels: std::collections::BTreeSet<String> = picker
+        .children()
+        .iter()
+        .map(|id| {
+            let (_, n) = tree.nodes.iter().find(|(i, _)| i == id).unwrap();
+            assert_eq!(n.role(), accesskit::Role::Button);
+            n.label().unwrap().to_owned()
+        })
+        .collect();
+    assert_eq!(picker.children().len(), 32);
+    assert_eq!(labels.len(), 32);
+    assert!(labels.iter().all(|l| !l.is_empty()));
 }
 
 #[test]

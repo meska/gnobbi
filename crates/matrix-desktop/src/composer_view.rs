@@ -43,12 +43,6 @@ const MAX_ATTACHMENT: u64 = 50 * 1024 * 1024; // shortcut: fixed cap, read the s
 
 pub struct Submitted(pub String);
 
-/// Offered by the emoji picker; no search or recents.
-// shortcut: fixed set picked with the mouse, upgrade to a searchable picker with keyboard navigation.
-const EMOJI: [&str; 32] = [
-    "😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔", "😅", "😉", "🙃", "😢", "😭", "😡", "😱", "👍",
-    "👎", "👏", "🙏", "💪", "👋", "🤝", "🙌", "🎉", "🔥", "✨", "💯", "✅", "❌", "👀", "☕",
-];
 impl gpui::EventEmitter<Submitted> for ComposerView {}
 
 pub struct ComposerView {
@@ -68,6 +62,7 @@ pub struct ComposerView {
     /// Start of the `@` whose list was closed with Esc.
     mention_closed: Option<usize>,
     emoji_open: bool,
+    emoji_selected: usize,
     attach_error: Option<&'static str>,
     recorder: Option<crate::voice_recorder::Recorder>,
     rooms: RoomDrafts,
@@ -102,6 +97,7 @@ impl ComposerView {
             mention_selected: 0,
             mention_closed: None,
             emoji_open: false,
+            emoji_selected: 0,
             attach_error: None,
             recorder: None,
             rooms: RoomDrafts::new(scope),
@@ -183,7 +179,7 @@ impl ComposerView {
     /// Insert `EMOJI[index]` at the caret (over the selection) and give the focus back to the text.
     fn pick_emoji(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.emoji_open = false;
-        if let Some(emoji) = EMOJI.get(index)
+        if let Some((_, emoji)) = matrix_desktop::EMOJI_SET.get(index)
             && self.draft.marked().is_none()
         {
             self.draft.replace(None, emoji);
@@ -576,6 +572,18 @@ impl ComposerView {
             cx.stop_propagation();
             return;
         }
+        if self.emoji_open && self.focus.is_focused(window) {
+            let last = matrix_desktop::EMOJI_SET.len() - 1;
+            match key.key.as_str() {
+                "right" | "down" => self.emoji_selected = if self.emoji_selected >= last { 0 } else { self.emoji_selected + 1 },
+                "left" | "up" => self.emoji_selected = self.emoji_selected.checked_sub(1).unwrap_or(last),
+                "enter" => self.pick_emoji(self.emoji_selected, window, cx),
+                _ => return self.key_down_text(event, mac, window, cx),
+            }
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
         let options = self.mention_options();
         if !options.is_empty() && self.focus.is_focused(window) {
             let last = options.len() - 1;
@@ -941,9 +949,10 @@ impl Render for ComposerView {
                 )
             })
             .when(self.emoji_open, |d| {
-                d.child(div().flex().flex_wrap().gap_1().children(EMOJI.iter().enumerate().map(
-                    |(i, emoji)| {
+                d.child(div().flex().flex_wrap().gap_1().children(matrix_desktop::EMOJI_SET.iter().enumerate().map(
+                    |(i, (_, emoji))| {
                         div()
+                            .when(i == self.emoji_selected, |d| d.bg(rgb(t.selection)))
                             .id(("composer-emoji", i))
                             .cursor_pointer()
                             .px_1()
@@ -1025,6 +1034,7 @@ impl Render for ComposerView {
                                 .child("Emoji")
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.emoji_open = !this.emoji_open;
+                                    this.emoji_selected = 0;
                                     cx.notify();
                                 })),
                         )
@@ -2164,6 +2174,15 @@ mod tests {
             command(v, "escape", false, window, cx);
             assert!(!v.emoji_open);
             assert_eq!(v.draft.text(), "👍 😀 fine");
+            // Arrow keys move through the set, Enter inserts the selected one at the caret.
+            v.draft.select(4..4);
+            v.changed(cx);
+            v.emoji_open = true;
+            v.emoji_selected = 0;
+            command(v, "right", false, window, cx);
+            command(v, "enter", false, window, cx);
+            assert_eq!(v.draft.text(), "👍😁 😀 fine");
+            assert!(!v.emoji_open);
         });
     }
 

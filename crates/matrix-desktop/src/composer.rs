@@ -181,6 +181,21 @@ pub fn mention_matches<'a>(
     ranked.into_iter().take(6).map(|(_, m)| m).collect()
 }
 
+/// Emoji offered by the picker with the name read by screen readers; no search or recents.
+pub const EMOJI_SET: [(&str, &str); 32] = [
+    ("Faccina sorridente", "😀"), ("Faccina raggiante", "😁"), ("Faccina che ride fino alle lacrime", "😂"),
+    ("Faccina che rotola dalle risate", "🤣"), ("Faccina con occhi sorridenti", "😊"), ("Faccina con occhi a cuore", "😍"),
+    ("Faccina che manda un bacio", "😘"), ("Faccina con occhiali da sole", "😎"), ("Faccina pensierosa", "🤔"),
+    ("Faccina sorridente con sudore", "😅"), ("Faccina che fa l'occhiolino", "😉"), ("Faccina capovolta", "🙃"),
+    ("Faccina triste", "😢"), ("Faccina che piange forte", "😭"), ("Faccina arrabbiata", "😡"),
+    ("Faccina spaventata", "😱"), ("Pollice in su", "👍"), ("Pollice in giù", "👎"),
+    ("Applauso", "👏"), ("Mani giunte", "🙏"), ("Bicipite", "💪"),
+    ("Mano che saluta", "👋"), ("Stretta di mano", "🤝"), ("Mani alzate", "🙌"),
+    ("Festa", "🎉"), ("Fuoco", "🔥"), ("Scintille", "✨"),
+    ("Cento punti", "💯"), ("Segno di spunta", "✅"), ("Croce rossa", "❌"),
+    ("Occhi", "👀"), ("Tazza di caffè", "☕"),
+];
+
 #[cfg(test)]
 mod mention_tests {
     use super::{mention_matches, mention_token};

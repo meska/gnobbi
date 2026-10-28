@@ -38,6 +38,9 @@ pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
 pub const MENTIONS: NodeId = NodeId((1 << 63) - 8);
 pub const EMOJI: NodeId = NodeId((1 << 63) - 9);
 pub const EMOJI_PICKER: NodeId = NodeId((1 << 63) - 10);
+/// First of the 32 consecutive ids of the picker's emoji buttons.
+pub const EMOJI_ITEM: u64 = (1 << 63) - 100;
+
 
 #[derive(Clone)]
 pub struct ComposerSnapshot {
@@ -1112,6 +1115,13 @@ impl NavigationSnapshot {
                 let mut picker = Node::new(Role::Label);
                 picker.set_label("Selettore emoji");
                 tree.nodes[0].1.push_child(EMOJI_PICKER);
+                for (i, (name, _)) in crate::EMOJI_SET.iter().enumerate() {
+                    let id = NodeId(EMOJI_ITEM + i as u64);
+                    let mut item = Node::new(Role::Button);
+                    item.set_label(*name);
+                    picker.push_child(id);
+                    tree.nodes.push((id, item));
+                }
                 tree.nodes.push((EMOJI_PICKER, picker));
             }
             let buttons: &[(NodeId, &str)] = if composer.recording.is_some() {
