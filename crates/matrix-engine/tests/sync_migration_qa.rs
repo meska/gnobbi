@@ -1,4 +1,4 @@
-//!: exploratory QA of the live sliding-sync path (`sliding::run`) on a disposable
+//! Exploratory QA of the live sliding-sync path (`sliding::run`) on a disposable
 //! homeserver: recency/order, previews, unread, spaces, invites, leaving. Never uses the
 //! classic loop. Driven by the sync_migration_qa script (FIXTURE_AUTH_CONFIG, no secret here).
 //! Each scenario prints `QA <name> PASS|FAIL detail` and the test fails if any scenario failed.

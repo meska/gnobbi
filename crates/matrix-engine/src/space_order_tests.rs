@@ -1,4 +1,4 @@
-// P203 probe: standard mechanisms for a personal, synchronized space order.
+// Probe: standard mechanisms for a personal, synchronized space order.
 // A is the app's real path (SyncService, simplified sliding sync); B is a
 // second client of the same account that reorders the spaces, like another
 // device would. Verifies the unmerged MSC3230 room account data

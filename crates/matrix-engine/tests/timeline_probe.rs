@@ -1,4 +1,4 @@
-//! Timeline probe (P281 spike): matrix-sdk-ui Timeline on a disposable homeserver. Read side
+//! Timeline probe (spike): matrix-sdk-ui Timeline on a disposable homeserver. Read side
 //! (messages, edit, reaction, reply, redaction, backwards pagination, UTD-free) and the action
 //! side (`toggle_reaction`, `edit`, `send_reply`, `redact`). Driven by the timeline_probe script.
 //! Two synthetic accounts only; no secrets here (fixture config via env).

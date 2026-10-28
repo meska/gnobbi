@@ -1,7 +1,7 @@
-//! P258 QA: matrix-sdk-ui thread support on a disposable homeserver, two synthetic accounts, per-account
+//! Thread QA: matrix-sdk-ui thread support on a disposable homeserver, two synthetic accounts, per-account
 //! SQLite stores (same builder settings as `persistence.rs`). Scenarios print `QA <name> PASS|FAIL detail`
 //! and the test fails if any failed. Driver: PROBE_TARGET=thread_qa PROBE_FEATURES=threads
-//! PROBE_TEST=thread_qa_scenarios PROBE_EVIDENCE=artifacts/P258-qa python3 the timeline_probe script
+//! PROBE_TEST=thread_qa_scenarios PROBE_EVIDENCE=artifacts/thread-qa python3 the timeline_probe script
 #![cfg(feature = "threads")]
 #![recursion_limit = "512"]
 use matrix_engine::{

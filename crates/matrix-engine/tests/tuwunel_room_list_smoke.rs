@@ -1,4 +1,4 @@
-//! Official SyncService + RoomListService against the owner Tuwunel (CT 245).
+//! Official SyncService + RoomListService against a private Tuwunel homeserver.
 //! Driven by the tuwunel_smoke script, which provisions one m.federate:false room
 //! and passes a private auth config + room id via env. No secret here: this
 //! file reads only the FIXTURE_AUTH_CONFIG path and the room id.
