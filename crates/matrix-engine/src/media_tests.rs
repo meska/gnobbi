@@ -312,6 +312,38 @@ fn media_preview_resizes_wide_images_and_refuses_only_above_the_pixel_cap() {
 }
 
 #[test]
+fn large_view_decode_keeps_both_caps_stays_off_the_ui_thread_and_stops_on_close() {
+    let scope = || matrix_domain::RoomScope {
+        account_id: AccountId::new(26),
+        room_id: matrix_domain::RoomId::new("!media:test"),
+    };
+    let large = (crate::media_sdk::LARGE_VIEW_SIDE, crate::media_sdk::LARGE_VIEW_SIDE);
+    runtime().block_on(async {
+        let mut requests = crate::ViewRequests::new();
+        let tag = requests.start(scope()).unwrap();
+        let mut data = MEDIA_PNG.to_vec();
+        data.resize(25 * 1024 * 1024 + 1, 0);
+        assert!(matches!(
+            crate::media_sdk::decode_within(data, "image/png", &tag, large).await,
+            Err(crate::media::MediaError::TooLarge)
+        ));
+        assert!(matches!(
+            crate::media_sdk::decode_within(media_generated_png(8001, 5000), "image/png", &tag, large).await,
+            Err(crate::media::MediaError::TooLarge)
+        ));
+        let ok = crate::media_sdk::decode_within(media_generated_png(5000, 100), "image/png", &tag, large)
+            .await
+            .unwrap();
+        assert!(ok.width <= large.0 && ok.width > 320, "kept above bubble size");
+        assert_ne!(ok.decoded_on, std::thread::current().id());
+        // Closing while the decode is queued: no pixels come back.
+        let pending = crate::media_sdk::decode_within(media_generated_png(4000, 4000), "image/png", &tag, large);
+        requests.cancel();
+        assert!(matches!(pending.await, Err(crate::media::MediaError::Cancelled)));
+    });
+}
+
+#[test]
 fn media_preview_scales_to_bounded_320_by_240_without_upscaling() {
     runtime().block_on(async {
         let mut requests = crate::ViewRequests::new();

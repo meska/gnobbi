@@ -19,6 +19,11 @@ pub(crate) fn failure_label(error: Option<MediaError>) -> &'static str {
     }
 }
 
+/// Over a cap the thumbnail stays as the largest allowed version; asking again cannot change that.
+pub(crate) fn retryable(error: Option<MediaError>) -> bool {
+    error != Some(MediaError::TooLarge)
+}
+
 pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> AnyElement {
     match state {
         Some(InlineImage::Ready(image)) => {
@@ -106,14 +111,14 @@ pub(crate) fn large_view(
                         .text_size(px(12.))
                         .text_color(rgb(t.error))
                         .child(failure_label(error))
-                        .child(
+                        .children(retryable(error).then(|| {
                             div()
                                 .id("large-image-retry")
                                 .cursor_pointer()
                                 .text_color(rgb(t.accent))
                                 .on_click(move |_, window, _| retry(window))
-                                .child("Riprova"),
-                        ),
+                                .child("Riprova")
+                        })),
                 )
         }))
         .into_any_element()
@@ -198,6 +203,13 @@ fn render_image(mut preview: matrix_engine::media::Preview) -> InlineImage {
 #[cfg(test)]
 mod tests {
     use matrix_engine::media::MediaError;
+
+    #[test]
+    fn over_the_cap_has_no_retry_other_errors_do() {
+        assert!(!super::retryable(Some(MediaError::TooLarge)));
+        assert!(super::retryable(Some(MediaError::Failed)));
+        assert!(super::retryable(None));
+    }
 
     #[test]
     fn only_oversized_images_say_too_large() {
