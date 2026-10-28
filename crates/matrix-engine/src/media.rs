@@ -14,6 +14,8 @@ pub enum MediaCommand {
         /// The full-resolution original for the large view, not the bubble thumbnail.
         original: bool,
     },
+    /// The thumbnail of a video row; the answer is a `Downloaded` event like an image's.
+    VideoThumbnail { tag: crate::RequestTag, event: EventId },
 }
 
 pub enum MediaEvent {

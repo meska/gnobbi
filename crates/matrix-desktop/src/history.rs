@@ -16,6 +16,13 @@ pub enum DemoSendState {
     Failed,
 }
 
+/// What a video bubble draws besides the picture: ready-made duration and size labels.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoFacts {
+    pub duration: Option<String>,
+    pub size: Option<String>,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct DemoEvent {
     /// Observed server event/ACK, never a peer read receipt or fixture inference.
@@ -33,6 +40,8 @@ pub struct DemoEvent {
     /// None for local/own rows.
     pub sender: Option<HistorySender>,
     pub timestamp_ms: u64,
+    /// Set for an `m.video` row: the bubble paints a picture with play symbol instead of `text`.
+    pub video: Option<VideoFacts>,
 }
 
 impl DemoEvent {
@@ -120,6 +129,7 @@ impl DemoHistory {
                     send_state: None,
                     timestamp_ms: index as u64 * 60_000,
                     styles: Vec::new(),
+                    video: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
@@ -191,6 +201,7 @@ impl DemoHistory {
             sender: None,
             timestamp_ms: 0,
             styles: Vec::new(),
+            video: None,
         });
     }
 
@@ -275,6 +286,10 @@ impl DemoHistory {
                 sender: (!event.outgoing).then_some(event.sender),
                 timestamp_ms: event.timestamp_ms,
                 styles: event.styles,
+                video: event.video.map(|v| VideoFacts {
+                    duration: v.duration_ms.map(matrix_engine::history::duration_label),
+                    size: v.size.map(matrix_engine::history::human_size),
+                }),
             })
             .collect::<Vec<_>>();
         let count = rows.len();
@@ -351,6 +366,7 @@ impl DemoHistory {
                     sender: None,
                     timestamp_ms: 0,
                     styles: Vec::new(),
+                    video: None,
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -422,6 +438,7 @@ impl DemoHistory {
                     sender: None,
                     timestamp_ms: 0,
                     styles: Vec::new(),
+                    video: None,
                 });
             }
         }

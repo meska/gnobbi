@@ -223,6 +223,24 @@ impl RoomListWorker {
                                     };
                                     MediaEvent::Downloaded { tag, event, result }
                                 }
+                                MediaCommand::VideoThumbnail { tag, event } => {
+                                    if tag.is_cancelled()
+                                        || media_stop.load(std::sync::atomic::Ordering::Acquire)
+                                    {
+                                        continue;
+                                    }
+                                    let read = async {
+                                        // No thumbnail is not an error for the video, but there is no picture to draw.
+                                        crate::media_sdk::download_video_thumbnail(&media_client, account, &tag, &event)
+                                            .await?
+                                            .ok_or(crate::media::MediaError::UnsupportedType)
+                                    };
+                                    let Some(result) = until_stopped(&media_stop, read).await
+                                    else {
+                                        continue;
+                                    };
+                                    MediaEvent::Downloaded { tag, event, result }
+                                }
                             };
                             let failed = matches!(
                                 &result,
@@ -520,6 +538,7 @@ pub struct RoomSync {
     timeline_heads: BTreeMap<String, matrix_domain::EventId>,
     /// Rooms whose SDK latest event is being tracked (a store written before sliding sync has none).
     latest_watched: std::collections::BTreeSet<String>,
+    members_loaded: std::collections::BTreeSet<String>,
     receipts: crate::receipts::PeerReceipts,
     /// Sliding sync sends no server counts: unread comes from the SDK's client-side counts.
     pub(crate) sliding_counts: bool,
@@ -586,6 +605,7 @@ impl RoomSync {
             previous: BTreeMap::new(),
             timeline_heads: BTreeMap::new(),
             latest_watched: Default::default(),
+            members_loaded: Default::default(),
             receipts,
             sliding_counts: false,
             sent_markers: Default::default(),
@@ -816,6 +836,26 @@ impl RoomSync {
             // Once per room: the SDK computes a missing latest event from the event cache.
             if room.state() == RoomState::Joined && self.latest_watched.insert(id.clone()) {
                 let _ = client.latest_events().await.listen_to_room(room.room_id()).await;
+            }
+            // Sliding sync does not replay receipts sent before the app started: read the SDK store (1:1 only, the only place they are drawn).
+            if room.state() == RoomState::Joined && room.joined_members_count() <= 2 {
+                use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
+                let scope = RoomScope {
+                    account_id: self.session.account_id(),
+                    room_id: RoomId::new(id.clone()),
+                };
+                // Lazy-loaded rooms know only some members: fetch the two once per room.
+                if self.members_loaded.insert(id.clone()) {
+                    let _ = room.sync_members().await;
+                }
+                for member in room.members_no_sync(matrix_sdk::RoomMemberships::JOIN).await.unwrap_or_default() {
+                    if let Ok(Some((event, _))) = room
+                        .load_user_receipt(ReceiptType::Read, &ReceiptThread::Unthreaded, member.user_id())
+                        .await
+                    {
+                        self.receipts.observe(&scope, member.user_id().as_str(), &matrix_domain::EventId::new(event.as_str()));
+                    }
+                }
             }
             let mut children = Vec::new();
             if room.state() == RoomState::Joined && room.is_space() {
@@ -1219,6 +1259,7 @@ async fn history_rows(
                     timestamp_ms: timestamp,
                     sender: history_sender(room, &sender).await,
                     video: None,
+                    styles: Vec::new(),
                 });
             }
             continue;
@@ -1241,7 +1282,6 @@ async fn history_rows(
                     .get_field::<u64>("origin_server_ts")
                     .ok()
                     .flatten(),
-                    styles: Vec::new(),
             )
         {
             events.push(HistoryEvent {
@@ -1256,6 +1296,7 @@ async fn history_rows(
                 timestamp_ms: timestamp,
                 sender: history_sender(room, &sender).await,
                 video: None,
+                styles: Vec::new(),
             });
             continue;
         }
@@ -1277,8 +1318,8 @@ async fn history_rows(
                         timestamp_ms: message.origin_server_ts.0.into(),
                         sender: history_sender(room, &message.sender).await,
                         video: None,
+                        styles: Vec::new(),
                     });
-                styles: Vec::new(),
                     continue;
                 }
                 SyncMessageLikeEvent::Redacted(message) => {
@@ -1289,6 +1330,7 @@ async fn history_rows(
                         timestamp_ms: message.origin_server_ts.0.into(),
                         sender: history_sender(room, &message.sender).await,
                         video: None,
+                        styles: Vec::new(),
                     });
                     continue;
                 }
@@ -1300,7 +1342,6 @@ async fn history_rows(
             if let Some(edit) = message.unsigned.relations.replace.as_ref()
                 && edit.sender == message.sender
                 && let Some(Relation::Replacement(replacement)) = &edit.content.relates_to
-                        styles: Vec::new(),
                 && replacement.event_id == message.event_id
                 && replacement.new_content.msgtype.msgtype() == message.content.msgtype.msgtype()
             {
@@ -1312,7 +1353,6 @@ async fn history_rows(
                 && edit.sender == message.sender
                 && let Some(Relation::Replacement(replacement)) = &edit.content.relates_to
                 && replacement.new_content.msgtype.msgtype() == message.content.msgtype.msgtype()
-                        styles: Vec::new(),
             {
                 message
                     .content
@@ -1399,6 +1439,7 @@ async fn history_rows(
                 timestamp_ms: message.origin_server_ts.0.into(),
                 sender: history_sender(room, &message.sender).await,
                 video,
+                styles,
             });
         }
     }
@@ -1416,13 +1457,21 @@ fn video_info(
     }
 }
 
-fn human_size(bytes: u64) -> String {
-    match bytes {
-        0..1024 => format!("{bytes} B"),
-        1024..1_048_576 => format!("{} KB", bytes / 1024),
-        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
-                styles,
+/// Row text and styles of a message: its sanitized HTML body when the sender gave one, else `message_label`.
+fn message_rich(msgtype: &MessageType) -> (String, Vec<crate::rich_text::StyleSpan>) {
+    use matrix_sdk::ruma::events::room::message::MessageFormat;
+    let formatted = match msgtype {
+        MessageType::Text(t) => t.formatted.as_ref(),
+        MessageType::Notice(n) => n.formatted.as_ref(),
+        _ => None,
+    };
+    if let Some(f) = formatted.filter(|f| f.format == MessageFormat::Html) {
+        let (text, styles) = crate::rich_text::from_html(&f.body);
+        if !text.is_empty() {
+            return (text, styles);
+        }
     }
+    (message_label(msgtype), Vec::new())
 }
 
 /// Row text for a message type: its content when textual, otherwise a short real label.
@@ -1444,28 +1493,12 @@ fn message_label(msgtype: &MessageType) -> String {
         MessageType::ServerNotice(n) => n.body.clone(),
         MessageType::Video(v) => {
             let info = v.info.as_deref();
-            let duration = info.and_then(|i| i.duration).map(|d| {
-                let s = d.as_secs();
-                format!("{}:{:02}", s / 60, s % 60)
-/// Row text and styles of a message: its sanitized HTML body when the sender gave one, else `message_label`.
-fn message_rich(msgtype: &MessageType) -> (String, Vec<crate::rich_text::StyleSpan>) {
-    use matrix_sdk::ruma::events::room::message::MessageFormat;
-    let formatted = match msgtype {
-        MessageType::Text(t) => t.formatted.as_ref(),
-        MessageType::Notice(n) => n.formatted.as_ref(),
-        _ => None,
-    };
-    if let Some(f) = formatted.filter(|f| f.format == MessageFormat::Html) {
-        let (text, styles) = crate::rich_text::from_html(&f.body);
-        if !text.is_empty() {
-            return (text, styles);
-        }
-    }
-    (message_label(msgtype), Vec::new())
-}
-
-            });
-            let size = info.and_then(|i| i.size).map(|s| human_size(s.into()));
+            let duration = info
+                .and_then(|i| i.duration)
+                .map(|d| crate::history::duration_label(d.as_millis() as u64));
+            let size = info
+                .and_then(|i| i.size)
+                .map(|s| crate::history::human_size(s.into()));
             join("Video", duration.into_iter().chain(size).collect())
         }
         MessageType::Audio(a) if a.voice.is_some() => "Nota vocale".into(),
@@ -1475,7 +1508,7 @@ fn message_rich(msgtype: &MessageType) -> (String, Vec<crate::rich_text::StyleSp
                 .info
                 .as_deref()
                 .and_then(|i| i.size)
-                .map(|s| human_size(s.into()));
+                .map(|s| crate::history::human_size(s.into()));
             join(
                 "File",
                 std::iter::once(f.filename().to_owned())

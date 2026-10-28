@@ -96,6 +96,8 @@ pub struct TimelineView {
     pub(crate) want_original: Rc<RefCell<Option<matrix_domain::EventId>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
+    /// Last painted bounds of each video bubble part, by event and part name.
+    pub(crate) video_painted: Rc<RefCell<std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>>>,
     pub(crate) images: Rc<
         RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>,
     >,
@@ -249,6 +251,7 @@ impl TimelineView {
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
+            video_painted: Rc::default(),
             requested_link: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             selection_cursor: Rc::default(),
@@ -891,14 +894,28 @@ impl TimelineView {
         }
     }
 
-    /// Image rows of this room, newest first, for loading on arrival.
+    /// Video rows of this room: their picture is the thumbnail, when there is one.
+    pub(crate) fn video_events(&self) -> Vec<matrix_domain::EventId> {
+        self.history
+            .borrow()
+            .events()
+            .iter()
+            .filter(|e| e.video.is_some())
+            .filter_map(|e| match &e.id.id {
+                matrix_domain::TimelineId::Server(id) => Some(id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Image and video rows of this room, newest first, for loading on arrival.
     pub(crate) fn image_events(&self) -> Vec<matrix_domain::EventId> {
         self.history
             .borrow()
             .events()
             .iter()
             .rev()
-            .filter(|e| matrix_engine::history::is_image_body(&e.text))
+            .filter(|e| e.video.is_some() || matrix_engine::history::is_image_body(&e.text))
             .filter_map(|e| match &e.id.id {
                 matrix_domain::TimelineId::Server(id) => Some(id.clone()),
                 _ => None,
@@ -1208,6 +1225,7 @@ impl TimelineView {
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
         let images = self.images.clone();
+        let video_painted = self.video_painted.clone();
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let requested_link = self.requested_link.clone();
@@ -1268,7 +1286,15 @@ impl TimelineView {
                     let sender_label = history.sender_label(index, members);
                     let offline_target = (!live).then(|| offline_delivery.borrow_mut().target(event)).flatten();
                     let offline_callback = offline_target.clone().map(|target| offline_delivery_callback(offline_delivery.clone(), delivery_history.clone(), target, live));
-                    let picture = matrix_engine::history::is_image_body(&event.text).then(|| {
+                    let video_picture = event.video.as_ref().map(|facts| {
+                        let state = match &event.id.id {
+                            matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
+                            _ => None,
+                        };
+                        let (parts, id) = (video_painted.clone(), event.id.clone());
+                        crate::media_view::video_picture(state, facts.duration.clone(), facts.size.clone(), t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.id.clone(), part), bounds); }))
+                    });
+                    let picture = video_picture.or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
                         let state = match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
@@ -1291,7 +1317,7 @@ impl TimelineView {
                             }
                             _ => picture,
                         }
-                    });
+                    }));
                     let mut body = StyledText::new(event.text.clone());
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
@@ -2342,6 +2368,101 @@ mod tests {
             window,
             cx,
         );
+    }
+
+    /// Paints one video row (with or without a ready thumbnail) and checks what reached the screen.
+    fn video_bubble_shot(thumbnail: bool) {
+        use matrix_engine::history::{HistoryEvent, HistorySender, VideoInfo};
+        assert_eq!(
+            std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+            Ok("1")
+        );
+        gpui::Application::new().run(move |cx| {
+            let id = EventId::new("$video:fixture.invalid");
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi video bubble");
+                    cx.new(|cx| {
+                        let scope = RoomScope {
+                            account_id: AccountId::new(1),
+                            room_id: RoomId::new("!video:fixture.invalid"),
+                        };
+                        let v = TimelineView::with_history(
+                            DemoHistory::new(scope, 0),
+                            cx.focus_handle(),
+                            false,
+                        );
+                        v.append_server(vec![HistoryEvent {
+                            event_id: id.clone(),
+                            body: "Video · 0:12 · 1.4 MB".into(),
+                            outgoing: false,
+                            timestamp_ms: 0,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: Some(VideoInfo {
+                                duration_ms: Some(12_000),
+                                size: Some(1_468_006),
+                                #[cfg(feature = "live")]
+                                thumbnail: None,
+                            }),
+                            styles: Vec::new(),
+                        }]);
+                        if thumbnail {
+                            let buffer = image::RgbaImage::from_raw(160, 90, vec![255; 160 * 90 * 4]).unwrap();
+                            v.images.borrow_mut().insert(
+                                id.clone(),
+                                crate::media_view::InlineImage::Ready(std::sync::Arc::new(
+                                    gpui::RenderImage::new([image::Frame::new(buffer)]),
+                                )),
+                            );
+                        }
+                        ShotHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(500)).await;
+                view.update(cx, |host, _, cx| {
+                    let parts = host.0.video_painted.borrow();
+                    let part = |name| {
+                        parts
+                            .get(&(TimelineId::Server(EventId::new("$video:fixture.invalid")), name))
+                            .copied()
+                            .unwrap_or_else(|| panic!("{name} was not painted"))
+                    };
+                    let (picture, play, duration, size) =
+                        (part("picture"), part("play"), part("duration"), part("size"));
+                    let (w, h) = if thumbnail { (160., 90.) } else { (200., 150.) };
+                    assert_eq!(f32::from(picture.size.width), w, "thumbnail size or neutral box");
+                    assert_eq!(f32::from(picture.size.height), h);
+                    for inner in [play, duration, size] {
+                        let (tl, br) = (inner.origin, inner.bottom_right());
+                        assert!(tl.x >= picture.left() - px(1.) && tl.y >= picture.top() - px(1.)
+                            && br.x <= picture.right() + px(1.) && br.y <= picture.bottom() + px(1.),
+                            "overlay inside the picture");
+                    }
+                    let (cx_, cy_) = (picture.center().x, picture.center().y);
+                    assert!((play.center().x - cx_).abs() < px(1.) && (play.center().y - cy_).abs() < px(1.), "play at the centre");
+                    assert!(duration.origin.x < picture.center().x && size.origin.x > picture.center().x, "duration left, size right");
+                    assert!(duration.origin.y > cy_ && size.origin.y > cy_, "labels along the bottom");
+                    cx.quit();
+                })
+                .unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_video_bubble_with_thumbnail() {
+        video_bubble_shot(true);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_video_bubble_without_thumbnail_is_a_neutral_box() {
+        video_bubble_shot(false);
     }
 
     fn ready_image() -> crate::media_view::InlineImage {

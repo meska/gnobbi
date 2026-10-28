@@ -16,6 +16,8 @@ pub struct LiveMedia {
     preview: Option<Preview>,
     /// Events already answered (picture or error); never asked again.
     settled: HashSet<EventId>,
+    /// Candidates that are videos: their bubble asks for the thumbnail only.
+    videos: HashSet<EventId>,
     /// The large view's original: its own request lane, so it never disturbs the bubble reads.
     large_views: ViewRequests,
     large: Option<EventId>,
@@ -31,6 +33,7 @@ impl LiveMedia {
         self.error = None;
         self.preview = None;
         self.settled.clear();
+        self.videos.clear();
         self.cancel_original();
     }
     /// Ask for the full-resolution picture of `event`, replacing any earlier original request.
@@ -77,15 +80,22 @@ impl LiveMedia {
     pub fn event(&self) -> Option<&EventId> {
         self.event.as_ref()
     }
+    pub fn mark_videos(&mut self, events: impl IntoIterator<Item = EventId>) {
+        self.videos.extend(events);
+    }
     pub fn request(&mut self, scope: RoomScope, event: EventId) {
         let Ok(tag) = self.views.start(scope) else {
             return;
         };
         self.event = Some(event.clone());
-        self.command = Some(MediaCommand::Download {
-            tag,
-            event,
-            original: false,
+        self.command = Some(if self.videos.contains(&event) {
+            MediaCommand::VideoThumbnail { tag, event }
+        } else {
+            MediaCommand::Download {
+                tag,
+                event,
+                original: false,
+            }
         });
         self.loading = true;
         self.error = None;

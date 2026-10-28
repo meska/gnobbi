@@ -55,6 +55,78 @@ pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> Any
     }
 }
 
+/// Painted parts of a video bubble, by name, so a test can see what reached the screen.
+pub(crate) type PaintedParts = std::rc::Rc<dyn Fn(&'static str, gpui::Bounds<gpui::Pixels>)>;
+
+/// Video bubble: the thumbnail, or a neutral box when there is none, with a play symbol over it and
+/// the duration and size in the corners. Nothing plays and no text explains it.
+pub(crate) fn video_picture(
+    state: Option<InlineImage>,
+    duration: Option<String>,
+    size: Option<String>,
+    t: DesignTokens,
+    painted: PaintedParts,
+) -> AnyElement {
+    let base = match state {
+        Some(ready @ InlineImage::Ready(_)) => inline_picture(Some(ready), t),
+        _ => inline_picture(None, t),
+    };
+    let probe = {
+        let painted = painted.clone();
+        move |part: &'static str| {
+            let painted = painted.clone();
+            gpui::canvas(|_, _, _| (), move |bounds, _, _, _| painted(part, bounds))
+                .absolute()
+                .inset_0()
+        }
+    };
+    let chip = |part: &'static str, text: String| {
+        div()
+            .relative()
+            .px_1()
+            .rounded_sm()
+            .bg(gpui::rgba(0x000000a6))
+            .text_size(px(12.))
+            .text_color(gpui::white())
+            .child(text)
+            .child(probe(part))
+    };
+    // A flex row gives the bubble the picture's own width instead of the row's.
+    div().flex().child(div()
+        .relative()
+        .child(base)
+        .child(probe("picture"))
+        .child(
+            div().absolute().inset_0().flex().items_center().justify_center().child(
+                div()
+                    .relative()
+                    .size(px(44.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(gpui::rgba(0x000000a6))
+                    .text_size(px(20.))
+                    .text_color(gpui::white())
+                    .child("▶")
+                    .child(probe("play")),
+            ),
+        )
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .p_1()
+                .flex()
+                .justify_between()
+                .children(duration.map(|d| chip("duration", d)))
+                .children(size.map(|s| chip("size", s))),
+        ))
+        .into_any_element()
+}
+
 /// Full-area dark scrim: the cached thumbnail until the original is ready, then the original (same
 /// frame, no flicker). A click closes it; a failed original shows one row with «Riprova».
 pub(crate) fn large_view(
@@ -139,6 +211,7 @@ impl Shell {
             self.media.cancel_original();
             *timeline.original.borrow_mut() = None;
         }
+        self.media.mark_videos(timeline.video_events());
         let wanted: Vec<_> = {
             let known = timeline.images.borrow();
             timeline

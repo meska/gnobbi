@@ -36,6 +36,20 @@ pub fn is_image_body(body: &str) -> bool {
     body == IMAGE_BODY
 }
 
+/// «m:ss» of a duration, as drawn on a video bubble.
+pub fn duration_label(duration_ms: u64) -> String {
+    let s = duration_ms / 1000;
+    format!("{}:{:02}", s / 60, s % 60)
+}
+
+pub fn human_size(bytes: u64) -> String {
+    match bytes {
+        0..1024 => format!("{bytes} B"),
+        1024..1_048_576 => format!("{} KB", bytes / 1024),
+        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+    }
+}
+
 /// Video facts from the event `info`; the thumbnail is only a source to fetch later.
 #[derive(Debug, Clone)]
 pub struct VideoInfo {

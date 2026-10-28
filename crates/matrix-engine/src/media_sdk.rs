@@ -50,69 +50,12 @@ impl AccountSession {
         tag: &RequestTag,
         event: &EventId,
     ) -> Result<Option<DownloadedPng>, MediaError> {
-        use matrix_sdk::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
-        use matrix_sdk::ruma::events::room::message::{MessageType, RoomMessageEventContent};
-
-        if tag.scope().account_id != self.account_id {
-            return Err(MediaError::InvalidScope);
-        }
-        let client = self.client.as_ref().ok_or(MediaError::LoggedOut)?;
-        let room_id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
-            .map_err(|_| MediaError::InvalidScope)?;
-        let event_id = matrix_sdk::ruma::EventId::parse(event.as_str())
-            .map_err(|_| MediaError::InvalidScope)?;
-        let room = client
-            .get_room(&room_id)
-            .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
-            .ok_or(MediaError::InvalidScope)?;
-        cancellable(tag, async {
-            let event = room
-                .event(&event_id, None)
-                .await
-                .map_err(|_| MediaError::Failed)?;
-            let content = event
-                .raw()
-                .get_field::<RoomMessageEventContent>("content")
-                .map_err(|_| MediaError::UnsupportedType)?
-                .ok_or(MediaError::UnsupportedType)?;
-            let MessageType::Video(video) = content.msgtype else {
-                return Err(MediaError::UnsupportedType);
-            };
-            let Some(source) = video.info.and_then(|info| info.thumbnail_source) else {
-                return Ok(None);
-            };
-            // shortcut: server events use remote MXC URIs; revisit for local send-queue previews.
-            // Calling the fetcher directly bypasses all persistent media-store reads/writes.
-            let request = MediaRequestParameters {
-                source,
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    320u32.into(),
-                    240u32.into(),
-                )),
-            };
-            let config = client
-                .request_config()
-                .timeout(Some(Duration::MAX))
-                .max_response_size(Some(VIDEO_THUMBNAIL_MAX_BYTES));
-            let bytes = matrix_sdk::media::DefaultMediaFetcher
-                .fetch_media_content_with_request_config(client, &request, config)
-                .await
-                .map_err(|error| match error {
-                    matrix_sdk::Error::Http(error)
-                        if matches!(*error, matrix_sdk::HttpError::ResponseTooLarge { .. }) =>
-                    {
-                        MediaError::TooLarge
-                    }
-                    _ => MediaError::Failed,
-                })?;
-            let mime = mime_of(&bytes).ok_or(MediaError::UnsupportedType)?;
-            let preview = decode_png(bytes.clone(), mime, tag).await?;
-            Ok(Some(DownloadedPng {
-                bytes,
-                preview,
-                variant: MediaVariant::Thumbnail,
-            }))
-        })
+        download_video_thumbnail(
+            self.client.as_ref().ok_or(MediaError::LoggedOut)?,
+            self.account_id,
+            tag,
+            event,
+        )
         .await
     }
 
@@ -149,6 +92,80 @@ impl AccountSession {
 }
 
 // The free functions also serve the session-owned backend worker.
+
+/// Fetch only the thumbnail of an exact scoped video event. SDK decryption
+/// and image decoding stay in memory; persistent media-store caching is disabled.
+/// A video without a thumbnail returns `None`, never its original MP4.
+pub(crate) async fn download_video_thumbnail(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    tag: &RequestTag,
+    event: &EventId,
+) -> Result<Option<DownloadedPng>, MediaError> {
+    use matrix_sdk::media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings};
+    use matrix_sdk::ruma::events::room::message::{MessageType, RoomMessageEventContent};
+
+    if tag.scope().account_id != account {
+        return Err(MediaError::InvalidScope);
+    }
+    let room_id = matrix_sdk::ruma::RoomId::parse(tag.scope().room_id.as_str())
+        .map_err(|_| MediaError::InvalidScope)?;
+    let event_id = matrix_sdk::ruma::EventId::parse(event.as_str())
+        .map_err(|_| MediaError::InvalidScope)?;
+    let room = client
+        .get_room(&room_id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(MediaError::InvalidScope)?;
+    cancellable(tag, async {
+        let event = room
+            .event(&event_id, None)
+            .await
+            .map_err(|_| MediaError::Failed)?;
+        let content = event
+            .raw()
+            .get_field::<RoomMessageEventContent>("content")
+            .map_err(|_| MediaError::UnsupportedType)?
+            .ok_or(MediaError::UnsupportedType)?;
+        let MessageType::Video(video) = content.msgtype else {
+            return Err(MediaError::UnsupportedType);
+        };
+        let Some(source) = video.info.and_then(|info| info.thumbnail_source) else {
+            return Ok(None);
+        };
+        // shortcut: server events use remote MXC URIs; revisit for local send-queue previews.
+        // Calling the fetcher directly bypasses all persistent media-store reads/writes.
+        let request = MediaRequestParameters {
+            source,
+            format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                320u32.into(),
+                240u32.into(),
+            )),
+        };
+        let config = client
+            .request_config()
+            .timeout(Some(Duration::MAX))
+            .max_response_size(Some(VIDEO_THUMBNAIL_MAX_BYTES));
+        let bytes = matrix_sdk::media::DefaultMediaFetcher
+            .fetch_media_content_with_request_config(client, &request, config)
+            .await
+            .map_err(|error| match error {
+                matrix_sdk::Error::Http(error)
+                    if matches!(*error, matrix_sdk::HttpError::ResponseTooLarge { .. }) =>
+                {
+                    MediaError::TooLarge
+                }
+                _ => MediaError::Failed,
+            })?;
+        let mime = mime_of(&bytes).ok_or(MediaError::UnsupportedType)?;
+        let preview = decode_png(bytes.clone(), mime, tag).await?;
+        Ok(Some(DownloadedPng {
+            bytes,
+            preview,
+            variant: MediaVariant::Thumbnail,
+        }))
+    })
+    .await
+}
 
 /// Read an exact scoped server event, never an arbitrary caller URL. Media
 /// uses authenticated HTTPS on this session's homeserver with no redirects.
