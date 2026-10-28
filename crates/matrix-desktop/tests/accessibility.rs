@@ -393,6 +393,7 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
             send_focused: false,
             send_bounds: None,
             attachment: None,
+            mentions: None,
             recording: None,
             text: "caffè 🙂\nseconda riga".into(),
             anchor: 0,
@@ -437,6 +438,14 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
     assert_eq!(label_of(&tree, RECORDING).as_deref(), Some("Registrazione in corso, 7 secondi"));
     assert_eq!(label_of(&tree, RECORD_CANCEL).as_deref(), Some("Annulla registrazione"));
     assert_eq!(label_of(&tree, RECORD_SEND).as_deref(), Some("Invia nota vocale"));
+    use matrix_desktop::accessibility::MENTIONS;
+    assert_eq!(label_of(&tree, MENTIONS), None);
+    let mut mentioning = snapshot.clone();
+    mentioning.composer.as_mut().unwrap().mentions = Some((vec!["alice".into(), "Bruno Verdi".into()], 1));
+    assert_eq!(
+        label_of(&mentioning.tree(), MENTIONS).as_deref(),
+        Some("Menzioni: alice; Bruno Verdi, selezionato")
+    );
 }
 
 #[test]
@@ -470,6 +479,7 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
             send_focused: false,
             send_bounds: None,
             attachment: None,
+            mentions: None,
             recording: None,
             text: "caffè 🙂\nseconda riga\n".into(),
             anchor: "caffè 🙂\nseconda riga\n".len(),
@@ -538,6 +548,7 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
             send_focused: false,
             send_bounds: None,
             attachment: None,
+            mentions: None,
             recording: None,
             text: "hello".into(),
             anchor: 5,
@@ -611,6 +622,7 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
             send_focused: false,
             send_bounds: None,
             attachment: None,
+            mentions: None,
             recording: None,
             scope: scope.clone(),
             composing: false,

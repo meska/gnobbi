@@ -30,6 +30,10 @@ pub enum OperationCommand {
         target: EventId,
     },
     Apply(OperationRequest),
+    /// Joined members for the @ completion.
+    Members {
+        scope: RoomScope,
+    },
     /// Room-level read marker from the room menu; `public` is the «Conferme di lettura» setting.
     MarkRoom {
         scope: RoomScope,
@@ -38,6 +42,10 @@ pub enum OperationCommand {
     },
 }
 pub enum OperationResult {
+    Members {
+        scope: RoomScope,
+        members: Result<Vec<Member>, OperationError>,
+    },
     RoomMarked {
         scope: RoomScope,
         result: Result<(), OperationError>,
@@ -51,6 +59,13 @@ pub enum OperationResult {
         request: OperationRequest,
         result: Result<EventId, OperationError>,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Member {
+    pub user_id: String,
+    /// Display name, or the user id when the member has none.
+    pub name: String,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -160,6 +175,40 @@ pub(crate) async fn mark_room(
     room.set_unread_flag(!read)
         .await
         .map_err(|_| OperationError::Transport)
+}
+
+#[cfg(feature = "sdk")]
+pub async fn members(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+) -> Result<Vec<Member>, OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(OperationError::Unavailable)?;
+    // Lazy loading leaves the list partial until the full membership is fetched.
+    let joined = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        room.members(matrix_sdk::RoomMemberships::JOIN),
+    )
+    .await
+    .map_err(|_| OperationError::Transport)?
+    .map_err(|_| OperationError::Transport)?;
+    Ok(joined
+        .into_iter()
+        .map(|m| Member {
+            user_id: m.user_id().to_string(),
+            name: m
+                .display_name()
+                .map_or_else(|| m.user_id().to_string(), str::to_owned),
+        })
+        .collect())
 }
 
 #[cfg(feature = "sdk")]

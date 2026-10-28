@@ -14,7 +14,7 @@ fn disposable_e2ee_missing_keys_remains_visible_in_history() {
                 scope,
                 transaction_id: matrix_domain::TransactionId::new("p023-missing"),
                 body: "Secret before new device città".into(),
-                attachment: None,
+                attachment: None, mentions: Vec::new(),
             })
             .await
             .unwrap();
@@ -59,7 +59,7 @@ fn disposable_e2ee_server_ciphertext_peer_decrypts_and_app_reads_reply() {
             scope: scope.clone(),
             transaction_id: matrix_domain::TransactionId::new("p023-encrypted-retry"),
             body: "private città 🦀\nsecond line".into(),
-            attachment: None,
+            attachment: None, mentions: Vec::new(),
         };
         let sent = alice.send_text(&request).await.unwrap();
         assert_eq!(alice.send_text(&request).await.unwrap(), sent);
@@ -167,7 +167,7 @@ fn disposable_e2ee_unsupported_algorithm_does_not_send_plaintext() {
         let result = alice.send_text(&crate::sending::SendRequest {
             scope: matrix_domain::RoomScope { account_id: AccountId::new(23), room_id: matrix_domain::RoomId::new(&room) },
             transaction_id: matrix_domain::TransactionId::new("p023-unsupported"),
-            body: "must never become plaintext".into(), attachment: None }).await;
+            body: "must never become plaintext".into(), attachment: None, mentions: Vec::new() }).await;
         assert!(matches!(result, Err(crate::sending::SendError::Encryption)), "unsupported room encryption must report an encryption error");
         let wire = room_request(&config, "alice", reqwest::Method::GET,
             &format!("rooms/{room}/messages?dir=b&limit=100"), serde_json::json!({})).await;
@@ -191,7 +191,7 @@ fn disposable_e2ee_redacted_ciphertext_shows_deleted_not_missing_keys() {
                 scope: scope.clone(),
                 transaction_id: matrix_domain::TransactionId::new("p023-redacted"),
                 body: "erased disposable content".into(),
-                attachment: None,
+                attachment: None, mentions: Vec::new(),
             })
             .await
             .unwrap();
@@ -235,7 +235,7 @@ fn disposable_e2ee_gui_store_and_history() {
                 },
                 transaction_id: matrix_domain::TransactionId::new("p023-gui-seed"),
                 body: "old ciphertext unavailable to new GUI device".into(),
-                attachment: None,
+                attachment: None, mentions: Vec::new(),
             })
             .await
             .unwrap();

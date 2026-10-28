@@ -25,7 +25,7 @@ pub use preferences::{Preferences, Theme};
 mod composer;
 mod connection_options;
 pub mod panel_openers;
-pub use composer::Composer;
+pub use composer::{Composer, mention_matches, mention_token};
 #[cfg(unix)]
 pub use connection_options::create_private_dir;
 pub use connection_options::{

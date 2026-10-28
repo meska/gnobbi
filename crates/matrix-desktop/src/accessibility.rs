@@ -35,6 +35,7 @@ pub const RECORD: NodeId = NodeId((1 << 63) - 4);
 pub const RECORDING: NodeId = NodeId((1 << 63) - 5);
 pub const RECORD_CANCEL: NodeId = NodeId((1 << 63) - 6);
 pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
+pub const MENTIONS: NodeId = NodeId((1 << 63) - 8);
 
 #[derive(Clone)]
 pub struct ComposerSnapshot {
@@ -45,6 +46,8 @@ pub struct ComposerSnapshot {
     pub send_bounds: Option<accesskit::Rect>,
     /// File name of the pending attachment, sent with the text as caption.
     pub attachment: Option<String>,
+    /// Member names offered by the @ completion and the highlighted one.
+    pub mentions: Option<(Vec<String>, usize)>,
     /// Elapsed seconds of a voice note being recorded.
     pub recording: Option<u64>,
     pub text: String,
@@ -1126,6 +1129,20 @@ impl NavigationSnapshot {
                 remove.set_label("Rimuovi allegato");
                 tree.nodes[0].1.push_child(ATTACHMENT_REMOVE);
                 tree.nodes.push((ATTACHMENT_REMOVE, remove));
+            }
+            if let Some((names, selected)) = &composer.mentions {
+                let mut list = Node::new(Role::Label);
+                list.set_label(format!(
+                    "Menzioni: {}",
+                    names
+                        .iter()
+                        .enumerate()
+                        .map(|(i, n)| if i == *selected { format!("{n}, selezionato") } else { n.clone() })
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                ));
+                tree.nodes[0].1.push_child(MENTIONS);
+                tree.nodes.push((MENTIONS, list));
             }
             if composer.focused {
                 tree.focus = COMPOSER;

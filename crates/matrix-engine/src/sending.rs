@@ -8,6 +8,55 @@ pub struct SendRequest {
     /// Text message body, or the caption when `attachment` is set.
     pub body: String,
     pub attachment: Option<Attachment>,
+    /// Users named in `body` by their `label`; ignored for attachments.
+    pub mentions: Vec<Mention>,
+}
+
+/// A user picked from the completion list; `label` is the text shown in the body («@Anna»).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Mention {
+    pub user_id: String,
+    pub label: String,
+}
+
+/// `body` as HTML with each mention's first free occurrence turned into a matrix.to link; None when none of them is still in the text.
+pub fn mention_html(body: &str, mentions: &[Mention]) -> Option<String> {
+    let mut spans: Vec<(usize, usize, &str)> = Vec::new();
+    for mention in mentions {
+        let mut from = 0;
+        while let Some(found) = body[from..]
+            .find(&mention.label)
+            .filter(|_| !mention.label.is_empty())
+        {
+            let (start, end) = (from + found, from + found + mention.label.len());
+            if spans.iter().all(|&(s, e, _)| end <= s || start >= e) {
+                spans.push((start, end, &mention.user_id));
+                break;
+            }
+            from = end;
+        }
+    }
+    if spans.is_empty() {
+        return None;
+    }
+    spans.sort();
+    let escape = |text: &str| {
+        text.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('\n', "<br>")
+    };
+    let (mut html, mut at) = (String::new(), 0);
+    for (start, end, user) in spans {
+        html.push_str(&escape(&body[at..start]));
+        html.push_str(&format!(
+            "<a href=\"https://matrix.to/#/{user}\">{}</a>",
+            escape(&body[start..end])
+        ));
+        at = end;
+    }
+    html.push_str(&escape(&body[at..]));
+    Some(html)
 }
 
 /// File or image sent with the request body as caption.
@@ -89,7 +138,10 @@ pub async fn send_text(
         attachment::{AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseImageInfo},
         ruma::{
             RoomId,
-            events::room::message::{RoomMessageEventContent, TextMessageEventContent},
+            events::{
+                Mentions,
+                room::message::{RoomMessageEventContent, TextMessageEventContent},
+            },
         },
     };
     if request.scope.account_id != account {
@@ -109,8 +161,18 @@ pub async fn send_text(
     let response = match &request.attachment {
         None => tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            room.send(RoomMessageEventContent::text_plain(&request.body))
-                .with_transaction_id(transaction),
+            room.send(match mention_html(&request.body, &request.mentions) {
+                Some(html) => {
+                    let ids = request
+                        .mentions
+                        .iter()
+                        .filter_map(|m| m.user_id.parse().ok());
+                    RoomMessageEventContent::text_html(&request.body, html)
+                        .add_mentions(Mentions::with_user_ids(ids))
+                }
+                None => RoomMessageEventContent::text_plain(&request.body),
+            })
+            .with_transaction_id(transaction),
         )
         .await
         .map_err(|_| SendError::Transport)?
@@ -157,4 +219,33 @@ pub async fn send_text(
         _ => SendError::Transport,
     })?;
     Ok(EventId::new(response.as_str()))
+}
+
+#[cfg(test)]
+mod mention_tests {
+    use super::{Mention, mention_html};
+    fn m(user: &str, label: &str) -> Mention {
+        Mention {
+            user_id: user.into(),
+            label: label.into(),
+        }
+    }
+    #[test]
+    fn links_each_mention_once_and_escapes_the_rest() {
+        let html = mention_html(
+            "<hi> @Anna & @Anna",
+            &[m("@a:x", "@Anna"), m("@b:x", "@Anna")],
+        )
+        .unwrap();
+        assert_eq!(
+            html,
+            "&lt;hi&gt; <a href=\"https://matrix.to/#/@a:x\">@Anna</a> &amp; <a href=\"https://matrix.to/#/@b:x\">@Anna</a>"
+        );
+        assert_eq!(mention_html("ciao", &[m("@a:x", "@Anna")]), None);
+        assert!(
+            mention_html("a\n@Anna", &[m("@a:x", "@Anna")])
+                .unwrap()
+                .starts_with("a<br>")
+        );
+    }
 }

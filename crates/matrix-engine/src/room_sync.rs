@@ -282,6 +282,15 @@ impl RoomListWorker {
                                         details,
                                     }
                                 }
+                                OperationCommand::Members { scope } => {
+                                    let members = crate::operations::members(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                    )
+                                    .await;
+                                    OperationResult::Members { scope, members }
+                                }
                                 OperationCommand::MarkRoom {
                                     scope,
                                     read,

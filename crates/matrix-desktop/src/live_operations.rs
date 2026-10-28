@@ -215,7 +215,7 @@ impl LiveOperations {
     pub fn apply(&mut self, result: OperationResult) -> bool {
         match result {
             // Room markers are fire and forget: the next sync projects the outcome.
-            OperationResult::RoomMarked { .. } => false,
+            OperationResult::RoomMarked { .. } | OperationResult::Members { .. } => false,
             OperationResult::Inspected {
                 tag,
                 target,

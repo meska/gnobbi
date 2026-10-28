@@ -67,6 +67,7 @@ fn request(room: &matrix_engine::sdk::Room, tx: TransactionId, body: &str, name:
         transaction_id: tx,
         body: body.to_owned(),
         attachment: Some(Attachment { filename: name.to_owned(), data, voice }),
+        mentions: Vec::new(),
     }
 }
 

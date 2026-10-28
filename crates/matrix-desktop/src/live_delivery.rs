@@ -1,7 +1,7 @@
 //! UI-local outgoing projection; payloads never logged, not persisted.
 use crate::Composer;
 use matrix_domain::{RoomScope, Timeline, TimelineItem, TimelineUpdate, TransactionId};
-use matrix_engine::sending::{Attachment, SendRequest};
+use matrix_engine::sending::{Attachment, Mention, SendRequest};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
@@ -11,6 +11,8 @@ pub struct LiveDelivery {
     failures: HashMap<(RoomScope, TransactionId), matrix_engine::sending::SendError>,
     /// Attachment sends kept until confirmed so Retry can resend the file.
     attachments: HashMap<(RoomScope, TransactionId), (String, Attachment)>,
+    /// Mentions of a text send, kept until confirmed so Retry keeps the links.
+    mentions: HashMap<(RoomScope, TransactionId), Vec<Mention>>,
 }
 impl LiveDelivery {
     pub fn new() -> Self {
@@ -37,6 +39,17 @@ impl LiveDelivery {
         transaction_id: TransactionId,
         draft: &mut Composer,
         attachment: &mut Option<Attachment>,
+    ) -> bool {
+        self.submit_mentioning(scope, transaction_id, draft, attachment, Vec::new())
+    }
+    /// Like `submit_with`; `mentions` name users in the draft text.
+    pub fn submit_mentioning(
+        &mut self,
+        scope: RoomScope,
+        transaction_id: TransactionId,
+        draft: &mut Composer,
+        attachment: &mut Option<Attachment>,
+        mentions: Vec<Mention>,
     ) -> bool {
         if self.staged.len() >= 8
             || (draft.text().trim().is_empty() && attachment.is_none())
@@ -80,11 +93,16 @@ impl LiveDelivery {
                 (body.clone(), file.clone()),
             );
         }
+        if !mentions.is_empty() {
+            self.mentions
+                .insert((scope.clone(), transaction_id.clone()), mentions.clone());
+        }
         self.staged.push_back(SendRequest {
             scope,
             transaction_id,
             body,
             attachment,
+            mentions,
         });
         draft.enter(false);
         true
@@ -109,6 +127,7 @@ impl LiveDelivery {
         }
         if error.is_none() {
             self.attachments.remove(&key);
+            self.mentions.remove(&key);
         }
         if let Some(error) = error
             && timeline.items().iter().any(|item| {
@@ -181,6 +200,7 @@ impl LiveDelivery {
             transaction_id: transaction_id.clone(),
             body,
             attachment,
+            mentions: self.mentions.get(&key).cloned().unwrap_or_default(),
         });
         true
     }

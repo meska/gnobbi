@@ -115,6 +115,7 @@ fn composer_snapshot(room: &str) -> NavigationSnapshot {
         send_focused: false,
         send_bounds: None,
         attachment: None,
+        mentions: None,
         recording: None,
         scope: matrix_domain::RoomScope {
             account_id: matrix_domain::AccountId::new(1),

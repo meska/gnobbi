@@ -119,6 +119,8 @@ struct Shell {
     operations: std::rc::Rc<std::cell::RefCell<matrix_desktop::LiveOperations>>,
     operation_commands: Option<matrix_engine::Sender<matrix_engine::operations::OperationCommand>>,
     pending_operation_command: Option<matrix_engine::operations::OperationCommand>,
+    /// Room whose members were asked for the @ completion.
+    members_requested: Option<RoomScope>,
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
@@ -1257,6 +1259,15 @@ impl Shell {
             TrySendError,
             operations::{OperationCommand, OperationError, OperationResult},
         };
+        if self.members_requested.as_ref() != Some(&self.active_scope)
+            && self.sidebar.selected().is_some()
+            && let Some(sender) = &mut self.operation_commands
+            && sender
+                .try_send(OperationCommand::Members { scope: self.active_scope.clone() })
+                .is_ok()
+        {
+            self.members_requested = Some(self.active_scope.clone());
+        }
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
@@ -1282,6 +1293,10 @@ impl Shell {
                         OperationCommand::MarkRoom { scope, .. } => OperationResult::RoomMarked {
                             scope,
                             result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::Members { scope } => OperationResult::Members {
+                            scope,
+                            members: Err(OperationError::Unavailable),
                         },
                     };
                     self.operations.borrow_mut().apply(result);
@@ -2347,6 +2362,14 @@ fn main() {
                                             || !operations.is_empty()
                                             || closed;
                                         for result in operations {
+                                            if let matrix_engine::operations::OperationResult::Members { scope, members } = result {
+                                                if scope == this.active_scope
+                                                    && let Ok(members) = members
+                                                {
+                                                    this.composer.update(cx, |editor, cx| editor.set_members(members, cx));
+                                                }
+                                                continue;
+                                            }
                                             this.operations.borrow_mut().apply(result);
                                         }
                                         for event in media {
@@ -2640,6 +2663,7 @@ fn main() {
                         operations: std::rc::Rc::default(),
                         operation_commands: operation_commands.take(),
                         pending_operation_command: None,
+                        members_requested: None,
                         read_dirty: false,
                         confirm_redaction: None,
                         connected,

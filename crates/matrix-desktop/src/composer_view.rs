@@ -53,6 +53,13 @@ pub struct ComposerView {
     live: bool,
     draft: Composer,
     attachment: Option<Pending>,
+    /// Joined members of the shown room, offered by the @ completion.
+    members: Vec<matrix_engine::operations::Member>,
+    /// Users picked from the completion for the draft being written.
+    mentions: Vec<matrix_engine::sending::Mention>,
+    mention_selected: usize,
+    /// Start of the `@` whose list was closed with Esc.
+    mention_closed: Option<usize>,
     attach_error: Option<&'static str>,
     recorder: Option<crate::voice_recorder::Recorder>,
     rooms: RoomDrafts,
@@ -82,6 +89,10 @@ impl ComposerView {
             live: false,
             draft: Composer::default(),
             attachment: None,
+            members: Vec::new(),
+            mentions: Vec::new(),
+            mention_selected: 0,
+            mention_closed: None,
             attach_error: None,
             recorder: None,
             rooms: RoomDrafts::new(scope),
@@ -102,11 +113,60 @@ impl ComposerView {
         self.rooms.switch(scope, &mut self.draft);
         // A pending file belongs to the room it was added in, never to the next one.
         self.attachment = None;
+        self.members.clear();
+        self.mentions.clear();
         self.attach_error = None;
         self.recorder = None;
         self.layout = None;
         self.scroll = ScrollHandle::new();
         self.dragging = false;
+        self.changed(cx);
+    }
+
+    pub fn set_members(
+        &mut self,
+        members: Vec<matrix_engine::operations::Member>,
+        cx: &mut Context<Self>,
+    ) {
+        self.members = members;
+        cx.notify();
+    }
+
+    /// Members offered for the `@` before the caret; empty when no completion is open.
+    fn mention_options(&self) -> Vec<matrix_engine::operations::Member> {
+        if !self.live || self.draft.marked().is_some() || !self.draft.selection().is_empty() {
+            return Vec::new();
+        }
+        match matrix_desktop::mention_token(self.draft.text(), self.cursor) {
+            Some((at, query)) if self.mention_closed != Some(at) => {
+                matrix_desktop::mention_matches(&self.members, query)
+                    .into_iter()
+                    .cloned()
+                    .collect()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn accept_mention(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(member) = self.mention_options().into_iter().nth(index) else {
+            return;
+        };
+        let Some((at, _)) = matrix_desktop::mention_token(self.draft.text(), self.cursor) else {
+            return;
+        };
+        let label = if member.name.starts_with('@') {
+            member.name.clone()
+        } else {
+            format!("@{}", member.name)
+        };
+        self.draft.select(at..self.cursor);
+        if self.draft.replace(None, &format!("{label} ")) {
+            self.mentions.push(matrix_engine::sending::Mention {
+                user_id: member.user_id,
+                label,
+            });
+        }
         self.changed(cx);
     }
 
@@ -130,7 +190,15 @@ impl ComposerView {
                 data: p.data,
                 voice: p.voice,
             });
-        delivery.submit_with(scope, transaction_id, &mut self.draft, &mut file);
+        if delivery.submit_mentioning(
+            scope,
+            transaction_id,
+            &mut self.draft,
+            &mut file,
+            self.mentions.clone(),
+        ) {
+            self.mentions.clear();
+        }
         // Not accepted (queue full): keep the file for the next try.
         self.attachment = file.map(|f| Pending {
             filename: f.filename,
@@ -178,6 +246,14 @@ impl ComposerView {
             composing: self.draft.marked().is_some(),
             send_focused: self.send_is_focused(window),
             attachment: self.attachment.as_ref().map(|p| p.filename.clone()),
+            mentions: Some(self.mention_options())
+                .filter(|o| !o.is_empty())
+                .map(|o| {
+                    (
+                        o.into_iter().map(|m| m.name).collect(),
+                        self.mention_selected,
+                    )
+                }),
             recording: self.recorder.as_ref().map(|r| r.elapsed_secs()),
             send_bounds: self
                 .send_bounds
@@ -275,8 +351,14 @@ impl ComposerView {
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.visit.retire();
         self.reveal = true;
+        self.mention_selected = 0;
         self.cursor = self.draft.selection().end;
         self.anchor = self.draft.selection().start;
+        if matrix_desktop::mention_token(self.draft.text(), self.cursor).map(|(at, _)| at)
+            != self.mention_closed
+        {
+            self.mention_closed = None;
+        }
         cx.notify();
     }
 
@@ -331,7 +413,11 @@ impl ComposerView {
             let _ = this.update(cx, |this, cx| {
                 match read {
                     Some((filename, Some(data))) => {
-                        this.attachment = Some(Pending { filename, data, voice: None });
+                        this.attachment = Some(Pending {
+                            filename,
+                            data,
+                            voice: None,
+                        });
                         this.attach_error = None;
                     }
                     _ => this.attach_error = Some("File non allegabile"),
@@ -460,6 +546,39 @@ impl ComposerView {
         cx: &mut Context<Self>,
     ) {
         self.refresh_send_focus(cx);
+        let key = &event.keystroke;
+        let options = self.mention_options();
+        if !options.is_empty() && self.focus.is_focused(window) {
+            let last = options.len() - 1;
+            let current = self.mention_selected.min(last);
+            match key.key.as_str() {
+                "down" => self.mention_selected = if current == last { 0 } else { current + 1 },
+                "up" => self.mention_selected = if current == 0 { last } else { current - 1 },
+                "enter" | "tab" => self.accept_mention(current, cx),
+                "escape" => {
+                    self.mention_closed =
+                        matrix_desktop::mention_token(self.draft.text(), self.cursor)
+                            .map(|(at, _)| at);
+                }
+                _ => {
+                    self.mention_selected = current;
+                    return self.key_down_text(event, mac, window, cx);
+                }
+            }
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
+        self.key_down_text(event, mac, window, cx)
+    }
+
+    fn key_down_text(
+        &mut self,
+        event: &KeyDownEvent,
+        mac: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let key = &event.keystroke;
         if key.key == "tab"
             && !key.modifiers.control
@@ -730,6 +849,8 @@ impl Render for ComposerView {
             ));
         }
         let sendable = self.sendable();
+        let options = self.mention_options();
+        let mention_selected = self.mention_selected.min(options.len().saturating_sub(1));
         let attachment_name = self.attachment.as_ref().map(|p| p.filename.clone());
         let body = StyledText::new(text).with_highlights(highlights);
         let layout = body.layout().clone();
@@ -760,6 +881,36 @@ impl Render for ComposerView {
             .flex_col()
             .justify_center()
             .gap_1()
+            .when(!options.is_empty(), |d| {
+                d.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .children(options.into_iter().enumerate().map(|(i, member)| {
+                            div()
+                                .id(("composer-mention", i))
+                                .cursor_pointer()
+                                .px_2()
+                                .py_1()
+                                .flex()
+                                .gap_2()
+                                .text_size(px(14.))
+                                .text_color(rgb(t.text))
+                                .when(i == mention_selected, |d| d.bg(rgb(t.selection)))
+                                .child(member.name.clone())
+                                .when(member.name != member.user_id, |d| {
+                                    d.child(
+                                        div()
+                                            .text_color(rgb(t.secondary))
+                                            .child(member.user_id.clone()),
+                                    )
+                                })
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.accept_mention(i, cx)),
+                                )
+                        })),
+                )
+            })
             .when(
                 attachment_name.is_some() || self.attach_error.is_some(),
                 |d| {
@@ -820,38 +971,47 @@ impl Render for ComposerView {
                                 .on_click(cx.listener(|this, _, _, cx| this.start_recording(cx))),
                         )
                     })
-                    .when_some(self.recorder.as_ref().map(|r| r.elapsed_secs()), |d, secs| {
-                        d.child(
-                            div()
-                                .id("composer-recording")
-                                .flex_shrink_0()
-                                .px_2()
-                                .text_color(rgb(t.error))
-                                .child(format!("● {}:{:02}", secs / 60, secs % 60)),
-                        )
-                        .child(
-                            div()
-                                .id("composer-record-cancel")
-                                .cursor_pointer()
-                                .flex_shrink_0()
-                                .px_2()
-                                .py_2()
-                                .text_color(rgb(t.secondary))
-                                .child("Annulla")
-                                .on_click(cx.listener(|this, _, _, cx| this.stop_recording(false, cx))),
-                        )
-                        .child(
-                            div()
-                                .id("composer-record-send")
-                                .cursor_pointer()
-                                .flex_shrink_0()
-                                .px_2()
-                                .py_2()
-                                .text_color(rgb(t.accent))
-                                .child("Invia nota")
-                                .on_click(cx.listener(|this, _, _, cx| this.stop_recording(true, cx))),
-                        )
-                    })
+                    .when_some(
+                        self.recorder.as_ref().map(|r| r.elapsed_secs()),
+                        |d, secs| {
+                            d.child(
+                                div()
+                                    .id("composer-recording")
+                                    .flex_shrink_0()
+                                    .px_2()
+                                    .text_color(rgb(t.error))
+                                    .child(format!("● {}:{:02}", secs / 60, secs % 60)),
+                            )
+                            .child(
+                                div()
+                                    .id("composer-record-cancel")
+                                    .cursor_pointer()
+                                    .flex_shrink_0()
+                                    .px_2()
+                                    .py_2()
+                                    .text_color(rgb(t.secondary))
+                                    .child("Annulla")
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| {
+                                            this.stop_recording(false, cx)
+                                        }),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("composer-record-send")
+                                    .cursor_pointer()
+                                    .flex_shrink_0()
+                                    .px_2()
+                                    .py_2()
+                                    .text_color(rgb(t.accent))
+                                    .child("Invia nota")
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.stop_recording(true, cx)),
+                                    ),
+                            )
+                        },
+                    )
                     .child(
                         div()
                             .id("composer-editor")
@@ -1858,7 +2018,11 @@ mod tests {
                     .unwrap();
                     executor.timer(std::time::Duration::from_millis(400)).await;
                     view.update(cx, |v, _, _| {
-                        assert_eq!(v.attachment.as_ref().map(|p| p.filename.as_str()), name, "{shown}");
+                        assert_eq!(
+                            v.attachment.as_ref().map(|p| p.filename.as_str()),
+                            name,
+                            "{shown}"
+                        );
                         assert_eq!(v.attach_error.is_some(), error, "{shown}");
                     })
                     .unwrap();
@@ -1877,19 +2041,70 @@ mod tests {
 
     #[test]
     #[ignore = "requires private display"]
+    fn at_completion_navigates_with_keys_and_inserts_the_pick() {
+        command_probe(|v, window, cx| {
+            let member = |id: &str, name: &str| matrix_engine::operations::Member {
+                user_id: id.into(),
+                name: name.into(),
+            };
+            v.set_live(true);
+            v.set_members(
+                vec![member("@a:x", "alice"), member("@b:x", "Bruno Verdi")],
+                cx,
+            );
+            v.replace_text_in_range(None, "", window, cx);
+            v.draft.select(0..v.draft.text().len());
+            v.draft.replace(None, "ciao @");
+            v.changed(cx);
+            assert_eq!(v.mention_options().len(), 2);
+            command(v, "down", false, window, cx);
+            assert_eq!(v.mention_selected, 1);
+            command(v, "down", false, window, cx);
+            assert_eq!(v.mention_selected, 0);
+            command(v, "up", false, window, cx);
+            assert_eq!(v.mention_selected, 1);
+            command(v, "enter", false, window, cx);
+            assert_eq!(v.draft.text(), "ciao @Bruno Verdi ");
+            assert_eq!(
+                v.mentions,
+                vec![matrix_engine::sending::Mention {
+                    user_id: "@b:x".into(),
+                    label: "@Bruno Verdi".into()
+                }]
+            );
+            assert!(v.mention_options().is_empty());
+            // Esc closes the list for that @ and leaves the text alone.
+            v.draft.replace(None, "@");
+            v.changed(cx);
+            assert_eq!(v.mention_options().len(), 2);
+            command(v, "escape", false, window, cx);
+            assert!(v.mention_options().is_empty());
+            assert_eq!(v.draft.text(), "ciao @Bruno Verdi @");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
     fn dropped_paths_keep_only_a_readable_file_within_the_cap() {
         let dir = scratch("paths");
-        let (good, other, big) = (dir.join("uno.txt"), dir.join("due.txt"), dir.join("grande.bin"));
+        let (good, other, big) = (
+            dir.join("uno.txt"),
+            dir.join("due.txt"),
+            dir.join("grande.bin"),
+        );
         std::fs::write(&good, b"uno").unwrap();
         std::fs::write(&other, b"due").unwrap();
-        std::fs::File::create(&big).unwrap().set_len(MAX_ATTACHMENT + 1).unwrap(); // sparse: only the size is read
+        std::fs::File::create(&big)
+            .unwrap()
+            .set_len(MAX_ATTACHMENT + 1)
+            .unwrap(); // sparse: only the size is read
         attach_cases(vec![
             // Several files dropped together: only the first becomes the pending file, the rest is ignored.
             (vec![good.clone(), other], Some("uno.txt"), false),
-            (vec![dir.clone()], None, true),               // a folder
-            (vec![dir.join("manca.txt")], None, true),     // vanished before the read
-            (vec![big], None, true),                       // one byte over the cap
-            (vec![], None, false),                         // nothing dropped
+            (vec![dir.clone()], None, true),           // a folder
+            (vec![dir.join("manca.txt")], None, true), // vanished before the read
+            (vec![big], None, true),                   // one byte over the cap
+            (vec![], None, false),                     // nothing dropped
         ]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
@@ -1921,9 +2136,16 @@ mod tests {
             assert!(v.attachment.is_none());
             v.set_live(true);
             command(v, "ctrl-v", false, window, cx);
-            let pending = v.attachment.as_ref().expect("pasted image becomes the pending file");
+            let pending = v
+                .attachment
+                .as_ref()
+                .expect("pasted image becomes the pending file");
             assert_eq!(pending.filename, "immagine.png");
-            assert_eq!(v.draft.text(), before, "the image is not also pasted as text");
+            assert_eq!(
+                v.draft.text(),
+                before,
+                "the image is not also pasted as text"
+            );
             // Text afterwards goes to the draft and leaves the pending image alone.
             cx.write_to_clipboard(ClipboardItem::new_string("incollato".into()));
             command(v, "ctrl-v", false, window, cx);
@@ -1950,10 +2172,16 @@ mod tests {
                     continue;
                 }
                 v.stop_recording(false, cx);
-                assert!(v.recorder.is_none() && v.attachment.is_none(), "cancel discards the note");
+                assert!(
+                    v.recorder.is_none() && v.attachment.is_none(),
+                    "cancel discards the note"
+                );
                 v.start_recording(cx);
                 v.switch_room(scope.clone(), cx);
-                assert!(v.recorder.is_none() && v.attachment.is_none(), "leaving the room drops the recording");
+                assert!(
+                    v.recorder.is_none() && v.attachment.is_none(),
+                    "leaving the room drops the recording"
+                );
             }
             // Stopping with nothing recording is a no-op.
             v.stop_recording(true, cx);

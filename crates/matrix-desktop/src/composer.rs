@@ -143,3 +143,74 @@ impl Composer {
         Some(std::mem::take(&mut self.text))
     }
 }
+
+/// The `@query` being typed just before `cursor`: start of the `@` and the text after it.
+pub fn mention_token(text: &str, cursor: usize) -> Option<(usize, &str)> {
+    let head = text.get(..cursor)?;
+    let at = head.rfind('@')?;
+    let query = &head[at + 1..];
+    let boundary = head[..at]
+        .chars()
+        .next_back()
+        .is_none_or(char::is_whitespace);
+    (boundary && !query.contains(char::is_whitespace) && query.len() <= 64).then_some((at, query))
+}
+
+/// Up to six members for `query`: names (or user ids) starting with it first, then containing it.
+pub fn mention_matches<'a>(
+    members: &'a [matrix_engine::operations::Member],
+    query: &str,
+) -> Vec<&'a matrix_engine::operations::Member> {
+    let query = query.to_lowercase();
+    let rank = |m: &matrix_engine::operations::Member| {
+        let name = m.name.trim_start_matches('@').to_lowercase();
+        let id = m.user_id.trim_start_matches('@').to_lowercase();
+        if name.starts_with(&query) || id.starts_with(&query) {
+            Some(0)
+        } else if name.contains(&query) || id.contains(&query) {
+            Some(1)
+        } else {
+            None
+        }
+    };
+    let mut ranked: Vec<_> = members
+        .iter()
+        .filter_map(|m| rank(m).map(|r| (r, m)))
+        .collect();
+    ranked.sort_by_key(|(r, m)| (*r, m.name.to_lowercase()));
+    ranked.into_iter().take(6).map(|(_, m)| m).collect()
+}
+
+#[cfg(test)]
+mod mention_tests {
+    use super::{mention_matches, mention_token};
+    use matrix_engine::operations::Member;
+
+    #[test]
+    fn token_needs_a_word_boundary_and_no_space() {
+        assert_eq!(mention_token("ciao @An", 8), Some((5, "An")));
+        assert_eq!(mention_token("@", 1), Some((0, "")));
+        assert_eq!(mention_token("mail@host", 9), None);
+        assert_eq!(mention_token("@Anna ciao", 10), None);
+        assert_eq!(mention_token("ciao", 4), None);
+    }
+
+    #[test]
+    fn matches_rank_prefix_before_contains_and_cap_at_six() {
+        let m = |id: &str, name: &str| Member {
+            user_id: id.into(),
+            name: name.into(),
+        };
+        let members = vec![m("@b:x", "Sabrina"), m("@a:x", "Bruno"), m("@c:x", "@c:x")];
+        let names: Vec<_> = mention_matches(&members, "br")
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect();
+        assert_eq!(names, ["Bruno", "Sabrina"]);
+        assert_eq!(mention_matches(&members, "C").len(), 1);
+        let many: Vec<_> = (0..9)
+            .map(|i| m(&format!("@u{i}:x"), &format!("U{i}")))
+            .collect();
+        assert_eq!(mention_matches(&many, "").len(), 6);
+    }
+}
