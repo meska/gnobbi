@@ -80,6 +80,8 @@ pub(crate) struct RailUi {
     pub(crate) edit_focus: FocusHandle,
     edit_panel_focus: FocusHandle,
     edit_open: bool,
+    edit_cursor: usize,
+    pub(crate) layouts: matrix_desktop::RailLayouts,
     pub(crate) target: Option<RoomScope>,
     scroll: gpui::ScrollHandle,
     anchors: std::cell::RefCell<HashMap<Option<RoomScope>, gpui::ScrollAnchor>>,
@@ -91,13 +93,94 @@ impl RailUi {
             edit_focus: cx.focus_handle(),
             edit_panel_focus: cx.focus_handle(),
             edit_open: false,
+            edit_cursor: 0,
+            layouts: Default::default(),
             target: None,
             scroll: gpui::ScrollHandle::new(),
             anchors: Default::default(),
         }
     }
 }
+/// What a key does inside the edit panel: move the cursor, move the space, hide/show it.
+#[derive(Debug, PartialEq)]
+enum PanelAct {
+    Go(usize),
+    Move(isize),
+    Toggle,
+}
+
+fn panel_act(key: &str, shift: bool, cursor: usize, len: usize) -> Option<PanelAct> {
+    match (key, shift) {
+        ("up", true) => Some(PanelAct::Move(-1)),
+        ("down", true) => Some(PanelAct::Move(1)),
+        ("up", false) => Some(PanelAct::Go(cursor.saturating_sub(1))),
+        ("down", false) => Some(PanelAct::Go((cursor + 1).min(len.saturating_sub(1)))),
+        ("enter" | "space", _) if len > 0 => Some(PanelAct::Toggle),
+        _ => None,
+    }
+}
+
 impl Shell {
+    fn rail_account(&self) -> u64 {
+        self.active_id.map_or(0, |id| id.as_u64())
+    }
+
+    /// Every space in the user's order with its hidden flag; «Tutte» first.
+    fn rail_arranged(&self) -> Vec<(matrix_desktop::NavigationEntry, bool)> {
+        self.rail_ui
+            .layouts
+            .get(self.rail_account())
+            .arrange(self.sidebar.navigation_entries())
+    }
+
+    /// What the rail shows: the arranged spaces minus the hidden ones.
+    pub(crate) fn rail_entries(&self) -> Vec<matrix_desktop::NavigationEntry> {
+        self.rail_arranged().into_iter().filter(|(_, hidden)| !hidden).map(|(e, _)| e).collect()
+    }
+
+    /// Applies a change to this account's layout and saves it; a failed save keeps the change for this run.
+    fn rail_layout_edit(&mut self, change: impl FnOnce(&mut matrix_desktop::RailLayout, &[String])) {
+        let account = self.rail_account();
+        let mut layout = self.rail_ui.layouts.get(account);
+        let current: Vec<String> = self
+            .rail_arranged()
+            .into_iter()
+            .filter_map(|(e, _)| e.scope.map(|s| s.room_id.as_str().to_owned()))
+            .collect();
+        change(&mut layout, &current);
+        self.rail_ui.layouts.set(account, layout);
+        if let Some(dirs) = &self.prefs_dirs {
+            let _ = self.rail_ui.layouts.save(dirs);
+        }
+    }
+
+    /// Edit-panel action on the space under the cursor (row = position among the spaces).
+    fn rail_edit_act(&mut self, row: usize, act: PanelAct) {
+        let spaces: Vec<_> = self.rail_arranged().into_iter().skip(1).collect();
+        let Some((entry, _)) = spaces.get(row) else {
+            return;
+        };
+        let (id, scope) = match &entry.scope {
+            Some(s) => (s.room_id.as_str().to_owned(), s.clone()),
+            None => return,
+        };
+        match act {
+            PanelAct::Go(to) => self.rail_ui.edit_cursor = to,
+            PanelAct::Move(delta) => {
+                self.rail_layout_edit(|l, cur| {
+                    l.shift(cur, &id, delta);
+                });
+                self.rail_ui.edit_cursor = row.saturating_add_signed(delta).min(spaces.len() - 1);
+            }
+            PanelAct::Toggle => {
+                self.rail_layout_edit(|l, _| l.toggle_hidden(&id));
+                if self.sidebar.active_space() == Some(&scope) && !self.rail_entries().iter().any(|e| e.scope.as_ref() == Some(&scope)) {
+                    self.sidebar.set_space(None);
+                }
+            }
+        }
+    }
+
     pub(crate) fn reveal_rail_target(&self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(anchor) = self.rail_ui.anchors.borrow().get(&self.rail_ui.target) {
             anchor.scroll_to(window, cx);
@@ -150,6 +233,20 @@ impl Shell {
         } else {
             None
         };
+        if at == Some(EditFocus::Panel)
+            && !key.modifiers.control
+            && !key.modifiers.alt
+            && !key.modifiers.platform
+            && let len = self.rail_arranged().len().saturating_sub(1)
+            && let Some(act) = panel_act(&key.key, key.modifiers.shift, self.rail_ui.edit_cursor, len)
+        {
+            if !(matches!(act, PanelAct::Toggle) && event.is_held) {
+                let row = self.rail_ui.edit_cursor.min(len.saturating_sub(1));
+                self.rail_edit_act(row, act);
+            }
+            cx.notify();
+            return true;
+        }
         if let Some(at) = at
             && !key.modifiers.control
             && !key.modifiers.alt
@@ -180,7 +277,7 @@ impl Shell {
         {
             return false;
         }
-        let entries = self.sidebar.navigation_entries();
+        let entries = self.rail_entries();
         let index = entries
             .iter()
             .position(|entry| entry.scope == self.rail_ui.target)
@@ -222,7 +319,7 @@ impl Shell {
     pub(crate) fn rail_activate(&mut self, cx: &mut Context<Self>) {
         #[cfg(test)]
         sidebar_navigation_test::ACTIVATIONS[2].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let entries = self.sidebar.navigation_entries();
+        let entries = self.rail_entries();
         let index = entries
             .iter()
             .position(|entry| entry.scope == self.rail_ui.target)
@@ -267,8 +364,8 @@ impl Shell {
                     .overflow_y_scroll()
                     .track_scroll(&self.rail_ui.scroll)
                     .children(
-                        self.sidebar
-                            .navigation_entries()
+                        self
+                            .rail_entries()
                             .into_iter()
                             .enumerate()
                             .map(|(index, entry)| {
@@ -462,14 +559,19 @@ impl Shell {
             .into_any_element()
     }
 
-    /// Empty on purpose: the editing controls arrive with later work.
     pub(crate) fn rail_edit_open(&self) -> bool {
         self.rail_ui.edit_open
     }
 
-    pub(crate) fn render_edit_panel(&self, window: &Window) -> gpui::AnyElement {
+    pub(crate) fn render_edit_panel(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = self.theme.tokens();
         let focused = self.rail_ui.edit_panel_focus.is_focused(window);
+        let spaces: Vec<_> = self.rail_arranged().into_iter().skip(1).collect();
+        let last = spaces.len().saturating_sub(1);
+        let cursor = self.rail_ui.edit_cursor.min(last);
+        let action = |id: (&'static str, usize), label: &'static str, color: u32| {
+            div().id(id).px_2().py_1().rounded_md().text_size(px(12.)).text_color(rgb(color)).cursor_pointer().child(label)
+        };
         div()
             .id("rail-edit-panel")
             .track_focus(&self.rail_ui.edit_panel_focus)
@@ -481,6 +583,46 @@ impl Shell {
             .bg(rgb(t.surface))
             .border_r_1()
             .border_color(rgb(if focused { t.accent } else { t.border }))
+            .flex()
+            .flex_col()
+            .overflow_y_scroll()
+            .children(spaces.into_iter().enumerate().map(|(row, (entry, hidden))| {
+                let on = focused && row == cursor;
+                let color = if hidden { t.secondary } else { t.text };
+                div()
+                    .id(("rail-edit-row", row))
+                    .h(px(44.))
+                    .flex_shrink_0()
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .border_2()
+                    .border_color(rgb(if on { t.accent } else { t.surface }))
+                    .text_color(rgb(color))
+                    .text_size(px(14.))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.rail_ui.edit_cursor = row;
+                        cx.notify();
+                    }))
+                    .child(div().flex_1().truncate().child(entry.name))
+                    .child(action(("rail-edit-up", row), "↑", t.accent).on_click(cx.listener(move |this, _, _, cx| {
+                        this.rail_edit_act(row, PanelAct::Move(-1));
+                        cx.notify();
+                    })))
+                    .child(action(("rail-edit-down", row), "↓", t.accent).on_click(cx.listener(move |this, _, _, cx| {
+                        this.rail_edit_act(row, PanelAct::Move(1));
+                        cx.notify();
+                    })))
+                    .child(
+                        action(("rail-edit-hide", row), if hidden { "Mostra" } else { "Nascondi" }, t.accent).w(px(76.)).text_center().on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.rail_edit_act(row, PanelAct::Toggle);
+                                cx.notify();
+                            }),
+                        ),
+                    )
+            }))
             .into_any_element()
     }
 }
@@ -496,6 +638,19 @@ mod edit_focus_tests {
         assert_eq!(edit_step(Panel, true, "escape", false), Some((Button, false)));
         assert_eq!(edit_step(Button, true, "enter", false), Some((Button, false)));
         assert_eq!(edit_step(Button, true, "escape", false), Some((Button, false)));
+    }
+
+    #[test]
+    fn panel_keys() {
+        use super::{PanelAct, panel_act};
+        assert_eq!(panel_act("down", false, 0, 3), Some(PanelAct::Go(1)));
+        assert_eq!(panel_act("down", false, 2, 3), Some(PanelAct::Go(2)));
+        assert_eq!(panel_act("up", false, 0, 3), Some(PanelAct::Go(0)));
+        assert_eq!(panel_act("up", true, 1, 3), Some(PanelAct::Move(-1)));
+        assert_eq!(panel_act("down", true, 1, 3), Some(PanelAct::Move(1)));
+        assert_eq!(panel_act("enter", false, 0, 3), Some(PanelAct::Toggle));
+        assert_eq!(panel_act("space", false, 0, 0), None);
+        assert_eq!(panel_act("x", false, 0, 3), None);
     }
 
     #[test]

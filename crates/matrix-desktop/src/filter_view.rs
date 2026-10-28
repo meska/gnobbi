@@ -257,8 +257,7 @@ impl Shell {
             self.list_focus.focus(window);
         }
         if !self
-            .sidebar
-            .navigation_entries()
+            .rail_entries()
             .iter()
             .any(|entry| entry.scope == self.rail_ui.target)
         {
@@ -332,8 +331,7 @@ impl Shell {
                 &self.list_focus
             } else if key.modifiers.shift {
                 self.rail_ui.target = self
-                    .sidebar
-                    .navigation_entries()
+                    .rail_entries()
                     .last()
                     .unwrap()
                     .scope

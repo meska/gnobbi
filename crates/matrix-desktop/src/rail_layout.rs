@@ -1,0 +1,143 @@
+//! Local order and visibility of the spaces in the rail, per account (`rail-layout.json` in the
+//! config dir). Never sent to the server; «Tutte» is not part of it and is always shown first.
+use crate::{AppDirs, NavigationEntry};
+use serde_json::{Map, Value, json};
+use std::collections::{BTreeMap, HashSet};
+use std::io::Write;
+
+const FILE: &str = "rail-layout.json";
+
+/// Space room ids: `order` lists the spaces the user arranged, `hidden` the ones off the rail.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RailLayout {
+    order: Vec<String>,
+    hidden: HashSet<String>,
+}
+
+/// One list of strings, or None when the value is not a list of distinct strings.
+fn ids(value: Option<&Value>) -> Option<Vec<String>> {
+    let list: Vec<String> = value?
+        .as_array()?
+        .iter()
+        .map(|v| v.as_str().map(str::to_owned))
+        .collect::<Option<_>>()?;
+    (list.iter().collect::<HashSet<_>>().len() == list.len()).then_some(list)
+}
+
+impl RailLayout {
+    /// Spaces in rail order with their hidden flag; «Tutte» stays first. Spaces not arranged yet
+    /// follow the arranged ones in the server order.
+    pub fn arrange(&self, entries: Vec<NavigationEntry>) -> Vec<(NavigationEntry, bool)> {
+        let rank = |e: &NavigationEntry| {
+            e.scope.as_ref().map_or(0, |s| {
+                1 + self
+                    .order
+                    .iter()
+                    .position(|id| id == s.room_id.as_str())
+                    .unwrap_or(self.order.len())
+            })
+        };
+        let mut entries = entries;
+        entries.sort_by_key(rank); // stable
+        entries
+            .into_iter()
+            .map(|e| {
+                let hidden = e
+                    .scope
+                    .as_ref()
+                    .is_some_and(|s| self.hidden.contains(s.room_id.as_str()));
+                (e, hidden)
+            })
+            .collect()
+    }
+
+    /// Moves a space one step (-1 up, +1 down) among `current`, the ids as shown now.
+    pub fn shift(&mut self, current: &[String], id: &str, delta: isize) -> bool {
+        let Some(at) = current.iter().position(|c| c == id) else {
+            return false;
+        };
+        let Some(to) = at
+            .checked_add_signed(delta)
+            .filter(|to| *to < current.len())
+        else {
+            return false;
+        };
+        let mut order = current.to_vec();
+        order.swap(at, to);
+        self.order = order;
+        true
+    }
+
+    pub fn toggle_hidden(&mut self, id: &str) {
+        if !self.hidden.remove(id) {
+            self.hidden.insert(id.to_owned());
+        }
+    }
+}
+
+/// Layouts of all accounts, keyed by catalog account id.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RailLayouts(BTreeMap<u64, RailLayout>);
+
+impl RailLayouts {
+    /// Missing or corrupt file: every account in default order. A bad field resets only that
+    /// field of that account.
+    pub fn load(dirs: &AppDirs) -> Self {
+        let Ok(bytes) = std::fs::read(dirs.config.join(FILE)) else {
+            return Self::default();
+        };
+        let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(&bytes) else {
+            return Self::default();
+        };
+        Self(
+            map.iter()
+                .filter_map(|(key, value)| {
+                    let layout = RailLayout {
+                        order: ids(value.get("order")).unwrap_or_default(),
+                        hidden: ids(value.get("hidden"))
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect(),
+                    };
+                    Some((key.parse().ok()?, layout))
+                })
+                .collect(),
+        )
+    }
+
+    pub fn get(&self, account: u64) -> RailLayout {
+        self.0.get(&account).cloned().unwrap_or_default()
+    }
+
+    pub fn set(&mut self, account: u64, layout: RailLayout) {
+        self.0.insert(account, layout);
+    }
+
+    /// Atomic write (temp file then rename), owner-only.
+    pub fn save(&self, dirs: &AppDirs) -> std::io::Result<()> {
+        #[cfg(unix)]
+        crate::create_private_dir(&dirs.config)?;
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(&dirs.config)?;
+        let body: Map<String, Value> = self
+            .0
+            .iter()
+            .map(|(id, l)| {
+                let mut hidden: Vec<_> = l.hidden.iter().collect();
+                hidden.sort();
+                (
+                    id.to_string(),
+                    json!({ "order": l.order, "hidden": hidden }),
+                )
+            })
+            .collect();
+        let tmp = dirs.config.join(format!("{FILE}.tmp"));
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        opts.open(&tmp)?
+            .write_all(Value::Object(body).to_string().as_bytes())?;
+        std::fs::rename(tmp, dirs.config.join(FILE))
+    }
+}

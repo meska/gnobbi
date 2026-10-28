@@ -32,6 +32,8 @@ pub use account_list::{AccountRow, account_rows, initials};
 pub use app_dirs::{AppDirs, Platform, app_dirs};
 pub mod legacy_profile;
 mod preferences;
+mod rail_layout;
+pub use rail_layout::{RailLayout, RailLayouts};
 pub use preferences::{Preferences, Theme};
 mod composer;
 mod connection_options;
@@ -74,7 +76,7 @@ mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 pub mod row_text;
 mod sidebar;
-pub use sidebar::{Navigation, Sidebar, SidebarRoom, reading_offset};
+pub use sidebar::{Navigation, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DesignTokens {

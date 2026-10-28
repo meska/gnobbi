@@ -2020,7 +2020,7 @@ impl Render for Shell {
                 )
             })
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
-            .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window)))
+            .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, cx))
@@ -2301,7 +2301,7 @@ fn main() {
                     let search_focus = cx.focus_handle();
                     let theme_focus = cx.focus_handle();
                     let unread_focus = cx.focus_handle();
-                    let rail_ui = rail_view::RailUi::new(cx);
+                    let mut rail_ui = rail_view::RailUi::new(cx);
                     let spaces_ui = spaces_view::SpacesUi::new(cx);
                     for focus in [&theme_focus, &unread_focus, &rail_ui.focus, &spaces_ui.focus] {
                         cx.on_blur(focus, window, |this: &mut Shell, _, _| {
@@ -2333,6 +2333,7 @@ fn main() {
                         });
                     let prefs_dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok());
                     let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
+                    rail_ui.layouts = prefs_dirs.as_ref().map(matrix_desktop::RailLayouts::load).unwrap_or_default();
                     let theme = prefs.theme.unwrap_or(
                         if matches!(
                             window.appearance(),
