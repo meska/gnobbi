@@ -1034,10 +1034,35 @@ fn disposable_spaces_room_details_from_sync() {
             })
             .unwrap();
         assert_eq!(room.info.topic.as_deref(), Some("Topic from server"));
+        assert_eq!(room.info.avatar, None, "no avatar from the server means None");
         assert_eq!(room.info.joined_members, 1);
         assert!(!room.info.is_space);
         assert_eq!(room.info.encrypted, Some(false));
         assert!(sync.next_batch().await.unwrap().is_empty());
+        let mxc = "mxc://matrix-desktop.test/avatarOne";
+        room_request(
+            &config,
+            "alice",
+            reqwest::Method::PUT,
+            &format!("rooms/{id}/state/m.room.avatar/"),
+            serde_json::json!({"url": mxc}),
+        )
+        .await;
+        let mut found = None;
+        for _ in 0..20 {
+            for d in sync.next_batch().await.unwrap() {
+                if let RoomListDiff::Upsert(r) = d
+                    && r.scope.room_id.as_str() == id
+                    && r.info.avatar.is_some()
+                {
+                    found = r.info.avatar;
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        assert_eq!(found.as_deref(), Some(mxc));
     });
 }
 

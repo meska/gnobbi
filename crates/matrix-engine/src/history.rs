@@ -14,6 +14,8 @@ pub struct HistoryRequest {
 pub struct HistorySender {
     pub id: String,
     pub name: Option<String>,
+    /// mxc URI of the member avatar when the room member has one; not downloaded here.
+    pub avatar: Option<String>,
 }
 
 impl HistorySender {
@@ -24,7 +26,13 @@ impl HistorySender {
                 .map(str::trim)
                 .filter(|n| !n.is_empty())
                 .map(str::to_owned),
+            avatar: None,
         }
+    }
+
+    pub fn with_avatar(mut self, avatar: Option<String>) -> Self {
+        self.avatar = avatar;
+        self
     }
 }
 
@@ -95,6 +103,18 @@ pub enum HistoryError {
 pub struct HistoryResult {
     pub tag: RequestTag,
     pub page: Result<HistoryPage, HistoryError>,
+}
+
+#[cfg(test)]
+mod sender_avatar_tests {
+    use super::*;
+
+    #[test]
+    fn avatar_is_absent_unless_given() {
+        assert_eq!(HistorySender::new("@a:t", None).avatar, None);
+        let s = HistorySender::new("@a:t", None).with_avatar(Some("mxc://t/a".into()));
+        assert_eq!(s.avatar.as_deref(), Some("mxc://t/a"));
+    }
 }
 
 #[cfg(test)]

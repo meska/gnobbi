@@ -899,6 +899,7 @@ impl RoomSync {
                         preview: latest_event_text(&room).await,
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
+                        avatar: room.avatar_url().map(|u| u.to_string()),
                         marked_unread: room.is_marked_unread(),
                         joined_members: room.joined_members_count(),
                         mentions: if self.sliding_counts {
@@ -1167,6 +1168,7 @@ async fn history_sender(
 ) -> crate::history::HistorySender {
     let member = room.get_member_no_sync(id).await.ok().flatten();
     crate::history::HistorySender::new(id.as_str(), member.as_ref().and_then(|m| m.display_name()))
+        .with_avatar(member.as_ref().and_then(|m| m.avatar_url()).map(|u| u.to_string()))
 }
 
 async fn fetch_history(
