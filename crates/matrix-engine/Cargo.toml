@@ -49,6 +49,8 @@ required-features = ["sdk"]
 
 [dev-dependencies]
 futures-util = { version = "=0.3.34", default-features = false }
+# Fake homeserver and paused clock of tests/sync_flapping.rs.
+tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time", "macros", "sync", "net", "io-util", "test-util"] }
 
 [[test]]
 name = "sliding_sync_probe"
@@ -72,4 +74,8 @@ required-features = ["sdk"]
 
 [[test]]
 name = "thread_qa"
+required-features = ["sdk"]
+
+[[test]]
+name = "sync_flapping"
 required-features = ["sdk"]

@@ -4255,6 +4255,7 @@ dependencies = [
  "matrix-domain",
  "matrix-engine",
  "serde_json",
+ "tracing-subscriber",
  "url",
  "zeroize",
 ]
