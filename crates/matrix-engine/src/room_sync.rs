@@ -342,6 +342,8 @@ impl RoomListWorker {
                         verification_results,
                     ));
                     let operation_client = client.clone();
+                    let timelines = Timelines::default();
+                    let operation_timelines = timelines.clone();
                     let operation_state = sync.operation_state.clone();
                     let operation_stop = cancelled.clone();
                     let mut operations_task = tokio::spawn(async move {
@@ -361,6 +363,7 @@ impl RoomListWorker {
                                         &operation_stop,
                                         crate::operations::details(
                                             &operation_client,
+                                            &operation_timelines,
                                             account,
                                             tag.scope(),
                                             &target,
@@ -428,6 +431,7 @@ impl RoomListWorker {
                                 OperationCommand::Apply(request) => {
                                     let result = crate::operations::perform(
                                         &operation_client,
+                                        &operation_timelines,
                                         account,
                                         &operation_state,
                                         &request,
@@ -481,7 +485,6 @@ impl RoomListWorker {
                     let warm_opened = opened.clone();
                     let warm_stop = cancelled.clone();
                     // Runtime owns this read-only task; shutdown drops/cancels it.
-                    let timelines = Timelines::default();
                     let history_task = tokio::spawn(async move {
                         while let Some(request) = requests.recv().await {
                             if request.tag.is_cancelled() {
@@ -684,7 +687,14 @@ impl RoomSync {
             .client
             .as_ref()
             .ok_or(crate::operations::OperationError::Unavailable)?;
-        crate::operations::details(client, self.session.account_id(), scope, target).await
+        crate::operations::details(
+            client,
+            &self.timelines,
+            self.session.account_id(),
+            scope,
+            target,
+        )
+        .await
     }
 
     pub async fn operate(
@@ -698,6 +708,7 @@ impl RoomSync {
             .ok_or(crate::operations::OperationError::Unavailable)?;
         crate::operations::perform(
             client,
+            &self.timelines,
             self.session.account_id(),
             &self.operation_state,
             request,
@@ -1217,7 +1228,7 @@ pub(crate) struct Timelines(
 );
 
 impl Timelines {
-    async fn get(
+    pub(crate) async fn get(
         &self,
         room: &matrix_sdk::Room,
     ) -> Result<std::sync::Arc<matrix_sdk_ui::timeline::Timeline>, crate::history::HistoryError>

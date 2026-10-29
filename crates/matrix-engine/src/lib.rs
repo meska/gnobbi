@@ -1,4 +1,5 @@
-#![cfg_attr(test, recursion_limit = "256")]
+// The Timeline futures nest deeper than the default 128 once awaited in the operations worker.
+#![recursion_limit = "256"]
 
 //! Headless backend/UI boundary with an opt-in Matrix SDK adapter surface.
 //!

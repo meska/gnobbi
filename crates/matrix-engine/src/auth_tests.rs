@@ -308,6 +308,44 @@ fn disposable_operation_edit_uses_replacement_without_second_message() {
 
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_operation_edit_and_reply_carry_markdown_formatting() {
+    use crate::{
+        operations::{Operation, OperationRequest},
+        room_sync::RoomSync,
+    };
+    use matrix_domain::{EventId, RoomId, RoomScope, TransactionId};
+    let config = fixture();
+    runtime().block_on(async {
+        let room = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"name":"markdown","visibility":"private"})).await["room_id"]
+            .as_str().unwrap().to_owned();
+        let target = room_request(&config, "alice", reqwest::Method::PUT,
+            &format!("rooms/{room}/send/m.room.message/target"),
+            serde_json::json!({"msgtype":"m.text","body":"Prima"})).await["event_id"]
+            .as_str().unwrap().to_owned();
+        let mut sync = RoomSync::new(login(&config, "alice", 21).await);
+        sync.next_batch().await.unwrap();
+        let scope = RoomScope { account_id: AccountId::new(21), room_id: RoomId::new(&room) };
+        for (txn, operation) in [
+            ("p281b-edit-md", Operation::Edit { body: "**x** ok".into() }),
+            ("p281b-reply-md", Operation::Reply { body: "**y** ok".into() }),
+        ] {
+            let edit = matches!(operation, Operation::Edit { .. });
+            let sent = sync.operate(&OperationRequest {
+                scope: scope.clone(), transaction_id: TransactionId::new(txn),
+                target: EventId::new(&target), operation,
+            }).await.expect("accepted");
+            let event = room_request(&config, "alice", reqwest::Method::GET,
+                &format!("rooms/{room}/event/{}", sent.as_str()), serde_json::json!({})).await;
+            let content = if edit { &event["content"]["m.new_content"] } else { &event["content"] };
+            assert!(content["formatted_body"].as_str().unwrap().contains("<strong>"), "{event}");
+            assert_eq!(content["format"], "org.matrix.custom.html");
+        }
+    });
+}
+
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
 fn disposable_operation_rejects_edit_of_another_sender() {
     use crate::{
         operations::{Operation, OperationError, OperationRequest},

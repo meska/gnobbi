@@ -108,56 +108,86 @@ pub struct MessageDetails {
 }
 
 #[cfg(feature = "sdk")]
-pub(crate) async fn details(
+const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The room's Timeline (the one the history uses) and the message item for `target`; pages back a
+/// little when the message is not loaded yet.
+#[cfg(feature = "sdk")]
+async fn locate(
     client: &matrix_sdk::Client,
+    timelines: &crate::room_sync::Timelines,
     account: matrix_domain::AccountId,
     scope: &RoomScope,
-    target: &EventId,
-) -> Result<MessageDetails, OperationError> {
-    use matrix_sdk::ruma::{
-        EventId as MatrixEventId, RoomId,
-        events::{
-            AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
-            SyncMessageLikeEvent,
-        },
-    };
+    target: &matrix_sdk::ruma::EventId,
+    page: bool,
+) -> Result<
+    (
+        matrix_sdk::Room,
+        std::sync::Arc<matrix_sdk_ui::timeline::Timeline>,
+        Option<matrix_sdk_ui::timeline::EventTimelineItem>,
+    ),
+    OperationError,
+> {
     if scope.account_id != account {
         return Err(OperationError::WrongScope);
     }
-    let id = RoomId::parse(scope.room_id.as_str()).map_err(|_| OperationError::WrongScope)?;
-    let target = MatrixEventId::parse(target.as_str()).map_err(|_| OperationError::InvalidInput)?;
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
     let room = client
         .get_room(&id)
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
         .ok_or(OperationError::Unavailable)?;
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        let event = room
-            .event(&target, None)
-            .await
-            .map_err(|_| OperationError::Unavailable)?;
-        let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-            SyncMessageLikeEvent::Original(message),
-        ))) = event.raw().deserialize()
-        else {
-            return Err(OperationError::Unavailable);
-        };
+    let timeline = timelines
+        .get(&room)
+        .await
+        .map_err(|_| OperationError::Unavailable)?;
+    let mut item = timeline.item_by_event_id(target).await;
+    // shortcut: about 3 s of polling (sync or pagination apply in the timeline's own task), one
+    // page of 25 back every fifth step; then the message counts as not found.
+    for step in 0..20 {
+        if item.is_some() || !page {
+            break;
+        }
+        if step % 5 == 4 {
+            let _ = timeline.paginate_backwards(25).await;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        item = timeline.item_by_event_id(target).await;
+    }
+    Ok((room, timeline, item))
+}
+
+#[cfg(feature = "sdk")]
+pub(crate) async fn details(
+    client: &matrix_sdk::Client,
+    timelines: &crate::room_sync::Timelines,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    target: &EventId,
+) -> Result<MessageDetails, OperationError> {
+    use matrix_sdk::ruma::events::MessageLikeEventType;
+    let target = matrix_sdk::ruma::EventId::parse(target.as_str())
+        .map_err(|_| OperationError::InvalidInput)?;
+    tokio::time::timeout(WAIT, async {
+        let (room, _, item) = locate(client, timelines, account, scope, &target, true).await?;
+        let item = item.ok_or(OperationError::Unavailable)?;
+        let message = item
+            .content()
+            .as_message()
+            .ok_or(OperationError::Unavailable)?;
         let user = client.user_id().ok_or(OperationError::Unavailable)?;
+        // The SDK has no permission check: power levels stay ours.
         let levels = room
             .power_levels()
             .await
             .map_err(|_| OperationError::Unavailable)?;
-        let own = user == message.sender;
-        let text = matches!(
-            message.content.msgtype,
-            matrix_sdk::ruma::events::room::message::MessageType::Text(_)
-        );
         let send = levels.user_can_send_message(user, MessageLikeEventType::RoomMessage);
         Ok(MessageDetails {
-            body: message.content.body().to_owned(),
+            body: message.body().to_owned(),
             permissions: MessagePermissions {
-                reply: send,
-                edit: own && text && send,
-                redact: if own {
+                reply: send && item.can_be_replied_to(),
+                edit: send && item.is_editable(),
+                redact: if item.is_own() {
                     levels.user_can_redact_own_event(user)
                 } else {
                     levels.user_can_redact_event_of_other(user)
@@ -299,12 +329,18 @@ pub async fn members(
 #[cfg(feature = "sdk")]
 #[derive(Default)]
 pub(crate) struct OperationJournal {
-    requests: Vec<(OperationRequest, Option<EventId>)>,
+    /// Request, its confirmed event, and the transaction ID the SDK send queue gave a redaction.
+    requests: Vec<(
+        OperationRequest,
+        Option<EventId>,
+        Option<matrix_sdk::ruma::OwnedTransactionId>,
+    )>,
 }
 
 #[cfg(feature = "sdk")]
 pub(crate) async fn perform(
     client: &matrix_sdk::Client,
+    timelines: &crate::room_sync::Timelines,
     account: matrix_domain::AccountId,
     state: &tokio::sync::Mutex<OperationJournal>,
     request: &OperationRequest,
@@ -316,174 +352,318 @@ pub(crate) async fn perform(
     let existing = state
         .requests
         .iter()
-        .position(|(original, _)| original.transaction_id == request.transaction_id);
+        .position(|(original, ..)| original.transaction_id == request.transaction_id);
+    let mut retry = false;
     let index = if let Some(index) = existing {
-        let (original, event) = &state.requests[index];
+        let (original, event, _) = &state.requests[index];
         if original != request {
             return Err(OperationError::InvalidInput);
         }
         if let Some(event) = event {
             return Ok(event.clone());
         }
-        if matches!(request.operation, Operation::Redact) {
-            let event = recover_redaction(client, request).await?;
-            state.requests[index].1 = Some(event.clone());
-            return Ok(event);
-        }
-        Some(index)
-    } else if matches!(
-        request.operation,
-        Operation::React { .. } | Operation::Redact
-    ) {
+        retry = true;
+        index
+    } else {
         if request.transaction_id.as_str().is_empty()
             || matches!(&request.operation, Operation::React { key } if key.trim().is_empty() || key.len() > 32768)
         {
             return Err(OperationError::InvalidInput);
         }
-        // shortcut: 128 reaction/redaction intents per session; use a durable journal before lifting this cap.
+        // shortcut: 128 unconfirmed-or-kept intents per session; replies and edits evict a confirmed
+        // one instead of refusing. Use a durable journal (P283a) before lifting this cap.
         if state.requests.len() >= 128 {
-            return Err(OperationError::Unavailable);
+            let confirmed = state.requests.iter().position(|(_, e, _)| e.is_some());
+            match (&request.operation, confirmed) {
+                (Operation::Reply { .. } | Operation::Edit { .. }, Some(old)) => {
+                    state.requests.remove(old);
+                }
+                _ => return Err(OperationError::Unavailable),
+            }
         }
-        state.requests.push((request.clone(), None));
-        Some(state.requests.len() - 1)
-    } else {
-        None
+        state.requests.push((request.clone(), None, None));
+        state.requests.len() - 1
     };
-    let event = perform_uncached(client, account, request).await?;
-    if let Some(index) = index {
-        state.requests[index].1 = Some(event.clone());
-    }
+    let mut queued = state.requests[index].2.clone();
+    let event = perform_uncached(client, timelines, account, request, retry, &mut queued).await;
+    state.requests[index].2 = queued;
+    let event = event?;
+    state.requests[index].1 = Some(event.clone());
     Ok(event)
+}
+
+/// The id of the next event the send queue reports as sent that satisfies `want` (read back from
+/// the server: the queue chooses its own transaction ids).
+#[cfg(feature = "sdk")]
+async fn sent_event(
+    updates: &mut tokio::sync::broadcast::Receiver<matrix_sdk::send_queue::SendQueueUpdate>,
+    room: &matrix_sdk::Room,
+    want: impl Fn(&serde_json::Value) -> bool,
+) -> Result<EventId, OperationError> {
+    use matrix_sdk::send_queue::RoomSendQueueUpdate::SentEvent;
+    use tokio::sync::broadcast::error::RecvError;
+    tokio::time::timeout(WAIT, async {
+        loop {
+            let update = match updates.recv().await {
+                Ok(update) => update,
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => return Err(OperationError::Transport),
+            };
+            let SentEvent { event_id, .. } = update.update else {
+                continue;
+            };
+            if update.room_id != room.room_id() {
+                continue;
+            }
+            let Ok(event) = room.event(&event_id, None).await else {
+                continue;
+            };
+            let event: serde_json::Value = serde_json::from_str(event.raw().json().get())
+                .map_err(|_| OperationError::Transport)?;
+            if want(&event) {
+                return Ok(EventId::new(event_id.as_str()));
+            }
+        }
+    })
+    .await
+    .map_err(|_| OperationError::Transport)?
 }
 
 #[cfg(feature = "sdk")]
 async fn perform_uncached(
     client: &matrix_sdk::Client,
+    timelines: &crate::room_sync::Timelines,
     account: matrix_domain::AccountId,
     request: &OperationRequest,
+    retry: bool,
+    queued: &mut Option<matrix_sdk::ruma::OwnedTransactionId>,
 ) -> Result<EventId, OperationError> {
-    use matrix_sdk::ruma::{EventId as MatrixEventId, RoomId};
-    if request.scope.account_id != account {
-        return Err(OperationError::WrongScope);
-    }
-    let room_id =
-        RoomId::parse(request.scope.room_id.as_str()).map_err(|_| OperationError::WrongScope)?;
+    use matrix_sdk::{room::edit::EditedContent, ruma::EventId as MatrixEventId};
     let target =
         MatrixEventId::parse(request.target.as_str()).map_err(|_| OperationError::InvalidInput)?;
     if request.transaction_id.as_str().is_empty() {
         return Err(OperationError::InvalidInput);
     }
-    let room = client
-        .get_room(&room_id)
-        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
-        .ok_or(OperationError::Unavailable)?;
-    if matches!(request.operation, Operation::Redact) {
-        let response = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            room.redact(&target, None, Some(request.transaction_id.as_str().into())),
-        )
-        .await
-        .map_err(|_| OperationError::Transport)?
-        .map_err(|error| {
-            if matches!(
-                error.client_api_error_kind(),
-                Some(matrix_sdk::ruma::api::error::ErrorKind::Forbidden)
-            ) {
-                OperationError::Forbidden
-            } else {
-                OperationError::Transport
-            }
-        })?;
-        return Ok(EventId::new(response.event_id.as_str()));
-    }
-    let body = match &request.operation {
-        Operation::Reply { body } | Operation::Edit { body } => body,
-        Operation::React { key } => key,
-        Operation::Redact => unreachable!(),
+    let text = match &request.operation {
+        Operation::Reply { body } | Operation::Edit { body } => Some(body),
+        Operation::React { key } => Some(key),
+        Operation::Redact => None,
     };
-    if body.trim().is_empty() || body.len() > 32768 {
+    if text.is_some_and(|text| text.trim().is_empty() || text.len() > 32768) {
         return Err(OperationError::InvalidInput);
     }
-    if matches!(request.operation, Operation::Edit { .. }) {
-        use matrix_sdk::ruma::events::{
-            AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
-        };
-        let event =
-            tokio::time::timeout(std::time::Duration::from_secs(5), room.event(&target, None))
-                .await
-                .map_err(|_| OperationError::Transport)?
-                .map_err(|_| OperationError::Unavailable)?;
-        let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-            SyncMessageLikeEvent::Original(original),
-        ))) = event.raw().deserialize()
-        else {
+    let user = client.user_id().ok_or(OperationError::Unavailable)?;
+    let redact = matches!(request.operation, Operation::Redact);
+    let (room, timeline, mut item) =
+        locate(client, timelines, account, &request.scope, &target, !redact).await?;
+    // A reaction is no Timeline item: look further only for a message.
+    if redact && item.is_none() && !is_reaction(&room, &target).await {
+        item = locate(client, timelines, account, &request.scope, &target, true)
+            .await?
+            .2;
+        if item.is_none() {
             return Err(OperationError::Unavailable);
-        };
-        if client.user_id() != Some(original.sender.as_ref()) {
-            return Err(OperationError::Forbidden);
         }
     }
-    let content = match &request.operation {
-        Operation::Redact => unreachable!(),
-        Operation::React { key } => serde_json::json!({
-            "m.relates_to": {"rel_type":"m.annotation", "event_id":target, "key":key}
-        }),
-        Operation::Reply { .. } => serde_json::json!({
-            "msgtype": "m.text", "body": body,
-            "m.relates_to": {"m.in_reply_to": {"event_id": target}}
-        }),
-        Operation::Edit { .. } => serde_json::json!({
-            "msgtype": "m.text", "body": format!("* {body}"),
-            "m.new_content": {"msgtype":"m.text", "body": body},
-            "m.relates_to": {"rel_type":"m.replace", "event_id": target}
-        }),
-    };
-    let event_type = if matches!(request.operation, Operation::React { .. }) {
-        "m.reaction"
-    } else {
-        "m.room.message"
-    };
-    let response = tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        room.send_raw(event_type, content)
-            .with_transaction_id(request.transaction_id.as_str().into()),
-    )
-    .await
-    .map_err(|_| OperationError::Transport)?;
-    match response {
-        Ok(response) => Ok(EventId::new(response.response.event_id.as_str())),
-        Err(error)
-            if matches!(request.operation, Operation::React { .. })
-                && matches!(
-                    error.client_api_error_kind(),
-                    Some(matrix_sdk::ruma::api::error::ErrorKind::DuplicateAnnotation)
-                ) =>
-        {
-            recover_reaction(client, &room, request).await
+    let relation = |e: &serde_json::Value| e["content"]["m.relates_to"].clone();
+    match &request.operation {
+        Operation::Redact => {
+            let Some(item) = item else {
+                return redact_reaction(&room, user, request, retry).await;
+            };
+            // The SDK has no permission check: power levels stay ours.
+            let levels = room
+                .power_levels()
+                .await
+                .map_err(|_| OperationError::Unavailable)?;
+            let allowed = if item.is_own() {
+                levels.user_can_redact_own_event(user)
+            } else {
+                levels.user_can_redact_event_of_other(user)
+            };
+            if !allowed {
+                return Err(OperationError::Forbidden);
+            }
+            // An uncertain retry never queues a second redaction: it only looks for the first.
+            if !retry {
+                use matrix_sdk::send_queue::{
+                    LocalEcho, LocalEchoContent, RoomSendQueueUpdate::NewLocalEvent,
+                };
+                let mut updates = client.send_queue().subscribe();
+                timeline
+                    .redact(&item.identifier(), None)
+                    .await
+                    .map_err(|_| OperationError::Transport)?;
+                // The SDK picks the transaction ID of the queued redaction; it is the proof later.
+                while let Ok(update) = updates.try_recv() {
+                    if let NewLocalEvent(LocalEcho {
+                        transaction_id,
+                        content: LocalEchoContent::Redaction { redacts, .. },
+                    }) = update.update
+                        && redacts == target
+                    {
+                        *queued = Some(transaction_id);
+                    }
+                }
+            }
+            // Only a retry needs the proof: the first attempt queued this very redaction. A server
+            // that omits `unsigned.transaction_id` never confirms a retry (it stays Transport).
+            let proof = queued.as_ref().filter(|_| retry).map(|t| t.as_str());
+            tokio::time::timeout(WAIT, async {
+                loop {
+                    if let Ok(id) = redaction_of(&room, user, &target, proof).await {
+                        return id;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                }
+            })
+            .await
+            .map_err(|_| OperationError::Transport)
         }
-        Err(_) => Err(OperationError::Transport),
+        Operation::React { key } => {
+            let item = item.ok_or(OperationError::Unavailable)?;
+            let reacted = item
+                .content()
+                .reactions()
+                .is_some_and(|r| r.get(key.as_str()).is_some_and(|by| by.contains_key(user)));
+            if retry {
+                // The SDK shows no event ID for a reaction it already confirmed.
+                if let Ok(id) = own_reaction(&room, user, &target, key).await {
+                    return Ok(id);
+                }
+            } else if reacted {
+                return Err(OperationError::InvalidInput);
+            }
+            let mut updates = client.send_queue().subscribe();
+            let id = item.identifier();
+            let added = timeline
+                .toggle_reaction(&id, key)
+                .await
+                .map_err(|_| OperationError::Transport)?;
+            // `false`: it removed a queued echo of the first attempt; add it again.
+            if !added {
+                timeline
+                    .toggle_reaction(&id, key)
+                    .await
+                    .map_err(|_| OperationError::Transport)?;
+            }
+            sent_event(&mut updates, &room, |e| {
+                let r = relation(e);
+                e["type"] == "m.reaction"
+                    && r["rel_type"] == "m.annotation"
+                    && r["event_id"].as_str() == Some(target.as_str())
+                    && r["key"].as_str() == Some(key.as_str())
+            })
+            .await
+        }
+        Operation::Edit { body } => {
+            let item = item.ok_or(OperationError::Unavailable)?;
+            if item.content().as_message().is_none() {
+                return Err(OperationError::Unavailable);
+            }
+            if !item.is_own() {
+                return Err(OperationError::Forbidden);
+            }
+            if !item.is_editable() {
+                return Err(OperationError::Unavailable);
+            }
+            let mut updates = client.send_queue().subscribe();
+            let content = crate::sending::markdown_content(body, &[]);
+            timeline
+                .edit(
+                    &item.identifier(),
+                    EditedContent::RoomMessage(content.into()),
+                )
+                .await
+                .map_err(|_| OperationError::Transport)?;
+            sent_event(&mut updates, &room, |e| {
+                let r = relation(e);
+                r["rel_type"] == "m.replace" && r["event_id"].as_str() == Some(target.as_str())
+            })
+            .await
+        }
+        Operation::Reply { body } => {
+            if item.is_none() {
+                return Err(OperationError::Unavailable);
+            }
+            let mut updates = client.send_queue().subscribe();
+            let content = crate::sending::markdown_content(body, &[]);
+            timeline
+                .send_reply(content.into(), target.clone())
+                .await
+                .map_err(|_| OperationError::Transport)?;
+            sent_event(&mut updates, &room, |e| {
+                relation(e)["m.in_reply_to"]["event_id"].as_str() == Some(target.as_str())
+            })
+            .await
+        }
     }
 }
 
 #[cfg(feature = "sdk")]
-async fn recover_redaction(
-    client: &matrix_sdk::Client,
+async fn is_reaction(room: &matrix_sdk::Room, id: &matrix_sdk::ruma::EventId) -> bool {
+    let Ok(Ok(event)) = tokio::time::timeout(WAIT, room.event(id, None)).await else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(event.raw().json().get())
+        .is_ok_and(|event| event["type"] == "m.reaction")
+}
+
+/// A reaction is not a Timeline item, so the SDK cannot address it by event ID: removing one by
+/// its ID stays a plain redaction with our transaction ID, recoverable with that ID as proof.
+#[cfg(feature = "sdk")]
+async fn redact_reaction(
+    room: &matrix_sdk::Room,
+    user: &matrix_sdk::ruma::UserId,
     request: &OperationRequest,
+    retry: bool,
 ) -> Result<EventId, OperationError> {
-    use matrix_sdk::ruma::{EventId as MatrixEventId, RoomId};
-    let room_id =
-        RoomId::parse(request.scope.room_id.as_str()).map_err(|_| OperationError::WrongScope)?;
-    let target =
-        MatrixEventId::parse(request.target.as_str()).map_err(|_| OperationError::InvalidInput)?;
-    let room = client
-        .get_room(&room_id)
-        .filter(|room| room.state() == matrix_sdk::RoomState::Joined)
-        .ok_or(OperationError::Unavailable)?;
-    let user = client.user_id().ok_or(OperationError::Unavailable)?;
-    // A deleted row is not proof of this request; an uncertain retry never writes again.
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    let target = matrix_sdk::ruma::EventId::parse(request.target.as_str())
+        .map_err(|_| OperationError::InvalidInput)?;
+    if retry {
+        return redaction_of(room, user, &target, Some(request.transaction_id.as_str())).await;
+    }
+    let event = tokio::time::timeout(WAIT, room.event(&target, None))
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|_| OperationError::Unavailable)?;
+    let event: serde_json::Value =
+        serde_json::from_str(event.raw().json().get()).map_err(|_| OperationError::Unavailable)?;
+    if event["type"] != "m.reaction" {
+        return Err(OperationError::Unavailable);
+    }
+    let response = tokio::time::timeout(
+        WAIT,
+        room.redact(&target, None, Some(request.transaction_id.as_str().into())),
+    )
+    .await
+    .map_err(|_| OperationError::Transport)?
+    .map_err(|error| {
+        if matches!(
+            error.client_api_error_kind(),
+            Some(matrix_sdk::ruma::api::error::ErrorKind::Forbidden)
+        ) {
+            OperationError::Forbidden
+        } else {
+            OperationError::Transport
+        }
+    })?;
+    Ok(EventId::new(response.event_id.as_str()))
+}
+
+/// The redaction of `target` as stored by the server, if this user made it. With `transaction`,
+/// only the one sent with that transaction ID counts. A deleted row alone is no proof.
+#[cfg(feature = "sdk")]
+async fn redaction_of(
+    room: &matrix_sdk::Room,
+    user: &matrix_sdk::ruma::UserId,
+    target: &matrix_sdk::ruma::EventId,
+    transaction: Option<&str>,
+) -> Result<EventId, OperationError> {
+    use matrix_sdk::ruma::EventId as MatrixEventId;
+    tokio::time::timeout(WAIT, async {
         let original = room
-            .event(&target, None)
+            .event(target, None)
             .await
             .map_err(|_| OperationError::Transport)?;
         let original: serde_json::Value = serde_json::from_str(original.raw().json().get())
@@ -505,9 +685,9 @@ async fn recover_redaction(
             || event["sender"].as_str() != Some(user.as_str())
             || event["room_id"]
                 .as_str()
-                .is_some_and(|id| id != room_id.as_str())
+                .is_some_and(|id| id != room.room_id().as_str())
             || redacts.as_str() != Some(target.as_str())
-            || event["unsigned"]["transaction_id"].as_str() != Some(request.transaction_id.as_str())
+            || transaction.is_some_and(|t| event["unsigned"]["transaction_id"].as_str() != Some(t))
         {
             return Err(OperationError::Transport);
         }
@@ -517,30 +697,26 @@ async fn recover_redaction(
     .map_err(|_| OperationError::Transport)?
 }
 
+/// The user's own reaction `key` on `target` as stored by the server (the SDK shows no event ID for
+/// one it already confirmed).
 #[cfg(feature = "sdk")]
-async fn recover_reaction(
-    client: &matrix_sdk::Client,
+async fn own_reaction(
     room: &matrix_sdk::Room,
-    request: &OperationRequest,
+    user: &matrix_sdk::ruma::UserId,
+    target: &matrix_sdk::ruma::EventId,
+    key: &str,
 ) -> Result<EventId, OperationError> {
     use matrix_sdk::{
         room::{IncludeRelations, RelationsOptions},
         ruma::events::relation::RelationType,
     };
-    let Operation::React { key } = &request.operation else {
-        return Err(OperationError::InvalidInput);
-    };
-    let target = matrix_sdk::ruma::EventId::parse(request.target.as_str())
-        .map_err(|_| OperationError::InvalidInput)?;
-    let user = client.user_id().ok_or(OperationError::Unavailable)?;
-    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+    tokio::time::timeout(WAIT, async {
         let mut from = None;
-        let mut cursors = std::collections::BTreeSet::new();
-        let mut found = None;
-        loop {
+        // shortcut: 20 pages of 25 annotations, then the reaction counts as not found.
+        for _ in 0..20 {
             let page = room
                 .relations(
-                    target.clone(),
+                    target.to_owned(),
                     RelationsOptions {
                         from,
                         limit: Some(25u32.into()),
@@ -555,44 +731,20 @@ async fn recover_reaction(
             for event in page.chunk {
                 let value: serde_json::Value = serde_json::from_str(event.raw().json().get())
                     .map_err(|_| OperationError::Transport)?;
-                if value["sender"].as_str() != Some(user.as_str())
-                    || value["unsigned"]["transaction_id"].as_str()
-                        != Some(request.transaction_id.as_str())
+                if value["sender"].as_str() == Some(user.as_str())
+                    && value["type"] == "m.reaction"
+                    && value["content"]["m.relates_to"]["key"].as_str() == Some(key)
+                    && let Some(id) = value["event_id"].as_str()
                 {
-                    continue;
+                    return Ok(EventId::new(id));
                 }
-                let relation = &value["content"]["m.relates_to"];
-                if value["room_id"]
-                    .as_str()
-                    .is_some_and(|id| id != request.scope.room_id.as_str())
-                    || value["type"] != "m.reaction"
-                    || relation["rel_type"] != "m.annotation"
-                    || relation["event_id"].as_str() != Some(request.target.as_str())
-                    || relation["key"].as_str() != Some(key.as_str())
-                {
-                    return Err(OperationError::InvalidInput);
-                }
-                let id = value["event_id"]
-                    .as_str()
-                    .ok_or(OperationError::Transport)?;
-                matrix_sdk::ruma::EventId::parse(id).map_err(|_| OperationError::Transport)?;
-                if found
-                    .as_ref()
-                    .is_some_and(|previous: &EventId| previous.as_str() != id)
-                {
-                    return Err(OperationError::Transport);
-                }
-                found = Some(EventId::new(id));
             }
-            let Some(next) = page.next_batch_token else {
+            from = page.next_batch_token;
+            if from.is_none() {
                 break;
-            };
-            if !cursors.insert(next.clone()) {
-                return Err(OperationError::Transport);
             }
-            from = Some(next);
         }
-        found.ok_or(OperationError::Transport)
+        Err(OperationError::Transport)
     })
     .await
     .map_err(|_| OperationError::Transport)?
@@ -632,12 +784,13 @@ mod tests {
                                 ..request.clone()
                             },
                             Some(EventId::new("$confirmed")),
+                            None,
                         )
                     })
                     .collect(),
             });
             assert_eq!(
-                perform(&client, AccountId::new(52), &state, &request).await,
+                perform(&client, &crate::room_sync::Timelines::default(), AccountId::new(52), &state, &request).await,
                 Ok(EventId::new("$confirmed"))
             );
             let new = OperationRequest {
@@ -645,7 +798,7 @@ mod tests {
                 ..request
             };
             assert_eq!(
-                perform(&client, AccountId::new(52), &state, &new).await,
+                perform(&client, &crate::room_sync::Timelines::default(), AccountId::new(52), &state, &new).await,
                 Err(OperationError::Unavailable)
             );
             assert_eq!(state.lock().await.requests.len(), 128);
