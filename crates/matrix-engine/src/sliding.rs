@@ -64,6 +64,8 @@ impl StatusGate {
     /// A valid sliding response (or the SDK back from offline).
     pub(crate) fn succeed(&mut self) {
         (self.episodes, self.since) = (0, None);
+        // A valid response proves reachability; a mute server produces none, so probe misses still count then.
+        (self.probe_misses, self.probe_since) = (0, None);
     }
 
     /// A reachability probe; one slow answer changes nothing.
@@ -486,6 +488,28 @@ mod tests {
                     (10, Probe(false)),
                     (15, Probe(false)),
                     (16, Probe(true)),
+                ],
+                vec![],
+            ),
+            (
+                "3 probe misses, success clears them",
+                vec![
+                    (5, Probe(false)),
+                    (10, Probe(false)),
+                    (15, Probe(false)),
+                    (16, Succeed),
+                ],
+                vec![],
+            ),
+            (
+                "3 probe misses, success inside 20 s, 2 more misses",
+                vec![
+                    (5, Probe(false)),
+                    (10, Probe(false)),
+                    (15, Probe(false)),
+                    (16, Succeed),
+                    (20, Probe(false)),
+                    (25, Probe(false)),
                 ],
                 vec![],
             ),

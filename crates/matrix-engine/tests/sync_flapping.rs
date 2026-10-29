@@ -142,7 +142,7 @@ fn h3_server_error_in_sliding_sync_shows_one_failure() {
     show("H3", &seen, &fake);
     assert_eq!(names(&seen), ["Ready", "SyncFailed", "Ready"], "{seen:?}");
     assert!(
-        (12..=35).contains(&times(&seen, "SyncFailed")[0]),
+        (12..=25).contains(&times(&seen, "SyncFailed")[0]),
         "{seen:?}"
     );
     assert!(times(&seen, "Ready")[1] >= 40, "{seen:?}");

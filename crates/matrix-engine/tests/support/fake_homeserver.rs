@@ -68,7 +68,12 @@ impl Fake {
     }
 
     pub fn set_sync(&self, mode: SyncMode) {
+        // A 500 must also reach a long-poll already held, not only the next request.
+        let cut = matches!(mode, SyncMode::Status(_));
         self.state.lock().unwrap().sync = mode;
+        if cut {
+            self.cut.notify_waiters();
+        }
     }
     pub fn delay_next_whoami(&self, by: Duration) {
         self.state.lock().unwrap().whoami_delay_once = Some(by);
