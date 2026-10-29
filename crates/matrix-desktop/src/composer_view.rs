@@ -422,7 +422,7 @@ impl ComposerView {
             let size = std::fs::metadata(&path).ok()?.len();
             Some((
                 name,
-                (size <= MAX_ATTACHMENT)
+                (0 < size && size <= MAX_ATTACHMENT)
                     .then(|| std::fs::read(&path).ok())
                     .flatten(),
             ))
@@ -448,6 +448,12 @@ impl ComposerView {
     }
 
     fn attach_image(&mut self, image: &gpui::Image, cx: &mut Context<Self>) {
+        // Synapse rejects zero-byte uploads, so an empty paste never becomes attachable.
+        if image.bytes.is_empty() {
+            self.attach_error = Some("File non allegabile");
+            cx.notify();
+            return;
+        }
         let ext = image.format.mime_type().rsplit('/').next().unwrap_or("png");
         let ext = ext.split('+').next().unwrap_or(ext);
         self.attachment = Some(Pending {
@@ -2238,7 +2244,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known bug: an empty file is attached and every send then fails"]
+    #[ignore = "requires private display"]
     fn empty_file_is_refused_before_sending() {
         let dir = scratch("empty");
         let empty = dir.join("vuoto.txt");

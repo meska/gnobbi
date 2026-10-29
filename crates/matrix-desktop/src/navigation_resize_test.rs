@@ -516,12 +516,12 @@ fn install_signin_queue(window: &mut Window, cx: &mut Context<Shell>) {
             assert!(this.dispatch_signin_action(&A::SignIn(old),window,cx));
             assert_eq!(view.read(cx).semantic_snapshot(window,cx).focused,Some(Control::Phrase));
             let selected = this.active_scope.clone();
-            let dark = this.dark;
+            let dark = this.theme.is_dark();
             for action in [A::ToggleTheme(0), A::FocusSearch, A::FocusComposer, A::SubmitComposer { source: 0, scope: selected.clone(), text: "hidden chat sentinel".into() }] {
                 assert!(this.dispatch_signin_action(&action,window,cx));
             }
             assert_eq!(this.active_scope, selected);
-            assert_eq!(this.dark,dark);
+            assert_eq!(this.theme.is_dark(),dark);
             assert_eq!(view.read(cx).semantic_snapshot(window,cx).focused,Some(Control::Phrase));
             events.try_send(prompt).unwrap(); view.update(cx,|v,cx| { v.poll(cx); });
             let replacement = view.read(cx).semantic_snapshot(window,cx).source.unwrap();

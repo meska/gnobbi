@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 mod account_remove;
 mod account_switch;
 mod avatar_view;
