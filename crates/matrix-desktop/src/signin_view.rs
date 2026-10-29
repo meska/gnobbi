@@ -963,7 +963,7 @@ impl Render for SignInView {
             .size_full()
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
-            .font_family(matrix_desktop::UI_FONT)
+            .font_family(matrix_desktop::ui_font())
             .flex()
             .flex_col()
             .items_center()

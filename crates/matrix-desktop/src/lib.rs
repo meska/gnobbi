@@ -9,6 +9,10 @@ pub const UI_FONT: &str = "DejaVu Sans";
 #[cfg(windows)]
 pub const UI_FONT: &str = "Segoe UI";
 #[cfg(not(windows))]
+pub const SERIF_FONT: &str = "DejaVu Serif";
+#[cfg(windows)]
+pub const SERIF_FONT: &str = "Georgia";
+#[cfg(not(windows))]
 pub const MONO_FONT: &str = "DejaVu Sans Mono";
 #[cfg(windows)]
 pub const MONO_FONT: &str = "Consolas";
@@ -45,7 +49,9 @@ pub use accent::{Accent, current_accent, set_accent, system_accent};
 mod preferences;
 mod rail_layout;
 pub use rail_layout::{RailLayout, RailLayouts};
-pub use preferences::{Preferences, Theme};
+pub use preferences::{
+    AutoNight, FontChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,
+};
 mod composer;
 mod connection_options;
 pub mod panel_openers;

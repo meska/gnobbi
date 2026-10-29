@@ -2,6 +2,7 @@
 use crate::{Accent, AppDirs, DARK, DAY, DesignTokens, LIGHT, NIGHT};
 use serde_json::{Value, json};
 use std::io::Write;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 /// The four themes; each maps to one semantic palette in `DesignTokens`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +60,112 @@ impl Preferences {
     }
 }
 
+/// «Notte automatica»: when it applies, the Night theme replaces the chosen one.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AutoNight {
+    #[default]
+    Off,
+    /// Local time between 20:00 and 07:00.
+    Schedule,
+    /// The OS appearance is dark.
+    System,
+}
+
+impl AutoNight {
+    pub const ALL: [AutoNight; 3] = [AutoNight::Off, AutoNight::Schedule, AutoNight::System];
+    fn name(self) -> &'static str {
+        match self {
+            AutoNight::Off => "off",
+            AutoNight::Schedule => "schedule",
+            AutoNight::System => "system",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            AutoNight::Off => "No",
+            AutoNight::Schedule => "Orario",
+            AutoNight::System => "Sistema",
+        }
+    }
+    fn parse(s: &str) -> Option<AutoNight> {
+        Self::ALL.into_iter().find(|a| a.name() == s)
+    }
+}
+
+/// Font family of the interface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FontChoice {
+    #[default]
+    Sans,
+    Serif,
+    Mono,
+}
+
+impl FontChoice {
+    pub const ALL: [FontChoice; 3] = [FontChoice::Sans, FontChoice::Serif, FontChoice::Mono];
+    fn name(self) -> &'static str {
+        match self {
+            FontChoice::Sans => "sans",
+            FontChoice::Serif => "serif",
+            FontChoice::Mono => "mono",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            FontChoice::Sans => "Sans",
+            FontChoice::Serif => "Serif",
+            FontChoice::Mono => "Mono",
+        }
+    }
+    pub fn family(self) -> &'static str {
+        match self {
+            FontChoice::Sans => crate::UI_FONT,
+            FontChoice::Serif => crate::SERIF_FONT,
+            FontChoice::Mono => crate::MONO_FONT,
+        }
+    }
+    fn parse(s: &str) -> Option<FontChoice> {
+        Self::ALL.into_iter().find(|f| f.name() == s)
+    }
+}
+
+static FONT: AtomicU8 = AtomicU8::new(0);
+
+/// The font is process-wide, like the accent, so every view reads it while rendering.
+pub fn set_font(f: FontChoice) {
+    FONT.store(f as u8, Ordering::Relaxed);
+}
+
+pub fn ui_font() -> &'static str {
+    FontChoice::ALL[usize::from(FONT.load(Ordering::Relaxed)).min(2)].family()
+}
+
+/// Hours 20..24 and 0..7 are night.
+pub fn is_night_hour(hour: u32) -> bool {
+    !(7..20).contains(&hour)
+}
+
+pub fn local_hour() -> u32 {
+    chrono::Timelike::hour(&chrono::Local::now())
+}
+
+impl Preferences {
+    /// The theme to paint now: the saved one (or the OS appearance), Night when «notte automatica» applies.
+    pub fn effective_theme(&self, system_dark: bool, hour: u32) -> Theme {
+        let night = match self.auto_night {
+            AutoNight::Off => false,
+            AutoNight::Schedule => is_night_hour(hour),
+            AutoNight::System => system_dark,
+        };
+        match (night, self.theme) {
+            (true, _) => Theme::Night,
+            (_, Some(t)) => t,
+            (_, None) if system_dark => Theme::Dark,
+            _ => Theme::Classic,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Preferences {
     /// `None` follows the OS appearance (first start, or a missing/unknown saved value).
@@ -68,6 +175,8 @@ pub struct Preferences {
     pub debug: bool,
     /// «Conferme di lettura»: on by default, also when the saved value is missing or not a boolean.
     pub read_receipts: bool,
+    pub auto_night: AutoNight,
+    pub font: FontChoice,
 }
 
 impl Default for Preferences {
@@ -77,6 +186,8 @@ impl Default for Preferences {
             accent: Some(Accent::Blue),
             debug: false,
             read_receipts: true,
+            auto_night: AutoNight::Off,
+            font: FontChoice::Sans,
         }
     }
 }
@@ -110,6 +221,16 @@ impl Preferences {
                 .get("read_receipts")
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
+            auto_night: map
+                .get("auto_night")
+                .and_then(Value::as_str)
+                .and_then(AutoNight::parse)
+                .unwrap_or_default(),
+            font: map
+                .get("font")
+                .and_then(Value::as_str)
+                .and_then(FontChoice::parse)
+                .unwrap_or_default(),
         }
     }
 
@@ -124,7 +245,7 @@ impl Preferences {
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name() });
         opts.open(&tmp)?.write_all(body.to_string().as_bytes())?;
         std::fs::rename(tmp, dirs.config.join(FILE))
     }

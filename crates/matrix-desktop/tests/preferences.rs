@@ -1,4 +1,4 @@
-use matrix_desktop::{Accent, AppDirs, Preferences, Theme};
+use matrix_desktop::{Accent, AppDirs, AutoNight, FontChoice, Preferences, Theme};
 use std::path::PathBuf;
 
 fn dirs(root: &std::path::Path) -> AppDirs {
@@ -30,6 +30,8 @@ fn roundtrip_keeps_values() {
         accent: Some(Accent::Purple),
         debug: true,
         read_receipts: false,
+        auto_night: AutoNight::Schedule,
+        font: FontChoice::Serif,
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);
@@ -159,4 +161,72 @@ fn os_accent_names_map_onto_the_palette() {
     assert_eq!(Accent::parse("yellow"), Some(Accent::Orange));
     assert_eq!(Accent::parse("slate"), Some(Accent::Blue));
     assert_eq!(Accent::parse("nope"), None);
+}
+
+#[test]
+fn night_hours_are_20_to_07() {
+    let night: Vec<u32> = (0..24).filter(|h| matrix_desktop::is_night_hour(*h)).collect();
+    assert_eq!(night, [0, 1, 2, 3, 4, 5, 6, 20, 21, 22, 23]);
+}
+
+#[test]
+fn auto_night_picks_night_by_clock_or_system_else_the_saved_theme() {
+    let p = |auto_night, theme| Preferences { auto_night, theme, ..Preferences::default() };
+    // Off: never night, the OS only decides when nothing is saved.
+    assert_eq!(p(AutoNight::Off, Some(Theme::Day)).effective_theme(true, 23), Theme::Day);
+    assert_eq!(p(AutoNight::Off, None).effective_theme(true, 12), Theme::Dark);
+    assert_eq!(p(AutoNight::Off, None).effective_theme(false, 12), Theme::Classic);
+    // Schedule: clock only, the OS appearance is ignored.
+    let s = p(AutoNight::Schedule, Some(Theme::Day));
+    assert_eq!(s.effective_theme(false, 20), Theme::Night);
+    assert_eq!(s.effective_theme(false, 6), Theme::Night);
+    assert_eq!(s.effective_theme(true, 7), Theme::Day);
+    assert_eq!(s.effective_theme(true, 19), Theme::Day);
+    // System: OS only, the clock is ignored.
+    let y = p(AutoNight::System, Some(Theme::Day));
+    assert_eq!(y.effective_theme(true, 12), Theme::Night);
+    assert_eq!(y.effective_theme(false, 23), Theme::Day);
+}
+
+#[test]
+fn auto_night_and_font_default_safely_when_invalid_or_wrong_type() {
+    let d = dirs(&tmp("autofont"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    for body in [
+        r#"{"auto_night":"sunset","font":"comic"}"#,
+        r#"{"auto_night":3,"font":null}"#,
+        r#"{"auto_night":["schedule"],"font":{"a":1}}"#,
+        r#"[1,2]"#,
+    ] {
+        std::fs::write(d.config.join("settings.json"), body).unwrap();
+        let p = Preferences::load(&d);
+        assert_eq!((p.auto_night, p.font), (AutoNight::Off, FontChoice::Sans), "{body}");
+    }
+    // Old files without the new keys keep working.
+    std::fs::write(d.config.join("settings.json"), r#"{"theme":"dark","debug":true}"#).unwrap();
+    let p = Preferences::load(&d);
+    assert_eq!((p.theme, p.debug, p.auto_night, p.font), (Some(Theme::Dark), true, AutoNight::Off, FontChoice::Sans));
+}
+
+#[test]
+fn restart_restores_theme_accent_auto_night_and_font() {
+    let d = dirs(&tmp("restart"));
+    for auto_night in AutoNight::ALL {
+        for font in FontChoice::ALL {
+            let saved = Preferences {
+                theme: Some(Theme::Day),
+                accent: Some(Accent::Teal),
+                auto_night,
+                font,
+                ..Preferences::default()
+            };
+            saved.save(&d).unwrap();
+            // A new process reads the file and applies it before the first paint.
+            let loaded = Preferences::load(&d);
+            assert_eq!(loaded, saved);
+            matrix_desktop::set_font(loaded.font);
+            assert_eq!(matrix_desktop::ui_font(), font.family());
+        }
+    }
+    matrix_desktop::set_font(FontChoice::Sans);
 }

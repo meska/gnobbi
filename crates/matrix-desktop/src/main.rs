@@ -165,6 +165,7 @@ struct Shell {
     pending_history: Option<matrix_engine::history::HistoryRequest>,
     compact_chat: bool,
     theme: Theme,
+    system_dark: bool,
     search_focus: FocusHandle,
     list_focus: FocusHandle,
     scroll: UniformListScrollHandle,
@@ -621,6 +622,14 @@ impl Shell {
             },
             cx,
         );
+    }
+
+    /// Re-evaluates the saved theme and «notte automatica» (clock or OS appearance).
+    fn apply_theme(&mut self, cx: &mut Context<Self>) {
+        let theme = self.prefs.effective_theme(self.system_dark, matrix_desktop::local_hour());
+        if theme != self.theme {
+            self.set_theme(theme, cx);
+        }
     }
 
     fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
@@ -1673,7 +1682,7 @@ impl Render for Shell {
             .size_full()
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
-            .font_family(matrix_desktop::UI_FONT)
+            .font_family(matrix_desktop::ui_font())
             .text_size(px(14.))
             .when(!compact, |d| d.child(self.render_rail(window, cx)))
             .when(!compact || !self.compact_chat, |d| {
@@ -2411,16 +2420,12 @@ fn main() {
                     let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
                     rail_ui.layouts = prefs_dirs.as_ref().map(matrix_desktop::RailLayouts::load).unwrap_or_default();
                     matrix_desktop::set_accent(prefs.effective_accent());
-                    let theme = prefs.theme.unwrap_or(
-                        if matches!(
-                            window.appearance(),
-                            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
-                        ) {
-                            Theme::Dark
-                        } else {
-                            Theme::Classic
-                        },
+                    matrix_desktop::set_font(prefs.font);
+                    let system_dark = matches!(
+                        window.appearance(),
+                        gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
                     );
+                    let theme = prefs.effective_theme(system_dark, matrix_desktop::local_hour());
                     let composer = cx.new(|cx| {
                         let mut editor = ComposerView::new(active_scope.clone(), cx);
                         editor.set_theme(theme.tokens(), cx);
@@ -2710,6 +2715,21 @@ fn main() {
                             }
                         }
                     }).detach();
+                    cx.spawn(async move |this, cx| {
+                        loop {
+                            cx.background_executor().timer(std::time::Duration::from_secs(60)).await;
+                            if this.update(cx, |this, cx| this.apply_theme(cx)).is_err() {
+                                break;
+                            }
+                        }
+                    }).detach();
+                    cx.observe_window_appearance(window, |this: &mut Shell, window, cx| {
+                        this.system_dark = matches!(
+                            window.appearance(),
+                            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+                        );
+                        this.apply_theme(cx);
+                    }).detach();
                     cx.observe_window_bounds(window, |this: &mut Shell, window, cx| {
                         this.navigation_wide = window.viewport_size().width >= px(800.);
                         this.refresh_navigation_visibility();
@@ -2856,6 +2876,7 @@ fn main() {
                         pending_history: None,
                         compact_chat: false,
                         theme,
+                        system_dark,
                         search_focus,
                         list_focus: cx.focus_handle(),
                         scroll: UniformListScrollHandle::new(),

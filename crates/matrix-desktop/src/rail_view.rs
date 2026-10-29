@@ -47,7 +47,7 @@ impl Render for RailTooltip {
             .border_color(rgb(t.border))
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
-            .font_family(matrix_desktop::UI_FONT)
+            .font_family(matrix_desktop::ui_font())
             .text_size(px(12.))
             .child(self.label.clone())
     }

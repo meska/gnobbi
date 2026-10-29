@@ -23,9 +23,54 @@ impl Shell {
     }
 
     pub(crate) fn choose_theme(&mut self, theme: matrix_desktop::Theme, cx: &mut Context<Self>) {
-        self.set_theme(theme, cx);
         self.prefs.theme = Some(theme);
+        self.apply_theme(cx);
         self.save_prefs(cx);
+    }
+
+    pub(crate) fn choose_auto_night(&mut self, auto: matrix_desktop::AutoNight, cx: &mut Context<Self>) {
+        self.prefs.auto_night = auto;
+        self.apply_theme(cx);
+        self.save_prefs(cx);
+    }
+
+    pub(crate) fn choose_font(&mut self, font: matrix_desktop::FontChoice, cx: &mut Context<Self>) {
+        self.prefs.font = font;
+        matrix_desktop::set_font(font);
+        self.save_prefs(cx);
+    }
+
+    /// One row of mutually exclusive text choices; the chosen one is semibold with an accent border.
+    fn choice_row<T: Copy + PartialEq + 'static>(
+        &self,
+        id: &'static str,
+        options: &[(T, &'static str)],
+        current: T,
+        t: matrix_desktop::DesignTokens,
+        cx: &mut Context<Self>,
+        pick: fn(&mut Self, T, &mut Context<Self>),
+    ) -> gpui::AnyElement {
+        div()
+            .px_4()
+            .py_1()
+            .flex()
+            .gap_2()
+            .children(options.iter().enumerate().map(|(i, &(value, label))| {
+                let chosen = value == current;
+                div()
+                    .id((id, i))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(if chosen { t.accent } else { t.surface }))
+                    .text_color(rgb(t.text))
+                    .when(chosen, |d| d.font_weight(gpui::FontWeight::SEMIBOLD))
+                    .cursor_pointer()
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| pick(this, value, cx)))
+            }))
+            .into_any_element()
     }
 
     /// `None` follows the OS accent. The accent is process-wide so every `tokens()` call sees it.
@@ -426,6 +471,26 @@ impl Shell {
                         this.choose_accent(next, cx)
                     })),
             )
+            .child(
+                div().px_4().pt_2().text_color(rgb(t.text)).child("Notte automatica"),
+            )
+            .child(self.choice_row(
+                "settings-auto-night",
+                &matrix_desktop::AutoNight::ALL.map(|a| (a, a.label())),
+                self.prefs.auto_night,
+                t,
+                cx,
+                Self::choose_auto_night,
+            ))
+            .child(div().px_4().pt_2().text_color(rgb(t.text)).child("Carattere"))
+            .child(self.choice_row(
+                "settings-font",
+                &matrix_desktop::FontChoice::ALL.map(|f| (f, f.label())),
+                self.prefs.font,
+                t,
+                cx,
+                Self::choose_font,
+            ))
             .child(
                 div()
                     .h(px(t.header))
