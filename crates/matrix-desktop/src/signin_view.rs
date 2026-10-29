@@ -598,24 +598,19 @@ impl Render for SignInView {
             FormStatus::Failed(error) => Some(error),
             _ => None,
         };
-        let title = if recovery {
-            "Gnobbi — Cronologia cifrata"
+        let section = if recovery {
+            "Cronologia cifrata"
         } else if unlock {
-            "Gnobbi — Sblocca"
+            "Sblocca"
         } else {
-            "Gnobbi — Accedi"
+            "Accedi"
         };
-        window.set_window_title(&format!(
-            "{title}{}",
-            if error.is_some()
+        window.set_window_title(&matrix_desktop::window::title_for(Some((
+            section,
+            error.is_some()
                 || matches!(self.form.recovery(), Some(RecoveryState::Failed(_)))
-                || matches!(self.form.setup_phase(), Some(SetupPhase::Failed(_)))
-            {
-                " · errore"
-            } else {
-                ""
-            }
-        ));
+                || matches!(self.form.setup_phase(), Some(SetupPhase::Failed(_))),
+        ))));
         let enabled = matches!(self.form.status(), FormStatus::Prompt(_))
             || (recovery && self.form.source().is_some());
         let key = self.key_callback();
