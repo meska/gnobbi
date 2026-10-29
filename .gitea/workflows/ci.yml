@@ -24,6 +24,10 @@ jobs:
         run: cargo build --locked -j4 -p matrix-desktop --features live,linux-vault
       - name: Test
         run: cargo test --locked -j4 -p matrix-domain
+      - name: Test engine
+        run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
+      - name: Test desktop
+        run: cargo test --locked -j4 -p matrix-desktop --features live
       - name: AppImage
         if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
         run: |
