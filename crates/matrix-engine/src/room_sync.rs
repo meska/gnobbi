@@ -767,6 +767,36 @@ impl RoomSync {
         crate::operations::mark_room(client, &self.timelines, self.session.account_id(), scope, read, true).await
     }
 
+    /// A thread: root from the room's own timeline (the thread's `hit_start` is not reliable,
+    /// see THREADS.md) and the replies from a `TimelineFocus::Thread` timeline.
+    pub async fn open_thread(
+        &self,
+        scope: &RoomScope,
+        root: &matrix_domain::EventId,
+        want: usize,
+    ) -> Result<crate::threads::ThreadPage, crate::history::HistoryError> {
+        let room = self.thread_room(scope)?;
+        crate::threads::open(&self.timelines, &room, root, want).await
+    }
+
+    /// The room's threads, newest activity first (one `ThreadListService` page).
+    pub async fn thread_list(
+        &self,
+        scope: &RoomScope,
+    ) -> Result<Vec<crate::threads::ThreadSummary>, crate::history::HistoryError> {
+        crate::threads::list(self.thread_room(scope)?).await
+    }
+
+    fn thread_room(&self, scope: &RoomScope) -> Result<matrix_sdk::Room, crate::history::HistoryError> {
+        use crate::history::HistoryError;
+        let client = self.session.client.as_ref().ok_or(HistoryError::Unavailable)?;
+        if scope.account_id != self.session.account_id() {
+            return Err(HistoryError::WrongScope);
+        }
+        let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| HistoryError::WrongScope)?;
+        client.get_room(&id).filter(|r| r.state() == RoomState::Joined).ok_or(HistoryError::Unavailable)
+    }
+
     /// Read one server page on the backend, never on the UI thread.
     pub async fn history_page(
         &self,
@@ -1150,22 +1180,18 @@ async fn until_stopped<F: std::future::Future>(
 }
 
 /// Rows per history page.
-const PAGE: usize = 25;
+pub(crate) const PAGE: usize = 25;
 
 /// One SDK `Timeline` per room the user opened: the SDK owns edits, reactions, redactions,
 /// replies and decryption; the engine only translates its items to `HistoryEvent`.
 // shortcut: timelines are never evicted before the account closes, upgrade when memory shows it.
 #[derive(Clone, Default)]
 pub(crate) struct Timelines(
-    std::sync::Arc<
-        tokio::sync::Mutex<
-            std::collections::HashMap<
-                matrix_sdk::ruma::OwnedRoomId,
-                std::sync::Arc<matrix_sdk_ui::timeline::Timeline>,
-            >,
-        >,
-    >,
+    std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<TimelineKey, std::sync::Arc<matrix_sdk_ui::timeline::Timeline>>>>,
 );
+
+/// A room's own timeline (no root) or one of its threads.
+type TimelineKey = (matrix_sdk::ruma::OwnedRoomId, Option<matrix_sdk::ruma::OwnedEventId>);
 
 impl Timelines {
     pub(crate) async fn get(
@@ -1173,31 +1199,57 @@ impl Timelines {
         room: &matrix_sdk::Room,
     ) -> Result<std::sync::Arc<matrix_sdk_ui::timeline::Timeline>, crate::history::HistoryError>
     {
-        use matrix_sdk_ui::timeline::RoomExt;
+        self.focused(room, None).await
+    }
+
+    /// The timeline of one thread (same cache and same SDK `Timeline` type as the room's).
+    pub(crate) async fn thread(
+        &self,
+        room: &matrix_sdk::Room,
+        root: &matrix_sdk::ruma::EventId,
+    ) -> Result<std::sync::Arc<matrix_sdk_ui::timeline::Timeline>, crate::history::HistoryError>
+    {
+        self.focused(room, Some(root.to_owned())).await
+    }
+
+    async fn focused(
+        &self,
+        room: &matrix_sdk::Room,
+        root: Option<matrix_sdk::ruma::OwnedEventId>,
+    ) -> Result<std::sync::Arc<matrix_sdk_ui::timeline::Timeline>, crate::history::HistoryError>
+    {
+        use matrix_sdk_ui::timeline::{RoomExt, TimelineFocus};
         let mut all = self.0.lock().await;
-        if let Some(timeline) = all.get(room.room_id()) {
+        let key = (room.room_id().to_owned(), root.clone());
+        if let Some(timeline) = all.get(&key) {
             return Ok(timeline.clone());
         }
+        let builder = room.timeline_builder();
+        let builder = match root {
+            Some(root_event_id) => builder.with_focus(TimelineFocus::Thread { root_event_id }),
+            None => builder,
+        };
         let timeline = std::sync::Arc::new(
-            room.timeline()
+            builder
+                .build()
                 .await
                 .map_err(|_| crate::history::HistoryError::Unavailable)?,
         );
-        all.insert(room.room_id().to_owned(), timeline.clone());
+        all.insert(key, timeline.clone());
         Ok(timeline)
     }
 }
 
 /// What a `Timeline` holds now, oldest first: rows, live reaction counts, and whether the
 /// start of the room was reached (the SDK adds a virtual start item then).
-struct Loaded {
-    rows: Vec<crate::history::HistoryEvent>,
-    reactions: Vec<crate::history::ReactionCount>,
-    at_start: bool,
+pub(crate) struct Loaded {
+    pub(crate) rows: Vec<crate::history::HistoryEvent>,
+    pub(crate) reactions: Vec<crate::history::ReactionCount>,
+    pub(crate) at_start: bool,
 }
 
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
-async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Loaded {
+pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Loaded {
     use crate::history::{HistoryEvent, ReactionCount};
     use matrix_sdk_ui::timeline::{MsgLikeKind, VirtualTimelineItem};
     let mut out = Loaded {
@@ -1269,7 +1321,7 @@ async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Tim
 /// Grow the timeline backwards until at least `want` rows are loaded or the room starts.
 /// Saved chunks come first, then the server; a failed server step still returns what the
 /// saved chunks added.
-async fn fill(
+pub(crate) async fn fill(
     room: &matrix_sdk::Room,
     timeline: &matrix_sdk_ui::timeline::Timeline,
     want: usize,

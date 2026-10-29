@@ -1,9 +1,16 @@
 //! Thread QA: matrix-sdk-ui thread support on a disposable homeserver, two synthetic accounts, per-account
 //! SQLite stores (same builder settings as `persistence.rs`). Scenarios print `QA <name> PASS|FAIL detail`
-//! and the test fails if any failed. Driver: PROBE_TARGET=thread_qa PROBE_FEATURES=threads
+//! and the test fails if any failed. Driver: PROBE_TARGET=thread_qa PROBE_FEATURES=sdk
 //! PROBE_TEST=thread_qa_scenarios PROBE_EVIDENCE=artifacts/thread-qa python3 the timeline_probe script
-#![cfg(feature = "threads")]
+#![cfg(feature = "sdk")]
 #![recursion_limit = "512"]
+/// The raw SDK thread focus (the engine's own open path is `threads::open`, tested in thread_tests).
+mod thread_timeline {
+    use matrix_engine::{sdk::{Room, ruma::OwnedEventId}, sdk_ui::timeline::{Error, RoomExt, Timeline, TimelineFocus}};
+    pub async fn open(room: &Room, root: OwnedEventId) -> Result<Timeline, Error> {
+        room.timeline_builder().with_focus(TimelineFocus::Thread { root_event_id: root }).build().await
+    }
+}
 use matrix_engine::{
     sdk::{
         Client, Room,
@@ -34,7 +41,6 @@ use matrix_engine::{
             RoomExt, ThreadListPaginationState, ThreadListService, Timeline, TimelineFocus,
         },
     },
-    thread_timeline,
 };
 use std::{
     path::Path,

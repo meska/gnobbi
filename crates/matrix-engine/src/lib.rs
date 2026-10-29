@@ -25,8 +25,8 @@ pub mod room_sync;
 pub mod room_tags;
 #[cfg(feature = "sdk")]
 pub mod sliding;
-#[cfg(feature = "threads")]
-pub mod thread_timeline;
+#[cfg(feature = "sdk")]
+pub mod threads;
 pub mod verification;
 #[cfg(feature = "sdk")]
 mod warm;

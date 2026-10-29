@@ -1,6 +1,7 @@
 //! Real-server tests run only inside the disposable network namespace.
 include!("receipt_tests.rs");
 include!("live_activity_tests.rs");
+include!("thread_tests.rs");
 
 use crate::auth::{AccountSession, AuthError};
 use crate::discovery::HomeserverUrl;
