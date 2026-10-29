@@ -68,7 +68,10 @@ impl Outbox {
         let outcome = async {
             let room = room_for(&self.client, self.account, request)?;
             if let Some(file) = &request.attachment {
-                return crate::sending::send_attachment(&room, request, file).await.map(Some);
+                let timeline = timelines.get(&room).await.map_err(|_| SendError::Unavailable)?;
+                return crate::sending::send_attachment(&self.client, &room, &timeline, request, file)
+                    .await
+                    .map(Some);
             }
             // The same request again is a retry of the queued message, never a second message.
             if self.retry(&request.transaction_id) {

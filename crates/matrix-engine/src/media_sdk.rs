@@ -360,13 +360,16 @@ pub(crate) async fn send_png(
         let mime = "image/png"
             .parse()
             .map_err(|_| MediaError::UnsupportedType)?;
-        let config =
-            matrix_sdk::attachment::AttachmentConfig::new().txn_id(transaction.as_str().into());
-        let response = room
-            .send_attachment("image.png", &mime, data, config)
+        let config = matrix_sdk_ui::timeline::AttachmentConfig {
+            txn_id: Some(transaction.as_str().into()),
+            ..Default::default()
+        };
+        let timeline = matrix_sdk_ui::timeline::RoomExt::timeline(&room)
             .await
             .map_err(|_| MediaError::Failed)?;
-        Ok(EventId::new(response.event_id.as_str()))
+        crate::sending::queue_attachment_waiting(client, &room, &timeline, ("image.png".into(), data), mime, config)
+            .await
+            .map_err(|_| MediaError::Failed)
     })
     .await
     .map_err(|_| MediaError::Deadline)?

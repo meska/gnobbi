@@ -479,25 +479,29 @@ pub async fn send_text(
         let timeline = room.timeline().await.map_err(|_| SendError::Unavailable)?;
         return send_text_waiting(client, &room, &timeline, request).await;
     };
-    send_attachment(&room, request, file).await
+    let timeline = room.timeline().await.map_err(|_| SendError::Unavailable)?;
+    send_attachment(client, &room, &timeline, request, file).await
 }
 
 #[cfg(feature = "sdk")]
 pub(crate) async fn send_attachment(
+    client: &matrix_sdk::Client,
     room: &matrix_sdk::Room,
+    timeline: &matrix_sdk_ui::timeline::Timeline,
     request: &SendRequest,
     file: &Attachment,
 ) -> Result<EventId, SendError> {
     use matrix_sdk::{
-        attachment::{AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseImageInfo},
+        attachment::{AttachmentInfo, BaseAudioInfo, BaseImageInfo},
         ruma::events::room::message::TextMessageEventContent,
     };
+    use matrix_sdk_ui::timeline::AttachmentConfig;
     let transaction: matrix_sdk::ruma::OwnedTransactionId = request.transaction_id.as_str().into();
     // shortcut: no client thumbnail and no total-upload progress, add when the timeline shows uploads
     let mime = mime_guess::from_path(&file.filename).first_or_octet_stream();
-    let mut config = AttachmentConfig::new().txn_id(transaction);
+    let mut config = AttachmentConfig { txn_id: Some(transaction), ..Default::default() };
     if let Some(voice) = &file.voice {
-        config = config.info(AttachmentInfo::Voice(BaseAudioInfo {
+        config.info = Some(AttachmentInfo::Voice(BaseAudioInfo {
             duration: Some(std::time::Duration::from_millis(voice.duration_ms)),
             waveform: Some(voice.waveform.clone()),
             size: u32::try_from(file.data.len()).ok().map(Into::into),
@@ -505,7 +509,7 @@ pub(crate) async fn send_attachment(
     } else if mime.type_().as_str() == "image"
         && let Some((w, h)) = image_size(&file.data)
     {
-        config = config.info(AttachmentInfo::Image(BaseImageInfo {
+        config.info = Some(AttachmentInfo::Image(BaseImageInfo {
             width: Some(w.into()),
             height: Some(h.into()),
             size: u32::try_from(file.data.len()).ok().map(Into::into),
@@ -513,16 +517,71 @@ pub(crate) async fn send_attachment(
         }));
     }
     if !request.body.trim().is_empty() {
-        config = config.caption(Some(TextMessageEventContent::plain(&request.body)));
+        config.caption = Some(TextMessageEventContent::plain(&request.body));
     }
-    let sent = tokio::time::timeout(
-        std::time::Duration::from_secs(300),
-        room.send_attachment(&file.filename, &mime, file.data.clone(), config),
-    )
+    queue_attachment_waiting(client, room, timeline, (file.filename.clone(), file.data.clone()), mime, config).await
+}
+
+/// An attachment through the room's SDK send queue (local echo, upload and event in the queue; the
+/// bytes live in the encrypted-capable SDK media cache, never in a temp file) and wait for the
+/// server to accept it. A failure or the 300 s deadline takes it out of the queue again, so an
+/// error never leaves a file behind that would go out later.
+#[cfg(feature = "sdk")]
+pub(crate) async fn queue_attachment_waiting(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::Room,
+    timeline: &matrix_sdk_ui::timeline::Timeline,
+    (filename, bytes): (String, Vec<u8>),
+    mime: mime_guess::mime::Mime,
+    mut config: matrix_sdk_ui::timeline::AttachmentConfig,
+) -> Result<EventId, SendError> {
+    use matrix_sdk::{
+        ruma::OwnedTransactionId,
+        send_queue::{LocalEchoContent, RoomSendQueueUpdate::{SendError as Failed, SentEvent}},
+    };
+    use tokio::sync::broadcast::error::RecvError;
+    let txn: OwnedTransactionId = config.txn_id.get_or_insert_with(matrix_sdk::ruma::TransactionId::new).clone();
+    let mut updates = client.send_queue().subscribe();
+    timeline
+        .send_attachment(matrix_sdk_ui::timeline::AttachmentSource::Data { bytes, filename }, mime, config)
+        .use_send_queue()
+        .await
+        .map_err(|_| SendError::Transport)?;
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(300), async {
+        loop {
+            let update = match updates.recv().await {
+                Ok(update) => update,
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => return Err(SendError::Transport),
+            };
+            if update.room_id != room.room_id() {
+                continue;
+            }
+            match update.update {
+                SentEvent { transaction_id, event_id } if transaction_id == txn => {
+                    return Ok(EventId::new(event_id.as_str()));
+                }
+                Failed { transaction_id, error, .. } if transaction_id == txn => {
+                    return Err(map_error(&error));
+                }
+                _ => {}
+            }
+        }
+    })
     .await
-    .map_err(|_| SendError::Transport)?
-    .map_err(|error| map_error(&error))?;
-    Ok(EventId::new(sent.event_id.as_str()))
+    .unwrap_or(Err(SendError::Transport));
+    if outcome.is_err()
+        && let Ok(echoes) = client.send_queue().local_echoes().await
+        && let Some(echo) = echoes.into_values().flatten().find(|e| e.transaction_id == txn)
+        && let LocalEchoContent::Event { send_handle, .. } = echo.content
+    {
+        let _ = send_handle.abort().await;
+    }
+    if outcome.is_err() {
+        // A failed send switches every queue off; the offender is gone, so later sends must not stall.
+        client.send_queue().set_enabled(true).await;
+    }
+    outcome
 }
 
 #[cfg(test)]
