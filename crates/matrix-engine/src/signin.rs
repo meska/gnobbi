@@ -172,21 +172,41 @@ impl PasswordSignIn {
         let http = http.build().map_err(|_| SignInError::Discovery)?;
         let store =
             AccountStore::create(&self.root, self.account).map_err(|_| SignInError::Storage)?;
-        let phrase = match (self.phrase, source) {
-            (Some(phrase), None) => phrase,
-            (None, Some(source)) => source.create(&store).map_err(SignInError::Vault)?,
-            _ => return Err(SignInError::ProtectionMismatch),
-        };
-        store
-            .password_login_with_http(
-                result.homeserver,
-                &self.user,
-                &self.password.0,
-                &phrase.0,
-                http,
-            )
-            .await
-            .map_err(SignInError::Authentication)
+        let dir = store.path.clone();
+        let mut vault_secret = false;
+        let result = async {
+            let phrase = match (self.phrase, source) {
+                (Some(phrase), None) => phrase,
+                (None, Some(source)) => {
+                    let phrase = source.create(&store).map_err(SignInError::Vault)?;
+                    vault_secret = true;
+                    phrase
+                }
+                _ => return Err(SignInError::ProtectionMismatch),
+            };
+            store
+                .password_login_with_http(
+                    result.homeserver,
+                    &self.user,
+                    &self.password.0,
+                    &phrase.0,
+                    http,
+                )
+                .await
+                .map_err(SignInError::Authentication)
+        }
+        .await;
+        // A refused attempt must leave no account-N directory and no vault item behind.
+        if result.is_err() && !dir.join("session.sealed").exists() {
+            if vault_secret {
+                let _ = forget_secrets(self.account, std::slice::from_ref(&dir));
+            }
+            let _ = std::fs::remove_dir_all(&dir);
+            let mut video = dir.file_name().unwrap_or_default().to_owned();
+            video.push("-video");
+            let _ = std::fs::remove_dir_all(dir.with_file_name(video));
+        }
+        result
     }
 }
 
