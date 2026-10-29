@@ -6,10 +6,121 @@ use eyeball_im::Vector;
 use futures_util::StreamExt;
 use matrix_sdk::sliding_sync::Version;
 use matrix_sdk_ui::{
-    room_list_service::{RoomListItem, RoomListLoadingState, filters::new_filter_non_left},
+    room_list_service::{
+        RoomListItem, RoomListLoadingState, State as RoomListState, filters::new_filter_non_left,
+    },
     sync_service::{State, SyncService},
 };
-use tokio::sync::broadcast::error::RecvError;
+use tokio::{sync::broadcast::error::RecvError, time::Instant};
+
+/// Traces each shown-status change: previous, new, cause, time since the last one. Nothing else
+/// is logged (no token, header, error text or user data).
+struct StatusTrace {
+    shown: &'static str,
+    since: std::time::Instant,
+}
+
+impl StatusTrace {
+    fn change(&mut self, new: &'static str, cause: &'static str) {
+        tracing::info!(
+            target: "gnobbi::sync_status",
+            previous = self.shown,
+            new,
+            cause,
+            elapsed_ms = self.since.elapsed().as_millis() as u64,
+            "sync status"
+        );
+        self.shown = new;
+        self.since = std::time::Instant::now();
+    }
+}
+
+const OUTAGE: std::time::Duration = std::time::Duration::from_secs(20);
+const HOLD: std::time::Duration = std::time::Duration::from_secs(5);
+const EPISODES: u32 = 3;
+const PROBE_MISSES: u32 = 3;
+
+/// Decides when the bar says «sync failed»: only after 20 s without a success since the first
+/// failure, 3 failure episodes with no success between them, or 3 probe misses spanning 20 s;
+/// back at the first success. The shown text holds at least 5 s. Pure: the clock is injected.
+/// shortcut: the first change after start is not held, so a first Ready may flip at once.
+#[derive(Default)]
+pub(crate) struct StatusGate {
+    failed: bool,
+    changed: Option<Instant>,
+    episodes: u32,
+    since: Option<Instant>,
+    probe_misses: u32,
+    probe_since: Option<Instant>,
+}
+
+impl StatusGate {
+    /// One SyncService Offline/Error episode.
+    pub(crate) fn fail(&mut self, now: Instant) {
+        self.episodes += 1;
+        self.since.get_or_insert(now);
+    }
+
+    /// A valid sliding response (or the SDK back from offline).
+    pub(crate) fn succeed(&mut self) {
+        (self.episodes, self.since) = (0, None);
+        // A valid response proves reachability; a mute server produces none, so probe misses still count then.
+        (self.probe_misses, self.probe_since) = (0, None);
+    }
+
+    /// A reachability probe; one slow answer changes nothing.
+    pub(crate) fn probe(&mut self, now: Instant, ok: bool) {
+        if ok {
+            (self.probe_misses, self.probe_since) = (0, None);
+        } else {
+            self.probe_misses += 1;
+            self.probe_since.get_or_insert(now);
+        }
+    }
+
+    /// When failure becomes due, if it is pending.
+    fn due(&self) -> Option<Instant> {
+        let by_probe = self
+            .probe_since
+            .filter(|_| self.probe_misses >= PROBE_MISSES)
+            .map(|t| t + OUTAGE);
+        let by_sync = self.since.map(|t| {
+            if self.episodes >= EPISODES {
+                t
+            } else {
+                t + OUTAGE
+            }
+        });
+        by_probe.into_iter().chain(by_sync).min()
+    }
+
+    /// `Some(failed)` when the shown text must change now.
+    pub(crate) fn poll(&mut self, now: Instant) -> Option<bool> {
+        let want = self.due().is_some_and(|due| due <= now);
+        if want == self.failed || self.changed.is_some_and(|t| now < t + HOLD) {
+            return None;
+        }
+        (self.failed, self.changed) = (want, Some(now));
+        Some(want)
+    }
+
+    /// The next instant `poll` may answer differently; None if only an input can change it.
+    pub(crate) fn wake(&self, now: Instant) -> Option<Instant> {
+        let want = self.due().is_some_and(|due| due <= now);
+        let at = if want != self.failed {
+            self.changed.map(|t| t + HOLD)
+        } else if self.failed {
+            None
+        } else {
+            self.due()
+        };
+        at.filter(|at| *at > now)
+    }
+
+    pub(crate) fn failed(&self) -> bool {
+        self.failed
+    }
+}
 
 /// Send, stopping the adapter when the consumer is gone.
 async fn emit(sender: &mut Sender<RoomListEvent>, event: RoomListEvent) -> bool {
@@ -59,6 +170,10 @@ pub async fn run(
     sender: &mut Sender<RoomListEvent>,
     mut on_ready: impl FnMut(),
 ) {
+    let mut trace = StatusTrace {
+        shown: "connecting",
+        since: std::time::Instant::now(),
+    };
     let Some(client) = sync.client().cloned() else {
         let _ = emit(
             sender,
@@ -73,14 +188,21 @@ pub async fn run(
     // Before start, so no delivery is missed; the broadcast carries what classic /sync returned.
     let mut updates = client.subscribe_to_all_room_updates();
     let _ = client.event_cache().subscribe();
-    let service = match SyncService::builder(client.clone()).build().await {
+    let service = match SyncService::builder(client.clone())
+        // The SDK itself pings /versions while offline and restarts: no restart of ours for it.
+        .with_offline_mode()
+        .build()
+        .await
+    {
         Ok(service) => service,
         Err(_) => {
+            trace.change("sync_failed", "start_error");
             let _ = emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await;
             return;
         }
     };
-    let Ok(list) = service.room_list_service().all_rooms().await else {
+    let room_list = service.room_list_service();
+    let Ok(list) = room_list.all_rooms().await else {
         let _ = emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await;
         return;
     };
@@ -94,6 +216,9 @@ pub async fn run(
     let mut listed = Vector::new();
     let mut last_order = Vec::new();
     let mut state = service.state();
+    // Leaves `Error` only on a valid sliding response: the proof of success (`Running` of the
+    // service is set at `start`, before any response).
+    let mut list_state = room_list.state();
     service.start().await;
     use std::hash::{Hash, Hasher};
     let mut seed = std::collections::hash_map::DefaultHasher::new();
@@ -105,27 +230,32 @@ pub async fn run(
     let mut running = matches!(state.get(), State::Running);
     let mut loaded = matches!(loading.get(), RoomListLoadingState::Loaded { .. });
     let (mut ready, mut warmed) = (false, false);
+    let mut gate = StatusGate::default();
+    let mut cause = "";
+    // Restart after Error/Terminated, with backoff, without blocking the loop.
+    let mut restart_at: Option<Instant> = None;
     // SyncService stays Running while a silent server holds its requests open: probe it.
     let mut probe = tokio::time::interval(std::time::Duration::from_secs(5));
     probe.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    // Last probe failed: the next success lets `Ready` come back.
-    let mut unreachable = false;
     loop {
+        let far = Instant::now() + std::time::Duration::from_secs(86_400);
         tokio::select! {
+            _ = tokio::time::sleep_until(gate.wake(Instant::now()).unwrap_or(far)) => {}
+            _ = tokio::time::sleep_until(restart_at.unwrap_or(far)), if restart_at.is_some() => {
+                restart_at = None;
+                service.start().await;
+            }
             _ = probe.tick(), if running => {
-                let reachable = tokio::time::timeout(
+                let answer = tokio::time::timeout(
                     std::time::Duration::from_secs(5),
                     client.whoami(),
                 )
-                .await
-                .is_ok_and(|answer| answer.is_ok());
-                unreachable = !reachable;
-                if unreachable && ready {
-                    ready = false;
-                    if !emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await {
-                        return;
-                    }
+                .await;
+                let ok = answer.as_ref().is_ok_and(|answer| answer.is_ok());
+                if !ok {
+                    cause = if answer.is_err() { "probe_timeout" } else { "probe_error" };
                 }
+                gate.probe(Instant::now(), ok);
             }
             Some(alert) = alert_rx.recv() => {
                 if !emit(sender, alert).await {
@@ -154,17 +284,25 @@ pub async fn run(
                     return;
                 }
             }
+            Some(next) = list_state.next() => {
+                if !matches!(next, RoomListState::Error { .. } | RoomListState::Terminated { .. } | RoomListState::Init) {
+                    gate.succeed();
+                    backoff.reset();
+                }
+            }
             Some(next) = state.next() => match next {
                 State::Running => {
-                    backoff.reset();
+                    // Not a success: /versions can answer while sliding sync fails.
                     running = true;
                 }
-                State::Error(_) | State::Terminated | State::Offline => {
+                State::Offline => {
+                    (running, cause) = (false, "sync_service_offline");
+                    gate.fail(Instant::now());
+                }
+                State::Error(_) | State::Terminated => {
                     running = false;
-                    ready = false;
-                    if !emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await {
-                        return;
-                    }
+                    cause = if matches!(next, State::Error(_)) { "sync_service_error" } else { "sync_service_terminated" };
+                    gate.fail(Instant::now());
                     // An expired token is the one failure that must not retry.
                     if let Err(error) = client.whoami().await
                         && matches!(
@@ -179,8 +317,7 @@ pub async fn run(
                         .await;
                         return;
                     }
-                    tokio::time::sleep(backoff.next_delay()).await;
-                    service.start().await;
+                    restart_at = Some(Instant::now() + backoff.next_delay());
                 }
                 State::Idle => {}
             },
@@ -193,8 +330,23 @@ pub async fn run(
                 }
             }
         }
-        if running && loaded && !ready && !unreachable {
+        if gate.poll(Instant::now()) == Some(true) {
+            ready = false;
+            trace.change("sync_failed", cause);
+            if !emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await {
+                return;
+            }
+        }
+        if running && loaded && !ready && !gate.failed() {
             ready = true;
+            trace.change(
+                "ready",
+                if trace.shown == "sync_failed" {
+                    "recovered"
+                } else {
+                    "first_ready"
+                },
+            );
             if !emit(sender, RoomListEvent::Status(RoomSyncStatus::Ready)).await {
                 return;
             }
@@ -234,5 +386,141 @@ pub(crate) async fn first_sync(client: &matrix_sdk::Client) -> Result<(), ()> {
         Ok(())
     } else {
         Err(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Instant, StatusGate};
+    use std::time::Duration;
+
+    #[derive(Clone, Copy)]
+    enum In {
+        Fail,
+        Succeed,
+        Probe(bool),
+    }
+    use In::*;
+
+    /// Feeds `(second, input)` to a gate on a fake clock, polling every 100 ms (and so at every
+    /// `wake`); returns the (second, failed) text changes.
+    fn run(inputs: &[(u64, In)], end: u64) -> Vec<(u64, bool)> {
+        let t0 = Instant::now();
+        let mut gate = StatusGate::default();
+        let mut changes = Vec::new();
+        for ms in (0..=end * 1000).step_by(100) {
+            let now = t0 + Duration::from_millis(ms);
+            for (_, input) in inputs.iter().filter(|(s, _)| s * 1000 == ms) {
+                match input {
+                    Fail => gate.fail(now),
+                    Succeed => gate.succeed(),
+                    Probe(ok) => gate.probe(now, *ok),
+                }
+            }
+            if let Some(failed) = gate.poll(now) {
+                changes.push((ms / 1000, failed));
+            }
+            if let Some(at) = gate.wake(now) {
+                assert!(at > now);
+            }
+        }
+        changes
+    }
+
+    #[test]
+    fn transitions_table() {
+        let flaky: Vec<_> = (0..20)
+            .map(|i| (i * 2, if i % 2 == 0 { Fail } else { Succeed }))
+            .collect();
+        let cases: Vec<(&str, Vec<(u64, In)>, Vec<(u64, bool)>)> = vec![
+            ("outage 1 s", vec![(0, Fail), (1, Succeed)], vec![]),
+            ("outage 3 s", vec![(0, Fail), (3, Succeed)], vec![]),
+            ("outage 5 s", vec![(0, Fail), (5, Succeed)], vec![]),
+            ("outage 19 s", vec![(0, Fail), (19, Succeed)], vec![]),
+            (
+                "outage 21 s: failed at 20, back held to 25",
+                vec![(0, Fail), (21, Succeed)],
+                vec![(20, true), (25, false)],
+            ),
+            (
+                "outage 40 s",
+                vec![(0, Fail), (40, Succeed)],
+                vec![(20, true), (40, false)],
+            ),
+            ("single failures between successes", flaky, vec![]),
+            (
+                "3 consecutive failures",
+                vec![(0, Fail), (1, Fail), (2, Fail), (30, Succeed)],
+                vec![(2, true), (30, false)],
+            ),
+            (
+                "2 failures only",
+                vec![(0, Fail), (1, Fail), (3, Succeed)],
+                vec![],
+            ),
+            (
+                "3 failures, success at once: hold 5 s",
+                vec![(0, Fail), (1, Fail), (2, Fail), (3, Succeed)],
+                vec![(2, true), (7, false)],
+            ),
+            (
+                "failed again inside the hold: no flip back",
+                vec![
+                    (0, Fail),
+                    (0, Fail),
+                    (0, Fail),
+                    (1, Succeed),
+                    (2, Fail),
+                    (2, Fail),
+                    (2, Fail),
+                ],
+                vec![(0, true)],
+            ),
+            (
+                "one slow probe",
+                vec![(5, Probe(false)), (10, Probe(true))],
+                vec![],
+            ),
+            (
+                "3 probe misses over 10 s",
+                vec![
+                    (5, Probe(false)),
+                    (10, Probe(false)),
+                    (15, Probe(false)),
+                    (16, Probe(true)),
+                ],
+                vec![],
+            ),
+            (
+                "3 probe misses, success clears them",
+                vec![
+                    (5, Probe(false)),
+                    (10, Probe(false)),
+                    (15, Probe(false)),
+                    (16, Succeed),
+                ],
+                vec![],
+            ),
+            (
+                "3 probe misses, success inside 20 s, 2 more misses",
+                vec![
+                    (5, Probe(false)),
+                    (10, Probe(false)),
+                    (15, Probe(false)),
+                    (16, Succeed),
+                    (20, Probe(false)),
+                    (25, Probe(false)),
+                ],
+                vec![],
+            ),
+            (
+                "silent server: 3 probe misses and 20 s",
+                (1..=8).map(|i| (i * 5, Probe(false))).collect(),
+                vec![(25, true)],
+            ),
+        ];
+        for (name, inputs, want) in cases {
+            assert_eq!(run(&inputs, 60), want, "{name}");
+        }
     }
 }

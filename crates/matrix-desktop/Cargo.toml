@@ -13,6 +13,8 @@ url = "=2.5.8"
 zeroize = "=1.9.1"
 cpal = "=0.18.2"
 
+# Trace log to stderr, only when RUST_LOG is set (e.g. RUST_LOG=gnobbi::sync_status=info).
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"], optional = true }
 image = { version = "=0.25.10", default-features = false, optional = true }
 
 # GPUI backend features are per target. Non-macOS keeps exactly the Linux snapshot's
@@ -37,7 +39,7 @@ accesskit_unix = { version = "=0.22.1", optional = true }
 linux-a11y = ["dep:accesskit", "dep:accesskit_unix"]
 default = ["desktop"]
 desktop = ["dep:gpui", "dep:image"]
-live = ["desktop", "matrix-engine/sdk"]
+live = ["desktop", "matrix-engine/sdk", "dep:tracing-subscriber"]
 # Test-only fixture driver, absent from ordinary/default/live desktop builds.
 perf-probe = ["desktop"]
 # New profiles keep their protection secret in the OS vault instead of a local phrase.

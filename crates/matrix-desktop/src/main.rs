@@ -2059,6 +2059,13 @@ fn main() {
     if std::env::var_os("P115B_NATIVE").is_some() {
         return login_field::mac_clipboard_probe::run();
     }
+    #[cfg(feature = "live")]
+    if std::env::var_os("RUST_LOG").is_some() {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_writer(std::io::stderr)
+            .init();
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--install-desktop-entry") {
         // $APPIMAGE is the AppImage file; current_exe would point into the temporary mount.
