@@ -559,6 +559,11 @@ impl Shell {
             .into_any_element()
     }
 
+    pub(crate) fn open_rail_edit(&mut self, window: &mut Window) {
+        self.rail_ui.edit_open = true;
+        self.rail_ui.edit_panel_focus.focus(window);
+    }
+
     pub(crate) fn rail_edit_open(&self) -> bool {
         self.rail_ui.edit_open
     }

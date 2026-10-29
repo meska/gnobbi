@@ -20,6 +20,7 @@ mod panel_opener_view;
 mod rail_view;
 mod ring_seam;
 mod room_details_view;
+mod list_menu_view;
 mod room_menu_view;
 mod scrollbar_view;
 mod settings_view;
@@ -58,6 +59,8 @@ struct Shell {
     menu_open: bool,
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
+    list_menu_open: bool,
+    list_menu_focus: FocusHandle,
     settings_open: bool,
     new_room: Option<new_room_view::NewRoom>,
     groups_edit: Option<groups_edit_view::GroupsEdit>,
@@ -1621,7 +1624,7 @@ impl Render for Shell {
             .capture_key_down(cx.listener({
                 let opener_keys=self.opener_key_callback();
                 move |this,event,window,cx| {
-                    if this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
+                    if this.list_menu_key(event,window,cx) || this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
                     else {this.navigation_key(event,window,cx);}
                 }
             }))
@@ -2041,6 +2044,7 @@ impl Render for Shell {
             .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
+            .when(self.list_menu_open, |d| d.child(self.render_list_menu(t, window, cx)))
             .children(self.render_new_room(t, cx))
             .children(self.render_groups_edit(t, cx))
             .into_any_element()
@@ -2665,6 +2669,8 @@ fn main() {
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
+                        list_menu_open: false,
+                        list_menu_focus: cx.focus_handle(),
                         settings_open: false,
                         new_room: None,
                         groups_edit: None,

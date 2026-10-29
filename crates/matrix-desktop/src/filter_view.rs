@@ -62,15 +62,9 @@ impl Shell {
             if unread {
                 this.toggle_unread(window, cx);
             } else {
-                this.list_menu();
+                this.list_menu(window, cx);
             }
         }
-    }
-
-    /// ⋮ in the list header: no menu yet (counted in tests only).
-    fn list_menu(&self) {
-        #[cfg(test)]
-        sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     fn toggle_unread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -202,7 +196,7 @@ impl Shell {
         {
             match press.kind {
                 PressKind::Unread => self.toggle_unread(window, cx),
-                PressKind::Theme => self.list_menu(),
+                PressKind::Theme => self.list_menu(window, cx),
                 PressKind::Rail(_) => self.rail_activate(cx),
                 PressKind::Spaces(_) => self.spaces_activate(window, cx),
             }

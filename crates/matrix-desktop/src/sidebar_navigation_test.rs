@@ -1513,6 +1513,59 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 31 {
+            // ⋮ menu: click and Enter open it with focus inside; Esc, outside click and the button close it and focus returns; the entry opens the rail editor.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
+            let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap().stdout).unwrap().lines().next().expect("window").to_string();
+            // The pointer moves off the spot first: a click on the same spot would reuse the hover computed under the old scrim.
+            macro_rules! click { ($x:expr, $y:expr) => { assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", &win, "700", "400", "mousemove", "--window", &win, &(($x) as i32).to_string(), &(($y) as i32).to_string(), "click", "1"]).status().unwrap().success()) }; }
+            // Real key press (down and up): the ⋮ button activates on key-up.
+            macro_rules! press { ($k:expr) => { assert!(std::process::Command::new("xdotool").args(["key", "--window", &win, $k]).status().unwrap().success()) }; }
+            macro_rules! state { ($open:expr, $msg:expr) => { this.update_in(cx, |this, window, _| {
+                assert_eq!(this.list_menu_open, $open, "{}", $msg);
+                assert!(if $open { this.list_menu_focus.is_focused(window) } else { this.theme_focus.is_focused(window) }, "focus: {} (list={} search={} menu={})", $msg, this.list_focus.is_focused(window), this.search_focus.is_focused(window), this.list_menu_focus.is_focused(window));
+            }).unwrap() }; }
+            wait(500).await;
+            let b = PAINTED.lock().unwrap()["theme"];
+            let (bx, by) = (f32::from(b.center().x), f32::from(b.center().y));
+            for space in [false, true] {
+                if space {
+                    this.update_in(cx, |this, _, cx| {
+                        let scope = this.sidebar.spaces().next().unwrap().scope.clone();
+                        assert!(this.sidebar.set_space(Some(scope)));
+                        cx.notify();
+                    }).unwrap();
+                    wait(300).await;
+                }
+                click!(bx, by);
+                wait(400).await;
+                state!(true, "click opens");
+                click!(bx, by);
+                wait(400).await;
+                state!(false, "the button closes it");
+                this.update_in(cx, |this, window, _| this.theme_focus.focus(window)).unwrap();
+                press!("Return");
+                wait(400).await;
+                state!(true, "Enter opens");
+                key!("escape");
+                state!(false, "Esc closes");
+                wait(400).await;
+                click!(bx, by);
+                wait(400).await;
+                state!(true, "click reopens after Esc");
+                click!(700., 30.);
+                wait(400).await;
+                state!(false, "outside click closes");
+            }
+            click!(bx, by);
+            wait(400).await;
+            press!("Return");
+            wait(400).await;
+            this.update_in(cx, |this, _, _| assert!(!this.list_menu_open && this.rail_edit_open(), "the entry opens the rail editor")).unwrap();
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 30 {
             // List header: ⋮ leftmost, then the space icon and name, search full width below; «Tutte» and a space.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2865,6 +2918,20 @@ fn list_header_puts_menu_icon_and_space_name_above_a_full_width_search() {
         Ok("1")
     );
     DYNAMIC.store(30, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn list_menu_opens_closes_and_returns_focus() {
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
+    DYNAMIC.store(31, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
