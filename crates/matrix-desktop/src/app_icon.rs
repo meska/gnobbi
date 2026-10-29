@@ -42,7 +42,7 @@ pub fn apply(icon: IconChoice, _window: &gpui::Window) {
     // SAFETY: called from GPUI callbacks, i.e. on the main thread, with a live NSApplication.
     unsafe {
         let data = NSData::dataWithBytes_length_(nil, png.as_ptr().cast(), png.len() as u64);
-        let image: id = NSImage::alloc(nil).initWithData_(data);
+        let image: id = NSImage::initWithData_(NSImage::alloc(nil), data);
         if image != nil {
             let _: () = msg_send![NSApp(), setApplicationIconImage: image];
         }
