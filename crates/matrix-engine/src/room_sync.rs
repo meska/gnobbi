@@ -438,6 +438,10 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
+                                OperationCommand::SetMuted { scope, muted } => {
+                                    let result = crate::notify::set_muted(&operation_client, account, &scope, muted).await;
+                                    OperationResult::RoomMarked { scope, result }
+                                }
                                 OperationCommand::EditTags(edit) => OperationResult::TagsEdited {
                                     result: crate::room_tags::edit(&operation_client, &edit).await,
                                 },
@@ -695,6 +699,8 @@ pub struct RoomSync {
     timeline_heads: BTreeMap<String, matrix_domain::EventId>,
     /// Rooms whose SDK latest event is being tracked (a store written before sliding sync has none).
     latest_watched: std::collections::BTreeSet<String>,
+    /// SDK space graph, created at the first projection.
+    spaces: Option<matrix_sdk_ui::spaces::SpaceService>,
     /// Sliding sync sends no server counts: unread comes from the SDK's client-side counts.
     pub(crate) sliding_counts: bool,
     timelines: Timelines,
@@ -769,6 +775,7 @@ impl RoomSync {
             previous: BTreeMap::new(),
             timeline_heads: BTreeMap::new(),
             latest_watched: Default::default(),
+            spaces: None,
             sliding_counts: false,
             timelines: Default::default(),
             operation_state: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
@@ -782,6 +789,10 @@ impl RoomSync {
             client: Some(client),
             store: None,
         })
+    }
+
+    pub(crate) fn account_id(&self) -> matrix_domain::AccountId {
+        self.session.account_id()
     }
 
     pub(crate) fn client(&self) -> Option<&matrix_sdk::Client> {
@@ -999,6 +1010,7 @@ impl RoomSync {
         rooms: Vec<matrix_sdk::Room>,
     ) -> Result<Vec<RoomListDiff>, SyncError> {
         let client = self.session.client.clone().ok_or(SyncError::LoggedOut)?;
+        let mut children_of = self.space_children(&client, &rooms).await;
         let mut current = BTreeMap::new();
         for room in rooms
             .into_iter()
@@ -1025,27 +1037,7 @@ impl RoomSync {
             } else {
                 Vec::new()
             };
-            let mut children = Vec::new();
-            if room.state() == RoomState::Joined && room.is_space() {
-                use matrix_sdk::deserialized_responses::SyncOrStrippedState;
-                use matrix_sdk::ruma::events::{
-                    SyncStateEvent, space::child::SpaceChildEventContent,
-                };
-                for event in room
-                    .get_state_events_static::<SpaceChildEventContent>()
-                    .await
-                    .map_err(|_| SyncError::Transport)?
-                {
-                    if let Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(event))) =
-                        event.deserialize()
-                        && !event.content.via.is_empty()
-                    {
-                        children.push(RoomId::new(event.state_key.as_str()));
-                    }
-                }
-                children.sort_by(|a, b| a.as_str().cmp(b.as_str()));
-                children.dedup();
-            }
+            let children = children_of.remove(&id).unwrap_or_default();
             let tags = match room.tags().await {
                 Ok(Some(tags)) => crate::room_tags::group_names(&tags),
                 _ => Vec::new(),
@@ -1081,6 +1073,8 @@ impl RoomSync {
                         encrypted: (!room.encryption_state().is_unknown())
                             .then(|| room.encryption_state().is_encrypted()),
                         tags,
+                        muted: room.cached_user_defined_notification_mode()
+                            == Some(matrix_sdk::notification_settings::RoomNotificationMode::Mute),
                     },
                 },
             );
@@ -1098,6 +1092,28 @@ impl RoomSync {
         );
         self.previous = current;
         Ok(changes)
+    }
+
+    /// Direct children of each joined space, from the SDK space graph (parents are joined spaces
+    /// only, cycles removed); the graph is rebuilt by `top_level_joined_spaces`.
+    async fn space_children(
+        &mut self,
+        client: &matrix_sdk::Client,
+        rooms: &[matrix_sdk::Room],
+    ) -> BTreeMap<String, Vec<RoomId>> {
+        let service = match &self.spaces {
+            Some(service) => service,
+            None => self.spaces.insert(matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await),
+        };
+        service.top_level_joined_spaces().await;
+        let mut children: BTreeMap<String, Vec<RoomId>> = BTreeMap::new();
+        for room in rooms {
+            for parent in service.joined_parent_ids_of_child(room.room_id()).await {
+                children.entry(parent.to_string()).or_default().push(RoomId::new(room.room_id().as_str()));
+            }
+        }
+        children.values_mut().for_each(|v| v.sort_by(|a, b| a.as_str().cmp(b.as_str())));
+        children
     }
 
     /// Scope of a room projected by the last `summarize_rooms` (joined or invited).

@@ -7,7 +7,7 @@ use matrix_domain::{
     notifications::{Notification, NotificationPolicy},
 };
 use matrix_engine::{
-    Receiver, RoomListDiff, RoomListEvent, RoomSyncStatus, Sender,
+    Receiver, RoomListEvent, RoomSyncStatus, Sender,
     history::{HistoryRequest, HistoryResult},
     media::{MediaCommand, MediaEvent},
     operations::{OperationCommand, OperationResult},
@@ -164,14 +164,9 @@ impl AccountState {
         for event in d.events {
             match event {
                 RoomListEvent::Diff(diff) => {
-                    match &diff {
-                        RoomListDiff::Upsert(room) => {
-                            alerts.extend(self.notifications.update(&room.scope, room.unread));
-                        }
-                        RoomListDiff::Remove(scope) => self.notifications.remove(scope),
-                    }
                     self.sidebar.apply_diff(diff);
                 }
+                RoomListEvent::Alert(scope) => alerts.extend(self.notifications.alert(&scope)),
                 RoomListEvent::Order(order) => self.sidebar.set_order(order),
                 RoomListEvent::Status(status) => {
                     if status == RoomSyncStatus::AuthenticationFailed {

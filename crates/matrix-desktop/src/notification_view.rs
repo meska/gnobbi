@@ -63,7 +63,7 @@ impl Shell {
                 selected: self
                     .sidebar
                     .selected()
-                    .map(|room| (room.scope.clone(), self.notifications.muted(&room.scope))),
+                    .map(|room| (room.scope.clone(), room.info.muted)),
                 service_failed: self.notification_failed,
             }))
         } else if window.viewport_size().width >= px(800.) || !self.compact_chat {
@@ -107,14 +107,20 @@ impl Shell {
             }
             NotificationAction::SetEnabled(value) => self.notifications.set_enabled(value),
             NotificationAction::SetPreview(value) => self.notifications.set_count_preview(value),
-            NotificationAction::SetMuted { scope, muted } => {
-                self.notifications.set_muted(scope, muted)
-            }
+            NotificationAction::SetMuted { scope, muted } => self.set_room_muted(scope, muted),
         }
         if policy_change && let Some(handle) = &self.notification_handle {
             handle.cancel_pending();
         }
         cx.notify();
+    }
+
+    /// «Silenzia»: the room push rule is written on the account; the next sync shows the result.
+    fn set_room_muted(&mut self, scope: RoomScope, muted: bool) {
+        if self.pending_operation_command.is_none() {
+            self.pending_operation_command =
+                Some(matrix_engine::operations::OperationCommand::SetMuted { scope, muted });
+        }
     }
 
     pub(crate) fn change_notification_preference(&mut self, preference: u8) {
@@ -127,8 +133,8 @@ impl Shell {
                 .set_enabled(!self.notifications.enabled()),
             1 => {
                 if let Some(room) = self.sidebar.selected() {
-                    let muted = self.notifications.muted(&room.scope);
-                    self.notifications.set_muted(room.scope.clone(), !muted);
+                    let (scope, muted) = (room.scope.clone(), !room.info.muted);
+                    self.set_room_muted(scope, muted);
                 }
             }
             2 => self
@@ -143,7 +149,7 @@ impl Shell {
         let enabled = self.notifications.enabled();
         let preview = self.notifications.count_preview();
         let selected = self.sidebar.selected();
-        let muted = selected.is_some_and(|room| self.notifications.muted(&room.scope));
+        let muted = selected.is_some_and(|room| room.info.muted);
         let room_available = selected.is_some();
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let focused_control = Some(self.notification_focus as usize);

@@ -9,8 +9,7 @@ fn alert() -> Notification {
     };
     let mut policy = NotificationPolicy::new(scope.account_id);
     policy.set_enabled(true);
-    policy.update(&scope, 0);
-    policy.update(&scope, 1).unwrap()
+    policy.alert(&scope).unwrap()
 }
 
 #[test]
@@ -44,19 +43,14 @@ fn cancelling_invalidates_the_bounded_pending_alert_before_delivery() {
     let mut policy = NotificationPolicy::new(scope.account_id);
     policy.set_enabled(true);
     policy.set_count_preview(true);
-    policy.update(&scope, 0);
     let end = std::time::Instant::now() + Duration::from_secs(2);
-    while !handle.submit({
-        policy.remove(&scope);
-        policy.update(&scope, 0);
-        policy.update(&scope, 1).unwrap()
-    }) {
+    while !handle.submit(policy.alert(&scope).unwrap()) {
         assert!(std::time::Instant::now() < end);
         std::thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(
         started_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
-        "1 nuovi messaggi"
+        "1 nuovo messaggio"
     );
     worker.shutdown().unwrap();
     assert!(started_rx.try_recv().is_err());

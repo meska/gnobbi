@@ -24,6 +24,8 @@ mod outbox;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
 #[cfg(feature = "sdk")]
+pub mod notify;
+#[cfg(feature = "sdk")]
 pub mod room_tags;
 #[cfg(feature = "sdk")]
 pub mod sliding;
@@ -68,6 +70,8 @@ pub struct RoomInfo {
     pub encrypted: Option<bool>,
     /// Group tags of the room (`m.favourite`, `m.lowpriority`, `u.*`), sorted; see `room_tags`.
     pub tags: Vec<String>,
+    /// Muted by the user's push rules (`NotificationSettings`), on every device.
+    pub muted: bool,
 }
 
 /// Stable-ID updates independent of the current UI filter or selection.
@@ -84,6 +88,8 @@ pub enum RoomListEvent {
     /// Every listed room, most recent first: the `RoomListService` sorter order (unsent
     /// message, then recency, then name). Sent after the diffs it refers to.
     Order(Vec<RoomScope>),
+    /// The push rules say a new message in this room notifies (content-free).
+    Alert(RoomScope),
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RoomSyncStatus {

@@ -51,6 +51,11 @@ pub enum OperationCommand {
     },
     /// Group (room tag) change asked for by the user in «Modifica»; the only writer of tags.
     EditTags(TagEdit),
+    /// «Silenzia»: the room push rule; the outcome comes back as `RoomMarked` and the next sync projects it.
+    SetMuted {
+        scope: RoomScope,
+        muted: bool,
+    },
 }
 /// One explicit change of the personal groups. `tag` is the full tag name (`m.favourite`,
 /// `m.lowpriority` or `u.<name>`); a group exists as long as one room carries its tag.

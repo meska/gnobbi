@@ -1332,6 +1332,10 @@ impl Shell {
                             scope,
                             members: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::SetMuted { scope, .. } => OperationResult::RoomMarked {
+                            scope,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::EditTags(_) => OperationResult::TagsEdited {
                             result: Err(OperationError::Unavailable),
                         },
@@ -2467,30 +2471,18 @@ fn main() {
                                         }
                                         for event in events {
                                             match event {
+                                                RoomListEvent::Alert(scope) => {
+                                                    if let Some(alert) = this.notifications.alert(&scope)
+                                                        && let Some(handle) = &this.notification_handle
+                                                    {
+                                                        handle.submit(Shell::alert_from(&this.accounts, this.active_id, alert));
+                                                    }
+                                                }
                                                 RoomListEvent::Diff(diff) => {
-                                                    match &diff {
-                                                        matrix_engine::RoomListDiff::Upsert(
-                                                            room,
-                                                        ) => {
-                                                            if let Some(alert) = this
-                                                                .notifications
-                                                                .update(&room.scope, room.unread)
-                                                                && let Some(handle) =
-                                                                    &this.notification_handle
-                                                            {
-                                                                handle.submit(Shell::alert_from(&this.accounts, this.active_id, alert));
-                                                            }
-                                                        }
-                                                        matrix_engine::RoomListDiff::Remove(
-                                                            scope,
-                                                        ) => {
-                                                            this.notifications.remove(scope);
-                                                            if let Some(handle) =
-                                                                &this.notification_handle
-                                                            {
-                                                                handle.cancel_pending();
-                                                            }
-                                                        }
+                                                    if let matrix_engine::RoomListDiff::Remove(_) = &diff
+                                                        && let Some(handle) = &this.notification_handle
+                                                    {
+                                                        handle.cancel_pending();
                                                     }
                                                     let anchor = this.reading_anchor();
                                                     this.sidebar.apply_diff(diff);

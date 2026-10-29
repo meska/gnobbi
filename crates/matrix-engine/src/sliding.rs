@@ -84,6 +84,8 @@ pub async fn run(
         let _ = emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await;
         return;
     };
+    let (alert_tx, mut alert_rx) = tokio::sync::mpsc::unbounded_channel();
+    crate::notify::watch(&client, sync.account_id(), alert_tx).await;
     let mut loading = list.loading_state();
     let (entries, controller) = list.entries_with_dynamic_adapters(usize::from(u16::MAX));
     // Joined and invited rooms (not left or banned), sorted by the SDK.
@@ -123,6 +125,11 @@ pub async fn run(
                     if !emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await {
                         return;
                     }
+                }
+            }
+            Some(alert) = alert_rx.recv() => {
+                if !emit(sender, alert).await {
+                    return;
                 }
             }
             update = updates.recv() => {
