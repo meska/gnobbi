@@ -49,3 +49,8 @@ windows-vault = ["live", "matrix-engine/windows-vault"]
 name = "gnobbi"
 path = "src/main.rs"
 required-features = ["desktop"]
+
+# Fake compositor for tests/wayland_keymap_order.rs (modifiers sent before keymap).
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+wayland-server = "0.31.14"
+wayland-protocols = { version = "0.32.13", features = ["server"] }
