@@ -1685,9 +1685,13 @@ impl TimelineView {
                                 .when(!event.annotation.is_empty(), |d| d.child(div().text_size(px(12.)).text_color(rgb(t.accent)).child(event.annotation.clone())))
                                 .when_some(event.send_state.filter(|s| !live || *s == DemoSendState::Failed), |d, status| {
                                     let (cancel_delivery, cancel_history, cancel_state, cancel_id, cancel_tx) = (delivery.clone(), delivery_history.clone(), delivery_state.clone(), delivery_id.clone(), transaction_id.clone());
+                                    let refused = live.then(|| delivery.as_ref().zip(transaction_id.as_ref())
+                                        .filter(|(delivery, tx)| delivery.borrow().is_final_failure(&delivery_id.scope, tx))
+                                        .and_then(|(delivery, tx)| delivery.borrow().failure_label(&delivery_id.scope, tx))).flatten();
                                     d.child(
                                     div().flex().justify_end().gap_3().h(px(24.)).items_center()
-                                        .child(div().id(("demo-delivery", index))
+                                        .when_some(refused, |d, label| d.child(div().id(("delivery-refused", index)).text_size(px(12.)).text_color(rgb(t.accent)).child(label)))
+                                        .child(div().id(("demo-delivery", index)).when(refused.is_some(), |d| d.hidden())
                                             .map(|d| {
                                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                                 {

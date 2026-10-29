@@ -245,10 +245,8 @@ fn attachment_edge_cases_plain_and_encrypted() {
                 assert_eq!(content["body"], if caption { case.caption.as_str() } else { case.file.as_str() }, "{ctx}");
                 assert_eq!(content["filename"].as_str().unwrap_or(&case.file), case.file, "{ctx}");
                 assert_eq!(content["info"]["mimetype"], case.mime, "{ctx}");
-                // Known gap: generic files carry no info.size (only images and voice notes do).
-                if let Some(size) = content["info"]["size"].as_u64() {
-                    assert_eq!(size, case.data.len() as u64, "{ctx}");
-                }
+                // Images that fail header parsing still carry size too.
+                assert_eq!(content["info"]["size"].as_u64(), Some(case.data.len() as u64), "{ctx}");
                 assert_eq!(content.get("file").is_some(), encrypted, "{ctx}");
                 assert_eq!(content.get("org.matrix.msc3245.voice").is_some(), case.voice.is_some(), "{ctx}");
                 let source: MediaSource = serde_json::from_value(content.clone()).unwrap();
@@ -320,7 +318,7 @@ fn attachment_edge_cases_plain_and_encrypted() {
             println!("[edge] encrypted={encrypted} 60 MiB upload -> {refused:?} after {:?}", started.elapsed());
             let after = send_ok(&a, &request(&room_a, fresh_transaction_id(), "dopo errore", "dopo2.txt", b"ok".to_vec(), None)).await;
             println!("[edge] waiting after refusal"); let _ = wait_event(&events, &after).await;
-            assert!(refused.is_err(), "a 60 MiB upload was accepted by the disposable server");
+            assert!(matches!(refused, Err(SendError::TooLarge)), "encrypted={encrypted}: a 60 MiB upload must be refused as too large: {refused:?}");
         }
         service_a.stop().await;
         service_b.stop().await;

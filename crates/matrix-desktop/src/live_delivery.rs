@@ -169,11 +169,20 @@ impl LiveDelivery {
                 Some(matrix_engine::sending::SendError::Encryption) => {
                     "Cifratura non riuscita · nessun invio in chiaro"
                 }
+                Some(matrix_engine::sending::SendError::TooLarge) => "File troppo grande per il server",
                 _ => "Invio non confermato · Matrix",
             },
         )
     }
+    /// A failure trying again cannot fix (the server refused the file as too large).
+    pub fn is_final_failure(&self, scope: &RoomScope, transaction_id: &TransactionId) -> bool {
+        self.failures.get(&(scope.clone(), transaction_id.clone()))
+            == Some(&matrix_engine::sending::SendError::TooLarge)
+    }
     pub fn retry(&mut self, scope: &RoomScope, transaction_id: &TransactionId) -> bool {
+        if self.is_final_failure(scope, transaction_id) {
+            return false;
+        }
         let queue = self.queue();
         if self.staged.len() >= 8 {
             return false;

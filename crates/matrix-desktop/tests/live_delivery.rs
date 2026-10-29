@@ -182,6 +182,21 @@ fn full_transport_retains_commands_until_later_tick() {
 }
 
 #[test]
+fn too_large_failure_says_so_and_cannot_be_retried() {
+    use matrix_engine::sending::{SendError, SendResult};
+    let mut delivery = LiveDelivery::new();
+    let mut draft = Composer::default();
+    draft.replace(None, "big");
+    let tx = TransactionId::new("big-1");
+    assert!(delivery.submit(scope(), tx.clone(), &mut draft));
+    delivery.take_request().unwrap();
+    assert!(delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Err(SendError::TooLarge) }));
+    assert_eq!(delivery.failure_label(&scope(), &tx), Some("File troppo grande per il server"));
+    assert!(delivery.is_final_failure(&scope(), &tx));
+    assert!(!delivery.retry(&scope(), &tx));
+}
+
+#[test]
 fn failed_retry_keeps_transaction_body_and_unrelated_draft() {
     use matrix_engine::sending::{SendError, SendResult};
     let mut delivery = LiveDelivery::new();

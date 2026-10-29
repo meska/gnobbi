@@ -9,6 +9,7 @@ pub struct Recorder {
     _stream: cpal::Stream,
     samples: Arc<Mutex<Vec<i16>>>,
     rate: u32,
+    max: usize,
     started: std::time::Instant,
 }
 
@@ -37,7 +38,7 @@ impl Recorder {
         let rate = config.sample_rate();
         let samples = Arc::new(Mutex::new(Vec::new()));
         let sink = samples.clone();
-        // The note stops growing at 5 minutes or at the server's upload limit; there is no auto-stop in the UI.
+        // The note stops growing at 5 minutes or at the server's upload limit; the composer then ends it (`is_full`).
         let max = matrix_desktop::max_note_samples(rate, upload_limit);
         let err = |_| {};
         let format = config.sample_format();
@@ -69,8 +70,14 @@ impl Recorder {
             _stream: stream,
             samples,
             rate,
+            max,
             started: std::time::Instant::now(),
         })
+    }
+
+    /// The cap is reached: nothing more is captured.
+    pub fn is_full(&self) -> bool {
+        self.samples.lock().unwrap_or_else(|e| e.into_inner()).len() >= self.max
     }
 
     pub fn elapsed_secs(&self) -> u64 {

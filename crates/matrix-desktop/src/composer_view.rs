@@ -489,6 +489,10 @@ impl ComposerView {
                 cx.spawn(async move |this, cx| {
                     while this
                         .update(cx, |this, cx| {
+                            // At the cap the note goes out like «Invia nota».
+                            if this.recorder.as_ref().is_some_and(|r| r.is_full()) {
+                                this.stop_recording(true, cx);
+                            }
                             cx.notify();
                             this.recorder.is_some()
                         })

@@ -105,6 +105,8 @@ pub enum SendError {
     Unavailable,
     /// SDK crypto/session policy failure; never fall back to plaintext.
     Encryption,
+    /// The server refused the upload as too large (M_TOO_LARGE); trying again cannot work.
+    TooLarge,
     Transport,
 }
 
@@ -378,6 +380,15 @@ pub(crate) fn map_error(error: &matrix_sdk::Error) -> SendError {
         | matrix_sdk::Error::MegolmError(_)
         | matrix_sdk::Error::DecryptorError(_)
         | matrix_sdk::Error::SignatureError(_) => SendError::Encryption,
+        // The SDK refuses by itself, before uploading, once the server's m.upload.size is known.
+        matrix_sdk::Error::Media(matrix_sdk::media::MediaError::MediaTooLargeToUpload { .. }) => SendError::TooLarge,
+        _ if matches!(
+            error.client_api_error_kind(),
+            Some(matrix_sdk::ruma::api::error::ErrorKind::TooLarge)
+        ) =>
+        {
+            SendError::TooLarge
+        }
         _ => SendError::Transport,
     }
 }
@@ -466,7 +477,7 @@ pub(crate) async fn send_text_waiting(
     outcome
 }
 
-/// A text through the queue, or an attachment sent directly (P283b moves those to the queue too).
+/// A text or an attachment, both through the SDK send queue; returns once the server confirmed it.
 #[cfg(feature = "sdk")]
 pub async fn send_text(
     client: &matrix_sdk::Client,
@@ -492,7 +503,7 @@ pub(crate) async fn send_attachment(
     file: &Attachment,
 ) -> Result<EventId, SendError> {
     use matrix_sdk::{
-        attachment::{AttachmentInfo, BaseAudioInfo, BaseImageInfo},
+        attachment::{AttachmentInfo, BaseAudioInfo, BaseFileInfo, BaseImageInfo},
         ruma::events::room::message::TextMessageEventContent,
     };
     use matrix_sdk_ui::timeline::AttachmentConfig;
@@ -515,6 +526,14 @@ pub(crate) async fn send_attachment(
             size: u32::try_from(file.data.len()).ok().map(Into::into),
             ..Default::default()
         }));
+    } else {
+        let size = u32::try_from(file.data.len()).ok().map(Into::into);
+        // An image whose header does not parse is still an m.image, whose info is image info.
+        config.info = Some(if mime.type_().as_str() == "image" {
+            AttachmentInfo::Image(BaseImageInfo { size, ..Default::default() })
+        } else {
+            AttachmentInfo::File(BaseFileInfo { size })
+        });
     }
     if !request.body.trim().is_empty() {
         config.caption = Some(TextMessageEventContent::plain(&request.body));
