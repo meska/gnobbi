@@ -729,6 +729,27 @@ mod tests {
     }
 
     #[test]
+    fn list_header_without_avatar_falls_back_to_deterministic_initials_and_colour() {
+        let header = || {
+            let account = AccountId::new(1);
+            let mut sidebar = Sidebar::connected(account);
+            sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+                scope: scope(&account, "bots"),
+                name: "Bots".into(),
+                unread: 0,
+                info: RoomInfo { is_space: true, ..Default::default() },
+            }));
+            assert!(sidebar.set_space(Some(scope(&account, "bots"))));
+            assert_eq!(sidebar.list_header_avatar(), None);
+            sidebar.list_header()
+        };
+        let (name, initials, color) = header();
+        assert_eq!((name.as_str(), initials.as_str()), ("Bots", "Bo"));
+        assert!(color.is_some());
+        assert_eq!(header(), (name, initials, color), "same input, same fallback");
+    }
+
+    #[test]
     fn position_of_gives_the_row_position_in_the_visible_order() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
