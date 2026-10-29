@@ -111,6 +111,8 @@ fn theme_saved_values_map_to_the_four_themes_and_unknown_follows_system() {
         (r#""night""#, Some(Theme::Night)),
         (r#""system""#, None),
         (r#""sepia""#, None),
+        (r#""""#, None),
+        (r#""Light""#, None),
         ("42", None),
     ] {
         std::fs::write(
