@@ -79,9 +79,7 @@ impl Shell {
         if window.viewport_size().width < px(800.) {
             self.back_focus_handle().focus(window);
         } else {
-            self.rail_ui.target = self.sidebar.navigation_entries()[0].scope.clone();
-            self.reveal_rail_target(window, cx);
-            self.rail_ui.focus.focus(window);
+            self.menu_focus.focus(window);
         }
         cx.notify();
     }
@@ -124,7 +122,7 @@ impl Shell {
         } else if self.connected && self.sidebar.spaces().next().is_some() {
             self.compact_spaces_tab(false, window, cx);
         } else {
-            self.theme_focus.focus(window);
+            self.menu_focus.focus(window);
         }
     }
 

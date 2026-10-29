@@ -124,7 +124,7 @@ impl Shell {
                 self.list_focus.focus(window);
             }
         } else {
-            self.theme_focus.focus(window);
+            self.menu_focus.focus(window);
         }
         cx.notify();
     }

@@ -28,6 +28,8 @@ pub const SEARCH: NodeId = NodeId(3);
 pub const ROOM_LIST: NodeId = NodeId(4);
 pub const COMPOSER: NodeId = NodeId(5);
 pub const SEND: NodeId = NodeId(6);
+/// Rail / compact-header button that opens the drawer.
+pub const MENU: NodeId = NodeId(8);
 // Above the composer text runs ((1 << 63) + n) and below the link/room ranges.
 pub const ATTACH: NodeId = NodeId((1 << 63) - 1);
 pub const ATTACHMENT: NodeId = NodeId((1 << 63) - 2);
@@ -809,6 +811,8 @@ impl NavigationSnapshot {
             (COMPOSER, Action::Focus) if self.composer.is_some() => {
                 Some(NavigationAction::FocusComposer)
             }
+            (MENU, Action::Click) if self.visible => Some(NavigationAction::ToggleMenu),
+            (MENU, Action::Focus) if self.visible => Some(NavigationAction::FocusMenu),
             (THEME, Action::Click) if self.visible => None, // placeholder list menu
             (THEME, Action::Focus) if self.visible => {
                 Some(NavigationAction::FocusTheme(self.navigation_revision))
@@ -862,6 +866,14 @@ impl NavigationSnapshot {
         }
         let mut tree = theme_tree(self.dark);
         if self.visible {
+            let mut menu = Node::new(Role::Button);
+            menu.set_label("Menu");
+            menu.add_action(Action::Click);
+            menu.add_action(Action::Focus);
+            let mut children = tree.nodes[0].1.children().to_vec();
+            children.insert(0, MENU);
+            tree.nodes[0].1.set_children(children);
+            tree.nodes.push((MENU, menu));
             if let Some(bounds) = self.theme_bounds {
                 tree.nodes[1].1.set_bounds(bounds);
             }
@@ -1370,6 +1382,8 @@ pub enum NavigationAction {
     FocusMessage(matrix_domain::ScopedTimelineId),
     ToggleTheme(u64),
     FocusTheme(u64),
+    ToggleMenu,
+    FocusMenu,
     FocusSearch,
     FocusComposer,
     FocusSend {

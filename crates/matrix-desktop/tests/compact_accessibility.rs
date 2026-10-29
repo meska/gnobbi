@@ -160,3 +160,19 @@ fn compact_back_retires_handles_and_captured_intents_across_replacement_visits()
     assert_eq!(fresh.scope, original.scope);
     assert_ne!(fresh.id, original.id);
 }
+
+#[test]
+fn menu_button_is_labelled_menu_first_in_the_tree_and_opens_the_drawer() {
+    use matrix_desktop::accessibility::{MENU, NavigationAction as A, ROOT};
+    let mut snapshot = navigation();
+    assert!(snapshot.tree().nodes.iter().all(|(id, _)| *id != MENU), "hidden list: no menu node");
+    snapshot.visible = true;
+    let tree = snapshot.tree();
+    let node = &tree.nodes.iter().find(|(id, _)| *id == MENU).unwrap().1;
+    assert_eq!((node.role(), node.label()), (Role::Button, Some("Menu")));
+    let root = &tree.nodes.iter().find(|(id, _)| *id == ROOT).unwrap().1;
+    assert_eq!(root.children()[0], MENU, "menu comes before search and list");
+    let request = |action| ActionRequest { action, target_node: MENU, target_tree: TreeId::ROOT, data: None };
+    assert!(matches!(snapshot.action(&request(Action::Click)), Some(A::ToggleMenu)));
+    assert!(matches!(snapshot.action(&request(Action::Focus)), Some(A::FocusMenu)));
+}

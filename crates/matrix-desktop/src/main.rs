@@ -474,6 +474,13 @@ impl Shell {
                 }
                 matrix_desktop::accessibility::NavigationAction::ToggleTheme(_)
                 | matrix_desktop::accessibility::NavigationAction::FocusTheme(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::ToggleMenu => {
+                    this.set_menu_open(!this.menu_open, window, cx)
+                }
+                matrix_desktop::accessibility::NavigationAction::FocusMenu => {
+                    this.menu_focus.focus(window);
+                    cx.notify();
+                }
                 matrix_desktop::accessibility::NavigationAction::FocusSearch => {
                     this.search_focus.focus(window);
                     cx.notify();

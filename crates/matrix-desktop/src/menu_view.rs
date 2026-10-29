@@ -162,6 +162,16 @@ impl Shell {
             self.set_menu_open(true, window, cx);
             return true;
         }
+        if key.key == "tab"
+            && !m.control
+            && !m.alt
+            && !m.platform
+            && self.menu_focus.is_focused(window)
+            && !(self.notifications_open || self.verification_open || self.room_details_open)
+        {
+            self.menu_tab(m.shift, window, cx);
+            return true;
+        }
         false
     }
 
@@ -318,5 +328,36 @@ impl Shell {
                 })
                 .into_any_element(),
         )
+    }
+}
+
+impl Shell {
+    /// Ring stop before the rail (wide) or the list header (compact): forward enters the ring, backward leaves it.
+    fn menu_tab(&mut self, shift: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let wide = window.viewport_size().width >= px(800.);
+        match (wide, shift) {
+            (true, false) => {
+                self.rail_ui.target = self.sidebar.navigation_entries()[0].scope.clone();
+                self.reveal_rail_target(window, cx);
+                self.rail_ui.focus.focus(window);
+            }
+            (false, false) => self.theme_focus.focus(window),
+            (true, true) => {
+                if !self.focus_last_chat_control(window, cx) {
+                    self.list_focus.focus(window);
+                }
+            }
+            (false, true) if self.connected && self.sidebar.spaces().next().is_some() => {
+                self.compact_spaces_tab(true, window, cx);
+            }
+            (false, true) => {
+                if !(self.connected
+                    && self.focus_opener(matrix_desktop::panel_openers::Control::Notifications, window, cx))
+                {
+                    self.list_focus.focus(window);
+                }
+            }
+        }
+        cx.notify();
     }
 }

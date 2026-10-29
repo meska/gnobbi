@@ -308,21 +308,8 @@ impl Shell {
             return false;
         }
         let target = if self.theme_focus.is_focused(window) {
-            if key.modifiers.shift && spaces {
-                self.compact_spaces_tab(true, window, cx);
-                return true;
-            } else if key.modifiers.shift && compact {
-                if self.connected
-                    && self.focus_opener(
-                        matrix_desktop::panel_openers::Control::Notifications,
-                        window,
-                        cx,
-                    )
-                {
-                    cx.notify();
-                    return true;
-                }
-                &self.list_focus
+            if key.modifiers.shift && compact {
+                &self.menu_focus
             } else if key.modifiers.shift {
                 self.rail_ui.target = self
                     .rail_entries()
@@ -357,7 +344,7 @@ impl Shell {
             self.compact_spaces_tab(key.modifiers.shift, window, cx);
             return true;
         } else if compact && self.list_focus.is_focused(window) {
-            &self.theme_focus
+            &self.menu_focus
         } else {
             // owns the forward list/chat seam; preserve its current dispatch.
             return false;

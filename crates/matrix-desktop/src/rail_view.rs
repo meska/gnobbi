@@ -283,11 +283,9 @@ impl Shell {
             .position(|entry| entry.scope == self.rail_ui.target)
             .unwrap_or(0);
         let last = entries.len() - 1;
-        if key.key == "tab"
-            && key.modifiers.shift
-            && index == 0
-            && self.focus_last_chat_control(window, cx)
-        {
+        if key.key == "tab" && key.modifiers.shift && index == 0 {
+            self.menu_focus.focus(window);
+            cx.notify();
             return true;
         }
         let next = match key.key.as_str() {

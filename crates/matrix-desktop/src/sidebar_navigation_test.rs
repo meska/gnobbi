@@ -1716,6 +1716,60 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if matches!(DYNAMIC.load(Ordering::SeqCst), 32 | 33) {
+            // Tab ring from the menu button; compact (33) has the button in the list header, wide (32) on the rail.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
+            let names = |this: &mut Shell, window: &mut Window| -> &'static str {
+                [("menu", &this.menu_focus), ("rail", &this.rail_ui.focus), ("more", &this.theme_focus), ("unread", &this.unread_focus), ("search", &this.search_focus), ("list", &this.list_focus), ("spaces", &this.spaces_ui.focus)]
+                    .into_iter().find(|(_, h)| h.is_focused(window)).map_or("other", |(n, _)| n)
+            };
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+            wait(300).await;
+            let mut forward = vec![];
+            for _ in 0..6 {
+                forward.push(this.update_in(cx, |this, window, _| names(this, window)).unwrap());
+                key!("tab");
+                wait(100).await;
+            }
+            eprintln!("TAB-ORDER forward {forward:?}");
+            let wide = DYNAMIC.load(Ordering::SeqCst) == 32;
+            // menu -> rail entries (+ their edit button) -> list header -> search -> list; compact has no rail but the Spaces strip after the list.
+            let want: &[&str] = if wide { &["menu", "rail", "rail", "rail", "other", "more"] } else { &["menu", "more", "unread", "search", "list", "spaces"] };
+            assert_eq!(forward, want);
+            let mut back = vec![];
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+            for _ in 0..6 {
+                back.push(this.update_in(cx, |this, window, _| names(this, window)).unwrap());
+                key!("shift-tab");
+                wait(100).await;
+            }
+            eprintln!("TAB-ORDER backward {back:?}");
+            if wide {
+                // Shift+Tab on the first rail entry leaves the rail for the menu button.
+                this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+                key!("tab");
+                key!("shift-tab");
+                assert_eq!(this.update_in(cx, |this, window, _| names(this, window)).unwrap(), "menu");
+            } else {
+                assert_eq!(back, ["menu", "spaces", "list", "search", "unread", "more"]);
+            }
+            // The button stays reachable (inside the window) and closing the drawer gives focus back to it.
+            let menu = { PAINTED.lock().unwrap()["menu-button"] };
+            let size = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+            assert!(menu.left() >= px(0.) && menu.top() >= px(0.) && menu.right() <= size.width && menu.bottom() <= size.height, "menu {menu:?} inside {size:?}");
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+            for close in ["escape", "ctrl-shift-m"] {
+                key!("enter");
+                wait(200).await;
+                this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window))).unwrap();
+                key!(close);
+                wait(200).await;
+                this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "{close} returns focus to the menu button")).unwrap();
+            }
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 26 {
             // Connected Shell: the menu button opens a drawer; Esc, the shortcut or the scrim close it; focus follows.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -1751,13 +1805,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(500).await;
             // The point may land on a drawer row (which closes it); either way the rail entry underneath stays untouched.
             this.update_in(cx, |this, _, _| assert!(this.active_scope == selected && ACTIVATIONS[2].load(Ordering::SeqCst) == ups, "the rail entry under the drawer received the click")).unwrap();
-            this.update_in(cx, |this, _, _| assert!(this.menu_open, "a click over the rail leaves the drawer open")).unwrap();
-            click!(bx, by);
-            wait(500).await;
-            this.update_in(cx, |this, _, _| assert!(this.menu_open)).unwrap();
+            // The point sits on a drawer row (Notifiche), which closes the drawer and opens its panel: start the outside click from a plain open drawer.
+            this.update_in(cx, |this, window, cx| { this.set_notifications_open(false); this.set_settings_open(false, window, cx); this.set_menu_open(false, window, cx); this.set_menu_open(true, window, cx); }).unwrap();
+            wait(300).await;
             click!(600., 400.);
             wait(500).await;
-            this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "click outside closes, focus returns to the button")).unwrap();
+            this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "click outside closes, focus returns to the button: open={} menu_focused={} settings={}", this.menu_open, this.menu_focus.is_focused(window), this.settings_open)).unwrap();
             this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
             key!("enter");
             wait(500).await;
@@ -2989,6 +3042,29 @@ fn drawer_offers_devices_and_notifications_and_the_footer_does_not() {
         Ok("1")
     );
     DYNAMIC.store(29, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn tab_ring_wide_from_the_menu_button() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(32, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn tab_ring_compact_from_the_menu_button() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(33, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
