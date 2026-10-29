@@ -145,8 +145,8 @@ impl Snapshot {
         } else {
             "Gnobbi — Accedi"
         });
-        root.set_description(if let Some(state) = self.recovery {
-            if self.setup == Some(SetupPhase::KeyShown) {
+        let description = if let Some(state) = self.recovery {
+            Some(if self.setup == Some(SetupPhase::KeyShown) {
                 SETUP_KEY_MASKED
             } else if let Some(message) = self.setup.and_then(crate::signin_form::setup_message) {
                 message
@@ -154,14 +154,17 @@ impl Snapshot {
                 RECOVERY_PENDING
             } else {
                 crate::signin_form::recovery_message(state).unwrap_or(RECOVERY_WARNING)
-            }
-        } else {
-            self.status.error_message().unwrap_or(match self.status {
-                FormStatus::Opening => "Apertura profilo…",
-                FormStatus::Busy => "Attendere…",
-                _ => "Matrix diretto · nessun gateway",
             })
-        });
+        } else {
+            self.status.error_message().or(match self.status {
+                FormStatus::Opening => Some("Apertura profilo…"),
+                FormStatus::Busy => Some("Attendere…"),
+                _ => None,
+            })
+        };
+        if let Some(description) = description {
+            root.set_description(description);
+        }
         let mut tree = TreeUpdate {
             nodes: vec![(super::ROOT, root)],
             tree: Some(Tree::new(super::ROOT)),
