@@ -11,6 +11,28 @@ use matrix_sdk_ui::{
 };
 use tokio::sync::broadcast::error::RecvError;
 
+/// Traces each shown-status change: previous, new, cause, time since the last one. Nothing else
+/// is logged (no token, header, error text or user data).
+struct StatusTrace {
+    shown: &'static str,
+    since: std::time::Instant,
+}
+
+impl StatusTrace {
+    fn change(&mut self, new: &'static str, cause: &'static str) {
+        tracing::info!(
+            target: "gnobbi::sync_status",
+            previous = self.shown,
+            new,
+            cause,
+            elapsed_ms = self.since.elapsed().as_millis() as u64,
+            "sync status"
+        );
+        self.shown = new;
+        self.since = std::time::Instant::now();
+    }
+}
+
 /// Send, stopping the adapter when the consumer is gone.
 async fn emit(sender: &mut Sender<RoomListEvent>, event: RoomListEvent) -> bool {
     sender.send(event).await.is_ok()
@@ -59,6 +81,7 @@ pub async fn run(
     sender: &mut Sender<RoomListEvent>,
     mut on_ready: impl FnMut(),
 ) {
+    let mut trace = StatusTrace { shown: "connecting", since: std::time::Instant::now() };
     let Some(client) = sync.client().cloned() else {
         let _ = emit(
             sender,
@@ -76,6 +99,7 @@ pub async fn run(
     let service = match SyncService::builder(client.clone()).build().await {
         Ok(service) => service,
         Err(_) => {
+            trace.change("sync_failed", "start_error");
             let _ = emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await;
             return;
         }
@@ -113,15 +137,15 @@ pub async fn run(
     loop {
         tokio::select! {
             _ = probe.tick(), if running => {
-                let reachable = tokio::time::timeout(
+                let answer = tokio::time::timeout(
                     std::time::Duration::from_secs(5),
                     client.whoami(),
                 )
-                .await
-                .is_ok_and(|answer| answer.is_ok());
-                unreachable = !reachable;
+                .await;
+                unreachable = !answer.as_ref().is_ok_and(|answer| answer.is_ok());
                 if unreachable && ready {
                     ready = false;
+                    trace.change("sync_failed", if answer.is_err() { "probe_timeout" } else { "probe_error" });
                     if !emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await {
                         return;
                     }
@@ -162,6 +186,11 @@ pub async fn run(
                 State::Error(_) | State::Terminated | State::Offline => {
                     running = false;
                     ready = false;
+                    trace.change("sync_failed", match next {
+                        State::Error(_) => "sync_service_error",
+                        State::Terminated => "sync_service_terminated",
+                        _ => "sync_service_offline",
+                    });
                     if !emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await {
                         return;
                     }
@@ -195,6 +224,7 @@ pub async fn run(
         }
         if running && loaded && !ready && !unreachable {
             ready = true;
+            trace.change("ready", if trace.shown == "sync_failed" { "recovered" } else { "first_ready" });
             if !emit(sender, RoomListEvent::Status(RoomSyncStatus::Ready)).await {
                 return;
             }
