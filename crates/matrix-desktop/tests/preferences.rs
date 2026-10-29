@@ -1,4 +1,4 @@
-use matrix_desktop::{AppDirs, Preferences, Theme};
+use matrix_desktop::{Accent, AppDirs, Preferences, Theme};
 use std::path::PathBuf;
 
 fn dirs(root: &std::path::Path) -> AppDirs {
@@ -27,6 +27,7 @@ fn roundtrip_keeps_values() {
     let d = dirs(&tmp("roundtrip"));
     let p = Preferences {
         theme: Some(Theme::Night),
+        accent: Some(Accent::Purple),
         debug: true,
         read_receipts: false,
     };
@@ -137,4 +138,25 @@ fn theme_saved_values_map_to_the_four_themes_and_unknown_follows_system() {
             && !Theme::Classic.is_dark()
             && !Theme::Day.is_dark()
     );
+}
+
+#[test]
+fn accent_roundtrips_system_included_and_unknown_means_blue() {
+    let d = dirs(&tmp("accent"));
+    for accent in Accent::ALL.map(Some).into_iter().chain([None]) {
+        Preferences { accent, ..Preferences::default() }.save(&d).unwrap();
+        assert_eq!(Preferences::load(&d).accent, accent);
+    }
+    std::fs::write(d.config.join("settings.json"), r#"{"accent":"mauve"}"#).unwrap();
+    assert_eq!(Preferences::load(&d).accent, Some(Accent::Blue));
+    std::fs::write(d.config.join("settings.json"), r#"{"theme":"dark"}"#).unwrap();
+    assert_eq!(Preferences::load(&d).accent, Some(Accent::Blue));
+}
+
+#[test]
+fn os_accent_names_map_onto_the_palette() {
+    assert_eq!(Accent::parse("teal"), Some(Accent::Teal));
+    assert_eq!(Accent::parse("yellow"), Some(Accent::Orange));
+    assert_eq!(Accent::parse("slate"), Some(Accent::Blue));
+    assert_eq!(Accent::parse("nope"), None);
 }

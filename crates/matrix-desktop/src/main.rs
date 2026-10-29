@@ -2399,6 +2399,7 @@ fn main() {
                     let prefs_dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok());
                     let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
                     rail_ui.layouts = prefs_dirs.as_ref().map(matrix_desktop::RailLayouts::load).unwrap_or_default();
+                    matrix_desktop::set_accent(prefs.effective_accent());
                     let theme = prefs.theme.unwrap_or(
                         if matches!(
                             window.appearance(),

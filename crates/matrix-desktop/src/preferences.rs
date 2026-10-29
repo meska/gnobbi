@@ -1,5 +1,5 @@
 //! User preferences in `settings.json` inside the config dir. Never holds secrets.
-use crate::{AppDirs, DARK, DAY, DesignTokens, LIGHT, NIGHT};
+use crate::{Accent, AppDirs, DARK, DAY, DesignTokens, LIGHT, NIGHT};
 use serde_json::{Value, json};
 use std::io::Write;
 
@@ -32,7 +32,11 @@ impl Theme {
             Theme::Night => "Notte",
         }
     }
+    /// The palette with the accent chosen in Settings.
     pub fn tokens(self) -> DesignTokens {
+        self.tokens_with(crate::current_accent())
+    }
+    pub(crate) fn base_tokens(self) -> DesignTokens {
         match self {
             Theme::Classic => LIGHT,
             Theme::Day => DAY,
@@ -48,10 +52,19 @@ impl Theme {
     }
 }
 
+impl Preferences {
+    /// The accent to paint with: the chosen one, or the OS accent (blue if unreadable).
+    pub fn effective_accent(&self) -> Accent {
+        self.accent.unwrap_or_else(|| crate::system_accent().unwrap_or(Accent::Blue))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Preferences {
     /// `None` follows the OS appearance (first start, or a missing/unknown saved value).
     pub theme: Option<Theme>,
+    /// `None` follows the OS accent (falling back to blue).
+    pub accent: Option<Accent>,
     pub debug: bool,
     /// «Conferme di lettura»: on by default, also when the saved value is missing or not a boolean.
     pub read_receipts: bool,
@@ -61,6 +74,7 @@ impl Default for Preferences {
     fn default() -> Self {
         Preferences {
             theme: None,
+            accent: Some(Accent::Blue),
             debug: false,
             read_receipts: true,
         }
@@ -83,6 +97,11 @@ impl Preferences {
                 .get("theme")
                 .and_then(Value::as_str)
                 .and_then(Theme::parse),
+            // Missing or unknown: blue, as before accents existed; "system" follows the OS.
+            accent: match map.get("accent").and_then(Value::as_str) {
+                Some("system") => None,
+                v => Some(v.and_then(Accent::parse).unwrap_or(Accent::Blue)),
+            },
             debug: map
                 .get("debug")
                 .and_then(Value::as_bool)
@@ -105,7 +124,7 @@ impl Preferences {
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "debug": self.debug, "read_receipts": self.read_receipts });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts });
         opts.open(&tmp)?.write_all(body.to_string().as_bytes())?;
         std::fs::rename(tmp, dirs.config.join(FILE))
     }

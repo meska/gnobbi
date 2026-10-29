@@ -28,6 +28,71 @@ impl Shell {
         self.save_prefs(cx);
     }
 
+    /// `None` follows the OS accent. The accent is process-wide so every `tokens()` call sees it.
+    pub(crate) fn choose_accent(&mut self, accent: Option<matrix_desktop::Accent>, cx: &mut Context<Self>) {
+        self.prefs.accent = accent;
+        matrix_desktop::set_accent(self.prefs.effective_accent());
+        self.set_theme(self.theme, cx);
+        self.save_prefs(cx);
+    }
+
+    /// Mini window in the theme's own colours (rail, bubbles, accent); the chosen one gets an accent border.
+    fn render_theme_preview(
+        &self,
+        theme: matrix_desktop::Theme,
+        t: matrix_desktop::DesignTokens,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let p = theme.tokens();
+        let chosen = self.theme == theme;
+        div()
+            .id(("settings-theme", theme as usize))
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .py_1()
+            .rounded_lg()
+            .border_2()
+            .border_color(rgb(if chosen { t.accent } else { t.surface }))
+            .cursor_pointer()
+            .child(
+                div()
+                    .w_full()
+                    .h(px(64.))
+                    .flex()
+                    .rounded_md()
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(rgb(p.border))
+                    .child(div().w(px(12.)).h_full().bg(rgb(p.surface)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .p_1()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .bg(rgb(p.timeline))
+                            .child(div().w(px(18.)).h(px(10.)).rounded_sm().bg(rgb(p.surface)))
+                            .child(div().flex().justify_end().child(div().w(px(22.)).h(px(10.)).rounded_sm().bg(rgb(p.outgoing))))
+                            .child(div().w(px(12.)).h(px(10.)).rounded_sm().bg(rgb(p.accent))),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(rgb(t.text))
+                    .when(chosen, |d| d.font_weight(gpui::FontWeight::SEMIBOLD))
+                    .child(theme.label()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.choose_theme(theme, cx)))
+            .into_any_element()
+    }
+
     pub(crate) fn toggle_read_receipts(&mut self, cx: &mut Context<Self>) {
         self.prefs.read_receipts = !self.prefs.read_receipts;
         self.save_prefs(cx);
@@ -303,18 +368,54 @@ impl Shell {
                     .child(switch(self.prefs.debug))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_debug(cx))),
             )
-            .children(matrix_desktop::Theme::ALL.map(|theme| {
-                row([
-                    "settings-theme-classic",
-                    "settings-theme-day",
-                    "settings-theme-dark",
-                    "settings-theme-night",
-                ][theme as usize])
-                .text_color(rgb(t.text))
-                .child(theme.label())
-                .child(switch(self.theme == theme))
-                .on_click(cx.listener(move |this, _, _, cx| this.choose_theme(theme, cx)))
-            }))
+            .child(
+                div()
+                    .h(px(t.header))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .text_color(rgb(t.text))
+                    .child("Aspetto"),
+            )
+            .child(div().px_3().flex().gap_1().children(
+                matrix_desktop::Theme::ALL.map(|theme| self.render_theme_preview(theme, t, cx)),
+            ))
+            .child(
+                div()
+                    .px_4()
+                    .py_3()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .children(matrix_desktop::Accent::ALL.map(|a| {
+                        let tone = self.theme.tokens_with(a).accent;
+                        let chosen = self.prefs.accent == Some(a);
+                        div()
+                            .id(("settings-accent", a as usize))
+                            .size(px(28.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .border_2()
+                            .border_color(rgb(if chosen { t.text } else { t.surface }))
+                            .cursor_pointer()
+                            .child(div().size(px(20.)).rounded_full().bg(rgb(tone)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.choose_accent(Some(a), cx)
+                            }))
+                    })),
+            )
+            .child(
+                row("settings-accent-system")
+                    .text_color(rgb(t.text))
+                    .child("Colore principale di sistema")
+                    .child(switch(self.prefs.accent.is_none()))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let next = this.prefs.accent.map_or(Some(matrix_desktop::Accent::Blue), |_| None);
+                        this.choose_accent(next, cx)
+                    })),
+            )
             .child(
                 div()
                     .h(px(t.header))
@@ -334,3 +435,4 @@ impl Shell {
             .into_any_element()
     }
 }
+
