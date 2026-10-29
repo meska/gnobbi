@@ -267,13 +267,15 @@ pub async fn start_dm(
         .map_err(|_| OperationError::InvalidInput)?;
     use matrix_sdk::ruma::events::room::member::MembershipState;
     // Reuse unless the store says B left/was banned: B's membership may not have synced yet (None/Err), which is not a reason for a second room.
-    let reusable = match client.get_dm_room(&user) {
-        Some(room) => match room.get_member_no_sync(&user).await {
-            Ok(Some(m)) if matches!(m.membership(), MembershipState::Leave | MembershipState::Ban) => None,
-            _ => Some(room),
-        },
-        None => None,
-    };
+    // get_dm_room() takes an arbitrary DM: after a declined invite there are two, so pick the first one B has not left.
+    let mut reusable = None;
+    for room in client.get_dm_rooms(&user) {
+        let gone = matches!(room.get_member_no_sync(&user).await, Ok(Some(m)) if matches!(m.membership(), MembershipState::Leave | MembershipState::Ban));
+        if !gone {
+            reusable = Some(room);
+            break;
+        }
+    }
     let room = match reusable {
         Some(room) => room,
         None => timeout_create(async {

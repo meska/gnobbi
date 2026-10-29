@@ -188,6 +188,9 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
                 .any(|r| r.room_id().as_str() == again.room_id.as_str())
         })
         .await;
+        // Two direct rooms with B now (abandoned + pending): a further ask must reuse the pending one, whatever order the SDK lists them.
+        until("A lists both DMs with B", || a.get_dm_rooms(b.user_id().unwrap()).count() == 2).await;
+        assert_eq!(start_dm(&a, account, &bob).await.unwrap(), again);
         println!(
             "[start] dm {} public {} private {} ok",
             dm.room_id.as_str(),
