@@ -256,13 +256,12 @@ pub async fn start_dm(
     let user = matrix_sdk::ruma::UserId::parse(user_id.trim())
         .map_err(|_| OperationError::InvalidInput)?;
     use matrix_sdk::ruma::events::room::member::MembershipState;
-    // A DM the other user declined or left is not reused: start a fresh one.
+    // Reuse unless the store says B left/was banned: B's membership may not have synced yet (None/Err), which is not a reason for a second room.
     let reusable = match client.get_dm_room(&user) {
-        Some(room) => matches!(
-            room.get_member_no_sync(&user).await,
-            Ok(Some(m)) if matches!(m.membership(), MembershipState::Join | MembershipState::Invite)
-        )
-        .then_some(room),
+        Some(room) => match room.get_member_no_sync(&user).await {
+            Ok(Some(m)) if matches!(m.membership(), MembershipState::Leave | MembershipState::Ban) => None,
+            _ => Some(room),
+        },
         None => None,
     };
     let room = match reusable {
