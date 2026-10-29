@@ -436,11 +436,12 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
-                                OperationCommand::CreateRoom { name, public } => {
+                                OperationCommand::CreateRoom { name, topic, public } => {
                                     let result = crate::operations::create_room(
                                         &operation_client,
                                         account,
                                         &name,
+                                        topic.as_deref(),
                                         public,
                                     )
                                     .await;
