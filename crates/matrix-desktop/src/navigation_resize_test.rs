@@ -387,6 +387,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     sender: matrix_engine::history::HistorySender::new("@peer:test", None),
                     video: None,
                     styles: Vec::new(),
+                    thread: None,
                 }]);
                 this.timeline = Some(timeline);
                 this.navigation_wide = false;

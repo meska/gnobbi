@@ -20,6 +20,7 @@ fn live_history() -> DemoHistory {
         sender: HistorySender::new("@a:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     }]);
     rows
 }
@@ -60,6 +61,7 @@ fn two_live() -> DemoHistory {
         sender: HistorySender::new("@a:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     };
     rows.prepend_server(vec![event("$old"), event("$new")]);
     rows

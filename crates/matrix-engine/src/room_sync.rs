@@ -1343,6 +1343,19 @@ pub(crate) struct Loaded {
     pub(crate) at_start: bool,
 }
 
+async fn thread_info(
+    room: &matrix_sdk::Room,
+    content: &matrix_sdk_ui::timeline::MsgLikeContent,
+) -> Option<crate::history::ThreadInfo> {
+    use matrix_sdk_ui::timeline::TimelineDetails;
+    let summary = content.thread_summary.as_ref()?;
+    let latest_sender = match &summary.latest_event {
+        TimelineDetails::Ready(e) => Some(history_sender(room, &e.sender).await),
+        _ => None,
+    };
+    Some(crate::history::ThreadInfo { num_replies: summary.num_replies, latest_sender })
+}
+
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
 pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Loaded {
     use crate::history::{HistoryEvent, ReactionCount};
@@ -1408,6 +1421,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             sender: history_sender(room, event.sender()).await,
             video,
             styles,
+            thread: thread_info(room, content).await,
         });
     }
     out

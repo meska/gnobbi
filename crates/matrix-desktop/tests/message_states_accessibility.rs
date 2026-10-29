@@ -29,6 +29,7 @@ fn confirmed_redaction_has_semantics_not_inferred_from_message_body() {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     }]);
     let mut nodes = HistoryNodes::default();
     let original = nodes.project(&rows, 0, true).messages.remove(0);
@@ -91,6 +92,7 @@ fn own_reaction_is_named_separately_from_edit_and_delivery() {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     }]);
     let mut nodes = HistoryNodes::default();
     let original = nodes.project(&rows, 0, true).messages.remove(0);
@@ -187,6 +189,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
             sender: matrix_engine::history::HistorySender::new("@peer:test", None),
             video: None,
             styles: Vec::new(),
+            thread: None,
         },
         HistoryEvent {
             event_id: EventId::new("$later"),
@@ -196,6 +199,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
             sender: matrix_engine::history::HistorySender::new("@peer:test", None),
             video: None,
             styles: Vec::new(),
+            thread: None,
         },
     ]);
     let mut nodes = HistoryNodes::default();

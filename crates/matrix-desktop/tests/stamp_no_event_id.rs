@@ -20,6 +20,7 @@ fn live_server_message_stamp_has_no_event_id() {
         sender: HistorySender::new("@a:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     }]);
     let stamp = rows.events()[0].stamp();
     assert!(!stamp.contains("secretid"), "event id leaked in {stamp:?}");
