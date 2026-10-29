@@ -204,6 +204,7 @@ pub(crate) async fn details(
 #[cfg(feature = "sdk")]
 pub(crate) async fn mark_room(
     client: &matrix_sdk::Client,
+    timelines: &crate::room_sync::Timelines,
     account: matrix_domain::AccountId,
     scope: &RoomScope,
     read: bool,
@@ -219,15 +220,17 @@ pub(crate) async fn mark_room(
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
         .ok_or(OperationError::Unavailable)?;
     if read {
-        // shortcut: only events already in the event cache; a never-opened room just loses its flag.
-        let (rows, _, _) = crate::room_sync::stored_events(client, &id)
+        use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+        let timeline = timelines
+            .get(&room)
             .await
             .map_err(|_| OperationError::Unavailable)?;
-        if let Some(event) = rows.last().and_then(|e| e.event_id()) {
-            room.send_multiple_receipts(crate::receipts::marker_receipts(event.to_owned(), public))
-                .await
-                .map_err(|_| OperationError::Transport)?;
-        }
+        let kind = if public { ReceiptType::Read } else { ReceiptType::ReadPrivate };
+        timeline.mark_as_read(kind).await.map_err(|_| OperationError::Transport)?;
+        timeline
+            .mark_as_read(ReceiptType::FullyRead)
+            .await
+            .map_err(|_| OperationError::Transport)?;
     }
     room.set_unread_flag(!read)
         .await

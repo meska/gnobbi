@@ -398,6 +398,7 @@ impl RoomListWorker {
                                 } => {
                                     let result = crate::operations::mark_room(
                                         &operation_client,
+                                        &operation_timelines,
                                         account,
                                         &scope,
                                         read,
@@ -673,11 +674,8 @@ pub struct RoomSync {
     timeline_heads: BTreeMap<String, matrix_domain::EventId>,
     /// Rooms whose SDK latest event is being tracked (a store written before sliding sync has none).
     latest_watched: std::collections::BTreeSet<String>,
-    members_loaded: std::collections::BTreeSet<String>,
-    receipts: crate::receipts::PeerReceipts,
     /// Sliding sync sends no server counts: unread comes from the SDK's client-side counts.
     pub(crate) sliding_counts: bool,
-    sent_markers: std::sync::Mutex<crate::receipts::SentMarkers>,
     timelines: Timelines,
     operation_state: std::sync::Arc<tokio::sync::Mutex<crate::operations::OperationJournal>>,
 }
@@ -735,24 +733,12 @@ impl RoomSync {
     }
 
     pub fn new(session: AccountSession) -> Self {
-        let receipts = crate::receipts::PeerReceipts::new(
-            session.account_id(),
-            session
-                .client
-                .as_ref()
-                .and_then(|client| client.user_id())
-                .map(ToString::to_string)
-                .unwrap_or_default(),
-        );
         Self {
             session,
             previous: BTreeMap::new(),
             timeline_heads: BTreeMap::new(),
             latest_watched: Default::default(),
-            members_loaded: Default::default(),
-            receipts,
             sliding_counts: false,
-            sent_markers: Default::default(),
             timelines: Default::default(),
             operation_state: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
         }
@@ -778,7 +764,7 @@ impl RoomSync {
         read: bool,
     ) -> Result<(), crate::operations::OperationError> {
         let client = self.session.client.as_ref().expect("store-backed session");
-        crate::operations::mark_room(client, self.session.account_id(), scope, read, true).await
+        crate::operations::mark_room(client, &self.timelines, self.session.account_id(), scope, read, true).await
     }
 
     /// Read one server page on the backend, never on the UI thread.
@@ -822,45 +808,29 @@ impl RoomSync {
             .ok_or(crate::history::HistoryError::Unavailable)?;
         let scope = tag.scope().clone();
         let opened = open_page(client, &self.timelines, tag).await?;
-        if let (true, Some(last)) = (visibility.sees_last_message(), opened.0.events.last()) {
-            self.mark_read(
-                client,
-                &scope.room_id,
-                &last.event_id,
-                visibility.public_receipts,
-            )
-            .await;
+        if visibility.sees_last_message() && !opened.0.events.is_empty() {
+            self.mark_read(client, &scope.room_id, visibility.public_receipts)
+                .await;
         }
         Ok(opened)
     }
 
-    /// Public receipt and fully_read for the newest event; best effort, retried on the next open.
-    async fn mark_read(
-        &self,
-        client: &matrix_sdk::Client,
-        room_id: &RoomId,
-        event: &matrix_domain::EventId,
-        public: bool,
-    ) {
-        if !self.sent_markers.lock().unwrap().is_new(room_id, event) {
-            return;
-        }
-        let (Ok(id), Ok(event_id)) = (
-            matrix_sdk::ruma::RoomId::parse(room_id.as_str()),
-            matrix_sdk::ruma::EventId::parse(event.as_str()),
-        ) else {
+    /// Read receipt (public or private) and fully_read for the newest event through the SDK
+    /// Timeline, which skips markers that would not move forward; best effort, retried on the next open.
+    async fn mark_read(&self, client: &matrix_sdk::Client, room_id: &RoomId, public: bool) {
+        use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+        let Ok(id) = matrix_sdk::ruma::RoomId::parse(room_id.as_str()) else {
             return;
         };
         let Some(room) = client.get_room(&id) else {
             return;
         };
-        let receipts = crate::receipts::marker_receipts(event_id, public);
-        if room.send_multiple_receipts(receipts).await.is_ok() {
-            self.sent_markers
-                .lock()
-                .unwrap()
-                .record(room_id.clone(), event.clone());
-        }
+        let Ok(timeline) = self.timelines.get(&room).await else {
+            return;
+        };
+        let read = if public { ReceiptType::Read } else { ReceiptType::ReadPrivate };
+        let _ = timeline.mark_as_read(read).await;
+        let _ = timeline.mark_as_read(ReceiptType::FullyRead).await;
     }
 
     /// Fixture: runs the live `sliding::run` until `Ready` and a quiet moment; returns what the
@@ -929,10 +899,6 @@ impl RoomSync {
     ) -> Vec<(String, matrix_domain::EventId)> {
         let mut heads = Vec::new();
         for (room, update) in &rooms.joined {
-            let scope = RoomScope {
-                account_id: self.session.account_id(),
-                room_id: RoomId::new(room.as_str()),
-            };
             if let Some(event) = update
                 .timeline
                 .events
@@ -944,9 +910,6 @@ impl RoomSync {
                     room.to_string(),
                     matrix_domain::EventId::new(event.as_str()),
                 ));
-            }
-            for raw in &update.ephemeral {
-                self.receipts.observe_event(&scope, raw);
             }
         }
         heads
@@ -989,38 +952,18 @@ impl RoomSync {
                     .listen_to_room(room.room_id())
                     .await;
             }
-            // Sliding sync does not replay receipts sent before the app started: read the SDK store (1:1 only, the only place they are drawn).
-            if room.state() == RoomState::Joined && room.joined_members_count() <= 2 {
-                use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
-                let scope = RoomScope {
-                    account_id: self.session.account_id(),
-                    room_id: RoomId::new(id.clone()),
-                };
-                // Lazy-loaded rooms know only some members: fetch the two once per room.
-                if self.members_loaded.insert(id.clone()) {
-                    let _ = room.sync_members().await;
-                }
-                for member in room
-                    .members_no_sync(matrix_sdk::RoomMemberships::JOIN)
-                    .await
-                    .unwrap_or_default()
-                {
-                    if let Ok(Some((event, _))) = room
-                        .load_user_receipt(
-                            ReceiptType::Read,
-                            &ReceiptThread::Unthreaded,
-                            member.user_id(),
-                        )
-                        .await
-                    {
-                        self.receipts.observe(
-                            &scope,
-                            member.user_id().as_str(),
-                            &matrix_domain::EventId::new(event.as_str()),
-                        );
+            // Peer markers are drawn in 1:1 rooms only; the Timeline reads them from the SDK store and receipt events.
+            let peer_receipts = if room.state() == RoomState::Joined && room.joined_members_count() <= 2 {
+                match self.timelines.get(&room).await {
+                    Ok(timeline) => {
+                        let own = client.user_id().map(ToString::to_string).unwrap_or_default();
+                        crate::receipts::peer_receipts(&timeline, &own).await
                     }
+                    Err(_) => Vec::new(),
                 }
-            }
+            } else {
+                Vec::new()
+            };
             let mut children = Vec::new();
             if room.state() == RoomState::Joined && room.is_space() {
                 use matrix_sdk::deserialized_responses::SyncOrStrippedState;
@@ -1060,10 +1003,7 @@ impl RoomSync {
                         room.unread_notification_counts().notification_count
                     },
                     info: crate::RoomInfo {
-                        public_read_receipts: self.receipts.snapshot(&RoomScope {
-                            account_id: self.session.account_id(),
-                            room_id: RoomId::new(id.clone()),
-                        }),
+                        public_read_receipts: peer_receipts,
                         preview: latest_event_text(&room).await,
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
@@ -1094,12 +1034,6 @@ impl RoomSync {
                 .iter()
                 .filter(|(id, _)| !current.contains_key(*id))
                 .map(|(_, room)| RoomListDiff::Remove(room.scope.clone())),
-        );
-        self.receipts.retain_rooms(
-            &current
-                .values()
-                .map(|room| room.scope.room_id.clone())
-                .collect::<Vec<_>>(),
         );
         self.previous = current;
         Ok(changes)
