@@ -1534,12 +1534,20 @@ pub(crate) async fn serve_history(
     emit(crate::history::HistoryResult { tag, page }).await
 }
 
+/// Matrix spec «Calculating the display name for a user»: an ambiguous name carries the user id.
+fn disambiguated_name(name: Option<&str>, ambiguous: bool, id: &str) -> Option<String> {
+    name.map(|n| if ambiguous { format!("{n} ({id})") } else { n.to_owned() })
+}
+
 async fn history_sender(
     room: &matrix_sdk::room::Room,
     id: &matrix_sdk::ruma::UserId,
 ) -> crate::history::HistorySender {
     let member = room.get_member_no_sync(id).await.ok().flatten();
-    crate::history::HistorySender::new(id.as_str(), member.as_ref().and_then(|m| m.display_name()))
+    let name = member
+        .as_ref()
+        .and_then(|m| disambiguated_name(m.display_name(), m.name_ambiguous(), id.as_str()));
+    crate::history::HistorySender::new(id.as_str(), name.as_deref())
         .with_avatar(
             member
                 .as_ref()
