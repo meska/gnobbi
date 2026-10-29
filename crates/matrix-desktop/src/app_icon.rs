@@ -13,6 +13,17 @@ impl IconChoice {
     }
 }
 
+impl IconChoice {
+    /// 256 px PNG for the Linux icon theme (the 512 px one is `runtime_png`).
+    pub fn theme_png_256(self) -> &'static [u8] {
+        match self {
+            IconChoice::MinimalMark => include_bytes!("../assets/icon-segno-minimo-256.png"),
+            IconChoice::Gnome => include_bytes!("../assets/icon-gnomo-256.png"),
+            IconChoice::Monster => include_bytes!("../assets/icon-mostriciattolo-256.png"),
+        }
+    }
+}
+
 /// Whether this OS can switch the icon of a running app.
 pub const fn runtime_switch_supported() -> bool {
     cfg!(any(target_os = "macos", target_os = "windows"))
