@@ -5,6 +5,10 @@ use matrix_desktop::DesignTokens;
 use matrix_engine::media::MediaError;
 use std::sync::Arc;
 
+// Exception: the media viewer is black in every theme, like any photo viewer.
+const VIEWER_CHIP: u32 = 0x000000a6;
+const VIEWER_BAR: u32 = 0x000000d9;
+
 #[derive(Clone)]
 pub(crate) enum InlineImage {
     Loading,
@@ -87,7 +91,7 @@ pub(crate) fn video_picture(
             .relative()
             .px_1()
             .rounded_sm()
-            .bg(gpui::rgba(0x000000a6))
+            .bg(gpui::rgba(VIEWER_CHIP))
             .text_size(px(12.))
             .text_color(gpui::white())
             .child(text)
@@ -116,7 +120,7 @@ pub(crate) fn video_picture(
                                 .items_center()
                                 .justify_center()
                                 .rounded_full()
-                                .bg(gpui::rgba(0x000000a6))
+                                .bg(gpui::rgba(VIEWER_CHIP))
                                 .text_size(px(20.))
                                 .text_color(gpui::white())
                                 .child("▶")
@@ -166,7 +170,7 @@ pub(crate) fn large_view(
                 .items_center()
                 .justify_center()
                 .p_4()
-                .bg(gpui::rgba(0x000000d9))
+                .bg(gpui::rgba(VIEWER_BAR))
                 .cursor_pointer()
                 .on_click(move |_, window, _| close(window))
                 .children(image.map(|image| {

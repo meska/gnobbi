@@ -111,6 +111,11 @@ pub struct DesignTokens {
 
 pub const DEMO_NOTICE: &str = "DEMO OFFLINE · nessun account connesso";
 
+/// Scrim behind dialogs (RGBA): the same in every theme.
+pub const SCRIM: u32 = 0x0000_0066;
+/// Avatar fallback colour: identity, not theme.
+pub const AVATAR_FALLBACK: u32 = 0x5288b5;
+
 pub struct DemoRoom {
     pub name: &'static str,
     pub initials: &'static str,

@@ -226,7 +226,7 @@ impl Shell {
             .right_0()
             .bottom_0()
             .top_0()
-            .bg(gpui::rgba(0x00000066))
+            .bg(gpui::rgba(matrix_desktop::SCRIM))
             .on_click(cx.listener(|this, _, window, cx| this.set_menu_open(false, window, cx)))
             .child(
                 div()
@@ -295,7 +295,7 @@ impl Shell {
                         .items_center()
                         .justify_center()
                         .rounded_full()
-                        .bg(rgb(0x5288b5))
+                        .bg(rgb(matrix_desktop::AVATAR_FALLBACK))
                         .text_size(px(20.))
                         .text_color(rgb(t.avatar_text))
                         .child(matrix_desktop::initials(&name)),

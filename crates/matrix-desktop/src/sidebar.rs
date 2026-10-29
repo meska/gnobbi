@@ -129,7 +129,7 @@ impl Sidebar {
             name: summary.name,
             preview: summary.info.preview.clone().unwrap_or_default(),
             time: "",
-            color: 0x5288b5,
+            color: crate::AVATAR_FALLBACK,
             unread: summary.unread,
             info: summary.info,
         };

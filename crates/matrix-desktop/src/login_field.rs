@@ -5,7 +5,7 @@ use gpui::{
     MouseButton, Pixels, Point, StyledText, TextLayout, UTF16Selection, Window, canvas, div, fill,
     point, prelude::*, px, rgb, size,
 };
-use matrix_desktop::{LIGHT, LoginInput};
+use matrix_desktop::{DesignTokens, LIGHT, LoginInput};
 use std::ops::Range;
 
 #[cfg(test)]
@@ -14,6 +14,7 @@ type PaintedPointer = fn(&mut LoginField, &mut Window, &mut Context<LoginField>)
 type PaintedKey = fn(&mut LoginField, &KeyDownEvent, &mut Window, &mut Context<LoginField>);
 
 pub struct LoginField {
+    pub theme: DesignTokens,
     pub enabled: bool,
     pub input: LoginInput,
     pub focus: FocusHandle,
@@ -29,6 +30,7 @@ pub struct LoginField {
 impl LoginField {
     pub fn new(protected: bool, cx: &mut Context<Self>) -> Self {
         Self {
+            theme: LIGHT,
             enabled: false,
             input: if protected {
                 LoginInput::secret()
@@ -192,6 +194,7 @@ impl Render for LoginField {
         let body = StyledText::new(format!("{text}\u{200b}"));
         let layout = body.layout().clone();
         let entity = cx.entity();
+        let theme = self.theme;
         div()
             .id("login-field")
             .track_focus(&self.focus)
@@ -203,12 +206,12 @@ impl Render for LoginField {
             .py_1()
             .text_size(px(14.))
             .line_height(px(24.))
-            .bg(rgb(LIGHT.input))
+            .bg(rgb(self.theme.input))
             .border_1()
             .border_color(rgb(if self.focus.is_focused(window) {
-                LIGHT.accent
+                self.theme.accent
             } else {
-                LIGHT.border
+                self.theme.border
             }))
             .on_key_down(cx.listener(key))
             .when(cfg!(any(target_os = "macos", test)), |element| {
@@ -242,7 +245,7 @@ impl Render for LoginField {
                         {
                             window.paint_quad(fill(
                                 Bounds::new(point(p.x, p.y), size(px(1.), px(20.))),
-                                rgb(LIGHT.accent),
+                                rgb(theme.accent),
                             ));
                         }
                         entity.update(cx, |this, _| this.layout = Some(layout.clone()));
