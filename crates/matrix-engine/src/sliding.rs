@@ -4,7 +4,7 @@
 use crate::{RoomListEvent, RoomSyncStatus, Sender, room_sync::RoomSync};
 use eyeball_im::Vector;
 use futures_util::StreamExt;
-use matrix_sdk::sliding_sync::Version;
+use matrix_sdk::{SessionChange, sliding_sync::Version};
 use matrix_sdk_ui::{
     room_list_service::{
         RoomListItem, RoomListLoadingState, State as RoomListState, filters::new_filter_non_left,
@@ -38,11 +38,11 @@ impl StatusTrace {
 const OUTAGE: std::time::Duration = std::time::Duration::from_secs(20);
 const HOLD: std::time::Duration = std::time::Duration::from_secs(5);
 const EPISODES: u32 = 3;
-const PROBE_MISSES: u32 = 3;
 
 /// Decides when the bar says «sync failed»: only after 20 s without a success since the first
-/// failure, 3 failure episodes with no success between them, or 3 probe misses spanning 20 s;
-/// back at the first success. The shown text holds at least 5 s. Pure: the clock is injected.
+/// failure, or 3 failure episodes with no success between them; back at the first success. The
+/// shown text holds at least 5 s. Pure: the clock is injected. A mute server is caught by the SDK
+/// itself (long-poll retries end in `Offline`, ~181 s after the last answer).
 /// shortcut: the first change after start is not held, so a first Ready may flip at once.
 #[derive(Default)]
 pub(crate) struct StatusGate {
@@ -50,8 +50,6 @@ pub(crate) struct StatusGate {
     changed: Option<Instant>,
     episodes: u32,
     since: Option<Instant>,
-    probe_misses: u32,
-    probe_since: Option<Instant>,
 }
 
 impl StatusGate {
@@ -64,34 +62,17 @@ impl StatusGate {
     /// A valid sliding response (or the SDK back from offline).
     pub(crate) fn succeed(&mut self) {
         (self.episodes, self.since) = (0, None);
-        // A valid response proves reachability; a mute server produces none, so probe misses still count then.
-        (self.probe_misses, self.probe_since) = (0, None);
-    }
-
-    /// A reachability probe; one slow answer changes nothing.
-    pub(crate) fn probe(&mut self, now: Instant, ok: bool) {
-        if ok {
-            (self.probe_misses, self.probe_since) = (0, None);
-        } else {
-            self.probe_misses += 1;
-            self.probe_since.get_or_insert(now);
-        }
     }
 
     /// When failure becomes due, if it is pending.
     fn due(&self) -> Option<Instant> {
-        let by_probe = self
-            .probe_since
-            .filter(|_| self.probe_misses >= PROBE_MISSES)
-            .map(|t| t + OUTAGE);
-        let by_sync = self.since.map(|t| {
+        self.since.map(|t| {
             if self.episodes >= EPISODES {
                 t
             } else {
                 t + OUTAGE
             }
-        });
-        by_probe.into_iter().chain(by_sync).min()
+        })
     }
 
     /// `Some(failed)` when the shown text must change now.
@@ -182,11 +163,11 @@ pub async fn run(
         .await;
         return;
     };
-    sync.sliding_counts = true;
     // The session store may predate sliding sync: the version is not persisted with it.
     client.set_sliding_sync_version(Version::Native);
     // Before start, so no delivery is missed; the broadcast carries what classic /sync returned.
     let mut updates = client.subscribe_to_all_room_updates();
+    let mut session_changes = client.subscribe_to_session_changes();
     let _ = client.event_cache().subscribe();
     let service = match SyncService::builder(client.clone())
         // The SDK itself pings /versions while offline and restarts: no restart of ours for it.
@@ -234,9 +215,6 @@ pub async fn run(
     let mut cause = "";
     // Restart after Error/Terminated, with backoff, without blocking the loop.
     let mut restart_at: Option<Instant> = None;
-    // SyncService stays Running while a silent server holds its requests open: probe it.
-    let mut probe = tokio::time::interval(std::time::Duration::from_secs(5));
-    probe.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         let far = Instant::now() + std::time::Duration::from_secs(86_400);
         tokio::select! {
@@ -245,17 +223,13 @@ pub async fn run(
                 restart_at = None;
                 service.start().await;
             }
-            _ = probe.tick(), if running => {
-                let answer = tokio::time::timeout(
-                    std::time::Duration::from_secs(5),
-                    client.whoami(),
-                )
-                .await;
-                let ok = answer.as_ref().is_ok_and(|answer| answer.is_ok());
-                if !ok {
-                    cause = if answer.is_err() { "probe_timeout" } else { "probe_error" };
+            // An expired token is the one failure that must not retry; the SDK reports it itself.
+            // Not a refutable pattern: a Lagged result would disable the branch until another wakes the select.
+            change = session_changes.recv() => {
+                if matches!(change, Ok(SessionChange::UnknownToken(_))) {
+                    let _ = emit(sender, RoomListEvent::Status(RoomSyncStatus::AuthenticationFailed)).await;
+                    return;
                 }
-                gate.probe(Instant::now(), ok);
             }
             Some(alert) = alert_rx.recv() => {
                 if !emit(sender, alert).await {
@@ -303,20 +277,6 @@ pub async fn run(
                     running = false;
                     cause = if matches!(next, State::Error(_)) { "sync_service_error" } else { "sync_service_terminated" };
                     gate.fail(Instant::now());
-                    // An expired token is the one failure that must not retry.
-                    if let Err(error) = client.whoami().await
-                        && matches!(
-                            error.client_api_error_kind(),
-                            Some(matrix_sdk::ruma::api::error::ErrorKind::UnknownToken { .. })
-                        )
-                    {
-                        let _ = emit(
-                            sender,
-                            RoomListEvent::Status(RoomSyncStatus::AuthenticationFailed),
-                        )
-                        .await;
-                        return;
-                    }
                     restart_at = Some(Instant::now() + backoff.next_delay());
                 }
                 State::Idle => {}
@@ -398,7 +358,6 @@ mod tests {
     enum In {
         Fail,
         Succeed,
-        Probe(bool),
     }
     use In::*;
 
@@ -414,7 +373,6 @@ mod tests {
                 match input {
                     Fail => gate.fail(now),
                     Succeed => gate.succeed(),
-                    Probe(ok) => gate.probe(now, *ok),
                 }
             }
             if let Some(failed) = gate.poll(now) {
@@ -475,48 +433,6 @@ mod tests {
                     (2, Fail),
                 ],
                 vec![(0, true)],
-            ),
-            (
-                "one slow probe",
-                vec![(5, Probe(false)), (10, Probe(true))],
-                vec![],
-            ),
-            (
-                "3 probe misses over 10 s",
-                vec![
-                    (5, Probe(false)),
-                    (10, Probe(false)),
-                    (15, Probe(false)),
-                    (16, Probe(true)),
-                ],
-                vec![],
-            ),
-            (
-                "3 probe misses, success clears them",
-                vec![
-                    (5, Probe(false)),
-                    (10, Probe(false)),
-                    (15, Probe(false)),
-                    (16, Succeed),
-                ],
-                vec![],
-            ),
-            (
-                "3 probe misses, success inside 20 s, 2 more misses",
-                vec![
-                    (5, Probe(false)),
-                    (10, Probe(false)),
-                    (15, Probe(false)),
-                    (16, Succeed),
-                    (20, Probe(false)),
-                    (25, Probe(false)),
-                ],
-                vec![],
-            ),
-            (
-                "silent server: 3 probe misses and 20 s",
-                (1..=8).map(|i| (i * 5, Probe(false))).collect(),
-                vec![(25, true)],
             ),
         ];
         for (name, inputs, want) in cases {

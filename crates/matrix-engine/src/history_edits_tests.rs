@@ -127,7 +127,7 @@ fn disposable_history_edits_preserve_paginated_identity() {
         assert_eq!(replacement["content"]["m.new_content"]["body"], body);
         assert_eq!(replacement["content"]["m.relates_to"]["event_id"], ids[0]);
         let mut sync = RoomSync::new(login(&config, "alice", 51).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let mut views = ViewRequests::new();
         let tag = views
             .start(RoomScope {

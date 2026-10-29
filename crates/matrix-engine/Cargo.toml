@@ -58,6 +58,10 @@ name = "sliding_sync_probe"
 required-features = ["sdk"]
 
 [[test]]
+name = "sync_mute_detection"
+required-features = ["sdk"]
+
+[[test]]
 name = "room_open_baseline"
 required-features = ["sdk"]
 

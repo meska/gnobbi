@@ -419,7 +419,8 @@ fn disposable_lifecycle_reconnect_restores_ready_without_duplicate_send() {
         assert!(sends.send(request.clone()).await.is_ok());
         let original = next_result(&mut results, 8).await.result.unwrap();
         let paused = PausedServer::new(&config);
-        tokio::time::timeout(Duration::from_secs(20), async {
+        // SDK detects a mute server after ~181-211 s.
+        tokio::time::timeout(Duration::from_secs(240), async {
             while !matches!(
                 events.recv().await,
                 Some(RoomListEvent::Status(RoomSyncStatus::SyncFailed))

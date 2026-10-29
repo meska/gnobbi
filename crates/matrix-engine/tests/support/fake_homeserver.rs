@@ -27,10 +27,11 @@ pub enum SyncMode {
 
 struct State {
     sync: SyncMode,
-    /// Applies to the next whoami only (one slow answer, then back to instant).
-    whoami_delay_once: Option<Duration>,
     /// Network down: every new connection is closed unanswered, held long-polls are cut.
     outage: bool,
+    /// Mute server: TCP stays open but sliding sync is never answered (held forever), including
+    /// requests already in flight when it turns on.
+    mute: bool,
     pos: u64,
     log: Vec<(Duration, String)>,
 }
@@ -50,8 +51,8 @@ impl Fake {
             url: format!("http://{}", listener.local_addr().unwrap()),
             state: Arc::new(Mutex::new(State {
                 sync: SyncMode::Normal,
-                whoami_delay_once: None,
                 outage: false,
+                mute: false,
                 pos: 0,
                 log: Vec::new(),
             })),
@@ -75,8 +76,9 @@ impl Fake {
             self.cut.notify_waiters();
         }
     }
-    pub fn delay_next_whoami(&self, by: Duration) {
-        self.state.lock().unwrap().whoami_delay_once = Some(by);
+    /// Mute server from now on: accept, read, never answer sliding sync, never close.
+    pub fn set_mute(&self, on: bool) {
+        self.state.lock().unwrap().mute = on;
     }
     pub fn set_outage(&self, down: bool) {
         self.state.lock().unwrap().outage = down;
@@ -114,17 +116,10 @@ impl Fake {
                 200,
                 r#"{"versions":["v1.11"],"unstable_features":{}}"#.to_owned(),
             )),
-            "whoami" => {
-                let delay = self.state.lock().unwrap().whoami_delay_once.take();
-                if let Some(delay) = delay {
-                    self.note(format!("whoami -> held {}s", delay.as_secs()));
-                    sleep(delay).await;
-                }
-                Some((
-                    200,
-                    r#"{"user_id":"@a:fake.test","device_id":"D"}"#.to_owned(),
-                ))
-            }
+            "whoami" => Some((
+                200,
+                r#"{"user_id":"@a:fake.test","device_id":"D"}"#.to_owned(),
+            )),
             "sliding" => self.sliding(&path).await,
             _ => Some((
                 404,
@@ -149,12 +144,21 @@ impl Fake {
 
     /// None = close the connection without answering.
     async fn sliding(&self, path: &str) -> Option<(u16, String)> {
+        self.hold_if_mute().await;
         let mode = self.state.lock().unwrap().sync;
         let long_poll = path.contains("pos=");
         let timeout = param(path, "timeout").map_or(Duration::ZERO, Duration::from_millis);
         match mode {
             SyncMode::Status(code) => {
-                return Some((code, r#"{"errcode":"M_UNKNOWN","error":"boom"}"#.to_owned()));
+                let errcode = if code == 401 {
+                    "M_UNKNOWN_TOKEN"
+                } else {
+                    "M_UNKNOWN"
+                };
+                return Some((
+                    code,
+                    format!(r#"{{"errcode":"{errcode}","error":"boom","soft_logout":false}}"#),
+                ));
             }
             SyncMode::DropAfter(wait) if long_poll => {
                 self.note(format!("sliding -> held {}s then closed", wait.as_secs()));
@@ -165,6 +169,7 @@ impl Fake {
         }
         if long_poll {
             tokio::select! { _ = sleep(timeout) => {}, _ = self.cut.notified() => return None }
+            self.hold_if_mute().await;
         }
         let pos = {
             let mut state = self.state.lock().unwrap();
@@ -177,6 +182,15 @@ impl Fake {
                 r#"{{"pos":"{pos}","lists":{{"all_rooms":{{"count":0}}}},"rooms":{{}},"extensions":{{}}}}"#
             ),
         ))
+    }
+}
+
+impl Fake {
+    async fn hold_if_mute(&self) {
+        if self.state.lock().unwrap().mute {
+            self.note("sliding -> MUTED (held, no answer)".to_owned());
+            sleep(Duration::from_secs(86400)).await;
+        }
     }
 }
 

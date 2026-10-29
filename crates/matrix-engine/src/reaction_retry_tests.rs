@@ -65,7 +65,7 @@ fn disposable_operation_reaction_recovers_committed_event_after_lost_tls_respons
         let mut proxied = config.clone();
         proxied["url"] = proxy.url.clone().into();
         let mut sync = RoomSync::new(login(&proxied, "alice", 52).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let request = OperationRequest {
             scope: RoomScope { account_id: AccountId::new(52), room_id: RoomId::new(&room) },
             transaction_id: TransactionId::new("p052-lost-response"),
@@ -121,7 +121,7 @@ fn disposable_operation_reaction_rejects_changed_uncertain_request() {
         let mut proxied = config.clone();
         proxied["url"] = proxy.url.clone().into();
         let mut sync = RoomSync::new(login(&proxied, "alice", 52).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let request = OperationRequest {
             scope: RoomScope { account_id: AccountId::new(52), room_id: RoomId::new(&room) },
             transaction_id: TransactionId::new("p052-immutable-uncertain"),
@@ -172,7 +172,7 @@ fn disposable_operation_reaction_does_not_adopt_unrelated_annotation() {
         let session = login(&config, "alice", 52).await;
         let client = session.client.as_ref().unwrap().clone();
         let mut sync = RoomSync::new(session);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let existing = client.get_room(&matrix_sdk::ruma::RoomId::parse(&room).unwrap()).unwrap()
             .send_raw("m.reaction", serde_json::json!({"m.relates_to":{"rel_type":"m.annotation","event_id":target,"key":"👍"}}))
             .with_transaction_id("p052-unrelated-existing".into()).await.unwrap().response.event_id;
