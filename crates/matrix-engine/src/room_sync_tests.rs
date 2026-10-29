@@ -284,17 +284,6 @@ fn non_text_message_types_get_real_labels() {
 }
 
 #[test]
-fn sticker_and_poll_events_have_labels_and_other_types_none() {
-    assert_eq!(event_type_label("m.sticker"), Some("Sticker"));
-    assert_eq!(event_type_label("m.poll.start"), Some("Sondaggio"));
-    assert_eq!(
-        event_type_label("org.matrix.msc3381.poll.start"),
-        Some("Sondaggio")
-    );
-    assert_eq!(event_type_label("m.reaction"), None);
-}
-
-#[test]
 fn video_info_is_a_typed_value_for_every_combination() {
     use matrix_sdk::ruma::events::room::MediaSource;
     let video = |info: serde_json::Value| {

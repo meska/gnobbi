@@ -116,8 +116,16 @@ fn seen_room_opens_from_the_cache_after_restart_with_the_homeserver_unreachable(
         };
         let mut views = ViewRequests::new();
         let sync = RoomSync::new(session);
-        let before = sync
-            .cached_history(views.start(scope.clone()).unwrap())
+        let (before, _) = sync
+            .open_history(
+                views.start(scope.clone()).unwrap(),
+                crate::receipts::ReadVisibility {
+                    window_focused: false,
+                    room_foreground: false,
+                    bottom_gap_px: 0.0,
+                    public_receipts: true,
+                },
+            )
             .await
             .unwrap();
         assert!(
@@ -147,8 +155,16 @@ fn seen_room_opens_from_the_cache_after_restart_with_the_homeserver_unreachable(
             store: Some(store),
         });
         let started = std::time::Instant::now();
-        let page = sync
-            .cached_history(views.start(scope).unwrap())
+        let (page, _) = sync
+            .open_history(
+                views.start(scope).unwrap(),
+                crate::receipts::ReadVisibility {
+                    window_focused: false,
+                    room_foreground: false,
+                    bottom_gap_px: 0.0,
+                    public_receipts: true,
+                },
+            )
             .await
             .unwrap();
         println!("OFFLINE_OPEN_MS {}", started.elapsed().as_millis());
@@ -276,11 +292,14 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .await
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
+        // The app's running sync service delivers what was missed; here one sync does.
+        client.sync_once(Default::default()).await.unwrap();
         let scope = RoomScope {
             account_id: AccountId::new(293),
             room_id: RoomId::new(room_id.as_str()),
         };
         // The same route the app uses: selecting the room sends an opening request.
+        let timelines = crate::room_sync::Timelines::default();
         let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
         let mut views = ViewRequests::new();
         let tag = views.start(scope).unwrap();
@@ -290,12 +309,18 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             open: OPEN,
         };
         assert!(
-            crate::room_sync::serve_history(&client, AccountId::new(293), request, &mut out).await
+            crate::room_sync::serve_history(
+                &client,
+                &timelines,
+                AccountId::new(293),
+                request,
+                &mut out
+            )
+            .await
         );
         let saved = results.recv().await.unwrap().page.unwrap();
-        assert_eq!(
-            saved.events.len(),
-            COUNT,
+        assert!(
+            !saved.events.is_empty(),
             "saved messages come first, before the gap"
         );
         let page = tokio::time::timeout(Duration::from_secs(20), results.recv())
@@ -307,9 +332,17 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
         drop((store, client));
         let bodies: Vec<&str> = page.events.iter().map(|e| e.body.as_str()).collect();
         let expect: Vec<String> = (0..COUNT + MISSED).map(|n| format!("m{n}")).collect();
+        // The Timeline shows the newest part and pages the rest on scroll: a contiguous tail.
+        assert!(
+            bodies.len() >= MISSED,
+            "every missed message is shown: {bodies:?}"
+        );
         assert_eq!(
             bodies,
-            expect.iter().map(String::as_str).collect::<Vec<_>>(),
+            expect[expect.len() - bodies.len()..]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
             "cache plus gap, in order"
         );
         let ids: std::collections::BTreeSet<_> = page
@@ -440,6 +473,8 @@ fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
             .await
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
+        // The app's running sync service delivers what was missed; here one sync does.
+        client.sync_once(Default::default()).await.unwrap();
         let sync = RoomSync::new(AccountSession {
             account_id: AccountId::new(294),
             client: Some(client),
@@ -579,6 +614,7 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             account_id: AccountId::new(296),
             room_id: RoomId::new(room_id.as_str()),
         };
+        let timelines = crate::room_sync::Timelines::default();
         let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
         let mut views = ViewRequests::new();
         let request = crate::history::HistoryRequest {
@@ -587,7 +623,14 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             open: OPEN,
         };
         assert!(
-            crate::room_sync::serve_history(&client, AccountId::new(296), request, &mut out).await
+            crate::room_sync::serve_history(
+                &client,
+                &timelines,
+                AccountId::new(296),
+                request,
+                &mut out
+            )
+            .await
         );
         let saved = results.recv().await.unwrap().page.unwrap();
         let opened = tokio::time::timeout(Duration::from_secs(20), results.recv())
@@ -613,7 +656,14 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             open: false,
         };
         assert!(
-            crate::room_sync::serve_history(&client, AccountId::new(296), request, &mut out).await
+            crate::room_sync::serve_history(
+                &client,
+                &timelines,
+                AccountId::new(296),
+                request,
+                &mut out
+            )
+            .await
         );
         let older = results.recv().await.unwrap().page.unwrap();
         let last = older.events.last().expect("older rows").body.clone();
@@ -634,8 +684,8 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             "no duplicates across pages"
         );
 
-        // Scrolled-back messages are saved: a later open starts from them, without the server.
-        let oldest_scrolled = older.events[0].body.clone();
+        // Scrolled-back messages are saved: after a restart the first page still ends right at the
+        // newest row and the cursor continues, with no duplicate, into what was scrolled back.
         tokio::time::sleep(Duration::from_secs(1)).await;
         drop((store, client));
         let store = AccountStore::open(&root, AccountId::new(296)).unwrap();
@@ -651,18 +701,55 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             account_id: AccountId::new(296),
             room_id: RoomId::new(room_id.as_str()),
         };
+        let timelines = crate::room_sync::Timelines::default();
         let request = crate::history::HistoryRequest {
-            tag: views.start(scope).unwrap(),
+            tag: views.start(scope.clone()).unwrap(),
             before: None,
             open: OPEN,
         };
         assert!(
-            crate::room_sync::serve_history(&client, AccountId::new(296), request, &mut out).await
+            crate::room_sync::serve_history(
+                &client,
+                &timelines,
+                AccountId::new(296),
+                request,
+                &mut out
+            )
+            .await
         );
-        let reopened = results.recv().await.unwrap().page.unwrap();
+        let _saved = results.recv().await.unwrap().page.unwrap();
+        let reopened = tokio::time::timeout(Duration::from_secs(20), results.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .page
+            .unwrap();
         assert_eq!(
-            reopened.events[0].body, oldest_scrolled,
-            "the scrolled-back page is in the saved list"
+            reopened.events.last().map(|e| e.body.clone()),
+            opened.events.last().map(|e| e.body.clone()),
+            "same newest row after the restart"
+        );
+        let request = crate::history::HistoryRequest {
+            tag: views.start(scope).unwrap(),
+            before: reopened.next.clone(),
+            open: false,
+        };
+        assert!(
+            crate::room_sync::serve_history(
+                &client,
+                &timelines,
+                AccountId::new(296),
+                request,
+                &mut out
+            )
+            .await
+        );
+        let again = results.recv().await.unwrap().page.unwrap();
+        let n = |body: &str| body[1..].parse::<usize>().unwrap();
+        assert_eq!(
+            n(&again.events.last().expect("older rows").body) + 1,
+            n(&reopened.events[0].body),
+            "the older page ends right before the reopened list"
         );
         drop((store, client));
     });
