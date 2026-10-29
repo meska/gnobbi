@@ -484,6 +484,9 @@ impl Shell {
                 matrix_desktop::accessibility::NavigationAction::ActivateRoom(intent) => {
                     this.apply_semantic_room(intent, false, window, cx)
                 }
+                matrix_desktop::accessibility::NavigationAction::AnswerInvite { scope, accept } => {
+                    this.answer_invite(scope, accept, cx)
+                }
             }
         }
     }

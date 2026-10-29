@@ -375,6 +375,18 @@ pub struct SemanticRoom {
     pub name: String,
     pub unread: u64,
     pub selected: bool,
+    /// Set for an invitation row: it carries «Accetta» / «Rifiuta» child buttons.
+    pub invite: Option<crate::InviteState>,
+}
+
+/// Child buttons of an invitation row live in their own id range (room ids start at 100).
+const INVITE_ACCEPT: u64 = 1 << 40;
+const INVITE_REJECT: u64 = 1 << 41;
+
+impl SemanticRoom {
+    fn invite_buttons(&self) -> [(NodeId, bool); 2] {
+        [(NodeId(self.id.0 + INVITE_ACCEPT), true), (NodeId(self.id.0 + INVITE_REJECT), false)]
+    }
 }
 
 pub struct RoomNodes {
@@ -432,6 +444,7 @@ impl RoomNodes {
                     name: room.name.clone(),
                     unread: room.unread,
                     selected: sidebar.selected().is_some_and(|r| r.scope == room.scope),
+                    invite: room.info.invited.then(|| sidebar.invite_state(&room.scope)),
                 }
             })
             .collect()
@@ -801,6 +814,16 @@ impl NavigationSnapshot {
                 Some(NavigationAction::FocusTheme(self.navigation_revision))
             }
             (SEARCH, Action::Focus) if self.visible => Some(NavigationAction::FocusSearch),
+            (id, Action::Click)
+                if self.visible
+                    && let Some((room, accept)) = self.rooms.iter().find_map(|room| {
+                        let button = room.invite_buttons().into_iter().find(|(b, _)| *b == id)?;
+                        (room.invite.is_some_and(|s| s != crate::InviteState::Busy))
+                            .then_some((room, button.1))
+                    }) =>
+            {
+                Some(NavigationAction::AnswerInvite { scope: room.scope.clone(), accept })
+            }
             (id, action @ (Action::Click | Action::Focus))
                 if self.visible && self.rooms.iter().any(|room| room.id == id) =>
             {
@@ -882,6 +905,7 @@ impl NavigationSnapshot {
                 let mut node = Node::new(Role::ListBoxOption);
                 node.set_label(room.name.clone());
                 node.set_description(match room.unread {
+                    _ if room.invite.is_some() => "Invito".to_owned(),
                     0 => "Nessun messaggio non letto".to_owned(),
                     1 => "1 messaggio non letto".to_owned(),
                     count => format!("{count} messaggi non letti"),
@@ -892,6 +916,20 @@ impl NavigationSnapshot {
                 }
                 node.add_action(Action::Click);
                 node.add_action(Action::Focus);
+                if let Some(state) = room.invite.filter(|s| *s != crate::InviteState::Busy) {
+                    for (id, accept) in room.invite_buttons() {
+                        let mut button = Node::new(Role::Button);
+                        button.set_label(match (accept, state) {
+                            (true, crate::InviteState::Failed) => "Riprova",
+                            (true, _) => "Accetta",
+                            (false, crate::InviteState::ConfirmReject) => "Conferma",
+                            (false, _) => "Rifiuta",
+                        });
+                        button.add_action(Action::Click);
+                        node.push_child(id);
+                        tree.nodes.push((id, button));
+                    }
+                }
                 tree.nodes.push((room.id, node));
             }
             if self.search_focused {
@@ -1345,6 +1383,7 @@ pub enum NavigationAction {
         text: String,
     },
     ActivateRoom(RoomIntent),
+    AnswerInvite { scope: matrix_domain::RoomScope, accept: bool },
     FocusRoom(RoomIntent),
 }
 
