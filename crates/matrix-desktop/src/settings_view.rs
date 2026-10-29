@@ -40,6 +40,36 @@ impl Shell {
         self.save_prefs(cx);
     }
 
+    pub(crate) fn choose_icon(&mut self, icon: matrix_desktop::IconChoice, cx: &mut Context<Self>) {
+        self.prefs.icon = icon;
+        self.save_prefs(cx);
+    }
+
+    /// Three thumbnails in a row; the chosen one gets an accent border. No visible text.
+    fn icon_row(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> gpui::AnyElement {
+        div()
+            .px_4()
+            .py_1()
+            .flex()
+            .gap_2()
+            .children(matrix_desktop::IconChoice::ALL.map(|icon| {
+                let picture = std::sync::Arc::new(gpui::Image::from_bytes(
+                    gpui::ImageFormat::Png,
+                    icon.thumbnail().to_vec(),
+                ));
+                div()
+                    .id(("settings-icon", icon as usize))
+                    .p_1()
+                    .rounded_lg()
+                    .border_2()
+                    .border_color(rgb(if self.prefs.icon == icon { t.accent } else { t.surface }))
+                    .cursor_pointer()
+                    .child(gpui::img(picture).size(px(48.)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.choose_icon(icon, cx)))
+            }))
+            .into_any_element()
+    }
+
     /// One row of mutually exclusive text choices; the chosen one is semibold with an accent border.
     fn choice_row<T: Copy + PartialEq + 'static>(
         &self,
@@ -471,6 +501,7 @@ impl Shell {
                         this.choose_accent(next, cx)
                     })),
             )
+            .child(self.icon_row(t, cx))
             .child(
                 div().px_4().pt_2().text_color(rgb(t.text)).child("Notte automatica"),
             )

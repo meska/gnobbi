@@ -129,6 +129,45 @@ impl FontChoice {
     }
 }
 
+/// App icon variants (assets from the icon set); the minimal mark is the default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum IconChoice {
+    #[default]
+    MinimalMark,
+    Gnome,
+    Monster,
+}
+
+impl IconChoice {
+    pub const ALL: [IconChoice; 3] = [IconChoice::MinimalMark, IconChoice::Gnome, IconChoice::Monster];
+    fn name(self) -> &'static str {
+        match self {
+            IconChoice::MinimalMark => "segno-minimo",
+            IconChoice::Gnome => "gnomo",
+            IconChoice::Monster => "mostriciattolo",
+        }
+    }
+    /// Accessible name; the interface shows only the thumbnail.
+    pub fn label(self) -> &'static str {
+        match self {
+            IconChoice::MinimalMark => "Segno minimo",
+            IconChoice::Gnome => "Gnomo",
+            IconChoice::Monster => "Mostriciattolo",
+        }
+    }
+    /// 64 px PNG thumbnail.
+    pub fn thumbnail(self) -> &'static [u8] {
+        match self {
+            IconChoice::MinimalMark => include_bytes!("../assets/icon-segno-minimo-64.png"),
+            IconChoice::Gnome => include_bytes!("../assets/icon-gnomo-64.png"),
+            IconChoice::Monster => include_bytes!("../assets/icon-mostriciattolo-64.png"),
+        }
+    }
+    fn parse(s: &str) -> Option<IconChoice> {
+        Self::ALL.into_iter().find(|i| i.name() == s)
+    }
+}
+
 static FONT: AtomicU8 = AtomicU8::new(0);
 
 /// The font is process-wide, like the accent, so every view reads it while rendering.
@@ -177,6 +216,7 @@ pub struct Preferences {
     pub read_receipts: bool,
     pub auto_night: AutoNight,
     pub font: FontChoice,
+    pub icon: IconChoice,
 }
 
 impl Default for Preferences {
@@ -188,6 +228,7 @@ impl Default for Preferences {
             read_receipts: true,
             auto_night: AutoNight::Off,
             font: FontChoice::Sans,
+            icon: IconChoice::MinimalMark,
         }
     }
 }
@@ -231,6 +272,11 @@ impl Preferences {
                 .and_then(Value::as_str)
                 .and_then(FontChoice::parse)
                 .unwrap_or_default(),
+            icon: map
+                .get("icon")
+                .and_then(Value::as_str)
+                .and_then(IconChoice::parse)
+                .unwrap_or_default(),
         }
     }
 
@@ -245,7 +291,7 @@ impl Preferences {
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name() });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name() });
         opts.open(&tmp)?.write_all(body.to_string().as_bytes())?;
         std::fs::rename(tmp, dirs.config.join(FILE))
     }

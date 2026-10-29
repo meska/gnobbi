@@ -50,7 +50,7 @@ mod preferences;
 mod rail_layout;
 pub use rail_layout::{RailLayout, RailLayouts};
 pub use preferences::{
-    AutoNight, FontChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,
+    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,
 };
 mod composer;
 mod connection_options;

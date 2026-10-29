@@ -32,6 +32,7 @@ fn roundtrip_keeps_values() {
         read_receipts: false,
         auto_night: AutoNight::Schedule,
         font: FontChoice::Serif,
+        icon: matrix_desktop::IconChoice::Monster,
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);
@@ -249,4 +250,24 @@ fn unreadable_or_hostile_settings_files_load_as_defaults_without_panicking() {
     std::fs::remove_file(&file).unwrap();
     std::fs::create_dir(&file).unwrap();
     assert_eq!(Preferences::load(&d), Preferences::default());
+}
+
+#[test]
+fn icon_defaults_to_minimal_mark_saves_and_invalid_value_falls_back() {
+    use matrix_desktop::IconChoice;
+    assert_eq!(Preferences::default().icon, IconChoice::MinimalMark);
+    assert_eq!(
+        IconChoice::ALL.map(IconChoice::label),
+        ["Segno minimo", "Gnomo", "Mostriciattolo"]
+    );
+    let d = dirs(&tmp("icon"));
+    for icon in IconChoice::ALL {
+        let p = Preferences { icon, ..Preferences::default() };
+        p.save(&d).unwrap();
+        assert_eq!(Preferences::load(&d).icon, icon);
+    }
+    for bad in [r#""drago""#, r#""""#, "7", "null", r#""Gnomo""#] {
+        std::fs::write(d.config.join("settings.json"), format!(r#"{{"icon":{bad}}}"#)).unwrap();
+        assert_eq!(Preferences::load(&d).icon, IconChoice::MinimalMark, "{bad}");
+    }
 }
