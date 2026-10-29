@@ -1,4 +1,4 @@
-use matrix_desktop::LIGHT;
+use matrix_desktop::{Theme, AVATAR_FALLBACK, ROOMS};
 
 fn luminance(color: u32) -> f64 {
     [16, 8, 0]
@@ -22,50 +22,42 @@ fn contrast(a: u32, b: u32) -> f64 {
 }
 
 #[test]
-fn light_small_text_has_aa_contrast_on_message_and_panel_surfaces() {
-    for foreground in [LIGHT.text, LIGHT.secondary, LIGHT.accent] {
-        for background in [
-            LIGHT.surface,
-            LIGHT.outgoing,
-            LIGHT.selected,
-            LIGHT.timeline,
-        ] {
-            let ratio = contrast(foreground, background);
-            assert!(
-                ratio >= 4.5,
-                "{foreground:06x}/{background:06x}: {ratio:.3} < 4.5"
-            );
-        }
-    }
-    assert!(contrast(0xffffff, LIGHT.accent) >= 4.5);
+fn contrast_known_values() {
+    assert!((contrast(0x000000, 0xffffff) - 21.).abs() < 1e-9);
+    assert!((contrast(0xffffff, 0x000000) - 21.).abs() < 1e-9);
+    assert!((contrast(0x5288b5, 0x5288b5) - 1.).abs() < 1e-9);
 }
 
 #[test]
-fn dark_and_light_semantic_roles_keep_small_text_readable() {
-    for t in matrix_desktop::Theme::ALL.map(matrix_desktop::Theme::tokens) {
-        for background in [
-            t.surface,
-            t.outgoing,
-            t.selected,
-            t.timeline,
-            t.input,
-            t.disabled,
-            t.selection,
-        ] {
-            for foreground in [t.text, t.secondary, t.accent] {
-                assert!(
-                    contrast(foreground, background) >= 4.5,
-                    "{foreground:06x}/{background:06x} below 4.5"
-                );
+fn every_theme_meets_wcag_aa_on_all_required_pairs() {
+    let mut failures = vec![];
+    for theme in Theme::ALL {
+        let t = theme.tokens();
+        let mut check = |fg: &str, fgc: u32, bg: &str, bgc: u32| {
+            let r = contrast(fgc, bgc);
+            if r < 4.5 {
+                failures.push(format!("{} {fg} {fgc:06x} / {bg} {bgc:06x}: {r:.2} < 4.5", theme.label()));
+            }
+        };
+        let fgs = [("text", t.text), ("secondary", t.secondary), ("accent", t.accent)];
+        let bgs = [
+            ("surface", t.surface), ("timeline", t.timeline), ("outgoing", t.outgoing),
+            ("selected", t.selected), ("input", t.input), ("disabled", t.disabled),
+            ("selection", t.selection),
+        ];
+        for (f, fc) in fgs {
+            for (b, bc) in bgs {
+                check(f, fc, b, bc);
             }
         }
-        for background in [t.surface, t.outgoing, t.selected, t.timeline] {
-            assert!(contrast(t.accent, background) >= 4.5);
-            assert!(contrast(t.error, background) >= 4.5);
+        for (b, bc) in bgs.iter().filter(|(b, _)| ["surface", "timeline", "outgoing", "selected", "input"].contains(b)) {
+            check("error", t.error, b, *bc);
         }
-        assert!(contrast(t.on_accent, t.accent) >= 4.5);
-        for room in matrix_desktop::ROOMS {
-            assert!(contrast(t.avatar_text, room.color) >= 4.5);
+        check("on_accent", t.on_accent, "accent", t.accent);
+        for room in ROOMS {
+            check("avatar_text", t.avatar_text, "ROOMS.color", room.color);
         }
+        check("avatar_text", t.avatar_text, "AVATAR_FALLBACK", AVATAR_FALLBACK);
     }
+    assert!(failures.is_empty(), "contrasto insufficiente:\n{}", failures.join("\n"));
 }
