@@ -26,10 +26,15 @@ gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x
 
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["runtime_shaders", "font-kit"], optional = true }
+# Runtime app icon (both already in the tree through gpui).
+cocoa = "=0.26.0"
+objc = "=0.2.7"
 
 # Windows: the comctl32 v6 manifest gpui ships; without it the exe dies at load (TaskDialogIndirect not found).
 [target.'cfg(target_os = "windows")'.dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"], optional = true }
+raw-window-handle = "=0.6.2"
+windows = { version = "=0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit = { version = "=0.24.1", optional = true }

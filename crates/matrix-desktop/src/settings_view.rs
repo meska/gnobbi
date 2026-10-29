@@ -40,8 +40,9 @@ impl Shell {
         self.save_prefs(cx);
     }
 
-    pub(crate) fn choose_icon(&mut self, icon: matrix_desktop::IconChoice, cx: &mut Context<Self>) {
+    pub(crate) fn choose_icon(&mut self, icon: matrix_desktop::IconChoice, window: &Window, cx: &mut Context<Self>) {
         self.prefs.icon = icon;
+        matrix_desktop::app_icon::apply(icon, window);
         self.save_prefs(cx);
     }
 
@@ -65,7 +66,7 @@ impl Shell {
                     .border_color(rgb(if self.prefs.icon == icon { t.accent } else { t.surface }))
                     .cursor_pointer()
                     .child(gpui::img(picture).size(px(48.)))
-                    .on_click(cx.listener(move |this, _, _, cx| this.choose_icon(icon, cx)))
+                    .on_click(cx.listener(move |this, _, window, cx| this.choose_icon(icon, window, cx)))
             }))
             .into_any_element()
     }

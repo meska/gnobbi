@@ -32,6 +32,7 @@ pub use signin_form::{
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
+pub mod app_icon;
 mod account_catalog;
 mod account_erase;
 pub use account_erase::erase_account;

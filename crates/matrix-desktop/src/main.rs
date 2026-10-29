@@ -2429,6 +2429,7 @@ fn main() {
                     rail_ui.layouts = prefs_dirs.as_ref().map(matrix_desktop::RailLayouts::load).unwrap_or_default();
                     matrix_desktop::set_accent(prefs.effective_accent());
                     matrix_desktop::set_font(prefs.font);
+                    matrix_desktop::app_icon::apply(prefs.icon, window);
                     let system_dark = matches!(
                         window.appearance(),
                         gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
