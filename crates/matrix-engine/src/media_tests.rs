@@ -1032,6 +1032,12 @@ fn disposable_avatar_edge_cases_corrupt_huge_unreachable_changed() {
         assert!(none.is_none() && started.elapsed() < std::time::Duration::from_secs(40));
         assert_eq!(files(), before, "failure leaves no file");
 
+        // Final vs transient: a missing media id is final; a homeserver nobody listens on is worth a retry.
+        let missing = "mxc://matrix-desktop.test/doesnotexist";
+        assert_eq!(cache.try_get(&client, missing).await.err(), Some(false));
+        let dead = matrix_sdk::Client::builder().homeserver_url("http://127.0.0.1:1").build().await.unwrap();
+        assert_eq!(cache.try_get(&dead, "mxc://gone.invalid/abcdefghijklmnop").await.err(), Some(true));
+
         // Changed after the cache: a new mxc is a new download and shows the new picture.
         let first = client.account().upload_avatar(&mime, png(400, 400, 10)).await.unwrap().to_string();
         let a = session.avatar_thumbnail(&first).await.unwrap().unwrap();
