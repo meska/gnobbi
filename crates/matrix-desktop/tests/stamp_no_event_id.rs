@@ -21,6 +21,7 @@ fn live_server_message_stamp_has_no_event_id() {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     }]);
     let stamp = rows.events()[0].stamp();
     assert!(!stamp.contains("secretid"), "event id leaked in {stamp:?}");

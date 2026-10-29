@@ -77,6 +77,7 @@ type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
 const SENDER_AVATAR_PX: f32 = 32.;
+const STATUS_AVATAR_PX: f32 = 16.;
 
 pub struct TimelineView {
     offline_delivery: Rc<RefCell<matrix_desktop::OfflineDelivery>>,
@@ -1369,6 +1370,19 @@ impl TimelineView {
                     let delivery_state = delivery_state.clone();
                     let history = history.borrow();
                     let event = &history.events()[index];
+                    if event.status {
+                        // Quiet centred line like Element: small round avatar + grey text, no bubble.
+                        let avatar = event.sender.as_ref().map(|s| {
+                            let initials = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+                            match s.avatar.as_deref().and_then(|m| sender_pictures.borrow().get(m).cloned()) {
+                                Some(image) => crate::avatar_view::round(image, STATUS_AVATAR_PX),
+                                None => div().flex().items_center().justify_center().size(px(STATUS_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(9.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
+                            }
+                        });
+                        return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py_1().flex().justify_center().items_center().gap_2()
+                            .text_size(px(12.)).text_color(rgb(t.secondary))
+                            .children(avatar).child(event.text.clone()).into_any_element();
+                    }
                     let sender_label = history.sender_label(index, members);
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
                         match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
@@ -2306,6 +2320,7 @@ mod tests {
                             styles: Vec::new(),
                             thread: None,
                             thread_root: None,
+                            status: false,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2443,6 +2458,7 @@ mod tests {
                             styles: Vec::new(),
                             thread: None,
                             thread_root: None,
+                            status: false,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2561,6 +2577,7 @@ mod tests {
                             styles: Vec::new(),
                             thread: None,
                             thread_root: None,
+                            status: false,
                         }]);
                         if thumbnail {
                             let buffer =

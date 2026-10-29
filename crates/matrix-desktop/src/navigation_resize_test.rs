@@ -390,6 +390,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     styles: Vec::new(),
                     thread: None,
                     thread_root: None,
+                    status: false,
                 }]);
                 this.timeline = Some(timeline);
                 this.navigation_wide = false;

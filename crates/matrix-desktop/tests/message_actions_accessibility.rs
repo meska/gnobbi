@@ -54,6 +54,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     }]);
     history
 }

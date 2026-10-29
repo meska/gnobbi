@@ -21,6 +21,7 @@ fn live_history() -> DemoHistory {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     }]);
     rows
 }
@@ -62,6 +63,7 @@ fn two_live() -> DemoHistory {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     };
     rows.prepend_server(vec![event("$old"), event("$new")]);
     rows

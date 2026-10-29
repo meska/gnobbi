@@ -330,6 +330,8 @@ impl HistoryNodes {
                         event.time,
                         if event.outgoing {
                             "In uscita"
+                        } else if event.status {
+                            "Stato della stanza"
                         } else {
                             "In entrata"
                         },

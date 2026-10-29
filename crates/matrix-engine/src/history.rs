@@ -80,6 +80,8 @@ pub struct HistoryEvent {
     pub thread: Option<ThreadInfo>,
     /// Set on a reply inside a thread: the thread's root.
     pub thread_root: Option<EventId>,
+    /// A status row (join, invite, rename…): `body` is its wording and `sender` the person it shows.
+    pub status: bool,
 }
 
 /// The summary under a thread root, as the Timeline keeps it (live).

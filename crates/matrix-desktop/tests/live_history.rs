@@ -17,6 +17,7 @@ fn event(id: &str) -> HistoryEvent {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     }
 }
 fn page(

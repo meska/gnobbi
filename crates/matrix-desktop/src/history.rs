@@ -46,6 +46,8 @@ pub struct DemoEvent {
     pub thread: Option<matrix_engine::history::ThreadInfo>,
     /// Set on a reply inside a thread: the thread's root.
     pub thread_root: Option<matrix_domain::EventId>,
+    /// A status row (join, invite, rename…): drawn as a quiet centred line, not a bubble.
+    pub status: bool,
 }
 
 impl DemoEvent {
@@ -90,7 +92,7 @@ impl DemoEvent {
 
     /// Whether the message offers its actions menu: confirmed server messages only.
     pub fn menu_available(&self, live: bool) -> bool {
-        live && self.send_state.is_none()
+        live && !self.status && self.send_state.is_none()
     }
 }
 
@@ -162,6 +164,7 @@ impl DemoHistory {
                     styles: Vec::new(),
                     thread: None,
                     thread_root: None,
+                    status: false,
                     video: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
@@ -236,6 +239,7 @@ impl DemoHistory {
             styles: Vec::new(),
             thread: None,
             thread_root: None,
+            status: false,
             video: None,
         });
     }
@@ -330,6 +334,7 @@ impl DemoHistory {
                 styles: event.styles,
                 thread: event.thread,
                 thread_root: event.thread_root,
+                status: event.status,
                 video: event.video.map(|v| VideoFacts {
                     duration: v.duration_ms.map(matrix_engine::history::duration_label),
                     size: v.size.map(matrix_engine::history::human_size),
@@ -412,6 +417,7 @@ impl DemoHistory {
                     styles: Vec::new(),
                     thread: None,
                     thread_root: None,
+                    status: false,
                     video: None,
                 });
             }
@@ -492,6 +498,7 @@ impl DemoHistory {
                     styles: Vec::new(),
                     thread: None,
                     thread_root: None,
+                    status: false,
                     video: None,
                 });
             }
@@ -536,7 +543,7 @@ impl DemoHistory {
         let event = self.events.get(index)?;
         let sender = event.sender.as_ref()?;
         let previous = index.checked_sub(1).map(|i| &self.events[i]).map(|prev| {
-            let same = prev.sender.as_ref().is_some_and(|p| p.id == sender.id);
+            let same = !prev.status && prev.sender.as_ref().is_some_and(|p| p.id == sender.id);
             (same, event.timestamp_ms.saturating_sub(prev.timestamp_ms))
         });
         matrix_domain::shows_sender_label(

@@ -1420,6 +1420,10 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             continue;
         };
         let Some(content) = event.content().as_msglike() else {
+            // Membership, profile and room-state items: shown as status rows, never as bubbles.
+            if let Some(row) = status_row(room, event, id).await {
+                out.rows.push(row);
+            }
             continue;
         };
         let (mut video, mut styles) = (None, Vec::new());
@@ -1466,9 +1470,76 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             styles,
             thread: thread_info(room, content).await,
             thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
+            status: false,
         });
     }
     out
+}
+
+/// A status row from a membership, profile or room-state item; `None` for kinds we do not word
+/// (unknown or hidden state stays out of the timeline).
+async fn status_row(
+    room: &matrix_sdk::Room,
+    event: &matrix_sdk_ui::timeline::EventTimelineItem,
+    id: &matrix_sdk::ruma::EventId,
+) -> Option<crate::history::HistoryEvent> {
+    use crate::status_line::{Status, status_text};
+    use matrix_sdk::ruma::events::StateEventContentChange::Original;
+    use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange as State, MembershipChange as M, TimelineItemContent as C};
+    let actor = history_sender(room, event.sender()).await;
+    let label = |s: &crate::history::HistorySender| s.name.clone().unwrap_or_else(|| s.id.clone());
+    // `shown` is the person whose avatar leads the row; `subject` is who the sentence is about.
+    let (status, shown, subject) = match event.content() {
+        C::MembershipChange(change) => {
+            let status = match change.change()? {
+                M::Joined | M::InvitationAccepted => Status::Joined,
+                M::Left => Status::Left,
+                M::Banned | M::KickedAndBanned => Status::Banned,
+                M::Unbanned => Status::Unbanned,
+                M::Kicked => Status::Kicked,
+                M::Invited => Status::Invited,
+                M::InvitationRejected => Status::InvitationRejected,
+                M::InvitationRevoked => Status::InvitationRevoked,
+                _ => return None,
+            };
+            let mut who = history_sender(room, change.user_id()).await;
+            who.name = who.name.or_else(|| change.display_name());
+            let name = label(&who);
+            (status, who, name)
+        }
+        C::ProfileChange(change) => {
+            let who = history_sender(room, change.user_id()).await;
+            let status = match (change.displayname_change(), change.avatar_url_change()) {
+                (Some(name), _) => Status::DisplayName { old: name.old.clone(), new: name.new.clone() },
+                (None, Some(_)) => Status::MemberAvatar,
+                (None, None) => return None,
+            };
+            let name = label(&who);
+            (status, who, name)
+        }
+        C::OtherState(state) => {
+            let status = match state.content() {
+                State::RoomCreate(Original { .. }) => Status::Created,
+                State::RoomName(Original { content, .. }) => Status::RoomName(content.name.clone()),
+                State::RoomTopic(Original { content, .. }) => Status::RoomTopic(content.topic.clone()),
+                State::RoomAvatar(Original { .. }) => Status::RoomAvatar,
+                _ => return None,
+            };
+            let name = label(&actor);
+            (status, actor.clone(), name)
+        }
+        _ => return None,
+    };
+    Some(crate::history::HistoryEvent {
+        event_id: matrix_domain::EventId::new(id.as_str()),
+        body: status_text(&status, &label(&actor), &subject),
+        outgoing: false,
+        timestamp_ms: event.timestamp().0.into(),
+        sender: shown,
+        video: None,
+        styles: Vec::new(),
+        status: true,
+    })
 }
 
 /// Grow the timeline backwards until at least `want` rows are loaded or the room starts.

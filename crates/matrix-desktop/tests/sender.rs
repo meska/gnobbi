@@ -21,6 +21,7 @@ fn live_mapping_carries_sender_id_and_name() {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     }]);
     let sender = rows.events()[0].sender.as_ref().expect("sender");
     assert_eq!(sender.id, "@anna:test");
@@ -56,6 +57,7 @@ fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> Hi
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     }
 }
 
@@ -79,4 +81,23 @@ fn sender_label_follows_the_rule_in_a_group() {
         ]
     );
     assert!((0..4).all(|i| rows.sender_label(i, 2).is_none()));
+}
+
+#[test]
+fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
+    let row = |id: &str, status: bool| HistoryEvent {
+        event_id: EventId::new(id),
+        body: "meska ha invitato Marco".into(),
+        outgoing: false,
+        timestamp_ms: 0,
+        sender: HistorySender::new("@anna:test", Some("Anna")),
+        video: None,
+        styles: Vec::new(),
+        status,
+    };
+    let mut rows = DemoHistory::new(scope(), 0);
+    rows.prepend_server(vec![row("$s", true), row("$m", false)]);
+    assert!(!rows.events()[0].menu_available(true));
+    assert!(rows.events()[1].menu_available(true));
+    assert_eq!(rows.sender_label(1, 3).as_deref(), Some("Anna"));
 }

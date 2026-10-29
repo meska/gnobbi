@@ -102,6 +102,7 @@ pub enum RoomSyncStatus {
 pub mod discovery;
 mod generation;
 pub mod history;
+pub mod status_line;
 #[cfg(all(feature = "mac-vault", target_os = "macos"))]
 pub mod keychain;
 pub mod media;

@@ -54,6 +54,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     }]);
     delivery.apply(SendResult {
         scope: scope(),
@@ -75,6 +76,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     }]);
     assert_eq!(
         rows.events().len(),
@@ -109,6 +111,7 @@ fn repeated_ack_projection_preserves_server_content_after_edit_or_redaction() {
             video: None,
             styles: Vec::new(),
             thread: None, thread_root: None,
+            status: false,
         }]);
         rows.project_delivery(delivery.items(&scope()));
         rows.project_delivery(delivery.items(&scope()));
@@ -138,6 +141,7 @@ fn appended_live_echo_merges_pending_row_in_both_ack_orders() {
             video: None,
             styles: Vec::new(),
             thread: None, thread_root: None,
+            status: false,
         };
         if echo_first {
             rows.append_server(vec![echo()]);

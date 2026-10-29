@@ -41,6 +41,7 @@ fn peer_receipt_marks_that_event_and_older_ones_with_the_double_check() {
         video: None,
         styles: Vec::new(),
         thread: None, thread_root: None,
+        status: false,
     };
     let mut rows = matrix_desktop::DemoHistory::new(
         RoomScope {
