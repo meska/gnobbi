@@ -323,6 +323,16 @@ impl Shell {
                                 this.open_new_room(false, window, cx)
                             })),
                     )
+                    .child(
+                        row("menu-join-room")
+                            .border_1()
+                            .border_color(ring(n + 6))
+                            .text_color(rgb(t.text))
+                            .child("Unisciti")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_join_room(window, cx)
+                            })),
+                    )
                 })
                 .into_any_element();
         }

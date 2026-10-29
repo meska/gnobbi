@@ -250,6 +250,7 @@ impl Shell {
         self.read_dirty = false;
         self.confirm_redaction = None;
         self.room_menu = None;
+        self.confirm_leave = None;
         self.compact_chat = false;
         self.set_room_details_open(false);
         self.set_spaces_open(false);

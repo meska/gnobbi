@@ -1,4 +1,4 @@
-//! Context menu of a room row: «Segna come letto» / «Segna come non letto».
+//! Context menu of a room row: «Segna come letto» / «Segna come non letto» / «Esci» (asks «Uscire?» once).
 use crate::*;
 
 pub(crate) const ITEMS: [&str; 2] = ["Segna come letto", "Segna come non letto"];
@@ -35,6 +35,19 @@ impl Shell {
         let scope = room.scope.clone();
         self.read_dirty = false;
         self.mark_room(scope, true, cx);
+    }
+
+    /// First click arms «Uscire?», the second leaves; the sync then drops the room from the list.
+    fn leave_room(&mut self, scope: RoomScope, cx: &mut Context<Self>) {
+        if self.confirm_leave.as_ref() != Some(&scope) {
+            self.confirm_leave = Some(scope);
+        } else if self.pending_operation_command.is_none() {
+            self.confirm_leave = None;
+            self.room_menu = None;
+            self.pending_operation_command =
+                Some(matrix_engine::operations::OperationCommand::LeaveRoom { scope });
+        }
+        cx.notify();
     }
 
     pub(crate) fn render_room_menu(
@@ -78,10 +91,25 @@ impl Shell {
                         .min_w(px(180.))
                         .on_mouse_down_out(cx.listener(|this, _, _, cx| {
                             this.room_menu = None;
+                            this.confirm_leave = None;
                             cx.notify();
                         }))
                         .child(item(0))
-                        .child(item(1)),
+                        .child(item(1))
+                        .child({
+                            let scope = scope.clone();
+                            let confirming = self.confirm_leave.as_ref() == Some(&scope);
+                            div()
+                                .id("room-menu-leave")
+                                .px_4()
+                                .py_2()
+                                .cursor_pointer()
+                                .text_size(px(13.))
+                                .text_color(rgb(t.error))
+                                .hover(|s| s.bg(rgb(t.border)))
+                                .child(if confirming { "Uscire?" } else { "Esci" })
+                                .on_click(cx.listener(move |this, _, _, cx| this.leave_room(scope.clone(), cx)))
+                        }),
                 ),
         )
         .with_priority(2)

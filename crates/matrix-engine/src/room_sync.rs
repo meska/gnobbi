@@ -447,6 +447,32 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
+                                OperationCommand::JoinRoom { target } => {
+                                    let result = crate::operations::join_room(
+                                        &operation_client,
+                                        account,
+                                        &target,
+                                    )
+                                    .await;
+                                    OperationResult::RoomStarted { result }
+                                }
+                                OperationCommand::SearchDirectory { term } => {
+                                    let result = crate::operations::search_directory(
+                                        &operation_client,
+                                        &term,
+                                    )
+                                    .await;
+                                    OperationResult::DirectoryFound { result }
+                                }
+                                OperationCommand::LeaveRoom { scope } => {
+                                    let result = crate::operations::leave_room(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                    )
+                                    .await;
+                                    OperationResult::RoomLeft { scope, result }
+                                }
                                 OperationCommand::AnswerInvite { scope, accept } => {
                                     let result = crate::operations::answer_invite(
                                         &operation_client,

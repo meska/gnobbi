@@ -50,6 +50,18 @@ pub enum OperationCommand {
         topic: Option<String>,
         public: bool,
     },
+    /// Join by alias (`#a:server`) or room ID (`!id:server`), typed or taken from the directory.
+    JoinRoom {
+        target: String,
+    },
+    /// Public directory of the user's homeserver, filtered by `term`.
+    SearchDirectory {
+        term: String,
+    },
+    /// «Esci»: leave the joined room and forget it, so it drops out of the list.
+    LeaveRoom {
+        scope: RoomScope,
+    },
     /// Answer to an invitation, only on the user's click: accept joins, reject leaves (both SDK).
     AnswerInvite {
         scope: RoomScope,
@@ -74,6 +86,13 @@ pub enum TagEdit {
     Delete { tag: String },
 }
 pub enum OperationResult {
+    DirectoryFound {
+        result: Result<Vec<DirectoryRoom>, OperationError>,
+    },
+    RoomLeft {
+        scope: RoomScope,
+        result: Result<(), OperationError>,
+    },
     TagsEdited {
         result: Result<(), OperationError>,
     },
@@ -104,6 +123,21 @@ pub enum OperationResult {
         request: OperationRequest,
         result: Result<EventId, OperationError>,
     },
+}
+
+/// One public-directory hit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectoryRoom {
+    pub room_id: String,
+    pub alias: Option<String>,
+    pub name: String,
+    pub members: u64,
+}
+impl DirectoryRoom {
+    /// What `JoinRoom` takes: the alias when the room has one, else the room ID.
+    pub fn target(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.room_id)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -318,6 +352,77 @@ pub async fn answer_invite(
         .await
         .map_err(|_| OperationError::Transport)?
         .map_err(|e| classify(&e))
+}
+
+/// Join by alias or room ID (`Client::join_room_by_id_or_alias`; the server resolves an alias, a bare
+/// room ID is tried through its own server). Not a room the server lets the user into: `Forbidden`.
+#[cfg(feature = "sdk")]
+pub async fn join_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    target: &str,
+) -> Result<RoomScope, OperationError> {
+    use matrix_sdk::ruma::{OwnedRoomOrAliasId, OwnedServerName};
+    let target = OwnedRoomOrAliasId::try_from(target.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let via: Vec<OwnedServerName> = match target.is_room_id() {
+        true => target.server_name().into_iter().map(ToOwned::to_owned).collect(),
+        false => Vec::new(),
+    };
+    let room = timeout_create(client.join_room_by_id_or_alias(&target, &via)).await?;
+    Ok(RoomScope {
+        account_id: account,
+        room_id: matrix_domain::RoomId::new(room.room_id().as_str()),
+    })
+}
+
+/// First page (20) of the homeserver's public room directory matching `term`.
+#[cfg(feature = "sdk")]
+pub async fn search_directory(
+    client: &matrix_sdk::Client,
+    term: &str,
+) -> Result<Vec<DirectoryRoom>, OperationError> {
+    let mut search = matrix_sdk::room_directory_search::RoomDirectorySearch::new(client.clone());
+    let term = Some(term.trim().to_owned()).filter(|t| !t.is_empty());
+    tokio::time::timeout(std::time::Duration::from_secs(20), search.search(term, 20, None))
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e))?;
+    Ok(search
+        .results()
+        .0
+        .iter()
+        .map(|d| DirectoryRoom {
+            room_id: d.room_id.to_string(),
+            alias: d.alias.as_ref().map(ToString::to_string),
+            name: d.name.clone().unwrap_or_else(|| d.alias.as_ref().map_or_else(|| d.room_id.to_string(), ToString::to_string)),
+            members: d.joined_members,
+        })
+        .collect())
+}
+
+/// Leave a joined room (`Room::leave`), then forget it (`Room::forget`) so the store drops it too.
+/// A failed forget does not undo the leave: the list already shows the room gone.
+#[cfg(feature = "sdk")]
+pub async fn leave_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+) -> Result<(), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(OperationError::Unavailable)?;
+    tokio::time::timeout(std::time::Duration::from_secs(30), room.leave())
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e))?;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), room.forget()).await;
+    Ok(())
 }
 
 /// Private rooms are born encrypted (like the SDK's DMs); public ones are not.

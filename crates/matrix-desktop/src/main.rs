@@ -57,6 +57,8 @@ struct Shell {
     rail_ui: rail_view::RailUi,
     opener_ui: panel_opener_view::OpenerUi,
     room_menu: Option<(RoomScope, gpui::Point<gpui::Pixels>)>,
+    /// «Esci dalla stanza» was clicked once; the second click leaves.
+    confirm_leave: Option<RoomScope>,
     menu_open: bool,
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
@@ -1371,7 +1373,16 @@ impl Shell {
                         OperationCommand::EditTags(_) => OperationResult::TagsEdited {
                             result: Err(OperationError::Unavailable),
                         },
-                        OperationCommand::StartDm { .. } | OperationCommand::CreateRoom { .. } => {
+                        OperationCommand::SearchDirectory { .. } => OperationResult::DirectoryFound {
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::LeaveRoom { scope } => OperationResult::RoomLeft {
+                            scope,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::StartDm { .. }
+                        | OperationCommand::CreateRoom { .. }
+                        | OperationCommand::JoinRoom { .. } => {
                             OperationResult::RoomStarted {
                                 result: Err(OperationError::Unavailable),
                             }
@@ -2508,6 +2519,10 @@ fn main() {
                                                 this.groups_edited(result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::DirectoryFound { result } = result {
+                                                this.directory_found(result, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::RoomStarted { result } = result {
                                                 this.room_started(result, cx);
                                                 continue;
@@ -2713,6 +2728,7 @@ fn main() {
                         rail_ui,
                         opener_ui: panel_opener_view::OpenerUi::new(),
                         room_menu: None,
+                        confirm_leave: None,
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),

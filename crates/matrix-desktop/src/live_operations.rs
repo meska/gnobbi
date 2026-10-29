@@ -222,6 +222,8 @@ impl LiveOperations {
             | OperationResult::TagsEdited { .. }
             | OperationResult::RoomStarted { .. }
             | OperationResult::InviteAnswered { .. }
+            | OperationResult::DirectoryFound { .. }
+            | OperationResult::RoomLeft { .. }
             | OperationResult::Members { .. } => false,
             OperationResult::Inspected {
                 tag,
