@@ -1599,6 +1599,7 @@ impl Render for Shell {
         let header_name = selected.map_or("Nessuna stanza".to_owned(), |room| room.name.clone());
         let header_initials = selected.map_or(String::new(), |room| room.initials.clone());
         let (list_name, list_initials, list_color) = self.sidebar.list_header();
+        let list_picture = self.avatars.get(self.sidebar.list_header_avatar());
         let header_color = selected.map_or(t.disabled, |room| room.color);
         let header_picture = self
             .avatars
@@ -1698,7 +1699,11 @@ impl Render for Shell {
                                         .rounded_full()
                                         .bg(rgb(list_color.unwrap_or(t.input)))
                                         .text_color(rgb(if list_color.is_some() { t.avatar_text } else { t.secondary }))
-                                        .child(list_initials),
+                                        .overflow_hidden()
+                                        .child(match list_picture {
+                                            Some(image) => avatar_view::round(image, 32.),
+                                            None => gpui::div().child(list_initials).into_any_element(),
+                                        }),
                                 )
                                 .child(
                                     div()

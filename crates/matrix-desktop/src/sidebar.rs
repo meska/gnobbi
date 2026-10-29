@@ -310,6 +310,12 @@ impl Sidebar {
         }
     }
 
+    /// Avatar (mxc) of the space shown in the list header; none for «Tutte».
+    pub fn list_header_avatar(&self) -> Option<&str> {
+        let scope = self.space.as_ref()?;
+        self.spaces().find(|r| r.scope == *scope)?.info.avatar.as_deref()
+    }
+
     /// Counts each joined row once; independent of transient search/unread filters.
     pub fn navigation_entries(&self) -> Vec<NavigationEntry> {
         let total = |keep: &dyn Fn(&SidebarRoom) -> bool| {
@@ -704,12 +710,14 @@ mod tests {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         assert_eq!(sidebar.list_header(), ("Tutte".into(), "▦".into(), None));
+        assert_eq!(sidebar.list_header_avatar(), None);
         sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
             scope: scope(&account, "bots"),
             name: "Bots".into(),
             unread: 0,
             info: RoomInfo {
                 is_space: true,
+                avatar: Some("mxc://s/bots".into()),
                 ..Default::default()
             },
         }));
@@ -717,6 +725,7 @@ mod tests {
         let (name, initials, color) = sidebar.list_header();
         assert_eq!((name.as_str(), initials.as_str()), ("Bots", "Bo"));
         assert!(color.is_some());
+        assert_eq!(sidebar.list_header_avatar(), Some("mxc://s/bots"));
     }
 
     #[test]
