@@ -411,6 +411,14 @@ impl RoomListWorker {
                                     .map(u64::from);
                                     OperationResult::Members { scope, members, upload_limit }
                                 }
+                                OperationCommand::Profile { user_id } => {
+                                    let result = crate::operations::user_profile(
+                                        &operation_client,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::Profile { user_id, result }
+                                }
                                 OperationCommand::MarkRoom {
                                     scope,
                                     read,

@@ -2164,6 +2164,7 @@ mod tests {
             let member = |id: &str, name: &str| matrix_engine::operations::Member {
                 user_id: id.into(),
                 name: name.into(),
+                avatar: None,
             };
             v.set_live(true);
             v.set_members(

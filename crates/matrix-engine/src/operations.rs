@@ -30,9 +30,13 @@ pub enum OperationCommand {
         target: EventId,
     },
     Apply(OperationRequest),
-    /// Joined members for the @ completion.
+    /// Joined members for the @ completion and the member list.
     Members {
         scope: RoomScope,
+    },
+    /// Global profile of another user (name, avatar), for the profile panel.
+    Profile {
+        user_id: String,
     },
     /// Room-level read marker from the room menu; `public` is the «Conferme di lettura» setting.
     MarkRoom {
@@ -86,6 +90,10 @@ pub enum TagEdit {
     Delete { tag: String },
 }
 pub enum OperationResult {
+    Profile {
+        user_id: String,
+        result: Result<UserProfile, OperationError>,
+    },
     DirectoryFound {
         result: Result<Vec<DirectoryRoom>, OperationError>,
     },
@@ -145,6 +153,16 @@ pub struct Member {
     pub user_id: String,
     /// Display name, or the user id when the member has none.
     pub name: String,
+    /// `mxc://` avatar of the member in this room.
+    pub avatar: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserProfile {
+    pub user_id: String,
+    /// Display name, or the user id when the profile has none.
+    pub name: String,
+    pub avatar: Option<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -528,8 +546,36 @@ pub async fn members(
             name: m
                 .display_name()
                 .map_or_else(|| m.user_id().to_string(), str::to_owned),
+            avatar: m.avatar_url().map(ToString::to_string),
         })
         .collect())
+}
+
+/// Profile of `user_id` from the homeserver (`Account::fetch_user_profile_of`).
+#[cfg(feature = "sdk")]
+pub async fn user_profile(
+    client: &matrix_sdk::Client,
+    user_id: &str,
+) -> Result<UserProfile, OperationError> {
+    use matrix_sdk::ruma::api::client::profile::{AvatarUrl, DisplayName};
+    let id = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let profile = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        client.account().fetch_user_profile_of(&id),
+    )
+    .await
+    .map_err(|_| OperationError::Transport)?
+    .map_err(|e| classify(&e))?;
+    Ok(UserProfile {
+        user_id: id.to_string(),
+        name: profile
+            .get_static::<DisplayName>()
+            .ok()
+            .flatten()
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| id.to_string()),
+        avatar: profile.get_static::<AvatarUrl>().ok().flatten().map(|u| u.to_string()),
+    })
 }
 
 #[cfg(feature = "sdk")]

@@ -224,6 +224,7 @@ impl LiveOperations {
             | OperationResult::InviteAnswered { .. }
             | OperationResult::DirectoryFound { .. }
             | OperationResult::RoomLeft { .. }
+            | OperationResult::Profile { .. }
             | OperationResult::Members { .. } => false,
             OperationResult::Inspected {
                 tag,

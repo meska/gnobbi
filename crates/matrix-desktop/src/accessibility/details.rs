@@ -84,6 +84,8 @@ pub struct DetailsSnapshot {
     pub scope: RoomScope,
     pub name: String,
     pub info: matrix_engine::RoomInfo,
+    /// Members of the room, or the opened profile.
+    pub people: Vec<String>,
     pub focus: DetailsControl,
     pub bounds: [Option<accesskit::Rect>; 2],
 }
@@ -125,9 +127,9 @@ impl DetailsSnapshot {
             }
             .into(),
             self.scope.room_id.as_str().to_owned(),
-            "Stato dell'ultima sync. Nessuna modifica, invito o adesione automatica.".into(),
         ]
         .into_iter()
+        .chain(self.people.iter().cloned())
         .enumerate()
         {
             let id = NodeId(33 + index as u64);

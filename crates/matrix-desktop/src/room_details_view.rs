@@ -19,6 +19,7 @@ impl Shell {
                 scope: room.scope.clone(),
                 name: room.name.clone(),
                 info: room.info.clone(),
+                people: self.people_labels(),
                 focus: self.details_focus,
                 bounds: self.a11y_details_bounds,
             }))
@@ -305,6 +306,8 @@ impl Shell {
                     .flex()
                     .flex_col()
                     .gap_4()
+                    // An opened profile takes the whole sheet.
+                    .when(self.profile.is_none(), |d| d
                     .child(
                         div()
                             .text_size(px(20.))
@@ -361,10 +364,8 @@ impl Shell {
                                     ));
                                 }
                             })),
-                    )
-                    .child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child(
-                        "Stato dell'ultima sync. Nessuna modifica, invito o adesione automatica.",
-                    )),
+                    ))
+                    .child(self.render_people(cx)),
             )
             .into_any_element()
     }

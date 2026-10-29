@@ -67,6 +67,7 @@ fn panel() -> DetailsSnapshot {
         scope: room.scope.clone(),
         name: room.name.clone(),
         info: room.info.clone(),
+        people: vec![],
         focus: DetailsControl::Close,
         bounds: [None; 2],
     }
@@ -80,6 +81,7 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
     panel.info.joined_members = 2;
     panel.info.encrypted = None;
     panel.bounds[1] = Some(accesskit::Rect::new(800., 400., 900., 430.));
+    panel.people = vec!["Membro: Bruno, @bruno:x".into()];
     let tree = panel.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Informazioni stanza"));
     assert_eq!(tree.focus, DetailsControl::Close.id());
@@ -89,6 +91,7 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
         "2 membri",
         "Cifratura non confermata dallo stato SDK",
         panel.scope.room_id.as_str(),
+        "Membro: Bruno, @bruno:x",
     ] {
         assert!(
             tree.nodes

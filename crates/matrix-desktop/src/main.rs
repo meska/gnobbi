@@ -10,6 +10,7 @@ mod groups_edit_view;
 mod invite_view;
 mod login_field;
 mod media_view;
+mod members_view;
 mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
@@ -150,6 +151,9 @@ struct Shell {
     pending_operation_command: Option<matrix_engine::operations::OperationCommand>,
     /// Room whose members were asked for the @ completion.
     members_requested: Option<RoomScope>,
+    /// Joined members of the shown room (room sheet) and the profile opened from them.
+    room_members: Vec<matrix_engine::operations::Member>,
+    profile: Option<members_view::ProfileState>,
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
@@ -1363,6 +1367,10 @@ impl Shell {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::Profile { user_id } => OperationResult::Profile {
+                            user_id,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::Members { scope } => OperationResult::Members {
                             scope,
                             members: Err(OperationError::Unavailable),
@@ -2511,6 +2519,7 @@ fn main() {
                                         for result in operations {
                                             if let matrix_engine::operations::OperationResult::Members { scope, members, upload_limit } = result {
                                                 if scope == this.active_scope {
+                                                    this.room_members = members.as_ref().map_or_else(|_| Vec::new(), Clone::clone);
                                                     this.composer.update(cx, |editor, cx| {
                                                         editor.set_upload_limit(upload_limit);
                                                         if let Ok(members) = members {
@@ -2518,6 +2527,10 @@ fn main() {
                                                         }
                                                     });
                                                 }
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Profile { user_id, result } = result {
+                                                this.profile_found(user_id, result, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::TagsEdited { result } = result {
@@ -2828,6 +2841,8 @@ fn main() {
                         notification_handle: notification_handle.take(),
                         notifications_open: false,
                         room_details_open: false,
+                        room_members: Vec::new(),
+                        profile: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
