@@ -26,16 +26,22 @@ impl HistoryStatus {
     }
 }
 
+/// How long after new rows a room with threads is read once more.
+pub const SETTLE: std::time::Duration = std::time::Duration::from_millis(1500);
+
 pub struct HistorySession {
     views: ViewRequests,
     pagination_tag: Option<matrix_engine::RequestTag>,
     scope: Option<RoomScope>,
     next: Option<String>,
     status: HistoryStatus,
-    seen: HashMap<EventId, String>,
+    /// Body and thread reply count: a new reply must hand the root over again.
+    seen: HashMap<EventId, (String, Option<u32>)>,
     live_views: ViewRequests,
     live_pending: bool,
     dirty: bool,
+    /// One more refresh due at this time: the SDK updates a thread root's summary after the reply row.
+    settle: Option<std::time::Instant>,
     live_failed: bool,
     /// Top row seen since the older page failed; a different row means the reader scrolled.
     failed_row: Option<usize>,
@@ -60,6 +66,7 @@ impl HistorySession {
             live_views: ViewRequests::new(),
             live_pending: false,
             dirty: false,
+            settle: None,
             live_failed: false,
             failed_row: None,
             live_before: None,
@@ -114,7 +121,7 @@ impl HistorySession {
                             if self.seen.contains_key(&event.event_id) {
                                 return false;
                             }
-                            self.seen.insert(event.event_id.clone(), event.body.clone());
+                            self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| t.num_replies)));
                             true
                         })
                         .collect(),
@@ -135,6 +142,10 @@ impl HistorySession {
 
     /// One history job at a time, without replacing the older-history cursor.
     pub fn refresh(&mut self) -> Option<HistoryRequest> {
+        if self.settle.is_some_and(|at| at <= std::time::Instant::now()) {
+            self.settle = None;
+            self.dirty = true;
+        }
         if (!self.dirty && self.live_before.is_none())
             || self.live_pending
             || self.status == HistoryStatus::Loading
@@ -207,18 +218,21 @@ impl HistorySession {
         }
         self.live_before = None;
         self.live_cursors.clear();
-        Some(
-            std::mem::take(&mut self.live_rows)
+        let published: Vec<_> = std::mem::take(&mut self.live_rows)
                 .into_iter()
                 .filter(|event| {
-                    if self.seen.get(&event.event_id) == Some(&event.body) {
+                    if self.seen.get(&event.event_id).is_some_and(|(b, n)| *b == event.body && *n == event.thread.as_ref().map(|t| t.num_replies)) {
                         return false;
                     }
-                    self.seen.insert(event.event_id.clone(), event.body.clone());
+                    self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| t.num_replies)));
                     true
                 })
-                .collect(),
-        )
+                .collect();
+        // Only rooms that have threads pay for the second look (shortcut: a fixed delay, no stream).
+        if !published.is_empty() && self.seen.values().any(|(_, n)| n.is_some()) {
+            self.settle = Some(std::time::Instant::now() + SETTLE);
+        }
+        Some(published)
     }
 
     pub fn status(&self) -> HistoryStatus {

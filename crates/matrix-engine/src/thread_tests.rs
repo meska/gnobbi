@@ -48,6 +48,20 @@ fn disposable_thread_view_and_list_through_the_timeline() {
             "num_replies": summary.map(|s| s.num_replies), "latest": summary.and_then(|s| s.latest_body.clone())}));
         assert_eq!(replies, ["reply one", "reply two"], "only the thread's events, oldest first");
         assert_eq!(page.root.as_ref().map(|r| r.body.as_str()), Some("root"), "root from the room's timeline");
+        let counted = |page: &crate::threads::ThreadPage| page.root.as_ref().and_then(|r| r.thread.as_ref()).map(|t| t.num_replies);
+        println!("P331_COUNT before={:?}", counted(&page));
+        // A third reply arrives while the sync runs: the root's summary must follow on its own.
+        sync.next_batch_after(async { send("bob", "thr-r3", "reply three", Some(root.clone())).await; }).await.unwrap();
+        let mut live = None;
+        for _ in 0..10 {
+            let _ = sync.next_batch().await;
+            let again = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+            live = counted(&again);
+            if live == Some(3) { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        println!("P331_COUNT after={live:?}");
+        assert_eq!(live, Some(3), "root summary counts the live reply");
         let summary = summary.expect("thread list holds the thread");
         assert_eq!(summary.num_replies, 2);
         assert_eq!(summary.root_body.as_deref(), Some("root"));

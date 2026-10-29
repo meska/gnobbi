@@ -75,7 +75,7 @@ pub use live_delivery::LiveDelivery;
 mod live_operations;
 pub use live_operations::LiveOperations;
 mod live_history;
-pub use live_history::{HistorySession, HistoryStatus};
+pub use live_history::{HistorySession, HistoryStatus, SETTLE};
 mod history;
 pub use history::{
     DemoEvent, DemoHistory, DemoSendState, bubble_stamp, debug_room_line, opens_message_menu,

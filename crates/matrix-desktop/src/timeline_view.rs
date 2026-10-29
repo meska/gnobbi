@@ -1609,6 +1609,13 @@ impl TimelineView {
                                         Some(picture) => div().child(picture).child(div().size_0().overflow_hidden().child(body)).into_any_element(),
                                         None => body.into_any_element(),
                                     }))
+                                .when_some(event.thread_label(), |d, (label, initials, mxc)| d.child(
+                                    div().id(("thread-summary", index)).mt_2().flex().items_center().gap_2()
+                                        .child(match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
+                                            Some(image) => crate::avatar_view::round(image, 20.),
+                                            None => div().flex().items_center().justify_center().size(px(20.)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(9.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
+                                        })
+                                        .child(div().text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(label))))
                                 .child(
                                     div()
                                         .w_full()
@@ -2266,6 +2273,7 @@ mod tests {
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
                             styles: Vec::new(),
+                            thread: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2401,6 +2409,7 @@ mod tests {
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
                             styles: Vec::new(),
+                            thread: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2517,6 +2526,7 @@ mod tests {
                                 thumbnail: None,
                             }),
                             styles: Vec::new(),
+                            thread: None,
                         }]);
                         if thumbnail {
                             let buffer =

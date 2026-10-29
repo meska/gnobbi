@@ -40,8 +40,10 @@ pub(crate) async fn open(
         return Err(e);
     }
     let mut root_row = main.rows.into_iter().find(|r| r.event_id == *root);
+    // The room's own timeline keeps the root's summary current; the thread's copy goes stale.
     if let Some(i) = now.rows.iter().position(|r| r.event_id == *root) {
-        root_row = Some(now.rows.remove(i));
+        let own = now.rows.remove(i);
+        root_row = root_row.or(Some(own));
     }
     Ok(ThreadPage { root: root_row, replies: now.rows, reactions: now.reactions, at_start: now.at_start })
 }

@@ -51,6 +51,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     }]);
     history
 }

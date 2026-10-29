@@ -76,6 +76,16 @@ pub struct HistoryEvent {
     pub video: Option<VideoInfo>,
     /// Bold, italic, code… of a formatted body, as byte ranges of `body` (empty for plain text).
     pub styles: Vec<crate::rich_text::StyleSpan>,
+    /// Set on the root of a thread.
+    pub thread: Option<ThreadInfo>,
+}
+
+/// The summary under a thread root, as the Timeline keeps it (live).
+// shortcut: the SDK gives the count and the latest reply only, so one participant; upgrade if it exposes all of them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadInfo {
+    pub num_replies: u32,
+    pub latest_sender: Option<HistorySender>,
 }
 
 /// How many people reacted to a message with one emoji.

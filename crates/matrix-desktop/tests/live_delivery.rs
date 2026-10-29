@@ -53,6 +53,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     }]);
     delivery.apply(SendResult {
         scope: scope(),
@@ -73,6 +74,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     }]);
     assert_eq!(
         rows.events().len(),
@@ -106,6 +108,7 @@ fn repeated_ack_projection_preserves_server_content_after_edit_or_redaction() {
             sender: matrix_engine::history::HistorySender::new("@peer:test", None),
             video: None,
             styles: Vec::new(),
+            thread: None,
         }]);
         rows.project_delivery(delivery.items(&scope()));
         rows.project_delivery(delivery.items(&scope()));
@@ -134,6 +137,7 @@ fn appended_live_echo_merges_pending_row_in_both_ack_orders() {
             sender: matrix_engine::history::HistorySender::new("@peer:test", None),
             video: None,
             styles: Vec::new(),
+            thread: None,
         };
         if echo_first {
             rows.append_server(vec![echo()]);

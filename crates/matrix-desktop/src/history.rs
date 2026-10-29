@@ -42,6 +42,8 @@ pub struct DemoEvent {
     pub timestamp_ms: u64,
     /// Set for an `m.video` row: the bubble paints a picture with play symbol instead of `text`.
     pub video: Option<VideoFacts>,
+    /// Set on a thread root: replies count and who wrote the latest one.
+    pub thread: Option<matrix_engine::history::ThreadInfo>,
 }
 
 impl DemoEvent {
@@ -57,6 +59,18 @@ impl DemoEvent {
         } else {
             self.stamp()
         }
+    }
+
+    /// «N risposte» under a thread root, with the initials for the latest author's avatar.
+    pub fn thread_label(&self) -> Option<(String, String, Option<&str>)> {
+        let t = self.thread.as_ref()?;
+        let label = match t.num_replies {
+            1 => "1 risposta".to_owned(),
+            n => format!("{n} risposte"),
+        };
+        let who = t.latest_sender.as_ref().map(|s| s.name.as_deref().unwrap_or(&s.id));
+        let initials = who.unwrap_or("").trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+        Some((label, initials, t.latest_sender.as_ref().and_then(|s| s.avatar.as_deref())))
     }
 
     /// Server event id shown in debug mode; unsent rows have none.
@@ -129,6 +143,7 @@ impl DemoHistory {
                     send_state: None,
                     timestamp_ms: index as u64 * 60_000,
                     styles: Vec::new(),
+                    thread: None,
                     video: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
@@ -201,6 +216,7 @@ impl DemoHistory {
             sender: None,
             timestamp_ms: 0,
             styles: Vec::new(),
+            thread: None,
             video: None,
         });
     }
@@ -251,6 +267,13 @@ impl DemoHistory {
                 row.styles.clone_from(&event.styles);
                 changed_body = true;
             }
+            // The count moves when a reply arrives, the text does not.
+            if let Some(row) = self.events.iter_mut().find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
+                && row.thread != event.thread
+            {
+                row.thread.clone_from(&event.thread);
+                changed_body = true;
+            }
         }
         self.append_server(events);
         changed_body
@@ -286,6 +309,7 @@ impl DemoHistory {
                 sender: (!event.outgoing).then_some(event.sender),
                 timestamp_ms: event.timestamp_ms,
                 styles: event.styles,
+                thread: event.thread,
                 video: event.video.map(|v| VideoFacts {
                     duration: v.duration_ms.map(matrix_engine::history::duration_label),
                     size: v.size.map(matrix_engine::history::human_size),
@@ -366,6 +390,7 @@ impl DemoHistory {
                     sender: None,
                     timestamp_ms: 0,
                     styles: Vec::new(),
+                    thread: None,
                     video: None,
                 });
             }
@@ -444,6 +469,7 @@ impl DemoHistory {
                     sender: None,
                     timestamp_ms: 0,
                     styles: Vec::new(),
+                    thread: None,
                     video: None,
                 });
             }
@@ -476,7 +502,10 @@ impl DemoHistory {
 
     /// Pictures the senders of this room's bubbles have.
     pub fn sender_avatar_mxcs(&self) -> impl Iterator<Item = &str> {
-        self.events.iter().rev().filter_map(|e| e.sender.as_ref()?.avatar.as_deref())
+        self.events.iter().rev().flat_map(|e| {
+            let latest = e.thread.as_ref().and_then(|t| t.latest_sender.as_ref());
+            e.sender.iter().chain(latest).filter_map(|s| s.avatar.as_deref())
+        })
     }
 
     /// Sender name to draw above bubble `index`, per `matrix_domain::shows_sender_label`.

@@ -16,6 +16,7 @@ fn event(id: &str) -> HistoryEvent {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
+        thread: None,
     }
 }
 fn page(
@@ -709,4 +710,55 @@ fn a_withdrawn_unsent_message_leaves_the_rows() {
     assert!(delivery.cancel(&scope, &tx));
     rows.project_delivery(delivery.items(&scope));
     assert!(rows.events().is_empty());
+}
+
+#[test]
+fn live_refresh_hands_over_the_thread_root_when_a_reply_arrives() {
+    let mut view = HistorySession::new();
+    let room = scope("!thread:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    let with_replies = |n| {
+        let mut root = event("$root");
+        root.thread = Some(matrix_engine::history::ThreadInfo { num_replies: n, latest_sender: None });
+        root
+    };
+    let mut first = page(&initial, &[], None);
+    first.page.as_mut().unwrap().events = vec![with_replies(1)];
+    view.apply(first);
+    view.activity(&room);
+    let refresh = view.refresh().unwrap();
+    let mut update = page(&refresh, &["$reply"], None);
+    update.page.as_mut().unwrap().events.insert(0, with_replies(2));
+    let rows = view.apply_live(update).unwrap();
+    let ids: Vec<_> = rows.iter().map(|r| (r.event_id.as_str(), r.thread.as_ref().map(|t| t.num_replies))).collect();
+    assert_eq!(ids, [("$root", Some(2)), ("$reply", None)], "root comes again with the new count");
+}
+
+#[test]
+fn a_room_with_threads_is_read_once_more_after_new_rows() {
+    let mut view = HistorySession::new();
+    let room = scope("!settle:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    let mut root = event("$root");
+    root.thread = Some(matrix_engine::history::ThreadInfo { num_replies: 1, latest_sender: None });
+    let mut first = page(&initial, &[], None);
+    first.page.as_mut().unwrap().events = vec![root];
+    view.apply(first);
+    view.activity(&room);
+    let refresh = view.refresh().unwrap();
+    let mut live = page(&refresh, &["$root", "$reply"], None);
+    live.page.as_mut().unwrap().events[0].thread = Some(matrix_engine::history::ThreadInfo { num_replies: 1, latest_sender: None });
+    view.apply_live(live).unwrap();
+    assert!(view.refresh().is_none(), "not before the delay");
+    std::thread::sleep(matrix_desktop::SETTLE);
+    assert!(view.refresh().is_some(), "the summary may have moved after the reply row");
+    // A room without threads asks for nothing more.
+    let mut plain = HistorySession::new();
+    let initial = plain.select(Some(room.clone())).unwrap();
+    plain.apply(page(&initial, &["$a"], None));
+    plain.activity(&room);
+    let refresh = plain.refresh().unwrap();
+    plain.apply_live(page(&refresh, &["$a", "$b"], None)).unwrap();
+    std::thread::sleep(matrix_desktop::SETTLE);
+    assert!(plain.refresh().is_none());
 }
