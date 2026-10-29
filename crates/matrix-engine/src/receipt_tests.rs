@@ -213,3 +213,61 @@ fn disposable_room_menu_marks_read_and_unread() {
         assert_eq!(cleared, Some((0, false)), "«Segna come letto» must clear the flag and the counter");
     });
 }
+
+/// Probe (P282a): bob reads through the Timeline, alice sees his receipt on the item and bob's counter drops.
+/// Run: `python3 the auth_smoke script --filter disposable_receipt_bob_reads_through_timeline`
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_receipt_bob_reads_through_timeline() {
+    use crate::{RoomListDiff, ViewRequests, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+        let room = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+        let root = std::env::temp_dir().join(format!("gnobbi-test-bobreads-{}", std::process::id()));
+        crate::fsx::create_private_dir(&root).unwrap();
+        let (a_root, b_root) = (root.join("a"), root.join("b"));
+        crate::fsx::create_private_dir(&a_root).unwrap();
+        crate::fsx::create_private_dir(&b_root).unwrap();
+        let mut sessions = Vec::new();
+        for (dir, id, user, key) in [(&a_root, 57, "@alice:matrix-desktop.test", "alice_password"), (&b_root, 58, "@bob:matrix-desktop.test", "bob_password")] {
+            sessions.push(AccountStore::create(dir, AccountId::new(id)).unwrap()
+                .password_login_with_http(HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(), user,
+                    config[key].as_str().unwrap(), "long disposable fixture passphrase", http(&config))
+                .await.expect("fixture login accepted"));
+        }
+        let (bob, alice) = (sessions.pop().unwrap(), sessions.pop().unwrap());
+        let (mut alice, mut bob) = (RoomSync::new(alice), RoomSync::new(bob));
+        alice.next_batch().await.unwrap();
+        // Alice sends while bob's sliding run is live, so bob counts it as unread.
+        let mut bob_unread = None;
+        for change in bob.next_batch_after(async {
+            room_request(&config, "alice", reqwest::Method::PUT,
+                &format!("rooms/{room}/send/m.room.message/bob-reads"),
+                serde_json::json!({"msgtype":"m.text","body":"read me"})).await;
+        }).await.unwrap() {
+            if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room { bob_unread = Some(s.unread); }
+        }
+        assert_eq!(bob_unread, Some(1), "bob has one unread message");
+        let scope = matrix_domain::RoomScope { account_id: AccountId::new(58), room_id: matrix_domain::RoomId::new(room.clone()) };
+        let (page, _) = bob.open_history(ViewRequests::new().start(scope).unwrap(), crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: true }).await.unwrap();
+        let event = page.events.last().unwrap().event_id.as_str().to_owned();
+        let (mut alice_sees, mut bob_unread) = (false, Some(1));
+        for _ in 0..8 {
+            for change in alice.next_batch().await.unwrap().into_iter().chain(bob.next_batch().await.unwrap()) {
+                if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room {
+                    if s.scope.account_id == AccountId::new(57) && s.info.public_read_receipts.iter().any(|r| r.event_id.as_str() == event && r.readers == 1) { alice_sees = true; }
+                    if s.scope.account_id == AccountId::new(58) { bob_unread = Some(s.unread); }
+                }
+            }
+            if alice_sees && bob_unread == Some(0) { break; }
+        }
+        drop((alice, bob));
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(alice_sees, "alice sees bob's receipt on the item");
+        assert_eq!(bob_unread, Some(0), "bob's counter dropped");
+        println!("P282A_BOB_READS {}", serde_json::json!({"room": room, "event": event, "alice_sees_receipt": true, "bob_unread": 0}));
+    });
+}
