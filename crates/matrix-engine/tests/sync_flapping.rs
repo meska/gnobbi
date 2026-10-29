@@ -204,3 +204,17 @@ fn network_outage_40s_shows_one_failure() {
         "{seen:?}"
     );
 }
+
+/// Offline from the start: one failure after 20 s, Ready once the network is back at second 30.
+#[test]
+fn offline_start_shows_one_failure_then_ready() {
+    let (seen, fake) = observe(80, true, |f| async move {
+        f.set_outage(true);
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        f.set_outage(false);
+    });
+    show("offline start", &seen, &fake);
+    assert_eq!(names(&seen), ["SyncFailed", "Ready"], "{seen:?}");
+    assert!((18..=23).contains(&times(&seen, "SyncFailed")[0]), "{seen:?}");
+    assert!((28..=34).contains(&times(&seen, "Ready")[0]), "{seen:?}");
+}
