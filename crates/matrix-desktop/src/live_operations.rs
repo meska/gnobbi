@@ -27,6 +27,9 @@ pub struct LiveOperations {
     confirmed: Vec<ConfirmedOperation>,
 }
 impl LiveOperations {
+    /// Accessible-only description of the idle panel; never drawn on screen.
+    pub const IDLE_NOTICE: &'static str =
+        "Risposta/modifica: scrivi nel draft, poi usa il pulsante. Enter invia normalmente.";
     /// Shared visible/semantic status; accepted writes outlive selection dismissal.
     pub fn notice(&self, confirming: bool) -> &'static str {
         if self.error == Some(OperationError::Transport) {
@@ -42,7 +45,7 @@ impl LiveOperations {
         } else if confirming {
             "Eliminare il messaggio selezionato? Questa azione non si annulla."
         } else {
-            "Risposta/modifica: scrivi nel draft, poi usa il pulsante. Enter invia normalmente."
+            Self::IDLE_NOTICE
         }
     }
     pub fn select(&mut self, id: ScopedTimelineId) -> bool {

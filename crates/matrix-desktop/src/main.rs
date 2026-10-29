@@ -1391,7 +1391,7 @@ impl Shell {
             ]
         };
         div().flex_shrink_0().px_4().py_2().bg(rgb(t.surface)).border_t_1().border_color(rgb(t.selection))
-            .child(div().text_size(px(11.)).text_color(rgb(t.secondary)).whitespace_normal().child(notice))
+            .when(notice != matrix_desktop::LiveOperations::IDLE_NOTICE, |d| d.child(div().text_size(px(11.)).text_color(rgb(t.secondary)).whitespace_normal().child(notice)))
             .child(div().flex().flex_wrap().gap_2().children(controls.into_iter().map(|(name,label,enabled)| {
                 let d = div().id(name).relative().px_2().h(px(28.)).flex().items_center().text_size(px(12.))
                     .text_color(rgb(if enabled { t.accent } else { t.secondary }))
@@ -1745,7 +1745,7 @@ impl Render for Shell {
                                     cx.notify();
                                 }))
                                 .child(if self.sidebar.query().is_empty() {
-                                    "Cerca conversazioni · Esc cancella".to_owned()
+                                    "Cerca conversazioni".to_owned()
                                 } else {
                                     format!("{}│", self.sidebar.query())
                                 }),
