@@ -149,6 +149,27 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
         let r = start_dm(&a, account, &ghost).await;
         assert!(matches!(r, Err(OperationError::Unavailable)));
         assert_eq!(a.joined_rooms().len(), joined);
+
+        // Over-long name: both servers accept 300 chars today; the contract is only "no panic".
+        let r = create_room(&a, account, &"n".repeat(300), None, false).await;
+        println!("[start] long-name result {r:?}");
+        // Same name twice is allowed (names are not unique).
+        let dup = create_room(&a, account, "gnobbi-test-private", None, false)
+            .await
+            .unwrap();
+        assert!(dup.room_id != private.room_id);
+
+        // B declines the DM invite; A asks for the chat again.
+        invited.leave().await.unwrap();
+        until("B no longer has the invite", || {
+            !b.invited_rooms()
+                .iter()
+                .any(|r| r.room_id().as_str() == dm.room_id.as_str())
+        })
+        .await;
+        let again = start_dm(&a, account, &bob).await;
+        println!("[start] after decline: {again:?} (old dm {})", dm.room_id.as_str());
+        assert!(again.is_ok(), "start_dm after a declined invite must not fail");
         println!(
             "[start] dm {} public {} private {} ok",
             dm.room_id.as_str(),
