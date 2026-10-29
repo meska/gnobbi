@@ -1683,8 +1683,10 @@ impl TimelineView {
                                     { d }
                                 })
                                 .when(!event.annotation.is_empty(), |d| d.child(div().text_size(px(12.)).text_color(rgb(t.accent)).child(event.annotation.clone())))
-                                .when_some(event.send_state.filter(|s| !live || *s == DemoSendState::Failed), |d, status| d.child(
-                                    div().flex().justify_end().h(px(24.)).items_center()
+                                .when_some(event.send_state.filter(|s| !live || *s == DemoSendState::Failed), |d, status| {
+                                    let (cancel_delivery, cancel_history, cancel_state, cancel_id, cancel_tx) = (delivery.clone(), delivery_history.clone(), delivery_state.clone(), delivery_id.clone(), transaction_id.clone());
+                                    d.child(
+                                    div().flex().justify_end().gap_3().h(px(24.)).items_center()
                                         .child(div().id(("demo-delivery", index))
                                             .map(|d| {
                                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1716,7 +1718,18 @@ impl TimelineView {
                                                     window.refresh();
                                                 }
                                             }))
-                                )),
+                                        .when(live, |d| d.child(div().id(("demo-cancel", index)).cursor_pointer().text_size(px(12.)).text_color(rgb(t.accent)).child("Annulla")
+                                            .on_click(move |_, window, _| {
+                                                if let (Some(delivery), Some(tx)) = (&cancel_delivery, &cancel_tx) {
+                                                    let mut delivery = delivery.borrow_mut();
+                                                    if delivery.cancel(&cancel_id.scope, tx) {
+                                                        cancel_history.borrow_mut().project_delivery(delivery.items(&cancel_id.scope));
+                                                        cancel_state.splice(index..index + 1, 1);
+                                                        window.refresh();
+                                                    }
+                                                }
+                                            })))
+                                    )}),
                         )
                         .child(canvas(move |bounds, _, _| {
                             *row_bounds.borrow_mut() = Some(bounds);

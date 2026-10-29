@@ -1,7 +1,7 @@
 //! UI-local outgoing projection; payloads never logged, not persisted.
 use crate::Composer;
 use matrix_domain::{RoomScope, Timeline, TimelineItem, TimelineUpdate, TransactionId};
-use matrix_engine::sending::{Attachment, Mention, SendRequest};
+use matrix_engine::sending::{Attachment, ControlSlot, Mention, SendControl, SendNotice, SendRequest};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Default)]
@@ -13,10 +13,21 @@ pub struct LiveDelivery {
     attachments: HashMap<(RoomScope, TransactionId), (String, Attachment)>,
     /// Mentions of a text send, kept until confirmed so Retry keeps the links.
     mentions: HashMap<(RoomScope, TransactionId), Vec<Mention>>,
+    /// The worker's send queue: retry, cancel and edit of a text it holds. Empty until it is up.
+    control: ControlSlot,
 }
 impl LiveDelivery {
     pub fn new() -> Self {
         Self::default()
+    }
+    pub fn with_control(control: ControlSlot) -> Self {
+        Self {
+            control,
+            ..Self::default()
+        }
+    }
+    fn queue(&self) -> Option<std::sync::Arc<dyn SendControl>> {
+        self.control.lock().ok()?.clone()
     }
     pub fn items(&self, scope: &RoomScope) -> &[TimelineItem] {
         self.rooms
@@ -163,6 +174,7 @@ impl LiveDelivery {
         )
     }
     pub fn retry(&mut self, scope: &RoomScope, transaction_id: &TransactionId) -> bool {
+        let queue = self.queue();
         if self.staged.len() >= 8 {
             return false;
         }
@@ -170,6 +182,22 @@ impl LiveDelivery {
             return false;
         };
         let key = (scope.clone(), transaction_id.clone());
+        // A text the send queue holds is tried again there (same message, same transaction).
+        if !self.attachments.contains_key(&key)
+            && let Some(queue) = queue
+            && queue.retry(transaction_id)
+        {
+            let retried = timeline
+                .apply(
+                    scope,
+                    TimelineUpdate::Retry {
+                        transaction_id: transaction_id.clone(),
+                    },
+                )
+                .is_ok();
+            self.failures.remove(&key);
+            return retried;
+        }
         let Some((body, attachment)) = self.attachments.get(&key).cloned().map_or_else(
             || {
                 timeline
@@ -203,6 +231,113 @@ impl LiveDelivery {
             mentions: self.mentions.get(&key).cloned().unwrap_or_default(),
         });
         true
+    }
+    /// One thing the worker's send route delivered.
+    pub fn handle(&mut self, event: matrix_engine::sending::SendEvent) -> bool {
+        match event {
+            matrix_engine::sending::SendEvent::Result(result) => self.apply(result),
+            matrix_engine::sending::SendEvent::Notice {
+                scope,
+                transaction_id,
+                notice,
+            } => self.notice(scope, transaction_id, notice),
+        }
+    }
+    /// Withdraw an unsent message. A text in the send queue leaves the list when the queue says
+    /// so (`notice`); anything else, still staged or never queued, leaves at once.
+    pub fn cancel(&mut self, scope: &RoomScope, transaction_id: &TransactionId) -> bool {
+        if self.queue().is_some_and(|queue| queue.cancel(transaction_id)) {
+            return true;
+        }
+        self.staged
+            .retain(|r| !(r.scope == *scope && r.transaction_id == *transaction_id));
+        self.discard(scope, transaction_id)
+    }
+    /// Change the text of an unsent message before it goes out.
+    pub fn edit(&mut self, scope: &RoomScope, transaction_id: &TransactionId, body: &str) -> bool {
+        if body.trim().is_empty() {
+            return false;
+        }
+        if self.queue().is_some_and(|queue| queue.edit(transaction_id, body, &[])) {
+            return true;
+        }
+        let Some(request) = self.staged.iter_mut().find(|r| {
+            r.scope == *scope && r.transaction_id == *transaction_id && r.attachment.is_none()
+        }) else {
+            return false;
+        };
+        request.body = body.to_owned();
+        request.mentions.clear();
+        self.mentions
+            .remove(&(scope.clone(), transaction_id.clone()));
+        self.rooms.get_mut(scope).is_some_and(|timeline| {
+            timeline
+                .apply(
+                    scope,
+                    TimelineUpdate::Edit {
+                        transaction_id: transaction_id.clone(),
+                        body: body.to_owned(),
+                    },
+                )
+                .is_ok()
+        })
+    }
+    fn discard(&mut self, scope: &RoomScope, transaction_id: &TransactionId) -> bool {
+        let key = (scope.clone(), transaction_id.clone());
+        let gone = self.rooms.get_mut(scope).is_some_and(|timeline| {
+            timeline
+                .apply(
+                    scope,
+                    TimelineUpdate::Discard {
+                        transaction_id: transaction_id.clone(),
+                    },
+                )
+                .is_ok()
+        });
+        if gone {
+            self.attachments.remove(&key);
+            self.mentions.remove(&key);
+            self.failures.remove(&key);
+        }
+        gone
+    }
+    /// What the send queue reports besides a final result.
+    pub fn notice(
+        &mut self,
+        scope: RoomScope,
+        transaction_id: TransactionId,
+        notice: SendNotice,
+    ) -> bool {
+        let key = (scope.clone(), transaction_id.clone());
+        let timeline = self
+            .rooms
+            .entry(scope.clone())
+            .or_insert_with(|| Timeline::new(scope.clone()));
+        let mut apply = |update| timeline.apply(&scope, update).is_ok();
+        match notice {
+            SendNotice::Restored { body, failed } => {
+                let tx = transaction_id.clone();
+                let shown = apply(TimelineUpdate::LocalSend {
+                    transaction_id: tx.clone(),
+                    body,
+                });
+                if shown && failed {
+                    apply(TimelineUpdate::Failed { transaction_id: tx });
+                    self.failures
+                        .insert(key, matrix_engine::sending::SendError::Transport);
+                }
+                shown
+            }
+            SendNotice::Retrying => {
+                self.failures.remove(&key);
+                apply(TimelineUpdate::Retry { transaction_id })
+            }
+            SendNotice::Edited { body } => apply(TimelineUpdate::Edit {
+                transaction_id,
+                body,
+            }),
+            SendNotice::Cancelled => self.discard(&scope, &transaction_id),
+        }
     }
     pub fn flush(&mut self, sender: &mut matrix_engine::Sender<SendRequest>) {
         // At most the eight staged requests; never wait/spin on UI.

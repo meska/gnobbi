@@ -2264,6 +2264,7 @@ fn main() {
         routes.verification = worker.take_verification_route();
         routes.operation = worker.take_operation_route();
         routes.send = worker.take_send_route();
+        routes.send_control = worker.send_control();
         routes.history = worker.take_history_route();
         routes.avatars = worker.avatar_slot();
         worker
@@ -2461,8 +2462,8 @@ fn main() {
                                             this.verification.apply(event);
                                             this.record_profile();
                                         }
-                                        for result in deliveries {
-                                            this.delivery.borrow_mut().apply(result);
+                                        for event in deliveries {
+                                            this.delivery.borrow_mut().handle(event);
                                         }
                                         for event in events {
                                             match event {
@@ -2743,6 +2744,10 @@ fn main() {
                         notification_failed: false,
                         avatars: Default::default(),
                         media: matrix_desktop::LiveMedia::default(),
+                        // Before `routes` is taken: the queue control belongs to the delivery too.
+                        delivery: std::rc::Rc::new(std::cell::RefCell::new(
+                            matrix_desktop::LiveDelivery::with_control(routes.send_control.clone()),
+                        )),
                         routes: std::mem::take(&mut routes),
                         parked: background.drain(..).collect(),
                         control: active_control.take(),
@@ -2759,7 +2764,6 @@ fn main() {
                         device_scroll: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_device_nodes: Default::default(),
-                        delivery: std::rc::Rc::default(),
                         operations: std::rc::Rc::default(),
                         pending_operation_command: None,
                         members_requested: None,

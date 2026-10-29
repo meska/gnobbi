@@ -20,6 +20,8 @@ pub mod avatar_cache;
 #[cfg(feature = "sdk")]
 pub mod recovery;
 #[cfg(feature = "sdk")]
+mod outbox;
+#[cfg(feature = "sdk")]
 pub mod room_sync;
 #[cfg(feature = "sdk")]
 pub mod room_tags;

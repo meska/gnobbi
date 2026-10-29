@@ -37,6 +37,15 @@ pub enum TimelineUpdate {
         transaction_id: TransactionId,
         event_id: EventId,
     },
+    /// The unsent message was withdrawn from the send queue: it leaves the projection.
+    Discard {
+        transaction_id: TransactionId,
+    },
+    /// The unsent message was edited in the send queue.
+    Edit {
+        transaction_id: TransactionId,
+        body: String,
+    },
     Echo {
         transaction_id: Option<TransactionId>,
         event_id: EventId,
@@ -83,6 +92,8 @@ impl Timeline {
         let transaction = match &update {
             TimelineUpdate::Failed { transaction_id }
             | TimelineUpdate::Retry { transaction_id }
+            | TimelineUpdate::Discard { transaction_id }
+            | TimelineUpdate::Edit { transaction_id, .. }
             | TimelineUpdate::Sent { transaction_id, .. } => Some(transaction_id),
             _ => None,
         };
@@ -192,6 +203,32 @@ impl Timeline {
                         return Err(TimelineError::InvalidTransition);
                     }
                     item.status = SendStatus::Failed;
+                }
+            }
+            TimelineUpdate::Discard { transaction_id } => {
+                let sent = |i: &TimelineItem| {
+                    i.transaction_id.as_ref() == Some(&transaction_id)
+                        && i.status == SendStatus::Sent
+                };
+                if self.items.iter().any(sent) {
+                    return Err(TimelineError::InvalidTransition);
+                }
+                self.items
+                    .retain(|i| i.transaction_id.as_ref() != Some(&transaction_id));
+            }
+            TimelineUpdate::Edit {
+                transaction_id,
+                body,
+            } => {
+                if let Some(item) = self
+                    .items
+                    .iter_mut()
+                    .find(|i| i.transaction_id.as_ref() == Some(&transaction_id))
+                {
+                    if item.status == SendStatus::Sent {
+                        return Err(TimelineError::InvalidTransition);
+                    }
+                    item.body = body;
                 }
             }
             TimelineUpdate::Retry { transaction_id } => {

@@ -388,6 +388,12 @@ impl DemoHistory {
 
     /// Reconcile outgoing rows by transaction/event ID, never by message text.
     pub fn project_delivery(&mut self, items: &[matrix_domain::TimelineItem]) {
+        // An unsent message the delivery no longer holds was withdrawn from the send queue.
+        self.events.retain(|e| {
+            e.send_state.is_none()
+                || e.transaction_id.is_none()
+                || items.iter().any(|i| i.transaction_id == e.transaction_id)
+        });
         for item in items.iter().filter(|i| i.identity.scope == self.scope) {
             let Some(tx) = &item.transaction_id else {
                 continue;

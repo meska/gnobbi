@@ -36,9 +36,10 @@ pub struct RoomListWorker {
     )>,
     send_route: Option<(
         crate::Sender<crate::sending::SendRequest>,
-        crate::Receiver<crate::sending::SendResult>,
+        crate::Receiver<crate::sending::SendEvent>,
     )>,
     avatars: crate::avatar::AvatarSlot,
+    send_control: crate::sending::ControlSlot,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     logout: std::sync::Arc<std::sync::atomic::AtomicBool>,
     done: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -50,6 +51,14 @@ pub struct RoomListWorker {
 }
 struct EmptyOnDrop(crate::avatar::AvatarSlot);
 impl Drop for EmptyOnDrop {
+    fn drop(&mut self) {
+        if let Ok(mut slot) = self.0.lock() {
+            *slot = None;
+        }
+    }
+}
+struct EmptyControlOnDrop(crate::sending::ControlSlot);
+impl Drop for EmptyControlOnDrop {
     fn drop(&mut self) {
         if let Ok(mut slot) = self.0.lock() {
             *slot = None;
@@ -101,6 +110,8 @@ impl RoomListWorker {
         let (worker_logout, worker_done) = (logout.clone(), done.clone());
         let avatars = crate::avatar::AvatarSlot::default();
         let worker_avatars = avatars.clone();
+        let send_control = crate::sending::ControlSlot::default();
+        let worker_control = send_control.clone();
         let (media_commands, mut media_requests) =
             crate::bounded::<crate::media::MediaCommand>(std::num::NonZeroUsize::new(2).unwrap());
         let (mut media_results, media_events) =
@@ -112,6 +123,7 @@ impl RoomListWorker {
                 let _done = DoneOnDrop(worker_done);
                 // Dropped before `_done`, after the runtime: the window must not keep the client.
                 let _avatars = EmptyOnDrop(worker_avatars.clone());
+                let _control = EmptyControlOnDrop(worker_control.clone());
                 let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
@@ -454,31 +466,26 @@ impl RoomListWorker {
                         }
                         clean
                     });
-                    let send_client = client.clone();
+                    let queue_client = client.clone();
+                    let outbox = crate::outbox::Outbox::new(
+                        client.clone(),
+                        account,
+                        tokio::runtime::Handle::current(),
+                    );
+                    if let Ok(mut slot) = worker_control.lock() {
+                        *slot = Some(std::sync::Arc::new(outbox.clone()));
+                    }
+                    let send_timelines = timelines.clone();
                     let send_stop = cancelled.clone();
                     let mut sending_task = tokio::spawn(async move {
-                        let mut clean = true;
-                        while let Some(request) = shutdown_receive(&send_stop, &mut sends).await {
-                            let result =
-                                crate::sending::send_text(&send_client, account, &request).await;
-                            let failed = result.is_err();
-                            if !matches!(
-                                until_stopped(
-                                    &send_stop,
-                                    send_results.send(crate::sending::SendResult {
-                                        scope: request.scope,
-                                        transaction_id: request.transaction_id,
-                                        result,
-                                    }),
-                                )
-                                .await,
-                                Some(Ok(()))
-                            ) && failed
-                            {
-                                clean = false;
-                            }
-                        }
-                        clean
+                        crate::outbox::run(
+                            &outbox,
+                            &send_timelines,
+                            &mut sends,
+                            &mut send_results,
+                            &send_stop,
+                        )
+                        .await
                     });
                     // Set once the user opens a room: the background warm-up then yields.
                     let opened = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -562,10 +569,17 @@ impl RoomListWorker {
                         media_task.abort();
                         let _ = media_task.await;
                     }
+                    // The queue of an account that leaves must not keep sending in the background;
+                    // what is still queued stays in the store and restarts with the account.
+                    queue_client.send_queue().set_enabled(false).await;
                     if worker_logout.load(std::sync::atomic::Ordering::Acquire) {
                         let _ =
                             tokio::time::timeout(Duration::from_secs(15), sync.session.logout())
                                 .await;
+                    }
+                    // The outbox holds a client too: drop it here, inside the runtime (see below).
+                    if let Ok(mut slot) = worker_control.lock() {
+                        drop(slot.take());
                     }
                     drop(sync);
                     // deadpool-sqlite closes its pooled connections via spawn_blocking:
@@ -583,6 +597,7 @@ impl RoomListWorker {
                 verification_route: Some((verification_commands, verification_events)),
                 operation_route: Some((operation_commands, operation_events)),
                 send_route: Some((send_commands, send_events)),
+                send_control,
                 avatars,
                 stop,
                 logout,
@@ -631,14 +646,20 @@ impl RoomListWorker {
         self.operation_route.take()
     }
 
-    /// Take the single UI owner route; bounded8 requests/results, no SDK types.
+    /// Take the single UI owner route; bounded8 requests/events, no SDK types.
     pub fn take_send_route(
         &mut self,
     ) -> Option<(
         crate::Sender<crate::sending::SendRequest>,
-        crate::Receiver<crate::sending::SendResult>,
+        crate::Receiver<crate::sending::SendEvent>,
     )> {
         self.send_route.take()
+    }
+
+    /// Retry, cancel and edit of queued texts; filled once the session is up, empty again when
+    /// the worker ends.
+    pub fn send_control(&self) -> crate::sending::ControlSlot {
+        self.send_control.clone()
     }
 
     /// Take the single UI owner history route.
@@ -729,7 +750,17 @@ impl RoomSync {
             .client
             .as_ref()
             .ok_or(crate::sending::SendError::Unavailable)?;
-        crate::sending::send_text(client, self.session.account_id(), request).await
+        let account = self.session.account_id();
+        let room = crate::sending::room_for(client, account, request)?;
+        if request.attachment.is_some() {
+            return crate::sending::send_text(client, account, request).await;
+        }
+        let timeline = self
+            .timelines
+            .get(&room)
+            .await
+            .map_err(|_| crate::sending::SendError::Unavailable)?;
+        crate::sending::send_text_waiting(client, &room, &timeline, request).await
     }
 
     pub fn new(session: AccountSession) -> Self {
@@ -1157,7 +1188,7 @@ async fn shutdown_receive<T>(
     }
 }
 
-async fn until_stopped<F: std::future::Future>(
+pub(crate) async fn until_stopped<F: std::future::Future>(
     stop: &std::sync::atomic::AtomicBool,
     work: F,
 ) -> Option<F::Output> {

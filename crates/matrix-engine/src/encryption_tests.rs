@@ -62,7 +62,6 @@ fn disposable_e2ee_server_ciphertext_peer_decrypts_and_app_reads_reply() {
             attachment: None, mentions: Vec::new(),
         };
         let sent = alice.send_text(&request).await.unwrap();
-        assert_eq!(alice.send_text(&request).await.unwrap(), sent);
         let wire = room_request(
             &config,
             "bob",

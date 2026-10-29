@@ -692,3 +692,21 @@ fn a_formatted_refresh_replaces_the_row_styles_even_with_the_same_text() {
     assert!(history.refresh_server(vec![event("$m")]));
     assert!(history.events()[0].styles.is_empty());
 }
+
+#[test]
+fn a_withdrawn_unsent_message_leaves_the_rows() {
+    use matrix_desktop::{DemoHistory, LiveDelivery};
+    use matrix_domain::{AccountId, RoomId, RoomScope, TransactionId};
+    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:t") };
+    let mut delivery = LiveDelivery::new();
+    let mut draft = matrix_desktop::Composer::default();
+    draft.replace(None, "soon gone");
+    let tx = TransactionId::new("gone");
+    assert!(delivery.submit(scope.clone(), tx.clone(), &mut draft));
+    let mut rows = DemoHistory::new(scope.clone(), 0);
+    rows.project_delivery(delivery.items(&scope));
+    assert_eq!(rows.events().len(), 1);
+    assert!(delivery.cancel(&scope, &tx));
+    rows.project_delivery(delivery.items(&scope));
+    assert!(rows.events().is_empty());
+}

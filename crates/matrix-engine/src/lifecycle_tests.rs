@@ -417,12 +417,7 @@ fn disposable_lifecycle_reconnect_restores_ready_without_duplicate_send() {
  };
     runtime().block_on(async {
         assert!(sends.send(request.clone()).await.is_ok());
-        let original = tokio::time::timeout(Duration::from_secs(8), results.recv())
-            .await
-            .unwrap()
-            .unwrap()
-            .result
-            .unwrap();
+        let original = next_result(&mut results, 8).await.result.unwrap();
         let paused = PausedServer::new(&config);
         tokio::time::timeout(Duration::from_secs(20), async {
             while !matches!(
@@ -441,14 +436,15 @@ fn disposable_lifecycle_reconnect_restores_ready_without_duplicate_send() {
         })
         .await
         .expect("recovered status");
-        assert!(sends.send(request.clone()).await.is_ok());
-        let repeated = tokio::time::timeout(Duration::from_secs(8), results.recv())
-            .await
-            .unwrap()
-            .unwrap()
-            .result
-            .unwrap();
-        assert_eq!(original, repeated);
+        // The queue is still usable after the reconnect: a second message goes out once, and the
+        // first one is not sent again.
+        let second = SendRequest {
+            transaction_id: TransactionId::new("p022-after-reconnect"),
+            body: "after reconnect".into(),
+            ..request.clone()
+        };
+        assert!(sends.send(second.clone()).await.is_ok());
+        let second_id = next_result(&mut results, 8).await.result.unwrap();
         let messages = room_request(
             &config,
             "alice",
@@ -463,9 +459,12 @@ fn disposable_lifecycle_reconnect_restores_ready_without_duplicate_send() {
             .iter()
             .filter(|e| e["type"] == "m.room.message")
             .collect();
-        assert_eq!(actual.len(), 1);
-        assert_eq!(actual[0]["event_id"].as_str().unwrap(), original.as_str());
-        assert_eq!(actual[0]["content"]["body"], request.body);
+        assert_eq!(actual.len(), 2);
+        // `dir=b` lists the newest first.
+        assert_eq!(actual[1]["event_id"].as_str().unwrap(), original.as_str());
+        assert_eq!(actual[1]["content"]["body"], request.body);
+        assert_eq!(actual[0]["event_id"].as_str().unwrap(), second_id.as_str());
+        assert_eq!(actual[0]["content"]["body"], second.body);
     });
     worker.shutdown().unwrap();
 }

@@ -20,6 +20,7 @@ include!("signin_tests.rs");
 include!("history_edits_tests.rs");
 include!("reaction_retry_tests.rs");
 include!("redaction_retry_tests.rs");
+include!("send_queue_tests.rs");
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_current_thread()
@@ -664,7 +665,7 @@ fn disposable_operation_worker_routes_inspection_and_durable_reply() {
 
 #[test]
 #[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
-fn disposable_send_reuses_transaction_and_reads_actual_event() {
+fn disposable_send_reads_actual_event() {
     use crate::{room_sync::RoomSync, sending::SendRequest};
     use matrix_domain::{RoomId, RoomScope, TransactionId};
     let config = fixture();
@@ -691,14 +692,6 @@ fn disposable_send_reuses_transaction_and_reads_actual_event() {
             mentions: Vec::new(),
         };
         let first = sync.send_text(&request).await.expect("SDK send accepted");
-        let second = sync
-            .send_text(&request)
-            .await
-            .expect("idempotent retry accepted");
-        assert!(
-            first == second,
-            "same Matrix transaction must return same event ID"
-        );
         let event = room_request(
             &config,
             "alice",
@@ -733,8 +726,10 @@ fn disposable_send_worker_survives_offline_retry() {
             .to_owned()
     });
     let login_config = config.clone();
+    let relay = Relay::start(&config);
+    let behind = relay.config(&login_config);
     let (mut worker, mut rooms) =
-        RoomListWorker::spawn(move || async move { Ok(login(&login_config, "alice", 20).await) })
+        RoomListWorker::spawn(move || async move { Ok(login(&behind, "alice", 20).await) })
             .unwrap();
     let (mut commands, mut results) = worker.take_send_route().expect("durable route");
     runtime().block_on(async {
@@ -752,48 +747,18 @@ fn disposable_send_worker_survives_offline_retry() {
             attachment: None,
             mentions: Vec::new(),
         };
-        let pid = config["server_pid"].to_string();
-        struct Resume(String);
-        impl Drop for Resume {
-            fn drop(&mut self) {
-                let _ = std::process::Command::new("/usr/bin/kill")
-                    .args(["-CONT", &self.0])
-                    .status();
-            }
-        }
-        assert!(
-            std::process::Command::new("/usr/bin/kill")
-                .args(["-STOP", &pid])
-                .status()
-                .unwrap()
-                .success()
-        );
-        let resume = Resume(pid);
+        relay.go_offline();
         assert!(commands.send(request.clone()).await.is_ok());
-        let failed = tokio::time::timeout(std::time::Duration::from_secs(8), results.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        // The SDK gives up after a few tries; the queue reports it and switches itself off.
+        let failed = next_result(&mut results, 60).await;
         assert!(failed.result.is_err(), "offline send must report failure");
         assert!(failed.transaction_id == request.transaction_id && failed.scope == request.scope);
-        // /sync has a 15s deadline; its failure must not close the send route.
-        tokio::time::sleep(std::time::Duration::from_secs(16)).await;
-        drop(resume);
-        assert!(commands.send(request.clone()).await.is_ok());
-        let sent = tokio::time::timeout(std::time::Duration::from_secs(8), results.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        let event_id = sent
-            .result
-            .expect("same worker retries after network recovery");
-        assert!(sent.transaction_id == request.transaction_id && sent.scope == request.scope);
-        assert!(commands.send(request.clone()).await.is_ok());
-        let again = tokio::time::timeout(std::time::Duration::from_secs(8), results.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(again.result.unwrap() == event_id);
+        // The failure of /sync as well must not close the send route.
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+        relay.go_online();
+        // Nothing is sent again by hand: the queue switches itself back on and resends the message.
+        let sent = sent_all(&mut results, &["p020-offline-retry"], 40).await;
+        let event_id = sent["p020-offline-retry"].clone();
         let messages = room_request(
             &config,
             "alice",

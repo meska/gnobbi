@@ -65,8 +65,8 @@ fn disposable_accounts_join_logout_one_worker_does_not_stop_the_other() {
         }
         assert!(a_sends.send(request(28, "p028-same-transaction", "Alice isolated task")).await.is_ok());
         assert!(b_sends.send(request(29, "p028-same-transaction", "Bob isolated task")).await.is_ok());
-        let a = tokio::time::timeout(std::time::Duration::from_secs(10), a_results.recv()).await.unwrap().unwrap();
-        let b = tokio::time::timeout(std::time::Duration::from_secs(10), b_results.recv()).await.unwrap().unwrap();
+        let a = next_result(&mut a_results, 10).await;
+        let b = next_result(&mut b_results, 10).await;
         assert!(a.scope.account_id == AccountId::new(28));
         assert!(b.scope.account_id == AccountId::new(29));
         let a_id = a.result.unwrap();
@@ -92,10 +92,10 @@ fn disposable_accounts_join_logout_one_worker_does_not_stop_the_other() {
         assert!(root.join("account-29/session.sealed").exists());
         assert!(a_sends.send(request(28, "p028-after-join", "must not send")).await.is_err());
         assert!(b_sends.send(request(28, "p028-wrong-route", "must not cross")).await.is_ok());
-        let rejected = tokio::time::timeout(std::time::Duration::from_secs(10), b_results.recv()).await.unwrap().unwrap();
+        let rejected = next_result(&mut b_results, 10).await;
         assert_eq!(rejected.result, Err(SendError::WrongScope));
         assert!(b_sends.send(request(29, "p028-still-live", "Bob survives Alice logout")).await.is_ok());
-        let sent = tokio::time::timeout(std::time::Duration::from_secs(10), b_results.recv()).await.unwrap().unwrap();
+        let sent = next_result(&mut b_results, 10).await;
         assert!(sent.scope.account_id == AccountId::new(29));
         let wire = room_request(&config, "bob", reqwest::Method::GET,
             &format!("rooms/{room}/event/{}", sent.result.unwrap().as_str()), serde_json::json!({})).await;
@@ -258,4 +258,58 @@ fn disposable_accounts_switch_selects_only_the_requested_identity() {
         accounts.switch(AccountId::new(28)).unwrap();
         assert!(accounts.active().unwrap().whoami().await.unwrap().user_id() == "@alice:matrix-desktop.test");
     });
+}
+
+/// The next final send result; notices (restored, retrying, cancelled, edited) are skipped.
+async fn next_result(results: &mut crate::Receiver<crate::sending::SendEvent>, seconds: u64) -> crate::sending::SendResult {
+    tokio::time::timeout(std::time::Duration::from_secs(seconds), async {
+        loop {
+            if let Some(result) = results.recv().await.expect("send route open").result() {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("send result in time")
+}
+
+/// The next notice for send `id`; final results and other sends' notices are skipped.
+async fn next_notice(
+    results: &mut crate::Receiver<crate::sending::SendEvent>,
+    id: &str,
+    seconds: u64,
+) -> crate::sending::SendNotice {
+    tokio::time::timeout(std::time::Duration::from_secs(seconds), async {
+        loop {
+            if let crate::sending::SendEvent::Notice { transaction_id, notice, .. } =
+                results.recv().await.expect("send route open")
+                && transaction_id.as_str() == id
+            {
+                return notice;
+            }
+        }
+    })
+    .await
+    .expect("send notice in time")
+}
+
+/// Final results until every id in `wanted` was accepted by the server; failures on the way
+/// (the server is unreachable for a while) are skipped. Returns id -> event id.
+async fn sent_all(
+    results: &mut crate::Receiver<crate::sending::SendEvent>,
+    wanted: &[&str],
+    seconds: u64,
+) -> std::collections::HashMap<String, matrix_domain::EventId> {
+    let mut sent = std::collections::HashMap::new();
+    tokio::time::timeout(std::time::Duration::from_secs(seconds), async {
+        while sent.len() < wanted.len() {
+            let result = next_result(results, seconds).await;
+            if let Ok(event) = result.result {
+                sent.insert(result.transaction_id.as_str().to_owned(), event);
+            }
+        }
+    })
+    .await
+    .expect("sends accepted in time");
+    sent
 }

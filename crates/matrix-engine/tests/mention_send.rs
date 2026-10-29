@@ -2,6 +2,8 @@
 //! the mention_send script: the member list offered to A, the sent event (m.mentions, matrix.to link,
 //! plain body) and B's notification. Two synthetic accounts; the fixture config path comes from
 //! the environment.
+// The queue futures nest deeper than the default 128.
+#![recursion_limit = "256"]
 #![cfg(feature = "sdk")]
 use matrix_domain::{AccountId, RoomId, RoomScope};
 use matrix_engine::{

@@ -74,6 +74,7 @@ pub(crate) fn start_background(
             verification: worker.take_verification_route(),
             operation: worker.take_operation_route(),
             send: worker.take_send_route(),
+            send_control: worker.send_control(),
             history: worker.take_history_route(),
             avatars: worker.avatar_slot(),
         };

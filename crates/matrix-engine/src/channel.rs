@@ -66,6 +66,10 @@ impl<T> Drop for SendRegistration<'_, T> {
     }
 }
 impl<T> Sender<T> {
+    /// True once the receiving side is gone: nothing sent from now on can be delivered.
+    pub fn is_closed(&self) -> bool {
+        !self.state.lock().expect("channel state poisoned").receiver_alive
+    }
     /// Backend-only backpressure. Dropping this future abandons its unsent value;
     /// durable state owners must retain/persist that work until delivery succeeds.
     pub async fn send(&mut self, value: T) -> Result<(), TrySendError<T>> {

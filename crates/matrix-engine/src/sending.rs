@@ -114,6 +114,47 @@ pub struct SendResult {
     pub result: Result<EventId, SendError>,
 }
 
+/// What the send queue reports besides a final result. Bodies are private: no Debug.
+pub enum SendNotice {
+    /// A message an earlier run left in the queue (it restarts by itself unless `failed`).
+    Restored { body: String, failed: bool },
+    /// Sending was tried again.
+    Retrying,
+    /// The queued message was withdrawn before it went out.
+    Cancelled,
+    /// The queued message now carries this text.
+    Edited { body: String },
+}
+
+pub enum SendEvent {
+    Result(SendResult),
+    Notice {
+        scope: RoomScope,
+        transaction_id: TransactionId,
+        notice: SendNotice,
+    },
+}
+
+impl SendEvent {
+    pub fn result(self) -> Option<SendResult> {
+        match self {
+            Self::Result(result) => Some(result),
+            Self::Notice { .. } => None,
+        }
+    }
+}
+
+/// Retry, cancel and edit of a queued text, by the transaction ID the UI knows it by. Each
+/// returns whether the message is in the queue; the outcome arrives as a `SendEvent`.
+pub trait SendControl: Send + Sync {
+    fn retry(&self, transaction_id: &TransactionId) -> bool;
+    fn cancel(&self, transaction_id: &TransactionId) -> bool;
+    fn edit(&self, transaction_id: &TransactionId, body: &str, mentions: &[Mention]) -> bool;
+}
+
+/// Filled by the worker once its session is up, emptied when it ends (the window never keeps a client).
+pub type ControlSlot = std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<dyn SendControl>>>>;
+
 #[cfg(all(test, feature = "sdk"))]
 mod tests {
     #[test]
@@ -305,16 +346,13 @@ fn image_size(data: &[u8]) -> Option<(u32, u32)> {
         .ok()
 }
 
+/// The joined room a request addresses; nothing is queued for another account's scope.
 #[cfg(feature = "sdk")]
-pub async fn send_text(
+pub(crate) fn room_for(
     client: &matrix_sdk::Client,
     account: matrix_domain::AccountId,
     request: &SendRequest,
-) -> Result<EventId, SendError> {
-    use matrix_sdk::{
-        attachment::{AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseImageInfo},
-        ruma::{RoomId, events::room::message::TextMessageEventContent},
-    };
+) -> Result<matrix_sdk::Room, SendError> {
     if request.scope.account_id != account {
         return Err(SendError::WrongScope);
     }
@@ -323,54 +361,17 @@ pub async fn send_text(
     {
         return Err(SendError::InvalidInput);
     }
-    let id = RoomId::parse(request.scope.room_id.as_str()).map_err(|_| SendError::WrongScope)?;
-    let room = client
+    let id = matrix_sdk::ruma::RoomId::parse(request.scope.room_id.as_str())
+        .map_err(|_| SendError::WrongScope)?;
+    client
         .get_room(&id)
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
-        .ok_or(SendError::Unavailable)?;
-    let transaction: matrix_sdk::ruma::OwnedTransactionId = request.transaction_id.as_str().into();
-    let response = match &request.attachment {
-        None => tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            room.send(markdown_content(&request.body, &request.mentions))
-                .with_transaction_id(transaction),
-        )
-        .await
-        .map_err(|_| SendError::Transport)?
-        .map(|sent| sent.response.event_id),
-        // shortcut: no client thumbnail and no total-upload progress, add when the timeline shows uploads
-        Some(file) => {
-            let mime = mime_guess::from_path(&file.filename).first_or_octet_stream();
-            let mut config = AttachmentConfig::new().txn_id(transaction);
-            if let Some(voice) = &file.voice {
-                config = config.info(AttachmentInfo::Voice(BaseAudioInfo {
-                    duration: Some(std::time::Duration::from_millis(voice.duration_ms)),
-                    waveform: Some(voice.waveform.clone()),
-                    size: u32::try_from(file.data.len()).ok().map(Into::into),
-                }));
-            } else if mime.type_().as_str() == "image"
-                && let Some((w, h)) = image_size(&file.data)
-            {
-                config = config.info(AttachmentInfo::Image(BaseImageInfo {
-                    width: Some(w.into()),
-                    height: Some(h.into()),
-                    size: u32::try_from(file.data.len()).ok().map(Into::into),
-                    ..Default::default()
-                }));
-            }
-            if !request.body.trim().is_empty() {
-                config = config.caption(Some(TextMessageEventContent::plain(&request.body)));
-            }
-            tokio::time::timeout(
-                std::time::Duration::from_secs(300),
-                room.send_attachment(&file.filename, &mime, file.data.clone(), config),
-            )
-            .await
-            .map_err(|_| SendError::Transport)?
-            .map(|sent| sent.event_id)
-        }
-    }
-    .map_err(|error| match error {
+        .ok_or(SendError::Unavailable)
+}
+
+#[cfg(feature = "sdk")]
+pub(crate) fn map_error(error: &matrix_sdk::Error) -> SendError {
+    match error {
         matrix_sdk::Error::NoOlmMachine
         | matrix_sdk::Error::CryptoStoreError(_)
         | matrix_sdk::Error::OlmError(_)
@@ -378,8 +379,150 @@ pub async fn send_text(
         | matrix_sdk::Error::DecryptorError(_)
         | matrix_sdk::Error::SignatureError(_) => SendError::Encryption,
         _ => SendError::Transport,
-    })?;
-    Ok(EventId::new(response.as_str()))
+    }
+}
+
+/// Body and "is a plain text, not an edit" of a queued event's content.
+#[cfg(feature = "sdk")]
+pub(crate) fn queued_text(content: matrix_sdk::store::SerializableEventContent) -> Option<(String, bool)> {
+    let (raw, kind) = content.into_raw();
+    if kind != "m.room.message" {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(raw.json().get()).ok()?;
+    let plain = value["msgtype"] == "m.text" && value["m.relates_to"]["rel_type"] != "m.replace";
+    Some((value["body"].as_str()?.to_owned(), plain))
+}
+
+/// Put a text on the room's SDK send queue. The queue picks the transaction ID, keeps the message
+/// across restarts and resends it with the same ID. The handle has no accessor for that ID, so it
+/// is read from the local echo the queue announces before `send` returns.
+#[cfg(feature = "sdk")]
+pub(crate) async fn queue_text(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::Room,
+    timeline: &matrix_sdk_ui::timeline::Timeline,
+    request: &SendRequest,
+) -> Result<(matrix_sdk::ruma::OwnedTransactionId, matrix_sdk::send_queue::SendHandle), SendError> {
+    use matrix_sdk::send_queue::{LocalEchoContent, RoomSendQueueUpdate::NewLocalEvent};
+    let mut updates = client.send_queue().subscribe();
+    let handle = timeline
+        .send(markdown_content(&request.body, &request.mentions).into())
+        .await
+        .map_err(|_| SendError::Transport)?;
+    while let Ok(update) = updates.try_recv() {
+        if update.room_id == room.room_id()
+            && let NewLocalEvent(echo) = update.update
+            && let LocalEchoContent::Event { serialized_event, .. } = echo.content
+            && queued_text(serialized_event).is_some_and(|(body, plain)| plain && body == request.body)
+        {
+            return Ok((echo.transaction_id, handle));
+        }
+    }
+    let _ = handle.abort().await;
+    Err(SendError::Transport)
+}
+
+/// Queue a text and wait for the server to accept it (tools and tests; the worker follows the
+/// queue instead). A failure or a timeout takes the message out of the queue again, so an error
+/// never leaves a message behind that would go out later.
+#[cfg(feature = "sdk")]
+pub(crate) async fn send_text_waiting(
+    client: &matrix_sdk::Client,
+    room: &matrix_sdk::Room,
+    timeline: &matrix_sdk_ui::timeline::Timeline,
+    request: &SendRequest,
+) -> Result<EventId, SendError> {
+    use matrix_sdk::send_queue::RoomSendQueueUpdate::{SendError as Failed, SentEvent};
+    use tokio::sync::broadcast::error::RecvError;
+    let mut updates = client.send_queue().subscribe();
+    let (txn, handle) = queue_text(client, room, timeline, request).await?;
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let update = match updates.recv().await {
+                Ok(update) => update,
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => return Err(SendError::Transport),
+            };
+            if update.room_id != room.room_id() {
+                continue;
+            }
+            match update.update {
+                SentEvent { transaction_id, event_id } if transaction_id == txn => {
+                    return Ok(EventId::new(event_id.as_str()));
+                }
+                Failed { transaction_id, error, .. } if transaction_id == txn => {
+                    return Err(map_error(&error));
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap_or(Err(SendError::Transport));
+    if outcome.is_err() {
+        let _ = handle.abort().await;
+    }
+    outcome
+}
+
+/// A text through the queue, or an attachment sent directly (P283b moves those to the queue too).
+#[cfg(feature = "sdk")]
+pub async fn send_text(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    request: &SendRequest,
+) -> Result<EventId, SendError> {
+    use matrix_sdk_ui::timeline::RoomExt;
+    let room = room_for(client, account, request)?;
+    let Some(file) = &request.attachment else {
+        let timeline = room.timeline().await.map_err(|_| SendError::Unavailable)?;
+        return send_text_waiting(client, &room, &timeline, request).await;
+    };
+    send_attachment(&room, request, file).await
+}
+
+#[cfg(feature = "sdk")]
+pub(crate) async fn send_attachment(
+    room: &matrix_sdk::Room,
+    request: &SendRequest,
+    file: &Attachment,
+) -> Result<EventId, SendError> {
+    use matrix_sdk::{
+        attachment::{AttachmentConfig, AttachmentInfo, BaseAudioInfo, BaseImageInfo},
+        ruma::events::room::message::TextMessageEventContent,
+    };
+    let transaction: matrix_sdk::ruma::OwnedTransactionId = request.transaction_id.as_str().into();
+    // shortcut: no client thumbnail and no total-upload progress, add when the timeline shows uploads
+    let mime = mime_guess::from_path(&file.filename).first_or_octet_stream();
+    let mut config = AttachmentConfig::new().txn_id(transaction);
+    if let Some(voice) = &file.voice {
+        config = config.info(AttachmentInfo::Voice(BaseAudioInfo {
+            duration: Some(std::time::Duration::from_millis(voice.duration_ms)),
+            waveform: Some(voice.waveform.clone()),
+            size: u32::try_from(file.data.len()).ok().map(Into::into),
+        }));
+    } else if mime.type_().as_str() == "image"
+        && let Some((w, h)) = image_size(&file.data)
+    {
+        config = config.info(AttachmentInfo::Image(BaseImageInfo {
+            width: Some(w.into()),
+            height: Some(h.into()),
+            size: u32::try_from(file.data.len()).ok().map(Into::into),
+            ..Default::default()
+        }));
+    }
+    if !request.body.trim().is_empty() {
+        config = config.caption(Some(TextMessageEventContent::plain(&request.body)));
+    }
+    let sent = tokio::time::timeout(
+        std::time::Duration::from_secs(300),
+        room.send_attachment(&file.filename, &mime, file.data.clone(), config),
+    )
+    .await
+    .map_err(|_| SendError::Transport)?
+    .map_err(|error| map_error(&error))?;
+    Ok(EventId::new(sent.event_id.as_str()))
 }
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use matrix_engine::{
     history::{HistoryRequest, HistoryResult},
     media::{MediaCommand, MediaEvent},
     operations::{OperationCommand, OperationResult},
-    sending::{SendRequest, SendResult},
+    sending::{SendEvent, SendRequest},
     verification::{VerificationCommand, VerificationEvent},
 };
 use std::path::PathBuf;
@@ -25,10 +25,12 @@ pub struct AccountRoutes {
     pub media: Route<MediaCommand, MediaEvent>,
     pub verification: Route<VerificationCommand, VerificationEvent>,
     pub operation: Route<OperationCommand, OperationResult>,
-    pub send: Route<SendRequest, SendResult>,
+    pub send: Route<SendRequest, SendEvent>,
     pub history: Route<HistoryRequest, HistoryResult>,
     /// Where the worker offers avatar downloads once its session is up.
     pub avatars: matrix_engine::avatar::AvatarSlot,
+    /// Where the worker offers retry, cancel and edit of queued texts once its session is up.
+    pub send_control: matrix_engine::sending::ControlSlot,
 }
 
 #[derive(Default)]
@@ -37,7 +39,7 @@ pub struct Drained {
     pub media: Vec<MediaEvent>,
     pub verifications: Vec<VerificationEvent>,
     pub operations: Vec<OperationResult>,
-    pub deliveries: Vec<SendResult>,
+    pub deliveries: Vec<SendEvent>,
     pub pages: Vec<HistoryResult>,
     /// The room-list route is closed: the worker is gone.
     pub closed: bool,
@@ -105,6 +107,7 @@ impl AccountState {
         root: Option<(PathBuf, Option<PathBuf>)>,
         routes: AccountRoutes,
     ) -> Self {
+        let delivery = LiveDelivery::with_control(routes.send_control.clone());
         Self {
             account_id,
             root,
@@ -113,7 +116,7 @@ impl AccountState {
             status: RoomSyncStatus::Connecting,
             notifications: NotificationPolicy::new(account_id),
             verification: DeviceVerification::new(account_id),
-            delivery: LiveDelivery::new(),
+            delivery,
             operations: LiveOperations::default(),
             media: LiveMedia::default(),
             control: None,
@@ -155,8 +158,8 @@ impl AccountState {
         for event in d.verifications {
             self.verification.apply(event);
         }
-        for result in d.deliveries {
-            self.delivery.apply(result);
+        for event in d.deliveries {
+            self.delivery.handle(event);
         }
         for event in d.events {
             match event {

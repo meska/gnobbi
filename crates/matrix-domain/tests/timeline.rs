@@ -515,3 +515,32 @@ fn local_send_creates_one_pending_item() {
     assert_eq!(item.status, SendStatus::Pending);
     assert_eq!(item.transaction_id, Some(TransactionId::new("t1")));
 }
+
+#[test]
+fn an_unsent_message_can_be_edited_and_withdrawn_but_a_sent_one_cannot() {
+    let mut timeline = pending();
+    let tx = || TransactionId::new("t1");
+    timeline
+        .apply(&scope(), TimelineUpdate::Edit { transaction_id: tx(), body: "new".into() })
+        .unwrap();
+    assert_eq!(timeline.items()[0].body, "new");
+    assert_eq!(timeline.items()[0].status, SendStatus::Pending);
+    let mut sent = pending();
+    sent.apply(
+        &scope(),
+        TimelineUpdate::Sent { transaction_id: tx(), event_id: matrix_domain::EventId::new("$e1") },
+    )
+    .unwrap();
+    assert!(sent
+        .apply(&scope(), TimelineUpdate::Edit { transaction_id: tx(), body: "late".into() })
+        .is_err());
+    assert!(sent.apply(&scope(), TimelineUpdate::Discard { transaction_id: tx() }).is_err());
+    assert_eq!(sent.items().len(), 1);
+    timeline.apply(&scope(), TimelineUpdate::Discard { transaction_id: tx() }).unwrap();
+    assert!(timeline.items().is_empty());
+    // Withdrawing what is not there reports an unknown transaction and changes nothing.
+    assert_eq!(
+        timeline.apply(&scope(), TimelineUpdate::Discard { transaction_id: tx() }),
+        Err(matrix_domain::TimelineError::UnknownTransaction)
+    );
+}

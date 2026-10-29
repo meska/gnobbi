@@ -401,3 +401,119 @@ fn a_confirmed_attachment_cannot_be_retried_as_caption_only() {
         "no text-only resend of a delivered file"
     );
 }
+
+/// A send queue that holds the texts it was told about and records what the window asked of it.
+#[derive(Default)]
+struct FakeQueue {
+    held: std::sync::Mutex<Vec<TransactionId>>,
+    calls: std::sync::Mutex<Vec<String>>,
+}
+impl matrix_engine::sending::SendControl for FakeQueue {
+    fn retry(&self, id: &TransactionId) -> bool {
+        self.calls.lock().unwrap().push(format!("retry {}", id.as_str()));
+        self.held.lock().unwrap().contains(id)
+    }
+    fn cancel(&self, id: &TransactionId) -> bool {
+        self.calls.lock().unwrap().push(format!("cancel {}", id.as_str()));
+        self.held.lock().unwrap().contains(id)
+    }
+    fn edit(&self, id: &TransactionId, body: &str, _: &[matrix_engine::sending::Mention]) -> bool {
+        self.calls.lock().unwrap().push(format!("edit {} {body}", id.as_str()));
+        self.held.lock().unwrap().contains(id)
+    }
+}
+
+fn queued_delivery(held: &[&str]) -> (LiveDelivery, std::sync::Arc<FakeQueue>) {
+    let queue = std::sync::Arc::new(FakeQueue::default());
+    *queue.held.lock().unwrap() = held.iter().map(|id| TransactionId::new(*id)).collect();
+    let slot = matrix_engine::sending::ControlSlot::default();
+    *slot.lock().unwrap() = Some(queue.clone());
+    (LiveDelivery::with_control(slot), queue)
+}
+
+#[test]
+fn a_failed_text_in_the_send_queue_is_retried_there_not_sent_again() {
+    use matrix_engine::sending::{SendError, SendResult};
+    let (mut delivery, queue) = queued_delivery(&["q1"]);
+    let mut draft = Composer::default();
+    draft.replace(None, "queued text");
+    let tx = TransactionId::new("q1");
+    assert!(delivery.submit(scope(), tx.clone(), &mut draft));
+    delivery.take_request().unwrap();
+    assert!(delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Err(SendError::Transport) }));
+    assert!(delivery.retry(&scope(), &tx));
+    assert_eq!(delivery.items(&scope())[0].status, SendStatus::Pending);
+    assert!(delivery.take_request().is_none(), "the queue resends, the window stages nothing");
+    assert_eq!(*queue.calls.lock().unwrap(), ["retry q1"]);
+}
+
+#[test]
+fn cancel_waits_for_the_queue_and_then_removes_the_message() {
+    use matrix_engine::sending::SendNotice;
+    let (mut delivery, queue) = queued_delivery(&["q2"]);
+    let mut draft = Composer::default();
+    draft.replace(None, "withdraw me");
+    let tx = TransactionId::new("q2");
+    assert!(delivery.submit(scope(), tx.clone(), &mut draft));
+    delivery.take_request().unwrap();
+    assert!(delivery.cancel(&scope(), &tx));
+    assert_eq!(delivery.items(&scope()).len(), 1, "still shown until the queue confirms");
+    assert!(delivery.notice(scope(), tx.clone(), SendNotice::Cancelled));
+    assert!(delivery.items(&scope()).is_empty());
+    assert_eq!(*queue.calls.lock().unwrap(), ["cancel q2"]);
+}
+
+#[test]
+fn cancel_and_edit_of_a_message_not_yet_handed_over_act_on_the_staged_request() {
+    let mut delivery = LiveDelivery::new();
+    let mut draft = Composer::default();
+    draft.replace(None, "first");
+    let (keep, drop_) = (TransactionId::new("keep"), TransactionId::new("drop"));
+    assert!(delivery.submit(scope(), keep.clone(), &mut draft));
+    draft.replace(None, "second");
+    assert!(delivery.submit(scope(), drop_.clone(), &mut draft));
+    assert!(delivery.edit(&scope(), &keep, "first, corrected"));
+    assert!(!delivery.edit(&scope(), &keep, "  "), "an empty text is no edit");
+    assert!(delivery.cancel(&scope(), &drop_));
+    assert!(!delivery.cancel(&scope(), &drop_), "already gone");
+    let request = delivery.take_request().unwrap();
+    assert_eq!((request.transaction_id, request.body.as_str()), (keep, "first, corrected"));
+    assert!(delivery.take_request().is_none());
+    assert_eq!(delivery.items(&scope()).len(), 1);
+    assert_eq!(delivery.items(&scope())[0].body, "first, corrected");
+}
+
+#[test]
+fn queue_edit_updates_the_shown_text_and_a_sent_message_cannot_be_withdrawn() {
+    use matrix_engine::sending::{SendNotice, SendResult};
+    let (mut delivery, queue) = queued_delivery(&["q3"]);
+    let mut draft = Composer::default();
+    draft.replace(None, "draft");
+    let tx = TransactionId::new("q3");
+    assert!(delivery.submit(scope(), tx.clone(), &mut draft));
+    delivery.take_request().unwrap();
+    assert!(delivery.edit(&scope(), &tx, "draft 2"));
+    assert!(delivery.notice(scope(), tx.clone(), SendNotice::Edited { body: "draft 2".into() }));
+    assert_eq!(delivery.items(&scope())[0].body, "draft 2");
+    assert!(delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Ok(matrix_domain::EventId::new("$sent")) }));
+    assert!(!delivery.notice(scope(), tx.clone(), SendNotice::Cancelled));
+    assert_eq!(delivery.items(&scope())[0].status, SendStatus::Sent);
+    assert_eq!(*queue.calls.lock().unwrap(), ["edit q3 draft 2"]);
+}
+
+#[test]
+fn messages_left_in_the_queue_by_an_earlier_run_reappear_pending_or_failed() {
+    use matrix_engine::sending::SendNotice;
+    let mut delivery = LiveDelivery::new();
+    let (a, b) = (TransactionId::new("old-a"), TransactionId::new("old-b"));
+    assert!(delivery.notice(scope(), a.clone(), SendNotice::Restored { body: "still going".into(), failed: false }));
+    assert!(delivery.notice(scope(), b.clone(), SendNotice::Restored { body: "wedged".into(), failed: true }));
+    let items = delivery.items(&scope());
+    assert_eq!((items[0].status.clone(), items[0].body.as_str()), (SendStatus::Pending, "still going"));
+    assert_eq!((items[1].status.clone(), items[1].body.as_str()), (SendStatus::Failed, "wedged"));
+    assert_eq!(delivery.failure_label(&scope(), &b), Some("Invio non confermato · Matrix"));
+    // The queue tries the failed one again: it is pending, and the label is gone.
+    assert!(delivery.notice(scope(), b.clone(), SendNotice::Retrying));
+    assert_eq!(delivery.items(&scope())[1].status, SendStatus::Pending);
+    assert_eq!(delivery.failure_label(&scope(), &b), None);
+}
