@@ -230,3 +230,23 @@ fn restart_restores_theme_accent_auto_night_and_font() {
     }
     matrix_desktop::set_font(FontChoice::Sans);
 }
+
+#[test]
+fn unreadable_or_hostile_settings_files_load_as_defaults_without_panicking() {
+    let d = dirs(&tmp("hostile"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let file = d.config.join("settings.json");
+    let deep = format!("{}1{}", "[".repeat(5000), "]".repeat(5000));
+    let big = format!(r#"{{"theme":"{}"}}"#, "x".repeat(4 << 20));
+    let cases: [&[u8]; 9] = [
+        b"", b"\xff\xfe\x00{", b"\0\0\0", b"null", b"\"dark\"", b"{\"theme\":", b"{\"theme\":\"dark\"", deep.as_bytes(), big.as_bytes(),
+    ];
+    for body in cases {
+        std::fs::write(&file, body).unwrap();
+        assert_eq!(Preferences::load(&d), Preferences::default(), "{} bytes", body.len());
+    }
+    // A directory where the file should be (unreadable) is also just defaults.
+    std::fs::remove_file(&file).unwrap();
+    std::fs::create_dir(&file).unwrap();
+    assert_eq!(Preferences::load(&d), Preferences::default());
+}

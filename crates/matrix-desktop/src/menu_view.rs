@@ -266,7 +266,8 @@ impl Shell {
                     .when(!self.settings_open, |d| {
                         d.children(self.render_drawer_header(t))
                     })
-                    .child(div().flex_1().child(self.render_drawer_body(t, window, cx)))
+                    // Scrolls so that Settings stays reachable on short windows (150%); the footer stays put.
+                    .child(div().id("drawer-body").flex_1().min_h_0().overflow_y_scroll().child(self.render_drawer_body(t, window, cx)))
                     .child(
                         div()
                             .px_4()
