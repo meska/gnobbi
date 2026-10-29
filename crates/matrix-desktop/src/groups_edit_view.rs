@@ -137,6 +137,7 @@ impl Shell {
 
     pub(crate) fn render_groups_edit(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let edit = self.groups_edit.as_ref()?;
+        edit.field.update(cx, |f, _| f.theme = t);
         let user_group = edit.selected.starts_with("u.");
         let button = |id: &'static str, label: &'static str, color: u32| {
             div().id(id).px_3().py_2().rounded_md().cursor_pointer().text_color(rgb(color)).child(label)
@@ -153,7 +154,7 @@ impl Shell {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(gpui::rgba(0x00000066))
+                .bg(gpui::rgba(matrix_desktop::SCRIM))
                 .on_click(cx.listener(|this, _, window, cx| this.close_groups_edit(window, cx)))
                 .child(
                     div()

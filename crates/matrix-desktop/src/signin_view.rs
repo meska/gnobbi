@@ -1,6 +1,6 @@
 //! Graphical projection only; authentication remains on RoomListWorker.
 use gpui::{ClipboardItem, Context, FocusHandle, KeyDownEvent, Window, div, prelude::*, px, rgb};
-use matrix_desktop::{FormStatus, LIGHT, LoginInput, SetupPhase, SignInForm, visible_fields};
+use matrix_desktop::{DesignTokens, FormStatus, LIGHT, LoginInput, SetupPhase, SignInForm, visible_fields};
 use matrix_engine::signin::{
     RecoveryState, SetupEvent, SetupFailure, SignInError, SignInEvent, SignInMode, SignInUi,
 };
@@ -9,6 +9,8 @@ use matrix_engine::signin::{
 type PaintedSubmit = std::rc::Rc<dyn Fn(&mut SignInView, &mut Context<SignInView>)>;
 
 pub struct SignInView {
+    /// Active theme, pushed by the shell on every frame.
+    pub theme: DesignTokens,
     form: SignInForm,
     route: SignInUi,
     fields: [gpui::Entity<crate::login_field::LoginField>; 4],
@@ -389,6 +391,7 @@ impl SignInView {
     }
     pub fn new(route: SignInUi, cx: &mut Context<Self>) -> Self {
         Self {
+            theme: LIGHT,
             form: SignInForm::default(),
             route,
             mode: SignInMode::Password,
@@ -576,6 +579,10 @@ impl SignInView {
 }
 impl Render for SignInView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let t = self.theme;
+        for field in &self.fields {
+            field.update(cx, |f, _| f.theme = t);
+        }
         if let Some(index) = self.focus_next.take() {
             match index {
                 4 => self.submit_focus.focus(window),
@@ -667,7 +674,7 @@ impl Render for SignInView {
                             .id("signin-setup-key")
                             .p_3()
                             .border_2()
-                            .border_color(rgb(LIGHT.accent))
+                            .border_color(rgb(t.accent))
                             .font_family(matrix_desktop::MONO_FONT)
                             .text_size(px(15.))
                             .child(key.to_owned()),
@@ -685,11 +692,11 @@ impl Render for SignInView {
                             .justify_center()
                             .border_2()
                             .border_color(rgb(if self.copy_focus.is_focused(window) {
-                                LIGHT.text
+                                t.text
                             } else {
-                                LIGHT.accent
+                                t.accent
                             }))
-                            .text_color(rgb(LIGHT.accent))
+                            .text_color(rgb(t.accent))
                             .cursor_pointer()
                             .on_click(cx.listener(move |this, _, _, cx| copy(this, cx)))
                             .child(matrix_desktop::COPY_LABEL),
@@ -729,19 +736,19 @@ impl Render for SignInView {
                             .justify_center()
                             .border_2()
                             .border_color(rgb(if self.recover_focus.is_focused(window) {
-                                LIGHT.text
+                                t.text
                             } else {
-                                LIGHT.accent
+                                t.accent
                             }))
                             .bg(rgb(if key_open {
-                                LIGHT.accent
+                                t.accent
                             } else {
-                                LIGHT.disabled
+                                t.disabled
                             }))
                             .text_color(rgb(if key_open {
-                                LIGHT.on_accent
+                                t.on_accent
                             } else {
-                                LIGHT.secondary
+                                t.secondary
                             }))
                             .when(key_open, |d| {
                                 d.cursor_pointer()
@@ -770,16 +777,16 @@ impl Render for SignInView {
                         .justify_center()
                         .border_2()
                         .border_color(rgb(if self.recover_focus.is_focused(window) {
-                            LIGHT.text
+                            t.text
                         } else if offered {
-                            LIGHT.accent
+                            t.accent
                         } else {
-                            LIGHT.disabled
+                            t.disabled
                         }))
                         .text_color(rgb(if offered {
-                            LIGHT.accent
+                            t.accent
                         } else {
-                            LIGHT.secondary
+                            t.secondary
                         }))
                         .when(offered, |d| {
                             d.cursor_pointer()
@@ -805,8 +812,8 @@ impl Render for SignInView {
                     .flex()
                     .items_center()
                     .border_1()
-                    .border_color(rgb(LIGHT.accent))
-                    .text_color(rgb(LIGHT.accent))
+                    .border_color(rgb(t.accent))
+                    .text_color(rgb(t.accent))
                     .cursor_pointer()
                     .child(label);
                 #[cfg(test)]
@@ -890,19 +897,19 @@ impl Render for SignInView {
                     .justify_center()
                     .border_2()
                     .border_color(rgb(if self.submit_focus.is_focused(window) {
-                        LIGHT.text
+                        t.text
                     } else {
-                        LIGHT.accent
+                        t.accent
                     }))
                     .bg(rgb(if enabled {
-                        LIGHT.accent
+                        t.accent
                     } else {
-                        LIGHT.disabled
+                        t.disabled
                     }))
                     .text_color(rgb(if enabled {
-                        LIGHT.on_accent
+                        t.on_accent
                     } else {
-                        LIGHT.secondary
+                        t.secondary
                     }))
                     .when(enabled, |d| {
                         d.cursor_pointer()
@@ -940,9 +947,9 @@ impl Render for SignInView {
                                     None | Some(SetupPhase::Pending)
                                 )
                         ) {
-                            LIGHT.secondary
+                            t.secondary
                         } else {
-                            LIGHT.error
+                            t.error
                         },
                     ))
                     .child(match self.form.recovery() {
@@ -954,8 +961,8 @@ impl Render for SignInView {
             .id("signin")
             .on_key_down(cx.listener(move |this, event, window, cx| key(this, event, window, cx)))
             .size_full()
-            .bg(rgb(LIGHT.surface))
-            .text_color(rgb(LIGHT.text))
+            .bg(rgb(t.surface))
+            .text_color(rgb(t.text))
             .font_family(matrix_desktop::UI_FONT)
             .flex()
             .flex_col()

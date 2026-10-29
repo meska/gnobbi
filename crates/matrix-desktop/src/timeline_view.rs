@@ -1348,7 +1348,7 @@ impl TimelineView {
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
                         match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
                             Some(image) => crate::avatar_view::round(image, SENDER_AVATAR_PX),
-                            None => div().flex().items_center().justify_center().size(px(SENDER_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(0x5288b5)).text_color(rgb(t.avatar_text)).text_size(px(12.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
+                            None => div().flex().items_center().justify_center().size(px(SENDER_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(12.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
                         }
                     });
                     // Groups only: the room header already shows the one other person of a chat.

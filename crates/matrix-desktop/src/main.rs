@@ -1501,6 +1501,7 @@ impl Render for Shell {
                 ),
                 window.is_window_active(),
             );
+            signin.update(cx, |view, _| view.theme = self.theme.tokens());
             return div().size_full().child(signin.clone()).into_any_element();
         }
         let compact = window.viewport_size().width < px(800.);

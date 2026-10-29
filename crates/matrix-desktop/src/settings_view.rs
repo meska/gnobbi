@@ -96,7 +96,7 @@ impl Shell {
                             .items_center()
                             .justify_center()
                             .rounded_full()
-                            .bg(rgb(0x5288b5))
+                            .bg(rgb(matrix_desktop::AVATAR_FALLBACK))
                             .text_color(rgb(t.avatar_text))
                             .child(a.initials.clone()),
                     )

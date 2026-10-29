@@ -85,6 +85,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
         let room = self.new_room.as_ref()?;
+        room.field.update(cx, |f, _| f.theme = t);
         let button = |id: &'static str, label: &'static str, color: u32| {
             div()
                 .id(id)
@@ -104,7 +105,7 @@ impl Shell {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(gpui::rgba(0x00000066))
+                .bg(gpui::rgba(matrix_desktop::SCRIM))
                 .on_click(cx.listener(|this, _, window, cx| this.close_new_room(window, cx)))
                 .child(
                     div()
