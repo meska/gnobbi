@@ -148,6 +148,69 @@ impl Shell {
         cx.notify();
     }
 
+    /// Screen-reader view of the open dialog: same controls and order as the Tab ring.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_new_room(
+        &self,
+        window: &Window,
+        cx: &gpui::App,
+    ) -> Option<matrix_desktop::accessibility::new_room::Snapshot> {
+        use accesskit::Role;
+        use matrix_desktop::accessibility::new_room::{Item, Snapshot};
+        let room = self.new_room.as_ref()?;
+        let item = |role, label: &str, checked, focus: &FocusHandle, bounds| Item {
+            role,
+            label: label.to_owned(),
+            checked,
+            focused: focus.is_focused(window),
+            bounds,
+        };
+        let mut items: Vec<_> = room
+            .fields
+            .iter()
+            .map(|f| {
+                let f = f.read(cx);
+                item(
+                    Role::TextInput,
+                    f.placeholder,
+                    None,
+                    &f.focus,
+                    f.semantic_bounds,
+                )
+            })
+            .collect();
+        if !room.dm {
+            let focus = &room.public_focus;
+            items.push(item(
+                Role::CheckBox,
+                "Pubblica",
+                Some(room.public),
+                focus,
+                None,
+            ));
+        }
+        items.push(item(
+            Role::Button,
+            "Annulla",
+            None,
+            &room.cancel_focus,
+            None,
+        ));
+        let submit = if room.dm { "Avvia" } else { "Crea" };
+        items.push(item(Role::Button, submit, None, &room.submit_focus, None));
+        if let Some(error) = room.error {
+            let text = error_text(room.dm, error);
+            items.push(Item {
+                role: Role::Label,
+                label: text.to_owned(),
+                checked: None,
+                focused: false,
+                bounds: None,
+            });
+        }
+        Some(Snapshot { items })
+    }
+
     /// Selects the room created by the dialog as soon as it is in the list.
     pub(crate) fn open_started_room(&mut self, cx: &mut Context<Self>) {
         if let Some(scope) = &self.pending_open

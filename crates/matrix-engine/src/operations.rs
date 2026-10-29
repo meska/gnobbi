@@ -255,7 +255,17 @@ pub async fn start_dm(
 ) -> Result<RoomScope, OperationError> {
     let user = matrix_sdk::ruma::UserId::parse(user_id.trim())
         .map_err(|_| OperationError::InvalidInput)?;
-    let room = match client.get_dm_room(&user) {
+    use matrix_sdk::ruma::events::room::member::MembershipState;
+    // A DM the other user declined or left is not reused: start a fresh one.
+    let reusable = match client.get_dm_room(&user) {
+        Some(room) => matches!(
+            room.get_member_no_sync(&user).await,
+            Ok(Some(m)) if matches!(m.membership(), MembershipState::Join | MembershipState::Invite)
+        )
+        .then_some(room),
+        None => None,
+    };
+    let room = match reusable {
         Some(room) => room,
         None => timeout_create(async {
             // Only NotFound stops: other profile failures (private profiles, network) fall through to create_dm.

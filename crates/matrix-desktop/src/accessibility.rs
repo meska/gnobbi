@@ -9,6 +9,7 @@ pub mod devices;
 pub mod event_id_copy;
 pub mod filters;
 pub mod links;
+pub mod new_room;
 pub mod notifications;
 pub mod offline_delivery;
 pub mod operation_panel;
@@ -516,6 +517,7 @@ pub struct NavigationSnapshot {
     pub theme_focused: bool,
     pub theme_bounds: Option<accesskit::Rect>,
     pub unread_filter: Option<filters::UnreadFilter>,
+    pub new_room: Option<new_room::Snapshot>,
     pub devices: devices::DeviceView,
     pub details: details::DetailsView,
     pub notifications: notifications::NotificationView,
@@ -822,6 +824,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.tree();
+        }
+        if let Some(dialog) = &self.new_room {
+            return dialog.tree();
         }
         if let devices::DeviceView::Open(panel) = &self.devices {
             return panel.tree();

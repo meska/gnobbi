@@ -351,6 +351,7 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
         theme_focused: false,
         theme_bounds: None,
         unread_filter: None,
+        new_room: None,
         devices: DeviceView::Closed(account),
         details: Default::default(),
         notifications: Default::default(),

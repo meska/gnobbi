@@ -167,9 +167,27 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
                 .any(|r| r.room_id().as_str() == dm.room_id.as_str())
         })
         .await;
+        // A learns about the decline through its own sync before the retry.
+        let old = a.get_room(&matrix_engine::sdk::ruma::RoomId::parse(dm.room_id.as_str()).unwrap());
+        let old = old.expect("A still has the old DM");
+        let bob_id = b.user_id().unwrap().to_owned();
+        let start = Instant::now();
+        while matches!(
+            old.get_member_no_sync(&bob_id).await,
+            Ok(Some(m)) if matches!(m.membership(), matrix_engine::sdk::ruma::events::room::member::MembershipState::Invite)
+        ) {
+            assert!(start.elapsed() < Duration::from_secs(40), "timeout: A sees B leave");
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
         let again = start_dm(&a, account, &bob).await;
-        println!("[start] after decline: {again:?} (old dm {})", dm.room_id.as_str());
-        assert!(again.is_ok(), "start_dm after a declined invite must not fail");
+        let again = again.expect("start_dm after a declined invite must not fail");
+        assert!(again.room_id != dm.room_id, "a declined DM must not be reused");
+        until("B sees the new invite", || {
+            b.invited_rooms()
+                .iter()
+                .any(|r| r.room_id().as_str() == again.room_id.as_str())
+        })
+        .await;
         println!(
             "[start] dm {} public {} private {} ok",
             dm.room_id.as_str(),

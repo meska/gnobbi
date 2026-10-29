@@ -42,6 +42,7 @@ fn unread_description_updates_without_renaming_or_reidentifying_room() {
             theme_focused: false,
             theme_bounds: None,
             unread_filter: None,
+            new_room: None,
             devices: Default::default(),
             details: Default::default(),
             notifications: Default::default(),

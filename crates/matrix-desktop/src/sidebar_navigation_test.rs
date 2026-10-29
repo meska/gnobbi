@@ -357,6 +357,7 @@ fn sidebar_session(
         theme_focused: this.theme_focus.is_focused(window),
         theme_bounds: this.a11y_theme_bounds,
         unread_filter: this.semantic_unread(window),
+        new_room: None,
         devices: Default::default(),
         details: Default::default(),
         notifications: Default::default(),
