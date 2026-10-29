@@ -710,8 +710,6 @@ pub struct RoomSync {
     latest_watched: std::collections::BTreeSet<String>,
     /// SDK space graph, created at the first projection.
     spaces: Option<matrix_sdk_ui::spaces::SpaceService>,
-    /// Sliding sync sends no server counts: unread comes from the SDK's client-side counts.
-    pub(crate) sliding_counts: bool,
     timelines: Timelines,
     operation_state: std::sync::Arc<tokio::sync::Mutex<crate::operations::OperationJournal>>,
 }
@@ -785,7 +783,6 @@ impl RoomSync {
             timeline_heads: BTreeMap::new(),
             latest_watched: Default::default(),
             spaces: None,
-            sliding_counts: false,
             timelines: Default::default(),
             operation_state: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
         }
@@ -918,15 +915,15 @@ impl RoomSync {
     /// room list changed compared to the previous call (the run itself empties and refills it
     /// while it starts, so the net difference is what a caller can rely on).
     #[cfg(test)]
-    pub async fn next_batch(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
-        self.next_batch_after(async {}).await
+    pub(crate) async fn sliding_round(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
+        self.sliding_round_after(async {}).await
     }
 
-    /// Like `next_batch`, but `action` runs once the run is `Ready`: what it changes on the
+    /// Like `sliding_round`, but `action` runs once the run is `Ready`: what it changes on the
     /// server reaches the room list as a live delivery, as in the app (sliding sync only counts
     /// unread from deliveries it sees, so messages sent before the run show as one).
     #[cfg(test)]
-    pub async fn next_batch_after(
+    pub(crate) async fn sliding_round_after(
         &mut self,
         action: impl std::future::Future<Output = ()>,
     ) -> Result<Vec<RoomListDiff>, SyncError> {
@@ -970,6 +967,12 @@ impl RoomSync {
                 .map(|(_, room)| RoomListDiff::Remove(room.scope.clone())),
         );
         Ok(diffs)
+    }
+
+    /// Fixture: one sliding round for a bare client, the only way tests catch a client up.
+    #[cfg(test)]
+    pub(crate) async fn sliding_catch_up(client: &matrix_sdk::Client) -> Result<(), SyncError> {
+        Self::from_client(matrix_domain::AccountId::new(0), client.clone()).sliding_round().await.map(drop)
     }
 
     /// Folds one sync delivery (classic /sync or sliding sync) into peer receipts;
@@ -1059,11 +1062,7 @@ impl RoomSync {
                         room_id: RoomId::new(id.clone()),
                     },
                     name: room_label(room.display_name().await.ok(), &id),
-                    unread: if self.sliding_counts {
-                        room.num_unread_notifications()
-                    } else {
-                        room.unread_notification_counts().notification_count
-                    },
+                    unread: room.num_unread_notifications(),
                     info: crate::RoomInfo {
                         public_read_receipts: peer_receipts,
                         preview: latest_event_text(&room).await,
@@ -1072,11 +1071,7 @@ impl RoomSync {
                         avatar: room.avatar_url().map(|u| u.to_string()),
                         marked_unread: room.is_marked_unread(),
                         joined_members: room.joined_members_count(),
-                        mentions: if self.sliding_counts {
-                            room.num_unread_mentions()
-                        } else {
-                            room.unread_notification_counts().highlight_count
-                        },
+                        mentions: room.num_unread_mentions(),
                         is_space: room.is_space(),
                         children,
                         encrypted: (!room.encryption_state().is_unknown())

@@ -163,7 +163,6 @@ pub async fn run(
         .await;
         return;
     };
-    sync.sliding_counts = true;
     // The session store may predate sliding sync: the version is not persisted with it.
     client.set_sliding_sync_version(Version::Native);
     // Before start, so no delivery is missed; the broadcast carries what classic /sync returned.

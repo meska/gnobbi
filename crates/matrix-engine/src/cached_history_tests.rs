@@ -93,12 +93,12 @@ fn seen_room_opens_from_the_cache_after_restart_with_the_homeserver_unreachable(
             .unwrap();
         let alice = session.client.clone().unwrap();
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(&room_id)
         })
         .await;
         invited.join().await.unwrap();
-        alice.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
         let room = alice.get_room(&room_id).unwrap();
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("history in cache", || async {
@@ -248,12 +248,12 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .unwrap();
         let alice = session.client.clone().unwrap();
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(&room_id)
         })
         .await;
         invited.join().await.unwrap();
-        alice.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
         let room = alice.get_room(&room_id).unwrap();
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("history in cache", || async {
@@ -293,7 +293,7 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
         // The app's running sync service delivers what was missed; here one sync does.
-        client.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         let scope = RoomScope {
             account_id: AccountId::new(293),
             room_id: RoomId::new(room_id.as_str()),
@@ -418,12 +418,12 @@ fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
             .unwrap();
         let alice = session.client.clone().unwrap();
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(&room_id)
         })
         .await;
         invited.join().await.unwrap();
-        alice.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
         let room = alice.get_room(&room_id).unwrap();
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("history in cache", || async {
@@ -474,7 +474,7 @@ fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
         // The app's running sync service delivers what was missed; here one sync does.
-        client.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         let sync = RoomSync::new(AccountSession {
             account_id: AccountId::new(294),
             client: Some(client),
@@ -570,6 +570,7 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
                 .unwrap();
         }
 
+        // shortcut: classic population. A store filled by a sliding round makes the reopen below hang (>120 s) on Synapse; open issue of the task.
         // First run: Alice sees only the newest part of a long room.
         let store = AccountStore::create(&root, AccountId::new(296)).unwrap();
         let session = store
@@ -810,13 +811,13 @@ async fn seeded(id: u64) -> (AccountSession, Vec<matrix_sdk::ruma::OwnedRoomId>)
     let alice = session.client.clone().unwrap();
     for room_id in &ids {
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(room_id)
         })
         .await;
         invited.join().await.unwrap();
     }
-    alice.sync_once(Default::default()).await.unwrap();
+    crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
     (session, ids)
 }
 

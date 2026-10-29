@@ -28,7 +28,7 @@ fn disposable_thread_view_and_list_through_the_timeline() {
         send("bob", "thr-r2", "reply two", Some(root.clone())).await;
         send("alice", "thr-else", "elsewhere", None).await;
         let mut sync = RoomSync::new(login(&config, "alice", 59).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let scope = matrix_domain::RoomScope { account_id: AccountId::new(59), room_id: matrix_domain::RoomId::new(room.clone()) };
         // The room's own timeline first: the root is taken from it.
         sync.open_history(ViewRequests::new().start(scope.clone()).unwrap(), crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: true }).await.unwrap();
