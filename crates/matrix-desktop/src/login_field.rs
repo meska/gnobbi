@@ -16,6 +16,8 @@ type PaintedKey = fn(&mut LoginField, &KeyDownEvent, &mut Window, &mut Context<L
 pub struct LoginField {
     pub theme: DesignTokens,
     pub enabled: bool,
+    /// Shown while empty; doubles as the field's label.
+    pub placeholder: &'static str,
     pub input: LoginInput,
     pub focus: FocusHandle,
     layout: Option<TextLayout>,
@@ -32,6 +34,7 @@ impl LoginField {
         Self {
             theme: LIGHT,
             enabled: false,
+            placeholder: "",
             input: if protected {
                 LoginInput::secret()
             } else {
@@ -230,6 +233,16 @@ impl Render for LoginField {
                 cx.listener(move |this, _, window, cx| pointer(this, window, cx)),
             )
             .child(body)
+            .when(text.is_empty() && !self.placeholder.is_empty(), |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .top(px(5.))
+                        .left(px(8.))
+                        .text_color(rgb(theme.secondary))
+                        .child(self.placeholder),
+                )
+            })
             .child(
                 canvas(
                     |_, _, _| (),

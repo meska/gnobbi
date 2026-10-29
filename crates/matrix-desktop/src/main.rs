@@ -60,6 +60,8 @@ struct Shell {
     drawer_focus: FocusHandle,
     settings_open: bool,
     new_room: Option<new_room_view::NewRoom>,
+    /// A just-created room, opened as soon as the sync lists it.
+    pending_open: Option<RoomScope>,
     groups_edit: Option<groups_edit_view::GroupsEdit>,
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
     refocus_menu: bool,
@@ -2041,7 +2043,7 @@ impl Render for Shell {
             .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
-            .children(self.render_new_room(t, cx))
+            .children(self.render_new_room(t, window, cx))
             .children(self.render_groups_edit(t, cx))
             .into_any_element()
     }
@@ -2497,6 +2499,7 @@ fn main() {
                                                     }
                                                     let anchor = this.reading_anchor();
                                                     this.sidebar.apply_diff(diff);
+                                                    this.open_started_room(cx);
                                                     this.keep_reading_position(anchor);
                                                 }
                                                 RoomListEvent::TimelineActivity(scope) => {
@@ -2667,6 +2670,7 @@ fn main() {
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
                         new_room: None,
+                        pending_open: None,
                         groups_edit: None,
                         refocus_menu: false,
                         drawer_row: 0,
