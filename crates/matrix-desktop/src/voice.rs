@@ -4,9 +4,18 @@ use matrix_engine::sending::{Attachment, Voice};
 /// Waveform points sent with the note (MSC1767 allows up to 120).
 const WAVEFORM_POINTS: usize = 100;
 
-/// Builds the attachment for a finished recording; `None` when nothing was captured.
+/// Longest note, in seconds.
+const MAX_SECONDS: usize = 300;
+
+/// Most samples a note may hold: 5 minutes, and a WAV that fits `upload_limit` bytes.
+pub fn max_note_samples(sample_rate: u32, upload_limit: u64) -> usize {
+    (sample_rate as usize * MAX_SECONDS).min((upload_limit.saturating_sub(44) / 2) as usize)
+}
+
+/// Builds the attachment for a finished recording (cut to `max_note_samples`); `None` when nothing was captured.
 // shortcut: uncompressed WAV (every Matrix client plays it); upgrade to Ogg/Opus when a pure-Rust encoder is vetted.
-pub fn voice_attachment(samples: &[i16], sample_rate: u32) -> Option<Attachment> {
+pub fn voice_attachment(samples: &[i16], sample_rate: u32, upload_limit: u64) -> Option<Attachment> {
+    let samples = &samples[..samples.len().min(max_note_samples(sample_rate, upload_limit))];
     if samples.is_empty() || sample_rate == 0 {
         return None;
     }
@@ -44,13 +53,15 @@ pub fn voice_attachment(samples: &[i16], sample_rate: u32) -> Option<Attachment>
 mod tests {
     use super::voice_attachment;
 
+    const UP: u64 = 24 << 20;
+
     #[test]
     fn wav_has_header_duration_and_bounded_waveform() {
-        assert!(voice_attachment(&[], 16000).is_none());
+        assert!(voice_attachment(&[], 16000, UP).is_none());
         let samples: Vec<i16> = (0..32000)
             .map(|i| if i < 16000 { 0 } else { 16384 })
             .collect();
-        let note = voice_attachment(&samples, 16000).unwrap();
+        let note = voice_attachment(&samples, 16000, UP).unwrap();
         assert_eq!(&note.data[..4], b"RIFF");
         assert_eq!(&note.data[8..16], b"WAVEfmt ");
         assert_eq!(note.data.len(), 44 + 64000);
@@ -67,7 +78,7 @@ mod tests {
             let samples: Vec<i16> = (0..len)
                 .map(|i| if i % 2 == 0 { i16::MIN } else { 100 })
                 .collect();
-            let voice = voice_attachment(&samples, 48_000).unwrap().voice.unwrap();
+            let voice = voice_attachment(&samples, 48_000, UP).unwrap().voice.unwrap();
             assert!(
                 (1..=100).contains(&voice.waveform.len()),
                 "{len}: {}",
@@ -86,16 +97,20 @@ mod tests {
 
     #[test]
     fn degenerate_recordings_are_still_valid_files_or_refused() {
-        assert!(voice_attachment(&[1, 2, 3], 0).is_none());
-        let tiny = voice_attachment(&[5], 48_000).unwrap();
+        assert!(voice_attachment(&[1, 2, 3], 0, UP).is_none());
+        let tiny = voice_attachment(&[5], 48_000, UP).unwrap();
         assert_eq!((tiny.data.len(), tiny.voice.unwrap().duration_ms), (46, 0));
     }
 
-    /// Tuwunel's default upload limit is 24 MiB; the 5-minute recording cap at 48 kHz mono 16-bit is 27.5 MiB.
+    /// Tuwunel's default upload limit is 24 MiB; 5 minutes at 48 kHz mono 16-bit would be 27.5 MiB, and 192 kHz 110 MiB.
     #[test]
-    #[ignore = "known bug: a maximum-length note exceeds the Tuwunel upload limit"]
     fn longest_note_fits_the_smallest_default_upload_limit() {
-        let long = voice_attachment(&vec![0; 48_000 * 300], 48_000).unwrap();
-        assert!(long.data.len() <= 24 << 20, "{} bytes", long.data.len());
+        for rate in [48_000, 192_000] {
+            let long = voice_attachment(&vec![0; rate * 300], rate as u32, UP).unwrap();
+            assert!(long.data.len() as u64 <= UP, "{rate}: {} bytes", long.data.len());
+        }
+        // A bigger server limit keeps the full 5 minutes.
+        let full = voice_attachment(&vec![0; 48_000 * 300], 48_000, 50 << 20).unwrap();
+        assert_eq!(full.voice.unwrap().duration_ms, 300_000);
     }
 }

@@ -67,7 +67,7 @@ pub use links::{
     LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links,
 };
 mod voice;
-pub use voice::voice_attachment;
+pub use voice::{max_note_samples, voice_attachment};
 mod live_media;
 pub use live_media::LiveMedia;
 mod live_delivery;

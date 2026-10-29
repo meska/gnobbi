@@ -38,8 +38,10 @@ struct Pending {
     data: Vec<u8>,
     voice: Option<matrix_engine::sending::Voice>,
 }
-/// Bound on a file read into memory for the SDK upload.
-const MAX_ATTACHMENT: u64 = 50 * 1024 * 1024; // shortcut: fixed cap, read the server limit (media config) when uploads need more
+/// Bound on a file read into memory for the SDK upload, whatever the server allows.
+const MAX_ATTACHMENT: u64 = 50 * 1024 * 1024;
+/// Upload limit assumed until the server's is known: Tuwunel's default, the smallest in use.
+const DEFAULT_UPLOAD_LIMIT: u64 = 24 * 1024 * 1024;
 
 pub struct Submitted(pub String);
 
@@ -64,6 +66,8 @@ pub struct ComposerView {
     emoji_open: bool,
     emoji_selected: usize,
     attach_error: Option<&'static str>,
+    /// The homeserver's upload limit (media config), once read.
+    upload_limit: Option<u64>,
     recorder: Option<crate::voice_recorder::Recorder>,
     rooms: RoomDrafts,
     focus: FocusHandle,
@@ -99,6 +103,7 @@ impl ComposerView {
             emoji_open: false,
             emoji_selected: 0,
             attach_error: None,
+            upload_limit: None,
             recorder: None,
             rooms: RoomDrafts::new(scope),
             focus: cx.focus_handle(),
@@ -127,6 +132,15 @@ impl ComposerView {
         self.scroll = ScrollHandle::new();
         self.dragging = false;
         self.changed(cx);
+    }
+
+    pub fn set_upload_limit(&mut self, limit: Option<u64>) {
+        self.upload_limit = limit;
+    }
+
+    /// Largest file that can be attached: the server limit, within the in-memory bound.
+    fn attachment_cap(&self) -> u64 {
+        self.upload_limit.map_or(MAX_ATTACHMENT, |l| l.min(MAX_ATTACHMENT))
     }
 
     pub fn set_members(
@@ -417,12 +431,13 @@ impl ComposerView {
         let Some(path) = paths.into_iter().next().filter(|_| self.live) else {
             return;
         };
+        let cap = self.attachment_cap();
         let read = cx.background_executor().spawn(async move {
             let name = path.file_name()?.to_string_lossy().into_owned();
             let size = std::fs::metadata(&path).ok()?.len();
             Some((
                 name,
-                (0 < size && size <= MAX_ATTACHMENT)
+                (0 < size && size <= cap)
                     .then(|| std::fs::read(&path).ok())
                     .flatten(),
             ))
@@ -449,7 +464,7 @@ impl ComposerView {
 
     fn attach_image(&mut self, image: &gpui::Image, cx: &mut Context<Self>) {
         // Synapse rejects zero-byte uploads, so an empty paste never becomes attachable.
-        if image.bytes.is_empty() {
+        if image.bytes.is_empty() || image.bytes.len() as u64 > self.attachment_cap() {
             self.attach_error = Some("File non allegabile");
             cx.notify();
             return;
@@ -466,7 +481,7 @@ impl ComposerView {
     }
 
     fn start_recording(&mut self, cx: &mut Context<Self>) {
-        match crate::voice_recorder::Recorder::start() {
+        match crate::voice_recorder::Recorder::start(self.upload_limit.unwrap_or(DEFAULT_UPLOAD_LIMIT)) {
             Ok(recorder) => {
                 self.recorder = Some(recorder);
                 self.attach_error = None;
@@ -498,7 +513,7 @@ impl ComposerView {
         };
         let (samples, rate) = recorder.finish();
         if send {
-            match matrix_desktop::voice_attachment(&samples, rate) {
+            match matrix_desktop::voice_attachment(&samples, rate, self.upload_limit.unwrap_or(DEFAULT_UPLOAD_LIMIT)) {
                 Some(note) => {
                     self.attachment = Some(Pending {
                         filename: note.filename,

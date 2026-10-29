@@ -1332,6 +1332,7 @@ impl Shell {
                         OperationCommand::Members { scope } => OperationResult::Members {
                             scope,
                             members: Err(OperationError::Unavailable),
+                            upload_limit: None,
                         },
                         OperationCommand::SetMuted { scope, .. } => OperationResult::RoomMarked {
                             scope,
@@ -2440,11 +2441,14 @@ fn main() {
                                             || !operations.is_empty()
                                             || closed;
                                         for result in operations {
-                                            if let matrix_engine::operations::OperationResult::Members { scope, members } = result {
-                                                if scope == this.active_scope
-                                                    && let Ok(members) = members
-                                                {
-                                                    this.composer.update(cx, |editor, cx| editor.set_members(members, cx));
+                                            if let matrix_engine::operations::OperationResult::Members { scope, members, upload_limit } = result {
+                                                if scope == this.active_scope {
+                                                    this.composer.update(cx, |editor, cx| {
+                                                        editor.set_upload_limit(upload_limit);
+                                                        if let Ok(members) = members {
+                                                            editor.set_members(members, cx);
+                                                        }
+                                                    });
                                                 }
                                                 continue;
                                             }

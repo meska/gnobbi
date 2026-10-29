@@ -401,7 +401,15 @@ impl RoomListWorker {
                                         &scope,
                                     )
                                     .await;
-                                    OperationResult::Members { scope, members }
+                                    let upload_limit = tokio::time::timeout(
+                                        std::time::Duration::from_secs(10),
+                                        operation_client.load_or_fetch_max_upload_size(),
+                                    )
+                                    .await
+                                    .ok()
+                                    .and_then(Result::ok)
+                                    .map(u64::from);
+                                    OperationResult::Members { scope, members, upload_limit }
                                 }
                                 OperationCommand::MarkRoom {
                                     scope,

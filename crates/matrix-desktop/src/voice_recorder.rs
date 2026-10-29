@@ -29,7 +29,7 @@ where
 
 impl Recorder {
     /// Starts capturing from the default input device; the error is the one line shown to the user.
-    pub fn start() -> Result<Self, &'static str> {
+    pub fn start(upload_limit: u64) -> Result<Self, &'static str> {
         const NO_MIC: &str = "Microfono non disponibile";
         let device = cpal::default_host().default_input_device().ok_or(NO_MIC)?;
         let config = device.default_input_config().map_err(|_| NO_MIC)?;
@@ -37,8 +37,8 @@ impl Recorder {
         let rate = config.sample_rate();
         let samples = Arc::new(Mutex::new(Vec::new()));
         let sink = samples.clone();
-        // shortcut: the note stops growing at 5 minutes (keeps the upload far below server limits); add auto-stop in the UI if longer notes matter.
-        let max = rate as usize * 300;
+        // The note stops growing at 5 minutes or at the server's upload limit; there is no auto-stop in the UI.
+        let max = matrix_desktop::max_note_samples(rate, upload_limit);
         let err = |_| {};
         let format = config.sample_format();
         let config = config.into();

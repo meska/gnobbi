@@ -77,6 +77,8 @@ pub enum OperationResult {
     Members {
         scope: RoomScope,
         members: Result<Vec<Member>, OperationError>,
+        /// The server's upload limit in bytes (media config); `None` when it could not be read.
+        upload_limit: Option<u64>,
     },
     RoomMarked {
         scope: RoomScope,
