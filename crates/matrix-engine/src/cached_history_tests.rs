@@ -570,7 +570,6 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
                 .unwrap();
         }
 
-        // shortcut: classic population. A store filled by a sliding round makes the reopen below hang (>120 s) on Synapse; open issue of the task.
         // First run: Alice sees only the newest part of a long room.
         let store = AccountStore::create(&root, AccountId::new(296)).unwrap();
         let session = store
@@ -585,12 +584,14 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             .unwrap();
         let alice = session.client.clone().unwrap();
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(&room_id)
         })
         .await;
         invited.join().await.unwrap();
-        alice.sync_once(Default::default()).await.unwrap();
+        // A sliding round saves only the room's newest event: make it a visible message, not Alice's own join.
+        bob_room.send(RoomMessageEventContent::text_plain(format!("m{TOTAL}"))).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
         let room = alice.get_room(&room_id).unwrap();
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("some history in cache", || async {
