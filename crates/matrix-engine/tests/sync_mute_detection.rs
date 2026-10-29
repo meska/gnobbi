@@ -2,26 +2,30 @@
 //! (TCP open, request read, never any answer)? `SyncService::with_offline_mode`, no whoami
 //! probe of ours, real clock. Prints the state timeline + fake request log; the only pin is
 //! that `Offline` is reached inside the window. Run:
-//! the ct script 'cargo test --offline -p matrix-engine --features sdk --test sync_mute_detection -- --nocapture --test-threads=1'
+//! the ct script 'cargo test --offline -p matrix-engine --features sdk --test sync_mute_detection -- --ignored --nocapture'
 //! Env: MUTE_WINDOW_SECS (default 260), MUTE_AT_SECS (default 10).
 #[path = "support/fake_homeserver.rs"]
 mod fake_homeserver;
 
 use fake_homeserver::Fake;
+use matrix_engine::sdk::{
+    Client,
+    sliding_sync::{Version, VersionBuilder},
+};
 use matrix_engine::sdk_ui::sync_service::SyncService;
-use matrix_engine::sdk::{Client, sliding_sync::{Version, VersionBuilder}};
 use std::time::{Duration, Instant};
 
 fn secs(name: &str, default: u64) -> u64 {
-    std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 #[tokio::test(flavor = "current_thread")]
+#[ignore = "diagnostic, real clock ~4 min; the pinned check is h4 in sync_flapping"]
 async fn sdk_only_detection_of_a_mute_server() {
-    let (window, mute_at) = (
-        secs("MUTE_WINDOW_SECS", 260),
-        secs("MUTE_AT_SECS", 10),
-    );
+    let (window, mute_at) = (secs("MUTE_WINDOW_SECS", 260), secs("MUTE_AT_SECS", 10));
     let fake = Fake::start().await;
     let client = Client::builder()
         .homeserver_url(&fake.url)

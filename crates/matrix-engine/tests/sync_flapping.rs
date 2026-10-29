@@ -1,7 +1,8 @@
 //! Flapping of the sync status (Ready -> SyncFailed -> Ready) against a scriptable fake homeserver,
 //! with a paused clock (outages: the real clock, see `observe`). Each test records the
 //! `RoomSyncStatus` sequence that `sliding::run` emits (with seconds) and pins the hysteresis:
-//! no «sync failed» for a slow probe, a short outage or a sync that keeps answering.
+//! no «sync failed» for a short outage or a sync that keeps answering; a mute server is caught by
+//! the SDK alone (no probe of ours).
 //! Run: the ct script 'cargo test --locked -p matrix-engine --features sdk --test sync_flapping -- --nocapture'
 #![recursion_limit = "512"]
 #[path = "support/fake_homeserver.rs"]
@@ -76,6 +77,12 @@ where
             _ = collect => {},
             _ = tokio::time::sleep(Duration::from_secs(window)) => {},
         }
+        // `run` may end (auth failed) with its last event still queued.
+        while let Ok(event) = rx.try_recv() {
+            if let RoomListEvent::Status(status) = event {
+                seen.push((started.elapsed().as_secs(), name(status)));
+            }
+        }
         (seen, fake)
     })
 }
@@ -100,18 +107,6 @@ fn times<'a>(seen: &[(u64, &'a str)], status: &str) -> Vec<u64> {
         .collect()
 }
 
-/// H1: one whoami answered after 8 s (probe timeout 5 s) leaves the status alone.
-#[test]
-fn h1_single_slow_whoami_does_not_flap() {
-    let (seen, fake) = observe(40, false, |f| async move {
-        tokio::time::sleep(12 * S).await;
-        f.delay_next_whoami(8 * S);
-    });
-    show("H1", &seen, &fake);
-    assert_eq!(names(&seen), ["Ready"]);
-    assert_eq!(fake.count("whoami -> held"), 1);
-}
-
 /// H2: a proxy that cuts the sliding long-poll after 60 s or 100 s, so no answer ever arrives:
 /// the SDK gives up (Offline) after ~181 s, «sync failed» shows 20 s later and stays (no flapping).
 #[test]
@@ -130,7 +125,8 @@ fn h2_long_poll_closed_by_a_proxy_shows_one_stable_failure() {
 }
 
 /// H3: the server answers 500 for 30 s: one «sync failed» after the third failed episode (not one
-/// per retry), Ready once the server answers again.
+/// per retry), Ready once the server answers again. The SDK's restart backoff is random: the third
+/// episode lands at ~15 s, or not before the 20 s rule fires (~31 s); both are one failure.
 #[test]
 fn h3_server_error_in_sliding_sync_shows_one_failure() {
     let (seen, fake) = observe(120, false, |f| async move {
@@ -142,10 +138,42 @@ fn h3_server_error_in_sliding_sync_shows_one_failure() {
     show("H3", &seen, &fake);
     assert_eq!(names(&seen), ["Ready", "SyncFailed", "Ready"], "{seen:?}");
     assert!(
-        (12..=25).contains(&times(&seen, "SyncFailed")[0]),
+        (12..=32).contains(&times(&seen, "SyncFailed")[0]),
         "{seen:?}"
     );
     assert!(times(&seen, "Ready")[1] >= 40, "{seen:?}");
+}
+
+/// H4: a mute server (connection open, nothing ever answered): no probe of ours, the SDK gives up
+/// after ~181 s of held long-polls, «sync failed» shows 20 s later and stays.
+#[test]
+fn h4_mute_server_is_detected_by_the_sdk_alone() {
+    let (seen, fake) = observe(300, false, |f| async move {
+        tokio::time::sleep(10 * S).await;
+        f.set_mute(true);
+    });
+    show("H4", &seen, &fake);
+    assert_eq!(names(&seen), ["Ready", "SyncFailed"], "{seen:?}");
+    let at = times(&seen, "SyncFailed")[0];
+    println!(
+        "== mute server: SyncFailed shown {} s after it went mute",
+        at - 10
+    );
+    assert!((200..=235).contains(&at), "{seen:?}");
+    assert_eq!(fake.count("whoami"), 0, "no whoami probe");
+}
+
+/// H5: an expired token (401 M_UNKNOWN_TOKEN on sliding sync) ends in AuthenticationFailed at
+/// once, with no retry and no whoami.
+#[test]
+fn h5_expired_token_reports_authentication_failed() {
+    let (seen, fake) = observe(60, false, |f| async move {
+        tokio::time::sleep(10 * S).await;
+        f.set_sync(SyncMode::Status(401));
+    });
+    show("H5", &seen, &fake);
+    assert_eq!(names(&seen), ["Ready", "AuthenticationFailed"], "{seen:?}");
+    assert_eq!(fake.count("whoami"), 0);
 }
 
 /// Network outage (connections closed unanswered), real clock: `secs` down from second 10.

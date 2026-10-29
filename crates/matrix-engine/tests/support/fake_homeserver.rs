@@ -27,12 +27,10 @@ pub enum SyncMode {
 
 struct State {
     sync: SyncMode,
-    /// Applies to the next whoami only (one slow answer, then back to instant).
-    whoami_delay_once: Option<Duration>,
     /// Network down: every new connection is closed unanswered, held long-polls are cut.
     outage: bool,
-    /// Mute server: TCP stays open but NOTHING is ever answered (held forever),
-    /// including requests already in flight when it turns on.
+    /// Mute server: TCP stays open but sliding sync is never answered (held forever), including
+    /// requests already in flight when it turns on.
     mute: bool,
     pos: u64,
     log: Vec<(Duration, String)>,
@@ -53,7 +51,6 @@ impl Fake {
             url: format!("http://{}", listener.local_addr().unwrap()),
             state: Arc::new(Mutex::new(State {
                 sync: SyncMode::Normal,
-                whoami_delay_once: None,
                 outage: false,
                 mute: false,
                 pos: 0,
@@ -72,20 +69,22 @@ impl Fake {
     }
 
     pub fn set_sync(&self, mode: SyncMode) {
+        // A 500 must also reach a long-poll already held, not only the next request.
+        let cut = matches!(mode, SyncMode::Status(_));
         self.state.lock().unwrap().sync = mode;
+        if cut {
+            self.cut.notify_waiters();
+        }
     }
-    pub fn delay_next_whoami(&self, by: Duration) {
-        self.state.lock().unwrap().whoami_delay_once = Some(by);
+    /// Mute server from now on: accept, read, never answer sliding sync, never close.
+    pub fn set_mute(&self, on: bool) {
+        self.state.lock().unwrap().mute = on;
     }
     pub fn set_outage(&self, down: bool) {
         self.state.lock().unwrap().outage = down;
         if down {
             self.cut.notify_waiters();
         }
-    }
-    /// Mute server from now on: accept, read, never answer, never close.
-    pub fn set_mute(&self, on: bool) {
-        self.state.lock().unwrap().mute = on;
     }
     /// Requests seen so far as (virtual time since start, "METHOD kind -> outcome").
     pub fn log(&self) -> Vec<(Duration, String)> {
@@ -108,11 +107,6 @@ impl Fake {
             self.note(format!("{method} {} -> dropped (outage)", kind(&path)));
             return;
         }
-        if self.state.lock().unwrap().mute {
-            self.note(format!("{method} {} -> MUTED (held, no answer)", kind(&path)));
-            sleep(Duration::from_secs(86400)).await;
-            return;
-        }
         let reply = match kind(&path) {
             "login" => Some((
                 200,
@@ -122,16 +116,15 @@ impl Fake {
                 200,
                 r#"{"versions":["v1.11"],"unstable_features":{}}"#.to_owned(),
             )),
-            "whoami" => {
-                let delay = self.state.lock().unwrap().whoami_delay_once.take();
-                if let Some(delay) = delay {
-                    self.note(format!("whoami -> held {}s", delay.as_secs()));
-                    sleep(delay).await;
-                }
-                Some((200, r#"{"user_id":"@a:fake.test","device_id":"D"}"#.to_owned()))
-            }
+            "whoami" => Some((
+                200,
+                r#"{"user_id":"@a:fake.test","device_id":"D"}"#.to_owned(),
+            )),
             "sliding" => self.sliding(&path).await,
-            _ => Some((404, r#"{"errcode":"M_UNRECOGNIZED","error":"x"}"#.to_owned())),
+            _ => Some((
+                404,
+                r#"{"errcode":"M_UNRECOGNIZED","error":"x"}"#.to_owned(),
+            )),
         };
         match reply {
             Some((status, body)) => {
@@ -151,18 +144,21 @@ impl Fake {
 
     /// None = close the connection without answering.
     async fn sliding(&self, path: &str) -> Option<(u16, String)> {
-        if self.state.lock().unwrap().mute {
-            // Mute also swallows long-polls already in flight: held, never answered.
-            self.note("sliding -> MUTED (held, no answer)".to_owned());
-            sleep(Duration::from_secs(86400)).await;
-            return None;
-        }
+        self.hold_if_mute().await;
         let mode = self.state.lock().unwrap().sync;
         let long_poll = path.contains("pos=");
         let timeout = param(path, "timeout").map_or(Duration::ZERO, Duration::from_millis);
         match mode {
             SyncMode::Status(code) => {
-                return Some((code, r#"{"errcode":"M_UNKNOWN","error":"boom"}"#.to_owned()));
+                let errcode = if code == 401 {
+                    "M_UNKNOWN_TOKEN"
+                } else {
+                    "M_UNKNOWN"
+                };
+                return Some((
+                    code,
+                    format!(r#"{{"errcode":"{errcode}","error":"boom","soft_logout":false}}"#),
+                ));
             }
             SyncMode::DropAfter(wait) if long_poll => {
                 self.note(format!("sliding -> held {}s then closed", wait.as_secs()));
@@ -173,6 +169,7 @@ impl Fake {
         }
         if long_poll {
             tokio::select! { _ = sleep(timeout) => {}, _ = self.cut.notified() => return None }
+            self.hold_if_mute().await;
         }
         let pos = {
             let mut state = self.state.lock().unwrap();
@@ -181,8 +178,19 @@ impl Fake {
         };
         Some((
             200,
-            format!(r#"{{"pos":"{pos}","lists":{{"all_rooms":{{"count":0}}}},"rooms":{{}},"extensions":{{}}}}"#),
+            format!(
+                r#"{{"pos":"{pos}","lists":{{"all_rooms":{{"count":0}}}},"rooms":{{}},"extensions":{{}}}}"#
+            ),
         ))
+    }
+}
+
+impl Fake {
+    async fn hold_if_mute(&self) {
+        if self.state.lock().unwrap().mute {
+            self.note("sliding -> MUTED (held, no answer)".to_owned());
+            sleep(Duration::from_secs(86400)).await;
+        }
     }
 }
 
@@ -224,7 +232,13 @@ async fn read_request(socket: &mut TcpStream) -> Option<(String, String)> {
     let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
     let length = head
         .lines()
-        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:")?.trim().parse().ok())
+        .find_map(|l| {
+            l.to_ascii_lowercase()
+                .strip_prefix("content-length:")?
+                .trim()
+                .parse()
+                .ok()
+        })
         .unwrap_or(0usize);
     while buf.len() < head_end + length {
         let n = socket.read(&mut chunk).await.ok()?;
