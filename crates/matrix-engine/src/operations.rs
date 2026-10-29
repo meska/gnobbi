@@ -50,6 +50,11 @@ pub enum OperationCommand {
         topic: Option<String>,
         public: bool,
     },
+    /// Answer to an invitation, only on the user's click: accept joins, reject leaves (both SDK).
+    AnswerInvite {
+        scope: RoomScope,
+        accept: bool,
+    },
     /// Group (room tag) change asked for by the user in «Modifica»; the only writer of tags.
     EditTags(TagEdit),
     /// «Silenzia»: the room push rule; the outcome comes back as `RoomMarked` and the next sync projects it.
@@ -74,6 +79,11 @@ pub enum OperationResult {
     },
     RoomStarted {
         result: Result<RoomScope, OperationError>,
+    },
+    InviteAnswered {
+        scope: RoomScope,
+        accept: bool,
+        result: Result<(), OperationError>,
     },
     Members {
         scope: RoomScope,
@@ -281,6 +291,31 @@ pub async fn start_dm(
         account_id: account,
         room_id: matrix_domain::RoomId::new(room.room_id().as_str()),
     })
+}
+
+/// Accept (`Room::join`: the server finds the inviting server from the invite, also over federation)
+/// or reject (`Room::leave`) an invitation. Anything that is not an open invitation stops here.
+#[cfg(feature = "sdk")]
+pub async fn answer_invite(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    accept: bool,
+) -> Result<(), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
+    let room = client.get_room(&id).ok_or(OperationError::Unavailable)?;
+    if room.state() != matrix_sdk::RoomState::Invited {
+        return Err(OperationError::Unavailable);
+    }
+    let answer = async { if accept { room.join().await } else { room.leave().await } };
+    tokio::time::timeout(std::time::Duration::from_secs(30), answer)
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e))
 }
 
 /// Private rooms are born encrypted (like the SDK's DMs); public ones are not.

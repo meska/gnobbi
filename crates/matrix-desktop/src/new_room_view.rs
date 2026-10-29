@@ -214,6 +214,7 @@ impl Shell {
     /// Selects the room created by the dialog as soon as it is in the list.
     pub(crate) fn open_started_room(&mut self, cx: &mut Context<Self>) {
         if let Some(scope) = &self.pending_open
+            && self.sidebar.is_joined(scope)
             && self.sidebar.select(scope)
         {
             self.pending_open = None;

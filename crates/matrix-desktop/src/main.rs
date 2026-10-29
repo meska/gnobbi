@@ -7,6 +7,7 @@ mod composer_view;
 mod editing_command;
 mod filter_view;
 mod groups_edit_view;
+mod invite_view;
 mod login_field;
 mod media_view;
 mod menu_view;
@@ -1153,6 +1154,13 @@ impl Shell {
             self.apply_semantic_room(intent, false, window, cx);
             return;
         }
+        if !searching
+            && let Some(scope) = self.sidebar.selected_invite().map(|room| room.scope.clone())
+            && matches!(key.key.as_str(), "enter" | "delete" | "backspace")
+        {
+            self.answer_invite(scope, key.key == "enter", cx);
+            return;
+        }
         if window.viewport_size().width < px(800.) && !self.compact_chat && key.key == "enter" {
             if searching
                 && !self.sidebar.visible_indices().iter().any(|&index| {
@@ -1343,6 +1351,13 @@ impl Shell {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::AnswerInvite { scope, accept } => {
+                            OperationResult::InviteAnswered {
+                                scope,
+                                accept,
+                                result: Err(OperationError::Unavailable),
+                            }
+                        }
                         OperationCommand::EditTags(_) => OperationResult::TagsEdited {
                             result: Err(OperationError::Unavailable),
                         },
@@ -1781,6 +1796,8 @@ impl Render for Shell {
                                                 let i = this.sidebar.visible_indices()[position];
                                                 let room = &this.sidebar.rooms()[i];
                                                 let scope = room.scope.clone();
+                                                let invite = room.info.invited.then(|| this.sidebar.invite_state(&scope));
+                                                let invite_buttons = invite.map(|state| this.invite_buttons(&scope, state, t, cx));
                                                 let source_visit = this.sidebar.navigation_callback();
                                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                                 let callback = {
@@ -1904,9 +1921,13 @@ impl Render for Shell {
                                                             .text_size(px(matrix_desktop::row_text::PREVIEW_PX))
                                                             .line_height(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
                                                             .text_color(rgb(t.secondary))
-                                                            .child(matrix_desktop::row_text::one_line(&room.preview)),
+                                                            .child(match invite {
+                                                                Some(state) => invite_view::preview(state).to_owned(),
+                                                                None => matrix_desktop::row_text::one_line(&room.preview),
+                                                            }),
                                                     ),
                                             )
+                                            .children(invite_buttons)
                                             })
                                             .collect::<Vec<_>>()
                                     },
@@ -2478,6 +2499,10 @@ fn main() {
                                             }
                                             if let matrix_engine::operations::OperationResult::RoomStarted { result } = result {
                                                 this.room_started(result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::InviteAnswered { .. } = result {
+                                                this.invite_answered(result, cx);
                                                 continue;
                                             }
                                             this.operations.borrow_mut().apply(result);

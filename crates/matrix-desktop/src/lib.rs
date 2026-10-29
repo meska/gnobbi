@@ -84,7 +84,7 @@ mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 pub mod row_text;
 mod sidebar;
-pub use sidebar::{Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
+pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DesignTokens {

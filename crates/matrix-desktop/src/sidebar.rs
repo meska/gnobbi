@@ -17,7 +17,8 @@ pub struct SidebarRoom {
 impl SidebarRoom {
     /// Only me in the room, nothing unread and no live message. Unknown member count (0) is never empty.
     fn is_empty(&self) -> bool {
-        !self.info.is_space
+        !self.info.invited
+            && !self.info.is_space
             && self.info.joined_members == 1
             && self.unread == 0
             && self.info.preview.is_none()
@@ -53,6 +54,17 @@ pub fn group_label(tag: &str) -> String {
     }
 }
 
+/// Where the answer to an invitation stands; drives the buttons of its row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InviteState {
+    Idle,
+    /// «Rifiuta» was clicked once: the next one leaves the room.
+    ConfirmReject,
+    Busy,
+    /// The last answer failed; «Accetta» / «Rifiuta» try again.
+    Failed,
+}
+
 pub enum Navigation {
     Previous,
     Next,
@@ -77,6 +89,10 @@ pub struct Sidebar {
     space: Option<RoomScope>,
     group: Option<String>,
     selected: Option<usize>,
+    /// Invitations whose answer is on its way, and those whose last answer failed.
+    answering: std::collections::HashSet<RoomScope>,
+    failed: std::collections::HashSet<RoomScope>,
+    reject_armed: Option<RoomScope>,
 }
 
 impl Sidebar {
@@ -96,6 +112,9 @@ impl Sidebar {
             selected: None,
             space: None,
             group: None,
+            answering: Default::default(),
+            failed: Default::default(),
+            reject_armed: None,
         }
     }
 
@@ -106,7 +125,9 @@ impl Sidebar {
                 if scope.account_id != self.account_id {
                     return false;
                 }
-                let selected = self.selected().map(|room| room.scope.clone());
+                let selected = self.selected.map(|i| self.rooms[i].scope.clone());
+                self.answering.remove(&scope);
+                self.failed.remove(&scope);
                 let old_len = self.rooms.len();
                 self.rooms.retain(|room| room.scope != scope);
                 if old_len != self.rooms.len() {
@@ -119,9 +140,12 @@ impl Sidebar {
                 return old_len != self.rooms.len();
             }
         };
-        // shortcut: invitations are projected by the engine but have no row yet (no accept/reject UI).
-        if summary.scope.account_id != self.account_id || summary.info.invited {
+        if summary.scope.account_id != self.account_id {
             return false;
+        }
+        if !summary.info.invited {
+            self.answering.remove(&summary.scope);
+            self.failed.remove(&summary.scope);
         }
         let row = SidebarRoom {
             scope: summary.scope,
@@ -207,6 +231,9 @@ impl Sidebar {
             selected: Some(0),
             space: None,
             group: None,
+            answering: Default::default(),
+            failed: Default::default(),
+            reject_armed: None,
         }
     }
 
@@ -246,6 +273,7 @@ impl Sidebar {
     }
 
     fn retire_navigation(&mut self) {
+        self.reject_armed = None;
         self.navigation_revision = self
             .navigation_revision
             .checked_add(1)
@@ -291,7 +319,57 @@ impl Sidebar {
     }
 
     pub fn spaces(&self) -> impl Iterator<Item = &SidebarRoom> {
-        self.rooms.iter().filter(|room| room.info.is_space)
+        self.rooms.iter().filter(|room| room.info.is_space && !room.info.invited)
+    }
+
+    pub fn invite_count(&self) -> usize {
+        self.rooms.iter().filter(|room| room.info.invited).count()
+    }
+
+    pub fn invite_state(&self, scope: &RoomScope) -> InviteState {
+        if self.answering.contains(scope) {
+            InviteState::Busy
+        } else if self.reject_armed.as_ref() == Some(scope) {
+            InviteState::ConfirmReject
+        } else if self.failed.contains(scope) {
+            InviteState::Failed
+        } else {
+            InviteState::Idle
+        }
+    }
+
+    /// The user clicked «Accetta» (`accept`) or «Rifiuta» on an invitation. Returns the answer to send:
+    /// accepting is one click, rejecting needs a second click on the same row. Nothing is ever sent unasked.
+    pub fn answer_invite(&mut self, scope: &RoomScope, accept: bool) -> Option<bool> {
+        let open = self.rooms.iter().any(|r| r.scope == *scope && r.info.invited);
+        if !open || self.answering.contains(scope) {
+            return None;
+        }
+        if !accept && self.reject_armed.as_ref() != Some(scope) {
+            self.reject_armed = Some(scope.clone());
+            return None;
+        }
+        self.reject_armed = None;
+        self.failed.remove(scope);
+        self.answering.insert(scope.clone());
+        Some(accept)
+    }
+
+    /// Outcome of an answer. Success changes nothing here: the next sync upserts the joined room or removes the left one.
+    pub fn invite_answered(&mut self, scope: &RoomScope, ok: bool) {
+        self.answering.remove(scope);
+        if !ok {
+            self.failed.insert(scope.clone());
+        }
+    }
+
+    /// The invitation under the cursor, if the cursor is on one.
+    pub fn selected_invite(&self) -> Option<&SidebarRoom> {
+        self.selected.map(|i| &self.rooms[i]).filter(|r| r.info.invited)
+    }
+
+    pub fn is_joined(&self, scope: &RoomScope) -> bool {
+        self.rooms.iter().any(|r| r.scope == *scope && !r.info.invited)
     }
 
     /// List header: name, initials and colour of the selected space; «Tutte» (no colour) otherwise.
@@ -469,12 +547,13 @@ impl Sidebar {
             .enumerate()
             .filter(|(_, room)| {
                 room.name.to_lowercase().contains(&needle)
-                    && (!self.unread_only || room.unread > 0)
-                    && (self.show_empty || !room.is_empty() || self.kept.contains(&room.scope))
-                    && self.group.as_ref().is_none_or(|g| room.info.tags.contains(g))
-                    && space.is_none_or(|s| {
-                        room.scope == s.scope || s.info.children.contains(&room.scope.room_id)
-                    })
+                    && (room.info.invited
+                        || ((!self.unread_only || room.unread > 0)
+                            && (self.show_empty || !room.is_empty() || self.kept.contains(&room.scope))
+                            && self.group.as_ref().is_none_or(|g| room.info.tags.contains(g))
+                            && space.is_none_or(|s| {
+                                room.scope == s.scope || s.info.children.contains(&room.scope.room_id)
+                            })))
             })
             .map(|(i, _)| i)
             .collect();
@@ -488,6 +567,9 @@ impl Sidebar {
                 )
             });
         }
+        // Invitations wait for an answer: first, whatever the order or the search.
+        let rooms = &self.rooms;
+        self.visible.sort_by_key(|&i| !rooms[i].info.invited);
     }
 
     /// Reject foreign account/room identities and rows outside the current filter.
@@ -537,8 +619,9 @@ impl Sidebar {
     pub fn visible_indices(&self) -> &[usize] {
         &self.visible
     }
+    /// The open conversation; an invitation under the cursor is not one (see `selected_invite`).
     pub fn selected(&self) -> Option<&SidebarRoom> {
-        self.selected.map(|i| &self.rooms[i])
+        self.selected.map(|i| &self.rooms[i]).filter(|r| !r.info.invited)
     }
 }
 
@@ -877,5 +960,120 @@ mod tests {
         tagged(&mut sidebar, &account, "b", 0, &[]);
         assert_eq!(sidebar.active_group(), None);
         assert_eq!(names(&sidebar).len(), 4);
+    }
+}
+#[cfg(test)]
+mod invite_tests {
+    use super::*;
+    use matrix_engine::{RoomInfo, RoomSummary};
+
+    fn scope(account: AccountId, id: &str) -> RoomScope {
+        RoomScope { account_id: account, room_id: RoomId::new(id) }
+    }
+
+    fn upsert(sidebar: &mut Sidebar, account: AccountId, id: &str, name: &str, info: RoomInfo) {
+        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            scope: scope(account, id),
+            name: name.into(),
+            unread: 0,
+            info,
+        }));
+    }
+
+    fn invite() -> RoomInfo {
+        RoomInfo { invited: true, ..Default::default() }
+    }
+
+    fn names(sidebar: &Sidebar) -> Vec<&str> {
+        sidebar.visible_indices().iter().map(|&i| sidebar.rooms()[i].name.as_str()).collect()
+    }
+
+    /// The reproduction of the federated invite: the engine projects it as `invited`
+    /// (also over federation) and the list used to drop it.
+    #[test]
+    fn a_federated_invite_gets_a_row_first_in_the_list_and_never_opens_a_conversation() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let chat = RoomInfo { preview: Some("x".into()), joined_members: 2, ..Default::default() };
+        upsert(&mut sidebar, account, "!a:t.invalid", "chat", chat);
+        upsert(&mut sidebar, account, "!inv:127.0.0.1:8448", "gnobbi-test-fed-invite", invite());
+        assert_eq!(names(&sidebar), ["gnobbi-test-fed-invite", "chat"]);
+        assert_eq!(sidebar.invite_count(), 1);
+        sidebar.select(&scope(account, "!inv:127.0.0.1:8448"));
+        assert!(sidebar.selected().is_none(), "an invitation is not an open conversation");
+        assert!(sidebar.selected_invite().is_some());
+    }
+
+    #[test]
+    fn invites_ignore_filters_empty_rule_spaces_and_survive_a_restart_projection() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        // Alone in the room and nothing unread: a joined room like this is hidden, an invitation is not.
+        let lonely = RoomInfo { invited: true, joined_members: 1, ..Default::default() };
+        upsert(&mut sidebar, account, "!dm:t.invalid", "Anna", lonely);
+        let space = RoomInfo { invited: true, is_space: true, ..Default::default() };
+        upsert(&mut sidebar, account, "!sp:t.invalid", "Spazio", space);
+        sidebar.set_unread_only(true);
+        assert_eq!(names(&sidebar), ["Anna", "Spazio"]);
+        assert_eq!(sidebar.spaces().count(), 0, "an invited space is not in the rail");
+        assert_eq!(sidebar.hidden_empty_count(), 0);
+        sidebar.set_query("ann");
+        assert_eq!(names(&sidebar), ["Anna"]);
+    }
+
+    #[test]
+    fn a_room_without_a_name_is_listed_under_the_label_the_engine_gives() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        upsert(&mut sidebar, account, "!x:t.invalid", "!x:t.invalid", invite());
+        assert_eq!(names(&sidebar), ["!x:t.invalid"]);
+    }
+
+    #[test]
+    fn many_invites_stay_ahead_of_more_than_twenty_rooms() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        for i in 0..30 {
+            let info = RoomInfo { preview: Some("x".into()), joined_members: 2, ..Default::default() };
+            upsert(&mut sidebar, account, &format!("!r{i}:t.invalid"), &format!("room{i:02}"), info);
+        }
+        for i in 0..3 {
+            upsert(&mut sidebar, account, &format!("!i{i}:t.invalid"), &format!("inv{i}"), invite());
+        }
+        assert_eq!(sidebar.visible_indices().len(), 33);
+        assert!(names(&sidebar)[..3].iter().all(|n| n.starts_with("inv")));
+        assert!(sidebar.rooms()[sidebar.visible_indices()[3]].name.starts_with("room"));
+    }
+
+    #[test]
+    fn accepting_is_one_click_rejecting_needs_a_second_and_nothing_goes_out_unasked() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let (inv, other) = (scope(account, "!i:t.invalid"), scope(account, "!o:t.invalid"));
+        upsert(&mut sidebar, account, "!i:t.invalid", "inv", invite());
+        upsert(&mut sidebar, account, "!o:t.invalid", "other", invite());
+        assert_eq!(sidebar.invite_state(&inv), InviteState::Idle);
+        // reject: first click only asks; a click elsewhere disarms
+        assert_eq!(sidebar.answer_invite(&inv, false), None);
+        assert_eq!(sidebar.invite_state(&inv), InviteState::ConfirmReject);
+        assert_eq!(sidebar.answer_invite(&other, false), None);
+        assert_eq!(sidebar.invite_state(&inv), InviteState::Idle);
+        assert_eq!(sidebar.answer_invite(&other, false), Some(false));
+        assert_eq!(sidebar.invite_state(&other), InviteState::Busy);
+        assert_eq!(sidebar.answer_invite(&other, true), None, "busy rows take no second answer");
+        // accept fails: the row stays, shows the error, and Riprova sends again
+        assert_eq!(sidebar.answer_invite(&inv, true), Some(true));
+        sidebar.invite_answered(&inv, false);
+        assert_eq!(sidebar.invite_state(&inv), InviteState::Failed);
+        assert_eq!(sidebar.answer_invite(&inv, true), Some(true));
+        // the sync then joins the room: the row becomes a conversation and the state is gone
+        upsert(&mut sidebar, account, "!i:t.invalid", "inv", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        assert_eq!(sidebar.invite_state(&inv), InviteState::Idle);
+        assert!(sidebar.is_joined(&inv));
+        assert_eq!(sidebar.invite_count(), 1);
+        // the other one is left: the sync removes it
+        sidebar.apply_diff(RoomListDiff::Remove(other.clone()));
+        assert_eq!(sidebar.invite_count(), 0);
+        assert_eq!(sidebar.answer_invite(&other, true), None, "no invitation, no answer");
     }
 }

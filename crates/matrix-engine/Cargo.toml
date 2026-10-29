@@ -84,3 +84,7 @@ required-features = ["sdk"]
 [[test]]
 name = "sync_flapping"
 required-features = ["sdk"]
+
+[[test]]
+name = "fed_invite"
+required-features = ["sdk"]
