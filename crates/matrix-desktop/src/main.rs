@@ -1506,6 +1506,7 @@ impl Render for Shell {
             signin.update(cx, |view, _| view.theme = self.theme.tokens());
             return div().size_full().child(signin.clone()).into_any_element();
         }
+        window.set_window_title(&matrix_desktop::window::title_for(None));
         let compact = window.viewport_size().width < px(800.);
         if let (Some(timeline), Some(room)) = (&self.timeline, self.sidebar.selected()) {
             timeline.set_peer_receipts(&room.info.public_read_receipts);
