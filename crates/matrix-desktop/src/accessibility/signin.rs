@@ -68,6 +68,7 @@ impl super::NavigationSnapshot {
             navigation_revision: 0,
             theme_focused: false,
             theme_bounds: None,
+            icon_choice: None,
             unread_filter: None,
             new_room: None,
             devices: Default::default(),

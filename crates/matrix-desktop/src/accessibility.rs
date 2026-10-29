@@ -1,7 +1,7 @@
 //! Experimental Linux AT-SPI projection for theme, search and room navigation.
 //! This is not complete screen-reader support for the messenger.
 
-use accesskit::{Action, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
+use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
 pub mod compact;
 pub mod details;
@@ -21,6 +21,11 @@ pub mod semantic_session;
 #[cfg(feature = "live")]
 pub mod signin;
 pub mod spaces;
+
+/// One radio node per app icon choice (Settings > Appearance).
+fn icon_node(icon: crate::IconChoice) -> NodeId {
+    NodeId(70 + icon as u64)
+}
 
 pub const ROOT: NodeId = NodeId(1);
 pub const THEME: NodeId = NodeId(2);
@@ -531,6 +536,8 @@ pub struct NavigationSnapshot {
     pub navigation_revision: u64,
     pub theme_focused: bool,
     pub theme_bounds: Option<accesskit::Rect>,
+    /// Current app icon while Settings is open; None hides the three choices.
+    pub icon_choice: Option<crate::IconChoice>,
     pub unread_filter: Option<filters::UnreadFilter>,
     pub new_room: Option<new_room::Snapshot>,
     pub devices: devices::DeviceView,
@@ -663,6 +670,15 @@ impl NavigationSnapshot {
                     focus_only: request.action == Action::Focus,
                 }),
             );
+        }
+        if self.icon_choice.is_some()
+            && request.data.is_none()
+            && matches!(request.action, Action::Click | Action::Focus)
+            && let Some(icon) = crate::IconChoice::ALL
+                .into_iter()
+                .find(|i| icon_node(*i) == request.target_node)
+        {
+            return Some(NavigationAction::ChooseIcon(icon));
         }
         if let Some(action) = self.devices.action(request) {
             return Some(NavigationAction::Devices(action));
@@ -1318,6 +1334,17 @@ impl NavigationSnapshot {
                 tree.nodes.push((id, node));
             }
         }
+        if let Some(current) = self.icon_choice {
+            for icon in crate::IconChoice::ALL {
+                let mut node = Node::new(Role::RadioButton);
+                node.set_label(icon.label());
+                node.set_toggled(if icon == current { Toggled::True } else { Toggled::False });
+                node.add_action(Action::Click);
+                node.add_action(Action::Focus);
+                tree.nodes[0].1.push_child(icon_node(icon));
+                tree.nodes.push((icon_node(icon), node));
+            }
+        }
         if let Some(panel) = &self.operation_panel {
             panel.append_to(&mut tree);
         }
@@ -1380,6 +1407,7 @@ pub enum NavigationAction {
     Details(details::DetailsAction),
     Notifications(notifications::NotificationAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
+    ChooseIcon(crate::IconChoice),
     ToggleTheme(u64),
     FocusTheme(u64),
     ToggleMenu,

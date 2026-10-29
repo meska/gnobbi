@@ -356,6 +356,7 @@ fn sidebar_session(
         navigation_revision: this.sidebar.navigation_revision(),
         theme_focused: this.theme_focus.is_focused(window),
         theme_bounds: this.a11y_theme_bounds,
+        icon_choice: None,
         unread_filter: this.semantic_unread(window),
         new_room: None,
         devices: Default::default(),

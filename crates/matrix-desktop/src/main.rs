@@ -216,6 +216,12 @@ impl Shell {
                 this.apply_semantic_notification(action, window, cx);
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::ChooseIcon(icon) = action {
+                if this.settings_open {
+                    this.choose_icon(icon, window, cx);
+                }
+                continue;
+            }
             if this.notifications_open || this.verification_open || this.room_details_open {
                 continue;
             }
@@ -464,6 +470,7 @@ impl Shell {
                     unreachable!()
                 }
                 matrix_desktop::accessibility::NavigationAction::Notifications(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::ChooseIcon(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Details(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::FocusComposer
                 | matrix_desktop::accessibility::NavigationAction::FocusSend { .. }
@@ -1595,6 +1602,7 @@ impl Render for Shell {
                 navigation_revision: self.sidebar.navigation_revision(),
                 theme_focused: self.theme_focus.is_focused(window),
                 theme_bounds: self.a11y_theme_bounds,
+                icon_choice: self.settings_open.then_some(self.prefs.icon),
                 unread_filter: self.semantic_unread(window),
                 new_room: self.semantic_new_room(window, cx),
                 devices: self.semantic_devices(window),
@@ -2806,6 +2814,7 @@ fn main() {
                 navigation_revision: 0,
                 theme_focused: false,
                                 theme_bounds: None,
+                                icon_choice: None,
                                 unread_filter: None,
                                 new_room: None,
                                 devices: Default::default(),

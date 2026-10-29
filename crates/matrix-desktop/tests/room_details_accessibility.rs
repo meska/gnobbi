@@ -27,6 +27,7 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
         navigation_revision: 0,
         theme_focused: false,
         theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
         new_room: None,
         devices: Default::default(),
