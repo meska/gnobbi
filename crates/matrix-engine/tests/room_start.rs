@@ -66,15 +66,21 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
             Err(OperationError::InvalidInput)
         ));
         assert!(matches!(
-            create_room(&a, account, "  ", false).await,
+            create_room(&a, account, "  ", None, false).await,
             Err(OperationError::InvalidInput)
         ));
 
         let dm = start_dm(&a, account, &bob).await.unwrap();
-        let private = create_room(&a, account, "gnobbi-test-private", false)
-            .await
-            .unwrap();
-        let public = create_room(&a, account, "gnobbi-test-public", true)
+        let private = create_room(
+            &a,
+            account,
+            "gnobbi-test-private",
+            Some("gnobbi-topic"),
+            false,
+        )
+        .await
+        .unwrap();
+        let public = create_room(&a, account, "gnobbi-test-public", None, true)
             .await
             .unwrap();
         assert!(dm.room_id != private.room_id && private.room_id != public.room_id);
@@ -115,6 +121,34 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
             b.join_room_by_id(&private_id).await.is_err(),
             "B cannot join the private room"
         );
+        // Encryption: only the private room is born encrypted.
+        let own_private = a.get_room(&private_id).unwrap();
+        let own_public = a.get_room(&public_id).unwrap();
+        assert!(
+            own_private
+                .latest_encryption_state()
+                .await
+                .unwrap()
+                .is_encrypted()
+        );
+        assert!(
+            !own_public
+                .latest_encryption_state()
+                .await
+                .unwrap()
+                .is_encrypted()
+        );
+        assert_eq!(own_private.topic().as_deref(), Some("gnobbi-topic"));
+
+        // A user the server does not know: no new room.
+        let joined = a.joined_rooms().len();
+        let ghost = format!(
+            "@gnobbi-test-ghost-nobody:{}",
+            b.user_id().unwrap().server_name()
+        );
+        let r = start_dm(&a, account, &ghost).await;
+        assert!(matches!(r, Err(OperationError::Unavailable)));
+        assert_eq!(a.joined_rooms().len(), joined);
         println!(
             "[start] dm {} public {} private {} ok",
             dm.room_id.as_str(),

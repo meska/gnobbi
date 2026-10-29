@@ -47,6 +47,7 @@ pub enum OperationCommand {
     /// New room; `public` joins by anyone and lists it in the directory.
     CreateRoom {
         name: String,
+        topic: Option<String>,
         public: bool,
     },
     /// Group (room tag) change asked for by the user in «Modifica»; the only writer of tags.
@@ -245,6 +246,7 @@ pub(crate) async fn mark_room(
 }
 
 /// Direct chat: the SDK writes `m.direct`; an existing DM with the user is returned instead of a duplicate.
+/// A user the server does not know stops here (`Unavailable`) so no orphan room is created.
 #[cfg(feature = "sdk")]
 pub async fn start_dm(
     client: &matrix_sdk::Client,
@@ -255,7 +257,16 @@ pub async fn start_dm(
         .map_err(|_| OperationError::InvalidInput)?;
     let room = match client.get_dm_room(&user) {
         Some(room) => room,
-        None => timeout_create(client.create_dm(&user)).await?,
+        None => timeout_create(async {
+            // Only NotFound stops: other profile failures (private profiles, network) fall through to create_dm.
+            if let Err(e) = client.account().fetch_user_profile_of(&user).await
+                && is_not_found(&e)
+            {
+                return Err(e);
+            }
+            client.create_dm(&user).await
+        })
+        .await?,
     };
     Ok(RoomScope {
         account_id: account,
@@ -263,16 +274,21 @@ pub async fn start_dm(
     })
 }
 
+/// Private rooms are born encrypted (like the SDK's DMs); public ones are not.
 #[cfg(feature = "sdk")]
 pub async fn create_room(
     client: &matrix_sdk::Client,
     account: matrix_domain::AccountId,
     name: &str,
+    topic: Option<&str>,
     public: bool,
 ) -> Result<RoomScope, OperationError> {
-    use matrix_sdk::ruma::api::client::room::{
-        Visibility,
-        create_room::v3::{Request, RoomPreset},
+    use matrix_sdk::ruma::{
+        api::client::room::{
+            Visibility,
+            create_room::v3::{Request, RoomPreset},
+        },
+        events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent},
     };
     let name = name.trim();
     if name.is_empty() {
@@ -280,9 +296,16 @@ pub async fn create_room(
     }
     let mut request = Request::new();
     request.name = Some(name.to_owned());
+    request.topic = topic.map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned);
     (request.preset, request.visibility) = if public {
         (Some(RoomPreset::PublicChat), Visibility::Public)
     } else {
+        request.initial_state = vec![
+            InitialStateEvent::with_empty_state_key(
+                RoomEncryptionEventContent::with_recommended_defaults(),
+            )
+            .to_raw_any(),
+        ];
         (Some(RoomPreset::PrivateChat), Visibility::Private)
     };
     let room = timeout_create(client.create_room(request)).await?;
@@ -293,13 +316,35 @@ pub async fn create_room(
 }
 
 #[cfg(feature = "sdk")]
+use matrix_sdk::ruma::api::error::ErrorKind;
+
+/// Synapse answers 404 `M_UNKNOWN` ("No row found") for a missing profile, Tuwunel `M_NOT_FOUND`.
+#[cfg(feature = "sdk")]
+fn is_not_found(error: &matrix_sdk::Error) -> bool {
+    matches!(error.client_api_error_kind(), Some(ErrorKind::NotFound))
+        || error.as_client_api_error().is_some_and(|e| e.status_code == 404)
+}
+
+/// Server answer by Matrix error code; no client API error means the network failed.
+#[cfg(feature = "sdk")]
+fn classify(error: &matrix_sdk::Error) -> OperationError {
+    if is_not_found(error) {
+        OperationError::Unavailable
+    } else if matches!(error.client_api_error_kind(), Some(ErrorKind::Forbidden)) {
+        OperationError::Forbidden
+    } else {
+        OperationError::Transport
+    }
+}
+
+#[cfg(feature = "sdk")]
 async fn timeout_create(
     create: impl std::future::Future<Output = matrix_sdk::Result<matrix_sdk::Room>>,
 ) -> Result<matrix_sdk::Room, OperationError> {
     tokio::time::timeout(std::time::Duration::from_secs(20), create)
         .await
         .map_err(|_| OperationError::Transport)?
-        .map_err(|_| OperationError::Transport)
+        .map_err(|e| classify(&e))
 }
 
 #[cfg(feature = "sdk")]

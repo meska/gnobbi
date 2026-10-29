@@ -52,6 +52,7 @@ impl Shell {
         } else {
             OperationCommand::CreateRoom {
                 name: text,
+                topic: None,
                 public: room.public,
             }
         });
