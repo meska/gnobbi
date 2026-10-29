@@ -567,6 +567,12 @@ impl RoomListWorker {
                                 .await;
                     }
                     drop(sync);
+                    // deadpool-sqlite closes its pooled connections via spawn_blocking:
+                    // the avatar fetcher holds the last client clone, and dropping it
+                    // after the runtime panics with "no reactor running" and aborts.
+                    if let Ok(mut slot) = worker_avatars.lock() {
+                        drop(slot.take());
+                    }
                     drained
                 })
             })?;

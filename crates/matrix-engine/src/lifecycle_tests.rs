@@ -197,6 +197,45 @@ fn disposable_lifecycle_revoked_session_stops_reconnect() {
     );
 }
 
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_lifecycle_shutdown_drops_sdk_store_inside_the_runtime() {
+    // The SDK client of a stored session keeps a deadpool/sqlite pool whose
+    // connections close via spawn_blocking: the worker must drop the last
+    // client clone while its runtime is still alive, or cleanup aborts with
+    // "there is no reactor running" (deadpool-runtime) on SIGTERM shutdown.
+    let config = fixture();
+    let root = std::path::Path::new(config["ca"].as_str().unwrap())
+        .parent()
+        .unwrap();
+    let session = runtime().block_on(async {
+        AccountStore::create(root, AccountId::new(22))
+            .unwrap()
+            .password_login_with_http(
+                HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                "shutdown drop order passphrase",
+                http(&config),
+            )
+            .await
+            .unwrap()
+    });
+    let (worker, mut events) = RoomListWorker::spawn(move || async move { Ok(session) }).unwrap();
+    runtime().block_on(async {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while let Some(event) = events.recv().await {
+                if matches!(event, RoomListEvent::Status(RoomSyncStatus::Ready)) {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+    });
+    worker.shutdown().expect("no destructor panic after the runtime drop");
+}
+
 fn ready_worker(
     config: &serde_json::Value,
 ) -> (RoomListWorker, crate::Receiver<RoomListEvent>, String) {
