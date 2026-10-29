@@ -35,6 +35,7 @@ cat > "$APP/Contents/Info.plist" <<P
 <key>CFBundleShortVersionString</key><string>$VERSION</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
+<key>ITSAppUsesNonExemptEncryption</key><false/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Gnobbi usa il microfono per registrare le note vocali.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
