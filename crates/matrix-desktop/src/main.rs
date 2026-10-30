@@ -510,6 +510,12 @@ impl Shell {
                 matrix_desktop::accessibility::NavigationAction::AnswerInvite { scope, accept } => {
                     this.answer_invite(scope, accept, cx)
                 }
+                matrix_desktop::accessibility::NavigationAction::LeaveRoom(scope) => {
+                    // Only while that row's menu is open, as the pointer path.
+                    if this.room_menu.as_ref().is_some_and(|(open, _)| *open == scope) {
+                        this.leave_room(scope, cx)
+                    }
+                }
             }
         }
     }
@@ -1590,6 +1596,8 @@ impl Render for Shell {
                 .update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let rooms = self.semantic_rooms();
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         self.accessibility.update(
             matrix_desktop::accessibility::NavigationSnapshot {
                 title: matrix_desktop::window::account_title(self.verification.profile()),
@@ -1614,7 +1622,7 @@ impl Render for Shell {
                 query: self.sidebar.query().to_owned(),
                 search_focused: self.search_focus.is_focused(window),
                 search_bounds: self.a11y_search_bounds,
-                rooms: self.a11y_rooms.project(&self.sidebar),
+                rooms,
                 list_focused: self.list_focus.is_focused(window),
                 history: (!self.notifications_open
                     && !self.verification_open

@@ -393,11 +393,14 @@ pub struct SemanticRoom {
     pub selected: bool,
     /// Set for an invitation row: it carries «Accetta» / «Rifiuta» child buttons.
     pub invite: Option<crate::InviteState>,
+    /// Set while the row's context menu is open: «Esci» button, `true` once it asks «Uscire?».
+    pub leave: Option<bool>,
 }
 
 /// Child buttons of an invitation row live in their own id range (room ids start at 100).
 const INVITE_ACCEPT: u64 = 1 << 40;
 const INVITE_REJECT: u64 = 1 << 41;
+const LEAVE: u64 = 1 << 42;
 
 impl SemanticRoom {
     fn invite_buttons(&self) -> [(NodeId, bool); 2] {
@@ -461,6 +464,7 @@ impl RoomNodes {
                     unread: room.unread,
                     selected: sidebar.selected().is_some_and(|r| r.scope == room.scope),
                     invite: room.info.invited.then(|| sidebar.invite_state(&room.scope)),
+                    leave: None,
                 }
             })
             .collect()
@@ -856,6 +860,15 @@ impl NavigationSnapshot {
             {
                 Some(NavigationAction::AnswerInvite { scope: room.scope.clone(), accept })
             }
+            (id, Action::Click)
+                if self.visible
+                    && let Some(room) = self
+                        .rooms
+                        .iter()
+                        .find(|room| room.leave.is_some() && NodeId(room.id.0 + LEAVE) == id) =>
+            {
+                Some(NavigationAction::LeaveRoom(room.scope.clone()))
+            }
             (id, action @ (Action::Click | Action::Focus))
                 if self.visible && self.rooms.iter().any(|room| room.id == id) =>
             {
@@ -964,6 +977,14 @@ impl NavigationSnapshot {
                         node.push_child(id);
                         tree.nodes.push((id, button));
                     }
+                }
+                if let Some(confirming) = room.leave {
+                    let id = NodeId(room.id.0 + LEAVE);
+                    let mut button = Node::new(Role::Button);
+                    button.set_label(if confirming { "Uscire?" } else { "Esci" });
+                    button.add_action(Action::Click);
+                    node.push_child(id);
+                    tree.nodes.push((id, button));
                 }
                 tree.nodes.push((room.id, node));
             }
@@ -1437,6 +1458,7 @@ pub enum NavigationAction {
     },
     ActivateRoom(RoomIntent),
     AnswerInvite { scope: matrix_domain::RoomScope, accept: bool },
+    LeaveRoom(matrix_domain::RoomScope),
     FocusRoom(RoomIntent),
 }
 

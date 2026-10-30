@@ -39,7 +39,7 @@ impl Shell {
     }
 
     /// First click arms «Uscire?», the second leaves; the sync then drops the room from the list.
-    fn leave_room(&mut self, scope: RoomScope, cx: &mut Context<Self>) {
+    pub(crate) fn leave_room(&mut self, scope: RoomScope, cx: &mut Context<Self>) {
         if self.confirm_leave.as_ref() != Some(&scope) {
             self.confirm_leave = Some(scope);
         } else if self.pending_operation_command.is_none() {
@@ -49,6 +49,19 @@ impl Shell {
                 Some(matrix_engine::operations::OperationCommand::LeaveRoom { scope });
         }
         cx.notify();
+    }
+
+    /// Room rows for the screen-reader tree; the row with the open menu gets its «Esci» button.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_rooms(&mut self) -> Vec<matrix_desktop::accessibility::SemanticRoom> {
+        let mut rooms = self.a11y_rooms.project(&self.sidebar);
+        if let Some((scope, _)) = &self.room_menu {
+            let confirming = self.confirm_leave.as_ref() == Some(scope);
+            for room in rooms.iter_mut().filter(|room| room.scope == *scope) {
+                room.leave = Some(confirming);
+            }
+        }
+        rooms
     }
 
     pub(crate) fn render_room_menu(
