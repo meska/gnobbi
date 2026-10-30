@@ -260,6 +260,7 @@ fn an_attachment_has_a_scarica_button_a_text_row_has_none() {
         event_id: EventId::new(id),
         body: "x".into(),
         outgoing: false,
+        redacted: false,
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
