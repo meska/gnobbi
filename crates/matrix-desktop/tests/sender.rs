@@ -93,6 +93,8 @@ fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
         sender: HistorySender::new("@anna:test", Some("Anna")),
         video: None,
         styles: Vec::new(),
+        thread: None,
+        thread_root: None,
         status,
     };
     let mut rows = DemoHistory::new(scope(), 0);

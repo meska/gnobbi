@@ -309,7 +309,8 @@ impl HistoryNodes {
                     selection: Default::default(),
                     actions_bounds: None,
                     actions_focused: false,
-                    actions: (event.send_state.is_none()
+                    actions: (event.menu_available(true)
+                        && event.send_state.is_none()
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 2)),
                     retry_bounds: None,

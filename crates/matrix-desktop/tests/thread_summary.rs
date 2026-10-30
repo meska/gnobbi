@@ -17,6 +17,7 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
             unread: 0,
         }),
         thread_root: None,
+        status: false,
     }
 }
 

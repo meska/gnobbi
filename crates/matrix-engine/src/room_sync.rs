@@ -1519,6 +1519,7 @@ async fn status_row(
         }
         C::OtherState(state) => {
             let status = match state.content() {
+                State::RoomCreate(Original { .. }) if room.is_direct().await.unwrap_or(false) => Status::CreatedDirect,
                 State::RoomCreate(Original { .. }) => Status::Created,
                 State::RoomName(Original { content, .. }) => Status::RoomName(content.name.clone()),
                 State::RoomTopic(Original { content, .. }) => Status::RoomTopic(content.topic.clone()),
@@ -1538,6 +1539,8 @@ async fn status_row(
         sender: shown,
         video: None,
         styles: Vec::new(),
+        thread: None,
+        thread_root: None,
         status: true,
     })
 }

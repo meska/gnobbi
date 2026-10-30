@@ -353,6 +353,7 @@ mod tests {
             styles: Vec::new(),
             thread: None,
             thread_root: None,
+            status: false,
         }
     }
 

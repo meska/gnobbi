@@ -1381,7 +1381,7 @@ impl TimelineView {
                         });
                         return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py_1().flex().justify_center().items_center().gap_2()
                             .text_size(px(12.)).text_color(rgb(t.secondary))
-                            .children(avatar).child(event.text.clone()).into_any_element();
+                            .children(avatar).child(matrix_desktop::row_text::one_line(&event.text)).into_any_element();
                     }
                     let sender_label = history.sender_label(index, members);
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
