@@ -1,5 +1,7 @@
 use matrix_desktop::DemoHistory;
-use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
+use matrix_domain::{
+    AccountId, EventId, RoomId, RoomScope, ScopedTimelineId, SendStatus, TimelineId, TimelineItem, TransactionId,
+};
 use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn scope() -> RoomScope {
@@ -38,7 +40,7 @@ fn texts(h: &DemoHistory) -> Vec<String> {
 fn history() -> DemoHistory {
     let mut h = DemoHistory::new(scope(), 0);
     h.prepend_server(vec![
-        ev("$1", "@anna:test", 0, false),
+        ev("$1", "@anna:test", 500, false),
         ev("$2", "@anna:test", 1_000, true),
         ev("$3", "@anna:test", 2_000, false),
         ev("$4", "@bruno:test", 3_000, true),
@@ -92,10 +94,10 @@ fn hiding_is_idempotent_and_showing_restores_order() {
 fn adjacent_deleted_rows_keep_order_when_shown_again() {
     let mut h = DemoHistory::new(scope(), 0);
     h.prepend_server(vec![
-        ev("$1", "@a:test", 0, false),
-        ev("$2", "@a:test", 1, true),
-        ev("$3", "@a:test", 2, true),
-        ev("$4", "@a:test", 3, false),
+        ev("$1", "@a:test", 1, false),
+        ev("$2", "@a:test", 2, true),
+        ev("$3", "@a:test", 3, true),
+        ev("$4", "@a:test", 4, false),
     ]);
     h.set_hide_redacted(true);
     h.set_hide_redacted(false);
@@ -129,8 +131,40 @@ fn prepend_counts_only_visible_rows() {
     let mut h = DemoHistory::new(scope(), 0);
     h.set_hide_redacted(true);
     let added = h.prepend_server(vec![
-        ev("$1", "@a:test", 0, true),
+        ev("$1", "@a:test", 500, true),
         ev("$2", "@a:test", 1, false),
     ]);
     assert_eq!((added, h.events().len()), (1, 1));
+}
+
+#[test]
+fn own_deleted_row_returns_to_its_server_position() {
+    let mut h = DemoHistory::new(scope(), 0);
+    h.prepend_server(vec![ev("$1", "@anna:test", 1_000, false), ev("$2", "@anna:test", 2_000, false)]);
+    h.project_delivery(&[TimelineItem {
+        identity: ScopedTimelineId { scope: scope(), id: TimelineId::Server(EventId::new("$own")) },
+        transaction_id: Some(TransactionId::new("demo-local-1")),
+        body: "ciao".into(),
+        status: SendStatus::Sent,
+    }]);
+    h.set_hide_redacted(true);
+    h.refresh_server(vec![ev("$own", "@anna:test", 3_000, true), ev("$3", "@anna:test", 4_000, false)]);
+    h.set_hide_redacted(false);
+    let ids: Vec<_> = h.events().iter().map(|e| format!("{:?}", e.id.id)).collect();
+    for (i, want) in ["$1", "$2", "$own", "$3"].iter().enumerate() {
+        assert!(ids[i].contains(want), "{ids:?}");
+    }
+    assert_eq!(ids.len(), 4, "{ids:?}");
+}
+
+#[test]
+fn pending_row_stays_last_when_a_deleted_row_returns() {
+    let mut h = DemoHistory::new(scope(), 0);
+    h.set_hide_redacted(true);
+    h.prepend_server(vec![ev("$1", "@anna:test", 1_000, false), ev("$2", "@anna:test", 2_000, true)]);
+    h.submit_text("ciao".into());
+    h.set_hide_redacted(false);
+    let t = texts(&h);
+    assert_eq!(t.len(), 3, "{t:?}");
+    assert_eq!((t[0].as_str(), t[1].as_str(), t[2].as_str()), ("$1", "[Messaggio eliminato]", "ciao"));
 }

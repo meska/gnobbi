@@ -289,6 +289,15 @@ impl DemoHistory {
     pub fn refresh_server(&mut self, events: Vec<matrix_engine::history::HistoryEvent>) -> bool {
         let mut changed_body = false;
         for event in &events {
+            // Own echo/ACK rows start at ts 0; take the server ts before any redaction hides them.
+            if let Some(row) = self
+                .events
+                .iter_mut()
+                .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
+                && row.timestamp_ms == 0
+            {
+                row.timestamp_ms = event.timestamp_ms;
+            }
             if let Some(row) = self
                 .events
                 .iter_mut()
@@ -387,7 +396,7 @@ impl DemoHistory {
                 let at = self
                     .events
                     .iter()
-                    .position(|e| e.timestamp_ms > row.timestamp_ms)
+                    .position(|e| e.timestamp_ms == 0 || e.timestamp_ms > row.timestamp_ms)
                     .unwrap_or(self.events.len());
                 self.events.insert(at, row);
             }
