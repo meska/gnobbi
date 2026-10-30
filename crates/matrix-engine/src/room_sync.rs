@@ -1364,7 +1364,8 @@ impl Timelines {
         let builder = room.timeline_builder();
         let builder = match root {
             Some(root_event_id) => builder.with_focus(TimelineFocus::Thread { root_event_id }),
-            None => builder,
+            // Replies live in the thread panel only; the root stays with its summary.
+            None => builder.with_focus(TimelineFocus::Live { hide_threaded_events: true }),
         };
         let timeline = std::sync::Arc::new(
             builder

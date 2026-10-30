@@ -372,3 +372,55 @@ fn disposable_thread_unread_counter_follows_the_thread_receipt() {
             (Some(3), Some(3), Some(0), Some(1), Some(1)));
     });
 }
+
+/// Main timeline hides thread replies: only the root (with its summary) and non-thread messages stay,
+/// every reply is reachable from the thread panel.
+/// Run: `python3 the auth_smoke script --filter disposable_thread_replies_leave [--server tuwunel]`
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_replies_leave_the_main_timeline() {
+    use crate::{ViewRequests, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+        let room = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+        let put = |actor: &'static str, txn: &'static str, content: serde_json::Value| {
+            let (config, room) = (config.clone(), room.clone());
+            async move {
+                let sent = room_request(&config, actor, reqwest::Method::PUT,
+                    &format!("rooms/{room}/send/m.room.message/{txn}"), content).await;
+                sent["event_id"].as_str().unwrap().to_owned()
+            }
+        };
+        let root = put("alice", "hid-root", serde_json::json!({"msgtype":"m.text","body":"root"})).await;
+        for (txn, body) in [("hid-r1", "reply one"), ("hid-r2", "reply two"), ("hid-r3", "reply three")] {
+            put("bob", txn, serde_json::json!({"msgtype":"m.text","body":body,
+                "m.relates_to":{"rel_type":"m.thread","event_id":root,"is_falling_back":true,"m.in_reply_to":{"event_id":root}}})).await;
+        }
+        put("bob", "hid-main", serde_json::json!({"msgtype":"m.text","body":"main one"})).await;
+        let scope = matrix_domain::RoomScope { account_id: AccountId::new(66), room_id: matrix_domain::RoomId::new(room.clone()) };
+        let root_id = matrix_domain::EventId::new(root.clone());
+        let vis = crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: false };
+        let mut sync = RoomSync::new(login(&config, "alice", 66).await);
+        sync.sliding_round().await.unwrap();
+        let mut bodies = Vec::new();
+        let mut replies = None;
+        for _ in 0..10 {
+            let page = sync.open_history(ViewRequests::new().start(scope.clone()).unwrap(), vis).await.unwrap().0;
+            bodies = page.events.iter().map(|e| e.body.clone()).collect();
+            replies = page.events.iter().find(|e| e.event_id == root_id).and_then(|e| e.thread.as_ref()).map(|t| t.num_replies);
+            if replies == Some(3) && bodies.contains(&"main one".to_owned()) { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let _ = sync.sliding_round().await;
+        }
+        let panel = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+        let panel: Vec<_> = panel.replies.iter().map(|r| r.body.clone()).collect();
+        let badge = sync.client().unwrap().get_room(<&matrix_sdk::ruma::RoomId>::try_from(room.as_str()).unwrap()).map(|r| r.num_unread_notifications());
+        println!("P335_HIDE {}", serde_json::json!({"server": config["server"], "main": bodies, "root_replies": replies, "panel": panel, "room_badge": badge}));
+        assert_eq!(bodies, ["root", "main one"], "thread replies stay out of the main timeline");
+        assert_eq!(replies, Some(3), "the root keeps its summary");
+        assert_eq!(panel, ["reply one", "reply two", "reply three"], "every reply is reachable from the panel");
+    });
+}
