@@ -393,10 +393,11 @@ impl DemoHistory {
         } else {
             // shortcut: order by origin_server_ts, not by SDK position; revisit if the timeline shows events out of time order.
             for row in std::mem::take(&mut self.hidden) {
+                // ts 0 = row not yet synced: it goes to the tail.
                 let at = self
                     .events
                     .iter()
-                    .position(|e| e.timestamp_ms == 0 || e.timestamp_ms > row.timestamp_ms)
+                    .position(|e| row.timestamp_ms != 0 && (e.timestamp_ms == 0 || e.timestamp_ms > row.timestamp_ms))
                     .unwrap_or(self.events.len());
                 self.events.insert(at, row);
             }

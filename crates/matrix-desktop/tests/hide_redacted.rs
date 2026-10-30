@@ -1,8 +1,9 @@
-use matrix_desktop::DemoHistory;
+use matrix_desktop::{DemoHistory, LiveOperations};
 use matrix_domain::{
     AccountId, EventId, RoomId, RoomScope, ScopedTimelineId, SendStatus, TimelineId, TimelineItem, TransactionId,
 };
 use matrix_engine::history::{HistoryEvent, HistorySender};
+use matrix_engine::operations::{MessageDetails, MessagePermissions, Operation, OperationCommand, OperationResult};
 
 fn scope() -> RoomScope {
     RoomScope {
@@ -167,4 +168,24 @@ fn pending_row_stays_last_when_a_deleted_row_returns() {
     let t = texts(&h);
     assert_eq!(t.len(), 3, "{t:?}");
     assert_eq!((t[0].as_str(), t[1].as_str(), t[2].as_str()), ("$1", "[Messaggio eliminato]", "ciao"));
+}
+
+#[test]
+fn locally_deleted_own_row_still_unsynced_returns_to_the_tail() {
+    let mut h = DemoHistory::new(scope(), 0);
+    h.prepend_server(vec![ev("$1", "@anna:test", 1_000, false), ev("$2", "@anna:test", 2_000, false)]);
+    h.project_delivery(&[TimelineItem { identity: ScopedTimelineId { scope: scope(), id: TimelineId::Server(EventId::new("$own")) }, transaction_id: Some(TransactionId::new("tx1")), body: "ciao".into(), status: SendStatus::Sent }]);
+    let mut a = LiveOperations::default();
+    a.select(ScopedTimelineId { scope: scope(), id: TimelineId::Server(EventId::new("$own")) });
+    let Some(OperationCommand::Inspect { tag, target }) = a.take_command() else { panic!() };
+    a.apply(OperationResult::Inspected { tag, target, details: Ok(MessageDetails { body: "ciao".into(), permissions: MessagePermissions { edit: true, reply: true, react: true, redact: true } }) });
+    assert!(a.submit(Operation::Redact, TransactionId::new("tx2")));
+    let Some(OperationCommand::Apply(request)) = a.take_command() else { panic!() };
+    a.apply(OperationResult::Applied { request, result: Ok(EventId::new("$red")) });
+    h.set_hide_redacted(true);
+    h.project_operations(a.confirmed());
+    assert_eq!(h.events().len(), 2);
+    h.set_hide_redacted(false);
+    let ids: Vec<_> = h.events().iter().map(|e| format!("{:?}", e.id.id)).collect();
+    assert!(ids[2].contains("$own"), "{ids:?}");
 }
