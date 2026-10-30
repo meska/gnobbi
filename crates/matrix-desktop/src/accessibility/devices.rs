@@ -183,6 +183,7 @@ impl DeviceView {
             ) => {
                 panel.account == *account
                     && panel.can_begin
+                    && !device.verified
                     && panel.snapshot.as_ref() == previous.as_deref()
                     && panel
                         .devices
@@ -253,9 +254,12 @@ impl DeviceOverview {
         focus: DeviceControl,
         bounds: [Option<accesskit::Rect>; 6],
     ) -> Self {
-        let mut labels = vec![
-            "Altri dispositivi".into(),
-        ];
+        let mut labels: Vec<String> = model
+            .own_device()
+            .map(|id| format!("Questo dispositivo · {id}"))
+            .into_iter()
+            .collect();
+        labels.push("Altri dispositivi".into());
         if model.devices().is_empty() {
             labels.push("Nessun altro dispositivo disponibile".into());
         }
@@ -318,7 +322,13 @@ impl DeviceOverview {
     pub fn controls(&self) -> Vec<DeviceControl> {
         let mut controls = vec![DeviceControl::Close, DeviceControl::Refresh];
         if self.can_begin {
-            controls.extend(self.devices.iter().map(|d| DeviceControl::Device(d.id)));
+            // Verified rows are read-only labels: re-verification is not offered.
+            controls.extend(
+                self.devices
+                    .iter()
+                    .filter(|d| !d.device.verified)
+                    .map(|d| DeviceControl::Device(d.id)),
+            );
         }
         if self.comparison.is_some() {
             controls.push(DeviceControl::Comparison);

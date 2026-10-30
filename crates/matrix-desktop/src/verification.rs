@@ -13,6 +13,7 @@ pub struct DeviceVerification {
     devices: Vec<matrix_engine::verification::VerificationDevice>,
     failed: bool,
     profile: Option<(String, Option<String>)>,
+    own_device: Option<String>,
 }
 impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
@@ -24,11 +25,16 @@ impl DeviceVerification {
             devices: Vec::new(),
             failed: false,
             profile: None,
+            own_device: None,
         }
     }
     /// (user id, display name) from the SDK; None until the first sync starts.
     pub fn profile(&self) -> Option<&(String, Option<String>)> {
         self.profile.as_ref()
+    }
+    /// This session's device ID (not in `devices()`); None until the profile arrives.
+    pub fn own_device(&self) -> Option<&str> {
+        self.own_device.as_deref()
     }
     pub fn devices(&self) -> &[matrix_engine::verification::VerificationDevice] {
         &self.devices
@@ -51,7 +57,8 @@ impl DeviceVerification {
         if !self.can_begin() {
             return false;
         }
-        let Some(device) = self.devices.get(index) else {
+        // A verified device is not offered for re-verification: no unexpected SAS.
+        let Some(device) = self.devices.get(index).filter(|d| !d.verified) else {
             return false;
         };
         self.pending = Some(VerificationCommand::Begin {
@@ -70,7 +77,11 @@ impl DeviceVerification {
                 account_id,
                 user_id,
                 display_name,
-            } if account_id == self.account => self.profile = Some((user_id, display_name)),
+                device_id,
+            } if account_id == self.account => {
+                self.profile = Some((user_id, display_name));
+                self.own_device = device_id;
+            }
             VerificationEvent::Snapshot(snapshot) if snapshot.account_id == self.account => {
                 self.snapshot = Some(snapshot);
                 self.deciding = false;
@@ -201,6 +212,7 @@ mod profile_tests {
             account_id: AccountId::new(n),
             user_id: "@a:x".into(),
             display_name: name.map(Into::into),
+            device_id: Some("OWNDEV".into()),
         };
         v.apply(ev(2, Some("Altro")));
         assert!(v.profile().is_none());
@@ -209,5 +221,6 @@ mod profile_tests {
             v.profile(),
             Some(&("@a:x".to_string(), Some("Ada".to_string())))
         );
+        assert_eq!(v.own_device(), Some("OWNDEV"));
     }
 }

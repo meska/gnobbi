@@ -81,6 +81,7 @@ fn parked_account_learns_its_profile_and_a_closed_worker_is_noticed() {
             account_id: AccountId::new(1),
             user_id: "@gnobbi-test-bob:test".into(),
             display_name: Some("gnobbi-test-bob".into()),
+            device_id: Some("BOBDEV".into()),
         })
         .is_ok()
     );
