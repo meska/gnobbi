@@ -454,6 +454,7 @@ fn device_overview_reads_sdk_devices_without_offering_unverified_sas_actions() {
     assert_eq!(tree.nodes[0].1.label(), Some("Verifica dispositivi"));
     assert_eq!(tree.focus, DeviceControl::Refresh.id());
     for value in [
+        "Altri dispositivi",
         "FIXTURE_DEVICE · Non verificato",
         "Seleziona un dispositivo",
     ] {
@@ -464,6 +465,12 @@ fn device_overview_reads_sdk_devices_without_offering_unverified_sas_actions() {
             "missing readable value: {value}"
         );
     }
+    assert!(
+        tree.nodes
+            .iter()
+            .all(|(_, n)| !n.value().is_some_and(|v| v.contains("Avvia solo") || v.contains("canale fidato"))),
+        "explanatory copy must not be exposed"
+    );
     let controls: Vec<_> = tree
         .nodes
         .iter()

@@ -234,7 +234,7 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         div().size_full().flex().flex_col().bg(rgb(t.surface)).text_color(rgb(t.text))
-            .font_family(matrix_desktop::ui_font()).text_size(px(14.))
+            .font_family(matrix_desktop::UI_FONT).text_size(px(14.))
             .track_focus(&self.list_focus)
             .capture_key_down(cx.listener(Self::navigation_key))
             .child(div().h(px(64.)).flex_shrink_0().px_4().flex().items_center().justify_between().border_b_1().border_color(rgb(t.border))
@@ -246,7 +246,7 @@ impl Shell {
             .child(div().id("verification-content").flex_1().min_h_0().overflow_y_scroll()
                 .when_some(self.device_scroll_handle(), |d, handle| d.track_scroll(&handle))
                 .p_4().flex().flex_col().gap_3()
-                .child("Altri dispositivi del tuo account · SAS")
+                .child("Altri dispositivi")
                 .child(div().id("verification-refresh").anchor_scroll(self.device_anchor(1)).relative().children(self.device_observer(1, cx))
                     .when(focused_control == Some(1), |d| d.border_1().border_color(rgb(t.accent)))
                     .cursor_pointer().text_color(rgb(t.accent)).child("Aggiorna dispositivi")

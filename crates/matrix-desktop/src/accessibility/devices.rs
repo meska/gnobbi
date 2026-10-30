@@ -254,7 +254,7 @@ impl DeviceOverview {
         bounds: [Option<accesskit::Rect>; 6],
     ) -> Self {
         let mut labels = vec![
-            "Altri dispositivi del tuo account · SAS".into(),
+            "Altri dispositivi".into(),
         ];
         if model.devices().is_empty() {
             labels.push("Nessun altro dispositivo disponibile".into());
