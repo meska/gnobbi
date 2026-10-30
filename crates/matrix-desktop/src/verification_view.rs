@@ -279,7 +279,8 @@ impl Shell {
                 .child(div().border_t_1().border_color(rgb(t.border)).pt_3().font_weight(gpui::FontWeight::SEMIBOLD).child(panel.status_label()))
                 .when_some(panel.snapshot(), |d, snapshot| d
                     .child(div().text_size(px(12.)).truncate().child(matrix_desktop::row_text::one_line(&snapshot.user_id)))
-                    .child(div().text_size(px(12.)).truncate().child(matrix_desktop::row_text::one_line(&format!("Dispositivo: {}", snapshot.device_id)))))
+                    // Wraps, not truncated: the full ID ellipsized in the list is readable here once the device is selected.
+                    .child(div().text_size(px(12.)).child(matrix_desktop::row_text::one_line(&format!("Dispositivo: {}", snapshot.device_id)))))
                 .child(div().text_color(rgb(if panel.verified() { t.accent } else { t.error })).child(panel.trust_label()))
                 .when_some(panel.comparison(), |d, (a,b,c)| d.child(div().id("verification-comparison").anchor_scroll(self.device_anchor(5)).relative().children(self.device_observer(5, cx))
                     .when(focused_control == Some(5), |d| d.border_1().border_color(rgb(t.accent)))

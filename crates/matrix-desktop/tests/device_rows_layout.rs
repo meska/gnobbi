@@ -52,6 +52,13 @@ fn row_height_follows_content_and_never_clips() {
 }
 
 #[test]
+fn selected_device_id_is_shown_in_full() {
+    // The list ellipsizes long IDs; the active flow is where the rest is read, so that line must wrap.
+    let line = VIEW.lines().find(|l| l.contains("\"Dispositivo: {}\"")).expect("selected device line");
+    assert!(!line.contains(".truncate()"), "selected device ID must wrap, not ellipsize");
+}
+
+#[test]
 fn long_ids_ellipsize_on_their_own_line() {
     let row = row_source();
     let start = row.find(".min_w_0()").expect("id line");
