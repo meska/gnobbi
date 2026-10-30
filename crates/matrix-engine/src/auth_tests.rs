@@ -13,6 +13,7 @@ include!("encryption_tests.rs");
 include!("verification_tests.rs");
 include!("recovery_tests.rs");
 include!("media_tests.rs");
+include!("avatar_account_tests.rs");
 include!("room_tags_tests.rs");
 include!("space_order_tests.rs");
 include!("account_tests.rs");
