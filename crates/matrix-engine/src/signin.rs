@@ -165,9 +165,8 @@ impl PasswordSignIn {
         }
         let mut http = crate::auth::secure_http_builder();
         if let Some(pem) = self.trust_root.as_deref() {
-            http = http.add_root_certificate(
-                reqwest::Certificate::from_pem(pem).map_err(|_| SignInError::InvalidTrustRoot)?,
-            );
+            let cert = reqwest::Certificate::from_pem(pem).map_err(|_| SignInError::InvalidTrustRoot)?;
+            http = crate::auth::with_trust_roots(http, vec![cert]);
         }
         let http = http.build().map_err(|_| SignInError::Discovery)?;
         let store =
@@ -824,9 +823,9 @@ impl SignInProfile {
         file.write_all(account.as_u64().to_string().as_bytes())
             .map_err(|_| SignInError::Storage)?;
         file.sync_all().map_err(|_| SignInError::Storage)?;
-        std::fs::hard_link(&pending, self.root.join("active-account"))
+        crate::fsx::publish_new(&pending, &self.root.join("active-account"))
             .map_err(|_| SignInError::Storage)?;
-        std::fs::remove_file(pending).map_err(|_| SignInError::Storage)?;
+        crate::fsx::remove_pending(&pending).map_err(|_| SignInError::Storage)?;
         crate::fsx::sync_dir(&self.root).map_err(|_| SignInError::Storage)?;
         self.active = Some(account);
         Ok(session)
