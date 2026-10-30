@@ -40,6 +40,14 @@ impl HistorySender {
 // shortcut: a user typing exactly this text is shown a failed image, upgrade when rows carry a kind.
 pub const IMAGE_BODY: &str = "\u{fffc}Immagine";
 
+/// Name offered in the save dialog: the sender controls it, so keep one safe path component.
+pub fn proposed_name(raw: &str) -> String {
+    let last = raw.rsplit(['/', '\\']).next().unwrap_or_default();
+    let clean: String = last.chars().filter(|c| !c.is_control()).collect();
+    let clean: String = clean.trim_start_matches(['.', ' ']).chars().take(120).collect();
+    if clean.is_empty() { "allegato".into() } else { clean }
+}
+
 pub fn is_image_body(body: &str) -> bool {
     body == IMAGE_BODY
 }
@@ -155,5 +163,21 @@ mod image_body_tests {
         assert!(is_image_body(IMAGE_BODY));
         assert!(!is_image_body("ciao"));
         assert!(!is_image_body(""));
+    }
+}
+
+#[cfg(test)]
+mod proposed_name_tests {
+    use super::proposed_name;
+
+    #[test]
+    fn keeps_one_safe_component() {
+        assert_eq!(proposed_name("../x.pdf"), "x.pdf");
+        assert_eq!(proposed_name("C:\\tmp\\y.txt"), "y.txt");
+        assert_eq!(proposed_name(".bashrc"), "bashrc");
+        assert_eq!(proposed_name("a\nb"), "ab");
+        assert_eq!(proposed_name(""), "allegato");
+        assert_eq!(proposed_name("dir/"), "allegato");
+        assert_eq!(proposed_name(&"n".repeat(500)).len(), 120);
     }
 }

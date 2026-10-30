@@ -1486,14 +1486,14 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
         let body = match &content.kind {
             MsgLikeKind::Message(message) => match message.msgtype() {
                 MessageType::Image(i) => {
-                    attachment_name = Some(i.filename().to_owned());
+                    attachment_name = Some(crate::history::proposed_name(i.filename()));
                     crate::history::IMAGE_BODY.into()
                 }
                 msgtype => {
                     attachment_name = match msgtype {
-                        MessageType::Video(v) => Some(v.filename().to_owned()),
-                        MessageType::Audio(a) => Some(a.filename().to_owned()),
-                        MessageType::File(f) => Some(f.filename().to_owned()),
+                        MessageType::Video(v) => Some(crate::history::proposed_name(v.filename())),
+                        MessageType::Audio(a) => Some(crate::history::proposed_name(a.filename())),
+                        MessageType::File(f) => Some(crate::history::proposed_name(f.filename())),
                         _ => None,
                     };
                     video = match msgtype {
@@ -1608,6 +1608,7 @@ async fn status_row(
         thread: None,
         thread_root: None,
         status: true,
+        attachment_name: None,
     })
 }
 

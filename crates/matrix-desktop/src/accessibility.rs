@@ -325,10 +325,7 @@ impl HistoryNodes {
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 6)),
                     play_bounds: None,
-                    save: (event.attachment_name.is_some()
-                        && !event.redacted
-                        && event.send_state.is_none()
-                        && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
+                    save: crate::offers_save(event, true)
                     .then_some(NodeId(id.0 + 7)),
                     save_bounds: None,
                     bounds: None,

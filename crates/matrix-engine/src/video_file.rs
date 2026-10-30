@@ -254,15 +254,12 @@ async fn save_source(
     tag: &RequestTag,
 ) -> Result<(), MediaError> {
     let bytes = fetch_bytes(client, source, max_bytes, tag, |_| ()).await?;
-    let mut part = dest.as_os_str().to_owned();
-    part.push(".part");
-    let (part, dest) = (PathBuf::from(part), dest.to_owned());
+    // Straight into the chosen file: the macOS sandbox grants no sibling files.
+    let dest = dest.to_owned();
     tokio::task::spawn_blocking(move || {
-        std::fs::write(&part, bytes)
-            .and_then(|()| std::fs::rename(&part, dest))
-            .inspect_err(|_| {
-                let _ = std::fs::remove_file(&part);
-            })
+        std::fs::write(&dest, bytes).inspect_err(|_| {
+            let _ = std::fs::remove_file(&dest);
+        })
     })
     .await
     .map_err(|_| MediaError::Failed)?
