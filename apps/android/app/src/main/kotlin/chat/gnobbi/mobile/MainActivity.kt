@@ -33,9 +33,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         session = Session(applicationContext)
-        // Extra CA for the disposable test servers, and (debug builds) credentials, arrive as intent extras.
-        val ca = intent.getStringExtra("ca_b64")?.let { String(Base64.decode(it, Base64.DEFAULT)) }
+        // Extra CA for the disposable test servers and credentials (debug builds only) arrive as intent extras.
         val debug = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+        val ca = if (debug) intent.getStringExtra("ca_b64")?.let { String(Base64.decode(it, Base64.DEFAULT)) } else null
         val login = if (debug) Triple(intent.getStringExtra("homeserver"), intent.getStringExtra("user"), intent.getStringExtra("password")) else null
         val autoSend = if (debug) intent.getStringExtra("send") else null
         setContent {

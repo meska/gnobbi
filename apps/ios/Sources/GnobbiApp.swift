@@ -10,19 +10,20 @@ struct GnobbiApp: App {
     }
 }
 
-/// Test servers are reached through an extra CA and, in debug runs only, credentials from the environment.
+/// In debug builds only, test servers are reached through an extra CA and credentials from the environment.
 enum TestEnv {
     static var env: [String: String] { ProcessInfo.processInfo.environment }
+    #if DEBUG
     static var caPem: String? {
         env["GNOBBI_TEST_CA"].flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }
     }
-    #if DEBUG
     static var login: (String, String, String)? {
         guard let h = env["GNOBBI_TEST_HOMESERVER"], let u = env["GNOBBI_TEST_USER"], let p = env["GNOBBI_TEST_PASSWORD"] else { return nil }
         return (h, u, p)
     }
     static var autoSend: String? { env["GNOBBI_TEST_SEND"] }
     #else
+    static var caPem: String? { nil }
     static var login: (String, String, String)? { nil }
     static var autoSend: String? { nil }
     #endif

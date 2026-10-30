@@ -21,7 +21,7 @@ CODE_SIGNING_REQUIRED=NO build` and `apps/ios/run-sim.sh <label>`.
 
 Android: `apps/android/stage.sh && (cd apps/android && ./gradlew assembleDebug)` and `apps/android/run-emulator.sh <label>`.
 
-Test servers use a private CA: both apps accept it from `GNOBBI_TEST_CA` (iOS env) / the `ca_b64` intent extra (Android).
+Test servers use a private CA: both apps accept it in debug builds only, from `GNOBBI_TEST_CA` (iOS env) / the `ca_b64` intent extra (Android).
 Debug builds also take `GNOBBI_TEST_HOMESERVER/USER/PASSWORD/SEND` (iOS env) or the `homeserver/user/password/send`
 extras (Android) to sign in and send once without typing; release builds ignore them.
 
