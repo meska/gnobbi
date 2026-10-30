@@ -78,6 +78,8 @@ pub struct HistoryEvent {
     pub styles: Vec<crate::rich_text::StyleSpan>,
     /// Set on the root of a thread.
     pub thread: Option<ThreadInfo>,
+    /// Set on a reply inside a thread: the thread's root.
+    pub thread_root: Option<EventId>,
 }
 
 /// The summary under a thread root, as the Timeline keeps it (live).

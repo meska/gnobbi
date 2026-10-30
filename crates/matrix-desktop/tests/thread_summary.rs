@@ -15,6 +15,7 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
             num_replies,
             latest_sender: Some(HistorySender::new(latest, None)),
         }),
+        thread_root: None,
     }
 }
 

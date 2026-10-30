@@ -495,6 +495,10 @@ impl RoomListWorker {
                                     let result = crate::threads::open_scoped(&operation_client, &operation_timelines, account, &scope, &root, want).await;
                                     OperationResult::Thread { scope, root, result }
                                 }
+                                OperationCommand::ThreadSend { scope, root, reply_to, body } => {
+                                    let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body).await;
+                                    OperationResult::ThreadSent { scope, root, result }
+                                }
                                 OperationCommand::SetMuted { scope, muted } => {
                                     let result = crate::notify::set_muted(&operation_client, account, &scope, muted).await;
                                     OperationResult::RoomMarked { scope, result }
@@ -873,6 +877,18 @@ impl RoomSync {
     ) -> Result<crate::threads::ThreadPage, crate::history::HistoryError> {
         let room = self.thread_room(scope)?;
         crate::threads::open(&self.timelines, &room, root, want).await
+    }
+
+    /// A text into a thread (plain, or a reply to one of its events); waits for the server.
+    pub async fn send_in_thread(
+        &self,
+        scope: &RoomScope,
+        root: &matrix_domain::EventId,
+        reply_to: Option<&matrix_domain::EventId>,
+        body: &str,
+    ) -> Result<matrix_domain::EventId, crate::operations::OperationError> {
+        let client = self.session.client.as_ref().ok_or(crate::operations::OperationError::Unavailable)?;
+        crate::threads::send_scoped(client, &self.timelines, self.session.account_id(), scope, root, reply_to, body).await
     }
 
     /// The room's threads, newest activity first (one `ThreadListService` page).
@@ -1426,6 +1442,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             video,
             styles,
             thread: thread_info(room, content).await,
+            thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
         });
     }
     out

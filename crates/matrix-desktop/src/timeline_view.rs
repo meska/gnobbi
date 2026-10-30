@@ -985,11 +985,15 @@ impl TimelineView {
             .collect()
     }
 
-    /// The row of a thread root as the room timeline holds it, with its reply count.
-    pub(crate) fn thread_root(&self, id: &matrix_domain::EventId) -> Option<(crate::thread_view::ThreadRow, u32)> {
+    /// The thread an event belongs to: its root (the event itself when it is no reply), the root's
+    /// row as the room timeline holds it (empty when not loaded) and the reply count.
+    pub(crate) fn thread_target(&self, id: &matrix_domain::EventId) -> Option<(matrix_domain::EventId, crate::thread_view::ThreadRow, u32)> {
         let history = self.history.borrow();
-        let row = history.row(id)?;
-        Some((crate::thread_view::ThreadRow::from_row(row), row.thread.as_ref().map_or(0, |t| t.num_replies)))
+        let root = history.row(id)?.thread_root.clone().unwrap_or_else(|| id.clone());
+        Some(match history.row(&root) {
+            Some(row) => (root, crate::thread_view::ThreadRow::from_row(row), row.thread.as_ref().map_or(0, |t| t.num_replies)),
+            None => (root, crate::thread_view::ThreadRow::default(), 0),
+        })
     }
 
     pub fn first_visible_row(&self) -> usize {
@@ -2291,6 +2295,7 @@ mod tests {
                             video: None,
                             styles: Vec::new(),
                             thread: None,
+                            thread_root: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2427,6 +2432,7 @@ mod tests {
                             video: None,
                             styles: Vec::new(),
                             thread: None,
+                            thread_root: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2544,6 +2550,7 @@ mod tests {
                             }),
                             styles: Vec::new(),
                             thread: None,
+                            thread_root: None,
                         }]);
                         if thumbnail {
                             let buffer =

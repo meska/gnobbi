@@ -649,6 +649,9 @@ impl Shell {
         self.theme = theme;
         self.composer
             .update(cx, |editor, cx| editor.set_theme(theme.tokens(), cx));
+        if let Some(c) = self.thread.as_ref().and_then(|p| p.composer.clone()) {
+            c.update(cx, |editor, cx| editor.set_theme(theme.tokens(), cx));
+        }
         cx.notify();
     }
 
@@ -1219,7 +1222,8 @@ impl Shell {
             }
             return;
         }
-        if self.composer.read(cx).is_focused(window) && !(key.modifiers.control && key.key == "f") {
+        let in_thread = self.thread.as_ref().and_then(|p| p.composer.as_ref()).is_some_and(|c| c.read(cx).is_focused(window));
+        if (in_thread || self.composer.read(cx).is_focused(window)) && !(key.modifiers.control && key.key == "f") {
             return;
         }
         if key.modifiers.control && matches!(key.key.as_str(), "home" | "end") {
@@ -1391,6 +1395,11 @@ impl Shell {
                             members: Err(OperationError::Unavailable),
                             upload_limit: None,
                         },
+                        OperationCommand::ThreadSend { scope, root, .. } => OperationResult::ThreadSent {
+                            scope,
+                            root,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::Thread { scope, root, .. } => OperationResult::Thread {
                             scope,
                             root,
@@ -1461,6 +1470,7 @@ impl Shell {
         } else {
             vec![
                 ("reply", "Rispondi", permissions.reply && !busy),
+                ("thread", "Rispondi nel thread", permissions.reply && !busy),
                 ("edit", "Modifica", permissions.edit && !busy),
                 ("redact", "Elimina", permissions.redact && !busy),
                 ("react", "+1 / togli", permissions.react && !busy),
@@ -1497,6 +1507,13 @@ impl Shell {
                             },
                             "cancel-redact" => this.confirm_redaction = None,
                             "retry" => { this.operations.borrow_mut().retry(); },
+                            "thread" => {
+                                let target = this.operations.borrow().selection().map(|s| s.id.clone());
+                                if let Some(matrix_domain::TimelineId::Server(id)) = target {
+                                    this.operations.borrow_mut().clear_selection();
+                                    this.open_thread(&id, Some(_window), cx);
+                                }
+                            },
                             _ => {
                                 #[cfg(feature="live")]
                                 {
@@ -2556,6 +2573,10 @@ fn main() {
                                                         }
                                                     });
                                                 }
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::ThreadSent { scope, root, result } = result {
+                                                this.thread_sent(scope, root, result, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::Thread { scope, root, result } = result {

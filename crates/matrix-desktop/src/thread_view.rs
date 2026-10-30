@@ -1,5 +1,6 @@
-//! Read-only side panel of one thread: the root, then its replies, oldest first.
-//! The engine answers each request with a snapshot of the SDK thread timeline.
+//! Side panel of one thread: the root, then its replies, oldest first, and a composer.
+//! The engine answers each request with a snapshot of the SDK thread timeline; a text sent from
+//! the composer waits as a local line until the snapshot holds the event the server confirmed.
 use crate::*;
 use gpui::ScrollHandle;
 use matrix_domain::{EventId, RoomScope};
@@ -12,7 +13,9 @@ use matrix_engine::{
 /// Replies asked for at the first read and added by each older page.
 const STEP: usize = 25;
 
+#[derive(Default)]
 pub(crate) struct ThreadRow {
+    id: Option<EventId>,
     who: String,
     text: String,
     time: String,
@@ -23,7 +26,7 @@ impl ThreadRow {
         let who = if e.outgoing { "Tu".to_owned() } else { e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone()) };
         let text = if matrix_engine::history::is_image_body(&e.body) { "Immagine".to_owned() } else { e.body.clone() };
         let ms = e.timestamp_ms;
-        Self { who, text, time: format!("{:02}:{:02} UTC", ms / 3_600_000 % 24, ms / 60_000 % 60) }
+        Self { id: Some(e.event_id.clone()), who, text, time: format!("{:02}:{:02} UTC", ms / 3_600_000 % 24, ms / 60_000 % 60) }
     }
 
     pub(crate) fn from_row(row: &matrix_desktop::DemoEvent) -> Self {
@@ -32,11 +35,36 @@ impl ThreadRow {
             _ => "Tu".to_owned(),
         };
         let text = if matrix_engine::history::is_image_body(&row.text) { "Immagine".to_owned() } else { row.text.clone() };
-        Self { who, text, time: row.time.clone() }
+        let id = match &row.id.id {
+            matrix_domain::TimelineId::Server(id) => Some(id.clone()),
+            _ => None,
+        };
+        Self { id, who, text, time: row.time.clone() }
     }
 }
 
+enum Delivery {
+    Queued,
+    InFlight,
+    /// The server has it under this ID; the line goes once a snapshot holds that event.
+    Confirmed(EventId, std::time::Instant),
+    Failed,
+}
+
+struct Outgoing {
+    body: String,
+    reply_to: Option<EventId>,
+    delivery: Delivery,
+}
+
+/// How long a confirmed line waits for its event to show up in a snapshot (a server hole may never).
+const CONFIRMED_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
+
 pub(crate) struct ThreadPanel {
+    pub(crate) composer: Option<gpui::Entity<ComposerView>>,
+    /// The event the next text answers (`send_reply`), with a one-line label for the bar.
+    reply_to: Option<(EventId, String)>,
+    outgoing: Vec<Outgoing>,
     scope: RoomScope,
     root: EventId,
     /// The room timeline's row, shown whenever the thread read does not carry the root.
@@ -62,6 +90,7 @@ pub(crate) struct ThreadPanel {
 impl ThreadPanel {
     pub(crate) fn new(scope: RoomScope, root: EventId, root_row: ThreadRow, total: u32) -> Self {
         Self {
+            composer: None, reply_to: None, outgoing: Vec::new(),
             scope, root, root_row, replies: Vec::new(), total, want: STEP, pending: false, dirty: true,
             loaded_at: None, failed: false, stalled: false, at_start: false, growing: None, anchor: None,
             stick_bottom: true, scroll: ScrollHandle::new(),
@@ -94,6 +123,8 @@ impl ThreadPanel {
             }
         }
         self.replies = page.replies.iter().map(ThreadRow::from_event).collect();
+        let shown = |id: &EventId, since: &std::time::Instant| self.replies.iter().any(|r| r.id.as_ref() == Some(id)) || since.elapsed() > CONFIRMED_GRACE;
+        self.outgoing.retain(|o| !matches!(&o.delivery, Delivery::Confirmed(id, since) if shown(id, since)));
         self.at_start = page.at_start;
         self.total = self.total.max(self.replies.len() as u32);
         if let Some(asked) = self.growing.take() {
@@ -121,13 +152,54 @@ impl Shell {
         self.thread = None;
     }
 
+    /// Open the panel on the thread `id` belongs to; the composer is ready for the first text.
+    pub(crate) fn open_thread(&mut self, id: &EventId, window: Option<&mut Window>, cx: &mut Context<Self>) {
+        let Some((root, row, total)) = self.timeline.as_ref().and_then(|t| t.thread_target(id)) else { return };
+        let tokens = self.theme.tokens();
+        let scope = self.active_scope.clone();
+        let composer = cx.new(|cx| {
+            let mut editor = ComposerView::new(scope.clone(), cx);
+            editor.set_theme(tokens, cx);
+            editor.set_text_only();
+            editor
+        });
+        cx.subscribe(&composer, |this: &mut Shell, _, sent: &Submitted, cx| {
+            if let Some(p) = &mut this.thread {
+                let reply_to = p.reply_to.take().map(|(id, _)| id);
+                p.outgoing.push(Outgoing { body: sent.0.clone(), reply_to, delivery: Delivery::Queued });
+                p.stick_bottom = true;
+                cx.notify();
+            }
+        })
+        .detach();
+        if let Some(window) = window {
+            composer.update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
+        }
+        let mut panel = ThreadPanel::new(scope, root, row, total);
+        panel.composer = Some(composer);
+        self.thread = Some(panel);
+        cx.notify();
+    }
+
+    pub(crate) fn thread_sent(&mut self, scope: RoomScope, root: EventId, result: Result<EventId, OperationError>, cx: &mut Context<Self>) {
+        if let Some(p) = &mut self.thread
+            && p.scope == scope
+            && p.root == root
+            && let Some(o) = p.outgoing.iter_mut().find(|o| matches!(o.delivery, Delivery::InFlight))
+        {
+            o.delivery = match result {
+                Ok(id) => Delivery::Confirmed(id, std::time::Instant::now()),
+                Err(_) => Delivery::Failed,
+            };
+            p.dirty = true;
+            cx.notify();
+        }
+    }
+
     /// One tick: open on a click on a summary, read when asked, load older at the top.
     pub(crate) fn drive_thread(&mut self, cx: &mut Context<Self>) {
-        if let Some(id) = self.timeline.as_ref().and_then(|t| t.want_thread.borrow_mut().take())
-            && let Some((row, total)) = self.timeline.as_ref().and_then(|t| t.thread_root(&id))
-        {
-            self.thread = Some(ThreadPanel::new(self.active_scope.clone(), id, row, total));
-            cx.notify();
+        if let Some(id) = self.timeline.as_ref().and_then(|t| t.want_thread.borrow_mut().take()) {
+            self.open_thread(&id, None, cx);
         }
         let Some(p) = &mut self.thread else { return };
         if p.scope != self.active_scope {
@@ -150,6 +222,19 @@ impl Shell {
             p.growing = Some(p.replies.len());
             p.want += STEP;
             p.dirty = true;
+        }
+        // One text at a time: the engine answers in order.
+        if !p.outgoing.iter().any(|o| matches!(o.delivery, Delivery::InFlight))
+            && let Some(o) = p.outgoing.iter_mut().find(|o| matches!(o.delivery, Delivery::Queued))
+            && let Some((sender, _)) = &mut self.routes.operation
+        {
+            let command = OperationCommand::ThreadSend { scope: p.scope.clone(), root: p.root.clone(), reply_to: o.reply_to.clone(), body: o.body.clone() };
+            o.delivery = match sender.try_send(command) {
+                Ok(()) => Delivery::InFlight,
+                Err(TrySendError::Closed(_)) => Delivery::Failed,
+                Err(_) => Delivery::Queued,
+            };
+            cx.notify();
         }
         if p.dirty
             && !p.pending
@@ -178,6 +263,20 @@ impl Shell {
                     .child(r.time.clone()))
                 .child(div().child(r.text.clone()))
         };
+        let answer = |index: usize, r: &ThreadRow, cx: &mut Context<Self>| {
+            let target = r.id.clone()?;
+            let label = format!("{}: {}", r.who, matrix_desktop::row_text::one_line(&r.text));
+            Some(div().id(("thread-reply", index)).cursor_pointer().text_size(px(12.)).text_color(rgb(t.accent)).child("Rispondi")
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if let Some(p) = &mut this.thread {
+                        p.reply_to = Some((target.clone(), label.clone()));
+                        if let Some(c) = &p.composer {
+                            c.update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
+                        }
+                        cx.notify();
+                    }
+                })))
+        };
         let status = if p.failed { Some("Impossibile caricare · riprova più tardi") } else if p.pending && p.replies.is_empty() { Some("Caricamento…") } else { None };
         // Wide window: a column next to the chat. Narrow: a sheet over it (as the room sheet).
         let docked = window.viewport_size().width >= px(800.);
@@ -194,7 +293,27 @@ impl Shell {
                 .child(row(&p.root_row))
                 .child(div().h(px(1.)).w_full().bg(rgb(t.border)))
                 .children(status.map(|s| div().text_size(px(12.)).text_color(rgb(t.accent)).child(s)))
-                .children(p.replies.iter().map(row)));
+                .children(p.replies.iter().enumerate().map(|(i, r)| row(r).children(answer(i, r, cx))))
+                .children(p.outgoing.iter().enumerate().map(|(i, o)| {
+                    let failed = matches!(o.delivery, Delivery::Failed);
+                    div().id(("thread-outgoing", i)).flex().flex_col().gap_1().text_color(rgb(t.secondary))
+                        .child(div().text_size(px(12.)).child(if failed { "Non inviato · tocca per riprovare" } else { "Invio…" }))
+                        .child(div().child(o.body.clone()))
+                        .when(failed, |d| d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(o) = this.thread.as_mut().and_then(|p| p.outgoing.get_mut(i)) {
+                                o.delivery = Delivery::Queued;
+                                cx.notify();
+                            }
+                        })))
+                })))
+            .children(p.reply_to.as_ref().map(|(_, label)| div().flex_shrink_0().px_4().py_1().flex().items_center().justify_between().border_t_1().border_color(rgb(t.border)).text_size(px(12.)).text_color(rgb(t.secondary))
+                .child(div().min_w_0().overflow_hidden().child(label.clone()))
+                .child(div().id("thread-reply-clear").cursor_pointer().px_2().child("×")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(p) = &mut this.thread { p.reply_to = None; }
+                        cx.notify();
+                    })))))
+            .children(p.composer.clone());
         if docked { panel.into_any_element() } else { gpui::deferred(panel).with_priority(1).into_any_element() }
     }
 }
@@ -215,6 +334,7 @@ mod tests {
             video: None,
             styles: Vec::new(),
             thread: None,
+            thread_root: None,
         }
     }
 
@@ -224,7 +344,7 @@ mod tests {
 
     fn panel(total: u32) -> ThreadPanel {
         let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:t") };
-        let root = ThreadRow { who: "x".into(), text: "radice".into(), time: String::new() };
+        let root = ThreadRow { who: "x".into(), text: "radice".into(), ..Default::default() };
         ThreadPanel::new(scope, EventId::new("$root"), root, total)
     }
 
@@ -255,5 +375,23 @@ mod tests {
         p.apply(Err(OperationError::Transport));
         assert!(p.failed);
         assert_eq!(p.replies.len(), 2);
+    }
+
+    #[test]
+    fn a_confirmed_text_shows_once_and_leaves_when_the_snapshot_holds_its_event() {
+        let mut p = panel(3);
+        p.outgoing.push(Outgoing { body: "ciao".into(), reply_to: None, delivery: Delivery::Confirmed(EventId::new("$r2"), std::time::Instant::now()) });
+        p.apply(Ok(page(1)));
+        assert_eq!(p.outgoing.len(), 1, "the event is not in the snapshot yet: the local line stays");
+        p.apply(Ok(page(2)));
+        assert!(p.outgoing.is_empty(), "the snapshot has it: only the real row is left");
+    }
+
+    #[test]
+    fn a_failed_text_stays_for_a_retry() {
+        let mut p = panel(3);
+        p.outgoing.push(Outgoing { body: "ciao".into(), reply_to: None, delivery: Delivery::Failed });
+        p.apply(Ok(page(2)));
+        assert_eq!(p.outgoing.len(), 1);
     }
 }

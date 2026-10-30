@@ -226,6 +226,7 @@ impl LiveOperations {
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
             | OperationResult::Thread { .. }
+            | OperationResult::ThreadSent { .. }
             | OperationResult::Members { .. } => false,
             OperationResult::Inspected {
                 tag,

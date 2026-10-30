@@ -16,7 +16,7 @@ fn event(id: &str) -> HistoryEvent {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
     }
 }
 fn page(

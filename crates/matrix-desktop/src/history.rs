@@ -44,6 +44,8 @@ pub struct DemoEvent {
     pub video: Option<VideoFacts>,
     /// Set on a thread root: replies count and who wrote the latest one.
     pub thread: Option<matrix_engine::history::ThreadInfo>,
+    /// Set on a reply inside a thread: the thread's root.
+    pub thread_root: Option<matrix_domain::EventId>,
 }
 
 impl DemoEvent {
@@ -148,6 +150,7 @@ impl DemoHistory {
                     timestamp_ms: index as u64 * 60_000,
                     styles: Vec::new(),
                     thread: None,
+                    thread_root: None,
                     video: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
@@ -221,6 +224,7 @@ impl DemoHistory {
             timestamp_ms: 0,
             styles: Vec::new(),
             thread: None,
+            thread_root: None,
             video: None,
         });
     }
@@ -314,6 +318,7 @@ impl DemoHistory {
                 timestamp_ms: event.timestamp_ms,
                 styles: event.styles,
                 thread: event.thread,
+                thread_root: event.thread_root,
                 video: event.video.map(|v| VideoFacts {
                     duration: v.duration_ms.map(matrix_engine::history::duration_label),
                     size: v.size.map(matrix_engine::history::human_size),
@@ -395,6 +400,7 @@ impl DemoHistory {
                     timestamp_ms: 0,
                     styles: Vec::new(),
                     thread: None,
+                    thread_root: None,
                     video: None,
                 });
             }
@@ -474,6 +480,7 @@ impl DemoHistory {
                     timestamp_ms: 0,
                     styles: Vec::new(),
                     thread: None,
+                    thread_root: None,
                     video: None,
                 });
             }

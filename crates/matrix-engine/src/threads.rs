@@ -64,6 +64,50 @@ pub(crate) async fn open_scoped(
     })
 }
 
+/// A text into the thread's own `Timeline`: the SDK adds `m.thread` (and the fallback) itself, and
+/// `send_reply` points at the event answered. Returns once the server has the event.
+pub(crate) async fn send_scoped(
+    client: &matrix_sdk::Client,
+    timelines: &Timelines,
+    account: matrix_domain::AccountId,
+    scope: &matrix_domain::RoomScope,
+    root: &EventId,
+    reply_to: Option<&EventId>,
+    body: &str,
+) -> Result<EventId, crate::operations::OperationError> {
+    use crate::operations::OperationError as E;
+    use matrix_sdk::ruma::{EventId as Ruma, RoomId};
+    if scope.account_id != account {
+        return Err(E::WrongScope);
+    }
+    if body.trim().is_empty() || body.len() > 32768 {
+        return Err(E::InvalidInput);
+    }
+    let room_id = RoomId::parse(scope.room_id.as_str()).map_err(|_| E::WrongScope)?;
+    let root_id = Ruma::parse(root.as_str()).map_err(|_| E::InvalidInput)?;
+    let reply = reply_to.map(|r| Ruma::parse(r.as_str()).map_err(|_| E::InvalidInput)).transpose()?;
+    let room = client
+        .get_room(&room_id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(E::Unavailable)?;
+    let timeline = timelines.thread(&room, &root_id).await.map_err(|_| E::Unavailable)?;
+    let content = crate::sending::markdown_content(body, &[]);
+    let mut updates = client.send_queue().subscribe();
+    match &reply {
+        Some(target) => timeline.send_reply(content.into(), target.clone()).await.map(drop),
+        None => timeline.send(content.into()).await.map(drop),
+    }
+    // The target must be in the thread's timeline: a hole (Tuwunel) makes the SDK refuse.
+    .map_err(|_| if reply.is_some() { E::Unavailable } else { E::Transport })?;
+    crate::operations::sent_event(&mut updates, &room, |e| {
+        let r = &e["content"]["m.relates_to"];
+        r["rel_type"] == "m.thread"
+            && r["event_id"].as_str() == Some(root_id.as_str())
+            && reply.as_ref().is_none_or(|t| r["m.in_reply_to"]["event_id"].as_str() == Some(t.as_str()))
+    })
+    .await
+}
+
 fn body(event: &ThreadListItemEvent) -> Option<String> {
     event.content.as_ref()?.as_message().map(|m| m.body().to_owned())
 }

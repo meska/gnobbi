@@ -84,6 +84,13 @@ pub enum OperationCommand {
         root: EventId,
         want: usize,
     },
+    /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
+    ThreadSend {
+        scope: RoomScope,
+        root: EventId,
+        reply_to: Option<EventId>,
+        body: String,
+    },
 }
 /// One explicit change of the personal groups. `tag` is the full tag name (`m.favourite`,
 /// `m.lowpriority` or `u.<name>`); a group exists as long as one room carries its tag.
@@ -96,6 +103,12 @@ pub enum TagEdit {
     Delete { tag: String },
 }
 pub enum OperationResult {
+    /// The server accepted the text; `Ok` carries the new event's ID.
+    ThreadSent {
+        scope: RoomScope,
+        root: EventId,
+        result: Result<EventId, OperationError>,
+    },
     Thread {
         scope: RoomScope,
         root: EventId,
@@ -659,7 +672,7 @@ pub(crate) async fn perform(
 /// The id of the next event the send queue reports as sent that satisfies `want` (read back from
 /// the server: the queue chooses its own transaction ids).
 #[cfg(feature = "sdk")]
-async fn sent_event(
+pub(crate) async fn sent_event(
     updates: &mut tokio::sync::broadcast::Receiver<matrix_sdk::send_queue::SendQueueUpdate>,
     room: &matrix_sdk::Room,
     want: impl Fn(&serde_json::Value) -> bool,

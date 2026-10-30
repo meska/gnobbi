@@ -21,7 +21,7 @@ fn server_message_exposes_its_event_id_and_unsent_one_does_not() {
         sender: HistorySender::new("@a:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
     }]);
     assert_eq!(rows.events()[0].debug_id(), Some("$abc:test"));
     let mut local = DemoHistory::new(scope(), 0);
