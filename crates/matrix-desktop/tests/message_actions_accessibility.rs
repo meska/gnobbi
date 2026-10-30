@@ -261,6 +261,8 @@ fn an_attachment_has_a_scarica_button_a_text_row_has_none() {
         video: None,
         styles: Vec::new(),
         thread: None,
+        thread_root: None,
+        status: false,
         attachment_name: name.map(Into::into),
     };
     history.prepend_server(vec![event("$text:test", None), event("$file:test", Some("a.pdf"))]);
