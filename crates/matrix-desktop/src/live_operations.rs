@@ -221,6 +221,7 @@ impl LiveOperations {
             OperationResult::RoomMarked { .. }
             | OperationResult::TagsEdited { .. }
             | OperationResult::RoomStarted { .. }
+            | OperationResult::RoomEdited { .. }
             | OperationResult::InviteAnswered { .. }
             | OperationResult::DirectoryFound { .. }
             | OperationResult::RoomLeft { .. }

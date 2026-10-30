@@ -56,6 +56,13 @@ pub enum OperationCommand {
         topic: Option<String>,
         public: bool,
     },
+    /// «Modifica stanza»: only the parts that changed; avatar is an image file read here.
+    EditRoom {
+        scope: RoomScope,
+        name: Option<String>,
+        topic: Option<String>,
+        avatar: Option<std::path::PathBuf>,
+    },
     /// Join by alias (`#a:server`) or room ID (`!id:server`), typed or taken from the directory.
     JoinRoom {
         target: String,
@@ -140,6 +147,9 @@ pub enum OperationResult {
     InviteAnswered {
         scope: RoomScope,
         accept: bool,
+        result: Result<(), OperationError>,
+    },
+    RoomEdited {
         result: Result<(), OperationError>,
     },
     Members {
@@ -476,6 +486,55 @@ pub async fn leave_room(
         .map_err(|e| classify(&e))?;
     let _ = tokio::time::timeout(std::time::Duration::from_secs(10), room.forget()).await;
     Ok(())
+}
+
+/// Name, topic and avatar through the SDK state-event setters; the server decides on permissions.
+#[cfg(feature = "sdk")]
+pub async fn edit_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    name: Option<&str>,
+    topic: Option<&str>,
+    avatar: Option<&std::path::Path>,
+) -> Result<(), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(OperationError::Unavailable)?;
+    let name = name.map(str::trim);
+    if name == Some("") {
+        return Err(OperationError::InvalidInput);
+    }
+    if let Some(name) = name {
+        within(room.set_name(name.to_owned())).await?;
+    }
+    if let Some(topic) = topic {
+        within(room.set_room_topic(topic.trim())).await?;
+    }
+    if let Some(path) = avatar {
+        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        if mime.type_() != mime_guess::mime::IMAGE {
+            return Err(OperationError::InvalidInput);
+        }
+        let data = tokio::fs::read(path).await.map_err(|_| OperationError::InvalidInput)?;
+        within(room.upload_avatar(&mime, data, None)).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sdk")]
+async fn within<T>(call: impl std::future::Future<Output = matrix_sdk::Result<T>>) -> Result<(), OperationError> {
+    tokio::time::timeout(std::time::Duration::from_secs(20), call)
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map(drop)
+        .map_err(|e| classify(&e))
 }
 
 /// Private rooms are born encrypted (like the SDK's DMs); public ones are not.

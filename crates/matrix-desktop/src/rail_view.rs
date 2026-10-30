@@ -535,6 +535,7 @@ impl Shell {
             .h(px(40.))
             .flex_shrink_0()
             .flex()
+            .flex_col()
             .items_center()
             .justify_center()
             .border_2()
@@ -543,6 +544,7 @@ impl Shell {
             .text_color(rgb(t.accent))
             .text_size(px(12.))
             .cursor_pointer()
+            .child(div().text_size(px(14.)).line_height(px(14.)).child("✎"))
             .child("Modifica")
             .on_click(cx.listener(|this, _, window, cx| {
                 this.rail_ui.edit_open = !this.rail_ui.edit_open;

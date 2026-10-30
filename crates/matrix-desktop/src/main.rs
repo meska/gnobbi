@@ -15,6 +15,7 @@ mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
 mod new_room_view;
+mod room_edit_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 mod operation_panel_view;
@@ -65,6 +66,7 @@ struct Shell {
     drawer_focus: FocusHandle,
     settings_open: bool,
     new_room: Option<new_room_view::NewRoom>,
+    room_edit: Option<room_edit_view::RoomEdit>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
     groups_edit: Option<groups_edit_view::GroupsEdit>,
@@ -1384,6 +1386,9 @@ impl Shell {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::EditRoom { .. } => OperationResult::RoomEdited {
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::AnswerInvite { scope, accept } => {
                             OperationResult::InviteAnswered {
                                 scope,
@@ -2096,6 +2101,7 @@ impl Render for Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
+            .children(self.render_room_edit(t, window, cx))
             .children(self.render_groups_edit(t, cx))
             .into_any_element()
     }
@@ -2539,6 +2545,10 @@ fn main() {
                                                 this.groups_edited(result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::RoomEdited { result } = result {
+                                                this.room_edited(result, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::DirectoryFound { result } = result {
                                                 this.directory_found(result, cx);
                                                 continue;
@@ -2776,6 +2786,7 @@ fn main() {
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
                         new_room: None,
+                        room_edit: None,
                         pending_open: None,
                         groups_edit: None,
                         refocus_menu: false,

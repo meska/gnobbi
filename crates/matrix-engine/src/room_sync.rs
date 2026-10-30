@@ -459,6 +459,18 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
+                                OperationCommand::EditRoom { scope, name, topic, avatar } => {
+                                    let result = crate::operations::edit_room(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                        name.as_deref(),
+                                        topic.as_deref(),
+                                        avatar.as_deref(),
+                                    )
+                                    .await;
+                                    OperationResult::RoomEdited { result }
+                                }
                                 OperationCommand::CreateRoom { name, topic, public } => {
                                     let result = crate::operations::create_room(
                                         &operation_client,

@@ -3,7 +3,7 @@
 #![cfg(feature = "sdk")]
 use matrix_domain::AccountId;
 use matrix_engine::{
-    operations::{OperationError, create_room, start_dm},
+    operations::{OperationError, create_room, edit_room, start_dm},
     sdk::{Client, reqwest::Certificate, sliding_sync::VersionBuilder},
     sdk_ui::sync_service::SyncService,
 };
@@ -158,6 +158,33 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
             .await
             .unwrap();
         assert!(dup.room_id != private.room_id);
+
+        // «Modifica stanza»: B (plain member of the public room) is refused, A (creator) changes
+        // name, topic and avatar through the SDK setters.
+        let r = edit_room(&b, AccountId::new(1), &public, Some("hijack"), None, None).await;
+        assert!(matches!(r, Err(OperationError::Forbidden)), "member edit: {r:?}");
+        assert!(matches!(
+            edit_room(&a, account, &public, Some("  "), None, None).await,
+            Err(OperationError::InvalidInput)
+        ));
+        const PNG: &[u8] = &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 1, 0, 0, 0, 1,
+            8, 6, 0, 0, 0, 0x1f, 0x15, 0xc4, 0x89, 0, 0, 0, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xff,
+            0xff, 0x3f, 0, 5, 0xfe, 2, 0xfe, 0xa7, 0x35, 0x81, 0x84, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42,
+            0x60, 0x82,
+        ];
+        let file = std::env::temp_dir().join("gnobbi-test-avatar.png");
+        std::fs::write(&file, PNG).unwrap();
+        edit_room(&a, account, &public, Some("gnobbi-test-renamed"), Some("new topic"), Some(&file))
+            .await
+            .unwrap();
+        let own = a.get_room(&public_id).unwrap();
+        until("A sees the new name, topic and avatar", || {
+            own.name().as_deref() == Some("gnobbi-test-renamed")
+                && own.topic().as_deref() == Some("new topic")
+                && own.avatar_url().is_some()
+        })
+        .await;
 
         // B declines the DM invite; A asks for the chat again.
         invited.leave().await.unwrap();

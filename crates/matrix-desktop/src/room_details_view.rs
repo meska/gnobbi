@@ -367,6 +367,16 @@ impl Shell {
                                     ));
                                 }
                             })),
+                    )
+                    .child(
+                        div()
+                            .id("room-edit-open")
+                            .cursor_pointer()
+                            .text_color(rgb(t.accent))
+                            .child("Modifica")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_room_edit(window, cx)
+                            })),
                     ))
                     .child(self.render_people(cx)),
             )
