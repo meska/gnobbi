@@ -20,6 +20,7 @@ impl Shell {
                 name: room.name.clone(),
                 info: room.info.clone(),
                 people: self.people_labels(),
+                back: self.profile.is_some(),
                 focus: self.details_focus,
                 bounds: self.a11y_details_bounds,
             }))
@@ -49,6 +50,8 @@ impl Shell {
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
+            DetailsAction::Profile { user_id, .. } => self.open_profile(user_id, cx),
+            DetailsAction::Members(_) => self.profile = None,
             DetailsAction::Copy(scope) => {
                 self.details_focus = matrix_desktop::accessibility::details::DetailsControl::Copy;
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(

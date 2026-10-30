@@ -17,7 +17,7 @@ fn initial(name: &str) -> String {
 
 impl Shell {
     /// Row click: ask the engine for the profile; a click while another command waits is ignored.
-    fn open_profile(&mut self, user_id: String, cx: &mut Context<Self>) {
+    pub(crate) fn open_profile(&mut self, user_id: String, cx: &mut Context<Self>) {
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = Some(OperationCommand::Profile {
                 user_id: user_id.clone(),
@@ -57,14 +57,14 @@ impl Shell {
 
     /// Screen-reader labels of what the sheet lists below the room data.
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    pub(crate) fn people_labels(&self) -> Vec<String> {
+    pub(crate) fn people_labels(&self) -> Vec<(String, Option<String>)> {
         match &self.profile {
-            Some(ProfileState::Loaded(p)) => vec![format!("Profilo: {}, {}", p.name, p.user_id)],
+            Some(ProfileState::Loaded(p)) => vec![(format!("Profilo: {}, {}", p.name, p.user_id), None)],
             Some(_) => Vec::new(),
             None => self
                 .room_members
                 .iter()
-                .map(|m| format!("Membro: {}, {}", m.name, m.user_id))
+                .map(|m| (format!("Membro: {}, {}", m.name, m.user_id), Some(m.user_id.clone())))
                 .collect(),
         }
     }
