@@ -404,7 +404,12 @@ fn disposable_thread_replies_leave_the_main_timeline() {
         let root_id = matrix_domain::EventId::new(root.clone());
         let vis = crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: false };
         let mut sync = RoomSync::new(login(&config, "alice", 66).await);
-        sync.sliding_round().await.unwrap();
+        // Room-list counter alice sees: bob's 3 thread replies must not count, only "main one" may.
+        let mut badge = None;
+        let mut note = |diffs: Vec<crate::RoomListDiff>| for d in diffs {
+            if let crate::RoomListDiff::Upsert(r) = d && r.scope.room_id.as_str() == room { badge = Some(r.unread); }
+        };
+        note(sync.sliding_round().await.unwrap());
         let mut bodies = Vec::new();
         let mut replies = None;
         for _ in 0..10 {
@@ -413,14 +418,16 @@ fn disposable_thread_replies_leave_the_main_timeline() {
             replies = page.events.iter().find(|e| e.event_id == root_id).and_then(|e| e.thread.as_ref()).map(|t| t.num_replies);
             if replies == Some(3) && bodies.contains(&"main one".to_owned()) { break; }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            let _ = sync.sliding_round().await;
+            if let Ok(diffs) = sync.sliding_round().await { note(diffs); }
         }
         let panel = sync.open_thread(&scope, &root_id, 25).await.unwrap();
         let panel: Vec<_> = panel.replies.iter().map(|r| r.body.clone()).collect();
-        let badge = sync.client().unwrap().get_room(<&matrix_sdk::ruma::RoomId>::try_from(room.as_str()).unwrap()).map(|r| r.num_unread_notifications());
         println!("P335_HIDE {}", serde_json::json!({"server": config["server"], "main": bodies, "root_replies": replies, "panel": panel, "room_badge": badge}));
-        assert_eq!(bodies, ["root", "main one"], "thread replies stay out of the main timeline");
+        // Status rows (room creation, joins) precede the messages: only the messages are the contract.
+        assert!(bodies.iter().all(|b| !b.starts_with("reply ")) && bodies.ends_with(&["root".to_owned(), "main one".to_owned()]),
+            "thread replies stay out of the main timeline: {bodies:?}");
         assert_eq!(replies, Some(3), "the root keeps its summary");
         assert_eq!(panel, ["reply one", "reply two", "reply three"], "every reply is reachable from the panel");
+        assert_eq!(badge, Some(1), "main counter counts \"main one\" only, not the 3 thread replies");
     });
 }
