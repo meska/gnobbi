@@ -1,5 +1,6 @@
 //! Device panel: row layout (source-level, as room_list_clutter.rs) and the accessible tree.
 //! shortcut: layout is checked on the view source, upgrade to a rendered-tree assert when one exists.
+#![cfg(all(feature = "linux-a11y", target_os = "linux"))]
 
 use accesskit::{Action, Role};
 use matrix_desktop::DeviceVerification;
