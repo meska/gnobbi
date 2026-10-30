@@ -100,6 +100,7 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
         list_focused: false,
         composer: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: NotificationView::Closed,
     };

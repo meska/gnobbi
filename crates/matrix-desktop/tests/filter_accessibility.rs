@@ -28,6 +28,7 @@ fn unread_control_is_absent_when_hidden_or_covered_by_a_sheet() {
         }),
         new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

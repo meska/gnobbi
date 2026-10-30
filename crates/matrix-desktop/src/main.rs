@@ -222,6 +222,10 @@ impl Shell {
                 }
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::Settings(action) = action {
+                this.apply_semantic_settings(action, window, cx);
+                continue;
+            }
             if this.notifications_open || this.verification_open || this.room_details_open {
                 continue;
             }
@@ -479,6 +483,7 @@ impl Shell {
                 }
                 matrix_desktop::accessibility::NavigationAction::Notifications(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::ChooseIcon(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::Settings(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Details(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::FocusComposer
                 | matrix_desktop::accessibility::NavigationAction::FocusSend { .. }
@@ -1625,6 +1630,7 @@ impl Render for Shell {
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
+                settings: self.semantic_settings(),
                 dark: self.theme.is_dark(),
                 visible: !self.notifications_open
                     && !self.verification_open
@@ -2826,6 +2832,7 @@ fn main() {
                                 unread_filter: None,
                                 new_room: None,
                                 devices: Default::default(),
+                                settings: None,
                                 details: Default::default(),
                                 notifications: Default::default(),
                                 dark: false,

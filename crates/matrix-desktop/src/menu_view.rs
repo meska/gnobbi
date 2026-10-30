@@ -121,13 +121,13 @@ impl Shell {
             match key.key.as_str() {
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
                 "escape" => self.set_menu_open(false, window, cx),
-                "enter" | "space" if activate && self.settings_open => match self.settings_row {
-                    0 => self.toggle_debug(cx),
-                    _ => self.toggle_hide_redacted(cx),
-                },
-                // Settings keep one focus stop; Up/Down/Tab move between its two switches.
+                "enter" | "space" if activate && self.settings_open => {
+                    self.toggle_setting(self.settings_row, cx)
+                }
+                // Settings keep one focus stop; Up/Down/Tab (Shift+Tab backwards) walk its three switches.
                 "up" | "down" | "tab" if self.settings_open => {
-                    self.settings_row = 1 - self.settings_row;
+                    let back = key.key == "up" || m.shift;
+                    self.settings_row = (self.settings_row + if back { 2 } else { 1 }) % 3;
                     self.settings_focus.focus(window);
                     cx.notify();
                 }

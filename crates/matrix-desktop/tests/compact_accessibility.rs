@@ -89,6 +89,7 @@ fn navigation() -> matrix_desktop::accessibility::NavigationSnapshot {
         unread_filter: None,
         new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

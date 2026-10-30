@@ -24,6 +24,7 @@ fn snapshot(tag: matrix_engine::RequestTag, status: HistoryStatus) -> Navigation
         unread_filter: None,
         new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

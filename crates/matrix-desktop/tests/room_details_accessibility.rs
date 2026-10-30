@@ -30,6 +30,7 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
         unread_filter: None,
         new_room: None,
         devices: Default::default(),
+        settings: None,
         details: DetailsView::Closed(scope.clone()),
         notifications: Default::default(),
         dark: false,

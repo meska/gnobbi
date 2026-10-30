@@ -11,6 +11,7 @@ pub mod filters;
 pub mod links;
 pub mod new_room;
 pub mod notifications;
+pub mod settings;
 pub mod offline_delivery;
 pub mod operation_panel;
 pub mod pagination;
@@ -563,6 +564,8 @@ pub struct NavigationSnapshot {
     pub devices: devices::DeviceView,
     pub details: details::DetailsView,
     pub notifications: notifications::NotificationView,
+    /// Some while the drawer's Settings page is open: it hides everything else.
+    pub settings: Option<settings::SettingsSnapshot>,
     pub dark: bool,
     pub visible: bool,
     pub query: String,
@@ -673,6 +676,9 @@ impl NavigationSnapshot {
         }
         if request.target_tree != TreeId::ROOT || request.data.is_some() {
             return None;
+        }
+        if let Some(settings) = &self.settings {
+            return settings.action(request).map(NavigationAction::Settings);
         }
         if let Some(control) = panel_openers::Control::ALL
             .into_iter()
@@ -904,6 +910,9 @@ impl NavigationSnapshot {
         }
         if let Some(dialog) = &self.new_room {
             return dialog.tree();
+        }
+        if let Some(settings) = &self.settings {
+            return settings.tree();
         }
         if let devices::DeviceView::Open(panel) = &self.devices {
             return panel.tree();
@@ -1453,6 +1462,7 @@ pub enum NavigationAction {
     Devices(devices::DeviceAction),
     Details(details::DetailsAction),
     Notifications(notifications::NotificationAction),
+    Settings(settings::SettingsAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
     ChooseIcon(crate::IconChoice),
     ToggleMenu,

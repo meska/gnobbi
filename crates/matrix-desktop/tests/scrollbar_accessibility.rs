@@ -25,6 +25,7 @@ fn navigation_routes_scrollbar_value_before_rejecting_other_action_data() {
         unread_filter: None,
         new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

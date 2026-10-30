@@ -8,8 +8,8 @@ pub struct DemoHistory {
     older_count: usize,
     local_count: usize,
     hide_redacted: bool,
-    /// Redacted rows kept out of `events` while hidden, each with the visible row it followed.
-    hidden: Vec<(Option<ScopedTimelineId>, DemoEvent)>,
+    /// Redacted rows kept out of `events` while hidden.
+    hidden: Vec<DemoEvent>,
 }
 
 /// Demo transport controls only; neither state means delivery to a server.
@@ -322,7 +322,7 @@ impl DemoHistory {
         let mut seen: std::collections::HashSet<_> = self
             .events
             .iter()
-            .chain(self.hidden.iter().map(|(_, e)| e))
+            .chain(&self.hidden)
             .map(|row| row.id.id.clone())
             .collect();
         let mut rows = events
@@ -382,19 +382,14 @@ impl DemoHistory {
         if hide {
             self.sweep_redacted();
         } else {
-            let mut last: Option<(Option<ScopedTimelineId>, usize)> = None;
-            for (anchor, row) in std::mem::take(&mut self.hidden) {
-                let at = match (&last, &anchor) {
-                    (Some((a, pos)), _) if *a == anchor => pos + 1,
-                    (_, Some(id)) => self
-                        .events
-                        .iter()
-                        .position(|e| e.id == *id)
-                        .map_or(0, |i| i + 1),
-                    (_, None) => 0,
-                };
+            // shortcut: order by origin_server_ts, not by SDK position; revisit if the timeline shows events out of time order.
+            for row in std::mem::take(&mut self.hidden) {
+                let at = self
+                    .events
+                    .iter()
+                    .position(|e| e.timestamp_ms > row.timestamp_ms)
+                    .unwrap_or(self.events.len());
                 self.events.insert(at, row);
-                last = Some((anchor, at));
             }
         }
         true
@@ -408,7 +403,7 @@ impl DemoHistory {
         let mut kept: Vec<DemoEvent> = Vec::with_capacity(self.events.len());
         for row in std::mem::take(&mut self.events) {
             if row.redacted {
-                self.hidden.push((kept.last().map(|e| e.id.clone()), row));
+                self.hidden.push(row);
             } else {
                 kept.push(row);
             }

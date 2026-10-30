@@ -118,7 +118,10 @@ fn live_redaction_and_new_deleted_rows_are_hidden_without_a_reload() {
     ]);
     assert_eq!(texts(&h), ["$1", "$5"]);
     h.set_hide_redacted(false);
-    assert_eq!(h.events().len(), 6);
+    let ids: Vec<_> = h.events().iter().map(|e| format!("{:?}", e.id.id)).collect();
+    for (i, want) in ["$1", "$2", "$3", "$4", "$5", "$6"].iter().enumerate() {
+        assert!(ids[i].contains(want), "{ids:?}");
+    }
 }
 
 #[test]

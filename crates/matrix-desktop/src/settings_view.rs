@@ -18,6 +18,57 @@ impl Shell {
         cx.notify();
     }
 
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_settings(
+        &self,
+    ) -> Option<matrix_desktop::accessibility::settings::SettingsSnapshot> {
+        self.settings_open.then(|| {
+            matrix_desktop::accessibility::settings::SettingsSnapshot {
+                focus: self.settings_row,
+                on: [
+                    self.prefs.debug,
+                    self.prefs.read_receipts,
+                    self.prefs.hide_redacted,
+                ],
+            }
+        })
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn apply_semantic_settings(
+        &mut self,
+        action: matrix_desktop::accessibility::settings::SettingsAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use matrix_desktop::accessibility::settings::SettingsAction;
+        if !self.settings_open {
+            return;
+        }
+        match action {
+            SettingsAction::Focus(row) => {
+                self.settings_row = row;
+                self.settings_focus.focus(window);
+                cx.notify();
+            }
+            SettingsAction::Set(row, on) => {
+                self.settings_row = row;
+                if self.semantic_settings().is_some_and(|s| s.on[row] != on) {
+                    self.toggle_setting(row, cx);
+                }
+            }
+        }
+    }
+
+    /// Settings rows in screen order: 0 debug, 1 read receipts, 2 hide deleted messages.
+    pub(crate) fn toggle_setting(&mut self, row: usize, cx: &mut Context<Self>) {
+        match row {
+            0 => self.toggle_debug(cx),
+            1 => self.toggle_read_receipts(cx),
+            _ => self.toggle_hide_redacted(cx),
+        }
+    }
+
     pub(crate) fn toggle_debug(&mut self, cx: &mut Context<Self>) {
         self.prefs.debug = !self.prefs.debug;
         self.save_prefs(cx);
@@ -321,9 +372,11 @@ impl Shell {
         let row = |id: &'static str| {
             div()
                 .id(id)
-                .h(px(44.))
+                .min_h(px(44.))
                 .mx_2()
                 .px_3()
+                .py_1()
+                .gap_3()
                 .flex()
                 .items_center()
                 .justify_between()
@@ -418,8 +471,11 @@ impl Shell {
                 })
                 .into_any_element();
         }
+        // The label takes the leftover width and wraps; the switch never shrinks (BUG-4).
+        let label = |text: &'static str| div().flex_1().min_w_0().child(text);
         let switch = |on: bool| {
             div()
+                .flex_shrink_0()
                 .w(px(36.))
                 .h(px(20.))
                 .rounded_full()
@@ -458,9 +514,14 @@ impl Shell {
                             t.surface
                         },
                     ))
-                    .child("Modalità debug")
+                    .child(label("Modalità debug"))
                     .child(switch(self.prefs.debug))
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_debug(cx))),
+                    .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                        // Enter/Space are handled in menu_key; GPUI's key-up click on this focused row would toggle twice.
+                        if !event.is_keyboard() {
+                            this.toggle_debug(cx)
+                        }
+                    })),
             )
             .child(
                 div()
@@ -543,13 +604,6 @@ impl Shell {
             .child(
                 row("settings-read-receipts")
                     .text_color(rgb(t.text))
-                    .child("Conferme di lettura")
-                    .child(switch(self.prefs.read_receipts))
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
-            )
-            .child(
-                row("settings-hide-redacted")
-                    .text_color(rgb(t.text))
                     .border_1()
                     .border_color(rgb(
                         if self.settings_row == 1 && self.settings_focus.is_focused(window) {
@@ -558,7 +612,22 @@ impl Shell {
                             t.surface
                         },
                     ))
-                    .child("Nascondi messaggi eliminati")
+                    .child(label("Conferme di lettura"))
+                    .child(switch(self.prefs.read_receipts))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
+            )
+            .child(
+                row("settings-hide-redacted")
+                    .text_color(rgb(t.text))
+                    .border_1()
+                    .border_color(rgb(
+                        if self.settings_row == 2 && self.settings_focus.is_focused(window) {
+                            t.accent
+                        } else {
+                            t.surface
+                        },
+                    ))
+                    .child(label("Nascondi messaggi eliminati"))
                     .child(switch(self.prefs.hide_redacted))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_redacted(cx))),
             )

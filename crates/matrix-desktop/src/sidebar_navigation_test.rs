@@ -349,6 +349,7 @@ fn sidebar_session(
         unread_filter: this.semantic_unread(window),
         new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: this.theme.is_dark(),
@@ -1606,19 +1607,29 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 assert!(!this.prefs.debug && !saved(&dirs).debug, "Space toggles it off and saves");
             }).unwrap();
             this.update_in(cx, |this, _, _| assert!(!this.prefs.hide_redacted, "deleted messages are shown by default")).unwrap();
+            // Ring of three: debug, read receipts, hide deleted. Each key press must change exactly one switch.
             key!("tab");
             key!("space");
             this.update_in(cx, |this, _, _| {
-                assert!(this.prefs.hide_redacted && saved(&dirs).hide_redacted && !this.prefs.debug, "Tab then Space hides deleted messages and saves");
+                assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "Tab then Space turns read receipts off and saves");
+                assert!(!this.prefs.debug && !this.prefs.hide_redacted, "and nothing else");
+            }).unwrap();
+            key!("tab");
+            key!("space");
+            this.update_in(cx, |this, _, _| {
+                assert!(this.prefs.hide_redacted && saved(&dirs).hide_redacted && !this.prefs.debug && !this.prefs.read_receipts, "second Tab then Space hides deleted messages and saves");
             }).unwrap();
             key!("enter");
             this.update_in(cx, |this, _, _| assert!(!this.prefs.hide_redacted && !saved(&dirs).hide_redacted, "Enter toggles it back")).unwrap();
+            key!("shift-tab");
+            key!("space");
+            this.update_in(cx, |this, _, _| assert!(this.prefs.read_receipts && saved(&dirs).read_receipts && !this.prefs.debug, "Shift+Tab walks back to read receipts")).unwrap();
+            key!("up");
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "Up from read receipts reaches debug")).unwrap();
             key!("tab");
-            this.update_in(cx, |this, _, cx| {
-                assert!(this.prefs.read_receipts && saved(&dirs).read_receipts, "read receipts default to on");
-                this.toggle_read_receipts(cx);
-                assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "turning it off is saved");
-            }).unwrap();
+            key!("tab");
+            key!("tab");
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "the ring wraps after three stops")).unwrap();
             wait(300).await;
             shot("p242-receipts-off");
             key!("escape");
