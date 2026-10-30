@@ -51,8 +51,7 @@ fn an_invitation_row_exposes_accept_and_reject_buttons_that_answer_it() {
     let snap = snapshot(RoomNodes::default().project(&sidebar));
     let tree = snap.tree();
     let row = &tree.nodes.iter().find(|(id, _)| *id == snap.rooms[0].id).unwrap().1;
-    assert_eq!(row.label(), Some("Invitata"));
-    assert_eq!(row.description(), Some("Invito"));
+    assert_eq!(row.label(), Some("Invitata, Invito"));
     let buttons: Vec<_> = row
         .children()
         .iter()
@@ -74,4 +73,34 @@ fn an_invitation_row_exposes_accept_and_reject_buttons_that_answer_it() {
             _ => panic!("button does not answer the invitation"),
         }
     }
+}
+
+#[test]
+fn the_invitation_state_is_in_the_row_name_and_the_buttons_follow_it() {
+    let account = AccountId::new(22);
+    let scope = RoomScope { account_id: account, room_id: RoomId::new("!inv:fixture.invalid") };
+    let mut sidebar = Sidebar::connected(account);
+    sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+        scope: scope.clone(),
+        name: "Invitata".into(),
+        unread: 0,
+        info: RoomInfo { invited: true, ..Default::default() },
+    }));
+    let view = |sidebar: &Sidebar| {
+        let snap = snapshot(RoomNodes::default().project(sidebar));
+        let tree = snap.tree();
+        let row = tree.nodes.iter().find(|(id, _)| *id == snap.rooms[0].id).unwrap().1.clone();
+        let labels: Vec<String> = row
+            .children()
+            .iter()
+            .map(|id| tree.nodes.iter().find(|(n, _)| n == id).unwrap().1.label().unwrap().to_owned())
+            .collect();
+        (row.label().unwrap().to_owned(), labels)
+    };
+    sidebar.answer_invite(&scope, false);
+    assert_eq!(view(&sidebar), ("Invitata, Rifiutare?".into(), vec!["Accetta".into(), "Conferma".into()]));
+    sidebar.answer_invite(&scope, false);
+    assert_eq!(view(&sidebar), ("Invitata, Attendi…".into(), vec![]));
+    sidebar.invite_answered(&scope, false);
+    assert_eq!(view(&sidebar), ("Invitata, Non riuscito".into(), vec!["Riprova".into(), "Rifiuta".into()]));
 }

@@ -397,6 +397,15 @@ pub struct SemanticRoom {
     pub leave: Option<bool>,
 }
 
+fn invite_state_label(state: crate::InviteState) -> &'static str {
+    match state {
+        crate::InviteState::Idle => "Invito",
+        crate::InviteState::ConfirmReject => "Rifiutare?",
+        crate::InviteState::Busy => "Attendi…",
+        crate::InviteState::Failed => "Non riuscito",
+    }
+}
+
 /// Child buttons of an invitation row live in their own id range (room ids start at 100).
 const INVITE_ACCEPT: u64 = 1 << 40;
 const INVITE_REJECT: u64 = 1 << 41;
@@ -951,7 +960,11 @@ impl NavigationSnapshot {
             tree.nodes.push((ROOM_LIST, list));
             for room in &self.rooms {
                 let mut node = Node::new(Role::ListBoxOption);
-                node.set_label(room.name.clone());
+                // The invitation state is part of the name, so it is read with the room name.
+                node.set_label(match room.invite {
+                    Some(state) => format!("{}, {}", room.name, invite_state_label(state)),
+                    None => room.name.clone(),
+                });
                 node.set_description(match room.unread {
                     _ if room.invite.is_some() => "Invito".to_owned(),
                     0 => "Nessun messaggio non letto".to_owned(),
