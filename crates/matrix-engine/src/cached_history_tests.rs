@@ -757,6 +757,152 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
     });
 }
 
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last_page() {
+    const VISIBLE: usize = 40; // more than one PAGE
+    const HIDDEN: usize = 300; // more than two event-cache chunks of state events
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let root = std::path::PathBuf::from(env("CACHE_PROBE_ROOT"));
+    let http = || {
+        crate::auth::secure_http_builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(&ca).unwrap())
+            .build()
+            .unwrap()
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let bob = matrix_sdk::Client::builder()
+            .homeserver_url(&url)
+            .add_root_certificates(vec![reqwest::Certificate::from_pem(&ca).unwrap()])
+            .build()
+            .await
+            .unwrap();
+        bob.matrix_auth()
+            .login_username(
+                "@bob:matrix-desktop.test",
+                config["bob_password"].as_str().unwrap(),
+            )
+            .send()
+            .await
+            .unwrap();
+        let mut request = CreateRoom::new();
+        request.invite = vec!["@alice:matrix-desktop.test".try_into().unwrap()];
+        let room_id = bob.create_room(request).await.unwrap().room_id().to_owned();
+        let bob_room = bob.get_room(&room_id).unwrap_or_else(|| panic!("bob room"));
+        for n in 0..VISIBLE {
+            bob_room
+                .send(RoomMessageEventContent::text_plain(format!("m{n}")))
+                .await
+                .unwrap();
+        }
+        for n in 0..HIDDEN {
+            bob_room.set_room_topic(&format!("topic {n}")).await.unwrap();
+        }
+
+        // First run: Alice joins, catches up, and the whole room reaches the cache on disk.
+        let store = AccountStore::create(&root, AccountId::new(297)).unwrap();
+        let session = store
+            .password_login_with_http(
+                HomeserverUrl::parse(&url).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        let alice = session.client.clone().unwrap();
+        let invited = eventually("invite", || async {
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
+            alice.get_room(&room_id)
+        })
+        .await;
+        invited.join().await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
+        let room = alice.get_room(&room_id).unwrap();
+        let (events, _drop) = room.event_cache().await.unwrap();
+        eventually("visible messages in cache", || async {
+            events.pagination().run_backwards_until(100).await.ok()?;
+            let texts = events
+                .events()
+                .await
+                .ok()?
+                .iter()
+                .filter(|e| {
+                    e.raw()
+                        .get_field::<String>("type")
+                        .ok()
+                        .flatten()
+                        .as_deref()
+                        == Some("m.room.message")
+                })
+                .count();
+            (texts >= VISIBLE).then_some(())
+        })
+        .await;
+        let cached = events.events().await.unwrap().len();
+        println!("CACHED_EVENTS {cached}");
+        assert!(cached >= VISIBLE + HIDDEN, "chunks hold the hidden tail: {cached}");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop((events, _drop, room, alice, invited, session));
+
+        // Restart: same sealed store, homeserver nobody answers; open the room as the app does.
+        let store = AccountStore::open(&root, AccountId::new(297)).unwrap();
+        let value = store.unseal(PASSPHRASE).unwrap();
+        let sdk_session: matrix_sdk::authentication::matrix::MatrixSession =
+            serde_json::from_value(value["session"].clone()).unwrap();
+        let offline = store
+            .client(
+                &HomeserverUrl::parse("https://localhost:1/").unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        offline.restore_session(sdk_session).await.unwrap();
+        let scope = RoomScope {
+            account_id: AccountId::new(297),
+            room_id: RoomId::new(room_id.as_str()),
+        };
+        let timelines = crate::room_sync::Timelines::default();
+        let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
+        let mut views = ViewRequests::new();
+        let request = crate::history::HistoryRequest {
+            tag: views.start(scope).unwrap(),
+            before: None,
+            open: OPEN,
+        };
+        let started = std::time::Instant::now();
+        // Short timeout: no blocking network request may be needed to show the saved page.
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            crate::room_sync::serve_history(&offline, &timelines, AccountId::new(297), request, &mut out),
+        )
+        .await
+        .expect("serve_history blocked on the unreachable server");
+        println!("OFFLINE_OPEN_MS {}", started.elapsed().as_millis());
+        let saved = results.recv().await.expect("a result").page.expect("saved page");
+        let bodies: Vec<&str> = saved.events.iter().map(|e| e.body.as_str()).collect();
+        let newest_page: Vec<String> = (VISIBLE - crate::room_sync::PAGE..VISIBLE)
+            .map(|n| format!("m{n}"))
+            .collect();
+        assert!(
+            bodies.ends_with(&newest_page.iter().map(String::as_str).collect::<Vec<_>>()),
+            "newest visible messages, in order, newest last: {bodies:?}"
+        );
+        let ids: std::collections::BTreeSet<_> =
+            saved.events.iter().map(|e| e.event_id.as_str()).collect();
+        assert_eq!(ids.len(), saved.events.len(), "no duplicates");
+    });
+}
+
 /// Alice signed in with a sealed store and joined to three rooms of 30 messages, one sync done.
 async fn seeded(id: u64) -> (AccountSession, Vec<matrix_sdk::ruma::OwnedRoomId>) {
     let config: serde_json::Value =
