@@ -1860,6 +1860,7 @@ impl Render for Shell {
                                             .when(this.connected, |d| {
                                                 let scope = scope.clone();
                                                 d.on_mouse_down(gpui::MouseButton::Right, cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                                                    this.sidebar.clear_leave_error();
                                                     this.room_menu = Some((scope.clone(), e.position));
                                                     cx.notify();
                                                 }))
@@ -1940,7 +1941,7 @@ impl Render for Shell {
                                                             .text_color(rgb(t.secondary))
                                                             .child(match invite {
                                                                 Some(state) => invite_view::preview(state).to_owned(),
-                                                                None => matrix_desktop::row_text::one_line(&room.preview),
+                                                                None => this.sidebar.leave_error(&room.scope).map_or_else(|| matrix_desktop::row_text::one_line(&room.preview), str::to_owned),
                                                             }),
                                                     ),
                                             )
@@ -2540,6 +2541,10 @@ fn main() {
                                             }
                                             if let matrix_engine::operations::OperationResult::InviteAnswered { .. } = result {
                                                 this.invite_answered(result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::RoomLeft { scope, result } = result {
+                                                this.sidebar.room_left(&scope, result);
                                                 continue;
                                             }
                                             this.operations.borrow_mut().apply(result);

@@ -93,6 +93,8 @@ pub struct Sidebar {
     answering: std::collections::HashSet<RoomScope>,
     failed: std::collections::HashSet<RoomScope>,
     reject_armed: Option<RoomScope>,
+    /// The room whose last «Esci» failed, with the one-line reason shown in its row.
+    leave_error: Option<(RoomScope, &'static str)>,
 }
 
 impl Sidebar {
@@ -115,6 +117,7 @@ impl Sidebar {
             answering: Default::default(),
             failed: Default::default(),
             reject_armed: None,
+            leave_error: None,
         }
     }
 
@@ -235,6 +238,7 @@ impl Sidebar {
             answering: Default::default(),
             failed: Default::default(),
             reject_armed: None,
+            leave_error: None,
         }
     }
 
@@ -362,6 +366,28 @@ impl Sidebar {
         if !ok {
             self.failed.insert(scope.clone());
         }
+    }
+
+    /// Outcome of «Esci». Success changes nothing here: the next sync removes the room.
+    pub fn room_left(&mut self, scope: &RoomScope, result: Result<(), matrix_engine::operations::OperationError>) {
+        use matrix_engine::operations::OperationError::{Forbidden, Unavailable};
+        self.leave_error = result.err().map(|e| {
+            let text = match e {
+                Forbidden => "Non consentito dal server",
+                Unavailable => "Stanza non trovata",
+                _ => "Connessione non riuscita",
+            };
+            (scope.clone(), text)
+        });
+    }
+
+    /// The failure of the last «Esci» on this row, until the next click or menu.
+    pub fn leave_error(&self, scope: &RoomScope) -> Option<&'static str> {
+        self.leave_error.as_ref().filter(|(s, _)| s == scope).map(|(_, t)| *t)
+    }
+
+    pub fn clear_leave_error(&mut self) {
+        self.leave_error = None;
     }
 
     /// The invitation under the cursor, if the cursor is on one.
@@ -575,6 +601,7 @@ impl Sidebar {
 
     /// Reject foreign account/room identities and rows outside the current filter.
     pub fn select(&mut self, scope: &RoomScope) -> bool {
+        self.leave_error = None;
         if let Some(&i) = self
             .visible
             .iter()
@@ -1044,6 +1071,28 @@ mod invite_tests {
         assert_eq!(sidebar.visible_indices().len(), 33);
         assert!(names(&sidebar)[..3].iter().all(|n| n.starts_with("inv")));
         assert!(sidebar.rooms()[sidebar.visible_indices()[3]].name.starts_with("room"));
+    }
+
+    #[test]
+    fn a_failed_leave_shows_one_error_line_on_its_row_until_the_next_click() {
+        use matrix_engine::operations::OperationError::{Forbidden, Transport, Unavailable};
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let (a, b) = (scope(account, "!a:t.invalid"), scope(account, "!b:t.invalid"));
+        upsert(&mut sidebar, account, "!a:t.invalid", "a", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        upsert(&mut sidebar, account, "!b:t.invalid", "b", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        sidebar.room_left(&a, Err(Transport));
+        assert_eq!(sidebar.leave_error(&a), Some("Connessione non riuscita"));
+        assert_eq!(sidebar.leave_error(&b), None);
+        sidebar.room_left(&a, Err(Forbidden));
+        assert_eq!(sidebar.leave_error(&a), Some("Non consentito dal server"));
+        sidebar.room_left(&a, Err(Unavailable));
+        assert_eq!(sidebar.leave_error(&a), Some("Stanza non trovata"));
+        assert!(sidebar.select(&b));
+        assert_eq!(sidebar.leave_error(&a), None);
+        sidebar.room_left(&a, Err(Transport));
+        sidebar.room_left(&a, Ok(()));
+        assert_eq!(sidebar.leave_error(&a), None);
     }
 
     #[test]
