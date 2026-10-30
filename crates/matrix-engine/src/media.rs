@@ -19,6 +19,12 @@ pub enum MediaCommand {
         tag: crate::RequestTag,
         event: EventId,
     },
+    /// Save the original of any attachment to `path` (chosen by the user); runs beside the other reads.
+    Save {
+        tag: crate::RequestTag,
+        event: EventId,
+        path: std::path::PathBuf,
+    },
     /// The thumbnail of a video row; the answer is a `Downloaded` event like an image's.
     VideoThumbnail {
         tag: crate::RequestTag,
@@ -41,6 +47,11 @@ pub enum MediaEvent {
         tag: crate::RequestTag,
         event: EventId,
         result: Result<VideoFile, MediaError>,
+    },
+    Saved {
+        tag: crate::RequestTag,
+        event: EventId,
+        result: Result<(), MediaError>,
     },
 }
 

@@ -48,16 +48,13 @@ fn extension(mime: Option<&str>) -> &'static str {
 /// Fetch `source` through the SDK (auth and E2EE decryption included), refusing more
 /// than `max_bytes` while the body is received. `progress` gets the bytes received so
 /// far; a cancelled `tag` aborts the request. No media-store (cache) access.
-pub(crate) async fn fetch_to_file(
+pub(crate) async fn fetch_bytes(
     client: &matrix_sdk::Client,
     source: MediaSource,
-    mime: Option<&str>,
-    profile: &Path,
     max_bytes: usize,
     tag: &RequestTag,
     mut progress: impl FnMut(usize),
-) -> Result<VideoFile, MediaError> {
-    static NAMES: AtomicU64 = AtomicU64::new(0);
+) -> Result<Vec<u8>, MediaError> {
     // shortcut: one leaked 8-byte counter per download, `RequestConfig` is `Copy`; replace if the SDK gains a progress hook.
     let received: &'static AtomicUsize = Box::leak(Box::new(AtomicUsize::new(0)));
     let request = MediaRequestParameters {
@@ -104,6 +101,21 @@ pub(crate) async fn fetch_to_file(
     if bytes.len() != reported {
         progress(bytes.len());
     }
+    Ok(bytes)
+}
+
+/// [`fetch_bytes`], then a plaintext private temp file for the system player.
+pub(crate) async fn fetch_to_file(
+    client: &matrix_sdk::Client,
+    source: MediaSource,
+    mime: Option<&str>,
+    profile: &Path,
+    max_bytes: usize,
+    tag: &RequestTag,
+    progress: impl FnMut(usize),
+) -> Result<VideoFile, MediaError> {
+    static NAMES: AtomicU64 = AtomicU64::new(0);
+    let bytes = fetch_bytes(client, source, max_bytes, tag, progress).await?;
     let dir = private_dir(profile).map_err(|_| MediaError::Failed)?;
     let path = dir.join(format!(
         "{}-{}.{}",
@@ -143,17 +155,15 @@ impl AccountSession {
     }
 }
 
-/// Download the original of an exact scoped `m.video` or `m.audio` event into a private temp file
-/// under `profile`. Over `max_bytes` (declared or received) is `TooLarge`.
-pub async fn download_video(
+/// The source, declared size and MIME of an exact scoped message. `any` also accepts
+/// images and files (Save); the system player only takes `m.video` and `m.audio`.
+async fn attachment(
     client: &matrix_sdk::Client,
     account: matrix_domain::AccountId,
     tag: &RequestTag,
     event: &EventId,
-    profile: &Path,
-    max_bytes: usize,
-    progress: impl FnMut(usize),
-) -> Result<VideoFile, MediaError> {
+    any: bool,
+) -> Result<(MediaSource, Option<u64>, Option<String>), MediaError> {
     use matrix_sdk::ruma::events::room::message::{MessageType, RoomMessageEventContent};
     if tag.scope().account_id != account {
         return Err(MediaError::InvalidScope);
@@ -175,18 +185,35 @@ pub async fn download_video(
         .get_field::<RoomMessageEventContent>("content")
         .map_err(|_| MediaError::UnsupportedType)?
         .ok_or(MediaError::UnsupportedType)?;
-    let (source, size, mime) = match content.msgtype {
-        MessageType::Video(v) => {
-            let i = v.info.as_deref();
-            (v.source, i.and_then(|i| i.size), i.and_then(|i| i.mimetype.clone()))
-        }
-        MessageType::Audio(a) => {
-            let i = a.info.as_deref();
-            (a.source, i.and_then(|i| i.size), i.and_then(|i| i.mimetype.clone()))
-        }
+    macro_rules! parts {
+        ($m:expr) => {{
+            let m = $m;
+            let i = m.info.as_deref();
+            (m.source, i.and_then(|i| i.size).map(u64::from), i.and_then(|i| i.mimetype.clone()))
+        }};
+    }
+    Ok(match content.msgtype {
+        MessageType::Video(v) => parts!(v),
+        MessageType::Audio(a) => parts!(a),
+        MessageType::Image(i) if any => parts!(i),
+        MessageType::File(f) if any => parts!(f),
         _ => return Err(MediaError::UnsupportedType),
-    };
-    if size.is_some_and(|size| u64::from(size) > max_bytes as u64) {
+    })
+}
+
+/// Download the original of an exact scoped `m.video` or `m.audio` event into a private temp file
+/// under `profile`. Over `max_bytes` (declared or received) is `TooLarge`.
+pub async fn download_video(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    tag: &RequestTag,
+    event: &EventId,
+    profile: &Path,
+    max_bytes: usize,
+    progress: impl FnMut(usize),
+) -> Result<VideoFile, MediaError> {
+    let (source, size, mime) = attachment(client, account, tag, event, false).await?;
+    if size.is_some_and(|size| size > max_bytes as u64) {
         return Err(MediaError::TooLarge);
     }
     fetch_to_file(
@@ -199,6 +226,47 @@ pub async fn download_video(
         progress,
     )
     .await
+}
+
+/// Save the original of an exact scoped attachment (image, video, audio or file) to `dest`.
+/// Bytes are decrypted in memory and only `dest` is written (through `dest.part`, renamed
+/// when complete); no thumbnail and no temp file. Over `max_bytes` is `TooLarge`.
+pub async fn save_attachment(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    tag: &RequestTag,
+    event: &EventId,
+    dest: &Path,
+    max_bytes: usize,
+) -> Result<(), MediaError> {
+    let (source, size, _) = attachment(client, account, tag, event, true).await?;
+    if size.is_some_and(|size| size > max_bytes as u64) {
+        return Err(MediaError::TooLarge);
+    }
+    save_source(client, source, dest, max_bytes, tag).await
+}
+
+async fn save_source(
+    client: &matrix_sdk::Client,
+    source: MediaSource,
+    dest: &Path,
+    max_bytes: usize,
+    tag: &RequestTag,
+) -> Result<(), MediaError> {
+    let bytes = fetch_bytes(client, source, max_bytes, tag, |_| ()).await?;
+    let mut part = dest.as_os_str().to_owned();
+    part.push(".part");
+    let (part, dest) = (PathBuf::from(part), dest.to_owned());
+    tokio::task::spawn_blocking(move || {
+        std::fs::write(&part, bytes)
+            .and_then(|()| std::fs::rename(&part, dest))
+            .inspect_err(|_| {
+                let _ = std::fs::remove_file(&part);
+            })
+    })
+    .await
+    .map_err(|_| MediaError::Failed)?
+    .map_err(|_| MediaError::Failed)
 }
 
 #[cfg(all(test, unix))]
@@ -380,5 +448,107 @@ mod tests {
             0o700
         );
         std::fs::remove_dir_all(profile).unwrap();
+    }
+
+    /// Serves `body` at once, chunked (so only the cap, not Content-Length, can refuse it).
+    async fn body_client(body: Vec<u8>) -> matrix_sdk::Client {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let body = body.clone();
+                tokio::spawn(async move {
+                    let mut headers = Vec::new();
+                    while !headers.ends_with(b"\r\n\r\n") {
+                        headers.push(stream.read_u8().await.unwrap());
+                    }
+                    let head = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:x}\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(head.as_bytes()).await;
+                    let _ = stream.write_all(&body).await;
+                    let _ = stream.write_all(b"\r\n0\r\n\r\n").await;
+                });
+            }
+        });
+        matrix_sdk::Client::builder()
+            .homeserver_url(format!("http://{address}"))
+            .sliding_sync_version_builder(matrix_sdk::sliding_sync::VersionBuilder::None)
+            .server_versions([MatrixVersion::V1_0])
+            .build()
+            .await
+            .unwrap()
+    }
+
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn save_writes_only_the_chosen_file_and_no_temp_copy() {
+        runtime().block_on(async {
+            let (client, (_views, tag), profile) = (body_client(vec![9; 3000]).await, tag(), temp_profile());
+            let dest = profile.join("scelto.pdf");
+            save_source(&client, source(), &dest, 3000, &tag).await.unwrap();
+            assert_eq!(std::fs::read(&dest).unwrap(), vec![9; 3000]);
+            assert_eq!(names(&profile), ["scelto.pdf"], "no .part, no video-tmp");
+            std::fs::remove_dir_all(profile).unwrap();
+        });
+    }
+
+    #[test]
+    fn save_over_the_cap_is_refused_and_writes_nothing() {
+        runtime().block_on(async {
+            let (client, (_views, tag), profile) = (body_client(vec![9; 3000]).await, tag(), temp_profile());
+            let dest = profile.join("scelto.pdf");
+            let result = save_source(&client, source(), &dest, 2999, &tag).await;
+            assert!(matches!(result, Err(MediaError::TooLarge)), "{result:?}");
+            assert!(names(&profile).is_empty());
+            std::fs::remove_dir_all(profile).unwrap();
+        });
+    }
+
+    #[test]
+    fn a_cancelled_save_writes_nothing() {
+        runtime().block_on(async {
+            let (client, (mut views, tag), profile) = (body_client(vec![9; 3000]).await, tag(), temp_profile());
+            views.cancel();
+            let result = save_source(&client, source(), &profile.join("x"), 3000, &tag).await;
+            assert!(matches!(result, Err(MediaError::Cancelled)), "{result:?}");
+            assert!(names(&profile).is_empty());
+            std::fs::remove_dir_all(profile).unwrap();
+        });
+    }
+
+    #[test]
+    fn an_encrypted_attachment_is_decrypted_in_memory_and_only_the_plaintext_is_written() {
+        use std::io::Read;
+        runtime().block_on(async {
+            let plaintext = b"contenuto riservato".repeat(100);
+            let mut input = std::io::Cursor::new(&plaintext);
+            let mut encryptor = matrix_sdk_crypto::AttachmentEncryptor::new(&mut input);
+            let mut ciphertext = Vec::new();
+            encryptor.read_to_end(&mut ciphertext).unwrap();
+            let info = encryptor.finish();
+            let file = matrix_sdk::ruma::events::room::EncryptedFile::new(
+                owned_mxc_uri!("mxc://fixture.invalid/file"),
+                info.encryption_info,
+                info.hashes,
+            );
+            let (client, (_views, tag), profile) = (body_client(ciphertext.clone()).await, tag(), temp_profile());
+            let dest = profile.join("riservato.txt");
+            let source = MediaSource::Encrypted(Box::new(file));
+            save_source(&client, source, &dest, ciphertext.len(), &tag).await.unwrap();
+            assert_eq!(std::fs::read(&dest).unwrap(), plaintext);
+            assert_eq!(names(&profile), ["riservato.txt"]);
+            std::fs::remove_dir_all(profile).unwrap();
+        });
     }
 }

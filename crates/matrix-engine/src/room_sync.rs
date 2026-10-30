@@ -187,8 +187,15 @@ impl RoomListWorker {
                     let mut media_task = tokio::spawn(async move {
                         let mut clean = true;
                         let mut cache = crate::media::MediaCache::new(8 * 1024 * 1024);
-                        while let Some(command) =
-                            shutdown_receive(&media_stop, &mut media_requests).await
+                        // Saves run in their own tasks (a big file must not hold the thumbnails) and report here.
+                        let (saved_tx, mut saved_rx) = tokio::sync::mpsc::unbounded_channel();
+                        while let Some(command) = next_media_command(
+                            &media_stop,
+                            &mut media_requests,
+                            &mut saved_rx,
+                            &mut media_results,
+                        )
+                        .await
                         {
                             use crate::media::{MediaCommand, MediaEvent};
                             let result = match command {
@@ -308,6 +315,12 @@ impl RoomListWorker {
                                         continue;
                                     };
                                     MediaEvent::VideoDownloaded { tag, event, result }
+                                }
+                                MediaCommand::Save { tag, event, path } => {
+                                    if !tag.is_cancelled() {
+                                        spawn_save(&media_client, account, &media_stop, &saved_tx, tag, event, path);
+                                    }
+                                    continue;
                                 }
                                 MediaCommand::VideoThumbnail { tag, event } => {
                                     if tag.is_cancelled()
@@ -1281,6 +1294,49 @@ async fn unstarted_shutdown(
     }
 }
 
+/// One save in its own task; its answer goes to `done` (see [`next_media_command`]).
+fn spawn_save(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    done: &tokio::sync::mpsc::UnboundedSender<crate::media::MediaEvent>,
+    tag: crate::RequestTag,
+    event: matrix_domain::EventId,
+    path: std::path::PathBuf,
+) {
+    let (client, stop, done) = (client.clone(), stop.clone(), done.clone());
+    tokio::spawn(async move {
+        let save = crate::video_file::save_attachment(
+            &client,
+            account,
+            &tag,
+            &event,
+            &path,
+            crate::video_file::MAX_VIDEO_BYTES,
+        );
+        if let Some(result) = until_stopped(&stop, save).await {
+            let _ = done.send(crate::media::MediaEvent::Saved { tag, event, result });
+        }
+    });
+}
+
+/// The next media command; a finished save is forwarded to the UI while waiting for it.
+async fn next_media_command(
+    stop: &std::sync::atomic::AtomicBool,
+    requests: &mut crate::Receiver<crate::media::MediaCommand>,
+    saved: &mut tokio::sync::mpsc::UnboundedReceiver<crate::media::MediaEvent>,
+    results: &mut crate::Sender<crate::media::MediaEvent>,
+) -> Option<crate::media::MediaCommand> {
+    loop {
+        tokio::select! {
+            Some(done) = saved.recv() => {
+                let _ = until_stopped(stop, results.send(done)).await;
+            }
+            command = shutdown_receive(stop, requests) => return command,
+        }
+    }
+}
+
 async fn shutdown_receive<T>(
     stop: &std::sync::atomic::AtomicBool,
     receiver: &mut crate::Receiver<T>,
@@ -1426,11 +1482,20 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             }
             continue;
         };
-        let (mut video, mut styles) = (None, Vec::new());
+        let (mut video, mut styles, mut attachment_name) = (None, Vec::new(), None);
         let body = match &content.kind {
             MsgLikeKind::Message(message) => match message.msgtype() {
-                MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
+                MessageType::Image(i) => {
+                    attachment_name = Some(i.filename().to_owned());
+                    crate::history::IMAGE_BODY.into()
+                }
                 msgtype => {
+                    attachment_name = match msgtype {
+                        MessageType::Video(v) => Some(v.filename().to_owned()),
+                        MessageType::Audio(a) => Some(a.filename().to_owned()),
+                        MessageType::File(f) => Some(f.filename().to_owned()),
+                        _ => None,
+                    };
                     video = match msgtype {
                         MessageType::Video(v) => Some(video_info(v)),
                         MessageType::Audio(a) => Some(audio_info(a)),
@@ -1471,6 +1536,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             thread: thread_info(room, content).await,
             thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
             status: false,
+            attachment_name,
         });
     }
     out
