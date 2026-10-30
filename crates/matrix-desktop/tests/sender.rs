@@ -98,6 +98,7 @@ fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
         thread: None,
         thread_root: None,
         status,
+        attachment_name: None,
     };
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![row("$s", true), row("$m", false)]);
