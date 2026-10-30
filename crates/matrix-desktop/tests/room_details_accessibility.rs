@@ -8,7 +8,7 @@ use matrix_domain::AccountId;
 fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
     use accesskit::{Action, ActionRequest, TreeId};
     use matrix_desktop::accessibility::details::{DetailsAction, DetailsView, OPEN};
-    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, THEME};
+    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, SEARCH};
     let panel = panel();
     let scope = panel.scope.clone();
     let mut snapshot = NavigationSnapshot {
@@ -25,8 +25,6 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -47,11 +45,11 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
     snapshot.details = DetailsView::Open(Box::new(panel));
     let tree = snapshot.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Informazioni stanza"));
-    assert!(!tree.nodes.iter().any(|(id, _)| *id == THEME));
+    assert!(!tree.nodes.iter().any(|(id, _)| *id == SEARCH));
     let mut request = ActionRequest {
         action: Action::Click,
         target_tree: TreeId::ROOT,
-        target_node: THEME,
+        target_node: SEARCH,
         data: None,
     };
     assert!(snapshot.action(&request).is_none());

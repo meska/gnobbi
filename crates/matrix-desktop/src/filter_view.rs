@@ -4,7 +4,6 @@ use crate::*;
 /// Control that received the key-down; the release only activates the same, still current source.
 #[derive(PartialEq)]
 pub(crate) enum PressKind {
-    Theme,
     Unread,
     Rail(Option<RoomScope>),
     Spaces(spaces_view::SpacesTarget),
@@ -19,38 +18,8 @@ pub(crate) struct SidebarPress {
 }
 
 impl Shell {
-    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    pub(crate) fn dispatch_sidebar_action(
-        &mut self,
-        action: &matrix_desktop::accessibility::NavigationAction,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        use matrix_desktop::accessibility::NavigationAction as A;
-        let (A::ToggleTheme(revision) | A::FocusTheme(revision)) = action else {
-            return false;
-        };
-        self.navigation_wide = window.viewport_size().width >= px(800.);
-        self.refresh_navigation_visibility();
-        if *revision != self.sidebar.navigation_revision()
-            || !self.sidebar.navigation_callback()(&self.sidebar)
-        {
-            return true;
-        }
-        match action {
-            A::ToggleTheme(_) => self.toggle_theme(cx),
-            A::FocusTheme(_) => {
-                self.theme_focus.focus(window);
-                cx.notify();
-            }
-            _ => unreachable!(),
-        }
-        true
-    }
-
     pub(crate) fn sidebar_pointer_callback(
         &self,
-        unread: bool,
     ) -> impl Fn(&mut Shell, &mut Window, &mut Context<Shell>) + use<> {
         let source = self.sidebar.navigation_callback();
         move |this, window, cx| {
@@ -59,17 +28,13 @@ impl Shell {
             if !source(&this.sidebar) {
                 return;
             }
-            if unread {
-                this.toggle_unread(window, cx);
-            } else {
-                this.list_menu(window, cx);
-            }
+            this.toggle_unread(window, cx);
         }
     }
 
     fn toggle_unread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         #[cfg(test)]
-        sidebar_navigation_test::ACTIVATIONS[1].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.sidebar.set_unread_only(!self.sidebar.unread_only());
         self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
         self.unread_focus.focus(window);
@@ -87,10 +52,9 @@ impl Shell {
         if sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
             sidebar_navigation_test::KEYDOWNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             eprintln!(
-                "Shell capture down key={} held={} theme={} unread={} revision={}",
+                "Shell capture down key={} held={} unread={} revision={}",
                 key.key,
                 event.is_held,
-                self.theme_focus.is_focused(window),
                 self.unread_focus.is_focused(window),
                 self.sidebar.navigation_revision()
             );
@@ -115,8 +79,6 @@ impl Shell {
         }
         let kind = if self.connected && self.unread_focus.is_focused(window) {
             PressKind::Unread
-        } else if self.theme_focus.is_focused(window) {
-            PressKind::Theme
         } else if self.navigation_wide && self.rail_ui.focus.is_focused(window) {
             PressKind::Rail(self.rail_ui.target.clone())
         } else if !self.navigation_wide
@@ -161,10 +123,7 @@ impl Shell {
         }
         let pending = self.pending_sidebar_key.take();
         // GPUI's automatic key-up Click does not retain the key-down source.
-        if self.theme_focus.is_focused(window)
-            || self.unread_focus.is_focused(window)
-            || pending.is_some()
-        {
+        if self.unread_focus.is_focused(window) || pending.is_some() {
             cx.stop_propagation();
         }
         self.navigation_wide = window.viewport_size().width >= px(800.);
@@ -181,7 +140,6 @@ impl Shell {
             && (self.navigation_wide || !self.compact_chat)
             && match &press.kind {
                 PressKind::Unread => self.connected && self.unread_focus.is_focused(window),
-                PressKind::Theme => self.theme_focus.is_focused(window),
                 PressKind::Rail(target) => {
                     self.navigation_wide
                         && self.rail_ui.focus.is_focused(window)
@@ -196,7 +154,6 @@ impl Shell {
         {
             match press.kind {
                 PressKind::Unread => self.toggle_unread(window, cx),
-                PressKind::Theme => self.list_menu(window, cx),
                 PressKind::Rail(_) => self.rail_activate(cx),
                 PressKind::Spaces(_) => self.spaces_activate(window, cx),
             }
@@ -236,7 +193,6 @@ impl Shell {
         if window.viewport_size().width < px(800.) && self.compact_chat {
             if self.rail_ui.focus.is_focused(window)
                 || self.spaces_ui.focus.is_focused(window)
-                || self.theme_focus.is_focused(window)
                 || self.unread_focus.is_focused(window)
                 || self.search_focus.is_focused(window)
                 || self.list_focus.is_focused(window)
@@ -280,14 +236,19 @@ impl Shell {
             && self.spaces_ui.focus.is_focused(window)
             && (!self.connected || self.sidebar.spaces().next().is_none())
         {
-            self.theme_focus.focus(window);
+            self.first_list_stop().focus(window);
         }
         if window.viewport_size().width < px(800.) && self.rail_ui.focus.is_focused(window) {
             self.search_focus.focus(window);
         }
         if window.viewport_size().width >= px(800.) && self.spaces_ui.focus.is_focused(window) {
-            self.theme_focus.focus(window);
+            self.first_list_stop().focus(window);
         }
+    }
+
+    /// First stop of the list column: the unread filter once connected, else the search field.
+    pub(crate) fn first_list_stop(&self) -> &FocusHandle {
+        if self.connected { &self.unread_focus } else { &self.search_focus }
     }
 
     pub(crate) fn sidebar_tab(
@@ -307,33 +268,20 @@ impl Shell {
         {
             return false;
         }
-        let target = if self.theme_focus.is_focused(window) {
-            if key.modifiers.shift && compact {
+        let target = if self.connected && self.unread_focus.is_focused(window) && !key.modifiers.shift {
+            &self.search_focus
+        } else if self.search_focus.is_focused(window) && key.modifiers.shift && self.connected {
+            &self.unread_focus
+        } else if (self.unread_focus.is_focused(window) && self.connected
+            || self.search_focus.is_focused(window) && !self.connected)
+            && key.modifiers.shift
+        {
+            // Shift-Tab from the first stop of the list column leaves it backwards.
+            if compact {
                 &self.menu_focus
-            } else if key.modifiers.shift {
-                self.rail_ui.target = self
-                    .rail_entries()
-                    .last()
-                    .unwrap()
-                    .scope
-                    .clone();
+            } else {
+                self.rail_ui.target = self.rail_entries().last().unwrap().scope.clone();
                 &self.rail_ui.edit_focus
-            } else if self.connected {
-                &self.unread_focus
-            } else {
-                &self.search_focus
-            }
-        } else if self.connected && self.unread_focus.is_focused(window) {
-            if key.modifiers.shift {
-                &self.theme_focus
-            } else {
-                &self.search_focus
-            }
-        } else if self.search_focus.is_focused(window) && key.modifiers.shift {
-            if self.connected {
-                &self.unread_focus
-            } else {
-                &self.theme_focus
             }
         } else if self.list_focus.is_focused(window) && key.modifiers.shift {
             &self.search_focus
@@ -391,7 +339,7 @@ impl Shell {
         }
         if let FilterAction::SetUnread { checked, .. } = action {
             #[cfg(test)]
-            sidebar_navigation_test::ACTIVATIONS[1]
+            sidebar_navigation_test::ACTIVATIONS[0]
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.sidebar.set_unread_only(checked);
             self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
@@ -476,9 +424,9 @@ impl Shell {
                 }
             })
             .on_click({
-                let callback = self.sidebar_pointer_callback(true);
+                let callback = self.sidebar_pointer_callback();
                 #[cfg(test)]
-                let callback = sidebar_navigation_test::capture_pointer(true, callback);
+                let callback = sidebar_navigation_test::capture_pointer(callback);
                 cx.listener(move |this, _, window, cx| callback(this, window, cx))
             });
         let control = control.track_focus(&self.unread_focus);
@@ -520,56 +468,5 @@ impl Shell {
         {
             None
         }
-    }
-    pub(crate) fn theme_observer(&self, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        {
-            let entity = _cx.entity();
-            Some(
-                gpui::canvas(
-                    |_, _, _| (),
-                    move |bounds, _, window, cx| {
-                        let scale = f64::from(window.scale_factor());
-                        let rect = accesskit::Rect::new(
-                            f64::from(f32::from(bounds.left())) * scale,
-                            f64::from(f32::from(bounds.top())) * scale,
-                            f64::from(f32::from(bounds.right())) * scale,
-                            f64::from(f32::from(bounds.bottom())) * scale,
-                        );
-                        if entity.read(cx).a11y_theme_bounds != Some(rect) {
-                            let entity = entity.clone();
-                            window.on_next_frame(move |_, cx| {
-                                entity.update(cx, |this, cx| {
-                                    this.a11y_theme_bounds = Some(rect);
-                                    cx.notify();
-                                })
-                            });
-                        }
-                    },
-                )
-                .absolute()
-                .inset_0()
-                .into_any_element(),
-            )
-        }
-        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-        {
-            None
-        }
-    }
-    pub(crate) fn track_theme_focus(
-        &self,
-        control: gpui::Stateful<gpui::Div>,
-        window: &Window,
-    ) -> gpui::Stateful<gpui::Div> {
-        let t = self.theme.tokens();
-        control
-            .track_focus(&self.theme_focus)
-            .border_1()
-            .border_color(rgb(if self.theme_focus.is_focused(window) {
-                t.accent
-            } else {
-                t.surface
-            }))
     }
 }

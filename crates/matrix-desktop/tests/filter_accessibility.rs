@@ -17,8 +17,6 @@ fn unread_control_is_absent_when_hidden_or_covered_by_a_sheet() {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: Some(UnreadFilter {
             account: AccountId::new(17),

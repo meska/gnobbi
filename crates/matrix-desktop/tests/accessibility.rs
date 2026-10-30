@@ -1,7 +1,5 @@
 #![cfg(all(feature = "linux-a11y", target_os = "linux"))]
 
-use matrix_desktop::accessibility::{THEME, theme_tree};
-
 #[test]
 fn search_exports_query_and_actual_focus_without_exposing_hidden_controls() {
     use matrix_desktop::accessibility::{NavigationSnapshot, ROOT, SEARCH};
@@ -14,8 +12,6 @@ fn search_exports_query_and_actual_focus_without_exposing_hidden_controls() {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -62,8 +58,6 @@ fn search_text_run_exposes_unicode_query_with_append_only_caret() {
             operation_panel: None,
             spaces: None,
             navigation_revision: 0,
-            theme_focused: false,
-            theme_bounds: None,
             icon_choice: None,
             unread_filter: None,
             new_room: None,
@@ -172,8 +166,6 @@ fn history_tree_exports_scoped_focus_actions_and_logical_positions() {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -241,8 +233,6 @@ fn history_navigation_targets_real_scoped_events_and_omits_unavailable_boundarie
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -337,8 +327,6 @@ fn selected_room_is_the_semantic_focus_when_the_room_list_owns_keyboard_focus() 
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -384,8 +372,6 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -523,8 +509,6 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -595,8 +579,6 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -672,8 +654,6 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -774,73 +754,4 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
         ..request
     };
     assert!(snapshot.action(&malformed).is_none());
-}
-
-#[test]
-fn list_menu_control_exports_its_label_and_role() {
-    let update = theme_tree(false);
-    let (id, button) = update.nodes.iter().find(|(id, _)| *id == THEME).unwrap();
-    assert_eq!(*id, THEME);
-    assert_eq!(button.role(), accesskit::Role::Button);
-    assert_eq!(button.label(), Some("Menu elenco"));
-    assert!(button.supports_action(accesskit::Action::Click));
-    let root = update.tree.unwrap().root;
-    assert!(
-        update
-            .nodes
-            .iter()
-            .any(|(id, node)| *id == root && node.children().contains(&THEME))
-    );
-}
-
-#[test]
-fn theme_focus_is_actionable_visible_and_has_observed_geometry() {
-    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, ROOT};
-    let bounds = accesskit::Rect::new(250., 10., 300., 42.);
-    let mut snapshot = NavigationSnapshot {
-        #[cfg(all(feature = "live", unix))]
-        signin: None,
-        openers: vec![],
-        back: None,
-        scrollbars: vec![],
-        operation_panel: None,
-        spaces: None,
-        navigation_revision: 0,
-        theme_focused: true,
-        theme_bounds: Some(bounds),
-        icon_choice: None,
-        unread_filter: None,
-        new_room: None,
-        devices: Default::default(),
-        details: Default::default(),
-        notifications: Default::default(),
-        dark: false,
-        visible: true,
-        query: String::new(),
-        search_focused: false,
-        search_bounds: None,
-        rooms: vec![],
-        history: None,
-        list_focused: false,
-        composer: None,
-    };
-    let request = accesskit::ActionRequest {
-        action: accesskit::Action::Focus,
-        target_node: THEME,
-        target_tree: accesskit::TreeId::ROOT,
-        data: None,
-    };
-    assert!(matches!(
-        snapshot.action(&request),
-        Some(NavigationAction::FocusTheme(0))
-    ));
-    let tree = snapshot.tree();
-    assert_eq!(tree.focus, THEME);
-    let node = &tree.nodes.iter().find(|(id, _)| *id == THEME).unwrap().1;
-    assert_eq!(node.bounds(), Some(bounds));
-    assert!(node.supports_action(accesskit::Action::Focus));
-    snapshot.visible = false;
-    assert!(snapshot.action(&request).is_none());
-    assert_eq!(snapshot.tree().focus, ROOT);
-    assert!(!snapshot.tree().nodes.iter().any(|(id, _)| *id == THEME));
 }

@@ -1,17 +1,11 @@
-//! List-column header: the ⋮ button is named for screen readers; no theme link, no «Gnobbi» title in the column.
+//! List-column header: no buttons of its own (no ⋮ menu, no theme link, no «Gnobbi» title).
 #![cfg(feature = "linux-a11y")]
 use accesskit::Role;
 use matrix_desktop::accessibility::theme_tree;
 
 #[test]
-fn menu_button_is_named_and_the_column_has_no_theme_link_or_app_title() {
+fn the_column_header_exports_no_button() {
     for dark in [false, true] {
-        let buttons: Vec<_> = theme_tree(dark)
-            .nodes
-            .into_iter()
-            .filter(|(_, n)| n.role() == Role::Button)
-            .map(|(_, n)| n.label().unwrap_or_default().to_owned())
-            .collect();
-        assert_eq!(buttons, ["Menu elenco"], "dark={dark}: one button, no «Tema» link, no «Gnobbi» button");
+        assert!(!theme_tree(dark).nodes.iter().any(|(_, n)| n.role() == Role::Button), "dark={dark}");
     }
 }

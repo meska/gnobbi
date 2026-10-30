@@ -22,7 +22,6 @@ mod panel_opener_view;
 mod rail_view;
 mod ring_seam;
 mod room_details_view;
-mod list_menu_view;
 mod room_menu_view;
 mod scrollbar_view;
 mod settings_view;
@@ -64,8 +63,6 @@ struct Shell {
     menu_open: bool,
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
-    list_menu_open: bool,
-    list_menu_focus: FocusHandle,
     settings_open: bool,
     new_room: Option<new_room_view::NewRoom>,
     /// A just-created room, opened as soon as the sync lists it.
@@ -99,9 +96,6 @@ struct Shell {
     history_focus: FocusHandle,
     pending_sidebar_key: Option<filter_view::SidebarPress>,
     unread_focus: FocusHandle,
-    theme_focus: FocusHandle,
-    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_theme_bounds: Option<accesskit::Rect>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_unread_bounds: Option<accesskit::Rect>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -424,9 +418,6 @@ impl Shell {
                 }
                 continue;
             }
-            if this.dispatch_sidebar_action(&action, window, cx) {
-                continue;
-            }
             if this.dispatch_opener_action(&action, window, cx) {
                 continue;
             }
@@ -488,8 +479,6 @@ impl Shell {
                 | matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_) => {
                     unreachable!()
                 }
-                matrix_desktop::accessibility::NavigationAction::ToggleTheme(_)
-                | matrix_desktop::accessibility::NavigationAction::FocusTheme(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::ToggleMenu => {
                     this.set_menu_open(!this.menu_open, window, cx)
                 }
@@ -623,10 +612,8 @@ impl Shell {
         true
     }
 
-    #[cfg(any(test, all(feature = "linux-a11y", target_os = "linux")))]
+    #[cfg(test)]
     fn toggle_theme(&mut self, cx: &mut Context<Self>) {
-        #[cfg(test)]
-        sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.set_theme(
             if self.theme.is_dark() {
                 Theme::Classic
@@ -910,34 +897,6 @@ impl Shell {
             return;
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        if !key.modifiers.control && !key.modifiers.alt && !key.modifiers.platform {
-            if self.theme_focus.is_focused(window) {
-                if key.key == "tab" {
-                    if key.modifiers.shift {
-                        self.list_focus.focus(window);
-                    } else if self.semantic_unread(window).is_some() {
-                        self.unread_focus.focus(window);
-                    } else {
-                        self.search_focus.focus(window);
-                    }
-                    cx.notify();
-                    cx.stop_propagation();
-                }
-                // Space/Enter activate once via GPUI's native Keyboard ClickEvent.
-                return;
-            }
-            if key.key == "tab"
-                && key.modifiers.shift
-                && self.search_focus.is_focused(window)
-                && self.semantic_unread(window).is_none()
-            {
-                self.theme_focus.focus(window);
-                cx.notify();
-                cx.stop_propagation();
-                return;
-            }
-        }
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.semantic_unread(window).is_some()
             && !key.modifiers.control
             && !key.modifiers.alt
@@ -950,12 +909,8 @@ impl Shell {
                 return;
             }
             if self.unread_focus.is_focused(window) {
-                if key.key == "tab" {
-                    if key.modifiers.shift {
-                        self.theme_focus.focus(window);
-                    } else {
-                        self.search_focus.focus(window);
-                    }
+                if key.key == "tab" && !key.modifiers.shift {
+                    self.search_focus.focus(window);
                 } else {
                     // GPUI emits one Keyboard ClickEvent on Space/Enter release.
                     return;
@@ -1630,8 +1585,6 @@ impl Render for Shell {
                 operation_panel: self.semantic_operation_panel(window),
                 spaces: self.semantic_spaces(window),
                 navigation_revision: self.sidebar.navigation_revision(),
-                theme_focused: self.theme_focus.is_focused(window),
-                theme_bounds: self.a11y_theme_bounds,
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
                 unread_filter: self.semantic_unread(window),
                 new_room: self.semantic_new_room(window, cx),
@@ -1718,7 +1671,7 @@ impl Render for Shell {
             .capture_key_down(cx.listener({
                 let opener_keys=self.opener_key_callback();
                 move |this,event,window,cx| {
-                    if this.list_menu_key(event,window,cx) || this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
+                    if this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
                     else {this.navigation_key(event,window,cx);}
                 }
             }))
@@ -1754,34 +1707,6 @@ impl Render for Shell {
                                 .px_4()
                                 .gap_2()
                                 .when(compact, |d| d.child(self.render_menu_button(t, window, cx)))
-                                .child(
-                                    // Placeholder list menu: takes the old theme-link focus slot; the theme control lives only in Settings.
-                                    div()
-                                        .id("theme-toggle")
-                                        .relative()
-                                        .children(self.theme_observer(cx))
-                                        .children({
-                                            #[cfg(test)] { sidebar_navigation_test::observe("theme".into()) }
-                                            #[cfg(not(test))] { None::<gpui::AnyElement> }
-                                        })
-                                        .map(|d| self.track_theme_focus(d, window))
-                                        .w(px(28.))
-                                        .h(px(36.))
-                                        .flex_shrink_0()
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .rounded_lg()
-                                        .cursor_pointer()
-                                        .text_size(px(20.))
-                                        .child("⋮")
-                                        .on_click({
-                                            let callback = self.sidebar_pointer_callback(false);
-                                            #[cfg(test)]
-                                            let callback = sidebar_navigation_test::capture_pointer(false, callback);
-                                            cx.listener(move |this, _, window, cx| callback(this, window, cx))
-                                        }),
-                                )
                                 .child(
                                     div()
                                         .relative()
@@ -2145,7 +2070,6 @@ impl Render for Shell {
             .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
-            .when(self.list_menu_open, |d| d.child(self.render_list_menu(t, window, cx)))
             .children(self.render_new_room(t, window, cx))
             .children(self.render_groups_edit(t, cx))
             .into_any_element()
@@ -2437,11 +2361,10 @@ fn main() {
             |window, cx| {
                 cx.new(|cx| {
                     let search_focus = cx.focus_handle();
-                    let theme_focus = cx.focus_handle();
                     let unread_focus = cx.focus_handle();
                     let mut rail_ui = rail_view::RailUi::new(cx);
                     let spaces_ui = spaces_view::SpacesUi::new(cx);
-                    for focus in [&theme_focus, &unread_focus, &rail_ui.focus, &spaces_ui.focus] {
+                    for focus in [&unread_focus, &rail_ui.focus, &spaces_ui.focus] {
                         cx.on_blur(focus, window, |this: &mut Shell, _, _| {
                             if let Some(press) = &mut this.pending_sidebar_key { press.cancelled = true; }
                         }).detach();
@@ -2821,8 +2744,6 @@ fn main() {
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
-                        list_menu_open: false,
-                        list_menu_focus: cx.focus_handle(),
                         settings_open: false,
                         new_room: None,
                         pending_open: None,
@@ -2853,8 +2774,6 @@ fn main() {
         operation_panel: None,
                                 spaces: None,
                 navigation_revision: 0,
-                theme_focused: false,
-                                theme_bounds: None,
                                 icon_choice: None,
                                 unread_filter: None,
                                 new_room: None,
@@ -2879,9 +2798,6 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         history_focus: cx.focus_handle(),
                         unread_focus,
-                        theme_focus,
-                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_theme_bounds: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_unread_bounds: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

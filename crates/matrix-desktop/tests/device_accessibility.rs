@@ -332,7 +332,7 @@ fn sas_snapshot_exposes_exact_identity_comparison_and_separate_trust() {
 fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
     use accesskit::{ActionRequest, TreeId};
     use matrix_desktop::accessibility::devices::{DeviceAction, DeviceView, OPEN};
-    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, THEME};
+    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, SEARCH};
     let account = AccountId::new(18);
     let mut snapshot = NavigationSnapshot {
         #[cfg(all(feature = "live", unix))]
@@ -348,8 +348,6 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -375,9 +373,9 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
     )));
     let tree = snapshot.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Verifica dispositivi"));
-    assert!(!tree.nodes.iter().any(|(id, _)| *id == THEME));
+    assert!(!tree.nodes.iter().any(|(id, _)| *id == SEARCH));
     let mut request = ActionRequest {
-        target_node: THEME,
+        target_node: SEARCH,
         action: Action::Click,
         target_tree: TreeId::ROOT,
         data: None,

@@ -71,7 +71,7 @@ fn notification_actions_reject_hidden_disabled_and_stale_room_targets() {
 #[test]
 fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() {
     use matrix_desktop::accessibility::notifications::OPEN;
-    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, THEME};
+    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, SEARCH};
     let mut snapshot = NavigationSnapshot {
         #[cfg(all(feature = "live", unix))]
         signin: None,
@@ -86,8 +86,6 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -116,8 +114,8 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
         ))
     ));
     snapshot.notifications = panel();
-    assert!(snapshot.tree().nodes.iter().all(|(id, _)| *id != THEME));
-    assert!(snapshot.action(&request(THEME)).is_none());
+    assert!(snapshot.tree().nodes.iter().all(|(id, _)| *id != SEARCH));
+    assert!(snapshot.action(&request(SEARCH)).is_none());
     assert!(snapshot.action(&request(OPEN)).is_none());
     assert!(matches!(
         snapshot.action(&request(CLOSE)),

@@ -13,8 +13,6 @@ fn snapshot(icon_choice: Option<IconChoice>) -> NavigationSnapshot {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice,
         unread_filter: None,
         new_room: None,

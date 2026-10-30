@@ -144,8 +144,6 @@ fn send_intents(
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         icon_choice: None,
         unread_filter: None,
         new_room: None,
@@ -522,7 +520,7 @@ fn install_signin_queue(window: &mut Window, cx: &mut Context<Shell>) {
             assert_eq!(view.read(cx).semantic_snapshot(window,cx).focused,Some(Control::Phrase));
             let selected = this.active_scope.clone();
             let dark = this.theme.is_dark();
-            for action in [A::ToggleTheme(0), A::FocusSearch, A::FocusComposer, A::SubmitComposer { source: 0, scope: selected.clone(), text: "hidden chat sentinel".into() }] {
+            for action in [A::FocusMenu, A::FocusSearch, A::FocusComposer, A::SubmitComposer { source: 0, scope: selected.clone(), text: "hidden chat sentinel".into() }] {
                 assert!(this.dispatch_signin_action(&action,window,cx));
             }
             assert_eq!(this.active_scope, selected);

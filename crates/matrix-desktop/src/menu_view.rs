@@ -343,7 +343,7 @@ impl Shell {
                 self.reveal_rail_target(window, cx);
                 self.rail_ui.focus.focus(window);
             }
-            (false, false) => self.theme_focus.focus(window),
+            (false, false) => self.first_list_stop().focus(window),
             (true, true) => {
                 if !self.focus_last_chat_control(window, cx) {
                     self.list_focus.focus(window);

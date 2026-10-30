@@ -28,7 +28,6 @@ fn icon_node(icon: crate::IconChoice) -> NodeId {
 }
 
 pub const ROOT: NodeId = NodeId(1);
-pub const THEME: NodeId = NodeId(2);
 pub const SEARCH: NodeId = NodeId(3);
 pub const ROOM_LIST: NodeId = NodeId(4);
 pub const COMPOSER: NodeId = NodeId(5);
@@ -537,8 +536,6 @@ pub struct NavigationSnapshot {
     pub operation_panel: Option<operation_panel::PanelSnapshot>,
     pub spaces: Option<spaces::SpacesSnapshot>,
     pub navigation_revision: u64,
-    pub theme_focused: bool,
-    pub theme_bounds: Option<accesskit::Rect>,
     /// Current app icon while Settings is open; None hides the three choices.
     pub icon_choice: Option<crate::IconChoice>,
     pub unread_filter: Option<filters::UnreadFilter>,
@@ -832,10 +829,6 @@ impl NavigationSnapshot {
             }
             (MENU, Action::Click) if self.visible => Some(NavigationAction::ToggleMenu),
             (MENU, Action::Focus) if self.visible => Some(NavigationAction::FocusMenu),
-            (THEME, Action::Click) if self.visible => None, // placeholder list menu
-            (THEME, Action::Focus) if self.visible => {
-                Some(NavigationAction::FocusTheme(self.navigation_revision))
-            }
             (SEARCH, Action::Focus) if self.visible => Some(NavigationAction::FocusSearch),
             (id, Action::Click)
                 if self.visible
@@ -893,12 +886,6 @@ impl NavigationSnapshot {
             children.insert(0, MENU);
             tree.nodes[0].1.set_children(children);
             tree.nodes.push((MENU, menu));
-            if let Some(bounds) = self.theme_bounds {
-                tree.nodes[1].1.set_bounds(bounds);
-            }
-            if self.theme_focused {
-                tree.focus = THEME;
-            }
             let mut search = Node::new(Role::SearchInput);
             search.set_label("Cerca conversazioni");
             search.set_value(self.query.clone());
@@ -1362,14 +1349,9 @@ impl NavigationSnapshot {
 pub fn theme_tree(dark: bool) -> TreeUpdate {
     let mut root = Node::new(Role::Window);
     root.set_label("Gnobbi");
-    root.set_children(vec![THEME]);
-    let mut theme = Node::new(Role::Button);
-    let _ = dark; // theme now lives on Ctrl+Shift+D only
-    theme.set_label("Menu elenco");
-    theme.add_action(Action::Click);
-    theme.add_action(Action::Focus);
+    let _ = dark; // theme lives on Ctrl+Shift+D only
     TreeUpdate {
-        nodes: vec![(ROOT, root), (THEME, theme)],
+        nodes: vec![(ROOT, root)],
         tree: Some(Tree::new(ROOT)),
         tree_id: TreeId::ROOT,
         focus: ROOT,
@@ -1411,8 +1393,6 @@ pub enum NavigationAction {
     Notifications(notifications::NotificationAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
     ChooseIcon(crate::IconChoice),
-    ToggleTheme(u64),
-    FocusTheme(u64),
     ToggleMenu,
     FocusMenu,
     FocusSearch,

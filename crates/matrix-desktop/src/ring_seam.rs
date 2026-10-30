@@ -113,7 +113,7 @@ impl Shell {
         cx.notify();
     }
 
-    /// Forward from the room list: Info on wide windows, else spaces or the theme button.
+    /// Forward from the room list: Info on wide windows, else spaces or the menu button.
     fn after_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if window.viewport_size().width >= px(800.) {
             if !self.focus_opener(Control::Info, window, cx) {
