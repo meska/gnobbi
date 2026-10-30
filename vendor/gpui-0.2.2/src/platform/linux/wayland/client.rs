@@ -1271,9 +1271,10 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for WaylandClientStatePtr {
                 let old_layout =
                     keymap_state.serialize_layout(xkbcommon::xkb::STATE_LAYOUT_EFFECTIVE);
                 keymap_state.update_mask(mods_depressed, mods_latched, mods_locked, 0, 0, group);
-                state.modifiers = Modifiers::from_xkb(keymap_state);
-                let keymap_state = state.keymap_state.as_mut().unwrap();
-                state.capslock = Capslock::from_xkb(keymap_state);
+                let modifiers = Modifiers::from_xkb(keymap_state);
+                let capslock = Capslock::from_xkb(keymap_state);
+                state.modifiers = modifiers;
+                state.capslock = capslock;
 
                 let input = PlatformInput::ModifiersChanged(ModifiersChangedEvent {
                     modifiers: state.modifiers,
