@@ -880,15 +880,17 @@ fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last
             open: OPEN,
         };
         let started = std::time::Instant::now();
-        // Short timeout: no blocking network request may be needed to show the saved page.
-        tokio::time::timeout(
-            Duration::from_secs(10),
+        // The saved page must arrive without waiting for the unreachable server.
+        let (_, saved) = tokio::join!(
             crate::room_sync::serve_history(&offline, &timelines, AccountId::new(297), request, &mut out),
-        )
-        .await
-        .expect("serve_history blocked on the unreachable server");
-        println!("OFFLINE_OPEN_MS {}", started.elapsed().as_millis());
-        let saved = results.recv().await.expect("a result").page.expect("saved page");
+            async {
+                let first = tokio::time::timeout(Duration::from_secs(3), results.recv())
+                    .await
+                    .expect("no saved page within 3 s offline");
+                println!("OFFLINE_FIRST_PAGE_MS {}", started.elapsed().as_millis());
+                first.expect("a result").page.expect("saved page")
+            }
+        );
         let bodies: Vec<&str> = saved.events.iter().map(|e| e.body.as_str()).collect();
         let newest_page: Vec<String> = (VISIBLE - crate::room_sync::PAGE..VISIBLE)
             .map(|n| format!("m{n}"))
