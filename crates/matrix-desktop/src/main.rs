@@ -1959,7 +1959,7 @@ impl Render for Shell {
                                 .when(self.connected, |d| d.flex_wrap().gap_2())
                                 .child(div().when(self.connected, |d| d.w_full()).child(format!(
                                     "{}/{} conversazioni · {}",
-                                    self.sidebar.visible_indices().len(), self.sidebar.rooms().len() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
+                                    self.sidebar.visible_indices().iter().filter(|&&i| !self.sidebar.rooms()[i].info.invited).count(), self.sidebar.rooms().iter().filter(|r| !r.info.is_space && !r.info.invited).count() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
                                     if self.connected { connection_label } else { "fixture offline" }
                                 )))
                                 .when(self.connected && self.sidebar.hidden_empty_count() > 0, |d| d.child(

@@ -255,3 +255,34 @@ fn rooms_with_only_me_and_no_messages_are_hidden_until_shown() {
     assert_eq!(sidebar.hidden_empty_count(), 2);
     assert_eq!(sidebar.visible_indices().len(), 3);
 }
+
+fn space_upsert(id: &str, invited: bool) -> RoomListDiff {
+    let RoomListDiff::Upsert(mut r) = upsert(id, "Spazio", 0) else { unreachable!() };
+    r.info.is_space = true;
+    r.info.invited = invited;
+    RoomListDiff::Upsert(r)
+}
+
+#[test]
+fn selection_never_lands_on_a_space() {
+    let mut sidebar = Sidebar::connected(AccountId::new(18));
+    sidebar.apply_diff(space_upsert("!space:test", false));
+    assert!(sidebar.selected().is_none());
+    sidebar.apply_diff(upsert("!a:test", "Alpha", 0));
+    assert_eq!(sidebar.selected().unwrap().scope, scope("!a:test"));
+    // Removing the selected room with the space at index 0 must not fall back to the space.
+    sidebar.apply_diff(RoomListDiff::Remove(scope("!a:test")));
+    assert!(sidebar.selected().is_none());
+}
+
+#[test]
+fn space_invite_stays_an_invite_row_outside_the_rail() {
+    let mut sidebar = Sidebar::connected(AccountId::new(18));
+    sidebar.apply_diff(space_upsert("!inv:test", true));
+    assert_eq!(sidebar.visible_indices(), &[0]);
+    assert_eq!(sidebar.spaces().count(), 0);
+    assert!(sidebar.selected().is_none() && sidebar.selected_invite().is_some());
+    sidebar.apply_diff(space_upsert("!inv:test", false)); // accepted
+    assert!(sidebar.visible_indices().is_empty());
+    assert_eq!(sidebar.spaces().count(), 1);
+}

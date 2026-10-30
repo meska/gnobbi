@@ -134,9 +134,10 @@ impl Sidebar {
                     self.retire_navigation();
                 }
                 self.selected = selected
-                    .and_then(|scope| self.rooms.iter().position(|room| room.scope == scope))
-                    .or_else(|| (!self.rooms.is_empty()).then_some(0));
+                    .and_then(|scope| self.rooms.iter().position(|room| room.scope == scope));
                 self.set_query(&self.query.clone());
+                // Fallback: first visible row, never a space (spaces are not in `visible`).
+                self.selected = self.selected.or_else(|| self.visible.first().copied());
                 return old_len != self.rooms.len();
             }
         };
@@ -169,10 +170,10 @@ impl Sidebar {
             }
             self.rooms.push(row);
         }
-        if self.selected.is_none() {
-            self.selected = Some(0);
-        }
         self.set_query(&self.query.clone());
+        if self.selected.is_none() {
+            self.selected = self.visible.first().copied();
+        }
         if self.visible != visible {
             self.retire_navigation();
         }
@@ -310,7 +311,7 @@ impl Sidebar {
     pub fn hidden_empty_count(&self) -> usize {
         self.rooms
             .iter()
-            .filter(|room| room.is_empty() && !self.kept.contains(&room.scope))
+            .filter(|room| !room.info.is_space && !room.info.invited && room.is_empty() && !self.kept.contains(&room.scope))
             .count()
     }
 
