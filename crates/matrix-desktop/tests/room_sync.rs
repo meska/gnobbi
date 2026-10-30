@@ -32,7 +32,7 @@ fn space_filter_uses_direct_joined_children_without_changing_selection() {
     assert_eq!(sidebar.spaces().count(), 1);
     assert!(sidebar.select(&scope("!other:test")));
     assert!(sidebar.set_space(Some(scope("!space:test"))));
-    assert_eq!(sidebar.visible_indices(), &[0, 2]);
+    assert_eq!(sidebar.visible_indices(), &[0]);
     assert_eq!(sidebar.selected().unwrap().scope, scope("!other:test"));
     sidebar.set_query("alpha");
     assert_eq!(sidebar.visible_indices(), &[0]);
@@ -43,8 +43,23 @@ fn space_filter_uses_direct_joined_children_without_changing_selection() {
     sidebar.set_query("");
     sidebar.set_unread_only(false);
     assert!(sidebar.set_space(None));
-    assert_eq!(sidebar.visible_indices(), &[0, 1, 2]);
+    assert_eq!(sidebar.visible_indices(), &[0, 1]);
     assert_eq!(sidebar.rooms()[2].info.children.len(), 2);
+}
+
+#[test]
+fn space_with_same_name_as_room_never_appears_in_the_list() {
+    let mut sidebar = Sidebar::connected(AccountId::new(18));
+    sidebar.apply_diff(upsert("!room:test", "Volta", 0));
+    let RoomListDiff::Upsert(mut space) = upsert("!space:test", "Volta", 0) else { unreachable!() };
+    space.info.is_space = true;
+    sidebar.apply_diff(RoomListDiff::Upsert(space));
+    assert_eq!(sidebar.spaces().count(), 1);
+    assert_eq!(sidebar.visible_indices(), &[0]);
+    sidebar.set_query("volta");
+    assert_eq!(sidebar.visible_indices(), &[0]);
+    assert!(sidebar.set_space(Some(scope("!space:test"))));
+    assert!(sidebar.visible_indices().is_empty()); // childless space stays in the rail, list empty
 }
 
 #[test]

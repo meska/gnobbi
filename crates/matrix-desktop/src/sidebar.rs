@@ -546,14 +546,14 @@ impl Sidebar {
             .iter()
             .enumerate()
             .filter(|(_, room)| {
-                room.name.to_lowercase().contains(&needle)
+                // Joined spaces live in the rail only; an invitation to one stays an invite row.
+                (room.info.invited || !room.info.is_space)
+                    && room.name.to_lowercase().contains(&needle)
                     && (room.info.invited
                         || ((!self.unread_only || room.unread > 0)
                             && (self.show_empty || !room.is_empty() || self.kept.contains(&room.scope))
                             && self.group.as_ref().is_none_or(|g| room.info.tags.contains(g))
-                            && space.is_none_or(|s| {
-                                room.scope == s.scope || s.info.children.contains(&room.scope.room_id)
-                            })))
+                            && space.is_none_or(|s| s.info.children.contains(&room.scope.room_id))))
             })
             .map(|(i, _)| i)
             .collect();
