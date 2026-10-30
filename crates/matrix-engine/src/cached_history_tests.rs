@@ -757,11 +757,11 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
     });
 }
 
-#[test]
-#[ignore = "requires the cached_history_probe script"]
-fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last_page() {
-    const VISIBLE: usize = 40; // more than one PAGE
-    const HIDDEN: usize = 300; // more than two event-cache chunks of state events
+/// Room history as (visible messages, topic changes) segments, oldest first; Alice reopens it offline.
+/// Returns the bodies of the first page and the ms it took.
+fn offline_first_page(id: u64, plan: &[(usize, usize)]) -> (Vec<String>, u128) {
+    let visible: usize = plan.iter().map(|p| p.0).sum();
+    let hidden: usize = plan.iter().map(|p| p.1).sum();
     let config: serde_json::Value =
         serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
     let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
@@ -796,18 +796,22 @@ fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last
         request.invite = vec!["@alice:matrix-desktop.test".try_into().unwrap()];
         let room_id = bob.create_room(request).await.unwrap().room_id().to_owned();
         let bob_room = bob.get_room(&room_id).unwrap_or_else(|| panic!("bob room"));
-        for n in 0..VISIBLE {
-            bob_room
-                .send(RoomMessageEventContent::text_plain(format!("m{n}")))
-                .await
-                .unwrap();
-        }
-        for n in 0..HIDDEN {
-            bob_room.set_room_topic(&format!("topic {n}")).await.unwrap();
+        let mut sent = 0;
+        for (messages, topics) in plan {
+            for _ in 0..*messages {
+                bob_room
+                    .send(RoomMessageEventContent::text_plain(format!("m{sent}")))
+                    .await
+                    .unwrap();
+                sent += 1;
+            }
+            for n in 0..*topics {
+                bob_room.set_room_topic(&format!("topic {n}")).await.unwrap();
+            }
         }
 
         // First run: Alice joins, catches up, and the whole room reaches the cache on disk.
-        let store = AccountStore::create(&root, AccountId::new(297)).unwrap();
+        let store = AccountStore::create(&root, AccountId::new(id)).unwrap();
         let session = store
             .password_login_with_http(
                 HomeserverUrl::parse(&url).unwrap(),
@@ -830,10 +834,8 @@ fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("visible messages in cache", || async {
             events.pagination().run_backwards_until(100).await.ok()?;
-            let texts = events
-                .events()
-                .await
-                .ok()?
+            let all = events.events().await.ok()?;
+            let texts = all
                 .iter()
                 .filter(|e| {
                     e.raw()
@@ -844,17 +846,17 @@ fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last
                         == Some("m.room.message")
                 })
                 .count();
-            (texts >= VISIBLE).then_some(())
+            (texts >= visible && all.len() >= visible + hidden).then_some(())
         })
         .await;
         let cached = events.events().await.unwrap().len();
         println!("CACHED_EVENTS {cached}");
-        assert!(cached >= VISIBLE + HIDDEN, "chunks hold the hidden tail: {cached}");
+        assert!(cached >= visible + hidden, "chunks hold the hidden tail: {cached}");
         tokio::time::sleep(Duration::from_secs(1)).await;
         drop((events, _drop, room, alice, invited, session));
 
         // Restart: same sealed store, homeserver nobody answers; open the room as the app does.
-        let store = AccountStore::open(&root, AccountId::new(297)).unwrap();
+        let store = AccountStore::open(&root, AccountId::new(id)).unwrap();
         let value = store.unseal(PASSPHRASE).unwrap();
         let sdk_session: matrix_sdk::authentication::matrix::MatrixSession =
             serde_json::from_value(value["session"].clone()).unwrap();
@@ -868,7 +870,7 @@ fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last
             .unwrap();
         offline.restore_session(sdk_session).await.unwrap();
         let scope = RoomScope {
-            account_id: AccountId::new(297),
+            account_id: AccountId::new(id),
             room_id: RoomId::new(room_id.as_str()),
         };
         let timelines = crate::room_sync::Timelines::default();
@@ -882,7 +884,7 @@ fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last
         let started = std::time::Instant::now();
         // The saved page must arrive without waiting for the unreachable server.
         let (_, saved) = tokio::join!(
-            crate::room_sync::serve_history(&offline, &timelines, AccountId::new(297), request, &mut out),
+            crate::room_sync::serve_history(&offline, &timelines, AccountId::new(id), request, &mut out),
             async {
                 let first = tokio::time::timeout(Duration::from_secs(3), results.recv())
                     .await
@@ -891,18 +893,68 @@ fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last
                 first.expect("a result").page.expect("saved page")
             }
         );
-        let bodies: Vec<&str> = saved.events.iter().map(|e| e.body.as_str()).collect();
-        let newest_page: Vec<String> = (VISIBLE - crate::room_sync::PAGE..VISIBLE)
-            .map(|n| format!("m{n}"))
-            .collect();
-        assert!(
-            bodies.ends_with(&newest_page.iter().map(String::as_str).collect::<Vec<_>>()),
-            "newest visible messages, in order, newest last: {bodies:?}"
-        );
         let ids: std::collections::BTreeSet<_> =
             saved.events.iter().map(|e| e.event_id.as_str()).collect();
         assert_eq!(ids.len(), saved.events.len(), "no duplicates");
-    });
+        (
+            saved.events.iter().map(|e| e.body.clone()).collect(),
+            started.elapsed().as_millis(),
+        )
+    })
+}
+
+fn assert_newest_page(plan: &[(usize, usize)], id: u64) {
+    let visible: usize = plan.iter().map(|p| p.0).sum();
+    let (bodies, ms) = offline_first_page(id, plan);
+    println!("EDGE id={id} plan={plan:?} first_page_ms={ms} got={}", bodies.len());
+    let want: Vec<String> = (visible.saturating_sub(crate::room_sync::PAGE)..visible)
+        .map(|n| format!("m{n}"))
+        .collect();
+    assert!(
+        bodies.ends_with(&want),
+        "newest visible messages, in order, newest last: {bodies:?}"
+    );
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last_page() {
+    // 40 messages (more than one PAGE), 300 hidden (more than two event-cache chunks)
+    assert_newest_page(&[(40, 300)], 297);
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_fewer_than_a_page_of_messages_under_hidden_events() {
+    assert_newest_page(&[(5, 300)], 311);
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_messages_spread_over_several_chunks() {
+    assert_newest_page(&[(20, 150), (20, 150), (20, 150)], 312);
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_no_hidden_events_control() {
+    assert_newest_page(&[(40, 0)], 313);
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_only_hidden_events_gives_an_empty_page_without_hanging() {
+    let (bodies, ms) = offline_first_page(314, &[(0, 300)]);
+    println!("EDGE only-hidden first_page_ms={ms} got={}", bodies.len());
+    assert!(bodies.is_empty());
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_room_never_cached_is_empty_without_hanging() {
+    let (bodies, ms) = offline_first_page(315, &[(0, 0)]);
+    println!("EDGE empty first_page_ms={ms} got={}", bodies.len());
+    assert!(bodies.is_empty());
 }
 
 /// Alice signed in with a sealed store and joined to three rooms of 30 messages, one sync done.
