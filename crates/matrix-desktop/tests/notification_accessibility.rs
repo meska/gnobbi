@@ -200,7 +200,8 @@ fn notification_dialog_exports_current_checkbox_states_and_privacy_text() {
         );
         assert!(node.supports_action(Action::Click));
     }
-    assert!(tree.nodes.iter().any(|(_, node)| {
+    // The help sentences were removed from the panel; only the error state stays.
+    assert!(!tree.nodes.iter().any(|(_, node)| {
         node.value()
             .is_some_and(|s| s.contains("Mai testo, mittente, stanza, media o segreti"))
     }));
