@@ -598,13 +598,7 @@ impl Render for SignInView {
             FormStatus::Failed(error) => Some(error),
             _ => None,
         };
-        let section = if recovery {
-            "Cronologia cifrata"
-        } else if unlock {
-            "Sblocca"
-        } else {
-            "Accedi"
-        };
+        let section = matrix_desktop::window::signin_section(recovery, unlock);
         window.set_window_title(&matrix_desktop::window::title_for(Some((
             section,
             error.is_some()

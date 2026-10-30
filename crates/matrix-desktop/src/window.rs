@@ -10,7 +10,21 @@ pub const TITLE: &str = "Gnobbi";
 pub fn title_for(signin: Option<(&str, bool)>) -> String {
     match signin {
         None => TITLE.into(),
-        Some((section, error)) => format!("{TITLE} — {section}{}", if error { " · errore" } else { "" }),
+        Some((section, error)) => format!(
+            "{TITLE} — {section}{}",
+            if error { " · errore" } else { "" }
+        ),
+    }
+}
+
+/// Sign-in step name; "Accedi" only exists here, i.e. never with an active session.
+pub fn signin_section(recovery: bool, unlock: bool) -> &'static str {
+    if recovery {
+        "Cronologia cifrata"
+    } else if unlock {
+        "Sblocca"
+    } else {
+        "Accedi"
     }
 }
 
@@ -32,9 +46,23 @@ mod tests {
     #[test]
     fn title_follows_the_view() {
         assert_eq!(title_for(Some(("Accedi", false))), "Gnobbi — Accedi");
-        assert_eq!(title_for(Some(("Accedi", true))), "Gnobbi — Accedi · errore");
+        assert_eq!(
+            title_for(Some(("Accedi", true))),
+            "Gnobbi — Accedi · errore"
+        );
         // after login and after a restored session the sign-in section must be gone
         assert_eq!(title_for(None), "Gnobbi");
+    }
+
+    #[test]
+    fn every_state_has_its_title() {
+        let t = |r, u, e| title_for(Some((signin_section(r, u), e)));
+        assert_eq!(t(false, false, false), "Gnobbi — Accedi");
+        assert_eq!(t(false, true, false), "Gnobbi — Sblocca");
+        assert_eq!(t(true, false, false), "Gnobbi — Cronologia cifrata");
+        assert_eq!(t(true, true, true), "Gnobbi — Cronologia cifrata · errore");
+        assert_eq!(t(false, true, true), "Gnobbi — Sblocca · errore");
+        assert!(!title_for(None).contains("Accedi"));
     }
 
     #[test]
