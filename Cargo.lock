@@ -4257,6 +4257,7 @@ dependencies = [
  "objc",
  "raw-window-handle",
  "serde_json",
+ "tokio",
  "tracing-subscriber",
  "url",
  "wayland-protocols 0.32.13",

@@ -62,3 +62,10 @@ required-features = ["desktop"]
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 wayland-server = "0.31.14"
 wayland-protocols = { version = "0.32.13", features = ["server"] }
+
+[dev-dependencies]
+tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time", "macros", "sync"] }
+
+[[test]]
+name = "space_projection_live"
+required-features = ["live"]
