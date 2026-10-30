@@ -1684,6 +1684,25 @@ async fn saved_page(
     let room = joined(client, &tag, account_id)?;
     let timeline = timelines.get(&room).await?;
     let mut now = loaded(&room, &timeline).await;
+    // The timeline starts from the newest saved chunk only. When that one holds nothing visible
+    // (e.g. topic changes), step back through the older saved chunks; the SDK reads the disk first.
+    // shortcut: a step that has to leave the disk is dropped after 1 s, and at most 10 steps.
+    for _ in 0..10 {
+        if !now.rows.is_empty() || now.at_start {
+            break;
+        }
+        let step = tokio::time::timeout(
+            Duration::from_secs(1),
+            timeline.paginate_backwards(PAGE as u16),
+        )
+        .await;
+        if !matches!(step, Ok(Ok(_))) {
+            break;
+        }
+        // The timeline applies the chunk in its own task; a disk read lands within milliseconds.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        now = loaded(&room, &timeline).await;
+    }
     crate::threads::annotate_unread(timelines, &room, &mut now.rows).await;
     let next = cursor(&now.rows, now.at_start);
     Ok(crate::history::HistoryPage {
