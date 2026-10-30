@@ -1254,6 +1254,21 @@ impl TimelineView {
         }
     }
 
+    /// Idempotent: applies «Nascondi messaggi eliminati» to the rows already loaded, keeping the scroll place.
+    pub fn set_hide_redacted(&self, hide: bool) {
+        let offset = self.state.logical_scroll_top();
+        let old = self.history.borrow().events().len();
+        if !self.history.borrow_mut().set_hide_redacted(hide) {
+            return;
+        }
+        self.retain_selection();
+        let new = self.history.borrow().events().len();
+        self.state.splice(0..old, new);
+        if old > 0 {
+            self.state.scroll_to(offset);
+        }
+    }
+
     pub fn project_operations(&self, actions: &matrix_desktop::LiveOperations) {
         // Room-state diffs (including Space links) reapply the projection. A
         // whole-list splice otherwise resets the reader to row zero even when
@@ -2388,6 +2403,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
                             outgoing: false,
@@ -2527,6 +2543,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
                             outgoing: false,
@@ -2642,6 +2659,7 @@ mod tests {
                             false,
                         );
                         v.append_server(vec![HistoryEvent {
+                            redacted: false,
                             event_id: id.clone(),
                             body: "Video · 0:12 · 1.4 MB".into(),
                             outgoing: false,

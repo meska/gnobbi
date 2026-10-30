@@ -33,6 +33,9 @@ fn roundtrip_keeps_values() {
         auto_night: AutoNight::Schedule,
         font: FontChoice::Serif,
         icon: matrix_desktop::IconChoice::Monster,
+
+#[test]
+        hide_redacted: true,
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);
@@ -270,4 +273,25 @@ fn icon_defaults_to_minimal_mark_saves_and_invalid_value_falls_back() {
         std::fs::write(d.config.join("settings.json"), format!(r#"{{"icon":{bad}}}"#)).unwrap();
         assert_eq!(Preferences::load(&d).icon, IconChoice::MinimalMark, "{bad}");
     }
+}
+
+#[test]
+fn hide_redacted_defaults_off_invalid_falls_back_and_persists() {
+    assert!(!Preferences::default().hide_redacted);
+    let d = dirs(&tmp("hide-redacted"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    for body in [
+        &br#"{"hide_redacted":"yes"}"#[..],
+        br#"{"hide_redacted":null}"#,
+        br#"{"debug":true}"#,
+    ] {
+        std::fs::write(d.config.join("settings.json"), body).unwrap();
+        assert!(!Preferences::load(&d).hide_redacted);
+    }
+    let p = Preferences {
+        hide_redacted: true,
+        ..Preferences::default()
+    };
+    p.save(&d).unwrap();
+    assert!(Preferences::load(&d).hide_redacted, "survives a restart");
 }

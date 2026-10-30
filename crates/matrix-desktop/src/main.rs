@@ -74,6 +74,8 @@ struct Shell {
     refocus_menu: bool,
     drawer_row: usize,
     settings_focus: FocusHandle,
+    /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
+    settings_row: usize,
     prefs: matrix_desktop::Preferences,
     prefs_dirs: Option<matrix_desktop::AppDirs>,
     /// Catalog as last read; reloaded whenever the drawer opens or this window signs in.
@@ -1584,6 +1586,9 @@ impl Render for Shell {
         if let (Some(timeline), Some(room)) = (&self.timeline, self.sidebar.selected()) {
             timeline.set_peer_receipts(&room.info.public_read_receipts);
         }
+        if let Some(timeline) = &self.timeline {
+            timeline.set_hide_redacted(self.prefs.hide_redacted);
+        }
         #[cfg(test)]
         if navigation_resize_test::FROZEN.load(std::sync::atomic::Ordering::SeqCst) {
             return div().size_full().into_any_element();
@@ -2792,6 +2797,7 @@ fn main() {
                         refocus_menu: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),
+                        settings_row: 0,
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),
                         account_root: account_root.clone(),
                         prefs_dirs,

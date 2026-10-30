@@ -1,0 +1,133 @@
+use matrix_desktop::DemoHistory;
+use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
+use matrix_engine::history::{HistoryEvent, HistorySender};
+
+fn scope() -> RoomScope {
+    RoomScope {
+        account_id: AccountId::new(7),
+        room_id: RoomId::new("!g:test"),
+    }
+}
+
+fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
+    HistoryEvent {
+        redacted,
+        event_id: EventId::new(id),
+        body: if redacted {
+            "[Messaggio eliminato]".into()
+        } else {
+            id.into()
+        },
+        outgoing: false,
+        timestamp_ms: ts,
+        sender: HistorySender::new(sender, Some(sender)),
+        video: None,
+        styles: Vec::new(),
+        thread: None,
+        thread_root: None,
+        status: false,
+        attachment_name: None,
+    }
+}
+
+fn texts(h: &DemoHistory) -> Vec<String> {
+    h.events().iter().map(|e| e.text.clone()).collect()
+}
+
+/// anna, anna(deleted), anna, bruno: the deleted row sits in the middle of one sender's series.
+fn history() -> DemoHistory {
+    let mut h = DemoHistory::new(scope(), 0);
+    h.prepend_server(vec![
+        ev("$1", "@anna:test", 0, false),
+        ev("$2", "@anna:test", 1_000, true),
+        ev("$3", "@anna:test", 2_000, false),
+        ev("$4", "@bruno:test", 3_000, true),
+        ev("$5", "@bruno:test", 4_000, false),
+    ]);
+    h
+}
+
+#[test]
+fn shown_by_default() {
+    assert_eq!(texts(&history()).len(), 5);
+}
+
+#[test]
+fn hiding_removes_deleted_rows_and_regroups_neighbours() {
+    let mut h = history();
+    assert!(h.set_hide_redacted(true));
+    assert_eq!(texts(&h), ["$1", "$3", "$5"]);
+    // $3 follows $1 of the same sender: no repeated name/avatar; $5 starts bruno's series.
+    assert_eq!(h.sender_label(0, 3).as_deref(), Some("@anna:test"));
+    assert_eq!(h.sender_label(1, 3), None);
+    assert_eq!(h.sender_avatar(1, 3), None);
+    assert_eq!(h.sender_label(2, 3).as_deref(), Some("@bruno:test"));
+}
+
+#[test]
+fn hiding_is_idempotent_and_showing_restores_order() {
+    let mut h = history();
+    assert!(!h.set_hide_redacted(false));
+    h.set_hide_redacted(true);
+    assert!(!h.set_hide_redacted(true));
+    assert!(h.set_hide_redacted(false));
+    assert_eq!(
+        texts(&h),
+        [
+            "$1",
+            "[Messaggio eliminato]",
+            "$3",
+            "[Messaggio eliminato]",
+            "$5"
+        ]
+    );
+    assert_eq!(
+        h.sender_label(2, 3),
+        None,
+        "same series again, label rule unchanged"
+    );
+}
+
+#[test]
+fn adjacent_deleted_rows_keep_order_when_shown_again() {
+    let mut h = DemoHistory::new(scope(), 0);
+    h.prepend_server(vec![
+        ev("$1", "@a:test", 0, false),
+        ev("$2", "@a:test", 1, true),
+        ev("$3", "@a:test", 2, true),
+        ev("$4", "@a:test", 3, false),
+    ]);
+    h.set_hide_redacted(true);
+    h.set_hide_redacted(false);
+    let ids: Vec<_> = h
+        .events()
+        .iter()
+        .map(|e| format!("{:?}", e.id.id))
+        .collect();
+    assert!(ids[1].contains("$2") && ids[2].contains("$3"), "{ids:?}");
+}
+
+#[test]
+fn live_redaction_and_new_deleted_rows_are_hidden_without_a_reload() {
+    let mut h = history();
+    h.set_hide_redacted(true);
+    // $3 is redacted live; $6 arrives already redacted: neither shows, $6 adds no visible row.
+    h.refresh_server(vec![
+        ev("$3", "@anna:test", 2_000, true),
+        ev("$6", "@anna:test", 5_000, true),
+    ]);
+    assert_eq!(texts(&h), ["$1", "$5"]);
+    h.set_hide_redacted(false);
+    assert_eq!(h.events().len(), 6);
+}
+
+#[test]
+fn prepend_counts_only_visible_rows() {
+    let mut h = DemoHistory::new(scope(), 0);
+    h.set_hide_redacted(true);
+    let added = h.prepend_server(vec![
+        ev("$1", "@a:test", 0, true),
+        ev("$2", "@a:test", 1, false),
+    ]);
+    assert_eq!((added, h.events().len()), (1, 1));
+}

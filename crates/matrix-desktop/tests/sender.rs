@@ -13,6 +13,7 @@ fn scope() -> RoomScope {
 fn live_mapping_carries_sender_id_and_name() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$a"),
         body: "ciao".into(),
         outgoing: false,
@@ -50,6 +51,7 @@ fn demo_incoming_events_have_sender_and_outgoing_do_not() {
 
 fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> HistoryEvent {
     HistoryEvent {
+        redacted: false,
         event_id: EventId::new(id),
         body: "x".into(),
         outgoing: false,

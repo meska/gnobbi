@@ -1541,6 +1541,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             event_id: matrix_domain::EventId::new(id.as_str()),
             body,
             outgoing: event.is_own(),
+            redacted: matches!(content.kind, MsgLikeKind::Redacted),
             timestamp_ms: event.timestamp().0.into(),
             sender: history_sender(room, event.sender()).await,
             video,

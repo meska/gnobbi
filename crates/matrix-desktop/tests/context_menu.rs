@@ -13,6 +13,7 @@ fn scope() -> RoomScope {
 fn live_history() -> DemoHistory {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$e"),
         body: "ciao".into(),
         outgoing: false,
@@ -56,6 +57,7 @@ fn id(event: &str) -> matrix_domain::ScopedTimelineId {
 fn two_live() -> DemoHistory {
     let mut rows = DemoHistory::new(scope(), 0);
     let event = |id: &str| HistoryEvent {
+        redacted: false,
         event_id: EventId::new(id),
         body: "ciao".into(),
         outgoing: false,

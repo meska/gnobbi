@@ -121,7 +121,16 @@ impl Shell {
             match key.key.as_str() {
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
                 "escape" => self.set_menu_open(false, window, cx),
-                "enter" | "space" if activate && self.settings_open => self.toggle_debug(cx),
+                "enter" | "space" if activate && self.settings_open => match self.settings_row {
+                    0 => self.toggle_debug(cx),
+                    _ => self.toggle_hide_redacted(cx),
+                },
+                // Settings keep one focus stop; Up/Down/Tab move between its two switches.
+                "up" | "down" | "tab" if self.settings_open => {
+                    self.settings_row = 1 - self.settings_row;
+                    self.settings_focus.focus(window);
+                    cx.notify();
+                }
                 "enter" | "space" if activate => {
                     match self.drawer_row.checked_sub(accounts.len()) {
                         None => self.switch_account(accounts[self.drawer_row].id, window, cx),
@@ -141,7 +150,6 @@ impl Shell {
                     cx.notify();
                 }
                 // The drawer holds one focus stop; Up/Down/Tab move between its rows.
-                "tab" if self.settings_open => self.settings_focus.focus(window),
                 "up" | "down" | "tab" => {
                     let back = key.key == "up" || m.shift;
                     let rows = DRAWER_ROWS + accounts.len();

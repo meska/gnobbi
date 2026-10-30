@@ -10,6 +10,7 @@ impl Shell {
     ) {
         self.settings_open = open;
         if open {
+            self.settings_row = 0;
             self.settings_focus.focus(window)
         } else {
             self.drawer_focus.focus(window)
@@ -171,6 +172,11 @@ impl Shell {
 
     pub(crate) fn toggle_read_receipts(&mut self, cx: &mut Context<Self>) {
         self.prefs.read_receipts = !self.prefs.read_receipts;
+        self.save_prefs(cx);
+    }
+
+    pub(crate) fn toggle_hide_redacted(&mut self, cx: &mut Context<Self>) {
+        self.prefs.hide_redacted = !self.prefs.hide_redacted;
         self.save_prefs(cx);
     }
 
@@ -445,11 +451,13 @@ impl Shell {
                     .track_focus(&self.settings_focus)
                     .text_color(rgb(t.text))
                     .border_1()
-                    .border_color(rgb(if self.settings_focus.is_focused(window) {
-                        t.accent
-                    } else {
-                        t.surface
-                    }))
+                    .border_color(rgb(
+                        if self.settings_row == 0 && self.settings_focus.is_focused(window) {
+                            t.accent
+                        } else {
+                            t.surface
+                        },
+                    ))
                     .child("Modalità debug")
                     .child(switch(self.prefs.debug))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_debug(cx))),
@@ -538,6 +546,21 @@ impl Shell {
                     .child("Conferme di lettura")
                     .child(switch(self.prefs.read_receipts))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
+            )
+            .child(
+                row("settings-hide-redacted")
+                    .text_color(rgb(t.text))
+                    .border_1()
+                    .border_color(rgb(
+                        if self.settings_row == 1 && self.settings_focus.is_focused(window) {
+                            t.accent
+                        } else {
+                            t.surface
+                        },
+                    ))
+                    .child("Nascondi messaggi eliminati")
+                    .child(switch(self.prefs.hide_redacted))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_redacted(cx))),
             )
             .into_any_element()
     }

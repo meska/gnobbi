@@ -22,6 +22,7 @@ fn confirmed_redaction_has_semantics_not_inferred_from_message_body() {
     let event = EventId::new("$original:fixture.invalid");
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: event.clone(),
         body: "[Messaggio eliminato]".into(),
         outgoing: true,
@@ -87,6 +88,7 @@ fn own_reaction_is_named_separately_from_edit_and_delivery() {
     };
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$react-target"),
         body: "original".into(),
         outgoing: true,
@@ -186,6 +188,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![
         HistoryEvent {
+            redacted: false,
             event_id: EventId::new("$read"),
             body: "original".into(),
             outgoing: true,
@@ -198,6 +201,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
             attachment_name: None,
         },
         HistoryEvent {
+            redacted: false,
             event_id: EventId::new("$later"),
             body: "later".into(),
             outgoing: true,

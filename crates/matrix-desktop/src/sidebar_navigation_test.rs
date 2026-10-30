@@ -1448,6 +1448,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(700).await;
             this.update_in(cx, |this, _, cx| {
                 let events = (1..=3).map(|n| matrix_engine::history::HistoryEvent {
+                    redacted: false,
                     event_id: matrix_domain::EventId::new(format!("$debugevent{n}:gnobbi.test")),
                     body: format!("Messaggio {n}"),
                     outgoing: n == 2,
@@ -1604,6 +1605,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, _| {
                 assert!(!this.prefs.debug && !saved(&dirs).debug, "Space toggles it off and saves");
             }).unwrap();
+            this.update_in(cx, |this, _, _| assert!(!this.prefs.hide_redacted, "deleted messages are shown by default")).unwrap();
+            key!("tab");
+            key!("space");
+            this.update_in(cx, |this, _, _| {
+                assert!(this.prefs.hide_redacted && saved(&dirs).hide_redacted && !this.prefs.debug, "Tab then Space hides deleted messages and saves");
+            }).unwrap();
+            key!("enter");
+            this.update_in(cx, |this, _, _| assert!(!this.prefs.hide_redacted && !saved(&dirs).hide_redacted, "Enter toggles it back")).unwrap();
+            key!("tab");
             this.update_in(cx, |this, _, cx| {
                 assert!(this.prefs.read_receipts && saved(&dirs).read_receipts, "read receipts default to on");
                 this.toggle_read_receipts(cx);

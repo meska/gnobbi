@@ -45,6 +45,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         0,
     );
     history.prepend_server(vec![matrix_engine::history::HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$same:test"),
         body: "same text".into(),
         outgoing: true,

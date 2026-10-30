@@ -79,6 +79,8 @@ pub struct HistoryEvent {
     pub event_id: EventId,
     pub body: String,
     pub outgoing: bool,
+    /// The event was redacted (deleted): `body` is the placeholder, never the old text.
+    pub redacted: bool,
     pub timestamp_ms: u64,
     pub sender: HistorySender,
     pub video: Option<VideoInfo>,

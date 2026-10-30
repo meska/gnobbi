@@ -13,6 +13,7 @@ fn live_server_message_stamp_has_no_event_id() {
         0,
     );
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$secretid"),
         body: "ciao".into(),
         outgoing: false,

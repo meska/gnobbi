@@ -7,6 +7,9 @@ pub struct DemoHistory {
     scope: RoomScope,
     older_count: usize,
     local_count: usize,
+    hide_redacted: bool,
+    /// Redacted rows kept out of `events` while hidden, each with the visible row it followed.
+    hidden: Vec<(Option<ScopedTimelineId>, DemoEvent)>,
 }
 
 /// Demo transport controls only; neither state means delivery to a server.
@@ -182,6 +185,8 @@ impl DemoHistory {
             scope,
             older_count: 0,
             local_count: 0,
+            hide_redacted: false,
+            hidden: Vec::new(),
         }
     }
 
@@ -288,8 +293,11 @@ impl DemoHistory {
                 .events
                 .iter_mut()
                 .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
-                && (row.text != event.body || row.styles != event.styles)
+                && (row.text != event.body
+                    || row.styles != event.styles
+                    || row.redacted != event.redacted)
             {
+                row.redacted = event.redacted;
                 row.text.clone_from(&event.body);
                 row.styles.clone_from(&event.styles);
                 changed_body = true;
@@ -311,14 +319,18 @@ impl DemoHistory {
         events: Vec<matrix_engine::history::HistoryEvent>,
         append: bool,
     ) -> usize {
-        let mut seen: std::collections::HashSet<_> =
-            self.events.iter().map(|row| row.id.id.clone()).collect();
+        let mut seen: std::collections::HashSet<_> = self
+            .events
+            .iter()
+            .chain(self.hidden.iter().map(|(_, e)| e))
+            .map(|row| row.id.id.clone())
+            .collect();
         let mut rows = events
             .into_iter()
             .filter(|event| seen.insert(TimelineId::Server(event.event_id.clone())))
             .map(|event| DemoEvent {
                 server_confirmed: true,
-                redacted: false,
+                redacted: event.redacted,
                 annotation: String::new(),
                 transaction_id: None,
                 id: ScopedTimelineId {
@@ -346,14 +358,62 @@ impl DemoHistory {
                 }),
             })
             .collect::<Vec<_>>();
-        let count = rows.len();
+        let count = rows
+            .iter()
+            .filter(|r| !(self.hide_redacted && r.redacted))
+            .count();
         if append {
             self.events.append(&mut rows);
         } else {
             rows.append(&mut self.events);
             self.events = rows;
         }
+        self.sweep_redacted();
         count
+    }
+
+    /// «Nascondi messaggi eliminati»: shows or hides the redacted rows already loaded.
+    /// Returns whether the visible rows changed.
+    pub fn set_hide_redacted(&mut self, hide: bool) -> bool {
+        if self.hide_redacted == hide {
+            return false;
+        }
+        self.hide_redacted = hide;
+        if hide {
+            self.sweep_redacted();
+        } else {
+            let mut last: Option<(Option<ScopedTimelineId>, usize)> = None;
+            for (anchor, row) in std::mem::take(&mut self.hidden) {
+                let at = match (&last, &anchor) {
+                    (Some((a, pos)), _) if *a == anchor => pos + 1,
+                    (_, Some(id)) => self
+                        .events
+                        .iter()
+                        .position(|e| e.id == *id)
+                        .map_or(0, |i| i + 1),
+                    (_, None) => 0,
+                };
+                self.events.insert(at, row);
+                last = Some((anchor, at));
+            }
+        }
+        true
+    }
+
+    /// While hiding, moves redacted rows out of `events`; neighbours then group as if they never existed.
+    fn sweep_redacted(&mut self) {
+        if !self.hide_redacted {
+            return;
+        }
+        let mut kept: Vec<DemoEvent> = Vec::with_capacity(self.events.len());
+        for row in std::mem::take(&mut self.events) {
+            if row.redacted {
+                self.hidden.push((kept.last().map(|e| e.id.clone()), row));
+            } else {
+                kept.push(row);
+            }
+        }
+        self.events = kept;
     }
 
     pub fn project_operations(
@@ -442,6 +502,7 @@ impl DemoHistory {
                 );
             }
         }
+        self.sweep_redacted();
     }
 
     /// Reconcile outgoing rows by transaction/event ID, never by message text.

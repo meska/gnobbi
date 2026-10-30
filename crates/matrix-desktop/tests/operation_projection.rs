@@ -102,6 +102,7 @@ fn fixture() -> (DemoHistory, LiveOperations) {
     };
     let mut rows = DemoHistory::new(scope.clone(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$first"),
         body: "old".into(),
         outgoing: true,
@@ -155,6 +156,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
     };
     let mut rows = DemoHistory::new(scope.clone(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$first"),
         body: "old".into(),
         outgoing: true,
@@ -212,6 +214,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
     };
     let mut other = DemoHistory::new(other_scope, 0);
     other.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$first"),
         body: "other".into(),
         outgoing: true,
