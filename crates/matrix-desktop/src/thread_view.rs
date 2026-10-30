@@ -347,6 +347,7 @@ mod tests {
             event_id: EventId::new(format!("$r{n}")),
             body: format!("risposta {n}"),
             outgoing: false,
+            redacted: false,
             timestamp_ms: 0,
             sender: HistorySender::new("@a:t", None),
             video: None,

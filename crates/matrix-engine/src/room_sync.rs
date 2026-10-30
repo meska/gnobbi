@@ -1614,6 +1614,7 @@ async fn status_row(
         event_id: matrix_domain::EventId::new(id.as_str()),
         body: status_text(&status, &label(&actor), &subject),
         outgoing: false,
+        redacted: false,
         timestamp_ms: event.timestamp().0.into(),
         sender: shown,
         video: None,

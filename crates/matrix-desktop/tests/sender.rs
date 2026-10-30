@@ -93,6 +93,7 @@ fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
         event_id: EventId::new(id),
         body: "meska ha invitato Marco".into(),
         outgoing: false,
+        redacted: false,
         timestamp_ms: 0,
         sender: HistorySender::new("@anna:test", Some("Anna")),
         video: None,

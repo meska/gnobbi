@@ -33,8 +33,6 @@ fn roundtrip_keeps_values() {
         auto_night: AutoNight::Schedule,
         font: FontChoice::Serif,
         icon: matrix_desktop::IconChoice::Monster,
-
-#[test]
         hide_redacted: true,
     };
     p.save(&d).unwrap();
