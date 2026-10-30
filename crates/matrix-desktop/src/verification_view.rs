@@ -247,7 +247,6 @@ impl Shell {
                 .when_some(self.device_scroll_handle(), |d, handle| d.track_scroll(&handle))
                 .p_4().flex().flex_col().gap_3()
                 .child("Altri dispositivi del tuo account · SAS")
-                .child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child("Avvia solo una verifica attesa. Confronta i numeri tramite un canale fidato; non confermare se sono diversi."))
                 .child(div().id("verification-refresh").anchor_scroll(self.device_anchor(1)).relative().children(self.device_observer(1, cx))
                     .when(focused_control == Some(1), |d| d.border_1().border_color(rgb(t.accent)))
                     .cursor_pointer().text_color(rgb(t.accent)).child("Aggiorna dispositivi")

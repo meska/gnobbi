@@ -255,7 +255,6 @@ impl DeviceOverview {
     ) -> Self {
         let mut labels = vec![
             "Altri dispositivi del tuo account · SAS".into(),
-            "Avvia solo una verifica attesa. Confronta i numeri tramite un canale fidato; non confermare se sono diversi.".into(),
         ];
         if model.devices().is_empty() {
             labels.push("Nessun altro dispositivo disponibile".into());
