@@ -14,6 +14,7 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
         thread: replies.map(|num_replies| ThreadInfo {
             num_replies,
             latest_sender: Some(HistorySender::new(latest, None)),
+            unread: 0,
         }),
         thread_root: None,
     }
@@ -30,4 +31,22 @@ fn reply_count_follows_the_timeline_live() {
     assert!(rows.refresh_server(vec![root(Some(2), "@carla:test")]));
     assert_eq!(rows.events()[0].thread_label(), Some(("2 risposte".into(), "CA".into(), None)));
     assert!(!rows.refresh_server(vec![root(Some(2), "@carla:test")]), "same summary: no repaint");
+}
+
+#[test]
+fn unread_replies_show_next_to_the_count_and_clear_when_the_thread_is_read() {
+    let scope = RoomScope { account_id: AccountId::new(7), room_id: RoomId::new("!r:test") };
+    let mut rows = DemoHistory::new(scope, 0);
+    let with = |unread| {
+        let mut event = root(Some(3), "@bob:test");
+        event.thread.as_mut().unwrap().unread = unread;
+        event
+    };
+    rows.prepend_server(vec![with(2)]);
+    assert_eq!(rows.events()[0].thread_label().unwrap().0, "3 risposte · 2 non lette");
+    assert!(rows.refresh_server(vec![with(1)]), "a changed unread count repaints");
+    assert_eq!(rows.events()[0].thread_label().unwrap().0, "3 risposte · 1 non letta");
+    assert!(rows.clear_thread_unread(&EventId::new("$root")));
+    assert!(!rows.clear_thread_unread(&EventId::new("$root")), "nothing left to clear");
+    assert_eq!(rows.events()[0].thread_label().unwrap().0, "3 risposte");
 }

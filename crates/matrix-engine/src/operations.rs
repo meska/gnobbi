@@ -43,6 +43,8 @@ pub enum OperationCommand {
         scope: RoomScope,
         read: bool,
         public: bool,
+        /// Opening the room: receipt `main` only, so unread threads stay unread. The menu reads everything.
+        main_only: bool,
     },
     /// New direct chat with `user_id` (reuses an existing one).
     StartDm {
@@ -83,6 +85,9 @@ pub enum OperationCommand {
         scope: RoomScope,
         root: EventId,
         want: usize,
+        /// The panel is on screen in the focused window: also send the thread's read receipt
+        /// (`Some(public)`, the «Conferme di lettura» setting).
+        read: Option<bool>,
     },
     /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
     ThreadSend {
@@ -304,6 +309,7 @@ pub(crate) async fn mark_room(
     scope: &RoomScope,
     read: bool,
     public: bool,
+    main_only: bool,
 ) -> Result<(), OperationError> {
     if scope.account_id != account {
         return Err(OperationError::WrongScope);
@@ -321,7 +327,11 @@ pub(crate) async fn mark_room(
             .await
             .map_err(|_| OperationError::Unavailable)?;
         let kind = if public { ReceiptType::Read } else { ReceiptType::ReadPrivate };
-        timeline.mark_as_read(kind).await.map_err(|_| OperationError::Transport)?;
+        if main_only {
+            crate::threads::mark_main(&room, &timeline, public).await.map_err(|_| OperationError::Transport)?;
+        } else {
+            timeline.mark_as_read(kind).await.map_err(|_| OperationError::Transport)?;
+        }
         timeline
             .mark_as_read(ReceiptType::FullyRead)
             .await

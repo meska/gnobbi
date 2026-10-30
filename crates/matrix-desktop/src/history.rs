@@ -66,10 +66,15 @@ impl DemoEvent {
     /// «N risposte» under a thread root, with the initials for the latest author's avatar.
     pub fn thread_label(&self) -> Option<(String, String, Option<&str>)> {
         let t = self.thread.as_ref()?;
-        let label = match t.num_replies {
+        let mut label = match t.num_replies {
             1 => "1 risposta".to_owned(),
             n => format!("{n} risposte"),
         };
+        match t.unread {
+            0 => {}
+            1 => label.push_str(" · 1 non letta"),
+            n => label.push_str(&format!(" · {n} non lette")),
+        }
         let who = t.latest_sender.as_ref().map(|s| s.name.as_deref().unwrap_or(&s.id));
         let initials = who.unwrap_or("").trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
         Some((label, initials, t.latest_sender.as_ref().and_then(|s| s.avatar.as_deref())))
@@ -106,6 +111,12 @@ pub fn opens_message_menu(
 }
 
 impl DemoHistory {
+    /// The thread was read in its panel: its root shows no unread replies until the engine says otherwise.
+    pub fn clear_thread_unread(&mut self, root: &EventId) -> bool {
+        let row = self.events.iter_mut().find(|row| row.id.id == TimelineId::Server(root.clone()));
+        row.and_then(|r| r.thread.as_mut()).is_some_and(|t| std::mem::take(&mut t.unread) > 0)
+    }
+
     pub fn row(&self, id: &EventId) -> Option<&DemoEvent> {
         self.events.iter().find(|row| row.id.id == TimelineId::Server(id.clone()))
     }

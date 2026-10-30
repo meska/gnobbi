@@ -30,7 +30,9 @@ pub(crate) async fn open(
     if now.rows.is_empty() && let Err(e) = status {
         return Err(e);
     }
-    let mut root_row = main.rows.into_iter().find(|r| r.event_id == *root);
+    let mut main_rows = main.rows;
+    annotate_unread(timelines, room, &mut main_rows).await;
+    let mut root_row = main_rows.into_iter().find(|r| r.event_id == *root);
     // The room's own timeline keeps the root's summary current; the thread's copy goes stale.
     if let Some(i) = now.rows.iter().position(|r| r.event_id == *root) {
         let own = now.rows.remove(i);
@@ -47,6 +49,7 @@ pub(crate) async fn open_scoped(
     scope: &matrix_domain::RoomScope,
     root: &EventId,
     want: usize,
+    read: Option<bool>,
 ) -> Result<Box<ThreadPage>, crate::operations::OperationError> {
     use crate::operations::OperationError as E;
     if scope.account_id != account {
@@ -57,11 +60,20 @@ pub(crate) async fn open_scoped(
         .get_room(&id)
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
         .ok_or(E::Unavailable)?;
-    open(timelines, &room, root, want).await.map(Box::new).map_err(|e| match e {
+    let mut page = open(timelines, &room, root, want).await.map_err(|e| match e {
         HistoryError::Transport => E::Transport,
         HistoryError::Unavailable => E::Unavailable,
         _ => E::WrongScope,
-    })
+    })?;
+    // Read after the load (the receipt points at the newest event the thread holds); a failed
+    // receipt is retried by the next request and does not hide the thread.
+    if let Some(public) = read
+        && mark_read_scoped(client, timelines, account, scope, root, public).await.is_ok()
+        && let Some(info) = page.root.as_mut().and_then(|r| r.thread.as_mut())
+    {
+        info.unread = 0;
+    }
+    Ok(Box::new(page))
 }
 
 /// A text into the thread's own `Timeline`: the SDK adds `m.thread` (and the fallback) itself, and
@@ -106,6 +118,108 @@ pub(crate) async fn send_scoped(
             && reply.as_ref().is_none_or(|t| r["m.in_reply_to"]["event_id"].as_str() == Some(t.as_str()))
     })
     .await
+}
+
+/// Fills `ThreadInfo.unread` of the rows that are thread roots. The SDK (sliding sync, 0.19.1) has no
+/// per-thread counter, so it is read from the thread's own `Timeline`: replies by others after our
+/// read marker there (implicit receipts included). Servers do send per-thread counts, but only in
+/// classic sync, which the app does not use.
+// shortcut: reads at most 3 older pages of each thread (until the marker or the whole thread shows); a
+// longer unread tail counts what was read, and a page that is slow to apply is not waited for. One `Timeline` per root.
+pub(crate) async fn annotate_unread(timelines: &Timelines, room: &matrix_sdk::Room, rows: &mut [crate::history::HistoryEvent]) {
+    use matrix_sdk::ruma::events::receipt::{ReceiptThread, ReceiptType};
+    let Some(me) = room.client().user_id().map(ToOwned::to_owned) else {
+        return;
+    };
+    for row in rows.iter_mut().filter(|r| r.thread.is_some()) {
+        let Ok(root) = matrix_sdk::ruma::EventId::parse(row.event_id.as_str()) else {
+            continue;
+        };
+        let Ok(thread) = timelines.thread(room, &root).await else {
+            continue;
+        };
+        let Some(info) = row.thread.as_mut() else { continue };
+        // Our markers that cover this thread: its own, and the unthreaded ones (they cover every thread).
+        let mut markers = Vec::new();
+        for kind in [ReceiptType::Read, ReceiptType::ReadPrivate] {
+            for scope in [ReceiptThread::Thread(root.clone()), ReceiptThread::Unthreaded] {
+                if let Ok(Some((id, _))) = room.load_user_receipt(kind.clone(), &scope, &me).await {
+                    markers.push(id);
+                }
+            }
+        }
+        let mut now = loaded(room, &thread).await;
+        let position = |now: &crate::room_sync::Loaded| now.rows.iter().rposition(|r| markers.iter().any(|m| m.as_str() == r.event_id.as_str()));
+        // `at_start` is not reliable for threads: the whole thread is what the count says.
+        let replies = |now: &crate::room_sync::Loaded| now.rows.iter().filter(|r| r.event_id != row.event_id).count();
+        for _ in 0..3 {
+            if position(&now).is_some() || replies(&now) >= info.num_replies as usize || now.at_start {
+                break;
+            }
+            // One older page and a short wait for its rows (no polling to a deadline: a refresh must not stall).
+            let before = now.rows.len();
+            if thread.paginate_backwards(PAGE as u16).await.is_err() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            now = loaded(room, &thread).await;
+            if now.rows.len() == before {
+                break;
+            }
+        }
+        // Replies by others after the marker; a reply of ours reads everything before it.
+        let from = position(&now).map_or(0, |i| i + 1);
+        info.unread = 0;
+        for r in now.rows.iter().skip(from).filter(|r| r.event_id != row.event_id) {
+            info.unread = if r.outgoing { 0 } else { info.unread + 1 };
+        }
+    }
+}
+
+/// Receipt for the thread's newest event, with the thread's root as `thread_id`: the SDK picks
+/// `ReceiptThread::Thread` from the thread `Timeline`'s focus, the room's other threads stay unread.
+pub(crate) async fn mark_read_scoped(
+    client: &matrix_sdk::Client,
+    timelines: &Timelines,
+    account: matrix_domain::AccountId,
+    scope: &matrix_domain::RoomScope,
+    root: &EventId,
+    public: bool,
+) -> Result<bool, crate::operations::OperationError> {
+    use crate::operations::OperationError as E;
+    use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+    if scope.account_id != account {
+        return Err(E::WrongScope);
+    }
+    let room_id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| E::WrongScope)?;
+    let root_id = matrix_sdk::ruma::EventId::parse(root.as_str()).map_err(|_| E::InvalidInput)?;
+    let room = client
+        .get_room(&room_id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(E::Unavailable)?;
+    let timeline = timelines.thread(&room, &root_id).await.map_err(|_| E::Unavailable)?;
+    let kind = if public { ReceiptType::Read } else { ReceiptType::ReadPrivate };
+    timeline.mark_as_read(kind).await.map_err(|_| E::Transport)
+}
+
+/// Receipt `main` for the newest event outside every thread. The room's timeline would send an
+/// unthreaded one (it still shows thread replies), which reads all threads as well.
+pub(crate) async fn mark_main(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline, public: bool) -> Result<bool, matrix_sdk::Error> {
+    use matrix_sdk::ruma::{api::client::receipt::create_receipt::v3::ReceiptType, events::receipt};
+    use receipt::ReceiptThread;
+    let (kind, stored) = if public { (ReceiptType::Read, receipt::ReceiptType::Read) } else { (ReceiptType::ReadPrivate, receipt::ReceiptType::ReadPrivate) };
+    let items = timeline.items().await;
+    let newest = items.iter().rev().filter_map(|i| i.as_event()).find(|e| {
+        e.event_id().is_some() && e.content().as_msglike().is_none_or(|m| m.thread_root.is_none())
+    });
+    let (Some(id), Some(me)) = (newest.and_then(|e| e.event_id()), room.client().user_id().map(ToOwned::to_owned)) else {
+        return Ok(false);
+    };
+    let current = room.load_user_receipt(stored, &ReceiptThread::Main, &me).await.ok().flatten();
+    if current.is_some_and(|(have, _)| have == id) {
+        return Ok(false);
+    }
+    room.send_single_receipt(kind, ReceiptThread::Main, id.to_owned()).await.map(|()| true)
 }
 
 fn body(event: &ThreadListItemEvent) -> Option<String> {

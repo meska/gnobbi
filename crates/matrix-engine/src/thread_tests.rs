@@ -195,3 +195,180 @@ fn disposable_thread_composer_sends_into_the_thread() {
         }
     });
 }
+
+/// Receipts per thread (D7): what the server counts for a thread and for the main timeline after a
+/// `main` receipt and after a thread receipt, in both orders. Run:
+/// `python3 the auth_smoke script --filter disposable_thread_receipts [--server tuwunel]`
+// Synapse caches identical /sync requests for a while: every call asks with another timeout.
+static SYNC_N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_receipts_probe() {
+    use crate::{ViewRequests, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        // Counts as the server reports them to a client that asks for per-thread counts.
+        let fid = room_request(&config, "alice", reqwest::Method::POST, "user/@alice:matrix-desktop.test/filter",
+            serde_json::json!({"room":{"timeline":{"limit":1,"unread_thread_notifications":true}}})).await["filter_id"].as_str().unwrap().to_owned();
+        let counts = |room: String| {
+            let (config, fid) = (config.clone(), fid.clone());
+            async move {
+                let sync = room_request(&config, "alice", reqwest::Method::GET,
+                    &format!("sync?timeout={}&filter={fid}", SYNC_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)), serde_json::json!({})).await;
+                let r = &sync["rooms"]["join"][room.as_str()];
+                serde_json::json!({"main": r["unread_notifications"]["notification_count"],
+                    "threads": r["unread_thread_notifications"],
+                    "receipts": r["ephemeral"]["events"].as_array().map(|e| e.iter().filter(|e| e["type"] == "m.receipt")
+                        .flat_map(|e| e["content"].as_object().unwrap().iter().map(|(k, v)| serde_json::json!([k, v])).collect::<Vec<_>>()).collect::<Vec<_>>())})
+            }
+        };
+        let mut sync = RoomSync::new(login(&config, "alice", 63).await);
+        let mut rooms = Vec::new();
+        for (n, order) in ["main_first", "thread_first"].into_iter().enumerate() {
+            let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+                serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+            let room = created["room_id"].as_str().unwrap().to_owned();
+            room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+            let put = |actor: &'static str, txn: String, content: serde_json::Value| {
+                let (config, room) = (config.clone(), room.clone());
+                async move {
+                    let sent = room_request(&config, actor, reqwest::Method::PUT,
+                        &format!("rooms/{room}/send/m.room.message/{txn}"), content).await;
+                    sent["event_id"].as_str().unwrap().to_owned()
+                }
+            };
+            let root = put("alice", format!("rc{n}-root"), serde_json::json!({"msgtype":"m.text","body":"root"})).await;
+            for i in 1..=3 {
+                put("bob", format!("rc{n}-r{i}"), serde_json::json!({"msgtype":"m.text","body":format!("reply {i}"),
+                    "m.relates_to":{"rel_type":"m.thread","event_id":root,"is_falling_back":true,"m.in_reply_to":{"event_id":root}}})).await;
+            }
+            put("bob", format!("rc{n}-main"), serde_json::json!({"msgtype":"m.text","body":"main one"})).await;
+            rooms.push((order, room, root));
+        }
+        sync.sliding_round().await.unwrap();
+        for (order, room, root) in rooms {
+            let scope = matrix_domain::RoomScope { account_id: AccountId::new(63), room_id: matrix_domain::RoomId::new(room.clone()) };
+            let root_id = matrix_domain::EventId::new(root.clone());
+            let before = counts(room.clone()).await;
+            // Open the room's timeline once so both timelines exist; no receipt yet.
+            let vis = crate::receipts::ReadVisibility { window_focused: true, room_foreground: false, bottom_gap_px: 0.0, public_receipts: true };
+            sync.open_history(ViewRequests::new().start(scope.clone()).unwrap(), vis).await.unwrap();
+            let mut page = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+            for _ in 0..10 {
+                if page.replies.len() >= 3 { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                page = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+            }
+            // (main, thread) the server counts: a thread with no entry counts 0.
+            let pair = |c: &serde_json::Value| (c["main"].as_u64().unwrap(), c["threads"].as_object()
+                .and_then(|t| t.values().next()).map_or(0, |t| t["notification_count"].as_u64().unwrap()));
+            assert_eq!(pair(&before), (1, 3), "per-thread counts arrive with the timeline filter");
+            let mut log = vec![("start", before)];
+            for step in if order == "main_first" { ["main", "thread"] } else { ["thread", "main"] } {
+                let sent = if step == "main" { sync.mark_main_read(&scope, true).await } else { sync.mark_thread_read(&scope, &root_id, true).await };
+                println!("P334_SENT {step} {sent:?}");
+                tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                log.push((step, counts(room.clone()).await));
+                // Each receipt clears its own timeline and nothing else.
+                let (main, thread) = pair(&log.last().unwrap().1);
+                let main_read = log.iter().skip(1).any(|(s, _)| *s == "main");
+                let thread_read = log.iter().skip(1).any(|(s, _)| *s == "thread");
+                assert_eq!((main, thread), (if main_read { 0 } else { 1 }, if thread_read { 0 } else { 3 }), "{order} after {step}");
+            }
+            let ev = room_request(&config, "alice", reqwest::Method::GET, &format!("rooms/{room}/messages?dir=b&limit=1"), serde_json::json!({})).await;
+            let last = ev["chunk"][0]["event_id"].as_str().unwrap().to_owned();
+            room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{room}/receipt/m.read/{last}"), serde_json::json!({})).await;
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            log.push(("raw_unthreaded", counts(room.clone()).await));
+            println!("P334_COUNTS {}", serde_json::json!({"server": config["server"], "order": order, "steps": log}));
+        }
+    });
+}
+
+/// The counter under the root: replies by others after our read marker of the thread. Opening the
+/// room (receipt `main`) leaves it alone, reading the thread drops it, a new reply raises it, and
+/// a new session sees the same from the server's receipts. Run:
+/// `python3 the auth_smoke script --filter disposable_thread_unread [--server tuwunel]`
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_unread_counter_follows_the_thread_receipt() {
+    use crate::{ViewRequests, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+        let room = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+        let put = |actor: &'static str, txn: &'static str, content: serde_json::Value| {
+            let (config, room) = (config.clone(), room.clone());
+            async move {
+                let sent = room_request(&config, actor, reqwest::Method::PUT,
+                    &format!("rooms/{room}/send/m.room.message/{txn}"), content).await;
+                sent["event_id"].as_str().unwrap().to_owned()
+            }
+        };
+        let root = put("alice", "un-root", serde_json::json!({"msgtype":"m.text","body":"root"})).await;
+        let reply = |body: &str, root: &str| serde_json::json!({"msgtype":"m.text","body":body,
+            "m.relates_to":{"rel_type":"m.thread","event_id":root,"is_falling_back":true,"m.in_reply_to":{"event_id":root}}});
+        for (txn, body) in [("un-r1", "one"), ("un-r2", "two"), ("un-r3", "three")] {
+            put("bob", txn, reply(body, &root)).await;
+        }
+        put("bob", "un-main", serde_json::json!({"msgtype":"m.text","body":"main one"})).await;
+        let scope = |n| matrix_domain::RoomScope { account_id: AccountId::new(n), room_id: matrix_domain::RoomId::new(room.clone()) };
+        let root_id = matrix_domain::EventId::new(root.clone());
+        let vis = crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: false };
+        // The unread number the root row carries when the room is opened.
+        async fn unread(sync: &RoomSync, scope: matrix_domain::RoomScope, root_id: &matrix_domain::EventId, vis: crate::receipts::ReadVisibility) -> Option<u32> {
+            let page = sync.open_history(ViewRequests::new().start(scope).unwrap(), vis).await.unwrap().0;
+            page.events.iter().find(|e| e.event_id == *root_id).and_then(|e| e.thread.as_ref()).map(|t| t.unread)
+        }
+        let mut sync = RoomSync::new(login(&config, "alice", 64).await);
+        sync.sliding_round().await.unwrap();
+        // Opening the room reads `main` only.
+        let mut first = None;
+        for _ in 0..10 {
+            first = unread(&sync, scope(64), &root_id, vis).await;
+            if first == Some(3) { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let _ = sync.sliding_round().await;
+        }
+        let _ = sync.mark_main_read(&scope(64), false).await;
+        let after_main = unread(&sync, scope(64), &root_id, vis).await;
+        // Reading the thread drops it (the receipt echo may take a moment).
+        let page = sync.open_thread(&scope(64), &root_id, 25).await.unwrap();
+        assert_eq!(page.replies.len(), 3);
+        sync.mark_thread_read(&scope(64), &root_id, false).await.unwrap();
+        let mut after_thread = None;
+        for _ in 0..10 {
+            let _ = sync.sliding_round().await;
+            after_thread = unread(&sync, scope(64), &root_id, vis).await;
+            if after_thread == Some(0) { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        // A new reply raises it again.
+        put("bob", "un-r4", reply("four", &root)).await;
+        let mut after_new = None;
+        for _ in 0..10 {
+            let _ = sync.sliding_round().await;
+            after_new = unread(&sync, scope(64), &root_id, vis).await;
+            if after_new == Some(1) { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        drop(sync);
+        // A new session (new login, empty store): the server's receipts give the same number.
+        let mut again = RoomSync::new(login(&config, "alice", 65).await);
+        again.sliding_round().await.unwrap();
+        let mut restarted = None;
+        for _ in 0..10 {
+            restarted = unread(&again, scope(65), &root_id, vis).await;
+            if restarted == Some(1) { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let _ = again.sliding_round().await;
+        }
+        println!("P334_UNREAD {}", serde_json::json!({"server": config["server"], "opened": first, "after_main": after_main,
+            "after_thread": after_thread, "after_new_reply": after_new, "new_session": restarted}));
+        assert_eq!((first, after_main, after_thread, after_new, restarted),
+            (Some(3), Some(3), Some(0), Some(1), Some(1)));
+    });
+}

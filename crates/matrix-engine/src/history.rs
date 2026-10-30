@@ -88,6 +88,8 @@ pub struct HistoryEvent {
 pub struct ThreadInfo {
     pub num_replies: u32,
     pub latest_sender: Option<HistorySender>,
+    /// Replies by others after our own read marker of the thread (0 while the thread is unknown).
+    pub unread: u32,
 }
 
 /// One thread opened: `root` is None when the room's own timeline does not hold it (the thread

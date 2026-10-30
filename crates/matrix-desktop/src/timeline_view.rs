@@ -996,6 +996,16 @@ impl TimelineView {
         })
     }
 
+    /// The thread was read in its panel: the root's counter goes now (the row changes height-free
+    /// but its controls are retired, as for any same-ID change).
+    pub(crate) fn thread_read(&self, root: &matrix_domain::EventId) {
+        if self.history.borrow_mut().clear_thread_unread(root) {
+            let (offset, count) = (self.state.logical_scroll_top(), self.history.borrow().events().len());
+            self.state.splice(0..count, count);
+            self.state.scroll_to(offset);
+        }
+    }
+
     pub fn first_visible_row(&self) -> usize {
         self.state.logical_scroll_top().item_ix
     }

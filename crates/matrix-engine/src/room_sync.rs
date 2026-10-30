@@ -423,6 +423,7 @@ impl RoomListWorker {
                                     scope,
                                     read,
                                     public,
+                                    main_only,
                                 } => {
                                     let result = crate::operations::mark_room(
                                         &operation_client,
@@ -431,6 +432,7 @@ impl RoomListWorker {
                                         &scope,
                                         read,
                                         public,
+                                        main_only,
                                     )
                                     .await;
                                     OperationResult::RoomMarked { scope, result }
@@ -491,8 +493,8 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::InviteAnswered { scope, accept, result }
                                 }
-                                OperationCommand::Thread { scope, root, want } => {
-                                    let result = crate::threads::open_scoped(&operation_client, &operation_timelines, account, &scope, &root, want).await;
+                                OperationCommand::Thread { scope, root, want, read } => {
+                                    let result = crate::threads::open_scoped(&operation_client, &operation_timelines, account, &scope, &root, want, read).await;
                                     OperationResult::Thread { scope, root, result }
                                 }
                                 OperationCommand::ThreadSend { scope, root, reply_to, body } => {
@@ -864,7 +866,7 @@ impl RoomSync {
         read: bool,
     ) -> Result<(), crate::operations::OperationError> {
         let client = self.session.client.as_ref().expect("store-backed session");
-        crate::operations::mark_room(client, &self.timelines, self.session.account_id(), scope, read, true).await
+        crate::operations::mark_room(client, &self.timelines, self.session.account_id(), scope, read, true, false).await
     }
 
     /// A thread: root from the room's own timeline (the thread's `hit_start` is not reliable,
@@ -877,6 +879,27 @@ impl RoomSync {
     ) -> Result<crate::threads::ThreadPage, crate::history::HistoryError> {
         let room = self.thread_room(scope)?;
         crate::threads::open(&self.timelines, &room, root, want).await
+    }
+
+    /// Read receipt of one thread (its root as `thread_id`).
+    pub async fn mark_thread_read(
+        &self,
+        scope: &RoomScope,
+        root: &matrix_domain::EventId,
+        public: bool,
+    ) -> Result<bool, crate::operations::OperationError> {
+        let client = self.session.client.as_ref().ok_or(crate::operations::OperationError::Unavailable)?;
+        crate::threads::mark_read_scoped(client, &self.timelines, self.session.account_id(), scope, root, public).await
+    }
+
+    /// Read receipt `main` for the room's own timeline (the same call the open view makes).
+    pub async fn mark_main_read(&self, scope: &RoomScope, public: bool) -> Result<bool, crate::operations::OperationError> {
+        use crate::operations::OperationError as E;
+        let client = self.session.client.as_ref().ok_or(E::Unavailable)?;
+        let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| E::WrongScope)?;
+        let room = client.get_room(&id).ok_or(E::Unavailable)?;
+        let timeline = self.timelines.get(&room).await.map_err(|_| E::Unavailable)?;
+        crate::threads::mark_main(&room, &timeline, public).await.map_err(|_| E::Transport)
     }
 
     /// A text into a thread (plain, or a reply to one of its events); waits for the server.
@@ -970,8 +993,7 @@ impl RoomSync {
         let Ok(timeline) = self.timelines.get(&room).await else {
             return;
         };
-        let read = if public { ReceiptType::Read } else { ReceiptType::ReadPrivate };
-        let _ = timeline.mark_as_read(read).await;
+        let _ = crate::threads::mark_main(&room, &timeline, public).await;
         let _ = timeline.mark_as_read(ReceiptType::FullyRead).await;
     }
 
@@ -1373,7 +1395,7 @@ async fn thread_info(
         TimelineDetails::Ready(e) => Some(history_sender(room, &e.sender).await),
         _ => None,
     };
-    Some(crate::history::ThreadInfo { num_replies: summary.num_replies, latest_sender })
+    Some(crate::history::ThreadInfo { num_replies: summary.num_replies, latest_sender, unread: 0 })
 }
 
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
@@ -1519,7 +1541,8 @@ async fn saved_page(
 ) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
     let room = joined(client, &tag, account_id)?;
     let timeline = timelines.get(&room).await?;
-    let now = loaded(&room, &timeline).await;
+    let mut now = loaded(&room, &timeline).await;
+    crate::threads::annotate_unread(timelines, &room, &mut now.rows).await;
     let next = cursor(&now.rows, now.at_start);
     Ok(crate::history::HistoryPage {
         tag,
@@ -1549,7 +1572,8 @@ async fn open_page(
         .ok_or(crate::history::HistoryError::Unavailable)?;
     let timeline = timelines.get(&room).await?;
     // Best effort: a failed gap keeps what is saved.
-    let (now, _) = fill(&room, &timeline, PAGE).await;
+    let (mut now, _) = fill(&room, &timeline, PAGE).await;
+    crate::threads::annotate_unread(timelines, &room, &mut now.rows).await;
     let next = cursor(&now.rows, now.at_start);
     Ok((
         crate::history::HistoryPage {
@@ -1797,7 +1821,8 @@ async fn load_history(
         return Err(HistoryError::Cancelled);
     }
     let from = now.rows.len().saturating_sub(PAGE);
-    let events: Vec<_> = now.rows.drain(from..).collect();
+    let mut events: Vec<_> = now.rows.drain(from..).collect();
+    crate::threads::annotate_unread(timelines, &room, &mut events).await;
     // Rows left over older than this page still count as "more" even at the start.
     let next = cursor(&events, now.at_start && from == 0);
     Ok(HistoryPage { tag, events, next })

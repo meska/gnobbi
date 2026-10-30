@@ -5,7 +5,7 @@ pub(crate) const ITEMS: [&str; 2] = ["Segna come letto", "Segna come non letto"]
 
 impl Shell {
     /// Queues the room-level read marker for the engine; reading also drops the badge at once.
-    pub(crate) fn mark_room(&mut self, scope: RoomScope, read: bool, cx: &mut Context<Self>) {
+    pub(crate) fn mark_room(&mut self, scope: RoomScope, read: bool, main_only: bool, cx: &mut Context<Self>) {
         self.room_menu = None;
         if self.pending_operation_command.is_none() {
             self.pending_operation_command =
@@ -13,6 +13,7 @@ impl Shell {
                     scope: scope.clone(),
                     read,
                     public: self.prefs.read_receipts,
+                    main_only,
                 });
             if read {
                 self.sidebar.mark_read_optimistic(&scope);
@@ -34,7 +35,7 @@ impl Shell {
         }
         let scope = room.scope.clone();
         self.read_dirty = false;
-        self.mark_room(scope, true, cx);
+        self.mark_room(scope, true, true, cx);
     }
 
     /// First click arms «Uscire?», the second leaves; the sync then drops the room from the list.
@@ -70,7 +71,7 @@ impl Shell {
                 .hover(|s| s.bg(rgb(t.border)))
                 .child(ITEMS[i])
                 .on_click(
-                    cx.listener(move |this, _, _, cx| this.mark_room(scope.clone(), i == 0, cx)),
+                    cx.listener(move |this, _, _, cx| this.mark_room(scope.clone(), i == 0, false, cx)),
                 )
         };
         gpui::deferred(
