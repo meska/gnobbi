@@ -14,6 +14,7 @@ pub struct DeviceVerification {
     failed: bool,
     profile: Option<(String, Option<String>)>,
     own_device: Option<String>,
+    profile_avatar: Option<String>,
 }
 impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
@@ -26,9 +27,14 @@ impl DeviceVerification {
             failed: false,
             profile: None,
             own_device: None,
+            profile_avatar: None,
         }
     }
     /// (user id, display name) from the SDK; None until the first sync starts.
+    /// `mxc` of the account's own picture, if the server has one.
+    pub fn profile_avatar(&self) -> Option<&str> {
+        self.profile_avatar.as_deref()
+    }
     pub fn profile(&self) -> Option<&(String, Option<String>)> {
         self.profile.as_ref()
     }
@@ -78,9 +84,11 @@ impl DeviceVerification {
                 user_id,
                 display_name,
                 device_id,
+                avatar,
             } if account_id == self.account => {
                 self.profile = Some((user_id, display_name));
                 self.own_device = device_id;
+                self.profile_avatar = avatar;
             }
             VerificationEvent::Snapshot(snapshot) if snapshot.account_id == self.account => {
                 self.snapshot = Some(snapshot);
@@ -213,6 +221,7 @@ mod profile_tests {
             user_id: "@a:x".into(),
             display_name: name.map(Into::into),
             device_id: Some("OWNDEV".into()),
+            avatar: Some("mxc://x/a".into()),
         };
         v.apply(ev(2, Some("Altro")));
         assert!(v.profile().is_none());
@@ -222,5 +231,15 @@ mod profile_tests {
             Some(&("@a:x".to_string(), Some("Ada".to_string())))
         );
         assert_eq!(v.own_device(), Some("OWNDEV"));
+        assert_eq!(v.profile_avatar(), Some("mxc://x/a"));
+        // The picture is removed on the server: the next profile read has none.
+        v.apply(VerificationEvent::Profile {
+            account_id: AccountId::new(1),
+            user_id: "@a:x".into(),
+            display_name: None,
+            device_id: None,
+            avatar: None,
+        });
+        assert_eq!(v.profile_avatar(), None);
     }
 }

@@ -77,7 +77,10 @@ impl Avatars {
             if self.in_flight.len() >= MAX_IN_FLIGHT {
                 break;
             }
-            let waiting = self.failed.get(mxc).is_some_and(|at| at.elapsed() < self.retry_after);
+            let waiting = self
+                .failed
+                .get(mxc)
+                .is_some_and(|at| at.elapsed() < self.retry_after);
             if !self.images.contains_key(mxc) && !self.in_flight.contains_key(mxc) && !waiting {
                 self.in_flight.insert(mxc.to_owned(), Instant::now());
                 source.request(mxc.to_owned(), self.out.clone());
@@ -102,7 +105,11 @@ impl crate::Shell {
     pub(crate) fn drive_avatars(&mut self) -> bool {
         let rooms = self.sidebar.rooms();
         let visible = self.sidebar.visible_indices().iter().map(|&i| &rooms[i]);
-        let senders = self.timeline.as_ref().map(|t| t.sender_avatar_mxcs()).unwrap_or_default();
+        let senders = self
+            .timeline
+            .as_ref()
+            .map(|t| t.sender_avatar_mxcs())
+            .unwrap_or_default();
         let listed = self
             .sidebar
             .spaces()
@@ -110,7 +117,12 @@ impl crate::Shell {
             .chain(rooms)
             .filter_map(|room| room.info.avatar.as_deref());
         let people = self.people_avatars();
-        let wanted = people.iter().map(String::as_str).chain(senders.iter().map(String::as_str)).chain(listed);
+        let own = self.verification.profile_avatar();
+        let wanted = own
+            .into_iter()
+            .chain(people.iter().map(String::as_str))
+            .chain(senders.iter().map(String::as_str))
+            .chain(listed);
         let arrived = self.avatars.drive(&self.routes.avatars, wanted);
         let mut changed = Vec::new();
         if let Some(timeline) = &self.timeline {
@@ -143,7 +155,11 @@ mod tests {
             *self.1.lock().unwrap() += 1;
             let ok = self.0.lock().unwrap().remove(0);
             let rgba = ok.then(|| (1, 1, vec![0, 0, 0, 255]));
-            let _ = out.send(AvatarPicture { mxc, rgba, retry: !ok });
+            let _ = out.send(AvatarPicture {
+                mxc,
+                rgba,
+                retry: !ok,
+            });
         }
     }
 
@@ -157,7 +173,13 @@ mod tests {
         let mut avatars = Avatars::default();
         avatars.drive(&slot, ["mxc://s/a"].into_iter()); // asked, fails
         assert!(!avatars.drive(&slot, ["mxc://s/a"].into_iter())); // answer taken, now waiting
-        assert_eq!((*calls.lock().unwrap(), avatars.get(Some("mxc://s/a")).is_none()), (1, true));
+        assert_eq!(
+            (
+                *calls.lock().unwrap(),
+                avatars.get(Some("mxc://s/a")).is_none()
+            ),
+            (1, true)
+        );
         avatars.drive(&slot, ["mxc://s/a"].into_iter());
         assert_eq!(*calls.lock().unwrap(), 1, "still inside the wait");
         avatars.retry_after = Duration::ZERO;
@@ -174,15 +196,42 @@ mod tests {
         impl AvatarSource for Gone {
             fn request(&self, mxc: String, out: mpsc::Sender<AvatarPicture>) {
                 *self.0.lock().unwrap() += 1;
-                let _ = out.send(AvatarPicture { mxc, rgba: None, retry: false });
+                let _ = out.send(AvatarPicture {
+                    mxc,
+                    rgba: None,
+                    retry: false,
+                });
             }
         }
         let calls = Arc::new(Mutex::new(0));
-        let slot: AvatarSlot = Arc::new(Mutex::new(Some(Box::new(Gone(calls.clone())) as Box<dyn AvatarSource>)));
-        let mut avatars = Avatars { retry_after: Duration::ZERO, ..Avatars::default() };
+        let slot: AvatarSlot = Arc::new(Mutex::new(Some(
+            Box::new(Gone(calls.clone())) as Box<dyn AvatarSource>
+        )));
+        let mut avatars = Avatars {
+            retry_after: Duration::ZERO,
+            ..Avatars::default()
+        };
         for _ in 0..4 {
             avatars.drive(&slot, ["mxc://s/a"].into_iter());
         }
         assert_eq!(*calls.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn no_picture_asks_nothing_and_a_new_one_later_is_asked_and_shown() {
+        let calls = Arc::new(Mutex::new(0));
+        let slot: AvatarSlot = Arc::new(Mutex::new(Some(Box::new(Script(
+            Mutex::new(vec![true, true]),
+            calls.clone(),
+        )) as Box<dyn AvatarSource>)));
+        let mut avatars = Avatars::default();
+        avatars.drive(&slot, std::iter::empty()); // account without picture
+        assert_eq!(*calls.lock().unwrap(), 0);
+        avatars.drive(&slot, ["mxc://s/old"].into_iter());
+        avatars.drive(&slot, ["mxc://s/old"].into_iter());
+        avatars.drive(&slot, ["mxc://s/new"].into_iter()); // profile now points elsewhere
+        assert!(avatars.drive(&slot, ["mxc://s/new"].into_iter()));
+        assert!(avatars.get(Some("mxc://s/new")).is_some());
+        assert_eq!(*calls.lock().unwrap(), 2);
     }
 }

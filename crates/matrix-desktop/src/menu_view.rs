@@ -286,7 +286,7 @@ impl Shell {
             .into_any_element()
     }
 
-    /// Telegram-style profile block: initials avatar, name and Matrix ID, both from the SDK.
+    /// Telegram-style profile block: picture (initials as fallback), name and Matrix ID, both from the SDK.
     fn render_drawer_header(&self, t: matrix_desktop::DesignTokens) -> Option<gpui::AnyElement> {
         let (id, name) = self.verification.profile()?;
         let name = name.clone().unwrap_or_else(|| id.clone());
@@ -299,8 +299,12 @@ impl Shell {
                 .gap_1()
                 .border_b_1()
                 .border_color(rgb(t.border))
-                .child(
-                    div()
+                .child(match self.avatars.get(self.verification.profile_avatar()) {
+                    Some(image) => div()
+                        .mb_2()
+                        .child(avatar_view::round(image, 56.))
+                        .into_any_element(),
+                    None => div()
                         .size(px(56.))
                         .mb_2()
                         .flex()
@@ -310,8 +314,9 @@ impl Shell {
                         .bg(rgb(matrix_desktop::AVATAR_FALLBACK))
                         .text_size(px(20.))
                         .text_color(rgb(t.avatar_text))
-                        .child(matrix_desktop::initials(&name)),
-                )
+                        .child(matrix_desktop::initials(&name))
+                        .into_any_element(),
+                })
                 .child(
                     div()
                         .truncate()

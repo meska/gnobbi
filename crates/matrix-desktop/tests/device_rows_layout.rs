@@ -194,7 +194,7 @@ fn verified_row_is_not_clickable_in_view_and_model() {
 fn own_device_row_is_a_label_shown_once_and_never_clickable() {
     let account = AccountId::new(7);
     let mut model = DeviceVerification::new(account);
-    model.apply(VerificationEvent::Profile { account_id: account, user_id: "@a:x".into(), display_name: None, device_id: Some("OWN".into()) });
+    model.apply(VerificationEvent::Profile { account_id: account, user_id: "@a:x".into(), display_name: None, device_id: Some("OWN".into()), avatar: None });
     model.apply(VerificationEvent::Devices { account_id: account, devices: devices(2, |_| false, |i| format!("D{i}")) });
     let rows = DeviceNodes::default().project(account, &model);
     let nodes = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6]).with_devices(rows).tree().nodes;

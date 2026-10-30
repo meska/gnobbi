@@ -99,6 +99,8 @@ pub enum VerificationEvent {
         display_name: Option<String>,
         /// This session's own device (excluded from `Devices`), from `client.device_id()`.
         device_id: Option<String>,
+        /// `mxc` of the profile picture, if the server has one.
+        avatar: Option<String>,
     },
     Devices {
         account_id: AccountId,
