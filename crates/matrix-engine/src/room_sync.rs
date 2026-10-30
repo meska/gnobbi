@@ -1674,7 +1674,8 @@ fn joined(
         .ok_or(HistoryError::Unavailable)
 }
 
-/// Saved messages of one room, as the room's Timeline holds them. Never touches the network.
+/// Saved messages of one room, as the room's Timeline holds them. Answers from disk; a pagination
+/// step that would need the network is dropped after 1 s, so an unreachable server only delays it.
 async fn saved_page(
     client: &matrix_sdk::Client,
     timelines: &Timelines,
@@ -1685,10 +1686,10 @@ async fn saved_page(
     let timeline = timelines.get(&room).await?;
     let mut now = loaded(&room, &timeline).await;
     // The timeline starts from the newest saved chunk only. When that one holds nothing visible
-    // (e.g. topic changes), step back through the older saved chunks; the SDK reads the disk first.
+    // (only status rows, e.g. the join), step back through the older saved chunks; the SDK reads the disk first.
     // shortcut: a step that has to leave the disk is dropped after 1 s, and at most 10 steps.
     for _ in 0..10 {
-        if !now.rows.is_empty() || now.at_start {
+        if now.rows.iter().any(|r| !r.status) || now.at_start {
             break;
         }
         let step = tokio::time::timeout(

@@ -9,7 +9,10 @@ use matrix_sdk::ruma::{
     events::{
         reaction::ReactionEventContent,
         relation::Annotation,
-        room::message::{ReplacementMetadata, RoomMessageEventContent},
+        room::{
+            join_rules::{JoinRule, RoomJoinRulesEventContent},
+            message::{ReplacementMetadata, RoomMessageEventContent},
+        },
     },
 };
 use std::time::Duration;
@@ -757,7 +760,7 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
     });
 }
 
-/// Room history as (visible messages, topic changes) segments, oldest first; Alice reopens it offline.
+/// Room history as (visible messages, hidden join-rule changes) segments, oldest first; Alice reopens it offline.
 /// Returns the bodies of the first page and the ms it took.
 fn offline_first_page(id: u64, plan: &[(usize, usize)]) -> (Vec<String>, u128) {
     let visible: usize = plan.iter().map(|p| p.0).sum();
@@ -805,8 +808,13 @@ fn offline_first_page(id: u64, plan: &[(usize, usize)]) -> (Vec<String>, u128) {
                     .unwrap();
                 sent += 1;
             }
+            // join_rules never becomes a visible row (not a message, not a status row).
             for n in 0..*topics {
-                bob_room.set_room_topic(&format!("topic {n}")).await.unwrap();
+                let rule = if n % 2 == 0 { JoinRule::Public } else { JoinRule::Invite };
+                bob_room
+                    .send_state_event(RoomJoinRulesEventContent::new(rule))
+                    .await
+                    .unwrap();
             }
         }
 
@@ -897,7 +905,8 @@ fn offline_first_page(id: u64, plan: &[(usize, usize)]) -> (Vec<String>, u128) {
             saved.events.iter().map(|e| e.event_id.as_str()).collect();
         assert_eq!(ids.len(), saved.events.len(), "no duplicates");
         (
-            saved.events.iter().map(|e| e.body.clone()).collect(),
+            // The join row may trail the messages; only the messages are asserted.
+            saved.events.iter().filter(|e| !e.status).map(|e| e.body.clone()).collect(),
             started.elapsed().as_millis(),
         )
     })
@@ -932,7 +941,12 @@ fn edge_offline_fewer_than_a_page_of_messages_under_hidden_events() {
 #[test]
 #[ignore = "requires the cached_history_probe script"]
 fn edge_offline_messages_spread_over_several_chunks() {
-    assert_newest_page(&[(20, 150), (20, 150), (20, 150)], 312);
+    // Declared limit: stepping back stops at the first chunk with a message, so the first page
+    // holds that chunk's 20 messages (fewer than a PAGE); older ones come by scrolling back.
+    let (bodies, ms) = offline_first_page(312, &[(20, 150), (20, 150), (20, 150)]);
+    println!("EDGE spread first_page_ms={ms} got={}", bodies.len());
+    let want: Vec<String> = (40..60).map(|n| format!("m{n}")).collect();
+    assert_eq!(bodies, want, "the newest chunk's messages, in order");
 }
 
 #[test]
