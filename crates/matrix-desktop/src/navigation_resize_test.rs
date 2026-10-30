@@ -136,6 +136,7 @@ fn send_intents(
 ) -> [matrix_desktop::accessibility::NavigationAction; 2] {
     use matrix_desktop::accessibility::{NavigationSnapshot, semantic_session::SemanticSession};
     let snapshot = NavigationSnapshot {
+        title: matrix_desktop::window::TITLE.into(),
         #[cfg(feature = "live")]
         signin: None,
         openers: vec![],

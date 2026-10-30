@@ -11,6 +11,7 @@ use matrix_domain::{AccountId, RoomId, RoomScope};
 
 fn snapshot(tag: matrix_engine::RequestTag, status: HistoryStatus) -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

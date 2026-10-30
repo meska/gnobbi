@@ -10,6 +10,7 @@ use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
 
 fn snapshot(rooms: Vec<matrix_desktop::accessibility::SemanticRoom>) -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

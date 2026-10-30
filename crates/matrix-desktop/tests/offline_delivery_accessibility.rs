@@ -16,6 +16,7 @@ fn snapshot() -> NavigationSnapshot {
         20,
     );
     NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

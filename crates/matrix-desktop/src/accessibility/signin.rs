@@ -59,6 +59,7 @@ pub struct Intent {
 impl super::NavigationSnapshot {
     pub fn for_signin(signin: Snapshot) -> Self {
         Self {
+            title: crate::window::TITLE.into(),
             signin: Some(signin),
             openers: vec![],
             back: None,

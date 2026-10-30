@@ -434,6 +434,7 @@ mod tests {
             NavigationSnapshot, semantic_session::SemanticSession,
         };
         let navigation = NavigationSnapshot {
+            title: matrix_desktop::window::TITLE.into(),
             #[cfg(feature = "live")]
             signin: None,
             openers: this.semantic_openers(window),

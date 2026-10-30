@@ -9,6 +9,7 @@ use matrix_domain::{AccountId, RoomId, RoomScope};
 
 fn snapshot(history: matrix_desktop::accessibility::HistorySnapshot) -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

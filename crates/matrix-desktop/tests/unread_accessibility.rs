@@ -31,6 +31,7 @@ fn unread_description_updates_without_renaming_or_reidentifying_room() {
         let id = rooms[0].id;
         assert_eq!(*stable.get_or_insert(id), id);
         let tree = NavigationSnapshot {
+            title: "Gnobbi".into(),
             #[cfg(all(feature = "live", unix))]
             signin: None,
             openers: vec![],

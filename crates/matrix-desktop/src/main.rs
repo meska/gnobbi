@@ -1568,7 +1568,7 @@ impl Render for Shell {
             signin.update(cx, |view, _| view.theme = self.theme.tokens());
             return div().size_full().child(signin.clone()).into_any_element();
         }
-        window.set_window_title(&matrix_desktop::window::title_for(None));
+        window.set_window_title(&matrix_desktop::window::account_title(self.verification.profile()));
         let compact = window.viewport_size().width < px(800.);
         if let (Some(timeline), Some(room)) = (&self.timeline, self.sidebar.selected()) {
             timeline.set_peer_receipts(&room.info.public_read_receipts);
@@ -1592,6 +1592,7 @@ impl Render for Shell {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         self.accessibility.update(
             matrix_desktop::accessibility::NavigationSnapshot {
+                title: matrix_desktop::window::account_title(self.verification.profile()),
                 #[cfg(feature = "live")]
                 signin: None,
                 openers: self.semantic_openers(window),
@@ -2782,6 +2783,7 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         accessibility: matrix_desktop::accessibility::LinuxAccessibility::new(
                             matrix_desktop::accessibility::NavigationSnapshot {
+                                title: matrix_desktop::window::TITLE.into(),
                                 #[cfg(feature = "live")]
                                 signin: signin.as_ref().map(|view| view.read(cx).semantic_snapshot(window, cx)),
                                 openers: vec![],

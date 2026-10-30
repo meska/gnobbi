@@ -559,6 +559,8 @@ pub struct NavigationSnapshot {
     pub history: Option<HistorySnapshot>,
     pub list_focused: bool,
     pub composer: Option<ComposerSnapshot>,
+    /// Same string as the native window title.
+    pub title: String,
 }
 
 impl NavigationSnapshot {
@@ -891,6 +893,7 @@ impl NavigationSnapshot {
             return panel.tree();
         }
         let mut tree = theme_tree(self.dark);
+        tree.nodes[0].1.set_label(self.title.clone());
         if self.visible {
             let mut menu = Node::new(Role::Button);
             menu.set_label("Menu");

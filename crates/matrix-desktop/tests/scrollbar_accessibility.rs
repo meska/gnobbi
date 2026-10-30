@@ -12,6 +12,7 @@ fn navigation_routes_scrollbar_value_before_rejecting_other_action_data() {
         bounds: accesskit::Rect::new(100., 20., 114., 620.),
     };
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

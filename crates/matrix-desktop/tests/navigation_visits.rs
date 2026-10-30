@@ -33,6 +33,7 @@ fn navigation(
     open: bool,
 ) -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

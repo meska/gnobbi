@@ -5,6 +5,7 @@ use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot};
 
 fn snapshot(icon_choice: Option<IconChoice>) -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

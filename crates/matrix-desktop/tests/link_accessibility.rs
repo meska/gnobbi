@@ -8,6 +8,7 @@ use matrix_domain::{AccountId, RoomId, RoomScope};
 
 fn snapshot() -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

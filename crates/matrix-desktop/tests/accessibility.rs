@@ -4,6 +4,7 @@
 fn search_exports_query_and_actual_focus_without_exposing_hidden_controls() {
     use matrix_desktop::accessibility::{NavigationSnapshot, ROOT, SEARCH};
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -36,11 +37,18 @@ fn search_exports_query_and_actual_focus_without_exposing_hidden_controls() {
     assert_eq!(search.value(), Some("caffè"));
     assert_eq!(search.bounds(), snapshot.search_bounds);
     assert!(search.supports_action(accesskit::Action::Focus));
+    assert_eq!(tree.nodes[0].1.label(), Some("Gnobbi"));
     let hidden = NavigationSnapshot {
+        title: "Alice (@alice:example.org)".into(),
         visible: false,
         ..snapshot
     }
     .tree();
+    // the window node reads the same string as the native title
+    assert_eq!(
+        hidden.nodes[0].1.label(),
+        Some("Alice (@alice:example.org)")
+    );
     assert_eq!(hidden.focus, ROOT);
     assert_eq!(hidden.nodes.len(), 1);
     assert!(hidden.nodes[0].1.children().is_empty());
@@ -50,6 +58,7 @@ fn search_text_run_exposes_unicode_query_with_append_only_caret() {
     use matrix_desktop::accessibility::{NavigationSnapshot, SEARCH};
     for query in ["caffè 🙂", ""] {
         let tree = NavigationSnapshot {
+            title: "Gnobbi".into(),
             #[cfg(all(feature = "live", unix))]
             signin: None,
             openers: vec![],
@@ -158,6 +167,7 @@ fn history_tree_exports_scoped_focus_actions_and_logical_positions() {
     let projected = HistoryNodes::default().project(&history, 20, true);
     let message = projected.messages[0].clone();
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -225,6 +235,7 @@ fn history_navigation_targets_real_scoped_events_and_omits_unavailable_boundarie
         100,
     );
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -319,6 +330,7 @@ fn selected_room_is_the_semantic_focus_when_the_room_list_owns_keyboard_focus() 
     let rooms = RoomNodes::default().project(&sidebar);
     let selected = rooms[0].id;
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -364,6 +376,7 @@ fn selected_room_is_the_semantic_focus_when_the_room_list_owns_keyboard_focus() 
 fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visibility() {
     use matrix_desktop::accessibility::{COMPOSER, ComposerSnapshot, NavigationSnapshot};
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -501,6 +514,7 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
 fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
     use matrix_desktop::accessibility::{COMPOSER, ComposerSnapshot, NavigationSnapshot};
     let tree = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -571,6 +585,7 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
 fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
     use matrix_desktop::accessibility::{ComposerSnapshot, NavigationSnapshot, SEND};
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -646,6 +661,7 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
         room_id: matrix_domain::RoomId::new("!fixture:local.invalid"),
     };
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
