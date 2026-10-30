@@ -231,8 +231,12 @@ impl Shell {
             } else {
                 gpui::rgba(0)
             })
+            // Info is an icon like the list-header ⋮ (same 28x36 box, 20px glyph); its accessible name stays «Info».
+            .when(control == Control::Info, |d| {
+                d.w(px(28.)).h(px(36.)).flex().items_center().justify_center().rounded_lg().text_size(px(20.)).hover(|s| s.bg(rgb(t.surface)))
+            })
             .child(match control {
-                Control::Info => "Info",
+                Control::Info => "⋮",
                 Control::Devices => "Dispositivi",
                 Control::Notifications => "Notifiche",
             })
