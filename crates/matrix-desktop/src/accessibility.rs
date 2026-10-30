@@ -33,7 +33,7 @@ pub const ROOM_LIST: NodeId = NodeId(4);
 pub const COMPOSER: NodeId = NodeId(5);
 pub const SEND: NodeId = NodeId(6);
 /// Rail / compact-header button that opens the drawer.
-pub const MENU: NodeId = NodeId(8);
+pub const MENU: NodeId = NodeId(9); // 7 run, 8 message list, 10-13 history controls
 // Above the composer text runs ((1 << 63) + n) and below the link/room ranges.
 pub const ATTACH: NodeId = NodeId((1 << 63) - 1);
 pub const ATTACHMENT: NodeId = NodeId((1 << 63) - 2);

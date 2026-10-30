@@ -222,3 +222,17 @@ fn local_transitions_have_truthful_named_scoped_focus_and_click() {
         sources.apply(&target, &mut h).unwrap();
     }
 }
+
+#[test]
+fn visible_tree_has_unique_node_ids_and_children() {
+    use matrix_desktop::accessibility::semantic_session::SemanticSession;
+    let mut nav = snapshot();
+    nav.visible = true;
+    let tree = SemanticSession::new(nav).tree();
+    let mut ids = std::collections::HashSet::new();
+    for (id, node) in &tree.nodes {
+        assert!(ids.insert(*id), "duplicate node {id:?}");
+        let mut kids = std::collections::HashSet::new();
+        assert!(node.children().iter().all(|c| kids.insert(*c)), "duplicate child of {id:?}");
+    }
+}
