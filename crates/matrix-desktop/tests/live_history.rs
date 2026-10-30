@@ -18,6 +18,7 @@ fn event(id: &str) -> HistoryEvent {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        attachment_name: None,
     }
 }
 fn page(

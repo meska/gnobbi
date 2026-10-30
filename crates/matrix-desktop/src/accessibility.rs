@@ -102,6 +102,9 @@ pub struct SemanticMessage {
     /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
     pub play: Option<NodeId>,
     pub play_bounds: Option<accesskit::Rect>,
+    /// «Scarica» on a received attachment (slot +7 of the message's block of 8).
+    pub save: Option<NodeId>,
+    pub save_bounds: Option<accesskit::Rect>,
     pub bounds: Option<accesskit::Rect>,
     pub id: NodeId,
     pub event: matrix_domain::ScopedTimelineId,
@@ -159,6 +162,7 @@ impl HistorySnapshot {
                 .push_str(" · Demo offline · Nessuna consegna Matrix");
             message.retry = None;
             message.play = None;
+            message.save = None;
             message.event_id_copy = None;
             message.actions = None;
         }
@@ -321,6 +325,12 @@ impl HistoryNodes {
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 6)),
                     play_bounds: None,
+                    save: (event.attachment_name.is_some()
+                        && !event.redacted
+                        && event.send_state.is_none()
+                        && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
+                    .then_some(NodeId(id.0 + 7)),
+                    save_bounds: None,
                     bounds: None,
                     id,
                     event: event.id.clone(),
@@ -761,6 +771,13 @@ impl NavigationSnapshot {
             if let Some(message) = history
                 .messages
                 .iter()
+                .find(|m| m.save == Some(request.target_node))
+            {
+                return Some(NavigationAction::SaveAttachment(message.event.clone()));
+            }
+            if let Some(message) = history
+                .messages
+                .iter()
                 .find(|m| m.actions == Some(request.target_node))
             {
                 return Some(NavigationAction::OpenMessageActions(message.event.clone()));
@@ -1050,6 +1067,16 @@ impl NavigationSnapshot {
                     }
                     node.push_child(id);
                     tree.nodes.push((id, play));
+                }
+                if let Some(id) = message.save {
+                    let mut save = Node::new(Role::Button);
+                    save.set_label("Scarica");
+                    save.add_action(Action::Click);
+                    if let Some(bounds) = message.save_bounds {
+                        save.set_bounds(bounds);
+                    }
+                    node.push_child(id);
+                    tree.nodes.push((id, save));
                 }
                 if let Some(id) = message.retry {
                     let mut retry = Node::new(Role::Button);
@@ -1380,6 +1407,7 @@ pub enum NavigationAction {
     Scrollbar(scrollbars::ScrollbarAction),
     OperationPanel(operation_panel::PanelAction),
     PlayVideo(matrix_domain::ScopedTimelineId),
+    SaveAttachment(matrix_domain::ScopedTimelineId),
     FocusMessageActions(matrix_domain::ScopedTimelineId),
     OpenMessageActions(matrix_domain::ScopedTimelineId),
     FocusMessageRetry(matrix_domain::ScopedTimelineId),

@@ -22,6 +22,7 @@ fn live_history() -> DemoHistory {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        attachment_name: None,
     }]);
     rows
 }
@@ -64,6 +65,7 @@ fn two_live() -> DemoHistory {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        attachment_name: None,
     };
     rows.prepend_server(vec![event("$old"), event("$new")]);
     rows

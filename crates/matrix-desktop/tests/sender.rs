@@ -22,6 +22,7 @@ fn live_mapping_carries_sender_id_and_name() {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        attachment_name: None,
     }]);
     let sender = rows.events()[0].sender.as_ref().expect("sender");
     assert_eq!(sender.id, "@anna:test");
@@ -58,6 +59,7 @@ fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> Hi
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        attachment_name: None,
     }
 }
 

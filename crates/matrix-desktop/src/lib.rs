@@ -77,7 +77,9 @@ pub use links::{
 };
 mod voice;
 pub use voice::{max_note_samples, voice_attachment};
+mod attachment_save;
 mod live_media;
+pub use attachment_save::{SaveState, Saves, failure_label as save_failure_label, offers_save, retryable as save_retryable, start_dir as save_start_dir};
 pub use live_media::LiveMedia;
 mod live_delivery;
 pub use live_delivery::LiveDelivery;

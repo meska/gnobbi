@@ -290,6 +290,16 @@ impl Shell {
                 }
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::SaveAttachment(id) = &action {
+                if id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.save_attachment(id);
+                    cx.notify();
+                }
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::CopyEventId(intent) = &action {
                 if intent.target.event().scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
@@ -438,6 +448,7 @@ impl Shell {
                 matrix_desktop::accessibility::NavigationAction::SignIn(_) => (),
                 matrix_desktop::accessibility::NavigationAction::CopyEventId(_)
                 | matrix_desktop::accessibility::NavigationAction::PlayVideo(_)
+                | matrix_desktop::accessibility::NavigationAction::SaveAttachment(_)
                 | matrix_desktop::accessibility::NavigationAction::OfflineDelivery(_) => {
                     unreachable!()
                 }
@@ -969,6 +980,9 @@ impl Shell {
                 }
                 NavigationAction::PlayVideo(id) => {
                     timeline.play_video(&id, window);
+                }
+                NavigationAction::SaveAttachment(id) => {
+                    timeline.save_attachment(&id);
                 }
                 NavigationAction::LinkConfirmation(intent) => {
                     timeline.apply_confirmation(&intent, window, cx);
@@ -2621,6 +2635,7 @@ fn main() {
                                         if this.drive_inline_images() {
                                             cx.notify();
                                         }
+                                        this.drive_saves(cx);
                                         if this.drive_avatars() {
                                             cx.notify();
                                         }

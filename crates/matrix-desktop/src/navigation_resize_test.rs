@@ -389,6 +389,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     thread: None,
                     thread_root: None,
                     status: false,
+                    attachment_name: None,
                 }]);
                 this.timeline = Some(timeline);
                 this.navigation_wide = false;

@@ -106,6 +106,12 @@ pub struct TimelineView {
     pub(crate) want_video: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Set by a click on a thread summary; the shell opens the panel.
     pub(crate) want_thread: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// «Scarica»: what each save is doing, the click waiting for the file picker, and a stop request.
+    pub(crate) saves: Rc<RefCell<matrix_desktop::Saves>>,
+    pub(crate) want_save: Rc<RefCell<Option<(matrix_domain::EventId, String)>>>,
+    pub(crate) stop_save: Rc<Cell<bool>>,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    save_painted: Rc<RefCell<std::collections::HashMap<matrix_domain::EventId, Bounds<Pixels>>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
@@ -265,6 +271,11 @@ impl TimelineView {
             want_original: Rc::default(),
             want_video: Rc::default(),
             want_thread: Rc::default(),
+            saves: Rc::default(),
+            want_save: Rc::default(),
+            stop_save: Rc::default(),
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            save_painted: Rc::default(),
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
@@ -552,6 +563,17 @@ impl TimelineView {
                     f64::from(f32::from(bounds.bottom())) * scale,
                 ));
             }
+            if message.save.is_some()
+                && let matrix_domain::TimelineId::Server(id) = &message.event.id
+                && let Some(bounds) = self.save_painted.borrow().get(id)
+            {
+                message.save_bounds = Some(accesskit::Rect::new(
+                    f64::from(f32::from(bounds.left())) * scale,
+                    f64::from(f32::from(bounds.top())) * scale,
+                    f64::from(f32::from(bounds.right())) * scale,
+                    f64::from(f32::from(bounds.bottom())) * scale,
+                ));
+            }
             if message.retry.is_some() {
                 message.retry_focused = self.focus.is_focused(window)
                     && self.retry_cursor.borrow().as_ref() == Some(&message.event);
@@ -683,6 +705,27 @@ impl TimelineView {
             *self.original.borrow_mut() = None;
             *self.want_video.borrow_mut() = Some(id.clone());
             self.focus.focus(window);
+        }
+    }
+
+    /// The save ended: clear it or show its error line (the row gets taller, so it is measured again).
+    pub(crate) fn finish_save(&self, id: &matrix_domain::EventId, result: Result<(), matrix_engine::media::MediaError>) {
+        self.saves.borrow_mut().finish(id, result);
+        self.image_changed(id);
+    }
+
+    /// Screen-reader click on «Scarica»: same path as a click on the icon.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn save_attachment(&self, target: &matrix_domain::ScopedTimelineId) {
+        let matrix_domain::TimelineId::Server(id) = &target.id else {
+            return;
+        };
+        let name = self.history.borrow().events().iter().find(|e| e.id == *target).and_then(|e| e.attachment_name.clone());
+        if let Some(name) = name
+            && self.saves.borrow().state(id) != Some(matrix_desktop::SaveState::Running)
+        {
+            self.saves.borrow_mut().begin(id);
+            *self.want_save.borrow_mut() = Some((id.clone(), name));
         }
     }
 
@@ -1315,6 +1358,9 @@ impl TimelineView {
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let want_video = self.want_video.clone();
         let want_thread = self.want_thread.clone();
+        let (saves, want_save, stop_save) = (self.saves.clone(), self.want_save.clone(), self.stop_save.clone());
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let save_painted = self.save_painted.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1442,6 +1488,36 @@ impl TimelineView {
                             _ => picture,
                         }
                     }));
+                    let (save_icon, save_failure) = match &event.id.id {
+                        matrix_domain::TimelineId::Server(id) if matrix_desktop::offers_save(event, live) => {
+                            let state = saves.borrow().state(id);
+                            let (sid, name) = (id.clone(), event.attachment_name.clone().unwrap_or_default());
+                            let (saves, want_save, stop_save) = (saves.clone(), want_save.clone(), stop_save.clone());
+                            let click: crate::media_view::SaveClick = Rc::new(move |window, _| {
+                                let running = saves.borrow().state(&sid) == Some(matrix_desktop::SaveState::Running);
+                                if running {
+                                    stop_save.set(true);
+                                    saves.borrow_mut().cancel(&sid);
+                                } else {
+                                    saves.borrow_mut().begin(&sid);
+                                    *want_save.borrow_mut() = Some((sid.clone(), name.clone()));
+                                }
+                                window.refresh();
+                            });
+                            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                            let painted = { let (map, id) = (save_painted.clone(), id.clone()); move |bounds| { map.borrow_mut().insert(id.clone(), bounds); } };
+                            #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                            let painted = |_| ();
+                            (
+                                Some(crate::media_view::save_icon(index, state == Some(matrix_desktop::SaveState::Running), t, click.clone(), painted)),
+                                match state {
+                                    Some(matrix_desktop::SaveState::Failed(error)) => Some(crate::media_view::save_failure(index, error, t, click)),
+                                    _ => None,
+                                },
+                            )
+                        }
+                        _ => (None, None),
+                    };
                     let mut body = StyledText::new(event.text.clone());
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
@@ -1661,12 +1737,12 @@ impl TimelineView {
                                             None => div().flex().items_center().justify_center().size(px(20.)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(9.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
                                         })
                                         .child(div().text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(label))))
-                                .child(
+                                .child(div().w_full().flex().justify_end().items_center().gap_1().mt_1()
+                                    .children(save_icon)
+                                    .child(
                                     div()
-                                        .w_full()
                                         .text_right()
                                         .whitespace_normal()
-                                        .mt_1()
                                         .text_size(px(10.))
                                         .line_height(px(14.))
                                         .text_color(rgb(if event.send_state == Some(DemoSendState::Failed) { t.error } else { t.secondary }))
@@ -1690,7 +1766,8 @@ impl TimelineView {
                                             })
                                         })
                                         .child(stamp),
-                                )
+                                ))
+                                .children(save_failure)
                                 .when_some((debug && live).then(|| event.debug_id().map(str::to_owned)).flatten(), |d, id| {
                                     let copied = id.clone();
                                     d.child(div().id(("event-debug-id", index)).w_full().text_right().text_size(px(10.)).line_height(px(14.))
@@ -2321,6 +2398,7 @@ mod tests {
                             thread: None,
                             thread_root: None,
                             status: false,
+                            attachment_name: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2459,6 +2537,7 @@ mod tests {
                             thread: None,
                             thread_root: None,
                             status: false,
+                            attachment_name: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2578,6 +2657,7 @@ mod tests {
                             thread: None,
                             thread_root: None,
                             status: false,
+                            attachment_name: None,
                         }]);
                         if thumbnail {
                             let buffer =

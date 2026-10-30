@@ -42,6 +42,8 @@ pub struct DemoEvent {
     pub timestamp_ms: u64,
     /// Set for an `m.video` row: the bubble paints a picture with play symbol instead of `text`.
     pub video: Option<VideoFacts>,
+    /// File name of a received attachment (any kind): the bubble offers «Scarica».
+    pub attachment_name: Option<String>,
     /// Set on a thread root: replies count and who wrote the latest one.
     pub thread: Option<matrix_engine::history::ThreadInfo>,
     /// Set on a reply inside a thread: the thread's root.
@@ -166,6 +168,7 @@ impl DemoHistory {
                     thread_root: None,
                     status: false,
                     video: None,
+                    attachment_name: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
@@ -241,6 +244,7 @@ impl DemoHistory {
             thread_root: None,
             status: false,
             video: None,
+            attachment_name: None,
         });
     }
 
@@ -335,6 +339,7 @@ impl DemoHistory {
                 thread: event.thread,
                 thread_root: event.thread_root,
                 status: event.status,
+                attachment_name: event.attachment_name,
                 video: event.video.map(|v| VideoFacts {
                     duration: v.duration_ms.map(matrix_engine::history::duration_label),
                     size: v.size.map(matrix_engine::history::human_size),
@@ -419,6 +424,7 @@ impl DemoHistory {
                     thread_root: None,
                     status: false,
                     video: None,
+                    attachment_name: None,
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -500,6 +506,7 @@ impl DemoHistory {
                     thread_root: None,
                     status: false,
                     video: None,
+                    attachment_name: None,
                 });
             }
         }
