@@ -47,6 +47,7 @@ pub struct DemoEvent {
     pub video: Option<VideoFacts>,
     /// File name of a received attachment (any kind): the bubble offers «Scarica».
     pub attachment_name: Option<String>,
+    pub attachment_size: Option<u64>,
     /// Set on a thread root: replies count and who wrote the latest one.
     pub thread: Option<matrix_engine::history::ThreadInfo>,
     /// Set on a reply inside a thread: the thread's root.
@@ -172,6 +173,7 @@ impl DemoHistory {
                     status: false,
                     video: None,
                     attachment_name: None,
+                    attachment_size: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
@@ -250,6 +252,7 @@ impl DemoHistory {
             status: false,
             video: None,
             attachment_name: None,
+            attachment_size: None,
         });
     }
 
@@ -361,6 +364,7 @@ impl DemoHistory {
                 thread_root: event.thread_root,
                 status: event.status,
                 attachment_name: event.attachment_name,
+                attachment_size: event.attachment_size,
                 video: event.video.map(|v| VideoFacts {
                     duration: v.duration_ms.map(matrix_engine::history::duration_label),
                     size: v.size.map(matrix_engine::history::human_size),
@@ -490,6 +494,7 @@ impl DemoHistory {
                     status: false,
                     video: None,
                     attachment_name: None,
+                    attachment_size: None,
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -573,6 +578,7 @@ impl DemoHistory {
                     status: false,
                     video: None,
                     attachment_name: None,
+                    attachment_size: None,
                 });
             }
         }

@@ -24,6 +24,7 @@ fn live_mapping_carries_sender_id_and_name() {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
+        attachment_size: None,
     }]);
     let sender = rows.events()[0].sender.as_ref().expect("sender");
     assert_eq!(sender.id, "@anna:test");
@@ -62,6 +63,7 @@ fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> Hi
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
+        attachment_size: None,
     }
 }
 
@@ -102,6 +104,7 @@ fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
         thread_root: None,
         status,
         attachment_name: None,
+        attachment_size: None,
     };
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![row("$s", true), row("$m", false)]);

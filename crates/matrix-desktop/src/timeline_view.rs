@@ -79,6 +79,14 @@ type VideoParts =
 const SENDER_AVATAR_PX: f32 = 32.;
 const STATUS_AVATAR_PX: f32 = 16.;
 
+/// Where a Tab press over the «Scarica» icons went.
+pub(crate) enum IconStep {
+    Moved,
+    /// Past the last icon (or before the first): the key goes on to the next stop of the ring.
+    Left,
+    Ignored,
+}
+
 pub struct TimelineView {
     offline_delivery: Rc<RefCell<matrix_desktop::OfflineDelivery>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -248,6 +256,7 @@ impl TimelineView {
     }
 
     fn with_history(history: DemoHistory, focus: FocusHandle, live: bool) -> Self {
+        let focus = focus.tab_stop(true);
         let count = history.events().len();
         Self {
             offline_delivery: Rc::default(),
@@ -709,6 +718,41 @@ impl TimelineView {
     }
 
     /// The save ended: clear it or show its error line (the row gets taller, so it is measured again).
+    /// Size the sender declared for the attachment of `id`.
+    pub(crate) fn attachment_size(&self, id: &matrix_domain::EventId) -> Option<u64> {
+        let history = self.history.borrow();
+        let event = history.events().iter().find(|e| matches!(&e.id.id, matrix_domain::TimelineId::Server(s) if s == id));
+        event.and_then(|e| e.attachment_size)
+    }
+
+    /// Tab/Shift-Tab over the «Scarica» icons painted now. GPUI has no Tab key of its own here, but
+    /// it keeps the tab stops of the frame: the timeline handle is the first, the icons follow.
+    pub(crate) fn step_icons(&self, shift: bool, window: &mut gpui::Window, cx: &gpui::App) -> IconStep {
+        let on_icon = self.focus.contains_focused(window, cx) && !self.focus.is_focused(window);
+        if self.viewing().is_some() {
+            return IconStep::Ignored;
+        }
+        if !on_icon && (shift || !self.focus.is_focused(window)) {
+            return IconStep::Ignored;
+        }
+        if shift { window.focus_prev() } else { window.focus_next() }
+        match (self.focus.is_focused(window), on_icon) {
+            (false, _) => IconStep::Moved,
+            (true, true) => IconStep::Left,
+            (true, false) => IconStep::Ignored,
+        }
+    }
+
+    /// Enter from outside: the first icon, or the last one when `backwards`; false when none is painted.
+    pub(crate) fn enter_icons(&self, backwards: bool, window: &mut gpui::Window) -> bool {
+        if self.viewing().is_some() {
+            return false;
+        }
+        self.focus.focus(window);
+        if backwards { window.focus_prev() } else { window.focus_next() }
+        !self.focus.is_focused(window)
+    }
+
     pub(crate) fn finish_save(&self, id: &matrix_domain::EventId, result: Result<(), matrix_engine::media::MediaError>) {
         self.saves.borrow_mut().finish(id, result);
         self.image_changed(id);
@@ -2415,6 +2459,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
+                            attachment_size: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2555,6 +2600,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
+                            attachment_size: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2676,6 +2722,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
+                            attachment_size: None,
                         }]);
                         if thumbnail {
                             let buffer =

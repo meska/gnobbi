@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::{io::Write, time::Duration};
 
 /// Default cap for one video; the caller may pass a lower one.
-pub const MAX_VIDEO_BYTES: usize = 256 * 1024 * 1024;
+pub const MAX_VIDEO_BYTES: usize = crate::media::MAX_SAVE_BYTES;
 
 pub use crate::media::VideoFile;
 

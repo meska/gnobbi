@@ -86,6 +86,8 @@ pub struct HistoryEvent {
     pub video: Option<VideoInfo>,
     /// File name of an image, video, audio or file message: the row can be saved.
     pub attachment_name: Option<String>,
+    /// Size declared by the sender for that attachment, when it says one.
+    pub attachment_size: Option<u64>,
     /// Bold, italic, code… of a formatted body, as byte ranges of `body` (empty for plain text).
     pub styles: Vec<crate::rich_text::StyleSpan>,
     /// Set on the root of a thread.

@@ -24,6 +24,7 @@ fn live_history() -> DemoHistory {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
+        attachment_size: None,
     }]);
     rows
 }
@@ -68,6 +69,7 @@ fn two_live() -> DemoHistory {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
+        attachment_size: None,
     };
     rows.prepend_server(vec![event("$old"), event("$new")]);
     rows

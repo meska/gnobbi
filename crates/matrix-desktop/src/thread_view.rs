@@ -352,6 +352,7 @@ mod tests {
             sender: HistorySender::new("@a:t", None),
             video: None,
             attachment_name: None,
+            attachment_size: None,
             styles: Vec::new(),
             thread: None,
             thread_root: None,

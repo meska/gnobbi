@@ -113,6 +113,7 @@ fn fixture() -> (DemoHistory, LiveOperations) {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
+        attachment_size: None,
     }]);
     let mut actions = LiveOperations::default();
     actions.select(ScopedTimelineId {
@@ -167,6 +168,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
+        attachment_size: None,
     }]);
     let mut actions = LiveOperations::default();
     actions.select(ScopedTimelineId {
@@ -225,6 +227,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
+        attachment_size: None,
     }]);
     other.project_operations(actions.confirmed());
     assert_eq!(other.events()[0].text, "other");

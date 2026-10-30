@@ -32,6 +32,11 @@ pub fn failure_label(error: MediaError) -> &'static str {
     }
 }
 
+/// The sender declared more than we save: say so before the picker opens.
+pub fn over_cap(declared: Option<u64>) -> bool {
+    declared.is_some_and(|size| size > matrix_engine::media::MAX_SAVE_BYTES as u64)
+}
+
 /// Over the cap another try gives the same answer.
 pub fn retryable(error: MediaError) -> bool {
     error != MediaError::TooLarge
@@ -99,6 +104,13 @@ mod tests {
         saves.begin(&id);
         saves.finish(&id, Ok(()));
         assert_eq!(saves.state(&id), None);
+    }
+
+    #[test]
+    fn only_a_declared_size_over_the_cap_is_refused_up_front() {
+        let cap = matrix_engine::media::MAX_SAVE_BYTES as u64;
+        assert!(over_cap(Some(cap + 1)));
+        assert!(!over_cap(Some(cap)) && !over_cap(None));
     }
 
     #[test]

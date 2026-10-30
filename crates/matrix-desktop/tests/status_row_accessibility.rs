@@ -13,6 +13,7 @@ fn row(id: &str, body: &str, status: bool) -> HistoryEvent {
         sender: HistorySender::new("@anna:test", None),
         video: None,
         attachment_name: None,
+        attachment_size: None,
         styles: Vec::new(),
         thread: None,
         thread_root: None,

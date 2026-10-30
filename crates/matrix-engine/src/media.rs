@@ -88,6 +88,8 @@ pub enum MediaError {
     Failed,
 }
 pub const MAX_MEDIA_BYTES: usize = 25 * 1024 * 1024;
+/// Cap for saving one attachment or opening one video.
+pub const MAX_SAVE_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_IMAGE_PIXELS: u64 = 40_000_000;
 
 /// Thumbnail and original are separate resources with separate cache entries.

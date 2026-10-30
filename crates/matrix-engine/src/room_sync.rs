@@ -1324,7 +1324,7 @@ fn spawn_save(
             &tag,
             &event,
             &path,
-            crate::video_file::MAX_VIDEO_BYTES,
+            crate::media::MAX_SAVE_BYTES,
         );
         if let Some(result) = until_stopped(&stop, save).await {
             let _ = done.send(crate::media::MediaEvent::Saved { tag, event, result });
@@ -1494,11 +1494,12 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             }
             continue;
         };
-        let (mut video, mut styles, mut attachment_name) = (None, Vec::new(), None);
+        let (mut video, mut styles, mut attachment_name, mut attachment_size) = (None, Vec::new(), None, None);
         let body = match &content.kind {
             MsgLikeKind::Message(message) => match message.msgtype() {
                 MessageType::Image(i) => {
                     attachment_name = Some(crate::history::proposed_name(i.filename()));
+                    attachment_size = i.info.as_deref().and_then(|i| i.size).map(u64::from);
                     crate::history::IMAGE_BODY.into()
                 }
                 msgtype => {
@@ -1508,6 +1509,13 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
                         MessageType::File(f) => Some(crate::history::proposed_name(f.filename())),
                         _ => None,
                     };
+                    attachment_size = match msgtype {
+                        MessageType::Video(m) => m.info.as_deref().and_then(|i| i.size),
+                        MessageType::Audio(m) => m.info.as_deref().and_then(|i| i.size),
+                        MessageType::File(m) => m.info.as_deref().and_then(|i| i.size),
+                        _ => None,
+                    }
+                    .map(u64::from);
                     video = match msgtype {
                         MessageType::Video(v) => Some(video_info(v)),
                         MessageType::Audio(a) => Some(audio_info(a)),
@@ -1550,6 +1558,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
             status: false,
             attachment_name,
+            attachment_size,
         });
     }
     out
@@ -1623,6 +1632,7 @@ async fn status_row(
         thread_root: None,
         status: true,
         attachment_name: None,
+        attachment_size: None,
     })
 }
 

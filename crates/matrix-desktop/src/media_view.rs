@@ -324,10 +324,17 @@ impl Shell {
         let Some((id, name)) = timeline.want_save.borrow_mut().take() else {
             return;
         };
+        if matrix_desktop::save_over_cap(timeline.attachment_size(&id)) {
+            timeline.finish_save(&id, Err(MediaError::TooLarge));
+            cx.notify();
+            return;
+        }
         let picked = cx.prompt_for_new_path(&matrix_desktop::save_start_dir(), Some(&name));
         let scope = self.active_scope.clone();
         cx.spawn(async move |this, cx| {
-            let path = picked.await.ok().and_then(Result::ok).flatten();
+            // No portal (or it failed): the same one-line error as a failed download, not silence.
+            let picked = picked.await.map_err(|_| MediaError::Failed).and_then(|r| r.map_err(|_| MediaError::Failed));
+            let path = picked.as_ref().ok().cloned().flatten();
             let _ = this.update(cx, |this, cx| {
                 let Some(timeline) = &this.timeline else {
                     return;
@@ -338,7 +345,10 @@ impl Shell {
                 let started = wanted
                     && path.is_some_and(|path| this.media.request_save(scope, id.clone(), path));
                 if !started && wanted {
-                    timeline.saves.borrow_mut().cancel(&id);
+                    match picked {
+                        Err(error) => timeline.finish_save(&id, Err(error)),
+                        Ok(_) => timeline.saves.borrow_mut().cancel(&id),
+                    }
                 }
                 cx.notify();
             });

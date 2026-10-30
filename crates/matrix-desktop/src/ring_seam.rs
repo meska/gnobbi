@@ -1,5 +1,6 @@
 //! Main-page Tab ring seam: room list, footer openers, compact Back, Info and the chat entry.
 use crate::*;
+use crate::timeline_view::IconStep;
 use matrix_desktop::panel_openers::{Control, Intent};
 
 impl Shell {
@@ -91,6 +92,11 @@ impl Shell {
             cx.notify();
             return;
         }
+        // The «Scarica» icons painted now come before the composer.
+        if self.chat_visible(window) && self.timeline.as_ref().is_some_and(|t| t.enter_icons(false, window)) {
+            cx.notify();
+            return;
+        }
         self.composer
             .update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
         cx.notify();
@@ -162,6 +168,23 @@ impl Shell {
             return false;
         }
         let shift = key.modifiers.shift;
+        if self.chat_visible(window)
+            && let Some(timeline) = &self.timeline
+        {
+            let step = timeline.step_icons(shift, window, cx);
+            match step {
+                IconStep::Moved => {}
+                IconStep::Left if shift => self.focus_before_chat(false, window, cx),
+                IconStep::Left => self
+                    .composer
+                    .update(cx, |editor, cx| editor.focus_from_accessibility(window, cx)),
+                IconStep::Ignored => {}
+            }
+            if !matches!(step, IconStep::Ignored) {
+                cx.notify();
+                return true;
+            }
+        }
         if self.list_focus.is_focused(window) && !shift {
             if self.connected {
                 self.after_list(window, cx);
@@ -210,7 +233,10 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let entry = self.composer.read(cx).tab_back_ready(window);
         if entry && shift && (window.viewport_size().width >= px(800.) || self.compact_chat) {
-            self.focus_before_chat(false, window, cx);
+            let icons = self.chat_visible(window) && self.timeline.as_ref().is_some_and(|t| t.enter_icons(true, window));
+            if !icons {
+                self.focus_before_chat(false, window, cx);
+            }
             return true;
         }
         false
