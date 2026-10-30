@@ -78,6 +78,12 @@ pub enum OperationCommand {
         scope: RoomScope,
         muted: bool,
     },
+    /// Read-only thread panel: the root and the newest `want` replies (SDK thread timeline).
+    Thread {
+        scope: RoomScope,
+        root: EventId,
+        want: usize,
+    },
 }
 /// One explicit change of the personal groups. `tag` is the full tag name (`m.favourite`,
 /// `m.lowpriority` or `u.<name>`); a group exists as long as one room carries its tag.
@@ -90,6 +96,12 @@ pub enum TagEdit {
     Delete { tag: String },
 }
 pub enum OperationResult {
+    Thread {
+        scope: RoomScope,
+        root: EventId,
+        // Boxed: the page is far bigger than the other results.
+        result: Result<Box<crate::history::ThreadPage>, OperationError>,
+    },
     Profile {
         user_id: String,
         result: Result<UserProfile, OperationError>,

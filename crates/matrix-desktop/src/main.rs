@@ -31,6 +31,7 @@ mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;
 mod spaces_view;
+mod thread_view;
 mod timeline_view;
 mod verification_view;
 mod video_player;
@@ -164,6 +165,7 @@ struct Shell {
     composer: gpui::Entity<ComposerView>,
     composer_visit: std::rc::Rc<composer_view::SendVisit>,
     timeline: Option<TimelineView>,
+    thread: Option<thread_view::ThreadPanel>,
     saved_timelines: HashMap<RoomScope, TimelineView>,
     history: HistorySession,
     pending_history: Option<matrix_engine::history::HistoryRequest>,
@@ -686,6 +688,12 @@ impl Shell {
                 cx.stop_propagation();
                 return;
             }
+        }
+        if self.thread.is_some() && key.key == "escape" {
+            self.close_thread();
+            cx.notify();
+            cx.stop_propagation();
+            return;
         }
         if self.rail_key(event, window, cx) {
             cx.stop_propagation();
@@ -1382,6 +1390,11 @@ impl Shell {
                             scope,
                             members: Err(OperationError::Unavailable),
                             upload_limit: None,
+                        },
+                        OperationCommand::Thread { scope, root, .. } => OperationResult::Thread {
+                            scope,
+                            root,
+                            result: Err(OperationError::Unavailable),
                         },
                         OperationCommand::SetMuted { scope, .. } => OperationResult::RoomMarked {
                             scope,
@@ -2111,6 +2124,7 @@ impl Render for Shell {
                 )
             })
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
+            .when(self.thread.is_some(), |d| d.child(self.render_thread(window, cx)))
             .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
@@ -2544,6 +2558,10 @@ fn main() {
                                                 }
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::Thread { scope, root, result } = result {
+                                                this.thread_found(scope, root, result, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::Profile { user_id, result } = result {
                                                 this.profile_found(user_id, result, cx);
                                                 continue;
@@ -2600,6 +2618,7 @@ fn main() {
                                                 }
                                                 RoomListEvent::TimelineActivity(scope) => {
                                                     this.read_dirty |= this.sidebar.selected().is_some_and(|r| r.scope == scope);
+                                                    if let Some(p) = &mut this.thread { p.activity(&scope); }
                                                     this.history.activity(&scope)
                                                 }
                                                 RoomListEvent::Order(order) => {
@@ -2666,6 +2685,7 @@ fn main() {
                                         }
                                         this.mark_open_room_read(cx);
                                         this.flush_operations();
+                                        this.drive_thread(cx);
                                         if let Some((sender, _)) = &mut this.routes.verification {
                                             this.verification.flush(sender);
                                         }
@@ -2902,6 +2922,7 @@ fn main() {
                         timeline: (!connected)
                             .then(|| TimelineView::new(active_scope.clone(), cx.focus_handle())),
                         active_scope,
+                        thread: None,
                         saved_timelines: HashMap::new(),
                         history: HistorySession::new(),
                         pending_history: None,

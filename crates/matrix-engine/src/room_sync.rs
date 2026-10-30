@@ -491,6 +491,10 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::InviteAnswered { scope, accept, result }
                                 }
+                                OperationCommand::Thread { scope, root, want } => {
+                                    let result = crate::threads::open_scoped(&operation_client, &operation_timelines, account, &scope, &root, want).await;
+                                    OperationResult::Thread { scope, root, result }
+                                }
                                 OperationCommand::SetMuted { scope, muted } => {
                                     let result = crate::notify::set_muted(&operation_client, account, &scope, muted).await;
                                     OperationResult::RoomMarked { scope, result }

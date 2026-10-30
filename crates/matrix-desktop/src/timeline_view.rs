@@ -103,6 +103,8 @@ pub struct TimelineView {
     pub(crate) want_original: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// A video whose download for the system player was asked for and not yet sent.
     pub(crate) want_video: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// Set by a click on a thread summary; the shell opens the panel.
+    pub(crate) want_thread: Rc<RefCell<Option<matrix_domain::EventId>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
@@ -261,6 +263,7 @@ impl TimelineView {
             original: Rc::default(),
             want_original: Rc::default(),
             want_video: Rc::default(),
+            want_thread: Rc::default(),
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
@@ -982,6 +985,13 @@ impl TimelineView {
             .collect()
     }
 
+    /// The row of a thread root as the room timeline holds it, with its reply count.
+    pub(crate) fn thread_root(&self, id: &matrix_domain::EventId) -> Option<(crate::thread_view::ThreadRow, u32)> {
+        let history = self.history.borrow();
+        let row = history.row(id)?;
+        Some((crate::thread_view::ThreadRow::from_row(row), row.thread.as_ref().map_or(0, |t| t.num_replies)))
+    }
+
     pub fn first_visible_row(&self) -> usize {
         self.state.logical_scroll_top().item_ix
     }
@@ -1289,6 +1299,7 @@ impl TimelineView {
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let want_video = self.want_video.clone();
+        let want_thread = self.want_thread.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1610,7 +1621,13 @@ impl TimelineView {
                                         None => body.into_any_element(),
                                     }))
                                 .when_some(event.thread_label(), |d, (label, initials, mxc)| d.child(
-                                    div().id(("thread-summary", index)).mt_2().flex().items_center().gap_2()
+                                    div().id(("thread-summary", index)).mt_2().flex().items_center().gap_2().cursor_pointer()
+                                        .on_click({
+                                            let (want_thread, id) = (want_thread.clone(), event.id.id.clone());
+                                            move |_, window, _| {
+                                                if let matrix_domain::TimelineId::Server(id) = &id { *want_thread.borrow_mut() = Some(id.clone()); window.refresh(); }
+                                            }
+                                        })
                                         .child(match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
                                             Some(image) => crate::avatar_view::round(image, 20.),
                                             None => div().flex().items_center().justify_center().size(px(20.)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(9.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),

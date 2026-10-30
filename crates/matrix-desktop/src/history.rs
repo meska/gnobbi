@@ -104,6 +104,10 @@ pub fn opens_message_menu(
 }
 
 impl DemoHistory {
+    pub fn row(&self, id: &EventId) -> Option<&DemoEvent> {
+        self.events.iter().find(|row| row.id.id == TimelineId::Server(id.clone()))
+    }
+
     /// Message the keyboard menu opens on: `focused` when it still offers one, else the newest.
     pub fn keyboard_menu_target(
         &self,

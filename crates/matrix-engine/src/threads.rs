@@ -1,20 +1,11 @@
 //! Threads through `matrix-sdk-ui`: the thread view is a `TimelineFocus::Thread` timeline kept next
 //! to the room's own, the list is `ThreadListService`. DTOs carry no SDK type.
-use crate::history::{HistoryError, HistoryEvent, ReactionCount};
+use crate::history::HistoryError;
 use crate::room_sync::{PAGE, Timelines, fill, loaded};
 use matrix_domain::EventId;
 use matrix_sdk_ui::timeline::thread_list_service::{ThreadListItemEvent, ThreadListService};
 
-/// One thread opened: `root` is None when the room's own timeline does not hold it (the thread
-/// timeline alone does not return it reliably); `replies` are oldest first.
-pub struct ThreadPage {
-    pub root: Option<HistoryEvent>,
-    pub replies: Vec<HistoryEvent>,
-    pub reactions: Vec<ReactionCount>,
-    /// The thread timeline says its start was reached. Servers get this wrong when the thread is
-    /// bigger than the sync window: compare `replies.len()` with `ThreadSummary::num_replies`.
-    pub at_start: bool,
-}
+pub use crate::history::ThreadPage;
 
 pub struct ThreadSummary {
     pub root: EventId,
@@ -46,6 +37,31 @@ pub(crate) async fn open(
         root_row = root_row.or(Some(own));
     }
     Ok(ThreadPage { root: root_row, replies: now.rows, reactions: now.reactions, at_start: now.at_start })
+}
+
+/// The thread panel's request: same as `open`, from the account client and a scope.
+pub(crate) async fn open_scoped(
+    client: &matrix_sdk::Client,
+    timelines: &Timelines,
+    account: matrix_domain::AccountId,
+    scope: &matrix_domain::RoomScope,
+    root: &EventId,
+    want: usize,
+) -> Result<Box<ThreadPage>, crate::operations::OperationError> {
+    use crate::operations::OperationError as E;
+    if scope.account_id != account {
+        return Err(E::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| E::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(E::Unavailable)?;
+    open(timelines, &room, root, want).await.map(Box::new).map_err(|e| match e {
+        HistoryError::Transport => E::Transport,
+        HistoryError::Unavailable => E::Unavailable,
+        _ => E::WrongScope,
+    })
 }
 
 fn body(event: &ThreadListItemEvent) -> Option<String> {

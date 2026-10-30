@@ -225,6 +225,7 @@ impl LiveOperations {
             | OperationResult::DirectoryFound { .. }
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
+            | OperationResult::Thread { .. }
             | OperationResult::Members { .. } => false,
             OperationResult::Inspected {
                 tag,

@@ -88,6 +88,17 @@ pub struct ThreadInfo {
     pub latest_sender: Option<HistorySender>,
 }
 
+/// One thread opened: `root` is None when the room's own timeline does not hold it (the thread
+/// timeline alone does not return it reliably); `replies` are oldest first.
+pub struct ThreadPage {
+    pub root: Option<HistoryEvent>,
+    pub replies: Vec<HistoryEvent>,
+    pub reactions: Vec<ReactionCount>,
+    /// The thread timeline says its start was reached. Servers get this wrong when the thread is
+    /// bigger than the sync window: compare `replies.len()` with `ThreadSummary::num_replies`.
+    pub at_start: bool,
+}
+
 /// How many people reacted to a message with one emoji.
 pub struct ReactionCount {
     pub target: EventId,
