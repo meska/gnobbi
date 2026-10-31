@@ -1484,9 +1484,10 @@ impl TimelineView {
                                 None => div().flex().items_center().justify_center().size(px(STATUS_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(9.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
                             }
                         });
-                        return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py_1().flex().justify_center().items_center().gap_2()
+                        return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py_1().flex().justify_center().items_center().gap_2().overflow_hidden()
                             .text_size(px(12.)).text_color(rgb(t.secondary))
-                            .children(avatar).child(matrix_desktop::row_text::one_line(&event.text)).into_any_element();
+                            // min_w_0 + text_center: long bridge texts wrap inside the column instead of overflowing it.
+                            .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::one_line(&event.text))).into_any_element();
                     }
                     let sender_label = history.sender_label(index, members);
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
