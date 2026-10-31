@@ -1910,6 +1910,191 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 41 {
+            // Exploratory matrix for the room sheet vs timeline wheel (Wayland only: needs the virtual pointer helper).
+            use std::io::{BufRead, Write};
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status();
+                assert!(ok.unwrap().success(), "shot {name}");
+            };
+            let members = |n: usize| (0..n).map(|i| matrix_engine::operations::Member {
+                user_id: format!("@utente{i:04}:fixture.test"), name: format!("Utente di prova {i:04}"), avatar: None,
+            }).collect::<Vec<_>>();
+            let mut ptr = std::process::Command::new("/tmp/gui-out/pointer").env("DIME_ISOLATED_WAYLAND", "1")
+                .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+            let mut input = ptr.stdin.take().unwrap();
+            let mut output = std::io::BufReader::new(ptr.stdout.take().unwrap());
+            let mut send = |x: i32, y: i32, a: &str| {
+                writeln!(input, "{x} {y} 1920 1080 {a}").unwrap();
+                let mut line = String::new(); output.read_line(&mut line).unwrap();
+                assert_eq!(line, "done\n", "pointer helper died on: {x} {y} {a}");
+            };
+            let mut report = serde_json::Map::new();
+            let mut fails: Vec<String> = vec![];
+            macro_rules! check { ($ok:expr, $($m:tt)*) => {{
+                let ok = $ok; let msg = format!($($m)*);
+                println!("{} {msg}", if ok { "PASS" } else { "FAIL" });
+                report.insert(msg.clone(), ok.into());
+                if !ok { fails.push(msg); }
+            }}; }
+            macro_rules! state { () => { this.update_in(cx, |this, _, _| {
+                let h = this.members_scroll.0.borrow().base_handle.clone();
+                (f32::from(h.offset().y), f32::from(h.max_offset().height), this.timeline.as_ref().unwrap().top_row(),
+                 f32::from(this.scroll.0.borrow().base_handle.offset().y))
+            }).unwrap() }; }
+            macro_rules! open { ($n:expr) => {{
+                this.update_in(cx, |this, _, cx| {
+                    match $n { Some(n) => { this.room_members = members(n); this.set_room_details_open(true); } None => this.set_room_details_open(false) }
+                    this.members_scroll.0.borrow().base_handle.set_offset(gpui::point(px(0.), px(0.)));
+                    this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.));
+                    cx.notify();
+                }).unwrap();
+                wait(400).await;
+            }}; }
+            // Bursts of wheel ticks; trackpad-with-inertia is approximated by decaying deltas sent back to back.
+            macro_rules! wheel { ($x:expr, $y:expr, $n:expr, $d:expr) => {{ for _ in 0..$n { send($x, $y, &format!("scroll {}", $d)); } wait(300).await; }}; }
+            wait(1500).await; // GPUI binds wl_pointer for the new seat
+            send(10, 10, "move 0");
+            let size = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+            let (sx, sy) = (1920 - 150, (f32::from(size.height) * 0.7) as i32); // over the sheet
+            let (tx, ty) = (700, sy); // over the timeline (sheet starts right of x=1400)
+
+            open!(Some(343));
+            let (m0, max, t0, _) = state!();
+            check!(max > 0., "343 members: list has scroll extent (max {max:.0}px)");
+            // S1 wheel down on the sheet
+            wheel!(sx, sy, 5, 1);
+            let (m1, _, t1, _) = state!();
+            check!(m1 < m0 && t1 == t0, "S1 wheel down over sheet: list {m0:.0}->{m1:.0}, timeline unchanged");
+            shot("s1-scrolled");
+            // S2 to the bottom, then 40 more ticks past the end
+            wheel!(sx, sy, 100, 5);
+            let (m2, _, t2, _) = state!();
+            check!((m2 + max).abs() < 1., "S2 bottom reached: offset {m2:.0} == -{max:.0}");
+            wheel!(sx, sy, 40, 3);
+            let (m2b, _, t2b, _) = state!();
+            check!(m2b == m2 && t2b == t2 && t2 == t0, "S2 40 ticks past the bottom: list stays, timeline unchanged");
+            shot("s2-bottom");
+            // S3 back to top, then 40 more up
+            wheel!(sx, sy, 100, -5);
+            let (m3, _, t3, _) = state!();
+            check!(m3 == 0., "S3 top reached: offset {m3:.0}");
+            wheel!(sx, sy, 40, -3);
+            let (m3b, _, t3b, _) = state!();
+            check!(m3b == 0. && t3b == t0 && t3 == t0, "S3 40 ticks past the top: list stays, timeline unchanged");
+            // S4 inertia-like burst: 30 decaying ticks without waits, from the middle
+            wheel!(sx, sy, 3, 4);
+            for d in (1..=30).rev() { send(sx, sy, &format!("scroll {}", (d / 3).max(1))); }
+            wait(300).await;
+            let (m4, _, t4, _) = state!();
+            check!(m4 < 0. && t4 == t0, "S4 inertia-like burst: list {m4:.0}, timeline unchanged");
+            // S5 pointer on the timeline: only the timeline moves
+            let (ma, _, ta, _) = state!();
+            wheel!(tx, ty, 5, -3);
+            let (mb, _, tb, _) = state!();
+            check!(mb == ma && tb != ta, "S5 wheel over timeline: timeline moved, list unchanged ({ma:.0})");
+            this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.))).unwrap();
+            // S6 scrollbar thumb drag
+            let pre = state!();
+            wheel!(sx, sy, 3, 2); // makes the thumb visible/active
+            println!("INFO S6 list offset before/after 3 ticks: {:.0} -> {:.0} (max {:.0})", pre.0, state!().0, pre.1);
+            shot("s6-thumb-visible");
+            let before = state!();
+            let thumb = this.update_in(cx, |this, _, _| this.members_scrollbar.thumb_centre()).unwrap();
+            check!(thumb.is_some(), "S6 members scrollbar has painted geometry");
+            if let Some(c) = thumb {
+                let (cxp, cyp) = (f32::from(c.x) as i32, f32::from(c.y) as i32);
+                println!("INFO S6 thumb centre ({cxp},{cyp}) window {size:?}");
+                send(cxp, cyp, "move 0"); wait(150).await;
+                send(cxp, cyp, "press 0"); wait(150).await;
+                for step in 1..=8 { send(cxp, cyp - step * 25, "move 0"); wait(60).await; }
+                shot("s6-dragging");
+                send(cxp, cyp - 200, "release 0"); wait(300).await;
+                let after = state!();
+                check!(after.0 > before.0 && after.2 == before.2, "S6 thumb drag (upwards): list {:.0}->{:.0}, timeline unchanged", before.0, after.0);
+                send(10, 10, "move 0"); wait(1500).await;
+                shot("s6-after-release-faded");
+            }
+            // S7 few members and empty room
+            for n in [5usize, 1, 0] {
+                open!(Some(n));
+                let (m, mx, t, _) = state!();
+                wheel!(sx, sy, 10, 5);
+                wheel!(sx, sy, 10, -5);
+                let (m_, _, t_, _) = state!();
+                check!(m_ == m && t_ == t, "S7 {n} members (extent {mx:.0}): wheel over sheet moves neither list nor timeline");
+                shot(&format!("s7-{n}-members"));
+            }
+            // S8 close the panel mid-scroll: the same wheel point now reaches the timeline; reopen resets nothing odd
+            open!(Some(343));
+            wheel!(sx, sy, 5, 3);
+            let (mo, _, to, _) = state!();
+            open!(None);
+            let (_, _, tc, _) = state!();
+            wheel!(sx, sy, 5, -3);
+            let (_, _, tc2, _) = state!();
+            check!(tc == to && tc2 != tc, "S8 panel closed: wheel at same point scrolls timeline ({:?}->{:?})", tc.1, tc2.1);
+            this.update_in(cx, |this, _, cx| { this.set_room_details_open(true); cx.notify(); }).unwrap();
+            wait(400).await;
+            let (mr, _, _, _) = state!();
+            println!("INFO S8 reopen: list offset before close {mo:.0}, after reopen {mr:.0}");
+            report.insert("s8_offset_before_close_after_reopen".into(), serde_json::json!([mo, mr]));
+            let (r0, _, rt0, _) = state!();
+            wheel!(sx, sy, 5, 3);
+            let (r1, _, rt1, _) = state!();
+            check!(r1 < r0 && rt1 == rt0, "S8 reopened panel scrolls its list again, timeline unchanged");
+            // S9 room list regression: wheel on the left list never moves the sheet list or the timeline
+            let (l0, _, lt0, rl0) = state!();
+            wheel!(150, sy, 5, 3);
+            let (l1, _, lt1, rl1) = state!();
+            println!("INFO S9 room list offset {rl0:.0}->{rl1:.0}");
+            check!(l1 == l0 && lt1 == lt0, "S9 wheel over room list leaves sheet list and timeline alone");
+            // S10 small windows: sheet taller than the window. The pointer helper works in output coordinates, so read where sway put the window.
+            let origin = || -> (i32, i32) {
+                fn find(v: &serde_json::Value) -> Option<(i64, i64)> {
+                    if v["focused"] == true && v["rect"].is_object() { return Some((v["rect"]["x"].as_i64()?, v["rect"]["y"].as_i64()?)); }
+                    v["nodes"].as_array().into_iter().chain(v["floating_nodes"].as_array()).flatten().find_map(find)
+                }
+                let out = std::process::Command::new("swaymsg").args(["-t", "get_tree"]).output().unwrap();
+                let tree: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+                let (x, y) = find(&tree).expect("focused window in sway tree");
+                (x as i32, y as i32)
+            };
+            for (h_req, label) in [(700, "700"), (420, "420")] {
+                let cmd = format!("floating enable, resize set width 1000 height {h_req}, move position 0 0");
+                let st = std::process::Command::new("swaymsg").arg(cmd).status();
+                wait(1000).await;
+                let small = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+                let (ox, oy) = origin();
+                println!("INFO S10-{label} swaymsg {st:?} viewport {small:?} origin ({ox},{oy})");
+                let (w, h) = (f32::from(small.width) as i32, f32::from(small.height) as i32);
+                open!(Some(343));
+                shot(&format!("s10-{label}-top"));
+                let (a0, amax, ta0, _) = state!();
+                wheel!(ox + w - 150, oy + 60, 6, 3); // over the info block
+                shot(&format!("s10-{label}-after-wheel-on-info"));
+                let (a1, _, ta1, _) = state!();
+                wheel!(ox + w - 150, oy + h - 25, 6, 3); // over the member list (bottom edge of the window)
+                let (a2, _, ta2, _) = state!();
+                shot(&format!("s10-{label}-after-wheel-on-list"));
+                println!("INFO S10-{label} list offset {a0:.0} (extent {amax:.0}) -> info-wheel {a1:.0} -> list-wheel {a2:.0}");
+                check!(ta1 == ta0 && ta2 == ta0, "S10-{label} window {w}x{h}: timeline unchanged by wheel over the sheet");
+                check!(a1 == a0, "S10-{label}: wheel over the info block does not move the member list");
+                check!(amax > 0. && a2 < a0, "S10-{label}: member list scrolls under the pointer at the bottom edge (extent {amax:.0})");
+            }
+            // S11 resize larger while scrolled
+            let _ = std::process::Command::new("swaymsg").arg("resize set width 1900 height 1000").status();
+            wait(800).await;
+            let (b, bmax, _, _) = state!();
+            check!(b <= 0. && b >= -bmax - 1., "S11 resize larger while scrolled: offset {b:.0} within extent {bmax:.0}");
+            shot("s11-resized-back");
+            std::fs::write("/tmp/gui-out/matrix-report.json", serde_json::to_string_pretty(&report).unwrap()).unwrap();
+            drop(send); drop(input); let _ = ptr.wait();
+            assert!(fails.is_empty(), "failed: {fails:#?}");
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 23 {
             // Connected Shell: the strip above the timeline shows only while an older page loads or after it failed.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2925,6 +3110,14 @@ fn page_up_and_home_keep_the_row_being_read_in_place() {
 #[ignore = "requires private display"]
 fn wheel_over_room_sheet_scrolls_only_the_member_list() {
     DYNAMIC.store(40, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn wheel_over_room_sheet_matrix_edges_inertia_scrollbar_resize() {
+    DYNAMIC.store(41, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
