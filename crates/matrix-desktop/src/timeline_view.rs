@@ -77,6 +77,15 @@ type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
 const SENDER_AVATAR_PX: f32 = 32.;
+const STATUS_AVATAR_PX: f32 = 12.;
+
+/// Where a Tab press over the «Scarica» icons went.
+pub(crate) enum IconStep {
+    Moved,
+    /// Past the last icon (or before the first): the key goes on to the next stop of the ring.
+    Left,
+    Ignored,
+}
 
 pub struct TimelineView {
     offline_delivery: Rc<RefCell<matrix_desktop::OfflineDelivery>>,
@@ -103,6 +112,14 @@ pub struct TimelineView {
     pub(crate) want_original: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// A video whose download for the system player was asked for and not yet sent.
     pub(crate) want_video: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// Set by a click on a thread summary; the shell opens the panel.
+    pub(crate) want_thread: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// «Scarica»: what each save is doing, the click waiting for the file picker, and a stop request.
+    pub(crate) saves: Rc<RefCell<matrix_desktop::Saves>>,
+    pub(crate) want_save: Rc<RefCell<Option<(matrix_domain::EventId, String)>>>,
+    pub(crate) stop_save: Rc<Cell<bool>>,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    save_painted: Rc<RefCell<std::collections::HashMap<matrix_domain::EventId, Bounds<Pixels>>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
@@ -239,6 +256,7 @@ impl TimelineView {
     }
 
     fn with_history(history: DemoHistory, focus: FocusHandle, live: bool) -> Self {
+        let focus = focus.tab_stop(true);
         let count = history.events().len();
         Self {
             offline_delivery: Rc::default(),
@@ -261,6 +279,12 @@ impl TimelineView {
             original: Rc::default(),
             want_original: Rc::default(),
             want_video: Rc::default(),
+            want_thread: Rc::default(),
+            saves: Rc::default(),
+            want_save: Rc::default(),
+            stop_save: Rc::default(),
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            save_painted: Rc::default(),
             link_menu: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
@@ -548,6 +572,17 @@ impl TimelineView {
                     f64::from(f32::from(bounds.bottom())) * scale,
                 ));
             }
+            if message.save.is_some()
+                && let matrix_domain::TimelineId::Server(id) = &message.event.id
+                && let Some(bounds) = self.save_painted.borrow().get(id)
+            {
+                message.save_bounds = Some(accesskit::Rect::new(
+                    f64::from(f32::from(bounds.left())) * scale,
+                    f64::from(f32::from(bounds.top())) * scale,
+                    f64::from(f32::from(bounds.right())) * scale,
+                    f64::from(f32::from(bounds.bottom())) * scale,
+                ));
+            }
             if message.retry.is_some() {
                 message.retry_focused = self.focus.is_focused(window)
                     && self.retry_cursor.borrow().as_ref() == Some(&message.event);
@@ -679,6 +714,62 @@ impl TimelineView {
             *self.original.borrow_mut() = None;
             *self.want_video.borrow_mut() = Some(id.clone());
             self.focus.focus(window);
+        }
+    }
+
+    /// The save ended: clear it or show its error line (the row gets taller, so it is measured again).
+    /// Size the sender declared for the attachment of `id`.
+    pub(crate) fn attachment_size(&self, id: &matrix_domain::EventId) -> Option<u64> {
+        let history = self.history.borrow();
+        let event = history.events().iter().find(|e| matches!(&e.id.id, matrix_domain::TimelineId::Server(s) if s == id));
+        event.and_then(|e| e.attachment_size)
+    }
+
+    /// Tab/Shift-Tab over the «Scarica» icons painted now. GPUI has no Tab key of its own here, but
+    /// it keeps the tab stops of the frame: the timeline handle is the first, the icons follow.
+    pub(crate) fn step_icons(&self, shift: bool, window: &mut gpui::Window, cx: &gpui::App) -> IconStep {
+        let on_icon = self.focus.contains_focused(window, cx) && !self.focus.is_focused(window);
+        if self.viewing().is_some() {
+            return IconStep::Ignored;
+        }
+        if !on_icon && (shift || !self.focus.is_focused(window)) {
+            return IconStep::Ignored;
+        }
+        if shift { window.focus_prev() } else { window.focus_next() }
+        match (self.focus.is_focused(window), on_icon) {
+            (false, _) => IconStep::Moved,
+            (true, true) => IconStep::Left,
+            (true, false) => IconStep::Ignored,
+        }
+    }
+
+    /// Enter from outside: the first icon, or the last one when `backwards`; false when none is painted.
+    pub(crate) fn enter_icons(&self, backwards: bool, window: &mut gpui::Window) -> bool {
+        if self.viewing().is_some() {
+            return false;
+        }
+        self.focus.focus(window);
+        if backwards { window.focus_prev() } else { window.focus_next() }
+        !self.focus.is_focused(window)
+    }
+
+    pub(crate) fn finish_save(&self, id: &matrix_domain::EventId, result: Result<(), matrix_engine::media::MediaError>) {
+        self.saves.borrow_mut().finish(id, result);
+        self.image_changed(id);
+    }
+
+    /// Screen-reader click on «Scarica»: same path as a click on the icon.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn save_attachment(&self, target: &matrix_domain::ScopedTimelineId) {
+        let matrix_domain::TimelineId::Server(id) = &target.id else {
+            return;
+        };
+        let name = self.history.borrow().events().iter().find(|e| e.id == *target).and_then(|e| e.attachment_name.clone());
+        if let Some(name) = name
+            && self.saves.borrow().state(id) != Some(matrix_desktop::SaveState::Running)
+        {
+            self.saves.borrow_mut().begin(id);
+            *self.want_save.borrow_mut() = Some((id.clone(), name));
         }
     }
 
@@ -982,6 +1073,27 @@ impl TimelineView {
             .collect()
     }
 
+    /// The thread an event belongs to: its root (the event itself when it is no reply), the root's
+    /// row as the room timeline holds it (empty when not loaded) and the reply count.
+    pub(crate) fn thread_target(&self, id: &matrix_domain::EventId) -> Option<(matrix_domain::EventId, crate::thread_view::ThreadRow, u32)> {
+        let history = self.history.borrow();
+        let root = history.row(id)?.thread_root.clone().unwrap_or_else(|| id.clone());
+        Some(match history.row(&root) {
+            Some(row) => (root, crate::thread_view::ThreadRow::from_row(row), row.thread.as_ref().map_or(0, |t| t.num_replies)),
+            None => (root, crate::thread_view::ThreadRow::default(), 0),
+        })
+    }
+
+    /// The thread was read in its panel: the root's counter goes now (the row changes height-free
+    /// but its controls are retired, as for any same-ID change).
+    pub(crate) fn thread_read(&self, root: &matrix_domain::EventId) {
+        if self.history.borrow_mut().clear_thread_unread(root) {
+            let (offset, count) = (self.state.logical_scroll_top(), self.history.borrow().events().len());
+            self.state.splice(0..count, count);
+            self.state.scroll_to(offset);
+        }
+    }
+
     pub fn first_visible_row(&self) -> usize {
         self.state.logical_scroll_top().item_ix
     }
@@ -1186,6 +1298,21 @@ impl TimelineView {
         }
     }
 
+    /// Idempotent: applies «Nascondi messaggi eliminati» to the rows already loaded, keeping the scroll place.
+    pub fn set_hide_redacted(&self, hide: bool) {
+        let offset = self.state.logical_scroll_top();
+        let old = self.history.borrow().events().len();
+        if !self.history.borrow_mut().set_hide_redacted(hide) {
+            return;
+        }
+        self.retain_selection();
+        let new = self.history.borrow().events().len();
+        self.state.splice(0..old, new);
+        if old > 0 {
+            self.state.scroll_to(offset);
+        }
+    }
+
     pub fn project_operations(&self, actions: &matrix_desktop::LiveOperations) {
         // Room-state diffs (including Space links) reapply the projection. A
         // whole-list splice otherwise resets the reader to row zero even when
@@ -1289,6 +1416,10 @@ impl TimelineView {
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let want_video = self.want_video.clone();
+        let want_thread = self.want_thread.clone();
+        let (saves, want_save, stop_save) = (self.saves.clone(), self.want_save.clone(), self.stop_save.clone());
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let save_painted = self.save_painted.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1344,6 +1475,20 @@ impl TimelineView {
                     let delivery_state = delivery_state.clone();
                     let history = history.borrow();
                     let event = &history.events()[index];
+                    if event.status {
+                        // Quiet centred line like Element: small round avatar + grey text, no bubble.
+                        let avatar = event.sender.as_ref().map(|s| {
+                            let initials = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+                            match s.avatar.as_deref().and_then(|m| sender_pictures.borrow().get(m).cloned()) {
+                                Some(image) => crate::avatar_view::round(image, STATUS_AVATAR_PX),
+                                None => div().flex().items_center().justify_center().size(px(STATUS_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(7.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
+                            }
+                        });
+                        return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py(px(1.)).flex().justify_center().items_center().gap_1p5().overflow_hidden()
+                            .text_size(px(11.)).text_color(rgb(t.secondary))
+                            // min_w_0 + text_center: long bridge texts wrap inside the column instead of overflowing it.
+                            .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::one_line(&event.text))).into_any_element();
+                    }
                     let sender_label = history.sender_label(index, members);
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
                         match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
@@ -1403,6 +1548,36 @@ impl TimelineView {
                             _ => picture,
                         }
                     }));
+                    let (save_icon, save_failure) = match &event.id.id {
+                        matrix_domain::TimelineId::Server(id) if matrix_desktop::offers_save(event, live) => {
+                            let state = saves.borrow().state(id);
+                            let (sid, name) = (id.clone(), event.attachment_name.clone().unwrap_or_default());
+                            let (saves, want_save, stop_save) = (saves.clone(), want_save.clone(), stop_save.clone());
+                            let click: crate::media_view::SaveClick = Rc::new(move |window, _| {
+                                let running = saves.borrow().state(&sid) == Some(matrix_desktop::SaveState::Running);
+                                if running {
+                                    stop_save.set(true);
+                                    saves.borrow_mut().cancel(&sid);
+                                } else {
+                                    saves.borrow_mut().begin(&sid);
+                                    *want_save.borrow_mut() = Some((sid.clone(), name.clone()));
+                                }
+                                window.refresh();
+                            });
+                            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                            let painted = { let (map, id) = (save_painted.clone(), id.clone()); move |bounds| { map.borrow_mut().insert(id.clone(), bounds); } };
+                            #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                            let painted = |_| ();
+                            (
+                                Some(crate::media_view::save_icon(index, state == Some(matrix_desktop::SaveState::Running), t, click.clone(), painted)),
+                                match state {
+                                    Some(matrix_desktop::SaveState::Failed(error)) => Some(crate::media_view::save_failure(index, error, t, click)),
+                                    _ => None,
+                                },
+                            )
+                        }
+                        _ => (None, None),
+                    };
                     let mut body = StyledText::new(event.text.clone());
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
@@ -1610,18 +1785,24 @@ impl TimelineView {
                                         None => body.into_any_element(),
                                     }))
                                 .when_some(event.thread_label(), |d, (label, initials, mxc)| d.child(
-                                    div().id(("thread-summary", index)).mt_2().flex().items_center().gap_2()
+                                    div().id(("thread-summary", index)).mt_2().flex().items_center().gap_2().cursor_pointer()
+                                        .on_click({
+                                            let (want_thread, id) = (want_thread.clone(), event.id.id.clone());
+                                            move |_, window, _| {
+                                                if let matrix_domain::TimelineId::Server(id) = &id { *want_thread.borrow_mut() = Some(id.clone()); window.refresh(); }
+                                            }
+                                        })
                                         .child(match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
                                             Some(image) => crate::avatar_view::round(image, 20.),
                                             None => div().flex().items_center().justify_center().size(px(20.)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(9.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
                                         })
                                         .child(div().text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(label))))
-                                .child(
+                                .child(div().w_full().flex().justify_end().items_center().gap_1().mt_1()
+                                    .children(save_icon)
+                                    .child(
                                     div()
-                                        .w_full()
                                         .text_right()
                                         .whitespace_normal()
-                                        .mt_1()
                                         .text_size(px(10.))
                                         .line_height(px(14.))
                                         .text_color(rgb(if event.send_state == Some(DemoSendState::Failed) { t.error } else { t.secondary }))
@@ -1645,7 +1826,8 @@ impl TimelineView {
                                             })
                                         })
                                         .child(stamp),
-                                )
+                                ))
+                                .children(save_failure)
                                 .when_some((debug && live).then(|| event.debug_id().map(str::to_owned)).flatten(), |d, id| {
                                     let copied = id.clone();
                                     d.child(div().id(("event-debug-id", index)).w_full().text_right().text_size(px(10.)).line_height(px(14.))
@@ -2266,6 +2448,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
                             outgoing: false,
@@ -2274,6 +2457,10 @@ mod tests {
                             video: None,
                             styles: Vec::new(),
                             thread: None,
+                            thread_root: None,
+                            status: false,
+                            attachment_name: None,
+                            attachment_size: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2402,6 +2589,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
                             outgoing: false,
@@ -2410,6 +2598,10 @@ mod tests {
                             video: None,
                             styles: Vec::new(),
                             thread: None,
+                            thread_root: None,
+                            status: false,
+                            attachment_name: None,
+                            attachment_size: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2514,6 +2706,7 @@ mod tests {
                             false,
                         );
                         v.append_server(vec![HistoryEvent {
+                            redacted: false,
                             event_id: id.clone(),
                             body: "Video · 0:12 · 1.4 MB".into(),
                             outgoing: false,
@@ -2527,6 +2720,10 @@ mod tests {
                             }),
                             styles: Vec::new(),
                             thread: None,
+                            thread_root: None,
+                            status: false,
+                            attachment_name: None,
+                            attachment_size: None,
                         }]);
                         if thumbnail {
                             let buffer =

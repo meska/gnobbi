@@ -1,7 +1,9 @@
 use matrix_desktop::{AccountCatalog, AppDirs, account_rows};
 
 fn dirs() -> AppDirs {
-    let root = std::env::temp_dir().join(format!("gnobbi-list-{}", std::process::id()));
+    static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("gnobbi-list-{}-{n}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     AppDirs {
         config: root.join("config"),

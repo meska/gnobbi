@@ -38,6 +38,11 @@ pub struct AccountStore {
 }
 
 impl AccountStore {
+    /// The caller-allocated identity this store was created or opened for.
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
     /// Explicit opt-in durable password login; passphrase is never persisted.
     pub async fn password_login(
         self,
@@ -135,8 +140,7 @@ impl AccountStore {
     ) -> Result<crate::auth::AccountSession, crate::auth::AuthError> {
         let cert =
             reqwest::Certificate::from_pem(pem).map_err(|_| crate::auth::AuthError::Transport)?;
-        let http = crate::auth::secure_http_builder()
-            .add_root_certificate(cert)
+        let http = crate::auth::with_trust_roots(crate::auth::secure_http_builder(), vec![cert])
             .build()
             .map_err(|_| crate::auth::AuthError::Transport)?;
         self.restore_with_http(passphrase, http).await
@@ -341,12 +345,12 @@ impl AccountStore {
         let result = (|| {
             file.write_all(&bytes).map_err(|_| StoreError::Io)?;
             file.sync_all().map_err(|_| StoreError::Io)?;
-            fs::hard_link(&pending, self.path.join("session.sealed"))
+            crate::fsx::publish_new(&pending, &self.path.join("session.sealed"))
                 .map_err(|_| StoreError::AlreadyExists)?;
             crate::fsx::sync_dir(&self.path)
                 .map_err(|_| StoreError::Io)
         })();
-        let cleanup = fs::remove_file(pending).map_err(|_| StoreError::Io);
+        let cleanup = crate::fsx::remove_pending(&pending).map_err(|_| StoreError::Io);
         result.and(cleanup)
     }
 

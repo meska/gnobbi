@@ -9,6 +9,10 @@ pub const UI_FONT: &str = "DejaVu Sans";
 #[cfg(windows)]
 pub const UI_FONT: &str = "Segoe UI";
 #[cfg(not(windows))]
+pub const SERIF_FONT: &str = "DejaVu Serif";
+#[cfg(windows)]
+pub const SERIF_FONT: &str = "Georgia";
+#[cfg(not(windows))]
 pub const MONO_FONT: &str = "DejaVu Sans Mono";
 #[cfg(windows)]
 pub const MONO_FONT: &str = "Consolas";
@@ -28,6 +32,7 @@ pub use signin_form::{
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
+pub mod app_icon;
 mod account_catalog;
 mod account_erase;
 pub use account_erase::erase_account;
@@ -40,10 +45,14 @@ pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use account_list::{AccountRow, account_rows, initials};
 pub use app_dirs::{AppDirs, Platform, app_dirs};
 pub mod legacy_profile;
+mod accent;
+pub use accent::{Accent, current_accent, set_accent, system_accent};
 mod preferences;
 mod rail_layout;
 pub use rail_layout::{RailLayout, RailLayouts};
-pub use preferences::{Preferences, Theme};
+pub use preferences::{
+    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,
+};
 mod composer;
 mod connection_options;
 pub mod panel_openers;
@@ -68,7 +77,9 @@ pub use links::{
 };
 mod voice;
 pub use voice::{max_note_samples, voice_attachment};
+mod attachment_save;
 mod live_media;
+pub use attachment_save::{SaveState, Saves, failure_label as save_failure_label, offers_save, over_cap as save_over_cap, retryable as save_retryable, start_dir as save_start_dir};
 pub use live_media::LiveMedia;
 mod live_delivery;
 pub use live_delivery::LiveDelivery;
@@ -84,7 +95,7 @@ mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 pub mod row_text;
 mod sidebar;
-pub use sidebar::{Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
+pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DesignTokens {

@@ -425,7 +425,7 @@ fn disposable_signin_recovery_key_restores_the_exact_old_event_and_failures_chan
     runtime().block_on(async {
         let fresh = login(&config, "alice", 28).await;
         let client = fresh.client.as_ref().unwrap();
-        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(client).await.unwrap();
         recovery_assert_message(client, &room, &event, false).await;
     });
     let secret = |text: &str| Secret::new(text.into()).unwrap();
@@ -665,7 +665,7 @@ fn disposable_signin_setup_recovery_creates_backup_and_a_second_device_restores_
         let (session, key) = tokio::join!(pending.run(), consumer);
         let mut session = session.unwrap();
         let client = session.client.as_ref().unwrap().clone();
-        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         let event = client.get_room(&matrix_sdk::ruma::RoomId::parse(&room).unwrap()).unwrap()
             .send(matrix_sdk::ruma::events::room::message::RoomMessageEventContent::text_plain("recover old encrypted città 🦀"))
             .await.unwrap().response.event_id;

@@ -102,6 +102,7 @@ fn fixture() -> (DemoHistory, LiveOperations) {
     };
     let mut rows = DemoHistory::new(scope.clone(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$first"),
         body: "old".into(),
         outgoing: true,
@@ -109,7 +110,10 @@ fn fixture() -> (DemoHistory, LiveOperations) {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }]);
     let mut actions = LiveOperations::default();
     actions.select(ScopedTimelineId {
@@ -153,6 +157,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
     };
     let mut rows = DemoHistory::new(scope.clone(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$first"),
         body: "old".into(),
         outgoing: true,
@@ -160,7 +165,10 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }]);
     let mut actions = LiveOperations::default();
     actions.select(ScopedTimelineId {
@@ -208,6 +216,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
     };
     let mut other = DemoHistory::new(other_scope, 0);
     other.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$first"),
         body: "other".into(),
         outgoing: true,
@@ -215,7 +224,10 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }]);
     other.project_operations(actions.confirmed());
     assert_eq!(other.events()[0].text, "other");

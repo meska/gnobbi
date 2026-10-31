@@ -1,4 +1,4 @@
-use matrix_desktop::{Theme, AVATAR_FALLBACK, ROOMS};
+use matrix_desktop::{Accent, Theme, AVATAR_FALLBACK, ROOMS};
 
 fn luminance(color: u32) -> f64 {
     [16, 8, 0]
@@ -31,12 +31,13 @@ fn contrast_known_values() {
 #[test]
 fn every_theme_meets_wcag_aa_on_all_required_pairs() {
     let mut failures = vec![];
-    for theme in Theme::ALL {
-        let t = theme.tokens();
+    for (theme, accent) in Theme::ALL.into_iter().flat_map(|t| Accent::ALL.map(|a| (t, a))) {
+        let t = theme.tokens_with(accent);
+        let theme = format!("{} / {}", theme.label(), accent.label());
         let mut check = |fg: &str, fgc: u32, bg: &str, bgc: u32| {
             let r = contrast(fgc, bgc);
             if r < 4.5 {
-                failures.push(format!("{} {fg} {fgc:06x} / {bg} {bgc:06x}: {r:.2} < 4.5", theme.label()));
+                failures.push(format!("{theme} {fg} {fgc:06x} / {bg} {bgc:06x}: {r:.2} < 4.5"));
             }
         };
         let fgs = [("text", t.text), ("secondary", t.secondary), ("accent", t.accent)];

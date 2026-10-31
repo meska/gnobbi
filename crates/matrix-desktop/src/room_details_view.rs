@@ -19,6 +19,8 @@ impl Shell {
                 scope: room.scope.clone(),
                 name: room.name.clone(),
                 info: room.info.clone(),
+                people: self.people_labels(),
+                back: self.profile.is_some(),
                 focus: self.details_focus,
                 bounds: self.a11y_details_bounds,
             }))
@@ -48,6 +50,8 @@ impl Shell {
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
+            DetailsAction::Profile { user_id, .. } => self.open_profile(user_id, cx),
+            DetailsAction::Members(_) => self.profile = None,
             DetailsAction::Copy(scope) => {
                 self.details_focus = matrix_desktop::accessibility::details::DetailsControl::Copy;
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(
@@ -255,6 +259,9 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         div()
+            .id("room-details")
+            // Own the wheel: without it the hit-test lets events through to the timeline list.
+            .occlude()
             .absolute()
             .right_0()
             .top_0()
@@ -300,11 +307,14 @@ impl Shell {
                     .id("room-details-content")
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
                     .p_4()
                     .flex()
                     .flex_col()
                     .gap_4()
+                    // An opened profile takes the whole sheet.
+                    .when(self.profile.is_none(), |d| d
+                    .child(
+                    div().id("room-details-info").flex().flex_col().gap_4().flex_shrink().min_h_0().overflow_y_scroll()
                     .child(
                         div()
                             .text_size(px(20.))
@@ -362,9 +372,17 @@ impl Shell {
                                 }
                             })),
                     )
-                    .child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child(
-                        "Stato dell'ultima sync. Nessuna modifica, invito o adesione automatica.",
-                    )),
+                    .child(
+                        div()
+                            .id("room-edit-open")
+                            .cursor_pointer()
+                            .text_color(rgb(t.accent))
+                            .child("Modifica")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_room_edit(window, cx)
+                            })),
+                    )))
+                    .child(self.render_people(cx)),
             )
             .into_any_element()
     }

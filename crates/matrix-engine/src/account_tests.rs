@@ -194,7 +194,7 @@ fn disposable_accounts_logout_preserves_other_store_and_crypto_identity() {
         accounts.switch(AccountId::new(29)).unwrap();
         let bob = accounts.active().unwrap();
         let client = bob.client.as_ref().unwrap();
-        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(client).await.unwrap();
         let bob_room = client.get_room(&matrix_sdk::ruma::RoomId::parse(&room).unwrap()).unwrap();
         let event = bob_room.send(matrix_sdk::ruma::events::room::message::RoomMessageEventContent::text_plain("Bob durable secret città")).await.unwrap().response.event_id.to_string();
         let wire = room_request(&config, "bob", reqwest::Method::GET,
@@ -227,7 +227,7 @@ fn disposable_accounts_logout_preserves_other_store_and_crypto_identity() {
         let signing = bob.client.as_ref().unwrap().encryption().get_own_device().await.unwrap().unwrap().ed25519_key().unwrap().to_base64();
         assert!(signing == bob_signing, "other account crypto identity survives logout and runtime restart");
         let mut sync = crate::room_sync::RoomSync::new(bob);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let mut views = crate::ViewRequests::default();
         let tag = views.start(matrix_domain::RoomScope {
             account_id: AccountId::new(29), room_id: matrix_domain::RoomId::new(&room),

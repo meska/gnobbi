@@ -247,9 +247,12 @@ impl Shell {
         self.pending_open = None;
         self.groups_edit = None;
         self.members_requested = None;
+        self.room_members.clear();
+        self.profile = None;
         self.read_dirty = false;
         self.confirm_redaction = None;
         self.room_menu = None;
+        self.confirm_leave = None;
         self.compact_chat = false;
         self.set_room_details_open(false);
         self.set_spaces_open(false);

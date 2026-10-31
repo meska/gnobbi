@@ -47,7 +47,7 @@ impl Render for RailTooltip {
             .border_color(rgb(t.border))
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
-            .font_family(matrix_desktop::UI_FONT)
+            .font_family(matrix_desktop::ui_font())
             .text_size(px(12.))
             .child(self.label.clone())
     }
@@ -59,7 +59,7 @@ enum EditFocus {
     Rail,
     Button,
     Panel,
-    Theme,
+    List,
 }
 
 /// Keyboard transition for the edit button/panel: (new focus, panel open); None = not ours.
@@ -68,7 +68,7 @@ fn edit_step(at: EditFocus, open: bool, key: &str, shift: bool) -> Option<(EditF
         (EditFocus::Button, "enter" | "space") if open => Some((EditFocus::Button, false)),
         (EditFocus::Button, "enter" | "space") => Some((EditFocus::Panel, true)),
         (EditFocus::Button, "tab") if shift => Some((EditFocus::Rail, open)),
-        (EditFocus::Button, "tab") => Some((EditFocus::Theme, open)),
+        (EditFocus::Button, "tab") => Some((EditFocus::List, open)),
         (EditFocus::Button | EditFocus::Panel, "escape") => Some((EditFocus::Button, false)),
         (EditFocus::Panel, "tab") => Some((EditFocus::Panel, true)), // empty panel: nothing to tab to
         _ => None,
@@ -259,7 +259,7 @@ impl Shell {
                 EditFocus::Rail => self.rail_ui.focus.focus(window),
                 EditFocus::Button => self.rail_ui.edit_focus.focus(window),
                 EditFocus::Panel => self.rail_ui.edit_panel_focus.focus(window),
-                EditFocus::Theme => self.theme_focus.focus(window),
+                EditFocus::List => self.first_list_stop().focus(window),
             }
             cx.notify();
             return true;
@@ -283,11 +283,9 @@ impl Shell {
             .position(|entry| entry.scope == self.rail_ui.target)
             .unwrap_or(0);
         let last = entries.len() - 1;
-        if key.key == "tab"
-            && key.modifiers.shift
-            && index == 0
-            && self.focus_last_chat_control(window, cx)
-        {
+        if key.key == "tab" && key.modifiers.shift && index == 0 {
+            self.menu_focus.focus(window);
+            cx.notify();
             return true;
         }
         let next = match key.key.as_str() {
@@ -318,7 +316,7 @@ impl Shell {
     /// Runs on the release of a completed Space/Enter gesture (see `sidebar_activation_up`).
     pub(crate) fn rail_activate(&mut self, cx: &mut Context<Self>) {
         #[cfg(test)]
-        sidebar_navigation_test::ACTIVATIONS[2].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        sidebar_navigation_test::ACTIVATIONS[1].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let entries = self.rail_entries();
         let index = entries
             .iter()
@@ -537,6 +535,7 @@ impl Shell {
             .h(px(40.))
             .flex_shrink_0()
             .flex()
+            .flex_col()
             .items_center()
             .justify_center()
             .border_2()
@@ -545,6 +544,7 @@ impl Shell {
             .text_color(rgb(t.accent))
             .text_size(px(12.))
             .cursor_pointer()
+            .child(div().text_size(px(14.)).line_height(px(14.)).child("✎"))
             .child("Modifica")
             .on_click(cx.listener(|this, _, window, cx| {
                 this.rail_ui.edit_open = !this.rail_ui.edit_open;
@@ -673,7 +673,7 @@ mod edit_focus_tests {
     #[test]
     fn tab_order_around_the_button() {
         assert_eq!(edit_step(Button, false, "tab", true), Some((Rail, false)));
-        assert_eq!(edit_step(Button, false, "tab", false), Some((Theme, false)));
+        assert_eq!(edit_step(Button, false, "tab", false), Some((List, false)));
         assert_eq!(edit_step(Panel, true, "tab", false), Some((Panel, true)));
         assert_eq!(edit_step(Panel, true, "tab", true), Some((Panel, true)));
         assert_eq!(edit_step(Button, false, "x", false), None);

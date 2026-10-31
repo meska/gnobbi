@@ -7,12 +7,15 @@ mod composer_view;
 mod editing_command;
 mod filter_view;
 mod groups_edit_view;
+mod invite_view;
 mod login_field;
 mod media_view;
+mod members_view;
 mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
 mod new_room_view;
+mod room_edit_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 mod operation_panel_view;
@@ -28,6 +31,7 @@ mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;
 mod spaces_view;
+mod thread_view;
 mod timeline_view;
 mod verification_view;
 mod video_player;
@@ -55,11 +59,14 @@ struct Shell {
     rail_ui: rail_view::RailUi,
     opener_ui: panel_opener_view::OpenerUi,
     room_menu: Option<(RoomScope, gpui::Point<gpui::Pixels>)>,
+    /// «Esci dalla stanza» was clicked once; the second click leaves.
+    confirm_leave: Option<RoomScope>,
     menu_open: bool,
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
     settings_open: bool,
     new_room: Option<new_room_view::NewRoom>,
+    room_edit: Option<room_edit_view::RoomEdit>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
     groups_edit: Option<groups_edit_view::GroupsEdit>,
@@ -67,6 +74,8 @@ struct Shell {
     refocus_menu: bool,
     drawer_row: usize,
     settings_focus: FocusHandle,
+    /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
+    settings_row: usize,
     prefs: matrix_desktop::Preferences,
     prefs_dirs: Option<matrix_desktop::AppDirs>,
     /// Catalog as last read; reloaded whenever the drawer opens or this window signs in.
@@ -91,9 +100,6 @@ struct Shell {
     history_focus: FocusHandle,
     pending_sidebar_key: Option<filter_view::SidebarPress>,
     unread_focus: FocusHandle,
-    theme_focus: FocusHandle,
-    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_theme_bounds: Option<accesskit::Rect>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_unread_bounds: Option<accesskit::Rect>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -144,6 +150,9 @@ struct Shell {
     pending_operation_command: Option<matrix_engine::operations::OperationCommand>,
     /// Room whose members were asked for the @ completion.
     members_requested: Option<RoomScope>,
+    /// Joined members of the shown room (room sheet) and the profile opened from them.
+    room_members: Vec<matrix_engine::operations::Member>,
+    profile: Option<members_view::ProfileState>,
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
@@ -154,15 +163,19 @@ struct Shell {
     composer: gpui::Entity<ComposerView>,
     composer_visit: std::rc::Rc<composer_view::SendVisit>,
     timeline: Option<TimelineView>,
+    thread: Option<thread_view::ThreadPanel>,
     saved_timelines: HashMap<RoomScope, TimelineView>,
     history: HistorySession,
     pending_history: Option<matrix_engine::history::HistoryRequest>,
     compact_chat: bool,
     theme: Theme,
+    system_dark: bool,
     search_focus: FocusHandle,
     list_focus: FocusHandle,
     scroll: UniformListScrollHandle,
     room_scrollbar: scrollbar_view::Scrollbar,
+    members_scroll: UniformListScrollHandle,
+    members_scrollbar: scrollbar_view::Scrollbar,
 }
 
 impl Shell {
@@ -203,6 +216,16 @@ impl Shell {
             }
             if let matrix_desktop::accessibility::NavigationAction::Notifications(action) = action {
                 this.apply_semantic_notification(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::ChooseIcon(icon) = action {
+                if this.settings_open {
+                    this.choose_icon(icon, window, cx);
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::Settings(action) = action {
+                this.apply_semantic_settings(action, window, cx);
                 continue;
             }
             if this.notifications_open || this.verification_open || this.room_details_open {
@@ -273,6 +296,16 @@ impl Shell {
                     && let Some(timeline) = &this.timeline
                 {
                     timeline.play_video(id, window);
+                    cx.notify();
+                }
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::SaveAttachment(id) = &action {
+                if id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.save_attachment(id);
                     cx.notify();
                 }
                 continue;
@@ -405,9 +438,6 @@ impl Shell {
                 }
                 continue;
             }
-            if this.dispatch_sidebar_action(&action, window, cx) {
-                continue;
-            }
             if this.dispatch_opener_action(&action, window, cx) {
                 continue;
             }
@@ -428,6 +458,7 @@ impl Shell {
                 matrix_desktop::accessibility::NavigationAction::SignIn(_) => (),
                 matrix_desktop::accessibility::NavigationAction::CopyEventId(_)
                 | matrix_desktop::accessibility::NavigationAction::PlayVideo(_)
+                | matrix_desktop::accessibility::NavigationAction::SaveAttachment(_)
                 | matrix_desktop::accessibility::NavigationAction::OfflineDelivery(_) => {
                     unreachable!()
                 }
@@ -453,6 +484,8 @@ impl Shell {
                     unreachable!()
                 }
                 matrix_desktop::accessibility::NavigationAction::Notifications(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::ChooseIcon(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::Settings(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Details(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::FocusComposer
                 | matrix_desktop::accessibility::NavigationAction::FocusSend { .. }
@@ -468,8 +501,13 @@ impl Shell {
                 | matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_) => {
                     unreachable!()
                 }
-                matrix_desktop::accessibility::NavigationAction::ToggleTheme(_)
-                | matrix_desktop::accessibility::NavigationAction::FocusTheme(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::ToggleMenu => {
+                    this.set_menu_open(!this.menu_open, window, cx)
+                }
+                matrix_desktop::accessibility::NavigationAction::FocusMenu => {
+                    this.menu_focus.focus(window);
+                    cx.notify();
+                }
                 matrix_desktop::accessibility::NavigationAction::FocusSearch => {
                     this.search_focus.focus(window);
                     cx.notify();
@@ -479,6 +517,15 @@ impl Shell {
                 }
                 matrix_desktop::accessibility::NavigationAction::ActivateRoom(intent) => {
                     this.apply_semantic_room(intent, false, window, cx)
+                }
+                matrix_desktop::accessibility::NavigationAction::AnswerInvite { scope, accept } => {
+                    this.answer_invite(scope, accept, cx)
+                }
+                matrix_desktop::accessibility::NavigationAction::LeaveRoom(scope) => {
+                    // Only while that row's menu is open, as the pointer path.
+                    if this.room_menu.as_ref().is_some_and(|(open, _)| *open == scope) {
+                        this.leave_room(scope, cx)
+                    }
                 }
             }
         }
@@ -593,10 +640,8 @@ impl Shell {
         true
     }
 
-    #[cfg(any(test, all(feature = "linux-a11y", target_os = "linux")))]
+    #[cfg(test)]
     fn toggle_theme(&mut self, cx: &mut Context<Self>) {
-        #[cfg(test)]
-        sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.set_theme(
             if self.theme.is_dark() {
                 Theme::Classic
@@ -607,10 +652,21 @@ impl Shell {
         );
     }
 
+    /// Re-evaluates the saved theme and «notte automatica» (clock or OS appearance).
+    fn apply_theme(&mut self, cx: &mut Context<Self>) {
+        let theme = self.prefs.effective_theme(self.system_dark, matrix_desktop::local_hour());
+        if theme != self.theme {
+            self.set_theme(theme, cx);
+        }
+    }
+
     fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
         self.theme = theme;
         self.composer
             .update(cx, |editor, cx| editor.set_theme(theme.tokens(), cx));
+        if let Some(c) = self.thread.as_ref().and_then(|p| p.composer.clone()) {
+            c.update(cx, |editor, cx| editor.set_theme(theme.tokens(), cx));
+        }
         cx.notify();
     }
 
@@ -650,6 +706,12 @@ impl Shell {
                 cx.stop_propagation();
                 return;
             }
+        }
+        if self.thread.is_some() && key.key == "escape" {
+            self.close_thread();
+            cx.notify();
+            cx.stop_propagation();
+            return;
         }
         if self.rail_key(event, window, cx) {
             cx.stop_propagation();
@@ -863,34 +925,6 @@ impl Shell {
             return;
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        if !key.modifiers.control && !key.modifiers.alt && !key.modifiers.platform {
-            if self.theme_focus.is_focused(window) {
-                if key.key == "tab" {
-                    if key.modifiers.shift {
-                        self.list_focus.focus(window);
-                    } else if self.semantic_unread(window).is_some() {
-                        self.unread_focus.focus(window);
-                    } else {
-                        self.search_focus.focus(window);
-                    }
-                    cx.notify();
-                    cx.stop_propagation();
-                }
-                // Space/Enter activate once via GPUI's native Keyboard ClickEvent.
-                return;
-            }
-            if key.key == "tab"
-                && key.modifiers.shift
-                && self.search_focus.is_focused(window)
-                && self.semantic_unread(window).is_none()
-            {
-                self.theme_focus.focus(window);
-                cx.notify();
-                cx.stop_propagation();
-                return;
-            }
-        }
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.semantic_unread(window).is_some()
             && !key.modifiers.control
             && !key.modifiers.alt
@@ -903,12 +937,8 @@ impl Shell {
                 return;
             }
             if self.unread_focus.is_focused(window) {
-                if key.key == "tab" {
-                    if key.modifiers.shift {
-                        self.theme_focus.focus(window);
-                    } else {
-                        self.search_focus.focus(window);
-                    }
+                if key.key == "tab" && !key.modifiers.shift {
+                    self.search_focus.focus(window);
                 } else {
                     // GPUI emits one Keyboard ClickEvent on Space/Enter release.
                     return;
@@ -967,6 +997,9 @@ impl Shell {
                 }
                 NavigationAction::PlayVideo(id) => {
                     timeline.play_video(&id, window);
+                }
+                NavigationAction::SaveAttachment(id) => {
+                    timeline.save_attachment(&id);
                 }
                 NavigationAction::LinkConfirmation(intent) => {
                     timeline.apply_confirmation(&intent, window, cx);
@@ -1150,6 +1183,13 @@ impl Shell {
             self.apply_semantic_room(intent, false, window, cx);
             return;
         }
+        if !searching
+            && let Some(scope) = self.sidebar.selected_invite().map(|room| room.scope.clone())
+            && matches!(key.key.as_str(), "enter" | "delete" | "backspace")
+        {
+            self.answer_invite(scope, key.key == "enter", cx);
+            return;
+        }
         if window.viewport_size().width < px(800.) && !self.compact_chat && key.key == "enter" {
             if searching
                 && !self.sidebar.visible_indices().iter().any(|&index| {
@@ -1168,7 +1208,8 @@ impl Shell {
             }
             return;
         }
-        if self.composer.read(cx).is_focused(window) && !(key.modifiers.control && key.key == "f") {
+        let in_thread = self.thread.as_ref().and_then(|p| p.composer.as_ref()).is_some_and(|c| c.read(cx).is_focused(window));
+        if (in_thread || self.composer.read(cx).is_focused(window)) && !(key.modifiers.control && key.key == "f") {
             return;
         }
         if key.modifiers.control && matches!(key.key.as_str(), "home" | "end") {
@@ -1331,19 +1372,52 @@ impl Shell {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::Profile { user_id } => OperationResult::Profile {
+                            user_id,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::Members { scope } => OperationResult::Members {
                             scope,
                             members: Err(OperationError::Unavailable),
                             upload_limit: None,
                         },
+                        OperationCommand::ThreadSend { scope, root, .. } => OperationResult::ThreadSent {
+                            scope,
+                            root,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::Thread { scope, root, .. } => OperationResult::Thread {
+                            scope,
+                            root,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::SetMuted { scope, .. } => OperationResult::RoomMarked {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::EditRoom { .. } => OperationResult::RoomEdited {
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::AnswerInvite { scope, accept } => {
+                            OperationResult::InviteAnswered {
+                                scope,
+                                accept,
+                                result: Err(OperationError::Unavailable),
+                            }
+                        }
                         OperationCommand::EditTags(_) => OperationResult::TagsEdited {
                             result: Err(OperationError::Unavailable),
                         },
-                        OperationCommand::StartDm { .. } | OperationCommand::CreateRoom { .. } => {
+                        OperationCommand::SearchDirectory { .. } => OperationResult::DirectoryFound {
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::LeaveRoom { scope } => OperationResult::RoomLeft {
+                            scope,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::StartDm { .. }
+                        | OperationCommand::CreateRoom { .. }
+                        | OperationCommand::JoinRoom { .. } => {
                             OperationResult::RoomStarted {
                                 result: Err(OperationError::Unavailable),
                             }
@@ -1385,6 +1459,7 @@ impl Shell {
         } else {
             vec![
                 ("reply", "Rispondi", permissions.reply && !busy),
+                ("thread", "Rispondi nel thread", permissions.reply && !busy),
                 ("edit", "Modifica", permissions.edit && !busy),
                 ("redact", "Elimina", permissions.redact && !busy),
                 ("react", "+1 / togli", permissions.react && !busy),
@@ -1421,6 +1496,13 @@ impl Shell {
                             },
                             "cancel-redact" => this.confirm_redaction = None,
                             "retry" => { this.operations.borrow_mut().retry(); },
+                            "thread" => {
+                                let target = this.operations.borrow().selection().map(|s| s.id.clone());
+                                if let Some(matrix_domain::TimelineId::Server(id)) = target {
+                                    this.operations.borrow_mut().clear_selection();
+                                    this.open_thread(&id, Some(_window), cx);
+                                }
+                            },
                             _ => {
                                 #[cfg(feature="live")]
                                 {
@@ -1506,10 +1588,13 @@ impl Render for Shell {
             signin.update(cx, |view, _| view.theme = self.theme.tokens());
             return div().size_full().child(signin.clone()).into_any_element();
         }
-        window.set_window_title(&matrix_desktop::window::title_for(None));
+        window.set_window_title(&matrix_desktop::window::account_title(self.verification.profile()));
         let compact = window.viewport_size().width < px(800.);
         if let (Some(timeline), Some(room)) = (&self.timeline, self.sidebar.selected()) {
             timeline.set_peer_receipts(&room.info.public_read_receipts);
+        }
+        if let Some(timeline) = &self.timeline {
+            timeline.set_hide_redacted(self.prefs.hide_redacted);
         }
         #[cfg(test)]
         if navigation_resize_test::FROZEN.load(std::sync::atomic::Ordering::SeqCst) {
@@ -1528,8 +1613,11 @@ impl Render for Shell {
                 .update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let rooms = self.semantic_rooms();
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         self.accessibility.update(
             matrix_desktop::accessibility::NavigationSnapshot {
+                title: matrix_desktop::window::account_title(self.verification.profile()),
                 #[cfg(feature = "live")]
                 signin: None,
                 openers: self.semantic_openers(window),
@@ -1538,12 +1626,13 @@ impl Render for Shell {
                 operation_panel: self.semantic_operation_panel(window),
                 spaces: self.semantic_spaces(window),
                 navigation_revision: self.sidebar.navigation_revision(),
-                theme_focused: self.theme_focus.is_focused(window),
-                theme_bounds: self.a11y_theme_bounds,
+                icon_choice: self.settings_open.then_some(self.prefs.icon),
                 unread_filter: self.semantic_unread(window),
+                new_room: self.semantic_new_room(window, cx),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
+                settings: self.semantic_settings(),
                 dark: self.theme.is_dark(),
                 visible: !self.notifications_open
                     && !self.verification_open
@@ -1551,7 +1640,7 @@ impl Render for Shell {
                 query: self.sidebar.query().to_owned(),
                 search_focused: self.search_focus.is_focused(window),
                 search_bounds: self.a11y_search_bounds,
-                rooms: self.a11y_rooms.project(&self.sidebar),
+                rooms,
                 list_focused: self.list_focus.is_focused(window),
                 history: (!self.notifications_open
                     && !self.verification_open
@@ -1634,7 +1723,7 @@ impl Render for Shell {
             .size_full()
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
-            .font_family(matrix_desktop::UI_FONT)
+            .font_family(matrix_desktop::ui_font())
             .text_size(px(14.))
             .when(!compact, |d| d.child(self.render_rail(window, cx)))
             .when(!compact || !self.compact_chat, |d| {
@@ -1660,34 +1749,6 @@ impl Render for Shell {
                                 .px_4()
                                 .gap_2()
                                 .when(compact, |d| d.child(self.render_menu_button(t, window, cx)))
-                                .child(
-                                    // Placeholder list menu: takes the old theme-link focus slot; the theme control lives only in Settings.
-                                    div()
-                                        .id("theme-toggle")
-                                        .relative()
-                                        .children(self.theme_observer(cx))
-                                        .children({
-                                            #[cfg(test)] { sidebar_navigation_test::observe("theme".into()) }
-                                            #[cfg(not(test))] { None::<gpui::AnyElement> }
-                                        })
-                                        .map(|d| self.track_theme_focus(d, window))
-                                        .w(px(28.))
-                                        .h(px(36.))
-                                        .flex_shrink_0()
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .rounded_lg()
-                                        .cursor_pointer()
-                                        .text_size(px(20.))
-                                        .child("⋮")
-                                        .on_click({
-                                            let callback = self.sidebar_pointer_callback(false);
-                                            #[cfg(test)]
-                                            let callback = sidebar_navigation_test::capture_pointer(false, callback);
-                                            cx.listener(move |this, _, window, cx| callback(this, window, cx))
-                                        }),
-                                )
                                 .child(
                                     div()
                                         .relative()
@@ -1778,6 +1839,8 @@ impl Render for Shell {
                                                 let i = this.sidebar.visible_indices()[position];
                                                 let room = &this.sidebar.rooms()[i];
                                                 let scope = room.scope.clone();
+                                                let invite = room.info.invited.then(|| this.sidebar.invite_state(&scope));
+                                                let invite_buttons = invite.map(|state| this.invite_buttons(&scope, state, t, cx));
                                                 let source_visit = this.sidebar.navigation_callback();
                                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                                 let callback = {
@@ -1823,6 +1886,7 @@ impl Render for Shell {
                                             .when(this.connected, |d| {
                                                 let scope = scope.clone();
                                                 d.on_mouse_down(gpui::MouseButton::Right, cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                                                    this.sidebar.clear_leave_error();
                                                     this.room_menu = Some((scope.clone(), e.position));
                                                     cx.notify();
                                                 }))
@@ -1901,9 +1965,13 @@ impl Render for Shell {
                                                             .text_size(px(matrix_desktop::row_text::PREVIEW_PX))
                                                             .line_height(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
                                                             .text_color(rgb(t.secondary))
-                                                            .child(matrix_desktop::row_text::one_line(&room.preview)),
+                                                            .child(match invite {
+                                                                Some(state) => invite_view::preview(state).to_owned(),
+                                                                None => this.sidebar.leave_error(&room.scope).map_or_else(|| matrix_desktop::row_text::one_line(&room.preview), str::to_owned),
+                                                            }),
                                                     ),
                                             )
+                                            .children(invite_buttons)
                                             })
                                             .collect::<Vec<_>>()
                                     },
@@ -1934,7 +2002,7 @@ impl Render for Shell {
                                 .when(self.connected, |d| d.flex_wrap().gap_2())
                                 .child(div().when(self.connected, |d| d.w_full()).child(format!(
                                     "{}/{} conversazioni · {}",
-                                    self.sidebar.visible_indices().len(), self.sidebar.rooms().len() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
+                                    self.sidebar.visible_indices().iter().filter(|&&i| !self.sidebar.rooms()[i].info.invited).count(), self.sidebar.rooms().iter().filter(|r| !r.info.is_space && !r.info.invited).count() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
                                     if self.connected { connection_label } else { "fixture offline" }
                                 )))
                                 .when(self.connected && self.sidebar.hidden_empty_count() > 0, |d| d.child(
@@ -2041,10 +2109,12 @@ impl Render for Shell {
                 )
             })
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
+            .when(self.thread.is_some(), |d| d.child(self.render_thread(window, cx)))
             .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
+            .children(self.render_room_edit(t, window, cx))
             .children(self.render_groups_edit(t, cx))
             .into_any_element()
     }
@@ -2054,6 +2124,13 @@ fn main() {
     #[cfg(all(feature = "perf-probe", feature = "live", target_os = "macos"))]
     if std::env::var_os("P115B_NATIVE").is_some() {
         return login_field::mac_clipboard_probe::run();
+    }
+    #[cfg(feature = "live")]
+    if std::env::var_os("RUST_LOG").is_some() {
+        tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+            .with_writer(std::io::stderr)
+            .init();
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--install-desktop-entry") {
@@ -2067,9 +2144,15 @@ fn main() {
                     .map(|p| p.to_string_lossy().into_owned())
             });
         let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+        // Saved icon choice; missing or invalid preferences fall back to the default.
+        let icon = matrix_desktop::app_dirs(matrix_desktop::Platform::Linux, |k| {
+            std::env::var(k).ok()
+        })
+        .map(|d| matrix_desktop::Preferences::load(&d).icon)
+        .unwrap_or_default();
         let done = match (home, exec) {
             (Some(home), Some(exec)) => {
-                matrix_desktop::desktop_entry::install_desktop_entry(&home, &exec)
+                matrix_desktop::desktop_entry::install_desktop_entry(&home, &exec, icon)
                     .map_err(|e| e.to_string())
             }
             _ => Err("HOME or executable path unknown".into()),
@@ -2322,11 +2405,10 @@ fn main() {
             |window, cx| {
                 cx.new(|cx| {
                     let search_focus = cx.focus_handle();
-                    let theme_focus = cx.focus_handle();
                     let unread_focus = cx.focus_handle();
                     let mut rail_ui = rail_view::RailUi::new(cx);
                     let spaces_ui = spaces_view::SpacesUi::new(cx);
-                    for focus in [&theme_focus, &unread_focus, &rail_ui.focus, &spaces_ui.focus] {
+                    for focus in [&unread_focus, &rail_ui.focus, &spaces_ui.focus] {
                         cx.on_blur(focus, window, |this: &mut Shell, _, _| {
                             if let Some(press) = &mut this.pending_sidebar_key { press.cancelled = true; }
                         }).detach();
@@ -2357,16 +2439,14 @@ fn main() {
                     let prefs_dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok());
                     let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
                     rail_ui.layouts = prefs_dirs.as_ref().map(matrix_desktop::RailLayouts::load).unwrap_or_default();
-                    let theme = prefs.theme.unwrap_or(
-                        if matches!(
-                            window.appearance(),
-                            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
-                        ) {
-                            Theme::Dark
-                        } else {
-                            Theme::Classic
-                        },
+                    matrix_desktop::set_accent(prefs.effective_accent());
+                    matrix_desktop::set_font(prefs.font);
+                    matrix_desktop::app_icon::apply(prefs.icon, window);
+                    let system_dark = matches!(
+                        window.appearance(),
+                        gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
                     );
+                    let theme = prefs.effective_theme(system_dark, matrix_desktop::local_hour());
                     let composer = cx.new(|cx| {
                         let mut editor = ComposerView::new(active_scope.clone(), cx);
                         editor.set_theme(theme.tokens(), cx);
@@ -2452,6 +2532,7 @@ fn main() {
                                         for result in operations {
                                             if let matrix_engine::operations::OperationResult::Members { scope, members, upload_limit } = result {
                                                 if scope == this.active_scope {
+                                                    this.room_members = members.as_ref().map_or_else(|_| Vec::new(), Clone::clone);
                                                     this.composer.update(cx, |editor, cx| {
                                                         editor.set_upload_limit(upload_limit);
                                                         if let Ok(members) = members {
@@ -2461,12 +2542,40 @@ fn main() {
                                                 }
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::ThreadSent { scope, root, result } = result {
+                                                this.thread_sent(scope, root, result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Thread { scope, root, result } = result {
+                                                this.thread_found(scope, root, result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Profile { user_id, result } = result {
+                                                this.profile_found(user_id, result, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::TagsEdited { result } = result {
                                                 this.groups_edited(result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::RoomEdited { result } = result {
+                                                this.room_edited(result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::DirectoryFound { result } = result {
+                                                this.directory_found(result, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::RoomStarted { result } = result {
                                                 this.room_started(result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::InviteAnswered { .. } = result {
+                                                this.invite_answered(result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::RoomLeft { scope, result } = result {
+                                                this.sidebar.room_left(&scope, result);
                                                 continue;
                                             }
                                             this.operations.borrow_mut().apply(result);
@@ -2505,6 +2614,7 @@ fn main() {
                                                 }
                                                 RoomListEvent::TimelineActivity(scope) => {
                                                     this.read_dirty |= this.sidebar.selected().is_some_and(|r| r.scope == scope);
+                                                    if let Some(p) = &mut this.thread { p.activity(&scope); }
                                                     this.history.activity(&scope)
                                                 }
                                                 RoomListEvent::Order(order) => {
@@ -2563,6 +2673,7 @@ fn main() {
                                         if this.drive_inline_images() {
                                             cx.notify();
                                         }
+                                        this.drive_saves(cx);
                                         if this.drive_avatars() {
                                             cx.notify();
                                         }
@@ -2571,6 +2682,7 @@ fn main() {
                                         }
                                         this.mark_open_room_read(cx);
                                         this.flush_operations();
+                                        this.drive_thread(cx);
                                         if let Some((sender, _)) = &mut this.routes.verification {
                                             this.verification.flush(sender);
                                         }
@@ -2648,6 +2760,21 @@ fn main() {
                             }
                         }
                     }).detach();
+                    cx.spawn(async move |this, cx| {
+                        loop {
+                            cx.background_executor().timer(std::time::Duration::from_secs(60)).await;
+                            if this.update(cx, |this, cx| this.apply_theme(cx)).is_err() {
+                                break;
+                            }
+                        }
+                    }).detach();
+                    cx.observe_window_appearance(window, |this: &mut Shell, window, cx| {
+                        this.system_dark = matches!(
+                            window.appearance(),
+                            gpui::WindowAppearance::Dark | gpui::WindowAppearance::VibrantDark
+                        );
+                        this.apply_theme(cx);
+                    }).detach();
                     cx.observe_window_bounds(window, |this: &mut Shell, window, cx| {
                         this.navigation_wide = window.viewport_size().width >= px(800.);
                         this.refresh_navigation_visibility();
@@ -2666,16 +2793,19 @@ fn main() {
                         rail_ui,
                         opener_ui: panel_opener_view::OpenerUi::new(),
                         room_menu: None,
+                        confirm_leave: None,
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
                         new_room: None,
+                        room_edit: None,
                         pending_open: None,
                         groups_edit: None,
                         refocus_menu: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),
+                        settings_row: 0,
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),
                         account_root: account_root.clone(),
                         prefs_dirs,
@@ -2691,6 +2821,7 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         accessibility: matrix_desktop::accessibility::LinuxAccessibility::new(
                             matrix_desktop::accessibility::NavigationSnapshot {
+                                title: matrix_desktop::window::TITLE.into(),
                                 #[cfg(feature = "live")]
                                 signin: signin.as_ref().map(|view| view.read(cx).semantic_snapshot(window, cx)),
                                 openers: vec![],
@@ -2699,10 +2830,11 @@ fn main() {
         operation_panel: None,
                                 spaces: None,
                 navigation_revision: 0,
-                theme_focused: false,
-                                theme_bounds: None,
+                                icon_choice: None,
                                 unread_filter: None,
+                                new_room: None,
                                 devices: Default::default(),
+                                settings: None,
                                 details: Default::default(),
                                 notifications: Default::default(),
                                 dark: false,
@@ -2723,9 +2855,6 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         history_focus: cx.focus_handle(),
                         unread_focus,
-                        theme_focus,
-                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_theme_bounds: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_unread_bounds: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -2742,6 +2871,8 @@ fn main() {
                         notification_handle: notification_handle.take(),
                         notifications_open: false,
                         room_details_open: false,
+                        room_members: Vec::new(),
+                        profile: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -2785,15 +2916,19 @@ fn main() {
                         timeline: (!connected)
                             .then(|| TimelineView::new(active_scope.clone(), cx.focus_handle())),
                         active_scope,
+                        thread: None,
                         saved_timelines: HashMap::new(),
                         history: HistorySession::new(),
                         pending_history: None,
                         compact_chat: false,
                         theme,
+                        system_dark,
                         search_focus,
                         list_focus: cx.focus_handle(),
                         scroll: UniformListScrollHandle::new(),
                         room_scrollbar: Default::default(),
+                        members_scroll: UniformListScrollHandle::new(),
+                        members_scrollbar: Default::default(),
                     }
                 })
             },

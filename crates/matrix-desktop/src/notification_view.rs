@@ -156,7 +156,7 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         div().size_full().flex().flex_col().bg(rgb(t.surface)).text_color(rgb(t.text))
-            .font_family(matrix_desktop::UI_FONT).text_size(px(14.))
+            .font_family(matrix_desktop::ui_font()).text_size(px(14.))
             .track_focus(&self.list_focus).capture_key_down(cx.listener(Self::navigation_key))
             .child(div().h(px(64.)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .border_b_1().border_color(rgb(t.border))
@@ -174,13 +174,7 @@ impl Shell {
                         .when(available, |d| d.cursor_pointer()).child(label)
                         .on_click(cx.listener(move |this, _, _, cx| { if available { this.change_notification_preference(action); cx.notify(); } }))
                 }))
-                .child("Solo questa sessione: al riavvio notifiche e conteggio tornano OFF.")
-                .child("Anteprima solo del conteggio. Mai testo, mittente, stanza, media o segreti nelle notifiche OS.")
-                .child("Avvisi sugli aumenti dei non letti dopo la prima sync della stanza. Nessun push a client chiuso.")
-                .child("Gli avvisi già consegnati al sistema non vengono ritirati cambiando preferenza.")
-                .child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child(if self.notification_failed {
-                    "Servizio OS non disponibile o richiesta scaduta. Gli avvisi sono best effort."
-                } else { "Linux: richiede notify-send e un servizio notifiche della sessione. Windows/macOS non implementati." }))
+                .when(self.notification_failed, |d| d.child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child("Servizio OS non disponibile o richiesta scaduta. Gli avvisi sono best effort.")))
             ).into_any_element()
     }
 }

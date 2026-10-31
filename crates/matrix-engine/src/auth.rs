@@ -50,6 +50,19 @@ pub(crate) fn secure_http_builder() -> reqwest::ClientBuilder {
         .timeout(Duration::from_secs(10))
 }
 
+/// Extra trust for a private homeserver. Android refuses reqwest's "merge with platform roots"
+/// (rustls-platform-verifier is not initialised there), so the given roots are the only ones.
+// shortcut: Android trusts only the explicit roots; wire the platform verifier before pointing it at public servers.
+pub(crate) fn with_trust_roots(
+    http: reqwest::ClientBuilder,
+    certs: Vec<reqwest::Certificate>,
+) -> reqwest::ClientBuilder {
+    #[cfg(target_os = "android")]
+    return http.tls_certs_only(certs);
+    #[cfg(not(target_os = "android"))]
+    certs.into_iter().fold(http, |http, cert| http.add_root_certificate(cert))
+}
+
 impl AccountSession {
     /// Requires an exact, fully qualified Matrix user ID, not a localpart.
     /// `homeserver` must be the validated/preflighted endpoint explicitly selected

@@ -54,6 +54,8 @@ pub struct ComposerView {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     send_bounds: Option<(u64, accesskit::Rect)>,
     live: bool,
+    /// Text only (the thread panel): `Submitted` carries the text and the draft is cleared.
+    text_only: bool,
     draft: Composer,
     attachment: Option<Pending>,
     /// Joined members of the shown room, offered by the @ completion.
@@ -94,6 +96,7 @@ impl ComposerView {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             send_bounds: None,
             live: false,
+            text_only: false,
             draft: Composer::default(),
             attachment: None,
             members: Vec::new(),
@@ -200,6 +203,10 @@ impl ComposerView {
         }
         window.focus(&self.focus);
         self.changed(cx);
+    }
+
+    pub fn set_text_only(&mut self) {
+        self.text_only = true;
     }
 
     pub fn set_live(&mut self, live: bool) {
@@ -1280,7 +1287,7 @@ impl Render for ComposerView {
                                     },
                                 ))
                             })
-                            .child(if self.live { "Invia" } else { "Invia · demo" }),
+                            .child(if self.live || self.text_only { "Invia" } else { "Invia · demo" }),
                     ),
             )
     }
@@ -2164,6 +2171,7 @@ mod tests {
             let member = |id: &str, name: &str| matrix_engine::operations::Member {
                 user_id: id.into(),
                 name: name.into(),
+                avatar: None,
             };
             v.set_live(true);
             v.set_members(

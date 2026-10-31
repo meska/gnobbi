@@ -1,10 +1,16 @@
-//! «Nuova chat» (direct chat by user ID) and «Nuova stanza» (name, topic, public or private): a small
+//! «Nuova chat» (direct chat by user ID), «Nuova stanza» (name, topic, public or private) and
+//! «Unisciti» (alias or room ID joins, any other text searches the public directory): a small
 //! dialog opened from the drawer. The engine does the work; the result closes it or shows one error line.
 use crate::*;
-use matrix_engine::operations::{OperationCommand, OperationError};
+use matrix_engine::operations::{DirectoryRoom, OperationCommand, OperationError};
 
 pub(crate) struct NewRoom {
     dm: bool,
+    /// «Unisciti»: one field, directory hits below it.
+    join: bool,
+    /// Directory hits of the last search (`None` before any search) and their Tab stops.
+    found: Option<Vec<DirectoryRoom>>,
+    hits: Vec<FocusHandle>,
     public: bool,
     /// DM: user ID. Room: name, then topic.
     fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
@@ -16,17 +22,35 @@ pub(crate) struct NewRoom {
 }
 
 /// One line per failure, nothing else.
-fn error_text(dm: bool, error: OperationError) -> &'static str {
-    match (error, dm) {
-        (OperationError::InvalidInput, true) => "ID utente non valido",
-        (OperationError::InvalidInput, false) => "Nome mancante",
-        (OperationError::Unavailable, true) => "Utente non trovato",
-        (OperationError::Forbidden, _) => "Non consentito dal server",
+fn error_text(dm: bool, join: bool, error: OperationError) -> &'static str {
+    match (error, dm, join) {
+        (OperationError::InvalidInput, _, true) => "Alias non valido",
+        (OperationError::Unavailable, _, true) => "Stanza non trovata",
+        (OperationError::InvalidInput, true, _) => "ID utente non valido",
+        (OperationError::InvalidInput, false, _) => "Nome mancante",
+        (OperationError::Unavailable, true, _) => "Utente non trovato",
+        (OperationError::Forbidden, ..) => "Non consentito dal server",
         _ => "Connessione non riuscita",
     }
 }
 
 impl NewRoom {
+    fn title(&self) -> &'static str {
+        match (self.join, self.dm) {
+            (true, _) => "Unisciti",
+            (_, true) => "Nuova chat",
+            _ => "Nuova stanza",
+        }
+    }
+
+    fn submit_label(&self) -> &'static str {
+        match (self.join, self.dm) {
+            (true, _) => "Vai",
+            (_, true) => "Avvia",
+            _ => "Crea",
+        }
+    }
+
     /// Tab order: fields, «Pubblica» (rooms only), «Annulla», submit.
     fn ring(&self, cx: &gpui::App) -> Vec<FocusHandle> {
         let mut ring: Vec<_> = self
@@ -34,7 +58,8 @@ impl NewRoom {
             .iter()
             .map(|f| f.read(cx).focus.clone())
             .collect();
-        if !self.dm {
+        ring.extend(self.hits.iter().cloned());
+        if !self.dm && !self.join {
             ring.push(self.public_focus.clone());
         }
         ring.push(self.cancel_focus.clone());
@@ -45,8 +70,18 @@ impl NewRoom {
 
 impl Shell {
     pub(crate) fn open_new_room(&mut self, dm: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_dialog(dm, false, window, cx)
+    }
+
+    pub(crate) fn open_join_room(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_dialog(false, true, window, cx)
+    }
+
+    fn open_dialog(&mut self, dm: bool, join: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.set_menu_open(false, window, cx);
-        let labels: &[&'static str] = if dm {
+        let labels: &[&'static str] = if join {
+            &["Alias o nome"]
+        } else if dm {
             &["ID utente"]
         } else {
             &["Nome", "Argomento"]
@@ -67,6 +102,9 @@ impl Shell {
         fields[0].read(cx).focus.focus(window);
         self.new_room = Some(NewRoom {
             dm,
+            join,
+            found: None,
+            hits: Vec::new(),
             public: false,
             fields,
             public_focus: cx.focus_handle(),
@@ -100,7 +138,13 @@ impl Shell {
         if room.busy || first.is_empty() || self.pending_operation_command.is_some() {
             return;
         }
-        let command = if room.dm {
+        let command = if room.join && first.starts_with(['#', '!']) {
+            OperationCommand::JoinRoom { target: first }
+        } else if room.join {
+            room.found = None;
+            room.hits.clear();
+            OperationCommand::SearchDirectory { term: first }
+        } else if room.dm {
             OperationCommand::StartDm { user_id: first }
         } else {
             let topic = text(1);
@@ -116,6 +160,46 @@ impl Shell {
             field.update(cx, |f, _| f.enabled = false);
         }
         self.pending_operation_command = Some(command);
+        cx.notify();
+    }
+
+    /// A click (or Enter) on directory hit `i`: join it by alias, or by room ID when it has none.
+    fn join_hit(&mut self, i: usize, cx: &mut Context<Self>) {
+        let Some(room) = self.new_room.as_mut() else {
+            return;
+        };
+        let Some(hit) = room.found.as_ref().and_then(|found| found.get(i)) else {
+            return;
+        };
+        if room.busy || self.pending_operation_command.is_some() {
+            return;
+        }
+        room.busy = true;
+        room.error = None;
+        self.pending_operation_command = Some(OperationCommand::JoinRoom { target: hit.target().to_owned() });
+        cx.notify();
+    }
+
+    /// The directory answer: hits become Tab stops under the field.
+    pub(crate) fn directory_found(
+        &mut self,
+        result: Result<Vec<DirectoryRoom>, OperationError>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(room) = self.new_room.as_mut().filter(|room| room.busy && room.join) else {
+            return;
+        };
+        room.busy = false;
+        match result {
+            Ok(found) => {
+                room.hits = found.iter().map(|_| cx.focus_handle()).collect();
+                room.found = Some(found);
+            }
+            Err(error) => room.error = Some(error),
+        }
+        for field in &room.fields {
+            field.update(cx, |f, _| f.enabled = true);
+        }
         cx.notify();
     }
 
@@ -148,9 +232,75 @@ impl Shell {
         cx.notify();
     }
 
+    /// Screen-reader view of the open dialog: same controls and order as the Tab ring.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_new_room(
+        &self,
+        window: &Window,
+        cx: &gpui::App,
+    ) -> Option<matrix_desktop::accessibility::new_room::Snapshot> {
+        use accesskit::Role;
+        use matrix_desktop::accessibility::new_room::{Item, Snapshot};
+        let room = self.new_room.as_ref()?;
+        let item = |role, label: &str, checked, focus: &FocusHandle, bounds| Item {
+            role,
+            label: label.to_owned(),
+            checked,
+            focused: focus.is_focused(window),
+            bounds,
+        };
+        let mut items: Vec<_> = room
+            .fields
+            .iter()
+            .map(|f| {
+                let f = f.read(cx);
+                item(
+                    Role::TextInput,
+                    f.placeholder,
+                    None,
+                    &f.focus,
+                    f.semantic_bounds,
+                )
+            })
+            .collect();
+        for (hit, focus) in room.found.iter().flatten().zip(&room.hits) {
+            items.push(item(Role::Button, &hit.name, None, focus, None));
+        }
+        if !room.dm && !room.join {
+            let focus = &room.public_focus;
+            items.push(item(
+                Role::CheckBox,
+                "Pubblica",
+                Some(room.public),
+                focus,
+                None,
+            ));
+        }
+        items.push(item(
+            Role::Button,
+            "Annulla",
+            None,
+            &room.cancel_focus,
+            None,
+        ));
+        items.push(item(Role::Button, room.submit_label(), None, &room.submit_focus, None));
+        let none_found = room.found.as_ref().is_some_and(Vec::is_empty);
+        if let Some(text) = room.error.map(|e| error_text(room.dm, room.join, e)).or(none_found.then_some("Nessun risultato")) {
+            items.push(Item {
+                role: Role::Label,
+                label: text.to_owned(),
+                checked: None,
+                focused: false,
+                bounds: None,
+            });
+        }
+        Some(Snapshot { items })
+    }
+
     /// Selects the room created by the dialog as soon as it is in the list.
     pub(crate) fn open_started_room(&mut self, cx: &mut Context<Self>) {
         if let Some(scope) = &self.pending_open
+            && self.sidebar.is_joined(scope)
             && self.sidebar.select(scope)
         {
             self.pending_open = None;
@@ -178,6 +328,10 @@ impl Shell {
             || (matches!(key, "enter" | "space") && room.cancel_focus.is_focused(window))
         {
             self.close_new_room(window, cx);
+        } else if let Some(i) = room.hits.iter().position(|h| h.is_focused(window))
+            && matches!(key, "enter" | "space")
+        {
+            self.join_hit(i, cx);
         } else if matches!(key, "enter" | "space") && room.public_focus.is_focused(window) {
             room.public = !room.public;
         } else if key == "enter" || (key == "space" && room.submit_focus.is_focused(window)) {
@@ -247,14 +401,53 @@ impl Shell {
                             div()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(rgb(t.text))
-                                .child(if room.dm {
-                                    "Nuova chat"
-                                } else {
-                                    "Nuova stanza"
-                                }),
+                                .child(room.title()),
                         )
                         .children(room.fields.iter().cloned())
-                        .when(!room.dm, |d| {
+                        .when(room.found.as_ref().is_some_and(|f| !f.is_empty()), |d| {
+                            d.child(
+                                div()
+                                    .id("new-room-hits")
+                                    .max_h(px(220.))
+                                    .overflow_y_scroll()
+                                    .flex()
+                                    .flex_col()
+                                    .children(
+                                        room.found.iter().flatten().zip(&room.hits).enumerate().map(
+                                            |(i, (hit, focus))| {
+                                                div()
+                                                    .id(("new-room-hit", i))
+                                                    .track_focus(focus)
+                                                    .h(px(36.))
+                                                    .px_2()
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_between()
+                                                    .gap_2()
+                                                    .cursor_pointer()
+                                                    .border_1()
+                                                    .border_color(rgb(if focus.is_focused(window) {
+                                                        t.accent
+                                                    } else {
+                                                        t.surface
+                                                    }))
+                                                    .text_color(rgb(t.text))
+                                                    .child(div().truncate().child(hit.name.clone()))
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(12.))
+                                                            .text_color(rgb(t.text))
+                                                            .child(hit.members.to_string()),
+                                                    )
+                                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                                        this.join_hit(i, cx)
+                                                    }))
+                                            },
+                                        ),
+                                    ),
+                            )
+                        })
+                        .when(!room.dm && !room.join, |d| {
                             d.child(
                                 div()
                                     .id("new-room-public")
@@ -303,8 +496,11 @@ impl Shell {
                             div()
                                 .text_size(px(13.))
                                 .text_color(rgb(t.error))
-                                .child(error_text(room.dm, error))
+                                .child(error_text(room.dm, room.join, error))
                         }))
+                        .when(room.found.as_ref().is_some_and(Vec::is_empty), |d| {
+                            d.child(div().text_size(px(13.)).text_color(rgb(t.disabled)).child("Nessun risultato"))
+                        })
                         .child(
                             div()
                                 .flex()
@@ -324,7 +520,7 @@ impl Shell {
                                 .child(
                                     button(
                                         "new-room-submit",
-                                        if room.dm { "Avvia" } else { "Crea" },
+                                        room.submit_label(),
                                         if room.busy { t.disabled } else { t.accent },
                                         &room.submit_focus,
                                     )
@@ -346,11 +542,13 @@ mod tests {
     #[test]
     fn one_line_per_failure() {
         use OperationError::*;
-        assert_eq!(error_text(true, InvalidInput), "ID utente non valido");
-        assert_eq!(error_text(false, InvalidInput), "Nome mancante");
-        assert_eq!(error_text(true, Unavailable), "Utente non trovato");
-        assert_eq!(error_text(false, Unavailable), "Connessione non riuscita");
-        assert_eq!(error_text(true, Forbidden), "Non consentito dal server");
-        assert_eq!(error_text(true, Transport), "Connessione non riuscita");
+        assert_eq!(error_text(true, false, InvalidInput), "ID utente non valido");
+        assert_eq!(error_text(false, false, InvalidInput), "Nome mancante");
+        assert_eq!(error_text(true, false, Unavailable), "Utente non trovato");
+        assert_eq!(error_text(false, false, Unavailable), "Connessione non riuscita");
+        assert_eq!(error_text(true, false, Forbidden), "Non consentito dal server");
+        assert_eq!(error_text(true, false, Transport), "Connessione non riuscita");
+        assert_eq!(error_text(false, true, InvalidInput), "Alias non valido");
+        assert_eq!(error_text(false, true, Unavailable), "Stanza non trovata");
     }
 }

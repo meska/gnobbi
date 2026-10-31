@@ -2,8 +2,10 @@
 //! Real homeserver + real Secret Service. One phase per process so that a phase
 //! boundary is a genuine client restart. Driven by the vault_e2e script inside a
 //! private namespace; never run against a personal account or bus.
+use matrix_domain::AccountId;
 use matrix_engine::{
-    signin::{Secret, SignInError, SignInProfile, VaultError},
+    persistence::AccountStore,
+    signin::{ProtectionSource, Secret, SignInError, SignInProfile, VaultError},
     vault::SecretService,
 };
 use std::path::PathBuf;
@@ -117,6 +119,12 @@ fn phase() {
             assert!(matches!(result, Err(SignInError::Authentication(_))));
             assert!(!root.join("active-account").exists());
             assert!(!root.join("protection-mode").exists());
+            // A refused login leaves neither the account directory nor its vault item.
+            assert!(!root.join("account-1").exists());
+            let probe = AccountStore::create(&root, AccountId::new(1)).unwrap();
+            assert!(matches!(SecretService.read(&probe), Err(VaultError::Missing)));
+            drop(probe);
+            std::fs::remove_dir_all(root.join("account-1")).unwrap();
             // Safe retry on the same profile with the right password.
             let session = rt
                 .block_on(profile.password_login_vault(
@@ -128,6 +136,8 @@ fn phase() {
                 ))
                 .unwrap();
             assert_eq!(identity(&rt, session).0, ALICE);
+            // The retry takes the first free id.
+            assert!(root.join("account-1/session.sealed").exists());
         }
         other => panic!("unknown phase {other}"),
     }

@@ -9,6 +9,7 @@ fn scope(room: &str) -> RoomScope {
 }
 fn event(id: &str) -> HistoryEvent {
     HistoryEvent {
+        redacted: false,
         event_id: EventId::new(id),
         body: "same text".into(),
         outgoing: false,
@@ -16,7 +17,10 @@ fn event(id: &str) -> HistoryEvent {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }
 }
 fn page(
@@ -719,7 +723,7 @@ fn live_refresh_hands_over_the_thread_root_when_a_reply_arrives() {
     let initial = view.select(Some(room.clone())).unwrap();
     let with_replies = |n| {
         let mut root = event("$root");
-        root.thread = Some(matrix_engine::history::ThreadInfo { num_replies: n, latest_sender: None });
+        root.thread = Some(matrix_engine::history::ThreadInfo { num_replies: n, latest_sender: None, unread: 0 });
         root
     };
     let mut first = page(&initial, &[], None);
@@ -740,14 +744,14 @@ fn a_room_with_threads_is_read_once_more_after_new_rows() {
     let room = scope("!settle:test");
     let initial = view.select(Some(room.clone())).unwrap();
     let mut root = event("$root");
-    root.thread = Some(matrix_engine::history::ThreadInfo { num_replies: 1, latest_sender: None });
+    root.thread = Some(matrix_engine::history::ThreadInfo { num_replies: 1, latest_sender: None, unread: 0 });
     let mut first = page(&initial, &[], None);
     first.page.as_mut().unwrap().events = vec![root];
     view.apply(first);
     view.activity(&room);
     let refresh = view.refresh().unwrap();
     let mut live = page(&refresh, &["$root", "$reply"], None);
-    live.page.as_mut().unwrap().events[0].thread = Some(matrix_engine::history::ThreadInfo { num_replies: 1, latest_sender: None });
+    live.page.as_mut().unwrap().events[0].thread = Some(matrix_engine::history::ThreadInfo { num_replies: 1, latest_sender: None, unread: 0 });
     view.apply_live(live).unwrap();
     assert!(view.refresh().is_none(), "not before the delay");
     std::thread::sleep(matrix_desktop::SETTLE);

@@ -16,6 +16,7 @@ fn snapshot(visible: bool) -> NavigationSnapshot {
         theme_bounds: None,
         unread_filter: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

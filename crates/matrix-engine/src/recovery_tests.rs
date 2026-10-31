@@ -102,7 +102,7 @@ fn disposable_recovery_rejects_wrong_local_account_before_import() {
         source.upload_key_backup().await.unwrap();
         let mut target = login(&config, "alice", 26).await;
         let client = target.client.as_ref().unwrap().clone();
-        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         let result = target.recover_room_keys(secret.expose(), &matrix_domain::RoomScope {
             account_id: AccountId::new(999), room_id: matrix_domain::RoomId::new(&room),
         }).await;
@@ -128,7 +128,7 @@ fn disposable_recovery_new_device_decrypts_backup_after_runtime_restart() {
             .password_login_with_http(HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
                 "@alice:matrix-desktop.test", config["alice_password"].as_str().unwrap(), passphrase, http(&config)).await.unwrap();
         let client = recovered.client.as_ref().unwrap().clone();
-        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         recovery_assert_message(&client, &room, &event, false).await;
         recovered.recover_room_keys(secret.expose(), &matrix_domain::RoomScope {
             account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new(&room),
@@ -147,7 +147,7 @@ fn disposable_recovery_new_device_decrypts_backup_after_runtime_restart() {
             .restore_with_http(passphrase, http(&config)).await.unwrap();
         assert!(recovered.whoami().await.unwrap().device_id() == device);
         let client = recovered.client.as_ref().unwrap();
-        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(client).await.unwrap();
         recovery_assert_message(client, &room, &event, true).await;
         assert!(client.encryption().backups().are_enabled().await, "backup key/version survive restart");
         recovered.upload_key_backup().await.expect("backup remains usable after restart");
@@ -191,7 +191,7 @@ async fn recovery_seed(config: &serde_json::Value) -> (AccountSession, String, m
     let client = session.client.as_ref().unwrap();
     client.encryption().wait_for_e2ee_initialization_tasks().await;
     client.encryption().bootstrap_cross_signing(None).await.unwrap();
-    client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+    crate::room_sync::RoomSync::sliding_catch_up(client).await.unwrap();
     let sdk_room = client.get_room(&matrix_sdk::ruma::RoomId::parse(&room).unwrap()).unwrap();
     let event = sdk_room.send(matrix_sdk::ruma::events::room::message::RoomMessageEventContent::text_plain("recover old encrypted città 🦀"))
         .await.unwrap().response.event_id;

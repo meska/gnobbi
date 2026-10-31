@@ -9,7 +9,10 @@ use matrix_sdk::ruma::{
     events::{
         reaction::ReactionEventContent,
         relation::Annotation,
-        room::message::{ReplacementMetadata, RoomMessageEventContent},
+        room::{
+            join_rules::{JoinRule, RoomJoinRulesEventContent},
+            message::{ReplacementMetadata, RoomMessageEventContent},
+        },
     },
 };
 use std::time::Duration;
@@ -93,12 +96,12 @@ fn seen_room_opens_from_the_cache_after_restart_with_the_homeserver_unreachable(
             .unwrap();
         let alice = session.client.clone().unwrap();
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(&room_id)
         })
         .await;
         invited.join().await.unwrap();
-        alice.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
         let room = alice.get_room(&room_id).unwrap();
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("history in cache", || async {
@@ -248,12 +251,12 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .unwrap();
         let alice = session.client.clone().unwrap();
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(&room_id)
         })
         .await;
         invited.join().await.unwrap();
-        alice.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
         let room = alice.get_room(&room_id).unwrap();
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("history in cache", || async {
@@ -293,7 +296,7 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
         // The app's running sync service delivers what was missed; here one sync does.
-        client.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         let scope = RoomScope {
             account_id: AccountId::new(293),
             room_id: RoomId::new(room_id.as_str()),
@@ -418,12 +421,12 @@ fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
             .unwrap();
         let alice = session.client.clone().unwrap();
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(&room_id)
         })
         .await;
         invited.join().await.unwrap();
-        alice.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
         let room = alice.get_room(&room_id).unwrap();
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("history in cache", || async {
@@ -474,7 +477,7 @@ fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
         // The app's running sync service delivers what was missed; here one sync does.
-        client.sync_once(Default::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         let sync = RoomSync::new(AccountSession {
             account_id: AccountId::new(294),
             client: Some(client),
@@ -584,12 +587,14 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             .unwrap();
         let alice = session.client.clone().unwrap();
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(&room_id)
         })
         .await;
         invited.join().await.unwrap();
-        alice.sync_once(Default::default()).await.unwrap();
+        // A sliding round saves only the room's newest event: make it a visible message, not Alice's own join.
+        bob_room.send(RoomMessageEventContent::text_plain(format!("m{TOTAL}"))).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
         let room = alice.get_room(&room_id).unwrap();
         let (events, _drop) = room.event_cache().await.unwrap();
         eventually("some history in cache", || async {
@@ -755,6 +760,217 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
     });
 }
 
+/// Room history as (visible messages, hidden join-rule changes) segments, oldest first; Alice reopens it offline.
+/// Returns the bodies of the first page and the ms it took.
+fn offline_first_page(id: u64, plan: &[(usize, usize)]) -> (Vec<String>, u128) {
+    let visible: usize = plan.iter().map(|p| p.0).sum();
+    let hidden: usize = plan.iter().map(|p| p.1).sum();
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let root = std::path::PathBuf::from(env("CACHE_PROBE_ROOT"));
+    let http = || {
+        crate::auth::secure_http_builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(&ca).unwrap())
+            .build()
+            .unwrap()
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let bob = matrix_sdk::Client::builder()
+            .homeserver_url(&url)
+            .add_root_certificates(vec![reqwest::Certificate::from_pem(&ca).unwrap()])
+            .build()
+            .await
+            .unwrap();
+        bob.matrix_auth()
+            .login_username(
+                "@bob:matrix-desktop.test",
+                config["bob_password"].as_str().unwrap(),
+            )
+            .send()
+            .await
+            .unwrap();
+        let mut request = CreateRoom::new();
+        request.invite = vec!["@alice:matrix-desktop.test".try_into().unwrap()];
+        let room_id = bob.create_room(request).await.unwrap().room_id().to_owned();
+        let bob_room = bob.get_room(&room_id).unwrap_or_else(|| panic!("bob room"));
+        let mut sent = 0;
+        for (messages, topics) in plan {
+            for _ in 0..*messages {
+                bob_room
+                    .send(RoomMessageEventContent::text_plain(format!("m{sent}")))
+                    .await
+                    .unwrap();
+                sent += 1;
+            }
+            // join_rules never becomes a visible row (not a message, not a status row).
+            for n in 0..*topics {
+                let rule = if n % 2 == 0 { JoinRule::Public } else { JoinRule::Invite };
+                bob_room
+                    .send_state_event(RoomJoinRulesEventContent::new(rule))
+                    .await
+                    .unwrap();
+            }
+        }
+
+        // First run: Alice joins, catches up, and the whole room reaches the cache on disk.
+        let store = AccountStore::create(&root, AccountId::new(id)).unwrap();
+        let session = store
+            .password_login_with_http(
+                HomeserverUrl::parse(&url).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        let alice = session.client.clone().unwrap();
+        let invited = eventually("invite", || async {
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
+            alice.get_room(&room_id)
+        })
+        .await;
+        invited.join().await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
+        let room = alice.get_room(&room_id).unwrap();
+        let (events, _drop) = room.event_cache().await.unwrap();
+        eventually("visible messages in cache", || async {
+            events.pagination().run_backwards_until(100).await.ok()?;
+            let all = events.events().await.ok()?;
+            let texts = all
+                .iter()
+                .filter(|e| {
+                    e.raw()
+                        .get_field::<String>("type")
+                        .ok()
+                        .flatten()
+                        .as_deref()
+                        == Some("m.room.message")
+                })
+                .count();
+            (texts >= visible && all.len() >= visible + hidden).then_some(())
+        })
+        .await;
+        let cached = events.events().await.unwrap().len();
+        println!("CACHED_EVENTS {cached}");
+        assert!(cached >= visible + hidden, "chunks hold the hidden tail: {cached}");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop((events, _drop, room, alice, invited, session));
+
+        // Restart: same sealed store, homeserver nobody answers; open the room as the app does.
+        let store = AccountStore::open(&root, AccountId::new(id)).unwrap();
+        let value = store.unseal(PASSPHRASE).unwrap();
+        let sdk_session: matrix_sdk::authentication::matrix::MatrixSession =
+            serde_json::from_value(value["session"].clone()).unwrap();
+        let offline = store
+            .client(
+                &HomeserverUrl::parse("https://localhost:1/").unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        offline.restore_session(sdk_session).await.unwrap();
+        let scope = RoomScope {
+            account_id: AccountId::new(id),
+            room_id: RoomId::new(room_id.as_str()),
+        };
+        let timelines = crate::room_sync::Timelines::default();
+        let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
+        let mut views = ViewRequests::new();
+        let request = crate::history::HistoryRequest {
+            tag: views.start(scope).unwrap(),
+            before: None,
+            open: OPEN,
+        };
+        let started = std::time::Instant::now();
+        // The saved page must arrive without waiting for the unreachable server.
+        let (_, saved) = tokio::join!(
+            crate::room_sync::serve_history(&offline, &timelines, AccountId::new(id), request, &mut out),
+            async {
+                let first = tokio::time::timeout(Duration::from_secs(3), results.recv())
+                    .await
+                    .expect("no saved page within 3 s offline");
+                println!("OFFLINE_FIRST_PAGE_MS {}", started.elapsed().as_millis());
+                first.expect("a result").page.expect("saved page")
+            }
+        );
+        let ids: std::collections::BTreeSet<_> =
+            saved.events.iter().map(|e| e.event_id.as_str()).collect();
+        assert_eq!(ids.len(), saved.events.len(), "no duplicates");
+        (
+            // The join row may trail the messages; only the messages are asserted.
+            saved.events.iter().filter(|e| !e.status).map(|e| e.body.clone()).collect(),
+            started.elapsed().as_millis(),
+        )
+    })
+}
+
+fn assert_newest_page(plan: &[(usize, usize)], id: u64) {
+    let visible: usize = plan.iter().map(|p| p.0).sum();
+    let (bodies, ms) = offline_first_page(id, plan);
+    println!("EDGE id={id} plan={plan:?} first_page_ms={ms} got={}", bodies.len());
+    let want: Vec<String> = (visible.saturating_sub(crate::room_sync::PAGE)..visible)
+        .map(|n| format!("m{n}"))
+        .collect();
+    assert!(
+        bodies.ends_with(&want),
+        "newest visible messages, in order, newest last: {bodies:?}"
+    );
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn offline_room_whose_newest_chunk_holds_only_hidden_events_still_shows_the_last_page() {
+    // 40 messages (more than one PAGE), 300 hidden (more than two event-cache chunks)
+    assert_newest_page(&[(40, 300)], 297);
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_fewer_than_a_page_of_messages_under_hidden_events() {
+    assert_newest_page(&[(5, 300)], 311);
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_messages_spread_over_several_chunks() {
+    // Declared limit: stepping back stops at the first chunk with a message, so the first page
+    // holds that chunk's 20 messages (fewer than a PAGE); older ones come by scrolling back.
+    let (bodies, ms) = offline_first_page(312, &[(20, 150), (20, 150), (20, 150)]);
+    println!("EDGE spread first_page_ms={ms} got={}", bodies.len());
+    let want: Vec<String> = (40..60).map(|n| format!("m{n}")).collect();
+    assert_eq!(bodies, want, "the newest chunk's messages, in order");
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_no_hidden_events_control() {
+    assert_newest_page(&[(40, 0)], 313);
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_only_hidden_events_gives_an_empty_page_without_hanging() {
+    let (bodies, ms) = offline_first_page(314, &[(0, 300)]);
+    println!("EDGE only-hidden first_page_ms={ms} got={}", bodies.len());
+    assert!(bodies.is_empty());
+}
+
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn edge_offline_room_never_cached_is_empty_without_hanging() {
+    let (bodies, ms) = offline_first_page(315, &[(0, 0)]);
+    println!("EDGE empty first_page_ms={ms} got={}", bodies.len());
+    assert!(bodies.is_empty());
+}
+
 /// Alice signed in with a sealed store and joined to three rooms of 30 messages, one sync done.
 async fn seeded(id: u64) -> (AccountSession, Vec<matrix_sdk::ruma::OwnedRoomId>) {
     let config: serde_json::Value =
@@ -810,13 +1026,13 @@ async fn seeded(id: u64) -> (AccountSession, Vec<matrix_sdk::ruma::OwnedRoomId>)
     let alice = session.client.clone().unwrap();
     for room_id in &ids {
         let invited = eventually("invite", || async {
-            alice.sync_once(Default::default()).await.ok()?;
+            crate::room_sync::RoomSync::sliding_catch_up(&alice).await.ok()?;
             alice.get_room(room_id)
         })
         .await;
         invited.join().await.unwrap();
     }
-    alice.sync_once(Default::default()).await.unwrap();
+    crate::room_sync::RoomSync::sliding_catch_up(&alice).await.unwrap();
     (session, ids)
 }
 

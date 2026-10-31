@@ -1,4 +1,5 @@
 #![cfg(all(feature = "sdk", unix))]
+#![recursion_limit = "512"]
 use matrix_engine::signin::{SignInEvent, SignInMode, SignInPrompt, interactive};
 use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT: AtomicU64 = AtomicU64::new(0);

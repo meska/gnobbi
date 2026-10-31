@@ -32,3 +32,4 @@ __pycache__/
 .obsidian/
 *.swp
 .DS_Store
+apps/fixture/.run/

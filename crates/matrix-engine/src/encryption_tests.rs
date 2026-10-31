@@ -22,7 +22,7 @@ fn disposable_e2ee_missing_keys_remains_visible_in_history() {
         // No export/import, key forwarding, backup or verification bypass.
         drop(peer);
         let mut fresh = crate::room_sync::RoomSync::new(login(&config, "bob", 24).await);
-        fresh.next_batch().await.unwrap();
+        fresh.sliding_round().await.unwrap();
         let mut views = crate::ViewRequests::default();
         let tag = views
             .start(matrix_domain::RoomScope {
@@ -120,7 +120,7 @@ fn disposable_e2ee_server_ciphertext_peer_decrypts_and_app_reads_reply() {
             .unwrap()
             .response
             .event_id;
-        alice.next_batch().await.unwrap();
+        alice.sliding_round().await.unwrap();
         let mut views = crate::ViewRequests::default();
         let tag = views.start(scope).unwrap();
         let page = alice.history_page(tag, None).await.unwrap();
@@ -162,7 +162,7 @@ fn disposable_e2ee_unsupported_algorithm_does_not_send_plaintext() {
                 {"type":"m.room.encryption", "state_key":"", "content":{"algorithm":"org.example.unsupported"}}
             ]})).await["room_id"].as_str().unwrap().to_owned();
         let mut alice = crate::room_sync::RoomSync::new(login(&config, "alice", 23).await);
-        alice.next_batch().await.unwrap();
+        alice.sliding_round().await.unwrap();
         let result = alice.send_text(&crate::sending::SendRequest {
             scope: matrix_domain::RoomScope { account_id: AccountId::new(23), room_id: matrix_domain::RoomId::new(&room) },
             transaction_id: matrix_domain::TransactionId::new("p023-unsupported"),
@@ -202,7 +202,7 @@ fn disposable_e2ee_redacted_ciphertext_shows_deleted_not_missing_keys() {
             serde_json::json!({}),
         )
         .await;
-        alice.next_batch().await.unwrap();
+        alice.sliding_round().await.unwrap();
         let mut views = crate::ViewRequests::default();
         let page = alice
             .history_page(views.start(scope).unwrap(), None)
@@ -291,11 +291,11 @@ async fn encrypted_pair(
     peer.sync_once(matrix_sdk::config::SyncSettings::default())
         .await
         .unwrap();
-    alice.next_batch().await.unwrap();
+    alice.sliding_round().await.unwrap();
     // A subsequent sync flushes SDK device tracking/key-upload work.
     peer.sync_once(matrix_sdk::config::SyncSettings::default())
         .await
         .unwrap();
-    alice.next_batch().await.unwrap();
+    alice.sliding_round().await.unwrap();
     (room, alice, peer)
 }

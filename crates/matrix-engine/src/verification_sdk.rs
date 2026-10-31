@@ -218,21 +218,9 @@ pub(crate) async fn run_service(
     let mut active: Option<VerificationFlow> = None;
     let mut previous = None;
     let mut ticks = tokio::time::interval(std::time::Duration::from_millis(200));
-    if let Some(user_id) = client.user_id() {
-        let display_name = client.account().get_display_name().await.ok().flatten();
-        let user_id = user_id.to_string();
-        if events
-            .send(VerificationEvent::Profile {
-                account_id,
-                user_id,
-                display_name,
-            })
-            .await
-            .is_err()
-        {
-            return;
-        }
-    }
+    // Profile name and picture are re-read every minute: a change made elsewhere shows up without restart.
+    let mut shown = None;
+    let mut profile_ticks = tokio::time::interval(PROFILE_REFRESH);
     loop {
         let result = tokio::select! {
             command = commands.recv() => {
@@ -269,6 +257,18 @@ pub(crate) async fn run_service(
                     _ => Err(VerificationError::WrongScope),
                 }
             }
+            _ = profile_ticks.tick() => {
+                match own_profile(&client).await {
+                    Some(profile) if shown.as_ref() != Some(&profile) => {
+                        shown = Some(profile.clone());
+                        let (user_id, display_name, avatar) = profile;
+                        let device_id = client.device_id().map(|d| d.to_string());
+                        if events.send(VerificationEvent::Profile { account_id, user_id, display_name, device_id, avatar }).await.is_err() { break; }
+                    }
+                    _ => (),
+                }
+                Ok(())
+            }
             _ = ticks.tick() => {
                 if let Some(flow) = &mut active {
                     match flow.snapshot().await {
@@ -303,6 +303,21 @@ pub(crate) async fn run_service(
             }
         }
     }
+}
+
+const PROFILE_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Own id, name and picture as the SDK reports them; a failed read keeps what is already shown.
+async fn own_profile(client: &Client) -> Option<(String, Option<String>, Option<String>)> {
+    let user_id = client.user_id()?.to_string();
+    let account = client.account();
+    let display_name = account.get_display_name().await.ok()?;
+    let avatar = account
+        .get_avatar_url()
+        .await
+        .ok()?
+        .map(|uri| uri.to_string());
+    Some((user_id, display_name, avatar))
 }
 
 async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, VerificationError> {

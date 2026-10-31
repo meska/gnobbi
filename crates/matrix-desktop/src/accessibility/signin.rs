@@ -59,6 +59,7 @@ pub struct Intent {
 impl super::NavigationSnapshot {
     pub fn for_signin(signin: Snapshot) -> Self {
         Self {
+            title: crate::window::TITLE.into(),
             signin: Some(signin),
             openers: vec![],
             back: None,
@@ -66,10 +67,11 @@ impl super::NavigationSnapshot {
             operation_panel: None,
             spaces: None,
             navigation_revision: 0,
-            theme_focused: false,
-            theme_bounds: None,
+            icon_choice: None,
             unread_filter: None,
+            new_room: None,
             devices: Default::default(),
+            settings: None,
             details: Default::default(),
             notifications: Default::default(),
             dark: false,
@@ -138,13 +140,13 @@ impl Snapshot {
     }
     pub fn tree(&self) -> TreeUpdate {
         let mut root = Node::new(Role::Window);
-        root.set_label(if self.recovery.is_some() {
-            "Gnobbi — Cronologia cifrata"
-        } else if self.mode != SignInMode::Password {
-            "Gnobbi — Sblocca"
-        } else {
-            "Gnobbi — Accedi"
-        });
+        root.set_label(crate::window::title_for(Some((
+            crate::window::signin_section(
+                self.recovery.is_some(),
+                self.mode != SignInMode::Password,
+            ),
+            false,
+        ))));
         let description = if let Some(state) = self.recovery {
             Some(if self.setup == Some(SetupPhase::KeyShown) {
                 SETUP_KEY_MASKED

@@ -127,6 +127,7 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
         notifications::{NotificationSnapshot, NotificationView},
     };
     let mut view = NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -135,10 +136,11 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
         operation_panel: None,
         spaces: Some(snapshot()),
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -288,6 +290,7 @@ fn space_intents_reject_wrong_accounts_removed_choices_duplicate_and_hidden_acti
 
 fn navigation() -> matrix_desktop::accessibility::NavigationSnapshot {
     matrix_desktop::accessibility::NavigationSnapshot {
+        title: "Gnobbi".into(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -296,10 +299,11 @@ fn navigation() -> matrix_desktop::accessibility::NavigationSnapshot {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

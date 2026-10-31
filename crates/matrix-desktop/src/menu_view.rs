@@ -4,7 +4,7 @@ use crate::*;
 
 pub(crate) const DRAWER_WIDTH: f32 = 280.;
 /// Settings, Devices, Notifications, Add account, New chat, New room (after the account rows).
-pub(crate) const DRAWER_ROWS: usize = 6;
+pub(crate) const DRAWER_ROWS: usize = 7;
 
 impl Shell {
     pub(crate) fn set_menu_open(
@@ -121,7 +121,16 @@ impl Shell {
             match key.key.as_str() {
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
                 "escape" => self.set_menu_open(false, window, cx),
-                "enter" | "space" if activate && self.settings_open => self.toggle_debug(cx),
+                "enter" | "space" if activate && self.settings_open => {
+                    self.toggle_setting(self.settings_row, cx)
+                }
+                // Settings keep one focus stop; Up/Down/Tab (Shift+Tab backwards) walk its three switches.
+                "up" | "down" | "tab" if self.settings_open => {
+                    let back = key.key == "up" || m.shift;
+                    self.settings_row = (self.settings_row + if back { 2 } else { 1 }) % 3;
+                    self.settings_focus.focus(window);
+                    cx.notify();
+                }
                 "enter" | "space" if activate => {
                     match self.drawer_row.checked_sub(accounts.len()) {
                         None => self.switch_account(accounts[self.drawer_row].id, window, cx),
@@ -132,6 +141,7 @@ impl Shell {
                         Some(3) if self.connected => self.add_account(window, cx),
                         Some(4) if self.connected => self.open_new_room(true, window, cx),
                         Some(5) if self.connected => self.open_new_room(false, window, cx),
+                        Some(6) if self.connected => self.open_join_room(window, cx),
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }
@@ -140,7 +150,6 @@ impl Shell {
                     cx.notify();
                 }
                 // The drawer holds one focus stop; Up/Down/Tab move between its rows.
-                "tab" if self.settings_open => self.settings_focus.focus(window),
                 "up" | "down" | "tab" => {
                     let back = key.key == "up" || m.shift;
                     let rows = DRAWER_ROWS + accounts.len();
@@ -160,6 +169,16 @@ impl Shell {
             && self.menu_focus.is_focused(window)
         {
             self.set_menu_open(true, window, cx);
+            return true;
+        }
+        if key.key == "tab"
+            && !m.control
+            && !m.alt
+            && !m.platform
+            && self.menu_focus.is_focused(window)
+            && !(self.notifications_open || self.verification_open || self.room_details_open)
+        {
+            self.menu_tab(m.shift, window, cx);
             return true;
         }
         false
@@ -255,7 +274,8 @@ impl Shell {
                     .when(!self.settings_open, |d| {
                         d.children(self.render_drawer_header(t))
                     })
-                    .child(div().flex_1().child(self.render_drawer_body(t, window, cx)))
+                    // Scrolls so that Settings stays reachable on short windows (150%); the footer stays put.
+                    .child(div().id("drawer-body").flex_1().min_h_0().overflow_y_scroll().child(self.render_drawer_body(t, window, cx)))
                     .child(
                         div()
                             .px_4()
@@ -274,7 +294,7 @@ impl Shell {
             .into_any_element()
     }
 
-    /// Telegram-style profile block: initials avatar, name and Matrix ID, both from the SDK.
+    /// Telegram-style profile block: picture (initials as fallback), name and Matrix ID, both from the SDK.
     fn render_drawer_header(&self, t: matrix_desktop::DesignTokens) -> Option<gpui::AnyElement> {
         let (id, name) = self.verification.profile()?;
         let name = name.clone().unwrap_or_else(|| id.clone());
@@ -287,8 +307,12 @@ impl Shell {
                 .gap_1()
                 .border_b_1()
                 .border_color(rgb(t.border))
-                .child(
-                    div()
+                .child(match self.avatars.get(self.verification.profile_avatar()) {
+                    Some(image) => div()
+                        .mb_2()
+                        .child(avatar_view::round(image, 56.))
+                        .into_any_element(),
+                    None => div()
                         .size(px(56.))
                         .mb_2()
                         .flex()
@@ -298,8 +322,9 @@ impl Shell {
                         .bg(rgb(matrix_desktop::AVATAR_FALLBACK))
                         .text_size(px(20.))
                         .text_color(rgb(t.avatar_text))
-                        .child(matrix_desktop::initials(&name)),
-                )
+                        .child(matrix_desktop::initials(&name))
+                        .into_any_element(),
+                })
                 .child(
                     div()
                         .truncate()
@@ -318,5 +343,36 @@ impl Shell {
                 })
                 .into_any_element(),
         )
+    }
+}
+
+impl Shell {
+    /// Ring stop before the rail (wide) or the list header (compact): forward enters the ring, backward leaves it.
+    fn menu_tab(&mut self, shift: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let wide = window.viewport_size().width >= px(800.);
+        match (wide, shift) {
+            (true, false) => {
+                self.rail_ui.target = self.sidebar.navigation_entries()[0].scope.clone();
+                self.reveal_rail_target(window, cx);
+                self.rail_ui.focus.focus(window);
+            }
+            (false, false) => self.first_list_stop().focus(window),
+            (true, true) => {
+                if !self.focus_last_chat_control(window, cx) {
+                    self.list_focus.focus(window);
+                }
+            }
+            (false, true) if self.connected && self.sidebar.spaces().next().is_some() => {
+                self.compact_spaces_tab(true, window, cx);
+            }
+            (false, true) => {
+                if !(self.connected
+                    && self.focus_opener(matrix_desktop::panel_openers::Control::Notifications, window, cx))
+                {
+                    self.list_focus.focus(window);
+                }
+            }
+        }
+        cx.notify();
     }
 }
