@@ -259,6 +259,9 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         div()
+            .id("room-details")
+            // Own the wheel: without it the hit-test lets events through to the timeline list.
+            .occlude()
             .absolute()
             .right_0()
             .top_0()
@@ -304,13 +307,14 @@ impl Shell {
                     .id("room-details-content")
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
                     .p_4()
                     .flex()
                     .flex_col()
                     .gap_4()
                     // An opened profile takes the whole sheet.
                     .when(self.profile.is_none(), |d| d
+                    .child(
+                    div().id("room-details-info").flex().flex_col().gap_4().flex_shrink().min_h_0().overflow_y_scroll()
                     .child(
                         div()
                             .text_size(px(20.))
@@ -377,7 +381,7 @@ impl Shell {
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_room_edit(window, cx)
                             })),
-                    ))
+                    )))
                     .child(self.render_people(cx)),
             )
             .into_any_element()

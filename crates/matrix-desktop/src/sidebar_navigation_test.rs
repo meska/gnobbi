@@ -1829,6 +1829,87 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 40 {
+            // Room sheet with N members: draw time, a11y nodes, and the wheel over the sheet scrolls only the member list.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let path = format!("/tmp/gui-out/{name}.png");
+                let wl = std::env::var_os("WAYLAND_DISPLAY").is_some();
+                let ok = if wl { std::process::Command::new("grim").arg(&path).status() } else { std::process::Command::new("import").args(["-window", "root", &path]).status() };
+                assert!(ok.unwrap().success(), "shot {name}");
+            };
+            let members = |n: usize| (0..n).map(|i| matrix_engine::operations::Member {
+                user_id: format!("@utente{i:04}:fixture.test"), name: format!("Utente di prova {i:04}"), avatar: None,
+            }).collect::<Vec<_>>();
+            let mut report = serde_json::Map::new();
+            for (label, n) in [("closed", None), ("open-0", Some(0)), ("open-1000", Some(1000)), ("open-343", Some(343))] {
+                this.update_in(cx, |this, _, cx| {
+                    match n { Some(n) => { this.room_members = members(n); this.set_room_details_open(true); } None => this.set_room_details_open(false) }
+                    cx.notify();
+                }).unwrap();
+                wait(300).await;
+                let mut v: Vec<f64> = (0..40).map(|_| cx.update(|window, app| {
+                    window.refresh();
+                    let t = std::time::Instant::now(); let _ = window.draw(app); t.elapsed().as_secs_f64() * 1000.
+                }).unwrap()).collect();
+                v.drain(..5); v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let (med, p95, max) = (v[v.len() / 2], v[(v.len() as f64 * 0.95) as usize - 1], *v.last().unwrap());
+                println!("AFTER draw {label}: median {med:.2} ms p95 {p95:.2} ms max {max:.2} ms");
+                report.insert(format!("draw_{label}"), serde_json::json!({"median_ms": med, "p95_ms": p95, "max_ms": max, "samples": v.len()}));
+            }
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            {
+                let nodes = this.update_in(cx, |this, _, _| {
+                    let room = this.sidebar.selected().unwrap();
+                    matrix_desktop::accessibility::details::DetailsSnapshot {
+                        scope: room.scope.clone(), name: room.name.clone(), info: room.info.clone(),
+                        people: this.people_labels(), back: false, focus: Default::default(), bounds: [None; 2],
+                    }.tree().nodes.len()
+                }).unwrap();
+                println!("AFTER a11y nodes in sheet tree: {nodes}");
+                report.insert("a11y_sheet_nodes_343".into(), nodes.into());
+            }
+            // Wheel over the sheet's member list: does the timeline behind it move too?
+            this.update_in(cx, |this, _, cx| { this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.)); cx.notify(); }).unwrap();
+            wait(400).await;
+            shot("sheet-343-top");
+            let size = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+            let start = this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().top_row()).unwrap();
+            let (x, y) = ((f32::from(size.width) - 150.) as i32, (f32::from(size.height) * 0.7) as i32);
+            if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+                // Wayland: virtual pointer helper (tools/wayland/pointer.c) built by the runner; output 1920x1080 scale 1.
+                use std::io::{BufRead, Write};
+                let mut ptr = std::process::Command::new("/tmp/gui-out/pointer").env("DIME_ISOLATED_WAYLAND", "1")
+                    .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+                let mut input = ptr.stdin.take().unwrap();
+                let mut output = std::io::BufReader::new(ptr.stdout.take().unwrap());
+                wait(1500).await; // let GPUI bind wl_pointer for the new seat capability
+                for action in ["move 0", "move 0", "scroll 1", "scroll 1", "scroll 1", "scroll 1", "scroll 1"] {
+                    writeln!(input, "{} {} 1920 1080 {action}", 1920 - 150, (1080. * 0.7) as i32).unwrap();
+                    let mut line = String::new(); output.read_line(&mut line).unwrap();
+                    assert_eq!(line, "done\n");
+                    wait(150).await;
+                }
+                drop(input); let _ = ptr.wait();
+            } else {
+                let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap().stdout).unwrap().lines().next().expect("window").to_string();
+                assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", &win, &x.to_string(), &y.to_string(), "click", "--repeat", "5", "--delay", "40", "5"]).status().unwrap().success());
+            }
+            wait(500).await;
+            let end = this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().top_row()).unwrap();
+            shot("sheet-343-after-wheel");
+            println!("AFTER wheel over sheet at ({x},{y}) of {size:?}: timeline top {start:?} -> {end:?}");
+            let listed = this.update_in(cx, |this, _, _| this.members_scroll.0.borrow().base_handle.offset().y).unwrap();
+            assert!(listed < px(0.), "the member list did not scroll: {listed:?}");
+            assert_eq!(start, end, "the timeline moved under a wheel over the sheet");
+            report.insert("wheel_point".into(), serde_json::json!([x, y, f32::from(size.width), f32::from(size.height)]));
+            report.insert("timeline_top_before".into(), format!("{start:?}").into());
+            report.insert("timeline_top_after".into(), format!("{end:?}").into());
+            report.insert("timeline_moved_by_wheel_over_sheet".into(), (start != end).into());
+            std::fs::write("/tmp/gui-out/sheet-report.json", serde_json::to_string_pretty(&report).unwrap()).unwrap();
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 23 {
             // Connected Shell: the strip above the timeline shows only while an older page loads or after it failed.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2836,6 +2917,14 @@ fn page_up_and_home_keep_the_row_being_read_in_place() {
         Ok("1")
     );
     DYNAMIC.store(21, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn wheel_over_room_sheet_scrolls_only_the_member_list() {
+    DYNAMIC.store(40, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }

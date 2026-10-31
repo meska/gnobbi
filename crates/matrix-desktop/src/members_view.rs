@@ -1,6 +1,6 @@
 //! Member list and another user's profile, inside the room sheet. The engine reads both (SDK).
 use crate::*;
-use matrix_engine::operations::{Member, OperationCommand, OperationError, UserProfile};
+use matrix_engine::operations::{OperationCommand, OperationError, UserProfile};
 
 pub(crate) enum ProfileState {
     Loading(String),
@@ -142,35 +142,59 @@ impl Shell {
                 .id("member-list")
                 .flex()
                 .flex_col()
+                .flex_1()
+                .min_h(px(88.))
                 .child(div().mb_2().child("Membri"))
-                .children(self.room_members.iter().enumerate().map(|(i, m): (usize, &Member)| {
-                    let id = m.user_id.clone();
-                    div()
-                        .id(("member", i))
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .h(px(44.))
-                        .flex_shrink_0()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(rgb(t.border)))
-                        .child(self.picture(&m.name, m.avatar.as_deref(), 32., t.accent, t.avatar_text))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .min_w_0()
-                                .child(div().truncate().child(matrix_desktop::row_text::one_line(&m.name)))
-                                .child(
-                                    div()
-                                        .truncate()
-                                        .text_size(px(12.))
-                                        .text_color(rgb(t.secondary))
-                                        .child(m.user_id.clone()),
-                                ),
+                .child(
+                    // Same virtual list + scrollbar as the room list: only visible rows exist.
+                    div().relative().flex_1().min_h_0().child(
+                        uniform_list(
+                            "members",
+                            self.room_members.len(),
+                            cx.processor(move |this, range: std::ops::Range<usize>, _, cx| {
+                                let t = this.theme.tokens();
+                                range
+                                    .map(|i| {
+                                        let m = &this.room_members[i];
+                                        let id = m.user_id.clone();
+                                        div()
+                                            .id(("member", i))
+                                            .flex()
+                                            .items_center()
+                                            .gap_3()
+                                            .h(px(44.))
+                                            .flex_shrink_0()
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(rgb(t.border)))
+                                            .child(this.picture(&m.name, m.avatar.as_deref(), 32., t.accent, t.avatar_text))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .flex_col()
+                                                    .min_w_0()
+                                                    .child(div().truncate().child(matrix_desktop::row_text::one_line(&m.name)))
+                                                    .child(
+                                                        div()
+                                                            .truncate()
+                                                            .text_size(px(12.))
+                                                            .text_color(rgb(t.secondary))
+                                                            .child(m.user_id.clone()),
+                                                    ),
+                                            )
+                                            .on_click(cx.listener(move |this, _, _, cx| this.open_profile(id.clone(), cx)))
+                                    })
+                                    .collect::<Vec<_>>()
+                            }),
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| this.open_profile(id.clone(), cx)))
-                }))
+                        .track_scroll(self.members_scroll.clone())
+                        .size_full(),
+                    )
+                    .child(self.members_scrollbar.render(
+                        "members-scrollbar",
+                        scrollbar_view::ScrollTarget::Rooms(self.members_scroll.clone()),
+                        t,
+                    )),
+                )
                 .into_any_element(),
         }
     }

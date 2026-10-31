@@ -174,6 +174,8 @@ struct Shell {
     list_focus: FocusHandle,
     scroll: UniformListScrollHandle,
     room_scrollbar: scrollbar_view::Scrollbar,
+    members_scroll: UniformListScrollHandle,
+    members_scrollbar: scrollbar_view::Scrollbar,
 }
 
 impl Shell {
@@ -2925,6 +2927,8 @@ fn main() {
                         list_focus: cx.focus_handle(),
                         scroll: UniformListScrollHandle::new(),
                         room_scrollbar: Default::default(),
+                        members_scroll: UniformListScrollHandle::new(),
+                        members_scrollbar: Default::default(),
                     }
                 })
             },
