@@ -1487,7 +1487,7 @@ impl TimelineView {
                         return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py(px(1.)).flex().justify_center().items_center().gap_1p5().overflow_hidden()
                             .text_size(px(11.)).text_color(rgb(t.secondary))
                             // min_w_0 + text_center: long bridge texts wrap inside the column instead of overflowing it.
-                            .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::one_line(&event.text))).into_any_element();
+                            .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::status_with_time(&event.text, &event.time))).into_any_element();
                     }
                     let sender_label = history.sender_label(index, members);
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
