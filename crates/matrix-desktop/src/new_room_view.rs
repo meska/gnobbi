@@ -1,7 +1,8 @@
 //! «Nuova chat» (direct chat by user ID) and «Nuova stanza» (name, topic, public or private): a small
 //! dialog opened from the drawer. The engine does the work; the result closes it or shows one error line.
 use crate::*;
-use matrix_engine::operations::{OperationCommand, OperationError};
+use matrix_desktop::new_chat::{Picker, Status};
+use matrix_engine::operations::{OperationCommand, OperationError, SearchState};
 
 pub(crate) struct NewRoom {
     dm: bool,
@@ -13,6 +14,12 @@ pub(crate) struct NewRoom {
     submit_focus: FocusHandle,
     busy: bool,
     error: Option<OperationError>,
+    /// DM only: the search results and the keyboard position in them.
+    picker: Picker,
+    switch_focus: FocusHandle,
+    /// What the field holds now, and the last term the engine was asked to search.
+    term_wanted: String,
+    term_sent: Option<(String, bool)>,
 }
 
 /// One line per failure, nothing else.
@@ -37,6 +44,9 @@ impl NewRoom {
         if !self.dm {
             ring.push(self.public_focus.clone());
         }
+        if self.dm && self.picker.all_available() {
+            ring.push(self.switch_focus.clone());
+        }
         ring.push(self.cancel_focus.clone());
         ring.push(self.submit_focus.clone());
         ring
@@ -60,7 +70,11 @@ impl Shell {
                     field.placeholder = label;
                     field
                 });
-                cx.observe(&field, |_, _, cx| cx.notify()).detach();
+                cx.observe(&field, |this, field, cx| {
+                    this.new_chat_typed(field.read(cx).input.display_text().trim().to_owned());
+                    cx.notify();
+                })
+                .detach();
                 field
             })
             .collect();
@@ -74,6 +88,10 @@ impl Shell {
             submit_focus: cx.focus_handle(),
             busy: false,
             error: None,
+            picker: Picker::default(),
+            switch_focus: cx.focus_handle(),
+            term_wanted: String::new(),
+            term_sent: None,
         });
         cx.notify();
     }
@@ -96,7 +114,13 @@ impl Shell {
                 .trim()
                 .to_owned()
         };
-        let first = text(0);
+        let typed = text(0);
+        // A highlighted result wins over the raw text; with no list the typed ID is used as before.
+        let first = if room.dm {
+            room.picker.chosen().unwrap_or(typed)
+        } else {
+            typed
+        };
         if room.busy || first.is_empty() || self.pending_operation_command.is_some() {
             return;
         }
@@ -116,6 +140,114 @@ impl Shell {
             field.update(cx, |f, _| f.enabled = false);
         }
         self.pending_operation_command = Some(command);
+        cx.notify();
+    }
+
+    /// The field changed: the old results no longer match, so drop them until the engine answers.
+    fn new_chat_typed(&mut self, term: String) {
+        let Some(room) = self
+            .new_room
+            .as_mut()
+            .filter(|r| r.dm && r.term_wanted != term)
+        else {
+            return;
+        };
+        let state = if term.chars().count() < 2 {
+            SearchState::Idle
+        } else {
+            SearchState::Searching
+        };
+        room.picker.set_state(state, room.picker.all_available());
+        room.term_wanted = term;
+    }
+
+    /// Sends the wanted term (and filter) to the engine once; called from the operations tick.
+    pub(crate) fn flush_user_search(&mut self) {
+        let Some(room) = self.new_room.as_mut().filter(|r| r.dm) else {
+            return;
+        };
+        let wanted = (room.term_wanted.clone(), room.picker.all());
+        if room.term_sent.as_ref() == Some(&wanted)
+            || (room.term_sent.is_none() && wanted.0.is_empty())
+        {
+            return;
+        }
+        if let Some((sender, _)) = &mut self.routes.operation
+            && sender
+                .try_send(OperationCommand::SearchUsers {
+                    term: wanted.0.clone(),
+                    all: wanted.1,
+                })
+                .is_ok()
+        {
+            room.term_sent = Some(wanted);
+        }
+    }
+
+    pub(crate) fn user_search_result(
+        &mut self,
+        state: SearchState,
+        all_available: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(room) = self.new_room.as_mut().filter(|r| r.dm && !r.busy) {
+            room.picker.set_state(state, all_available);
+            cx.notify();
+        }
+    }
+
+    /// Pictures the dialog's results want.
+    pub(crate) fn new_chat_avatars(&self) -> Vec<String> {
+        self.new_room
+            .iter()
+            .flat_map(|r| r.picker.entries())
+            .filter_map(|e| e.avatar)
+            .collect()
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_new_chat(
+        &self,
+        cx: &gpui::App,
+    ) -> matrix_desktop::accessibility::new_chat::NewChatView {
+        use matrix_desktop::accessibility::new_chat::{NewChatView, Snapshot};
+        match self.new_room.as_ref().filter(|r| r.dm) {
+            Some(room) => NewChatView::Open(Box::new(Snapshot {
+                text: room.fields[0].read(cx).input.display_text(),
+                entries: room.picker.entries(),
+                active: room.picker.active(),
+                status: room.picker.status(),
+                all: room.picker.all_available().then(|| room.picker.all()),
+            })),
+            None => NewChatView::Closed,
+        }
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn apply_semantic_new_chat(
+        &mut self,
+        action: matrix_desktop::accessibility::new_chat::NewChatAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use matrix_desktop::accessibility::new_chat::NewChatAction;
+        let Some(room) = self.new_room.as_mut().filter(|r| r.dm) else {
+            return;
+        };
+        match action {
+            NewChatAction::FocusInput => room.fields[0].read(cx).focus.focus(window),
+            NewChatAction::ToggleAll => room.picker.toggle_all(),
+            NewChatAction::Cancel => self.close_new_room(window, cx),
+            NewChatAction::Choose(user_id) => {
+                let entries = room.picker.entries();
+                match entries.iter().position(|e| e.user_id == user_id) {
+                    Some(at) => room.picker.set_active(at),
+                    // The typed ID of «Avvia» when nothing was listed: submit it as typed.
+                    None => {}
+                }
+                self.submit_new_room(cx);
+            }
+        }
         cx.notify();
     }
 
@@ -180,6 +312,12 @@ impl Shell {
             self.close_new_room(window, cx);
         } else if matches!(key, "enter" | "space") && room.public_focus.is_focused(window) {
             room.public = !room.public;
+        } else if room.dm && matches!(key, "up" | "down") && room.picker.key(key) {
+        } else if room.dm
+            && matches!(key, "enter" | "space")
+            && room.switch_focus.is_focused(window)
+        {
+            room.picker.toggle_all();
         } else if key == "enter" || (key == "space" && room.submit_focus.is_focused(window)) {
             self.submit_new_room(cx);
         } else {
@@ -187,6 +325,133 @@ impl Shell {
         }
         cx.notify();
         cx.stop_propagation();
+    }
+
+    fn render_new_chat_results(
+        &self,
+        room: &NewRoom,
+        t: matrix_desktop::DesignTokens,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let active = room.picker.active();
+        let rows = room
+            .picker
+            .entries()
+            .into_iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                let initial = entry
+                    .name
+                    .as_deref()
+                    .unwrap_or(&entry.user_id)
+                    .trim_start_matches('@')
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string())
+                    .unwrap_or_default();
+                let picture = match self.avatars.get(entry.avatar.as_deref()) {
+                    Some(image) => avatar_view::round(image, 28.),
+                    None => div()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .size(px(28.))
+                        .flex_shrink_0()
+                        .rounded_full()
+                        .bg(rgb(t.accent))
+                        .text_color(rgb(t.on_accent))
+                        .child(initial)
+                        .into_any_element(),
+                };
+                let line =
+                    |text: String, color: u32| div().truncate().text_color(rgb(color)).child(text);
+                div()
+                    .id(("new-chat-hit", i))
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .h(px(40.))
+                    .cursor_pointer()
+                    .when(i == active, |d| d.bg(rgb(t.input)))
+                    .child(picture)
+                    .child(if entry.direct {
+                        div().min_w_0().child(line(entry.label(), t.text))
+                    } else {
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .child(line(
+                                entry.name.clone().unwrap_or_else(|| entry.user_id.clone()),
+                                t.text,
+                            ))
+                            .child(line(entry.user_id.clone(), t.disabled).text_size(px(12.)))
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(room) = &mut this.new_room {
+                            room.picker.set_active(i);
+                        }
+                        this.submit_new_room(cx);
+                    }))
+            });
+        let switch = room.picker.all_available().then(|| {
+            let segment = |id: &'static str, label: &'static str, on: bool| {
+                div()
+                    .id(id)
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .cursor_pointer()
+                    .text_color(rgb(if on { t.on_accent } else { t.text }))
+                    .when(on, |d| d.bg(rgb(t.accent)))
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if let Some(room) = &mut this.new_room {
+                            if room.picker.all() != on {
+                                room.picker.toggle_all();
+                            }
+                            room.switch_focus.focus(window);
+                        }
+                        cx.notify();
+                    }))
+            };
+            div()
+                .id("new-chat-scope")
+                .track_focus(&room.switch_focus)
+                .flex()
+                .gap_1()
+                .border_1()
+                .border_color(rgb(if room.switch_focus.is_focused(window) {
+                    t.accent
+                } else {
+                    t.surface
+                }))
+                .child(segment(
+                    "new-chat-same",
+                    "Stessa istanza",
+                    !room.picker.all(),
+                ))
+                .child(segment("new-chat-all", "Tutti", room.picker.all()))
+        });
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .children(switch)
+            .children(rows)
+            .children(room.picker.status().map(|status| {
+                div()
+                    .text_size(px(13.))
+                    .text_color(rgb(if status == Status::Error {
+                        t.error
+                    } else {
+                        t.disabled
+                    }))
+                    .child(status.text())
+            }))
+            .into_any_element()
     }
 
     pub(crate) fn render_new_room(
@@ -254,6 +519,9 @@ impl Shell {
                                 }),
                         )
                         .children(room.fields.iter().cloned())
+                        .when(room.dm, |d| {
+                            d.child(self.render_new_chat_results(room, t, window, cx))
+                        })
                         .when(!room.dm, |d| {
                             d.child(
                                 div()

@@ -9,6 +9,7 @@ pub mod devices;
 pub mod event_id_copy;
 pub mod filters;
 pub mod links;
+pub mod new_chat;
 pub mod notifications;
 pub mod offline_delivery;
 pub mod operation_panel;
@@ -519,6 +520,7 @@ pub struct NavigationSnapshot {
     pub devices: devices::DeviceView,
     pub details: details::DetailsView,
     pub notifications: notifications::NotificationView,
+    pub new_chat: new_chat::NewChatView,
     pub dark: bool,
     pub visible: bool,
     pub query: String,
@@ -536,6 +538,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.action(request);
+        }
+        if matches!(self.new_chat, new_chat::NewChatView::Open(_)) {
+            return self.new_chat.action(request).map(NavigationAction::NewChat);
         }
         if request.target_tree == TreeId::ROOT
             && request.data.is_none()
@@ -822,6 +827,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.tree();
+        }
+        if let Some(tree) = self.new_chat.tree() {
+            return tree;
         }
         if let devices::DeviceView::Open(panel) = &self.devices {
             return panel.tree();
@@ -1324,6 +1332,7 @@ pub enum NavigationAction {
     Devices(devices::DeviceAction),
     Details(details::DetailsAction),
     Notifications(notifications::NotificationAction),
+    NewChat(new_chat::NewChatAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
     ToggleTheme(u64),
     FocusTheme(u64),

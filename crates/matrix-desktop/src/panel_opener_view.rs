@@ -430,6 +430,7 @@ mod tests {
             NavigationSnapshot, semantic_session::SemanticSession,
         };
         let navigation = NavigationSnapshot {
+            new_chat: Default::default(),
             #[cfg(feature = "live")]
             signin: None,
             openers: this.semantic_openers(window),

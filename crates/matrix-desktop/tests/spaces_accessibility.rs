@@ -127,6 +127,7 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
         notifications::{NotificationSnapshot, NotificationView},
     };
     let mut view = NavigationSnapshot {
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -288,6 +289,7 @@ fn space_intents_reject_wrong_accounts_removed_choices_duplicate_and_hidden_acti
 
 fn navigation() -> matrix_desktop::accessibility::NavigationSnapshot {
     matrix_desktop::accessibility::NavigationSnapshot {
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

@@ -201,6 +201,10 @@ impl Shell {
                 this.apply_semantic_details(action, window, cx);
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::NewChat(action) = action {
+                this.apply_semantic_new_chat(action, window, cx);
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::Notifications(action) = action {
                 this.apply_semantic_notification(action, window, cx);
                 continue;
@@ -452,6 +456,7 @@ impl Shell {
                 matrix_desktop::accessibility::NavigationAction::FocusServerHistory(_) => {
                     unreachable!()
                 }
+                matrix_desktop::accessibility::NavigationAction::NewChat(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Notifications(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Details(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::FocusComposer
@@ -1305,6 +1310,7 @@ impl Shell {
         {
             self.members_requested = Some(self.active_scope.clone());
         }
+        self.flush_user_search();
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
@@ -1342,6 +1348,10 @@ impl Shell {
                         },
                         OperationCommand::EditTags(_) => OperationResult::TagsEdited {
                             result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::SearchUsers { .. } => OperationResult::UserSearch {
+                            state: matrix_engine::operations::SearchState::Error,
+                            all_available: false,
                         },
                         OperationCommand::StartDm { .. } | OperationCommand::CreateRoom { .. } => {
                             OperationResult::RoomStarted {
@@ -1544,6 +1554,7 @@ impl Render for Shell {
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
+                new_chat: self.semantic_new_chat(cx),
                 dark: self.theme.is_dark(),
                 visible: !self.notifications_open
                     && !self.verification_open
@@ -2096,7 +2107,11 @@ fn main() {
     };
     // Without `live` there is no connected sign-in to open: the bare launch stays the offline fixture.
     // Windows tester builds launch like Linux: a double-click opens the sign-in, not the offline demo.
-    #[cfg(all(any(target_os = "linux", target_os = "windows"), feature = "live", not(test)))]
+    #[cfg(all(
+        any(target_os = "linux", target_os = "windows"),
+        feature = "live",
+        not(test)
+    ))]
     let args = matrix_desktop::linux_launch_args(&args);
     #[cfg(feature = "live")]
     let legacy_offer = (args.first().is_some_and(|a| a == "--signin")
@@ -2465,6 +2480,10 @@ fn main() {
                                                 this.groups_edited(result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::UserSearch { state, all_available } = result {
+                                                this.user_search_result(state, all_available, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::RoomStarted { result } = result {
                                                 this.room_started(result, cx);
                                                 continue;
@@ -2691,6 +2710,7 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         accessibility: matrix_desktop::accessibility::LinuxAccessibility::new(
                             matrix_desktop::accessibility::NavigationSnapshot {
+                                new_chat: Default::default(),
                                 #[cfg(feature = "live")]
                                 signin: signin.as_ref().map(|view| view.read(cx).semantic_snapshot(window, cx)),
                                 openers: vec![],

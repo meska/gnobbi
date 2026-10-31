@@ -8,6 +8,7 @@ use matrix_domain::{AccountId, RoomId, RoomScope};
 
 fn snapshot() -> NavigationSnapshot {
     NavigationSnapshot {
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

@@ -2,6 +2,7 @@
 
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
+pub mod new_chat;
 pub mod notifications;
 /// The Linux build pins DejaVu; Windows has no DejaVu and gpui panics on a missing family.
 #[cfg(not(windows))]

@@ -96,7 +96,12 @@ impl crate::Shell {
             .chain(visible)
             .chain(rooms)
             .filter_map(|room| room.info.avatar.as_deref());
-        let wanted = senders.iter().map(String::as_str).chain(listed);
+        let found = self.new_chat_avatars();
+        let wanted = found
+            .iter()
+            .map(String::as_str)
+            .chain(senders.iter().map(String::as_str))
+            .chain(listed);
         let arrived = self.avatars.drive(&self.routes.avatars, wanted);
         let mut changed = Vec::new();
         if let Some(timeline) = &self.timeline {

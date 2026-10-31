@@ -221,7 +221,8 @@ impl LiveOperations {
             OperationResult::RoomMarked { .. }
             | OperationResult::TagsEdited { .. }
             | OperationResult::RoomStarted { .. }
-            | OperationResult::Members { .. } => false,
+            | OperationResult::Members { .. }
+            | OperationResult::UserSearch { .. } => false,
             OperationResult::Inspected {
                 tag,
                 target,

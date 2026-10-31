@@ -18,34 +18,7 @@ pub const DEBOUNCE: Duration = Duration::from_millis(275);
 pub const MIN_CHARS: usize = 2;
 const LIMIT: u64 = 20;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UserHit {
-    pub user_id: String,
-    pub display_name: Option<String>,
-    pub avatar_url: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Filter {
-    #[default]
-    SameInstance,
-    All,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SearchState {
-    Idle,
-    Searching,
-    /// `direct` is the «Avvia con @nome:server» entry: set when the term is a valid user ID,
-    /// even if the directory did not return it (then `hits` may be empty).
-    Results {
-        hits: Vec<UserHit>,
-        direct: Option<String>,
-    },
-    NoResults,
-    /// One line in the UI, no detail.
-    Error,
-}
+pub use crate::operations::{Filter, SearchState, UserHit};
 
 type Fetch =
     dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<Vec<UserHit>, ()>> + Send>> + Send + Sync;

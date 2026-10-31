@@ -24,6 +24,36 @@ pub enum OperationError {
     Transport,
 }
 
+/// User search types live here, outside the `sdk` feature, because the desktop shows them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserHit {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Filter {
+    #[default]
+    SameInstance,
+    All,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SearchState {
+    Idle,
+    Searching,
+    /// `direct` is the «Avvia con @nome:server» entry: set when the term is a valid user ID,
+    /// even if the directory did not return it (then `hits` may be empty).
+    Results {
+        hits: Vec<UserHit>,
+        direct: Option<String>,
+    },
+    NoResults,
+    /// One line in the UI, no detail.
+    Error,
+}
+
 pub enum OperationCommand {
     Inspect {
         tag: crate::RequestTag,
@@ -50,6 +80,11 @@ pub enum OperationCommand {
         topic: Option<String>,
         public: bool,
     },
+    /// «Nuova chat» search; answered with `OperationResult::UserSearch` as it progresses.
+    SearchUsers {
+        term: String,
+        all: bool,
+    },
     /// Group (room tag) change asked for by the user in «Modifica»; the only writer of tags.
     EditTags(TagEdit),
     /// «Silenzia»: the room push rule; the outcome comes back as `RoomMarked` and the next sync projects it.
@@ -69,6 +104,10 @@ pub enum TagEdit {
     Delete { tag: String },
 }
 pub enum OperationResult {
+    UserSearch {
+        state: SearchState,
+        all_available: bool,
+    },
     TagsEdited {
         result: Result<(), OperationError>,
     },

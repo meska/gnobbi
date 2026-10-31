@@ -9,6 +9,7 @@ fn unread_control_is_absent_when_hidden_or_covered_by_a_sheet() {
         NavigationAction, NavigationSnapshot, notifications::NotificationView,
     };
     let mut snapshot = NavigationSnapshot {
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

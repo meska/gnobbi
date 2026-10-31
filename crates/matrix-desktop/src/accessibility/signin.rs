@@ -59,6 +59,7 @@ pub struct Intent {
 impl super::NavigationSnapshot {
     pub fn for_signin(signin: Snapshot) -> Self {
         Self {
+            new_chat: Default::default(),
             signin: Some(signin),
             openers: vec![],
             back: None,

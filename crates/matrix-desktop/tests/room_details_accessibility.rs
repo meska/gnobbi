@@ -12,6 +12,7 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
     let panel = panel();
     let scope = panel.scope.clone();
     let mut snapshot = NavigationSnapshot {
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![matrix_desktop::panel_openers::Snapshot {

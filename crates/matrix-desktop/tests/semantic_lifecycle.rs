@@ -4,6 +4,7 @@ use matrix_desktop::accessibility::{NavigationSnapshot, semantic_session::Semant
 
 fn snapshot(visible: bool) -> NavigationSnapshot {
     NavigationSnapshot {
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
