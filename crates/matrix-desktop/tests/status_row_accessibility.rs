@@ -9,6 +9,7 @@ fn row(id: &str, body: &str, status: bool) -> HistoryEvent {
         event_id: EventId::new(id),
         body: body.into(),
         outgoing: false,
+        redacted: false,
         timestamp_ms: 0,
         sender: HistorySender::new("@anna:test", None),
         video: None,
