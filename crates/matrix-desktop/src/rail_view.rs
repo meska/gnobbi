@@ -84,6 +84,7 @@ pub(crate) struct RailUi {
     pub(crate) layouts: matrix_desktop::RailLayouts,
     pub(crate) target: Option<RoomScope>,
     scroll: gpui::ScrollHandle,
+    edit_scroll: gpui::ScrollHandle,
     anchors: std::cell::RefCell<HashMap<Option<RoomScope>, gpui::ScrollAnchor>>,
 }
 impl RailUi {
@@ -97,6 +98,7 @@ impl RailUi {
             layouts: Default::default(),
             target: None,
             scroll: gpui::ScrollHandle::new(),
+            edit_scroll: gpui::ScrollHandle::new(),
             anchors: Default::default(),
         }
     }
@@ -118,6 +120,57 @@ fn panel_act(key: &str, shift: bool, cursor: usize, len: usize) -> Option<PanelA
         ("enter" | "space", _) if len > 0 => Some(PanelAct::Toggle),
         _ => None,
     }
+}
+
+/// A row of the edit panel while it is dragged; also its own drag preview.
+struct RailDrag {
+    row: usize,
+    name: String,
+    theme: Theme,
+}
+impl Render for RailDrag {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let t = self.theme.tokens();
+        div()
+            .w(px(280.))
+            .h(px(44.))
+            .px_3()
+            .flex()
+            .items_center()
+            .rounded_md()
+            .border_1()
+            .border_color(rgb(t.accent))
+            .bg(rgb(t.surface))
+            .shadow_md()
+            .opacity(0.9)
+            .text_color(rgb(t.text))
+            .text_size(px(14.))
+            .child(self.name.clone())
+    }
+}
+
+/// Index `move_to` needs when row `from` is dropped on the insertion slot `slot` (the line above row `slot`;
+/// `slot == len` is below the last row): removing `from` first shifts the later slots up by one.
+fn drop_index(from: usize, slot: usize) -> usize {
+    if from < slot { slot - 1 } else { slot }
+}
+
+/// Makes `slot` a drop target for a dragged row: the line shows above it while hovered.
+fn insertion_slot(slot: gpui::Stateful<gpui::Div>, at: usize, accent: u32, cx: &mut Context<Shell>) -> gpui::Stateful<gpui::Div> {
+    slot.border_color(gpui::transparent_black())
+        .drag_over::<RailDrag>(move |s, _, _, _| s.border_color(rgb(accent)))
+        .on_drop(cx.listener(move |this, d: &RailDrag, _, cx| {
+            this.rail_edit_drop(d.row, at);
+            cx.notify();
+        }))
+}
+
+/// Six-dot grip: 2 columns x 3 rows.
+fn grip(color: u32) -> impl IntoElement {
+    let dot = move || div().size(px(3.)).rounded_full().bg(rgb(color));
+    div().w(px(16.)).flex_shrink_0().flex().justify_center().gap(px(3.)).children(
+        (0..2).map(|_| div().flex().flex_col().gap(px(3.)).child(dot()).child(dot()).child(dot())),
+    )
 }
 
 impl Shell {
@@ -179,6 +232,19 @@ impl Shell {
                 }
             }
         }
+    }
+
+    /// Drop of row `from` on the insertion slot `slot`: same `move_to` and store as the keyboard.
+    fn rail_edit_drop(&mut self, from: usize, slot: usize) {
+        let spaces: Vec<_> = self.rail_arranged().into_iter().skip(1).collect();
+        let Some(id) = spaces.get(from).and_then(|(e, _)| e.scope.as_ref()).map(|s| s.room_id.as_str().to_owned()) else {
+            return;
+        };
+        let to = drop_index(from, slot.min(spaces.len()));
+        self.rail_layout_edit(|l, cur| {
+            l.move_to(cur, &id, to);
+        });
+        self.rail_ui.edit_cursor = to;
     }
 
     pub(crate) fn reveal_rail_target(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -586,6 +652,20 @@ impl Shell {
             .flex()
             .flex_col()
             .overflow_y_scroll()
+            .track_scroll(&self.rail_ui.edit_scroll)
+            // shortcut: gpui has no drag auto-scroll; the list scrolls only while the pointer moves in the edge zone.
+            .on_drag_move::<RailDrag>({
+                let scroll = self.rail_ui.edit_scroll.clone();
+                move |e, window, _| {
+                    let (top, bottom) = (e.bounds.top(), e.bounds.bottom());
+                    let y = e.event.position.y;
+                    let step = if y < top + px(40.) { px(14.) } else if y > bottom - px(40.) { px(-14.) } else { return };
+                    let mut at = scroll.offset();
+                    at.y = (at.y + step).clamp(-scroll.max_offset().height, px(0.));
+                    scroll.set_offset(at);
+                    window.refresh();
+                }
+            })
             .child(
                 div()
                     .id("rail-edit-groups")
@@ -603,43 +683,46 @@ impl Shell {
                         this.open_groups_edit(window, cx);
                     })),
             )
-            .children(spaces.into_iter().enumerate().map(|(row, (entry, hidden))| {
+            .children(spaces.iter().enumerate().map(|(row, (entry, hidden))| {
+                let hidden = *hidden;
                 let on = focused && row == cursor;
                 let color = if hidden { t.secondary } else { t.text };
-                div()
-                    .id(("rail-edit-row", row))
-                    .h(px(44.))
-                    .flex_shrink_0()
-                    .px_3()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .border_2()
-                    .border_color(rgb(if on { t.accent } else { t.surface }))
-                    .text_color(rgb(color))
-                    .text_size(px(14.))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.rail_ui.edit_cursor = row;
-                        cx.notify();
-                    }))
-                    .child(div().flex_1().truncate().child(entry.name))
-                    .child(action(("rail-edit-up", row), "↑", t.accent).on_click(cx.listener(move |this, _, _, cx| {
-                        this.rail_edit_act(row, PanelAct::Move(-1));
-                        cx.notify();
-                    })))
-                    .child(action(("rail-edit-down", row), "↓", t.accent).on_click(cx.listener(move |this, _, _, cx| {
-                        this.rail_edit_act(row, PanelAct::Move(1));
-                        cx.notify();
-                    })))
-                    .child(
-                        action(("rail-edit-hide", row), if hidden { "Mostra" } else { "Nascondi" }, t.accent).w(px(76.)).text_center().on_click(
-                            cx.listener(move |this, _, _, cx| {
-                                this.rail_edit_act(row, PanelAct::Toggle);
-                                cx.notify();
-                            }),
+                let drag = RailDrag { row, name: entry.name.clone(), theme: self.theme };
+                // The wrapper's top border is the insertion line while a row hovers over it.
+                insertion_slot(div().id(("rail-edit-slot", row)).flex_shrink_0().border_t_2(), row, t.accent, cx).child(
+                    div()
+                        .id(("rail-edit-row", row))
+                        .h(px(44.))
+                        .px_3()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .border_2()
+                        .border_color(rgb(if on { t.accent } else { t.surface }))
+                        .text_color(rgb(color))
+                        .text_size(px(14.))
+                        .cursor_grab()
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.rail_ui.edit_cursor = row;
+                            cx.notify();
+                        }))
+                        .on_drag(drag, |d: &RailDrag, _, _, cx| {
+                            cx.new(|_| RailDrag { row: d.row, name: d.name.clone(), theme: d.theme })
+                        })
+                        .child(grip(t.secondary))
+                        .child(div().flex_1().truncate().child(entry.name.clone()))
+                        .child(
+                            action(("rail-edit-hide", row), if hidden { "Mostra" } else { "Nascondi" }, t.accent).w(px(76.)).text_center().on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.rail_edit_act(row, PanelAct::Toggle);
+                                    cx.notify();
+                                }),
+                            ),
                         ),
-                    )
+                )
             }))
+            // Below the last row: drop here = move to the end.
+            .child(insertion_slot(div().id("rail-edit-slot-end").flex_1().min_h(px(44.)).border_t_2(), spaces.len(), t.accent, cx))
             .into_any_element()
     }
 }
@@ -668,6 +751,16 @@ mod edit_focus_tests {
         assert_eq!(panel_act("enter", false, 0, 3), Some(PanelAct::Toggle));
         assert_eq!(panel_act("space", false, 0, 0), None);
         assert_eq!(panel_act("x", false, 0, 3), None);
+    }
+
+    #[test]
+    fn drop_index_accounts_for_the_removed_row() {
+        use super::drop_index;
+        assert_eq!(drop_index(1, 1), 1); // line above itself: no move
+        assert_eq!(drop_index(1, 2), 1); // line below itself: no move
+        assert_eq!(drop_index(0, 3), 2); // end of a 3-row list
+        assert_eq!(drop_index(2, 0), 0);
+        assert_eq!(drop_index(3, 1), 1);
     }
 
     #[test]
