@@ -271,7 +271,7 @@ impl Shell {
                 let error = self.switch_error.filter(|(e, _)| *e == id).map(|(_, m)| m);
                 div()
                     .id(("menu-account", a.id.as_u64() as usize))
-                    .h(px(52.))
+                    .min_h(px(52.))
                     .mx_2()
                     .px_3()
                     .rounded_lg()
@@ -309,8 +309,8 @@ impl Shell {
                             )
                             .when_some(error, |d, m| {
                                 d.child(
+                                    // wraps: a refusal is never cut mid-word
                                     div()
-                                        .truncate()
                                         .text_size(px(12.))
                                         .text_color(rgb(t.accent))
                                         .child(m),

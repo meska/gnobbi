@@ -59,7 +59,9 @@ impl Shell {
         if catalog.record_login(dirs, root, user_id, label) && catalog.save(dirs).is_ok() {
             self.accounts = catalog.clone();
         }
-        self.active_id = catalog.id_for_root(dirs, root);
+        self.active_id = catalog
+            .id_for_root(dirs, root)
+            .or_else(|| catalog.id_for_user(user_id));
     }
 
     /// Starts the sign-in for a new account in its own window and profile folder; this window

@@ -92,7 +92,7 @@ pub(crate) fn switch_blocker(
     status: Option<&RoomSyncStatus>,
 ) -> Option<&'static str> {
     match (active, status) {
-        (None, _) => Some("Riprova tra poco"),
+        (None, _) => Some("Account attivo non in elenco"),
         (_, None) => Some("Non disponibile"),
         (_, Some(RoomSyncStatus::AuthenticationFailed)) => Some("Accedi di nuovo"),
         _ => None,
@@ -321,7 +321,7 @@ mod tests {
             switch_blocker(id, Some(&RoomSyncStatus::AuthenticationFailed)),
         ];
         for m in all.into_iter().map(|m| m.expect("refusal")) {
-            assert!(!m.is_empty() && !m.contains('\n') && m.chars().count() <= 18);
+            assert!(!m.is_empty() && !m.contains('\n') && m.chars().count() <= 30);
         }
         assert_ne!(all[0], all[1]);
         assert_ne!(all[1], all[2]);
