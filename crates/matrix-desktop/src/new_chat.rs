@@ -1,6 +1,10 @@
 //! «Nuova chat»: what the result list shows and how the keyboard moves through it. Pure, so the
 //! dialog, the accessibility tree and the tests all read the same entries.
-use matrix_engine::operations::SearchState;
+use crate::search_list::{Choice, Hit, Row, SearchList};
+use matrix_engine::{
+    operations::SearchState,
+    search::{More, SearchError, SearchState as Shared},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
@@ -11,9 +15,28 @@ pub struct Entry {
     pub direct: bool,
 }
 
-impl Entry {
+impl Hit for Entry {
+    fn key(&self) -> &str {
+        &self.user_id
+    }
+    fn title(&self) -> &str {
+        self.name
+            .as_deref()
+            .filter(|n| !n.is_empty())
+            .unwrap_or(&self.user_id)
+    }
+    fn detail(&self) -> String {
+        if self.direct {
+            String::new()
+        } else {
+            self.user_id.clone()
+        }
+    }
+    fn avatar(&self) -> Option<&str> {
+        self.avatar.as_deref()
+    }
     /// What a screen reader says: name and ID, or the «Avvia con» line.
-    pub fn label(&self) -> String {
+    fn label(&self) -> String {
         match (&self.name, self.direct) {
             (_, true) => format!("Avvia con {}", self.user_id),
             (Some(name), _) if !name.is_empty() => format!("{name}, {}", self.user_id),
@@ -22,38 +45,22 @@ impl Entry {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Status {
-    Searching,
-    NoResults,
-    Error,
-}
+pub use crate::search_list::Status;
 
-impl Status {
-    /// One line, no help text. Also the announcement made when the state changes.
-    pub fn text(self) -> &'static str {
-        match self {
-            Self::Searching => "Ricerca in corso",
-            Self::NoResults => "Nessun risultato",
-            Self::Error => "Ricerca non riuscita",
-        }
-    }
-}
-
+/// «Nuova chat» on the shared list. The engine's user state carries no term, so the list keeps
+/// the empty one: the dialog already clears it when the field changes.
 pub struct Picker {
-    state: SearchState,
+    list: SearchList<Entry>,
     all_available: bool,
     all: bool,
-    active: usize,
 }
 
 impl Default for Picker {
     fn default() -> Self {
         Self {
-            state: SearchState::Idle,
+            list: SearchList::default(),
             all_available: false,
             all: false,
-            active: 0,
         }
     }
 }
@@ -64,80 +71,83 @@ impl Picker {
         if !all_available {
             self.all = false;
         }
-        if self.state != state {
-            self.active = 0;
-            self.state = state;
-        }
+        let term = String::new();
+        let (state, lead) = match state {
+            SearchState::Idle => (Shared::Idle, None),
+            SearchState::Searching => (Shared::Searching { term }, None),
+            SearchState::NoResults => (Shared::NoResults { term }, None),
+            SearchState::Error => (
+                Shared::Error {
+                    term,
+                    error: SearchError::Network,
+                },
+                None,
+            ),
+            SearchState::Results { hits, direct } => (
+                Shared::Results {
+                    term,
+                    hits: hits
+                        .into_iter()
+                        .map(|h| Entry {
+                            user_id: h.user_id,
+                            name: h.display_name,
+                            avatar: h.avatar_url,
+                            direct: false,
+                        })
+                        .collect(),
+                    more: More::None,
+                },
+                direct.map(|user_id| Entry {
+                    user_id,
+                    name: None,
+                    avatar: None,
+                    direct: true,
+                }),
+            ),
+        };
+        self.list.set_state(state);
+        self.list.set_lead(lead);
     }
 
     /// The typed ID first when the directory did not list it, else the exact match first.
     pub fn entries(&self) -> Vec<Entry> {
-        let SearchState::Results { hits, direct } = &self.state else {
-            return Vec::new();
-        };
-        let mut out: Vec<Entry> = hits
-            .iter()
-            .map(|h| Entry {
-                user_id: h.user_id.clone(),
-                name: h.display_name.clone(),
-                avatar: h.avatar_url.clone(),
-                direct: false,
+        self.list
+            .rows()
+            .into_iter()
+            .filter_map(|r| match r {
+                Row::Hit(e) => Some(e.clone()),
+                Row::More(_) => None,
             })
-            .collect();
-        if let Some(id) = direct {
-            match out.iter().position(|e| &e.user_id == id) {
-                Some(at) => out[..=at].rotate_right(1),
-                None => out.insert(
-                    0,
-                    Entry {
-                        user_id: id.clone(),
-                        name: None,
-                        avatar: None,
-                        direct: true,
-                    },
-                ),
-            }
-        }
-        out
+            .collect()
+    }
+
+    pub fn list(&self) -> &SearchList<Entry> {
+        &self.list
     }
 
     pub fn status(&self) -> Option<Status> {
-        match self.state {
-            SearchState::Searching => Some(Status::Searching),
-            SearchState::NoResults => Some(Status::NoResults),
-            SearchState::Error => Some(Status::Error),
-            _ => None,
-        }
+        self.list.status()
     }
 
     pub fn active(&self) -> usize {
-        self.active
+        self.list.active()
     }
 
     pub fn set_active(&mut self, index: usize) {
-        self.active = index.min(self.entries().len().saturating_sub(1));
+        self.list.set_active(index);
     }
 
     /// Arrow keys wrap around. Returns true when the key was ours.
     pub fn key(&mut self, key: &str) -> bool {
-        let len = self.entries().len();
-        if len == 0 {
-            return false;
-        }
-        match key {
-            "down" => self.active = (self.active + 1) % len,
-            "up" => self.active = (self.active + len - 1) % len,
-            _ => return false,
-        }
-        true
+        self.list.key(key)
     }
 
     /// The user ID Enter or a click starts a chat with.
     pub fn chosen(&self) -> Option<String> {
-        self.entries()
-            .into_iter()
-            .nth(self.active)
-            .map(|e| e.user_id)
+        match self.list.chosen()? {
+            Choice::Hit(e) => Some(e.user_id.clone()),
+            Choice::More => None,
+        }
     }
 
     pub fn all_available(&self) -> bool {
@@ -223,7 +233,7 @@ mod tests {
         p.set_state(SearchState::Searching, false);
         assert_eq!(p.status(), Some(Status::Searching));
         p.set_state(SearchState::Error, false);
-        assert_eq!(p.status(), Some(Status::Error));
+        assert_eq!(p.status(), Some(Status::Error(SearchError::Network)));
     }
 
     #[test]

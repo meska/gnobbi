@@ -2,7 +2,7 @@
 //! «Unisciti» (alias or room ID joins, any other text searches the public directory): a small
 //! dialog opened from the drawer. The engine does the work; the result closes it or shows one error line.
 use crate::*;
-use matrix_desktop::new_chat::{Picker, Status};
+use matrix_desktop::new_chat::Picker;
 use matrix_engine::operations::{DirectoryRoom, OperationCommand, OperationError, SearchState};
 
 pub(crate) struct NewRoom {
@@ -200,7 +200,9 @@ impl Shell {
         }
         room.busy = true;
         room.error = None;
-        self.pending_operation_command = Some(OperationCommand::JoinRoom { target: hit.target().to_owned() });
+        self.pending_operation_command = Some(OperationCommand::JoinRoom {
+            target: hit.target().to_owned(),
+        });
         cx.notify();
     }
 
@@ -331,7 +333,6 @@ impl Shell {
                 }
                 self.submit_new_room(cx);
             }
-
         }
         cx.notify();
     }
@@ -416,9 +417,19 @@ impl Shell {
             &room.cancel_focus,
             None,
         ));
-        items.push(item(Role::Button, room.submit_label(), None, &room.submit_focus, None));
+        items.push(item(
+            Role::Button,
+            room.submit_label(),
+            None,
+            &room.submit_focus,
+            None,
+        ));
         let none_found = room.found.as_ref().is_some_and(Vec::is_empty);
-        if let Some(text) = room.error.map(|e| error_text(room.dm, room.join, e)).or(none_found.then_some("Nessun risultato")) {
+        if let Some(text) = room
+            .error
+            .map(|e| error_text(room.dm, room.join, e))
+            .or(none_found.then_some("Nessun risultato"))
+        {
             items.push(Item {
                 role: Role::Label,
                 label: text.to_owned(),
@@ -489,68 +500,19 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let active = room.picker.active();
-        let rows = room
-            .picker
-            .entries()
-            .into_iter()
-            .enumerate()
-            .map(|(i, entry)| {
-                let initial = entry
-                    .name
-                    .as_deref()
-                    .unwrap_or(&entry.user_id)
-                    .trim_start_matches('@')
-                    .chars()
-                    .next()
-                    .map(|c| c.to_uppercase().to_string())
-                    .unwrap_or_default();
-                let picture = match self.avatars.get(entry.avatar.as_deref()) {
-                    Some(image) => avatar_view::round(image, 28.),
-                    None => div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(28.))
-                        .flex_shrink_0()
-                        .rounded_full()
-                        .bg(rgb(t.accent))
-                        .text_color(rgb(t.on_accent))
-                        .child(initial)
-                        .into_any_element(),
-                };
-                let line =
-                    |text: String, color: u32| div().truncate().text_color(rgb(color)).child(text);
-                div()
-                    .id(("new-chat-hit", i))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_2()
-                    .h(px(40.))
-                    .cursor_pointer()
-                    .when(i == active, |d| d.bg(rgb(t.input)))
-                    .child(picture)
-                    .child(if entry.direct {
-                        div().min_w_0().child(line(entry.label(), t.text))
-                    } else {
-                        div()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(line(
-                                entry.name.clone().unwrap_or_else(|| entry.user_id.clone()),
-                                t.text,
-                            ))
-                            .child(line(entry.user_id.clone(), t.disabled).text_size(px(12.)))
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(room) = &mut this.new_room {
-                            room.picker.set_active(i);
-                        }
-                        this.submit_new_room(cx);
-                    }))
-            });
+        let rows = crate::search_list_view::rows(
+            "new-chat-hit",
+            room.picker.list(),
+            t,
+            &self.avatars,
+            cx,
+            |this, i, cx| {
+                if let Some(room) = &mut this.new_room {
+                    room.picker.set_active(i);
+                }
+                this.submit_new_room(cx);
+            },
+        );
         let switch = room.picker.all_available().then(|| {
             let segment = |id: &'static str, label: &'static str, on: bool| {
                 div()
@@ -596,16 +558,7 @@ impl Shell {
             .gap_1()
             .children(switch)
             .children(rows)
-            .children(room.picker.status().map(|status| {
-                div()
-                    .text_size(px(13.))
-                    .text_color(rgb(if status == Status::Error {
-                        t.error
-                    } else {
-                        t.disabled
-                    }))
-                    .child(status.text())
-            }))
+            .children(crate::search_list_view::status(room.picker.list(), t))
             .into_any_element()
     }
 
@@ -679,8 +632,12 @@ impl Shell {
                                     .flex()
                                     .flex_col()
                                     .children(
-                                        room.found.iter().flatten().zip(&room.hits).enumerate().map(
-                                            |(i, (hit, focus))| {
+                                        room.found
+                                            .iter()
+                                            .flatten()
+                                            .zip(&room.hits)
+                                            .enumerate()
+                                            .map(|(i, (hit, focus))| {
                                                 div()
                                                     .id(("new-room-hit", i))
                                                     .track_focus(focus)
@@ -692,11 +649,13 @@ impl Shell {
                                                     .gap_2()
                                                     .cursor_pointer()
                                                     .border_1()
-                                                    .border_color(rgb(if focus.is_focused(window) {
-                                                        t.accent
-                                                    } else {
-                                                        t.surface
-                                                    }))
+                                                    .border_color(rgb(
+                                                        if focus.is_focused(window) {
+                                                            t.accent
+                                                        } else {
+                                                            t.surface
+                                                        },
+                                                    ))
                                                     .text_color(rgb(t.text))
                                                     .child(div().truncate().child(hit.name.clone()))
                                                     .child(
@@ -708,8 +667,7 @@ impl Shell {
                                                     .on_click(cx.listener(move |this, _, _, cx| {
                                                         this.join_hit(i, cx)
                                                     }))
-                                            },
-                                        ),
+                                            }),
                                     ),
                             )
                         })
@@ -768,7 +726,12 @@ impl Shell {
                                 .child(error_text(room.dm, room.join, error))
                         }))
                         .when(room.found.as_ref().is_some_and(Vec::is_empty), |d| {
-                            d.child(div().text_size(px(13.)).text_color(rgb(t.disabled)).child("Nessun risultato"))
+                            d.child(
+                                div()
+                                    .text_size(px(13.))
+                                    .text_color(rgb(t.disabled))
+                                    .child("Nessun risultato"),
+                            )
                         })
                         .child(
                             div()
@@ -811,12 +774,24 @@ mod tests {
     #[test]
     fn one_line_per_failure() {
         use OperationError::*;
-        assert_eq!(error_text(true, false, InvalidInput), "ID utente non valido");
+        assert_eq!(
+            error_text(true, false, InvalidInput),
+            "ID utente non valido"
+        );
         assert_eq!(error_text(false, false, InvalidInput), "Nome mancante");
         assert_eq!(error_text(true, false, Unavailable), "Utente non trovato");
-        assert_eq!(error_text(false, false, Unavailable), "Connessione non riuscita");
-        assert_eq!(error_text(true, false, Forbidden), "Non consentito dal server");
-        assert_eq!(error_text(true, false, Transport), "Connessione non riuscita");
+        assert_eq!(
+            error_text(false, false, Unavailable),
+            "Connessione non riuscita"
+        );
+        assert_eq!(
+            error_text(true, false, Forbidden),
+            "Non consentito dal server"
+        );
+        assert_eq!(
+            error_text(true, false, Transport),
+            "Connessione non riuscita"
+        );
         assert_eq!(error_text(false, true, InvalidInput), "Alias non valido");
         assert_eq!(error_text(false, true, Unavailable), "Stanza non trovata");
     }

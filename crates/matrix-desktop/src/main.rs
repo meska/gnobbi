@@ -15,6 +15,7 @@ mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
 mod new_room_view;
+mod search_list_view;
 mod room_edit_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

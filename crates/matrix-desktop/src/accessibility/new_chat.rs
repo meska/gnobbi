@@ -1,7 +1,9 @@
 //! «Nuova chat» for assistive technology. While the dialog is open it replaces the chat tree
 //! (like the notification panel): a dialog with the search field, the result list and one status line.
 use super::ROOT;
+use super::search_list::{self, Ids};
 use crate::new_chat::{Entry, Status};
+use crate::search_list::{Hit, Row};
 use accesskit::{
     Action, ActionRequest, Live, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate,
 };
@@ -14,6 +16,11 @@ pub const CANCEL: NodeId = NodeId(104);
 pub const START: NodeId = NodeId(105);
 /// Result `i` is node `OPTION + i`.
 pub const OPTION: u64 = 1000;
+const IDS: Ids = Ids {
+    list: LIST,
+    status: STATUS,
+    option: OPTION,
+};
 
 #[derive(Clone, Debug, Default)]
 pub struct Snapshot {
@@ -59,11 +66,9 @@ impl NewChatView {
         input.add_action(Action::Focus);
         input.set_controls(vec![LIST]);
         input.set_has_popup(accesskit::HasPopup::Listbox);
-        let selected = s
-            .entries
-            .get(s.active)
-            .map(|_| NodeId(OPTION + s.active as u64));
-        if let Some(id) = selected {
+        let rows: Vec<_> = s.entries.iter().map(Row::Hit).collect();
+        let list = search_list::project(IDS, &rows, s.active, s.status);
+        if let Some(id) = list.active {
             input.set_active_descendant(id);
         }
         leaf(&mut root, &mut nodes, INPUT, input);
@@ -75,33 +80,11 @@ impl NewChatView {
             switch.add_action(Action::Focus);
             leaf(&mut root, &mut nodes, SWITCH, switch);
         }
-        // The list exists only with entries, so no empty listbox is announced.
-        if !s.entries.is_empty() {
-            let mut list = Node::new(Role::ListBox);
-            list.set_label("Risultati");
-            let size = s.entries.len();
-            for (i, entry) in s.entries.iter().enumerate() {
-                let id = NodeId(OPTION + i as u64);
-                let mut option = Node::new(Role::ListBoxOption);
-                option.set_label(entry.label());
-                option.set_selected(i == s.active);
-                option.set_position_in_set(i + 1);
-                option.set_size_of_set(size);
-                option.add_action(Action::Click);
-                list.push_child(id);
-                nodes.push((id, option));
-            }
-            leaf(&mut root, &mut nodes, LIST, list);
+        if !list.list.is_empty() {
+            root.push_child(LIST);
+            nodes.extend(list.list);
         }
-        // A polite live region: the screen reader announces each state change.
-        let mut status = Node::new(Role::Status);
-        status.set_live(Live::Polite);
-        if let Some(status_text) = s.status {
-            status.set_value(status_text.text());
-        } else if !s.entries.is_empty() {
-            status.set_value(format!("{} risultati", s.entries.len()));
-        }
-        leaf(&mut root, &mut nodes, STATUS, status);
+        leaf(&mut root, &mut nodes, list.status.0, list.status.1);
         for (id, label) in [(CANCEL, "Annulla"), (START, "Avvia")] {
             let mut button = Node::new(Role::Button);
             button.set_label(label);
@@ -136,10 +119,8 @@ impl NewChatView {
                 .map(|e| e.user_id.clone())
                 .or_else(|| Some(s.text.trim().to_owned()).filter(|t| !t.is_empty()))
                 .map(NewChatAction::Choose),
-            (Action::Click, NodeId(n)) if n >= OPTION => s
-                .entries
-                .get((n - OPTION) as usize)
-                .map(|e| NewChatAction::Choose(e.user_id.clone())),
+            (Action::Click, node) => search_list::index_of(IDS, node, s.entries.len())
+                .map(|i| NewChatAction::Choose(s.entries[i].user_id.clone())),
             _ => None,
         }
     }

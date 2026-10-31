@@ -1,5 +1,11 @@
 use super::*;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 fn hit(id: &str) -> UserHit {
     UserHit {

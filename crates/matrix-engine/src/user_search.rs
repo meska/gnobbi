@@ -1,38 +1,24 @@
-//! «Nuova chat» user search over `Client::search_users` only. Debounced, superseded requests are
-//! aborted and can never publish. The search term is private: nothing here logs it, and the
+//! «Nuova chat» user search over `Client::search_users` only: a `search::Search` driver (debounce,
+//! abort of superseded requests) plus the user-specific part: same-instance filter and the typed ID. The search term is private: nothing here logs it, and the
 //! error state carries no text.
+use crate::search::{Page, Search, SearchError, SearchState as Driver};
 use matrix_sdk::{Client, ruma::UserId};
-use std::{
-    future::Future,
-    pin::Pin,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
-use tokio::{sync::watch, task::JoinHandle};
+use std::future::Future;
+use tokio::sync::watch;
 
 #[cfg(test)]
 #[path = "user_search_tests.rs"]
 mod tests;
 
-pub const DEBOUNCE: Duration = Duration::from_millis(275);
-pub const MIN_CHARS: usize = 2;
-const LIMIT: u64 = 20;
-
 pub use crate::operations::{Filter, SearchState, UserHit};
-
-type Fetch =
-    dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<Vec<UserHit>, ()>> + Send>> + Send + Sync;
+pub use crate::search::{DEBOUNCE, MIN_CHARS};
 
 pub struct UserSearch {
-    own_server: String,
-    fetch: Arc<Fetch>,
     all_available: bool,
     term: String,
     filter: Filter,
-    /// Guards publication: a task writes only while its generation is the current one.
-    generation: Arc<Mutex<u64>>,
-    tx: Arc<watch::Sender<SearchState>>,
-    task: Option<JoinHandle<()>>,
+    search: Search<Filter, UserHit>,
+    tx: watch::Sender<SearchState>,
 }
 
 impl UserSearch {
@@ -42,8 +28,11 @@ impl UserSearch {
         let own_server = client.user_id()?.server_name().to_string();
         let fetch = move |term: String| {
             let client = client.clone();
-            Box::pin(async move {
-                let found = client.search_users(&term, LIMIT).await.map_err(|_| ())?;
+            async move {
+                let found = client
+                    .search_users(&term, crate::search::PAGE.into())
+                    .await
+                    .map_err(|_| ())?;
                 Ok(found
                     .results
                     .into_iter()
@@ -53,7 +42,7 @@ impl UserSearch {
                         avatar_url: u.avatar_url.map(|m| m.to_string()),
                     })
                     .collect())
-            }) as Pin<Box<dyn Future<Output = _> + Send>>
+            }
         };
         Some(Self::new(own_server, false, fetch))
     }
@@ -63,15 +52,38 @@ impl UserSearch {
         F: Fn(String) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Vec<UserHit>, ()>> + Send + 'static,
     {
+        let own = own_server.clone();
+        let search = Search::new(Filter::default(), move |term, filter, _since| {
+            let (found, own) = (fetch(term), own.clone());
+            async move {
+                let mut hits = found.await.map_err(|()| SearchError::Network)?;
+                if filter == Filter::SameInstance {
+                    hits.retain(|h| {
+                        UserId::parse(&h.user_id).is_ok_and(|u| u.server_name().as_str() == own)
+                    });
+                }
+                Ok(Page {
+                    hits,
+                    next_batch: None,
+                })
+            }
+        });
+        let (tx, _) = watch::channel(SearchState::Idle);
+        // Mirror the driver in the legacy shape the dialog already consumes; ends when the driver drops.
+        let mut rx = search.subscribe();
+        let out = tx.clone();
+        tokio::spawn(async move {
+            while rx.changed().await.is_ok() {
+                let state = legacy(rx.borrow_and_update().clone());
+                out.send_replace(state);
+            }
+        });
         Self {
-            own_server,
-            fetch: Arc::new(move |t| Box::pin(fetch(t))),
             all_available,
             term: String::new(),
             filter: Filter::default(),
-            generation: Arc::default(),
-            tx: Arc::new(watch::channel(SearchState::Idle).0),
-            task: None,
+            search,
+            tx,
         }
     }
 
@@ -86,7 +98,7 @@ impl UserSearch {
 
     pub fn set_term(&mut self, term: &str) {
         self.term = term.trim().to_owned();
-        self.restart();
+        self.search.set_query(&self.term, self.filter);
     }
 
     /// Ignored when `All` is not available.
@@ -95,69 +107,27 @@ impl UserSearch {
             return;
         }
         self.filter = filter;
-        self.restart();
+        self.search.set_query(&self.term, self.filter);
     }
+}
 
-    fn restart(&mut self) {
-        if let Some(t) = self.task.take() {
-            t.abort();
-        }
-        let gen_now = {
-            let mut g = self.generation.lock().unwrap();
-            *g += 1;
-            let state = if self.term.chars().count() < MIN_CHARS {
-                SearchState::Idle
-            } else {
-                SearchState::Searching
-            };
-            self.tx.send_replace(state);
-            *g
-        };
-        if self.term.chars().count() < MIN_CHARS {
-            return;
-        }
-        let (term, filter, own) = (self.term.clone(), self.filter, self.own_server.clone());
-        let (fetch, generation, tx) =
-            (self.fetch.clone(), self.generation.clone(), self.tx.clone());
-        self.task = Some(tokio::spawn(async move {
-            tokio::time::sleep(DEBOUNCE).await;
-            let direct = UserId::parse(&term).ok().map(|u| u.to_string());
-            let found = fetch(term).await;
-            let state = outcome(found, direct, filter, &own);
-            let g = generation.lock().unwrap();
-            if *g == gen_now {
-                tx.send_replace(state);
+/// A full user ID typed in the field stays startable even if the directory failed or omitted it.
+fn legacy(state: Driver<UserHit>) -> SearchState {
+    let direct = state
+        .term()
+        .and_then(|t| UserId::parse(t).ok())
+        .map(|u| u.to_string());
+    match state {
+        Driver::Idle => SearchState::Idle,
+        Driver::Searching { .. } => SearchState::Searching,
+        Driver::Results { hits, .. } => SearchState::Results { hits, direct },
+        Driver::NoResults { .. } | Driver::Error { .. } if direct.is_some() => {
+            SearchState::Results {
+                hits: Vec::new(),
+                direct,
             }
-        }));
-    }
-}
-
-impl Drop for UserSearch {
-    fn drop(&mut self) {
-        if let Some(t) = self.task.take() {
-            t.abort();
         }
-    }
-}
-
-fn outcome(
-    found: Result<Vec<UserHit>, ()>,
-    direct: Option<String>,
-    filter: Filter,
-    own: &str,
-) -> SearchState {
-    let mut hits = match found {
-        Ok(h) => h,
-        // A typed ID can still be started even if the directory failed.
-        Err(()) if direct.is_none() => return SearchState::Error,
-        Err(()) => Vec::new(),
-    };
-    if filter == Filter::SameInstance {
-        hits.retain(|h| UserId::parse(&h.user_id).is_ok_and(|u| u.server_name().as_str() == own));
-    }
-    if hits.is_empty() && direct.is_none() {
-        SearchState::NoResults
-    } else {
-        SearchState::Results { hits, direct }
+        Driver::NoResults { .. } => SearchState::NoResults,
+        Driver::Error { .. } => SearchState::Error,
     }
 }
