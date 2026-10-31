@@ -1,5 +1,5 @@
 //! The one place that builds `WindowOptions`, so every window carries the same app id.
-use gpui::{Pixels, TitlebarOptions, WindowOptions, point, px};
+use gpui::{Pixels, TitlebarOptions, WindowOptions, px};
 
 /// Wayland app_id / X11 WM_CLASS; matches the installed desktop entry.
 pub const APP_ID: &str = "net.meskatech.gnobbi";
@@ -27,8 +27,7 @@ pub fn window_options() -> WindowOptions {
             title: Some(TITLE.into()),
             // macOS: the theme background extends under the titlebar; native drag and double-click zoom stay.
             appears_transparent: cfg!(target_os = "macos"),
-            traffic_light_position: cfg!(target_os = "macos").then(|| point(px(14.), px(14.))),
-            ..Default::default()
+            traffic_light_position: None, // native position: a custom one goes through gpui's unsafe move path and sat too low
         }),
         ..Default::default()
     }
