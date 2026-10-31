@@ -77,7 +77,7 @@ type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
 const SENDER_AVATAR_PX: f32 = 32.;
-const STATUS_AVATAR_PX: f32 = 16.;
+const STATUS_AVATAR_PX: f32 = 12.;
 
 /// Where a Tab press over the «Scarica» icons went.
 pub(crate) enum IconStep {
@@ -1481,11 +1481,11 @@ impl TimelineView {
                             let initials = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
                             match s.avatar.as_deref().and_then(|m| sender_pictures.borrow().get(m).cloned()) {
                                 Some(image) => crate::avatar_view::round(image, STATUS_AVATAR_PX),
-                                None => div().flex().items_center().justify_center().size(px(STATUS_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(9.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
+                                None => div().flex().items_center().justify_center().size(px(STATUS_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(7.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
                             }
                         });
-                        return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py_1().flex().justify_center().items_center().gap_2().overflow_hidden()
-                            .text_size(px(12.)).text_color(rgb(t.secondary))
+                        return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py(px(1.)).flex().justify_center().items_center().gap_1p5().overflow_hidden()
+                            .text_size(px(11.)).text_color(rgb(t.secondary))
                             // min_w_0 + text_center: long bridge texts wrap inside the column instead of overflowing it.
                             .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::one_line(&event.text))).into_any_element();
                     }
