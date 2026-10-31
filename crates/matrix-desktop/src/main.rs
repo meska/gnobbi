@@ -1504,7 +1504,8 @@ impl Render for Shell {
                 window.is_window_active(),
             );
             signin.update(cx, |view, _| view.theme = self.theme.tokens());
-            return div().size_full().child(signin.clone()).into_any_element();
+            let t = self.theme.tokens();
+            return div().size_full().bg(rgb(t.surface)).pt(matrix_desktop::window::titlebar_inset(window.is_fullscreen())).child(signin.clone()).into_any_element();
         }
         window.set_window_title(&matrix_desktop::window::title_for(None));
         let compact = window.viewport_size().width < px(800.);
@@ -1632,6 +1633,7 @@ impl Render for Shell {
             .on_key_down(cx.listener(Self::key_down))
             .flex()
             .size_full()
+            .pt(matrix_desktop::window::titlebar_inset(window.is_fullscreen()))
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
             .font_family(matrix_desktop::UI_FONT)
