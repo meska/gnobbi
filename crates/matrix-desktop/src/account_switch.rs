@@ -86,6 +86,19 @@ pub(crate) fn start_background(
     (workers, accounts, active)
 }
 
+/// Why a switch to a parked account cannot happen, or None when it can.
+pub(crate) fn switch_blocker(
+    active: Option<AccountId>,
+    status: Option<&RoomSyncStatus>,
+) -> Option<&'static str> {
+    match (active, status) {
+        (None, _) => Some("Riprova tra poco"),
+        (_, None) => Some("Non disponibile"),
+        (_, Some(RoomSyncStatus::AuthenticationFailed)) => Some("Accedi di nuovo"),
+        _ => None,
+    }
+}
+
 impl Shell {
     /// Keeps the background accounts syncing; their new-message alerts go out like the shown one's.
     pub(crate) fn pump_parked(&mut self) {
@@ -203,24 +216,33 @@ impl Shell {
 
     /// Whether `id` is another account that can be shown now.
     pub(crate) fn can_switch_to(&self, id: AccountId) -> bool {
-        self.active_id.is_some_and(|active| active != id)
+        self.active_id != Some(id)
             && self
                 .parked
                 .get(&id)
-                .is_some_and(|s| s.status != RoomSyncStatus::AuthenticationFailed)
+                .is_some_and(|s| switch_blocker(self.active_id, Some(&s.status)).is_none())
     }
 
     /// Shows account `id` (catalog ID). The one shown so far keeps syncing in the background.
+    /// When it cannot be shown the drawer stays open and the row says why.
     pub(crate) fn switch_account(
         &mut self,
         id: AccountId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_menu_open(false, window, cx);
-        if !self.can_switch_to(id) {
+        if self.active_id == Some(id) {
+            self.set_menu_open(false, window, cx);
             return;
         }
+        let status = self.parked.get(&id).map(|s| s.status);
+        if let Some(reason) = switch_blocker(self.active_id, status.as_ref()) {
+            self.switch_error = Some((id, reason));
+            cx.notify();
+            return;
+        }
+        self.switch_error = None;
+        self.set_menu_open(false, window, cx);
         let (Some(current), Some(next)) = (self.active_id, self.parked.remove(&id)) else {
             return;
         };
@@ -266,5 +288,42 @@ impl Shell {
         let scope = self.draft_scope();
         self.composer
             .update(cx, |editor, cx| editor.switch_room(scope, cx));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocker_explains_every_refusal() {
+        let id = Some(AccountId::new(1));
+        assert!(switch_blocker(id, Some(&RoomSyncStatus::Connecting)).is_none());
+        assert!(switch_blocker(id, Some(&RoomSyncStatus::AuthenticationFailed)).is_some());
+        assert!(switch_blocker(id, None).is_some());
+        assert!(switch_blocker(None, Some(&RoomSyncStatus::Connecting)).is_some());
+    }
+
+    /// Only a failed unlock refuses a started account; every refusal fits the one-line row.
+    #[test]
+    fn blocker_only_for_failed_unlock_and_one_line() {
+        let id = Some(AccountId::new(1));
+        for s in [
+            RoomSyncStatus::Connecting,
+            RoomSyncStatus::Ready,
+            RoomSyncStatus::SyncFailed,
+        ] {
+            assert!(switch_blocker(id, Some(&s)).is_none());
+        }
+        let all = [
+            switch_blocker(None, None),
+            switch_blocker(id, None),
+            switch_blocker(id, Some(&RoomSyncStatus::AuthenticationFailed)),
+        ];
+        for m in all.into_iter().map(|m| m.expect("refusal")) {
+            assert!(!m.is_empty() && !m.contains('\n') && m.chars().count() <= 18);
+        }
+        assert_ne!(all[0], all[1]);
+        assert_ne!(all[1], all[2]);
     }
 }

@@ -268,7 +268,7 @@ impl Shell {
             .enumerate()
             .map(|(index, a)| {
                 let id = a.id;
-                let switchable = self.can_switch_to(id);
+                let error = self.switch_error.filter(|(e, _)| *e == id).map(|(_, m)| m);
                 div()
                     .id(("menu-account", a.id.as_u64() as usize))
                     .h(px(52.))
@@ -277,12 +277,11 @@ impl Shell {
                     .rounded_lg()
                     .border_1()
                     .border_color(ring(index))
-                    .when(switchable, |d| {
-                        d.cursor_pointer()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.switch_account(id, window, cx)
-                            }))
-                    })
+                    .cursor_pointer()
+                    .hover(|d| d.bg(rgb(t.surface)))
+                    .on_click(
+                        cx.listener(move |this, _, window, cx| this.switch_account(id, window, cx)),
+                    )
                     .flex()
                     .items_center()
                     .gap_3()
@@ -308,7 +307,16 @@ impl Shell {
                                     .text_color(rgb(t.text))
                                     .child(a.name.clone()),
                             )
-                            .when(a.name != a.user_id, |d| {
+                            .when_some(error, |d, m| {
+                                d.child(
+                                    div()
+                                        .truncate()
+                                        .text_size(px(12.))
+                                        .text_color(rgb(t.accent))
+                                        .child(m),
+                                )
+                            })
+                            .when(error.is_none() && a.name != a.user_id, |d| {
                                 d.child(
                                     div()
                                         .truncate()

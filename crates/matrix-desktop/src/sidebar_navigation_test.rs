@@ -1569,6 +1569,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             key!("escape");
             this.update_in(cx, |this, window, cx| {
                 assert!(!this.menu_open && this.menu_focus.is_focused(window), "Esc closes the drawer");
+                this.switch_error = Some((matrix_domain::AccountId::new(1), "Riprova tra poco"));
+                this.set_menu_open(true, window, cx);
+                assert!(this.switch_error.is_none(), "opening the drawer clears a stale row error");
                 cx.quit();
             }).unwrap();
             return;
