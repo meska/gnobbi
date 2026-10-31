@@ -278,11 +278,16 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .unwrap();
 
         // Alice is away while more messages arrive.
+        let mut newest = None;
         for n in COUNT..COUNT + MISSED {
-            bob_room
-                .send(RoomMessageEventContent::text_plain(format!("m{n}")))
-                .await
-                .unwrap();
+            newest = Some(
+                bob_room
+                    .send(RoomMessageEventContent::text_plain(format!("m{n}")))
+                    .await
+                    .unwrap()
+                    .response
+                    .event_id,
+            );
         }
 
         // Restart online: opening the room brings in exactly the missed messages.
@@ -295,8 +300,15 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .await
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
-        // The app's running sync service delivers what was missed; here one sync does.
-        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
+        // The app's running sync service delivers what was missed. A sliding round answers with
+        // whatever window the server has ready (Tuwunel under load stopped at m44), so keep
+        // syncing, as the service does, until the newest sent message is stored.
+        eventually("the missed messages are synced", || async {
+            crate::room_sync::RoomSync::sliding_catch_up(&client).await.ok()?;
+            let (stored, _, _) = crate::room_sync::stored_events(&client, &room_id).await.ok()?;
+            (stored.last()?.event_id() == newest.as_deref()).then_some(())
+        })
+        .await;
         let scope = RoomScope {
             account_id: AccountId::new(293),
             room_id: RoomId::new(room_id.as_str()),
@@ -333,7 +345,13 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .page
             .unwrap();
         drop((store, client));
-        let bodies: Vec<&str> = page.events.iter().map(|e| e.body.as_str()).collect();
+        // Status rows (alice's own join) sit in the timeline too; the claim is about messages.
+        let bodies: Vec<&str> = page
+            .events
+            .iter()
+            .filter(|e| !e.status)
+            .map(|e| e.body.as_str())
+            .collect();
         let expect: Vec<String> = (0..COUNT + MISSED).map(|n| format!("m{n}")).collect();
         // The Timeline shows the newest part and pages the rest on scroll: a contiguous tail.
         assert!(
