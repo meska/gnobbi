@@ -78,6 +78,7 @@ struct Shell {
     settings_row: usize,
     prefs: matrix_desktop::Preferences,
     prefs_dirs: Option<matrix_desktop::AppDirs>,
+    room_prefs: matrix_desktop::RoomPrefs,
     /// Catalog as last read; reloaded whenever the drawer opens or this window signs in.
     accounts: matrix_desktop::AccountCatalog,
     /// Profile folder and trust root this window was started with.
@@ -1595,6 +1596,7 @@ impl Render for Shell {
         }
         if let Some(timeline) = &self.timeline {
             timeline.set_hide_redacted(self.prefs.hide_redacted);
+            timeline.set_hide_status(self.room_prefs.hide_status(&self.active_scope));
         }
         #[cfg(test)]
         if navigation_resize_test::FROZEN.load(std::sync::atomic::Ordering::SeqCst) {
@@ -2808,6 +2810,7 @@ fn main() {
                         settings_row: 0,
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),
                         account_root: account_root.clone(),
+                        room_prefs: prefs_dirs.as_ref().map(matrix_desktop::RoomPrefs::load).unwrap_or_default(),
                         prefs_dirs,
                         prefs,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

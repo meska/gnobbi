@@ -22,6 +22,13 @@ pub fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Status row text with the event time after it («Anna è entrato/a nella stanza · 01:20 UTC»);
+/// one string, so a long row wraps and centres as a whole. `time` is the bubble stamp's.
+pub fn status_with_time(text: &str, time: &str) -> String {
+    let text = one_line(text);
+    if time.is_empty() { text } else { format!("{text} · {time}") }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,6 +66,12 @@ mod tests {
     }
 
     const _: () = assert!(AVATAR_PX + 2. * ROW_PAD_Y <= ROW_HEIGHT_PX);
+
+    #[test]
+    fn status_row_shows_the_event_time() {
+        assert_eq!(status_with_time("Anna è entrato/a\nnella stanza", "01:20 UTC"), "Anna è entrato/a nella stanza · 01:20 UTC");
+        assert_eq!(status_with_time("Anna", ""), "Anna");
+    }
 
     #[test]
     fn one_line_collapses_breaks() {

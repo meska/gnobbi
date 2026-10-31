@@ -8,7 +8,8 @@ pub struct DemoHistory {
     older_count: usize,
     local_count: usize,
     hide_redacted: bool,
-    /// Redacted rows kept out of `events` while hidden.
+    hide_status: bool,
+    /// Redacted/status rows kept out of `events` while hidden.
     hidden: Vec<DemoEvent>,
 }
 
@@ -188,6 +189,7 @@ impl DemoHistory {
             older_count: 0,
             local_count: 0,
             hide_redacted: false,
+            hide_status: false,
             hidden: Vec::new(),
         }
     }
@@ -373,7 +375,7 @@ impl DemoHistory {
             .collect::<Vec<_>>();
         let count = rows
             .iter()
-            .filter(|r| !(self.hide_redacted && r.redacted))
+            .filter(|r| !self.hides(r))
             .count();
         if append {
             self.events.append(&mut rows);
@@ -381,8 +383,12 @@ impl DemoHistory {
             rows.append(&mut self.events);
             self.events = rows;
         }
-        self.sweep_redacted();
+        self.sweep_hidden();
         count
+    }
+
+    fn hides(&self, row: &DemoEvent) -> bool {
+        (self.hide_redacted && row.redacted) || (self.hide_status && row.status)
     }
 
     /// «Nascondi messaggi eliminati»: shows or hides the redacted rows already loaded.
@@ -392,31 +398,43 @@ impl DemoHistory {
             return false;
         }
         self.hide_redacted = hide;
-        if hide {
-            self.sweep_redacted();
-        } else {
-            // shortcut: order by origin_server_ts, not by SDK position; revisit if the timeline shows events out of time order.
-            for row in std::mem::take(&mut self.hidden) {
-                // ts 0 = row not yet synced: it goes to the tail.
-                let at = self
-                    .events
-                    .iter()
-                    .position(|e| row.timestamp_ms != 0 && (e.timestamp_ms == 0 || e.timestamp_ms > row.timestamp_ms))
-                    .unwrap_or(self.events.len());
-                self.events.insert(at, row);
-            }
-        }
+        self.reproject();
         true
     }
 
-    /// While hiding, moves redacted rows out of `events`; neighbours then group as if they never existed.
-    fn sweep_redacted(&mut self) {
-        if !self.hide_redacted {
-            return;
+    /// Per-room «Nascondi messaggi di stato»: same projection, for status rows (all of them, room creation included).
+    pub fn set_hide_status(&mut self, hide: bool) -> bool {
+        if self.hide_status == hide {
+            return false;
         }
+        self.hide_status = hide;
+        self.reproject();
+        true
+    }
+
+    fn reproject(&mut self) {
+        self.sweep_hidden();
+        // shortcut: order by origin_server_ts, not by SDK position; revisit if the timeline shows events out of time order.
+        let (still, back): (Vec<_>, Vec<_>) = std::mem::take(&mut self.hidden)
+            .into_iter()
+            .partition(|r| self.hides(r));
+        self.hidden = still;
+        for row in back {
+            // ts 0 = row not yet synced: it goes to the tail.
+            let at = self
+                .events
+                .iter()
+                .position(|e| row.timestamp_ms != 0 && (e.timestamp_ms == 0 || e.timestamp_ms > row.timestamp_ms))
+                .unwrap_or(self.events.len());
+            self.events.insert(at, row);
+        }
+    }
+
+    /// Moves hidden rows out of `events`; neighbours then group as if they never existed.
+    fn sweep_hidden(&mut self) {
         let mut kept: Vec<DemoEvent> = Vec::with_capacity(self.events.len());
         for row in std::mem::take(&mut self.events) {
-            if row.redacted {
+            if self.hides(&row) {
                 self.hidden.push(row);
             } else {
                 kept.push(row);
@@ -512,7 +530,7 @@ impl DemoHistory {
                 );
             }
         }
-        self.sweep_redacted();
+        self.sweep_hidden();
     }
 
     /// Reconcile outgoing rows by transaction/event ID, never by message text.

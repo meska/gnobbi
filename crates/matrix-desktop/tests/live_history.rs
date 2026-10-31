@@ -368,6 +368,14 @@ fn server_rows_preserve_scoped_identity_body_and_timestamp_without_demo_labels()
     assert!(row.send_state.is_none());
 }
 #[test]
+fn status_row_takes_the_server_timestamp_like_a_bubble() {
+    let mut history = DemoHistory::new(scope("!alpha:test"), 0);
+    let mut joined = event("$s");
+    (joined.status, joined.timestamp_ms) = (true, 4_800_000);
+    history.prepend_server(vec![joined]);
+    assert_eq!(history.events()[0].time, "01:20 UTC");
+}
+#[test]
 fn queued_pagination_intent_cannot_load_a_later_page_or_different_room() {
     let mut view = HistorySession::new();
     assert!(view.pagination_tag().is_none());
