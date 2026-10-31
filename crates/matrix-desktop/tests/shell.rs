@@ -21,18 +21,18 @@ fn shell_fixture_is_explicitly_offline_and_deterministic() {
 }
 
 #[test]
-fn shell_tokens_define_baseline_geometry_and_original_palette() {
+fn shell_tokens_define_baseline_geometry_and_green_palette() {
     let t = matrix_desktop::LIGHT;
     assert_eq!(
         (t.width, t.height, t.sidebar, t.header, t.composer),
         (1120., 760., 320., 64., 72.)
     );
     assert_eq!(t.surface, 0xffffff);
-    assert_eq!(t.text, 0x17212b);
-    assert_eq!(t.secondary, 0x465b70);
+    assert_eq!(t.text, 0x17231b);
+    assert_eq!(t.secondary, 0x46604e);
     assert_eq!(t.accent, 0x1264aa);
-    assert_eq!(t.timeline, 0xe8f0ed);
+    assert_eq!(t.timeline, 0xe9f0eb);
     assert_eq!(t.outgoing, 0xd9fdd3);
-    assert_eq!(t.selected, 0xe8f3fd);
-    assert_eq!(t.border, 0xe3e9ed);
+    assert_eq!(t.selected, 0xe9f5ec);
+    assert_eq!(t.border, 0xe4eae6);
 }
