@@ -1590,7 +1590,8 @@ impl Render for Shell {
                 window.is_window_active(),
             );
             signin.update(cx, |view, _| view.theme = self.theme.tokens());
-            return div().size_full().child(signin.clone()).into_any_element();
+            let t = self.theme.tokens();
+            return div().size_full().bg(rgb(t.surface)).pt(matrix_desktop::window::titlebar_inset(window.is_fullscreen())).child(signin.clone()).into_any_element();
         }
         window.set_window_title(&matrix_desktop::window::account_title(self.verification.profile()));
         let compact = window.viewport_size().width < px(800.);
@@ -1724,12 +1725,14 @@ impl Render for Shell {
             }))
             .capture_key_up(cx.listener(Self::sidebar_activation_up))
             .on_key_down(cx.listener(Self::key_down))
-            .flex()
             .size_full()
+            .pt(matrix_desktop::window::titlebar_inset(window.is_fullscreen()))
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
             .font_family(matrix_desktop::ui_font())
             .text_size(px(14.))
+            // inner box: absolute overlays (top_0/inset_0) start below the titlebar inset, which stays draggable
+            .child(div().relative().size_full().flex()
             .when(!compact, |d| d.child(self.render_rail(window, cx)))
             .when(!compact || !self.compact_chat, |d| {
                 d.child(
@@ -2120,7 +2123,7 @@ impl Render for Shell {
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
             .children(self.render_room_edit(t, window, cx))
-            .children(self.render_groups_edit(t, cx))
+            .children(self.render_groups_edit(t, cx)))
             .into_any_element()
     }
 }

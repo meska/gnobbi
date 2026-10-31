@@ -1,5 +1,5 @@
 //! The one place that builds `WindowOptions`, so every window carries the same app id.
-use gpui::{TitlebarOptions, WindowOptions};
+use gpui::{Pixels, TitlebarOptions, WindowOptions, px};
 
 /// Wayland app_id / X11 WM_CLASS; matches the installed desktop entry.
 pub const APP_ID: &str = "net.meskatech.gnobbi";
@@ -38,12 +38,20 @@ pub fn signin_section(recovery: bool, unlock: bool) -> &'static str {
     }
 }
 
+/// Height of the transparent macOS titlebar the content must clear (the theme colour shows through it).
+/// Zero elsewhere and in fullscreen, where the system titlebar is gone.
+pub fn titlebar_inset(fullscreen: bool) -> Pixels {
+    if cfg!(target_os = "macos") && !fullscreen { px(28.) } else { px(0.) }
+}
+
 pub fn window_options() -> WindowOptions {
     WindowOptions {
         app_id: Some(APP_ID.into()),
         titlebar: Some(TitlebarOptions {
             title: Some(TITLE.into()),
-            ..Default::default()
+            // macOS: the theme background extends under the titlebar; native drag and double-click zoom stay.
+            appears_transparent: cfg!(target_os = "macos"),
+            traffic_light_position: None, // native position: a custom one goes through gpui's unsafe move path and sat too low
         }),
         ..Default::default()
     }
@@ -94,6 +102,12 @@ mod tests {
         for t in [account_title(None), account_title(Some(&alice))] {
             assert!(!t.contains("Accedi") && !t.contains("Sblocca") && !t.contains("Cronologia"));
         }
+    }
+
+    #[test]
+    fn inset_only_on_macos_windowed() {
+        assert_eq!(titlebar_inset(true), px(0.));
+        assert_eq!(titlebar_inset(false), if cfg!(target_os = "macos") { px(28.) } else { px(0.) });
     }
 
     #[test]
