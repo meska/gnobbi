@@ -25,6 +25,28 @@ pub enum Status {
     MemberAvatar,
 }
 
+/// Longest fallback taken from an ID before it is cut with an ellipsis.
+const MAX_ID_LABEL: usize = 24;
+
+/// Name shown in a status row: the display name; else the part of the mxid before the domain
+/// (a bridge number, masked or not, shows as it is); else the whole ID. IDs are cut with «…».
+/// A name equal to the ID, or the SDK's «Unknown user» placeholder, counts as no name.
+pub fn display_label(name: Option<&str>, id: &str) -> String {
+    let (id, name) = (id.trim(), name.map(str::trim).unwrap_or_default());
+    if !name.is_empty() && !name.eq_ignore_ascii_case(id) && !name.eq_ignore_ascii_case("unknown user") {
+        return name.to_owned();
+    }
+    let local = id.trim_start_matches('@').split(':').next().unwrap_or_default();
+    let pick = if local.is_empty() { id } else { local };
+    if pick.is_empty() {
+        return "Un utente".to_owned();
+    }
+    if pick.chars().count() <= MAX_ID_LABEL {
+        return pick.to_owned();
+    }
+    format!("{}…", pick.chars().take(MAX_ID_LABEL - 1).collect::<String>())
+}
+
 /// `actor` did it to `subject` (the same person for self-service changes).
 pub fn status_text(status: &Status, actor: &str, subject: &str) -> String {
     match status {
@@ -55,6 +77,23 @@ pub fn status_text(status: &Status, actor: &str, subject: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn label_fallbacks() {
+        let id = "@whatsapp_lid-123:example.com";
+        assert_eq!(display_label(Some("Marco"), id), "Marco");
+        assert_eq!(display_label(None, id), "whatsapp_lid-123");
+        assert_eq!(display_label(Some(""), id), "whatsapp_lid-123");
+        assert_eq!(display_label(Some(id), id), "whatsapp_lid-123");
+        assert_eq!(display_label(Some("Unknown user"), id), "whatsapp_lid-123");
+        assert_eq!(display_label(Some("+39••••••56"), id), "+39••••••56");
+        assert_eq!(display_label(None, "@+39••••••56:example.com"), "+39••••••56");
+        assert_eq!(display_label(None, ""), "Un utente");
+        assert_eq!(display_label(None, "@:x.test"), "@:x.test");
+        let long = display_label(None, "@whatsapp_lid-12345678901234567890:example.com");
+        assert_eq!(long.chars().count(), MAX_ID_LABEL);
+        assert!(long.ends_with('…') && !long.contains("example.com"));
+    }
 
     #[test]
     fn wording_follows_element() {
