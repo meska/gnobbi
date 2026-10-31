@@ -302,4 +302,27 @@ mod tests {
         assert!(switch_blocker(id, None).is_some());
         assert!(switch_blocker(None, Some(&RoomSyncStatus::Connecting)).is_some());
     }
+
+    /// Only a failed unlock refuses a started account; every refusal fits the one-line row.
+    #[test]
+    fn blocker_only_for_failed_unlock_and_one_line() {
+        let id = Some(AccountId::new(1));
+        for s in [
+            RoomSyncStatus::Connecting,
+            RoomSyncStatus::Ready,
+            RoomSyncStatus::SyncFailed,
+        ] {
+            assert!(switch_blocker(id, Some(&s)).is_none());
+        }
+        let all = [
+            switch_blocker(None, None),
+            switch_blocker(id, None),
+            switch_blocker(id, Some(&RoomSyncStatus::AuthenticationFailed)),
+        ];
+        for m in all.into_iter().map(|m| m.expect("refusal")) {
+            assert!(!m.is_empty() && !m.contains('\n'));
+        }
+        assert_ne!(all[0], all[1]);
+        assert_ne!(all[1], all[2]);
+    }
 }
