@@ -26,6 +26,8 @@ mod room_details_view;
 mod room_menu_view;
 mod scrollbar_view;
 mod settings_view;
+#[cfg(any(test, feature = "gui-fixture"))]
+mod rail_drag_test;
 #[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
@@ -2251,6 +2253,7 @@ fn main() {
     let args = if navigation_resize_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || panel_opener_view::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
     {
         vec![]
     } else {
@@ -2794,6 +2797,8 @@ fn main() {
                     panel_opener_view::install(window, cx);
                     #[cfg(test)]
                     sidebar_navigation_test::install(window, cx);
+                    #[cfg(any(test, feature = "gui-fixture"))]
+                    rail_drag_test::install(window, cx);
                     Shell {
                         #[cfg(feature = "live")]
                         signin: signin.clone(),

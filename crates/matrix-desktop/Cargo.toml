@@ -48,6 +48,8 @@ desktop = ["dep:gpui", "dep:image"]
 live = ["desktop", "matrix-engine/sdk", "dep:tracing-subscriber"]
 # Test-only fixture driver, absent from ordinary/default/live desktop builds.
 perf-probe = ["desktop"]
+# Test-only fixture hook (src/rail_drag_test.rs) for builds that must run as a plain binary: macOS has no libtest main thread for gpui.
+gui-fixture = ["desktop"]
 # New profiles keep their protection secret in the OS vault instead of a local phrase.
 linux-vault = ["live", "matrix-engine/linux-vault"]
 mac-vault = ["live", "matrix-engine/mac-vault"]

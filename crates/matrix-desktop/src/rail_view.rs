@@ -78,13 +78,13 @@ fn edit_step(at: EditFocus, open: bool, key: &str, shift: bool) -> Option<(EditF
 pub(crate) struct RailUi {
     pub(crate) focus: FocusHandle,
     pub(crate) edit_focus: FocusHandle,
-    edit_panel_focus: FocusHandle,
-    edit_open: bool,
-    edit_cursor: usize,
+    pub(crate) edit_panel_focus: FocusHandle,
+    pub(crate) edit_open: bool,
+    pub(crate) edit_cursor: usize,
     pub(crate) layouts: matrix_desktop::RailLayouts,
     pub(crate) target: Option<RoomScope>,
     scroll: gpui::ScrollHandle,
-    edit_scroll: gpui::ScrollHandle,
+    pub(crate) edit_scroll: gpui::ScrollHandle,
     anchors: std::cell::RefCell<HashMap<Option<RoomScope>, gpui::ScrollAnchor>>,
 }
 impl RailUi {
@@ -180,7 +180,7 @@ impl Shell {
     }
 
     /// Every space in the user's order with its hidden flag; «Tutte» first.
-    fn rail_arranged(&self) -> Vec<(matrix_desktop::NavigationEntry, bool)> {
+    pub(crate) fn rail_arranged(&self) -> Vec<(matrix_desktop::NavigationEntry, bool)> {
         self.rail_ui
             .layouts
             .get(self.rail_account())
