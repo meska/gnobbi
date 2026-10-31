@@ -60,6 +60,7 @@ impl super::NavigationSnapshot {
     pub fn for_signin(signin: Snapshot) -> Self {
         Self {
             title: crate::window::TITLE.into(),
+            new_chat: Default::default(),
             signin: Some(signin),
             openers: vec![],
             back: None,

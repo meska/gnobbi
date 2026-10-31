@@ -10,6 +10,7 @@ pub mod event_id_copy;
 pub mod filters;
 pub mod links;
 pub mod new_room;
+pub mod new_chat;
 pub mod notifications;
 pub mod settings;
 pub mod offline_delivery;
@@ -566,6 +567,7 @@ pub struct NavigationSnapshot {
     pub notifications: notifications::NotificationView,
     /// Some while the drawer's Settings page is open: it hides everything else.
     pub settings: Option<settings::SettingsSnapshot>,
+    pub new_chat: new_chat::NewChatView,
     pub dark: bool,
     pub visible: bool,
     pub query: String,
@@ -585,6 +587,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.action(request);
+        }
+        if matches!(self.new_chat, new_chat::NewChatView::Open(_)) {
+            return self.new_chat.action(request).map(NavigationAction::NewChat);
         }
         if request.target_tree == TreeId::ROOT
             && request.data.is_none()
@@ -913,6 +918,9 @@ impl NavigationSnapshot {
         }
         if let Some(settings) = &self.settings {
             return settings.tree();
+        }
+        if let Some(tree) = self.new_chat.tree() {
+            return tree;
         }
         if let devices::DeviceView::Open(panel) = &self.devices {
             return panel.tree();
@@ -1463,6 +1471,7 @@ pub enum NavigationAction {
     Details(details::DetailsAction),
     Notifications(notifications::NotificationAction),
     Settings(settings::SettingsAction),
+    NewChat(new_chat::NewChatAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
     ChooseIcon(crate::IconChoice),
     ToggleMenu,

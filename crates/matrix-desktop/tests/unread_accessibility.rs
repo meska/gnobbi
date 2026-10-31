@@ -32,6 +32,7 @@ fn unread_description_updates_without_renaming_or_reidentifying_room() {
         assert_eq!(*stable.get_or_insert(id), id);
         let tree = NavigationSnapshot {
             title: "Gnobbi".into(),
+            new_chat: Default::default(),
             #[cfg(all(feature = "live", unix))]
             signin: None,
             openers: vec![],

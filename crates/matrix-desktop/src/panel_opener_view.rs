@@ -435,6 +435,7 @@ mod tests {
         };
         let navigation = NavigationSnapshot {
             title: matrix_desktop::window::TITLE.into(),
+            new_chat: Default::default(),
             #[cfg(feature = "live")]
             signin: None,
             openers: this.semantic_openers(window),

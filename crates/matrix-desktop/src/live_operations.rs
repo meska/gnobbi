@@ -228,7 +228,8 @@ impl LiveOperations {
             | OperationResult::Profile { .. }
             | OperationResult::Thread { .. }
             | OperationResult::ThreadSent { .. }
-            | OperationResult::Members { .. } => false,
+            | OperationResult::Members { .. }
+            | OperationResult::UserSearch { .. } => false,
             OperationResult::Inspected {
                 tag,
                 target,

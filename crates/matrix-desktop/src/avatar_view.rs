@@ -118,9 +118,11 @@ impl crate::Shell {
             .filter_map(|room| room.info.avatar.as_deref());
         let people = self.people_avatars();
         let own = self.verification.profile_avatar();
+        let found = self.new_chat_avatars();
         let wanted = own
             .into_iter()
             .chain(people.iter().map(String::as_str))
+            .chain(found.iter().map(String::as_str))
             .chain(senders.iter().map(String::as_str))
             .chain(listed);
         let arrived = self.avatars.drive(&self.routes.avatars, wanted);

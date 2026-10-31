@@ -31,6 +31,8 @@ pub mod room_tags;
 pub mod sliding;
 #[cfg(feature = "sdk")]
 pub mod threads;
+#[cfg(feature = "sdk")]
+pub mod user_search;
 pub mod verification;
 #[cfg(feature = "sdk")]
 mod warm;

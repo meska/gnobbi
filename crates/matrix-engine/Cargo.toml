@@ -88,3 +88,7 @@ required-features = ["sdk"]
 [[test]]
 name = "fed_invite"
 required-features = ["sdk"]
+
+[[test]]
+name = "user_search_live"
+required-features = ["sdk"]

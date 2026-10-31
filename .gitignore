@@ -22,6 +22,11 @@ matrix-test-*.yaml
 *.log
 *.tmp
 
+# Probe userdir-live (container usa e getta)
+/scripts/userdir-live/probe/target/
+/scripts/userdir-live/out/
+/scripts/userdir-live/tuwunel-runtime.toml
+
 # Python (script di supporto)
 __pycache__/
 *.pyc

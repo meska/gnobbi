@@ -374,10 +374,45 @@ impl RoomListWorker {
                     let mut operations_task = tokio::spawn(async move {
                         let mut clean = true;
                         use crate::operations::{OperationCommand, OperationResult};
-                        while let Some(command) =
-                            shutdown_receive(&operation_stop, &mut operations).await
-                        {
+                        let mut search = crate::user_search::UserSearch::for_client(operation_client.clone());
+                        let mut search_rx = search.as_ref().map(|s| s.subscribe());
+                        loop {
+                            let command = tokio::select! {
+                                command = shutdown_receive(&operation_stop, &mut operations) => {
+                                    match command {
+                                        Some(command) => command,
+                                        None => break,
+                                    }
+                                }
+                                Some(()) = async {
+                                    match &mut search_rx {
+                                        Some(rx) => rx.changed().await.ok(),
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    let state = search_rx.as_mut().unwrap().borrow_and_update().clone();
+                                    let all_available = search.as_ref().is_some_and(|s| s.all_available());
+                                    let sent = until_stopped(
+                                        &operation_stop,
+                                        operation_results.send(OperationResult::UserSearch { state, all_available }),
+                                    )
+                                    .await;
+                                    clean &= matches!(sent, Some(Ok(())) | None);
+                                    continue;
+                                }
+                            };
                             let result = match command {
+                                OperationCommand::SearchUsers { term, all } => {
+                                    if let Some(search) = &mut search {
+                                        search.set_filter(if all {
+                                            crate::user_search::Filter::All
+                                        } else {
+                                            crate::user_search::Filter::SameInstance
+                                        });
+                                        search.set_term(&term);
+                                    }
+                                    continue;
+                                }
                                 OperationCommand::Inspect { tag, target } => {
                                     if tag.is_cancelled()
                                         || operation_stop.load(std::sync::atomic::Ordering::Acquire)

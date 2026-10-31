@@ -46,6 +46,7 @@ fn painted_root_openers_offer_focus_and_click_from_the_same_source() {
 fn navigation() -> NavigationSnapshot {
     NavigationSnapshot {
         title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
