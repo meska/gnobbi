@@ -1575,7 +1575,7 @@ async fn status_row(
     use matrix_sdk::ruma::events::StateEventContentChange::Original;
     use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange as State, MembershipChange as M, TimelineItemContent as C};
     let actor = history_sender(room, event.sender()).await;
-    let label = |s: &crate::history::HistorySender| s.name.clone().unwrap_or_else(|| s.id.clone());
+    let label = |s: &crate::history::HistorySender| crate::status_line::display_label(s.name.as_deref(), &s.id);
     // `shown` is the person whose avatar leads the row; `subject` is who the sentence is about.
     let (status, shown, subject) = match event.content() {
         C::MembershipChange(change) => {
