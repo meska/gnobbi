@@ -6,6 +6,8 @@
 #   ./run.sh build     # compila probe/ dentro un container rust:1 (cache nel volume userdir-cargo)
 #   ./run.sh default   # scenario: Synapse e Tuwunel con configurazione di default
 #   ./run.sh all       # scenario: search_all_users (Synapse) e show_all_local_users (Tuwunel)
+#   ./run.sh live      # test live engine user_search_live su Synapse e Tuwunel (cargo sul host)
+#   ./run.sh up        # server popolati e lasciati accesi (18008 Synapse, 18009 Tuwunel)
 #   ./run.sh down      # spegne ed elimina i volumi
 #
 # Ogni scenario ricrea i server da zero (volumi freschi), registra
@@ -109,6 +111,19 @@ scenario() {
     fi
     sleep 3
   done
+  [ "$mode" = up ] && return 0  # server pronti e popolati, restano accesi (QA a mano)
+  if [ "$mode" = live ]; then
+    # Test live del dialogo «Nuova chat» (ignorato di default): un giro per server.
+    local rc=0 repo
+    repo=$(cd ../.. && pwd)
+    for pair in "http://localhost:18008 $SYN_NAME" "http://localhost:18009 $TUW_NAME"; do
+      set -- $pair
+      (cd "$repo" && USERDIR_URL=$1 USERDIR_SERVER=$2 cargo test -p matrix-engine --features sdk \
+        --test user_search_live -- --ignored --nocapture) || rc=1
+    done
+    down
+    return $rc
+  fi
   mkdir -p out
   : > "out/$mode.jsonl"
   for local in alice carol; do
@@ -120,7 +135,7 @@ scenario() {
 
 case "${1:-}" in
   build) build ;;
-  default | all) scenario "$1" ;;
+  default | all | live | up) scenario "$1" ;;
   down) down ;;
-  *) echo "uso: $0 build|default|all|down" >&2; exit 2 ;;
+  *) echo "uso: $0 build|default|all|live|down" >&2; exit 2 ;;
 esac
