@@ -72,3 +72,8 @@ required-features = ["sdk"]
 [[test]]
 name = "thread_qa"
 required-features = ["sdk"]
+
+[dev-dependencies.tokio]
+version = "=1.53.2"
+default-features = false
+features = ["rt", "time", "macros", "sync", "test-util"]
