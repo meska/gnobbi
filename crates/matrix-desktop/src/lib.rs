@@ -49,6 +49,8 @@ mod accent;
 pub use accent::{Accent, current_accent, set_accent, system_accent};
 mod preferences;
 mod rail_layout;
+mod room_prefs;
+pub use room_prefs::RoomPrefs;
 pub use rail_layout::{RailLayout, RailLayouts};
 pub use preferences::{
     AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,

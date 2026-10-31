@@ -63,6 +63,19 @@ impl Shell {
         cx.notify();
     }
 
+    pub(crate) fn toggle_hide_status(&mut self, cx: &mut Context<Self>) {
+        let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone()) else {
+            return;
+        };
+        self.room_prefs.toggle_hide_status(&scope);
+        if let Some(dirs) = &self.prefs_dirs
+            && let Err(error) = self.room_prefs.save(dirs)
+        {
+            eprintln!("Gnobbi: cannot save room preferences: {error}");
+        }
+        cx.notify();
+    }
+
     fn details_observer(&self, _index: usize, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
@@ -258,6 +271,7 @@ impl Shell {
         let focused_control = Some(self.details_focus as usize);
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
+        let hide_status = self.room_prefs.hide_status(&room.scope);
         div()
             .id("room-details")
             // Own the wheel: without it the hit-test lets events through to the timeline list.
@@ -371,6 +385,14 @@ impl Shell {
                                     ));
                                 }
                             })),
+                    )
+                    .child(
+                        div()
+                            .id("room-hide-status")
+                            .cursor_pointer()
+                            .text_color(rgb(t.accent))
+                            .child(if hide_status { "Mostra messaggi di stato" } else { "Nascondi messaggi di stato" })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
                     )
                     .child(
                         div()
