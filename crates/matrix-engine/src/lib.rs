@@ -27,6 +27,7 @@ pub mod room_sync;
 pub mod notify;
 #[cfg(feature = "sdk")]
 pub mod room_tags;
+pub mod search;
 #[cfg(feature = "sdk")]
 pub mod sliding;
 #[cfg(feature = "sdk")]
