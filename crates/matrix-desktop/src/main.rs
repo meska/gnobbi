@@ -1427,6 +1427,10 @@ impl Shell {
                         OperationCommand::SearchDirectory { .. } => OperationResult::DirectoryFound {
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::ProbeServer { server } => OperationResult::ServerProbed {
+                            server,
+                            result: Err(matrix_engine::search::SearchError::Network),
+                        },
                         OperationCommand::LeaveRoom { scope } => OperationResult::RoomLeft {
                             scope,
                             result: Err(OperationError::Unavailable),

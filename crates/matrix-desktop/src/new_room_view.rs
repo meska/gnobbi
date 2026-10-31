@@ -163,7 +163,7 @@ impl Shell {
             return;
         }
         let command = if room.join && first.starts_with(['#', '!']) {
-            OperationCommand::JoinRoom { target: first }
+            OperationCommand::JoinRoom { target: first, via: Vec::new() }
         } else if room.join {
             room.found = None;
             room.hits.clear();
@@ -200,7 +200,7 @@ impl Shell {
         }
         room.busy = true;
         room.error = None;
-        self.pending_operation_command = Some(OperationCommand::JoinRoom { target: hit.target().to_owned() });
+        self.pending_operation_command = Some(OperationCommand::JoinRoom { target: hit.target().to_owned(), via: vec![hit.origin.clone()] });
         cx.notify();
     }
 

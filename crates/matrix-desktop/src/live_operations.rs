@@ -224,6 +224,7 @@ impl LiveOperations {
             | OperationResult::RoomEdited { .. }
             | OperationResult::InviteAnswered { .. }
             | OperationResult::DirectoryFound { .. }
+            | OperationResult::ServerProbed { .. }
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
             | OperationResult::Thread { .. }
