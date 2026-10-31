@@ -3,8 +3,15 @@
 use crate::IconChoice;
 
 impl IconChoice {
-    /// 512 px PNG used for the Dock / taskbar icon.
+    /// 512 px PNG used for the Dock / taskbar icon (macOS: squircle with template margin and alpha).
     pub fn runtime_png(self) -> &'static [u8] {
+        #[cfg(target_os = "macos")]
+        return match self {
+            IconChoice::MinimalMark => include_bytes!("../assets/icon-segno-minimo-mac-512.png"),
+            IconChoice::Gnome => include_bytes!("../assets/icon-gnomo-mac-512.png"),
+            IconChoice::Monster => include_bytes!("../assets/icon-mostriciattolo-mac-512.png"),
+        };
+        #[cfg(not(target_os = "macos"))]
         match self {
             IconChoice::MinimalMark => include_bytes!("../assets/icon-segno-minimo-512.png"),
             IconChoice::Gnome => include_bytes!("../assets/icon-gnomo-512.png"),
