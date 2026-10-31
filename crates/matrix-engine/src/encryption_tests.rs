@@ -38,7 +38,7 @@ fn disposable_e2ee_missing_keys_remains_visible_in_history() {
             .expect("encrypted event must not disappear when keys are unavailable");
         assert_eq!(
             event.body,
-            "[Messaggio cifrato · chiavi non disponibili o decifratura fallita]"
+            "Cifrato · chiavi non disponibili"
         );
         assert!(!event.outgoing);
         assert!(event.timestamp_ms > 0);

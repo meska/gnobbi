@@ -43,6 +43,12 @@ pub struct AccountSession {
     pub(crate) store: Option<crate::persistence::AccountStore>,
 }
 
+pub(crate) const DEVICE_NAME: &str = if cfg!(target_os = "macos") {
+    "Gnobbi (macOS)"
+} else {
+    "Gnobbi (Linux)"
+};
+
 pub(crate) fn secure_http_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .https_only(true)
@@ -96,6 +102,14 @@ impl AccountSession {
                 .disable_well_known_lookup(true)
                 .respect_login_well_known(false)
                 .http_client(http)
+                // Like Element X: fetch a missing session key from the existing backup on first
+                // decryption failure; never create backups or cross-signing on the account.
+                .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
+                    auto_enable_cross_signing: false,
+                    backup_download_strategy:
+                        matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+                    auto_enable_backups: false,
+                })
                 .request_config(
                     RequestConfig::new()
                         .retry_limit(0)
@@ -107,6 +121,7 @@ impl AccountSession {
             client
                 .matrix_auth()
                 .login_username(expected.as_str(), password)
+                .initial_device_display_name(DEVICE_NAME)
                 .send()
                 .await
                 .map_err(|error| {

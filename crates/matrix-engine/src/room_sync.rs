@@ -1566,7 +1566,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             MsgLikeKind::Redacted => "[Messaggio eliminato]".into(),
             // A UTD stays a real row with server identity, never ciphertext or silence.
             MsgLikeKind::UnableToDecrypt(_) => {
-                "[Messaggio cifrato · chiavi non disponibili o decifratura fallita]".into()
+                "Cifrato · chiavi non disponibili".into()
             }
             _ => continue,
         };

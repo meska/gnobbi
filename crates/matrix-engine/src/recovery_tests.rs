@@ -242,3 +242,50 @@ fn disposable_recovery_enables_encrypted_backup_without_exposing_key() {
         assert_eq!(client.encryption().recovery().state(), matrix_sdk::encryption::recovery::RecoveryState::Enabled);
     });
 }
+
+/// A key that entered the backup AFTER the new device did its recovery is fetched by the SDK on the
+/// first decryption failure (BackupDownloadStrategy::AfterDecryptionFailure); with the default
+/// Manual strategy the message stays undecryptable. Also covers a message from another device
+/// of the same account.
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_recovery_downloads_later_session_key_on_first_decryption_failure() {
+    let config = fixture();
+    let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap();
+    runtime().block_on(async {
+        let (mut source, room, _first) = recovery_seed(&config).await;
+        let secret = source.enable_new_recovery().await.expect("source recovery enabled");
+        source.upload_key_backup().await.expect("source keys uploaded");
+        let client_a = source.client.as_ref().unwrap().clone();
+        // A new room = a new Megolm session. It is sent BEFORE B exists, so B can only get it from the backup.
+        let room2 = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"name":"disposable later session", "visibility":"private", "initial_state":[
+                {"type":"m.room.encryption", "state_key":"", "content":{"algorithm":"m.megolm.v1.aes-sha2"}}
+            ]})).await["room_id"].as_str().unwrap().to_owned();
+        client_a.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        let event = client_a.get_room(&matrix_sdk::ruma::RoomId::parse(&room2).unwrap()).unwrap()
+            .send(matrix_sdk::ruma::events::room::message::RoomMessageEventContent::text_plain("recover old encrypted città 🦀"))
+            .await.unwrap().response.event_id;
+        source.upload_key_backup().await.expect("second session backed up");
+        let mut recovered = AccountStore::create(root, AccountId::new(26)).unwrap()
+            .password_login_with_http(HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(),
+                "@alice:matrix-desktop.test", config["alice_password"].as_str().unwrap(),
+                "disposable encrypted store passphrase", http(&config)).await.unwrap();
+        let client_b = recovered.client.as_ref().unwrap().clone();
+        client_b.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        recovered.recover_room_keys(secret.expose(), &matrix_domain::RoomScope {
+            account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new(&room),
+        }).await.expect("recover secrets");
+        let mut decrypted = false;
+        for _ in 0..10 {
+            client_b.sync_once(matrix_sdk::config::SyncSettings::default().timeout(std::time::Duration::from_millis(500))).await.unwrap();
+            if let Some(r) = client_b.get_room(&matrix_sdk::ruma::RoomId::parse(&room2).unwrap()) {
+                let page = r.messages(matrix_sdk::room::MessagesOptions::backward()).await.unwrap();
+                decrypted = page.chunk.iter().any(|row| row.event_id() == Some(&*event) && row.encryption_info().is_some());
+            }
+            if decrypted { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        assert!(decrypted, "later session key must come from the backup on first decryption failure");
+    });
+}
