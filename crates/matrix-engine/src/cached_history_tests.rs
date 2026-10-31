@@ -357,6 +357,230 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
     });
 }
 
+/// Restart while the homeserver is down, then it comes back.
+///
+/// Expected semantics:
+/// 1. Down: the saved room opens from the cache. `open_history` returns `Ok` with exactly the
+///    messages seen before, in order, no duplicates, no blocking error and no network wait.
+///    Messages that arrived on the server meanwhile are (rightly) not shown yet.
+/// 2. Back online: one sync plus the opening request yields saved + missed messages, in send order,
+///    each exactly once (same event ids as before the outage keep their place), and the server is
+///    asked for at most one `/messages` page (the gap), never the whole room (checked by the probe).
+#[test]
+#[ignore = "requires the cached_history_probe script"]
+fn restart_with_the_server_down_then_online_shows_cache_then_only_the_missing_messages() {
+    const MISSED: usize = 15;
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(env("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let root = std::path::PathBuf::from(env("CACHE_PROBE_ROOT"));
+    let http = || {
+        crate::auth::secure_http_builder()
+            .add_root_certificate(reqwest::Certificate::from_pem(&ca).unwrap())
+            .build()
+            .unwrap()
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let bob = matrix_sdk::Client::builder()
+            .homeserver_url(&url)
+            .add_root_certificates(vec![reqwest::Certificate::from_pem(&ca).unwrap()])
+            .build()
+            .await
+            .unwrap();
+        bob.matrix_auth()
+            .login_username(
+                "@bob:matrix-desktop.test",
+                config["bob_password"].as_str().unwrap(),
+            )
+            .send()
+            .await
+            .unwrap();
+        let mut request = CreateRoom::new();
+        request.invite = vec!["@alice:matrix-desktop.test".try_into().unwrap()];
+        let room_id = bob.create_room(request).await.unwrap().room_id().to_owned();
+        let bob_room = bob.get_room(&room_id).unwrap_or_else(|| panic!("bob room"));
+        for n in 0..COUNT {
+            bob_room
+                .send(RoomMessageEventContent::text_plain(format!("m{n}")))
+                .await
+                .unwrap();
+        }
+        let scope = RoomScope {
+            account_id: AccountId::new(297),
+            room_id: RoomId::new(room_id.as_str()),
+        };
+        let visibility = || crate::receipts::ReadVisibility {
+            window_focused: false,
+            room_foreground: false,
+            bottom_gap_px: 0.0,
+            public_receipts: true,
+        };
+
+        // First run: online, the room is seen and its history reaches the cache.
+        let store = AccountStore::create(&root, AccountId::new(297)).unwrap();
+        let session = store
+            .password_login_with_http(
+                HomeserverUrl::parse(&url).unwrap(),
+                "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        let alice = session.client.clone().unwrap();
+        let invited = eventually("invite", || async {
+            alice.sync_once(Default::default()).await.ok()?;
+            alice.get_room(&room_id)
+        })
+        .await;
+        invited.join().await.unwrap();
+        alice.sync_once(Default::default()).await.unwrap();
+        let room = alice.get_room(&room_id).unwrap();
+        let (events, _drop) = room.event_cache().await.unwrap();
+        eventually("history in cache", || async {
+            events
+                .pagination()
+                .run_backwards_until(COUNT as u16 + 5)
+                .await
+                .ok()?;
+            (events.events().await.ok()?.len() >= COUNT).then_some(())
+        })
+        .await;
+        let mut views = ViewRequests::new();
+        let sync = RoomSync::new(session);
+        let (before, _) = sync
+            .open_history(views.start(scope.clone()).unwrap(), visibility())
+            .await
+            .unwrap();
+        assert!(before.events.len() >= COUNT, "online read has the messages");
+        // Lets the SDK flush the event cache to disk before the "app" quits.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        drop((events, _drop, room, alice, invited, sync));
+
+        // Messages arrive while Alice's app is closed.
+        for n in COUNT..COUNT + MISSED {
+            bob_room
+                .send(RoomMessageEventContent::text_plain(format!("m{n}")))
+                .await
+                .unwrap();
+        }
+
+        // Restart 1: the homeserver is down (address nobody answers). The cache opens, no error.
+        let store = AccountStore::open(&root, AccountId::new(297)).unwrap();
+        let value = store.unseal(PASSPHRASE).unwrap();
+        let sdk_session: matrix_sdk::authentication::matrix::MatrixSession =
+            serde_json::from_value(value["session"].clone()).unwrap();
+        let down = store
+            .client(
+                &HomeserverUrl::parse("https://localhost:1/").unwrap(),
+                PASSPHRASE,
+                http(),
+            )
+            .await
+            .unwrap();
+        down.restore_session(sdk_session.clone()).await.unwrap();
+        let sync = RoomSync::new(AccountSession {
+            account_id: AccountId::new(297),
+            client: Some(down.clone()),
+            store: Some(store),
+        });
+        let (offline, _) = sync
+            .open_history(views.start(scope.clone()).unwrap(), visibility())
+            .await
+            .expect("offline open is not a blocking error");
+        let offline_ids: Vec<String> = offline
+            .events
+            .iter()
+            .map(|e| e.event_id.as_str().to_owned())
+            .collect();
+        assert_eq!(
+            offline_ids,
+            before
+                .events
+                .iter()
+                .map(|e| e.event_id.as_str().to_owned())
+                .collect::<Vec<_>>(),
+            "offline shows exactly the saved rows, same order, no duplicates"
+        );
+        assert!(
+            down.sync_once(Default::default()).await.is_err(),
+            "the server is really unreachable"
+        );
+        drop((sync, down));
+
+        // Marks where the online run starts in the homeserver request log.
+        http()
+            .get(format!("{url}_matrix/client/versions?mark=reopen"))
+            .send()
+            .await
+            .unwrap();
+
+        // Restart 2: the server is back. Same sealed store, real address.
+        let store = AccountStore::open(&root, AccountId::new(297)).unwrap();
+        let client = store
+            .client(&HomeserverUrl::parse(&url).unwrap(), PASSPHRASE, http())
+            .await
+            .unwrap();
+        client.restore_session(sdk_session).await.unwrap();
+        client.sync_once(Default::default()).await.unwrap();
+        let timelines = crate::room_sync::Timelines::default();
+        let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
+        let tag = views.start(scope).unwrap();
+        let request = crate::history::HistoryRequest {
+            tag,
+            before: None,
+            open: OPEN,
+        };
+        assert!(
+            crate::room_sync::serve_history(
+                &client,
+                &timelines,
+                AccountId::new(297),
+                request,
+                &mut out
+            )
+            .await
+        );
+        let saved = results.recv().await.unwrap().page.unwrap();
+        assert!(!saved.events.is_empty(), "saved messages come first");
+        let page = tokio::time::timeout(Duration::from_secs(20), results.recv())
+            .await
+            .expect("the full list follows the saved one")
+            .unwrap()
+            .page
+            .unwrap();
+        drop((store, client));
+        let bodies: Vec<&str> = page.events.iter().map(|e| e.body.as_str()).collect();
+        let expect: Vec<String> = (0..COUNT + MISSED).map(|n| format!("m{n}")).collect();
+        assert!(bodies.len() >= MISSED, "every missed message is shown: {bodies:?}");
+        assert_eq!(
+            bodies,
+            expect[expect.len() - bodies.len()..]
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            "cache plus gap, in send order, none lost"
+        );
+        let ids: std::collections::BTreeSet<_> = page
+            .events
+            .iter()
+            .map(|e| e.event_id.as_str().to_owned())
+            .collect();
+        assert_eq!(ids.len(), page.events.len(), "no duplicates");
+        let tail = &offline_ids[offline_ids.len().saturating_sub(page.events.len() - MISSED)..];
+        assert!(
+            tail.iter().all(|id| ids.contains(id)),
+            "rows seen offline are the same events after the resync"
+        );
+    });
+}
+
 #[test]
 #[ignore = "requires the cached_history_probe script"]
 fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
