@@ -111,10 +111,11 @@ enum PanelAct {
     Toggle,
 }
 
-fn panel_act(key: &str, shift: bool, cursor: usize, len: usize) -> Option<PanelAct> {
-    match (key, shift) {
+fn panel_act(key: &str, shift: bool, alt: bool, cursor: usize, len: usize) -> Option<PanelAct> {
+    match (key, shift || alt) {
         ("up", true) => Some(PanelAct::Move(-1)),
         ("down", true) => Some(PanelAct::Move(1)),
+        _ if alt => None,
         ("up", false) => Some(PanelAct::Go(cursor.saturating_sub(1))),
         ("down", false) => Some(PanelAct::Go((cursor + 1).min(len.saturating_sub(1)))),
         ("enter" | "space", _) if len > 0 => Some(PanelAct::Toggle),
@@ -220,10 +221,12 @@ impl Shell {
         match act {
             PanelAct::Go(to) => self.rail_ui.edit_cursor = to,
             PanelAct::Move(delta) => {
+                // Past the first/last row `to` clamps to the same row: move_to is a no-op there.
+                let to = row.saturating_add_signed(delta).min(spaces.len() - 1);
                 self.rail_layout_edit(|l, cur| {
-                    l.shift(cur, &id, delta);
+                    l.move_to(cur, &id, to);
                 });
-                self.rail_ui.edit_cursor = row.saturating_add_signed(delta).min(spaces.len() - 1);
+                self.rail_ui.edit_cursor = to; // focus follows the moved row
             }
             PanelAct::Toggle => {
                 self.rail_layout_edit(|l, _| l.toggle_hidden(&id));
@@ -301,10 +304,9 @@ impl Shell {
         };
         if at == Some(EditFocus::Panel)
             && !key.modifiers.control
-            && !key.modifiers.alt
             && !key.modifiers.platform
             && let len = self.rail_arranged().len().saturating_sub(1)
-            && let Some(act) = panel_act(&key.key, key.modifiers.shift, self.rail_ui.edit_cursor, len)
+            && let Some(act) = panel_act(&key.key, key.modifiers.shift, key.modifiers.alt, self.rail_ui.edit_cursor, len)
         {
             if !(matches!(act, PanelAct::Toggle) && event.is_held) {
                 let row = self.rail_ui.edit_cursor.min(len.saturating_sub(1));
@@ -743,14 +745,17 @@ mod edit_focus_tests {
     #[test]
     fn panel_keys() {
         use super::{PanelAct, panel_act};
-        assert_eq!(panel_act("down", false, 0, 3), Some(PanelAct::Go(1)));
-        assert_eq!(panel_act("down", false, 2, 3), Some(PanelAct::Go(2)));
-        assert_eq!(panel_act("up", false, 0, 3), Some(PanelAct::Go(0)));
-        assert_eq!(panel_act("up", true, 1, 3), Some(PanelAct::Move(-1)));
-        assert_eq!(panel_act("down", true, 1, 3), Some(PanelAct::Move(1)));
-        assert_eq!(panel_act("enter", false, 0, 3), Some(PanelAct::Toggle));
-        assert_eq!(panel_act("space", false, 0, 0), None);
-        assert_eq!(panel_act("x", false, 0, 3), None);
+        assert_eq!(panel_act("up", false, true, 2, 4), Some(PanelAct::Move(-1)));
+        assert_eq!(panel_act("down", false, true, 2, 4), Some(PanelAct::Move(1)));
+        assert_eq!(panel_act("enter", false, true, 2, 4), None);
+        assert_eq!(panel_act("down", false, false, 0, 3), Some(PanelAct::Go(1)));
+        assert_eq!(panel_act("down", false, false, 2, 3), Some(PanelAct::Go(2)));
+        assert_eq!(panel_act("up", false, false, 0, 3), Some(PanelAct::Go(0)));
+        assert_eq!(panel_act("up", true, false, 1, 3), Some(PanelAct::Move(-1)));
+        assert_eq!(panel_act("down", true, false, 1, 3), Some(PanelAct::Move(1)));
+        assert_eq!(panel_act("enter", false, false, 0, 3), Some(PanelAct::Toggle));
+        assert_eq!(panel_act("space", false, false, 0, 0), None);
+        assert_eq!(panel_act("x", false, false, 0, 3), None);
     }
 
     #[test]
