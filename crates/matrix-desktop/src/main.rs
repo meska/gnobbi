@@ -126,6 +126,8 @@ struct Shell {
     control: Option<matrix_engine::WorkerControl>,
     /// Account the drawer asks to remove, until confirmed or cancelled.
     confirm_removal: Option<AccountId>,
+    /// Why the last click on this drawer account row could not show it.
+    switch_error: Option<(AccountId, &'static str)>,
     removals: Vec<account_remove::Removal>,
     /// Catalog ID of the shown account (unknown until a new sign-in is recorded).
     active_id: Option<AccountId>,
@@ -2760,6 +2762,7 @@ fn main() {
                         parked: background.drain(..).collect(),
                         control: active_control.take(),
                         confirm_removal: None,
+                        switch_error: None,
                         removals: vec![],
                         active_id,
                         verification: matrix_desktop::DeviceVerification::new(account_id),
