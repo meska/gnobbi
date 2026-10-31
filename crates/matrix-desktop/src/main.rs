@@ -1595,7 +1595,7 @@ impl Render for Shell {
             timeline.set_peer_receipts(&room.info.public_read_receipts);
         }
         if let Some(timeline) = &self.timeline {
-            timeline.set_hide_redacted(self.prefs.hide_redacted);
+            timeline.set_hide_redacted(self.room_prefs.hide_redacted(&self.active_scope).unwrap_or(self.prefs.hide_redacted));
             timeline.set_hide_status(self.room_prefs.hide_status(&self.active_scope));
         }
         #[cfg(test)]

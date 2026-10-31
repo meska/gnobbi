@@ -76,6 +76,20 @@ impl Shell {
         cx.notify();
     }
 
+    pub(crate) fn toggle_room_hide_redacted(&mut self, cx: &mut Context<Self>) {
+        let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone()) else {
+            return;
+        };
+        let now = self.room_prefs.hide_redacted(&scope).unwrap_or(self.prefs.hide_redacted);
+        self.room_prefs.set_hide_redacted(&scope, !now);
+        if let Some(dirs) = &self.prefs_dirs
+            && let Err(error) = self.room_prefs.save(dirs)
+        {
+            eprintln!("Gnobbi: cannot save room preferences: {error}");
+        }
+        cx.notify();
+    }
+
     fn details_observer(&self, _index: usize, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
@@ -272,6 +286,7 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         let hide_status = self.room_prefs.hide_status(&room.scope);
+        let hide_redacted = self.room_prefs.hide_redacted(&room.scope).unwrap_or(self.prefs.hide_redacted);
         div()
             .id("room-details")
             // Own the wheel: without it the hit-test lets events through to the timeline list.
@@ -393,6 +408,14 @@ impl Shell {
                             .text_color(rgb(t.accent))
                             .child(if hide_status { "Mostra messaggi di stato" } else { "Nascondi messaggi di stato" })
                             .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("room-hide-redacted")
+                            .cursor_pointer()
+                            .text_color(rgb(t.accent))
+                            .child(if hide_redacted { "Mostra messaggi eliminati" } else { "Nascondi messaggi eliminati" })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
                     )
                     .child(
                         div()

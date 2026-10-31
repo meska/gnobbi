@@ -388,7 +388,7 @@ impl DemoHistory {
     }
 
     fn hides(&self, row: &DemoEvent) -> bool {
-        (self.hide_redacted && row.redacted) || (self.hide_status && row.status)
+        (self.hide_redacted && row.redacted && row.thread.is_none()) || (self.hide_status && row.status)
     }
 
     /// «Nascondi messaggi eliminati»: shows or hides the redacted rows already loaded.

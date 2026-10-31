@@ -1607,21 +1607,21 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, _| {
                 assert!(!this.prefs.debug && !saved(&dirs).debug, "Space toggles it off and saves");
             }).unwrap();
-            this.update_in(cx, |this, _, _| assert!(!this.prefs.hide_redacted, "deleted messages are shown by default")).unwrap();
+            this.update_in(cx, |this, _, _| assert!(this.prefs.hide_redacted, "deleted messages are hidden by default")).unwrap();
             // Ring of three: debug, read receipts, hide deleted. Each key press must change exactly one switch.
             key!("tab");
             key!("space");
             this.update_in(cx, |this, _, _| {
                 assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "Tab then Space turns read receipts off and saves");
-                assert!(!this.prefs.debug && !this.prefs.hide_redacted, "and nothing else");
+                assert!(!this.prefs.debug && this.prefs.hide_redacted, "and nothing else");
             }).unwrap();
             key!("tab");
             key!("space");
             this.update_in(cx, |this, _, _| {
-                assert!(this.prefs.hide_redacted && saved(&dirs).hide_redacted && !this.prefs.debug && !this.prefs.read_receipts, "second Tab then Space hides deleted messages and saves");
+                assert!(!this.prefs.hide_redacted && !saved(&dirs).hide_redacted && !this.prefs.debug && !this.prefs.read_receipts, "second Tab then Space shows deleted messages and saves");
             }).unwrap();
             key!("enter");
-            this.update_in(cx, |this, _, _| assert!(!this.prefs.hide_redacted && !saved(&dirs).hide_redacted, "Enter toggles it back")).unwrap();
+            this.update_in(cx, |this, _, _| assert!(this.prefs.hide_redacted && saved(&dirs).hide_redacted, "Enter toggles it back")).unwrap();
             key!("shift-tab");
             key!("space");
             this.update_in(cx, |this, _, _| assert!(this.prefs.read_receipts && saved(&dirs).read_receipts && !this.prefs.debug, "Shift+Tab walks back to read receipts")).unwrap();

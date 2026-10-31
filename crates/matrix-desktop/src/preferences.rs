@@ -217,7 +217,7 @@ pub struct Preferences {
     pub auto_night: AutoNight,
     pub font: FontChoice,
     pub icon: IconChoice,
-    /// «Nascondi messaggi eliminati»: off by default, also when the saved value is missing or not a boolean.
+    /// «Nascondi messaggi eliminati»: on by default, also when the saved value is missing or not a boolean.
     pub hide_redacted: bool,
 }
 
@@ -231,7 +231,7 @@ impl Default for Preferences {
             auto_night: AutoNight::Off,
             font: FontChoice::Sans,
             icon: IconChoice::MinimalMark,
-            hide_redacted: false,
+            hide_redacted: true,
         }
     }
 }
@@ -280,10 +280,12 @@ impl Preferences {
                 .and_then(Value::as_str)
                 .and_then(IconChoice::parse)
                 .unwrap_or_default(),
+            // Key renamed from "hide_redacted": old files always saved false (the old default),
+            // so reading them would pin everyone to «show»; this resets once to the new default.
             hide_redacted: map
-                .get("hide_redacted")
+                .get("hide_deleted")
                 .and_then(Value::as_bool)
-                .unwrap_or_default(),
+                .unwrap_or(true),
         }
     }
 
@@ -298,7 +300,7 @@ impl Preferences {
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_redacted": self.hide_redacted });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted });
         opts.open(&tmp)?.write_all(body.to_string().as_bytes())?;
         std::fs::rename(tmp, dirs.config.join(FILE))
     }

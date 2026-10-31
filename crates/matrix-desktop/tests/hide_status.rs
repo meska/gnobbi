@@ -97,3 +97,17 @@ fn corrupt_file_means_shown() {
     std::fs::write(d.config.join("room-prefs.json"), b"{\"hide_status\":\"x\"}").unwrap();
     assert!(!RoomPrefs::load(&d).hide_status(&scope("!a:test")));
 }
+
+#[test]
+fn hide_redacted_is_tri_state_per_room_and_survives_restart() {
+    let d = dirs("redacted");
+    let (a, b) = (scope("!a:test"), scope("!b:test"));
+    let mut p = RoomPrefs::load(&d);
+    assert_eq!(p.hide_redacted(&a), None, "no choice yet");
+    p.set_hide_redacted(&a, false);
+    p.set_hide_redacted(&b, true);
+    p.save(&d).unwrap();
+    let p = RoomPrefs::load(&d);
+    assert_eq!((p.hide_redacted(&a), p.hide_redacted(&b)), (Some(false), Some(true)));
+    assert_eq!(p.hide_redacted(&scope("!c:test")), None);
+}

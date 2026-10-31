@@ -190,3 +190,13 @@ fn locally_deleted_own_row_still_unsynced_returns_to_the_tail() {
     let ids: Vec<_> = h.events().iter().map(|e| format!("{:?}", e.id.id)).collect();
     assert!(ids[2].contains("$own"), "{ids:?}");
 }
+
+#[test]
+fn redacted_thread_root_stays_visible() {
+    let mut root = ev("$r", "@anna:test", 100, true);
+    root.thread = Some(matrix_engine::history::ThreadInfo { num_replies: 2, latest_sender: None, unread: 0 });
+    let mut h = DemoHistory::new(scope(), 0);
+    h.prepend_server(vec![root, ev("$x", "@anna:test", 200, true), ev("$y", "@anna:test", 300, false)]);
+    h.set_hide_redacted(true);
+    assert_eq!(texts(&h), ["[Messaggio eliminato]", "$y"], "root kept, plain deleted row hidden");
+}
