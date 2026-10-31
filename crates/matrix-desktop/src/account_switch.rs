@@ -92,11 +92,9 @@ pub(crate) fn switch_blocker(
     status: Option<&RoomSyncStatus>,
 ) -> Option<&'static str> {
     match (active, status) {
-        (None, _) => Some("Non ancora pronto: riprova tra un momento"),
-        (_, None) => Some("Account non avviato: riavvia Gnobbi"),
-        (_, Some(RoomSyncStatus::AuthenticationFailed)) => {
-            Some("Sblocco non riuscito: rimuovi l'account e accedi di nuovo")
-        }
+        (None, _) => Some("Riprova tra poco"),
+        (_, None) => Some("Non disponibile"),
+        (_, Some(RoomSyncStatus::AuthenticationFailed)) => Some("Accedi di nuovo"),
         _ => None,
     }
 }
@@ -218,11 +216,11 @@ impl Shell {
 
     /// Whether `id` is another account that can be shown now.
     pub(crate) fn can_switch_to(&self, id: AccountId) -> bool {
-        self.active_id.is_some_and(|active| active != id)
+        self.active_id != Some(id)
             && self
                 .parked
                 .get(&id)
-                .is_some_and(|s| s.status != RoomSyncStatus::AuthenticationFailed)
+                .is_some_and(|s| switch_blocker(self.active_id, Some(&s.status)).is_none())
     }
 
     /// Shows account `id` (catalog ID). The one shown so far keeps syncing in the background.
@@ -320,7 +318,7 @@ mod tests {
             switch_blocker(id, Some(&RoomSyncStatus::AuthenticationFailed)),
         ];
         for m in all.into_iter().map(|m| m.expect("refusal")) {
-            assert!(!m.is_empty() && !m.contains('\n'));
+            assert!(!m.is_empty() && !m.contains('\n') && m.chars().count() <= 18);
         }
         assert_ne!(all[0], all[1]);
         assert_ne!(all[1], all[2]);

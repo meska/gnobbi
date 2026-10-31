@@ -22,6 +22,7 @@ impl Shell {
         }
         self.settings_open = false;
         self.confirm_removal = None;
+        self.switch_error = None;
         self.drawer_row = 0;
         if open {
             self.drawer_focus.focus(window)
@@ -123,6 +124,8 @@ impl Shell {
                 "escape" => self.set_menu_open(false, window, cx),
                 "enter" | "space" if activate && self.settings_open => self.toggle_debug(cx),
                 "enter" | "space" if activate => {
+                    // The key-up of this press would click the menu button we hand focus back to.
+                    self.swallow_menu_key_up = true;
                     match self.drawer_row.checked_sub(accounts.len()) {
                         None => self.switch_account(accounts[self.drawer_row].id, window, cx),
                         Some(1) => self.open_from_drawer(window, cx, Shell::open_devices_panel),

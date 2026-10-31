@@ -128,6 +128,7 @@ struct Shell {
     confirm_removal: Option<AccountId>,
     /// Why the last click on this drawer account row could not show it.
     switch_error: Option<(AccountId, &'static str)>,
+    swallow_menu_key_up: bool,
     removals: Vec<account_remove::Removal>,
     /// Catalog ID of the shown account (unknown until a new sign-in is recorded).
     active_id: Option<AccountId>,
@@ -2763,6 +2764,7 @@ fn main() {
                         control: active_control.take(),
                         confirm_removal: None,
                         switch_error: None,
+                        swallow_menu_key_up: false,
                         removals: vec![],
                         active_id,
                         verification: matrix_desktop::DeviceVerification::new(account_id),

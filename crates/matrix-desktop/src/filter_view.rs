@@ -166,10 +166,12 @@ impl Shell {
             return;
         }
         let pending = self.pending_sidebar_key.take();
+        let swallow = std::mem::take(&mut self.swallow_menu_key_up);
         // GPUI's automatic key-up Click does not retain the key-down source.
         if self.theme_focus.is_focused(window)
             || self.unread_focus.is_focused(window)
             || pending.is_some()
+            || swallow
         {
             cx.stop_propagation();
         }
