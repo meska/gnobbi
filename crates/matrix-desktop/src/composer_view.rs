@@ -4,6 +4,7 @@ use gpui::{
     HighlightStyle, KeyDownEvent, MouseButton, Pixels, Point, ScrollHandle, StyledText, TextLayout,
     UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, rgb, size,
 };
+use crate::composer_icons::{Icon, icon};
 use matrix_desktop::{Composer, DesignTokens, LIGHT, RoomDrafts};
 use matrix_domain::RoomScope;
 use std::ops::Range;
@@ -889,6 +890,28 @@ impl EntityInputHandler for ComposerView {
     }
 }
 
+/// 32x32 hit area, icon only; the a11y tree (accessibility.rs) carries the names.
+fn icon_button(
+    id: &'static str,
+    kind: Icon,
+    t: DesignTokens,
+    cx: &mut Context<ComposerView>,
+    on: impl Fn(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static,
+) -> impl IntoElement {
+    div()
+        .id(id)
+        .size(px(32.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .flex_shrink_0()
+        .rounded_lg()
+        .cursor_pointer()
+        .hover(|s| s.bg(rgb(t.selected)))
+        .child(icon(kind, t.accent))
+        .on_click(cx.listener(move |this, _, window, cx| on(this, window, cx)))
+}
+
 impl Render for ComposerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.refresh_send_focus(cx);
@@ -1057,45 +1080,6 @@ impl Render for ComposerView {
                     .flex()
                     .items_center()
                     .gap_4()
-                    .when(self.live && self.recorder.is_none(), |d| {
-                        d.child(
-                            div()
-                                .id("composer-attach")
-                                .cursor_pointer()
-                                .flex_shrink_0()
-                                .px_2()
-                                .py_2()
-                                .text_color(rgb(t.accent))
-                                .child("Allega")
-                                .on_click(cx.listener(|this, _, _, cx| this.pick_file(cx))),
-                        )
-                        .child(
-                            div()
-                                .id("composer-record")
-                                .cursor_pointer()
-                                .flex_shrink_0()
-                                .px_2()
-                                .py_2()
-                                .text_color(rgb(t.accent))
-                                .child("Voce")
-                                .on_click(cx.listener(|this, _, _, cx| this.start_recording(cx))),
-                        )
-                        .child(
-                            div()
-                                .id("composer-emoji-toggle")
-                                .cursor_pointer()
-                                .flex_shrink_0()
-                                .px_2()
-                                .py_2()
-                                .text_color(rgb(t.accent))
-                                .child("Emoji")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.emoji_open = !this.emoji_open;
-                                    this.emoji_selected = 0;
-                                    cx.notify();
-                                })),
-                        )
-                    })
                     .when_some(
                         self.recorder.as_ref().map(|r| r.elapsed_secs()),
                         |d, secs| {
@@ -1144,6 +1128,7 @@ impl Render for ComposerView {
                             .flex_1()
                             .min_w_0()
                             .min_h(px(36.))
+                            .py(px(8.))
                             .relative()
                             .cursor(gpui::CursorStyle::IBeam)
                             .on_mouse_down(
@@ -1259,35 +1244,41 @@ impl Render for ComposerView {
                                 .inset_0(),
                             ),
                     )
+                    .when(self.live && self.recorder.is_none(), |d| {
+                        d.child(icon_button("composer-emoji-toggle", Icon::Emoji, t, cx, |this, _, cx| {
+                            this.emoji_open = !this.emoji_open;
+                            this.emoji_selected = 0;
+                            cx.notify();
+                        }))
+                        .child(icon_button("composer-attach", Icon::Attach, t, cx, |this, _, cx| this.pick_file(cx)))
+                        .child(icon_button("composer-record", Icon::Voice, t, cx, |this, _, cx| this.start_recording(cx)))
+                    })
                     .child(
+                        // Always laid out (32x32) so the icons never move; painted only when there is something to send.
                         div()
                             .id("composer-submit")
                             .relative()
                             .children(self.send_observer(cx))
                             .track_focus(&self.send_focus)
-                            .border_1()
-                            .border_color(rgb(if self.send_focus.is_focused(window) {
-                                t.text
-                            } else if sendable {
-                                t.accent
-                            } else {
-                                t.disabled
-                            }))
-                            .px_4()
-                            .py_2()
+                            .size(px(32.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .rounded_lg()
                             .flex_shrink_0()
-                            .bg(rgb(if sendable { t.accent } else { t.disabled }))
-                            .text_color(rgb(if sendable { t.on_accent } else { t.secondary }))
+                            .when(!sendable, |d| d.invisible())
+                            .when(self.send_focus.is_focused(window), |d| {
+                                d.border_1().border_color(rgb(t.text))
+                            })
                             .when(sendable, |d| {
                                 let send = self.send_callback();
-                                d.cursor_pointer().on_click(cx.listener(
-                                    move |this, _, window, cx| {
+                                d.cursor_pointer()
+                                    .hover(|s| s.bg(rgb(t.selected)))
+                                    .on_click(cx.listener(move |this, _, window, cx| {
                                         send(this, window, cx);
-                                    },
-                                ))
+                                    }))
                             })
-                            .child(if self.live || self.text_only { "Invia" } else { "Invia · demo" }),
+                            .child(icon(Icon::Send, t.accent)),
                     ),
             )
     }

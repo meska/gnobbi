@@ -3,6 +3,7 @@ mod account_remove;
 mod account_switch;
 mod avatar_view;
 mod compact_view;
+mod composer_icons;
 mod composer_view;
 mod editing_command;
 mod filter_view;
