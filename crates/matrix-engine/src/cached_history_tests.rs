@@ -574,7 +574,13 @@ fn restart_with_the_server_down_then_online_shows_cache_then_only_the_missing_me
             .page
             .unwrap();
         drop((store, client));
-        let bodies: Vec<&str> = page.events.iter().map(|e| e.body.as_str()).collect();
+        // Status rows (alice's own join) sit in the timeline too; the claim is about messages.
+        let bodies: Vec<&str> = page
+            .events
+            .iter()
+            .filter(|e| !e.status)
+            .map(|e| e.body.as_str())
+            .collect();
         let expect: Vec<String> = (0..COUNT + MISSED).map(|n| format!("m{n}")).collect();
         assert!(bodies.len() >= MISSED, "every missed message is shown: {bodies:?}");
         assert_eq!(
