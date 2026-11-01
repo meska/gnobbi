@@ -232,3 +232,28 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
     other.project_operations(actions.confirmed());
     assert_eq!(other.events()[0].text, "other");
 }
+
+#[test]
+fn refresh_server_keeps_edited_suffix_on_local_clock_time() {
+    let (mut rows, mut actions) = fixture();
+    ack(&mut actions, Operation::Edit { body: "edited".into() }, "$edit");
+    rows.project_operations(actions.confirmed());
+    let ts = 1_784_158_200_000;
+    rows.refresh_server(vec![HistoryEvent {
+        redacted: false,
+        event_id: EventId::new("$first"),
+        body: "edited".into(),
+        outgoing: true,
+        timestamp_ms: ts,
+        sender: matrix_engine::history::HistorySender::new("@peer:test", None),
+        video: None,
+        styles: Vec::new(),
+        thread: None,
+        thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
+    }]);
+    let expected = format!("{} · modificato", matrix_desktop::time_fmt::clock_time(ts));
+    assert_eq!(rows.events()[0].time, expected);
+}

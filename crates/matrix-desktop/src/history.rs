@@ -302,6 +302,13 @@ impl DemoHistory {
                 && row.timestamp_ms == 0
             {
                 row.timestamp_ms = event.timestamp_ms;
+                if event.timestamp_ms != 0 {
+                    let edited = row.time.ends_with(" · modificato");
+                    row.time = crate::time_fmt::clock_time(event.timestamp_ms);
+                    if edited {
+                        row.time.push_str(" · modificato");
+                    }
+                }
             }
             if let Some(row) = self
                 .events

@@ -552,3 +552,44 @@ fn messages_left_in_the_queue_by_an_earlier_run_reappear_pending_or_failed() {
     assert_eq!(delivery.items(&scope())[1].status, SendStatus::Pending);
     assert_eq!(delivery.failure_label(&scope(), &b), None);
 }
+
+#[test]
+fn refresh_server_gives_own_ack_row_the_local_clock_time() {
+    use matrix_desktop::{DemoHistory, time_fmt::clock_time};
+    use matrix_domain::EventId;
+    use matrix_engine::{history::HistoryEvent, sending::SendResult};
+    let ts = 1_784_158_200_000;
+    {
+        let mut delivery = LiveDelivery::new();
+        let mut draft = Composer::default();
+        draft.replace(None, "own message");
+        let tx = TransactionId::new("clock");
+        delivery.submit(scope(), tx.clone(), &mut draft);
+        let event = EventId::new("$clock");
+        delivery.apply(SendResult {
+            scope: scope(),
+            transaction_id: tx,
+            result: Ok(event.clone()),
+        });
+        let mut rows = DemoHistory::new(scope(), 0);
+        rows.project_delivery(delivery.items(&scope()));
+        assert_eq!(rows.events()[0].time, "ACK server");
+        let expected = clock_time(ts);
+        rows.refresh_server(vec![HistoryEvent {
+            redacted: false,
+            event_id: event,
+            body: "own message".into(),
+            outgoing: true,
+            timestamp_ms: ts,
+            sender: matrix_engine::history::HistorySender::new("@peer:test", None),
+            video: None,
+            styles: Vec::new(),
+            thread: None,
+            thread_root: None,
+            status: false,
+            attachment_name: None,
+            attachment_size: None,
+        }]);
+        assert_eq!(rows.events()[0].time, expected);
+    }
+}
