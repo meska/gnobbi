@@ -52,7 +52,14 @@ async fn until<T>(secs: u64, mut f: impl AsyncFnMut() -> Option<T>) -> Option<T>
     }
 }
 
+/// E2EE_APP=old reproduces the client of aa6a596 (event cache subscribed BEFORE login, per-case strategy);
+/// anything else is the client of main >= 624baa4 (AfterDecryptionFailure, event cache subscribed AFTER login).
+fn app_old() -> bool {
+    std::env::var("E2EE_APP").is_ok_and(|v| v == "old")
+}
+
 async fn login(config: &serde_json::Value, who: &str, name: &str, dir: &std::path::Path, strategy: BackupDownloadStrategy) -> Client {
+    let strategy = if app_old() || name.len() == 1 { strategy } else { BackupDownloadStrategy::AfterDecryptionFailure };
     let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
     std::fs::create_dir_all(dir).unwrap();
     let c = Client::builder()
@@ -64,7 +71,9 @@ async fn login(config: &serde_json::Value, who: &str, name: &str, dir: &std::pat
         .build()
         .await
         .unwrap();
-    c.event_cache().subscribe().unwrap();
+    if app_old() {
+        c.event_cache().subscribe().unwrap();
+    }
     c.matrix_auth()
         .login_username(
             config[format!("{who}_mxid")].as_str().unwrap(),
@@ -74,6 +83,9 @@ async fn login(config: &serde_json::Value, who: &str, name: &str, dir: &std::pat
         .send()
         .await
         .unwrap();
+    if !app_old() {
+        c.event_cache().subscribe().unwrap();
+    }
     c
 }
 
@@ -117,6 +129,12 @@ async fn view(tl: &Timeline, sent: &[(OwnedEventId, &str)]) -> (String, bool) {
     (parts.join(" "), all)
 }
 
+/// `readable/total` of the sent messages: the number the matrix document reports.
+fn count(v: &str) -> String {
+    let n = v.split(' ').count();
+    format!("{}/{n}", v.split(' ').filter(|p| p.ends_with("=ok")).count())
+}
+
 fn utd_short(m: &matrix_engine::sdk_ui::timeline::EncryptedMessage) -> String {
     use matrix_engine::sdk_ui::timeline::EncryptedMessage as M;
     match m {
@@ -144,7 +162,7 @@ async fn watch(srv: &str, case: &str, step: &str, tl: &Timeline, sent: &[(OwnedE
         tokio::time::sleep(Duration::from_millis(500)).await;
         (v, done) = view(tl, sent).await;
     }
-    eprintln!("E2EE {srv} {case} {step} all_readable={done} after={:.1}s | {v}", start.elapsed().as_secs_f32());
+    eprintln!("E2EE {srv} {case} {step} all_readable={done} readable={} after={:.1}s | {v}", count(&v), start.elapsed().as_secs_f32());
 }
 
 /// Ground truth independent of the live timeline: re-fetch each event and let the SDK decrypt it now.
@@ -159,11 +177,12 @@ async fn fresh(srv: &str, case: &str, step: &str, room: &Room, sent: &[(OwnedEve
         };
         parts.push(format!("{label}={v}"));
     }
-    eprintln!("E2EE {srv} {case} {step} FRESH-FETCH | {}", parts.join(" "));
+    eprintln!("E2EE {srv} {case} {step} FRESH-FETCH readable={} | {}", count(&parts.join(" ")), parts.join(" "));
 }
 
 async fn run_case(config: &serde_json::Value, srv: &str, case: &str, recv: &str, other: &str, backup: bool, strategy: BackupDownloadStrategy) {
-    eprintln!("E2EE {srv} {case} B devices use backup_download_strategy={strategy:?}");
+    let strategy = if app_old() { strategy } else { BackupDownloadStrategy::AfterDecryptionFailure };
+    eprintln!("E2EE {srv} {case} app={} B devices use backup_download_strategy={strategy:?}", if app_old() { "old" } else { "new" });
     let home = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join(format!("stores-{case}"));
     let a = login(config, recv, "A", &home.join("a"), BackupDownloadStrategy::Manual).await;
     let o = login(config, other, "O", &home.join("o"), BackupDownloadStrategy::Manual).await;
@@ -258,6 +277,29 @@ async fn run_case(config: &serde_json::Value, srv: &str, case: &str, recv: &str,
             // Does a timeline opened now (cache already holds the keys) show the messages?
             let t2b = open(&rb2).await;
             watch(srv, case, "B2 NEW timeline after explicit download", &t2b, &sent, 10).await;
+            // (d) app restart: B2 from its store only, session restored, event cache subscribed after restore, cache NOT cleared.
+            let session = b2.matrix_auth().session().expect("B2 session");
+            sb2.stop().await;
+            drop((t2, t2b, t2c, rb2));
+            drop(b2);
+            let ca = std::fs::read(config["ca"].as_str().unwrap()).unwrap();
+            let b2r = Client::builder()
+                .homeserver_url(config["url"].as_str().unwrap())
+                .add_root_certificates(vec![Certificate::from_pem(&ca).unwrap()])
+                .sliding_sync_version_builder(VersionBuilder::DiscoverNative)
+                .sqlite_store(home.join("b2"), None)
+                .with_encryption_settings(EncryptionSettings { backup_download_strategy: BackupDownloadStrategy::AfterDecryptionFailure, ..Default::default() })
+                .build()
+                .await
+                .unwrap();
+            b2r.matrix_auth().restore_session(session, matrix_engine::sdk::store::RoomLoadSettings::default()).await.unwrap();
+            b2r.event_cache().subscribe().unwrap();
+            let sbr = SyncService::builder(b2r.clone()).build().await.unwrap();
+            sbr.start().await;
+            let rbr = until(40, async || b2r.get_room(&id)).await.expect("room after restart");
+            let tr = open(&rbr).await;
+            watch(srv, case, "(d) B2 after app restart, timeline opened from the store", &tr, &sent, 20).await;
+            sbr.stop().await;
         }
         None => eprintln!("E2EE {srv} {case} B2 no recovery key exists (no secret storage, no backup): n/a"),
     }
