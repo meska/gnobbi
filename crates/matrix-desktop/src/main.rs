@@ -2194,9 +2194,6 @@ fn main() {
         let bundled = exe
             .as_deref()
             .and_then(|exe| matrix_desktop::bundle_launch_args(exe, home.as_deref(), &args));
-        if let Some(profile) = bundled.as_ref().and_then(|args| args.get(1)) {
-            let _ = matrix_desktop::create_private_dir(std::path::Path::new(profile));
-        }
         bundled.unwrap_or(args)
     };
     // Without `live` there is no connected sign-in to open: the bare launch stays the offline fixture.

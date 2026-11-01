@@ -87,14 +87,10 @@ pub(crate) fn start_background(
 }
 
 /// Why a switch to a parked account cannot happen, or None when it can.
-pub(crate) fn switch_blocker(
-    active: Option<AccountId>,
-    status: Option<&RoomSyncStatus>,
-) -> Option<&'static str> {
-    match (active, status) {
-        (None, _) => Some("Account attivo non in elenco"),
-        (_, None) => Some("Non disponibile"),
-        (_, Some(RoomSyncStatus::AuthenticationFailed)) => Some("Accedi di nuovo"),
+pub(crate) fn switch_blocker(status: Option<&RoomSyncStatus>) -> Option<&'static str> {
+    match status {
+        None => Some("Non disponibile"),
+        Some(RoomSyncStatus::AuthenticationFailed) => Some("Accedi di nuovo"),
         _ => None,
     }
 }
@@ -220,7 +216,7 @@ impl Shell {
             && self
                 .parked
                 .get(&id)
-                .is_some_and(|s| switch_blocker(self.active_id, Some(&s.status)).is_none())
+                .is_some_and(|s| switch_blocker(Some(&s.status)).is_none())
     }
 
     /// Shows account `id` (catalog ID). The one shown so far keeps syncing in the background.
@@ -236,19 +232,29 @@ impl Shell {
             return;
         }
         let status = self.parked.get(&id).map(|s| s.status);
-        if let Some(reason) = switch_blocker(self.active_id, status.as_ref()) {
+        let blocker = switch_blocker(status.as_ref());
+        // No secrets: only catalog IDs and why a click was refused.
+        eprintln!(
+            "gnobbi: switch to {id:?}: shown={:?} parked={} refused={blocker:?}",
+            self.active_id,
+            status.is_some()
+        );
+        if let Some(reason) = blocker {
             self.switch_error = Some((id, reason));
             cx.notify();
             return;
         }
         self.switch_error = None;
         self.set_menu_open(false, window, cx);
-        let (Some(current), Some(next)) = (self.active_id, self.parked.remove(&id)) else {
+        let Some(next) = self.parked.remove(&id) else {
             return;
         };
         let mut leaving = self.take_state();
-        leaving.park();
-        self.parked.insert(current, leaving);
+        // No shown account in the catalog: nothing to park it under, so choosing one just shows it.
+        if let Some(current) = self.active_id {
+            leaving.park();
+            self.parked.insert(current, leaving);
+        }
         self.put_state(next);
         self.active_id = Some(id);
         self.clear_account_views(cx);
@@ -295,35 +301,23 @@ impl Shell {
 mod tests {
     use super::*;
 
-    #[test]
-    fn blocker_explains_every_refusal() {
-        let id = Some(AccountId::new(1));
-        assert!(switch_blocker(id, Some(&RoomSyncStatus::Connecting)).is_none());
-        assert!(switch_blocker(id, Some(&RoomSyncStatus::AuthenticationFailed)).is_some());
-        assert!(switch_blocker(id, None).is_some());
-        assert!(switch_blocker(None, Some(&RoomSyncStatus::Connecting)).is_some());
-    }
-
-    /// Only a failed unlock refuses a started account; every refusal fits the one-line row.
+    /// Only a failed unlock refuses a started account, whether or not one is shown; every refusal fits the one-line row.
     #[test]
     fn blocker_only_for_failed_unlock_and_one_line() {
-        let id = Some(AccountId::new(1));
         for s in [
             RoomSyncStatus::Connecting,
             RoomSyncStatus::Ready,
             RoomSyncStatus::SyncFailed,
         ] {
-            assert!(switch_blocker(id, Some(&s)).is_none());
+            assert!(switch_blocker(Some(&s)).is_none());
         }
         let all = [
-            switch_blocker(None, None),
-            switch_blocker(id, None),
-            switch_blocker(id, Some(&RoomSyncStatus::AuthenticationFailed)),
+            switch_blocker(None),
+            switch_blocker(Some(&RoomSyncStatus::AuthenticationFailed)),
         ];
         for m in all.into_iter().map(|m| m.expect("refusal")) {
             assert!(!m.is_empty() && !m.contains('\n') && m.chars().count() <= 30);
         }
         assert_ne!(all[0], all[1]);
-        assert_ne!(all[1], all[2]);
     }
 }
