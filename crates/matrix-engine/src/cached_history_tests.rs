@@ -300,6 +300,7 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             .await
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
+        client.event_cache().subscribe().unwrap();
         // The app's running sync service delivers what was missed. A sliding round answers with
         // whatever window the server has ready (Tuwunel under load stopped at m44), so keep
         // syncing, as the service does, until the newest sent message is stored.
@@ -546,6 +547,7 @@ fn restart_with_the_server_down_then_online_shows_cache_then_only_the_missing_me
             .await
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
+        client.event_cache().subscribe().unwrap();
         client.sync_once(Default::default()).await.unwrap();
         let timelines = crate::room_sync::Timelines::default();
         let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
@@ -724,6 +726,7 @@ fn reopened_room_shows_edit_redaction_and_reaction_that_arrived_while_away() {
             .await
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
+        client.event_cache().subscribe().unwrap();
         // The app's running sync service delivers what was missed; here one sync does.
         crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
         let sync = RoomSync::new(AccountSession {
@@ -863,6 +866,7 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             .await
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
+        client.event_cache().subscribe().unwrap();
         let scope = RoomScope {
             account_id: AccountId::new(296),
             room_id: RoomId::new(room_id.as_str()),
@@ -950,6 +954,7 @@ fn older_messages_page_in_after_a_room_opened_from_the_saved_ones() {
             .await
             .unwrap();
         client.restore_session(sdk_session).await.unwrap();
+        client.event_cache().subscribe().unwrap();
         let scope = RoomScope {
             account_id: AccountId::new(296),
             room_id: RoomId::new(room_id.as_str()),
