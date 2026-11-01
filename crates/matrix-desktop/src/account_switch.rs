@@ -272,6 +272,7 @@ impl Shell {
         self.pending_history = None;
         self.pending_operation_command = None;
         self.new_room = None;
+        self.quick = None;
         self.pending_open = None;
         self.groups_edit = None;
         self.members_requested = None;

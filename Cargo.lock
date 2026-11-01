@@ -4432,6 +4432,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing-subscriber",
+ "unicode-normalization",
  "url",
  "wayland-protocols 0.32.13",
  "wayland-server",

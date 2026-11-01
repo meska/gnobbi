@@ -16,6 +16,7 @@ mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
 mod new_room_view;
+mod quick_search_view;
 mod room_edit_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -69,6 +70,8 @@ struct Shell {
     drawer_focus: FocusHandle,
     settings_open: bool,
     new_room: Option<new_room_view::NewRoom>,
+    quick: Option<quick_search_view::QuickSearch>,
+    recents: matrix_desktop::quick_search::RecentsStore,
     room_edit: Option<room_edit_view::RoomEdit>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
@@ -689,6 +692,9 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let key = &event.keystroke;
+        if self.quick.is_some() {
+            return;
+        }
         if let Some(timeline) = &self.timeline
             && timeline.viewer_key(&key.key, window)
         {
@@ -1115,6 +1121,7 @@ impl Shell {
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
                 self.active_scope = request.tag.scope().clone();
+                self.note_seen();
                 let draft_scope = self.draft_scope();
                 self.composer
                     .update(cx, |editor, cx| editor.switch_room(draft_scope, cx));
@@ -1182,6 +1189,9 @@ impl Shell {
     }
 
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.quick.is_some() {
+            return;
+        }
         let key = &event.keystroke;
         let searching = self.search_focus.is_focused(window);
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1647,7 +1657,7 @@ impl Render for Shell {
                 navigation_revision: self.sidebar.navigation_revision(),
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
                 unread_filter: self.semantic_unread(window),
-                new_room: self.semantic_new_room(window, cx),
+                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_quick_search(window, cx)),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
@@ -2136,6 +2146,7 @@ impl Render for Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
+            .children(self.render_quick_search(t, cx))
             .children(self.render_room_edit(t, window, cx))
             .children(self.render_groups_edit(t, cx)))
             .into_any_element()
@@ -2829,6 +2840,8 @@ fn main() {
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
                         new_room: None,
+                        quick: None,
+                        recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
                         pending_open: None,
                         groups_edit: None,
