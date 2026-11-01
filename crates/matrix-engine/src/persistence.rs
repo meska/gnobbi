@@ -97,6 +97,7 @@ impl AccountStore {
                 AuthError::LoginFailed
             }
         })?;
+        Self::subscribe_event_cache(&client)?;
         let mut session = AccountSession {
             account_id: self.account_id,
             client: Some(client),
@@ -166,6 +167,7 @@ impl AccountStore {
             .restore_session(sdk_session)
             .await
             .map_err(|_| AuthError::Storage)?;
+        Self::subscribe_event_cache(&client)?;
         let session = AccountSession {
             account_id: self.account_id,
             client: Some(client),
@@ -219,12 +221,14 @@ impl AccountStore {
             .build()
             .await
             .map_err(|_| crate::auth::AuthError::Storage)?;
-        // The sqlite store above also holds the event cache, sealed with the same key.
-        client
-            .event_cache()
-            .subscribe()
-            .map_err(|_| crate::auth::AuthError::Storage)?;
         Ok(client)
+    }
+
+    /// The sqlite store also holds the event cache, sealed with the same key. Subscribing starts the
+    /// redecryptor, which gives up for good when there is no OlmMachine yet: call this only AFTER login
+    /// or restore_session, or UTD rows never re-decrypt when keys arrive (backup, forward, import).
+    fn subscribe_event_cache(client: &matrix_sdk::Client) -> Result<(), crate::auth::AuthError> {
+        client.event_cache().subscribe().map_err(|_| crate::auth::AuthError::Storage)
     }
 
     pub fn create(root: &Path, account_id: AccountId) -> Result<Self, StoreError> {
