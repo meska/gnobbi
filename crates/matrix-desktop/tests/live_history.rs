@@ -363,7 +363,7 @@ fn server_rows_preserve_scoped_identity_body_and_timestamp_without_demo_labels()
         matrix_domain::TimelineId::Server(EventId::new("$1"))
     );
     assert_eq!(row.text, "same text");
-    assert_eq!(row.time, "01:01 UTC");
+    assert_eq!(row.time, matrix_desktop::time_fmt::clock_time(3_661_000));
     assert!(row.outgoing);
     assert!(row.send_state.is_none());
 }
@@ -373,7 +373,7 @@ fn status_row_takes_the_server_timestamp_like_a_bubble() {
     let mut joined = event("$s");
     (joined.status, joined.timestamp_ms) = (true, 4_800_000);
     history.prepend_server(vec![joined]);
-    assert_eq!(history.events()[0].time, "01:20 UTC");
+    assert_eq!(history.events()[0].time, matrix_desktop::time_fmt::clock_time(4_800_000));
 }
 #[test]
 fn queued_pagination_intent_cannot_load_a_later_page_or_different_room() {

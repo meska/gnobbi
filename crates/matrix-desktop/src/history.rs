@@ -353,11 +353,7 @@ impl DemoHistory {
                 },
                 text: event.body,
                 outgoing: event.outgoing,
-                time: format!(
-                    "{:02}:{:02} UTC",
-                    event.timestamp_ms / 3_600_000 % 24,
-                    event.timestamp_ms / 60_000 % 60
-                ),
+                time: crate::time_fmt::clock_time(event.timestamp_ms),
                 send_state: None,
                 sender: (!event.outgoing).then_some(event.sender),
                 timestamp_ms: event.timestamp_ms,

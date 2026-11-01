@@ -28,7 +28,7 @@ fn status_row_is_labelled_and_has_no_menu() {
     rows.prepend_server(vec![row("$s", "@anna:test è entrato/a nella stanza", true), row("$m", "ciao", false)]);
     let messages = HistoryNodes::default().project(&rows, 0, true).messages;
     assert!(messages[0].description.contains("Stato della stanza"), "{}", messages[0].description);
-    assert!(messages[0].description.starts_with("00:00 UTC"), "{}", messages[0].description);
+    assert!(messages[0].description.starts_with(&matrix_desktop::time_fmt::clock_time(0)), "{}", messages[0].description);
     assert!(!messages[0].description.contains("In entrata"), "{}", messages[0].description);
     assert_eq!(messages[0].text, "@anna:test è entrato/a nella stanza");
     assert!(!rows.events()[0].menu_available(true));

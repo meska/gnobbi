@@ -25,8 +25,7 @@ impl ThreadRow {
     fn from_event(e: &HistoryEvent) -> Self {
         let who = if e.outgoing { "Tu".to_owned() } else { e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone()) };
         let text = if matrix_engine::history::is_image_body(&e.body) { "Immagine".to_owned() } else { e.body.clone() };
-        let ms = e.timestamp_ms;
-        Self { id: Some(e.event_id.clone()), who, text, time: format!("{:02}:{:02} UTC", ms / 3_600_000 % 24, ms / 60_000 % 60) }
+        Self { id: Some(e.event_id.clone()), who, text, time: matrix_desktop::time_fmt::clock_time(e.timestamp_ms) }
     }
 
     pub(crate) fn from_row(row: &matrix_desktop::DemoEvent) -> Self {
