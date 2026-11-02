@@ -46,8 +46,7 @@ impl Shell {
     }
 
     fn chat_visible(&self, window: &Window) -> bool {
-        self.connected
-            && self.timeline.is_some()
+        self.timeline.is_some()
             && self
                 .sidebar
                 .selected()
@@ -223,13 +222,17 @@ impl Shell {
             }
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        if shift && self.chat_visible(window) && self.composer.read(cx).tab_back_ready(window) {
+        if shift && self.connected && self.chat_visible(window) && self.composer.read(cx).tab_back_ready(window) {
             self.history_focus.focus(window);
             cx.notify();
             return true;
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        let entry = self.connected && self.history_focus.is_focused(window);
+        let entry = if self.connected {
+            self.history_focus.is_focused(window)
+        } else {
+            self.composer.read(cx).tab_back_ready(window)
+        };
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let entry = self.composer.read(cx).tab_back_ready(window);
         if entry && shift && (window.viewport_size().width >= px(800.) || self.compact_chat) {

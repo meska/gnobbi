@@ -1393,9 +1393,14 @@ impl NavigationSnapshot {
         {
             let nodes = spaces.nodes();
             if let Some(id) = spaces.focused
-                && nodes.iter().any(|(node_id, _)| *node_id == id)
+                && (id == MENU || nodes.iter().any(|(node_id, _)| *node_id == id))
             {
                 tree.focus = id;
+            }
+            if let Some(bounds) = spaces.bounds.get(&MENU)
+                && let Some((_, menu)) = tree.nodes.iter_mut().find(|(id, _)| *id == MENU)
+            {
+                menu.set_bounds(*bounds);
             }
             for (id, node) in nodes {
                 tree.nodes[0].1.push_child(id);

@@ -52,9 +52,12 @@ fn persistent_rail_exports_choices_without_a_hidden_toggle() {
     view.persistent = true;
     view.focused = Some(NodeId(61));
     let nodes = view.nodes();
-    assert_eq!(nodes.len(), 2);
+    assert_eq!(nodes.len(), 3);
     assert!(!nodes.iter().any(|(id, _)| *id == TOGGLE));
     assert_eq!(nodes[1].1.role(), Role::RadioButton);
+    // «Modifica» is the rail's last Tab stop, exported as a focus-only button.
+    assert_eq!(nodes[2].0, matrix_desktop::accessibility::spaces::EDIT);
+    assert_eq!(nodes[2].1.role(), Role::Button);
     assert_eq!(view.next_focus(true), None);
     assert_eq!(view.next_focus(false), Some(NodeId(1 << 57)));
     let request = accesskit::ActionRequest {

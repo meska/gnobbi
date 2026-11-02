@@ -210,6 +210,16 @@ impl Shell {
                 }
             })
             .track_focus(&self.menu_focus)
+            .children({
+                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                {
+                    Some(self.space_observer(matrix_desktop::accessibility::MENU, cx))
+                }
+                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                {
+                    None::<gpui::AnyElement>
+                }
+            })
             .w(px(36.))
             .h(px(36.))
             .flex_shrink_0()

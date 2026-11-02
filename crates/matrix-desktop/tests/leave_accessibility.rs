@@ -23,6 +23,7 @@ fn snapshot(rooms: Vec<matrix_desktop::accessibility::SemanticRoom>) -> Navigati
         unread_filter: None,
         new_room: None,
         devices: Default::default(),
+        new_chat: Default::default(),
         settings: None,
         details: Default::default(),
         notifications: Default::default(),

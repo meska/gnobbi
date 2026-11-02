@@ -1130,6 +1130,14 @@ impl Render for ComposerView {
                             .min_h(px(36.))
                             .py(px(8.))
                             .relative()
+                            // Always 1px so focus never moves the text; the ring is painted only while the field holds focus.
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(if self.focus.is_focused(window) {
+                                gpui::Hsla::from(rgb(t.accent))
+                            } else {
+                                gpui::transparent_black()
+                            })
                             .cursor(gpui::CursorStyle::IBeam)
                             .on_mouse_down(
                                 MouseButton::Left,

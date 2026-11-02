@@ -277,7 +277,11 @@ impl Shell {
             account: self.active_scope.account_id,
             open: persistent || self.spaces_open,
             active: self.sidebar.active_space().cloned(),
-            focused: if persistent {
+            focused: if self.menu_focus.is_focused(window) {
+                Some(matrix_desktop::accessibility::MENU)
+            } else if persistent && self.rail_ui.edit_focus.is_focused(window) {
+                Some(matrix_desktop::accessibility::spaces::EDIT)
+            } else if persistent {
                 self.rail_ui.focus.is_focused(window).then(|| {
                     choices
                         .iter()
@@ -310,6 +314,9 @@ impl Shell {
             return;
         };
         match action {
+            SpacesAction::Focus { id, .. } if id == matrix_desktop::accessibility::spaces::EDIT => {
+                self.rail_ui.edit_focus.focus(window);
+            }
             SpacesAction::Focus { id, .. } => {
                 if view.persistent {
                     self.rail_ui.target = view

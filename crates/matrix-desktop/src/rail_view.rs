@@ -599,6 +599,17 @@ impl Shell {
         div()
             .id("rail-edit")
             .track_focus(&self.rail_ui.edit_focus)
+            .relative()
+            .children({
+                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                {
+                    Some(self.space_observer(matrix_desktop::accessibility::spaces::EDIT, cx))
+                }
+                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                {
+                    None::<gpui::AnyElement>
+                }
+            })
             .w_full()
             .h(px(40.))
             .flex_shrink_0()

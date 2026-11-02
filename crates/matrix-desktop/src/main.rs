@@ -1896,7 +1896,7 @@ impl Render for Shell {
                                                 { d }
                                             })
                                             .w_full()
-                                            .border_l_2()
+                                            .border_2()
                                             .border_color(rgb(
                                                 if focused && this.list_focus.is_focused(window) {
                                                     t.accent
