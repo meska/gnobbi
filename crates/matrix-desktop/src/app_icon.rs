@@ -66,7 +66,7 @@ pub fn apply(icon: IconChoice, window: &gpui::Window) {
             SM_CXICON, SM_CXSMICON, SendMessageW, WM_SETICON,
         },
     };
-    let Ok(handle) = window.window_handle() else { return };
+    let Ok(handle) = HasWindowHandle::window_handle(window) else { return };
     let RawWindowHandle::Win32(handle) = handle.as_raw() else { return };
     let hwnd = HWND(handle.hwnd.get() as *mut _);
     for (kind, metric) in [(ICON_BIG, SM_CXICON), (ICON_SMALL, SM_CXSMICON)] {
