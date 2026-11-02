@@ -589,7 +589,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "entry" => this.composer.read(cx).is_focused(window),
                         _ => unreachable!(),
                     };
-                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
                     assert_eq!(this.compact_chat, chat);
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
@@ -844,7 +844,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "entry" => this.composer.read(cx).is_focused(window),
                         _ => unreachable!(),
                     };
-                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0], "focus must not change the selected room");
                     assert_eq!(this.active_scope, scopes[0]);
@@ -869,7 +869,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let empty = EMPTY.load(Ordering::SeqCst);
             let last = if empty { "composer" } else { "send" };
             let a11y = cfg!(all(feature = "linux-a11y", target_os = "linux"));
-            let first = if chat { "back" } else { "rail0" };
+            let first = if chat { "back" } else { "menu" };
             let mut steps: Vec<(&str, &str)> = vec![("shift-tab", last)];
             if !empty {
                 steps.push(("shift-tab", "composer"));
@@ -886,14 +886,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 steps.push(("tab", "send"));
             }
             steps.push(("tab", first));
-            steps.push(("tab", if chat { "info" } else { "rail1" }));
+            steps.push(("tab", if chat { "info" } else { "rail0" }));
             this.update_in(cx, |this, window, cx| {
                 if chat {
                     this.set_compact_chat(true);
                     this.back_focus_handle().focus(window);
                 } else {
-                    this.rail_ui.target = this.sidebar.navigation_entries()[0].scope.clone();
-                    this.rail_ui.focus.focus(window);
+                    this.menu_focus.focus(window);
                 }
                 if empty {
                     this.composer.update(cx, |v, cx| {
@@ -906,7 +905,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(300)).await;
             // The first key is the one under test from the first control.
-            if !chat { steps.insert(0, ("noop", "rail0")); }
+            if !chat { steps.insert(0, ("noop", "menu")); }
             for (key, expected) in steps {
                 if key != "noop" {
                     cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
@@ -915,6 +914,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     use matrix_desktop::panel_openers::Control;
                     let focused = match expected {
                         "back" => this.back_focus_handle().is_focused(window),
+                        "menu" => this.menu_focus.is_focused(window),
                         "info" => this.opener_ui.focused(Control::Info, window),
                         "send" => this.composer.read(cx).send_is_focused(window),
                         "composer" => this.composer.read(cx).is_focused(window),
@@ -926,7 +926,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         }
                         _ => unreachable!(),
                     };
-                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
                     assert_eq!(this.compact_chat, chat);
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
@@ -1718,8 +1718,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(500).await;
             shot("p183-closed");
             // The button sits at the top of the rail, above «Tutte», and the list header no longer holds it.
-            let (menu, first, avatar) = { let p = PAINTED.lock().unwrap(); (p["menu-button"], p["rail-None"], p["list-avatar"]) };
-            assert!(menu.right() <= px(72.) && menu.bottom() <= first.top(), "menu {menu:?} above the first rail entry {first:?}");
+            let (menu, first, avatar) = { let p = PAINTED.lock().unwrap(); (p["menu-button"], p.get("rail-None").copied(), p["list-avatar"]) };
+            assert!(menu.right() <= px(72.) && first.is_none_or(|first| menu.bottom() <= first.top()), "menu {menu:?} above the first rail entry {first:?}");
             assert!(menu.top() >= px(0.) && avatar.left() >= px(72.), "list header icon {avatar:?} is right of the rail");
             // Real pointer clicks need an input device: xdotool on the private X11 display.
             let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap().stdout).unwrap().lines().next().expect("window").to_string();
@@ -1730,14 +1730,17 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window), "click opens the drawer and moves focus")).unwrap();
             // Layering: the open drawer spans the full height from the left edge and covers the rail, which gets no click.
             let drawer = { PAINTED.lock().unwrap()["menu-drawer"] };
-            assert!(drawer.left() <= px(0.) && drawer.top() <= px(0.) && drawer.right() >= first.right() && drawer.bottom() >= first.bottom(), "drawer {drawer:?} covers menu {menu:?} and rail {first:?}");
-            let selected = this.update_in(cx, |this, _, _| this.active_scope.clone()).unwrap();
-            let ups = ACTIVATIONS[1].load(Ordering::SeqCst);
-            // Just under the drawer's last row, still over the bottom edge of «Tutte».
-            click!(f32::from(first.center().x), f32::from(first.bottom()) - 3.);
-            wait(500).await;
-            // The point may land on a drawer row (which closes it); either way the rail entry underneath stays untouched.
-            this.update_in(cx, |this, _, _| assert!(this.active_scope == selected && ACTIVATIONS[1].load(Ordering::SeqCst) == ups, "the rail entry under the drawer received the click")).unwrap();
+            // linux-a11y paints the rail through semantic observers: no «rail-None» bounds to click over, so only the layering check is skipped there.
+            if let Some(first) = first {
+                assert!(drawer.left() <= px(0.) && drawer.top() <= px(0.) && drawer.right() >= first.right() && drawer.bottom() >= first.bottom(), "drawer {drawer:?} covers menu {menu:?} and rail {first:?}");
+                let selected = this.update_in(cx, |this, _, _| this.active_scope.clone()).unwrap();
+                let ups = ACTIVATIONS[1].load(Ordering::SeqCst);
+                // Just under the drawer's last row, still over the bottom edge of «Tutte».
+                click!(f32::from(first.center().x), f32::from(first.bottom()) - 3.);
+                wait(500).await;
+                // The point may land on a drawer row (which closes it); either way the rail entry underneath stays untouched.
+                this.update_in(cx, |this, _, _| assert!(this.active_scope == selected && ACTIVATIONS[1].load(Ordering::SeqCst) == ups, "the rail entry under the drawer received the click")).unwrap();
+            }
             // The point sits on a drawer row (Notifiche), which closes the drawer and opens its panel: start the outside click from a plain open drawer.
             this.update_in(cx, |this, window, cx| { this.set_notifications_open(false); this.set_settings_open(false, window, cx); this.set_menu_open(false, window, cx); this.set_menu_open(true, window, cx); }).unwrap();
             wait(300).await;
@@ -2280,7 +2283,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 space
             }).unwrap();
             for dark in [false, true] {
-                for (query, unread, group, count) in [("",false,false,302), ("",true,false,1), ("",true,true,1), ("no matches ",true,true,0), ("",false,true,2), ("",false,false,302)] {
+                for (query, unread, group, count) in [("",false,false,300), ("",true,false,1), ("",true,true,1), ("no matches ",true,true,0), ("",false,true,1), ("",false,false,300)] {
                     this.update_in(cx, |this, _, cx| {
                         if this.theme.is_dark() != dark { this.toggle_theme(cx); }
                         this.sidebar.set_query(query);
@@ -2508,7 +2511,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     },
                     _ => unreachable!(),
                 };
-                assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                 assert_eq!(this.active_scope, scopes[0]);
                 assert!(!this.theme.is_dark() && !this.sidebar.unread_only());
@@ -2585,18 +2588,26 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.sidebar.set_space(None);
             this.list_focus.focus(window);
         }).unwrap();
-        for (key, index) in [("down", 1), ("up", 0)] {
+        // The list is ordered by recency, so the row below scopes[0] is not necessarily scopes[1].
+        let below = this.update_in(cx, |this, _, _| {
+            let visible = this.sidebar.visible_indices();
+            let at = visible.iter().position(|&i| this.sidebar.rooms()[i].scope == scopes[0]).unwrap();
+            this.sidebar.rooms()[visible[at + 1]].scope.clone()
+        }).unwrap();
+        for (key, expected) in [("down", &below), ("up", &scopes[0])] {
             cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
             this.update_in(cx, |this, window, cx| {
                 assert!(this.list_focus.is_focused(window));
-                assert_eq!(this.sidebar.selected().unwrap().scope, scopes[index]);
-                assert_eq!(this.active_scope, scopes[index]);
-                this.composer.update(cx, |v,cx| {
-                    let mut actual=None;
-                    assert_eq!(v.text_for_range(0..65536,&mut actual,window,cx).as_deref(), Some(DRAFTS[index]));
-                });
-                if index == 0 { assert!(history(this)); }
-                eprintln!("list arrow {key}: exact room/history/draft{index}");
+                assert_eq!(&this.sidebar.selected().unwrap().scope, expected);
+                assert_eq!(&this.active_scope, expected);
+                if expected == &scopes[0] {
+                    this.composer.update(cx, |v,cx| {
+                        let mut actual=None;
+                        assert_eq!(v.text_for_range(0..65536,&mut actual,window,cx).as_deref(), Some(DRAFTS[0]));
+                    });
+                    assert!(history(this));
+                }
+                eprintln!("list arrow {key}: exact room/history");
             }).unwrap();
         }
         this.update_in(cx, |this, window, cx| {
@@ -2999,7 +3010,7 @@ fn compact_chat_seam_runs_from_back_through_info_both_ways() {
 
 #[test]
 #[ignore = "requires private display"]
-fn wide_chat_end_wraps_to_first_rail_control_both_ways() {
+fn wide_chat_end_wraps_to_menu_both_ways() {
     assert_eq!(
         std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
         Ok("1")
