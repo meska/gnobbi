@@ -73,3 +73,34 @@ jobs:
         run: |
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s macos\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.macos.status"
+  ios-mobile:
+    needs: linux
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    runs-on: macos-arm64
+    steps:
+      - name: Checkout
+        run: |
+          git init -q .
+          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
+          git checkout -q "${{ gitea.sha }}"
+          # Non-interactive runner PATH is /usr/bin:/bin:...; prepend the dedicated rustc 1.98.0
+          # toolchain (runner stable 1.93.1 is older than rust-version 1.96) and brew (xcodegen).
+          echo "PATH=$HOME/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin:/opt/homebrew/bin:$PATH" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$HOME/ci-runners/gitea/cargo-target" >> "$GITHUB_ENV"
+      - name: Bridge and xcframework
+        run: scripts/mobile.sh ios
+      - name: Stage and generate Xcode project
+        run: |
+          apps/ios/stage.sh "$CARGO_TARGET_DIR"
+          (cd apps/ios && xcodegen)
+      - name: Build app for simulator
+        run: |
+          cd apps/ios
+          xcodebuild -project GnobbiMobile.xcodeproj -scheme GnobbiMobile -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- build
+      - name: Status
+        if: always()
+        run: |
+          mkdir -p "$HOME/ci-runners/gitea/out"
+          printf '%s %s ios-mobile\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.ios-mobile.status"
