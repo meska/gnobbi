@@ -392,6 +392,23 @@ impl X11Client {
             ),
         )?;
 
+        // Held keys then repeat as KeyPress only: otherwise the server emits a KeyRelease+KeyPress
+        // pair per repeat and a pair split across poll batches reaches apps as a real release.
+        let detectable = xkb::PerClientFlag::DETECTABLE_AUTO_REPEAT;
+        if let Err(err) = get_reply(
+            || "Failed to enable XKB detectable auto-repeat",
+            xcb_connection.xkb_per_client_flags(
+                xkb::ID::USE_CORE_KBD.into(),
+                detectable,
+                detectable,
+                xkb::BoolCtrl::from(0u8),
+                xkb::BoolCtrl::from(0u8),
+                xkb::BoolCtrl::from(0u8),
+            ),
+        ) {
+            log::warn!("x11: {err:?}");
+        }
+
         let xkb_context = xkbc::Context::new(xkbc::CONTEXT_NO_FLAGS);
         let xkb_device_id = xkbc::x11::get_core_keyboard_device_id(&xcb_connection);
         let xkb_state = {

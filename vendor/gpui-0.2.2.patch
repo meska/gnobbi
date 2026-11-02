@@ -1,6 +1,6 @@
 diff -ruN a/src/platform/linux/wayland/client.rs b/src/platform/linux/wayland/client.rs
---- a/src/platform/linux/wayland/client.rs	2026-10-30 12:54:49
-+++ b/src/platform/linux/wayland/client.rs	2026-10-30 12:54:49
+--- a/src/platform/linux/wayland/client.rs	2026-11-02 16:51:15
++++ b/src/platform/linux/wayland/client.rs	2026-11-02 16:51:15
 @@ -1264,13 +1264,17 @@
              } => {
                  let focused_window = state.keyboard_focused_window.clone();
@@ -34,3 +34,30 @@ diff -ruN a/src/platform/linux/wayland/client.rs b/src/platform/linux/wayland/cl
                  let keycode = Keycode::from(key + MIN_KEYCODE);
                  let keysym = keymap_state.key_get_one_sym(keycode);
  
+diff -ruN a/src/platform/linux/x11/client.rs b/src/platform/linux/x11/client.rs
+--- a/src/platform/linux/x11/client.rs	2026-11-02 16:51:15
++++ b/src/platform/linux/x11/client.rs	2026-11-02 16:51:15
+@@ -392,6 +392,23 @@
+             ),
+         )?;
+ 
++        // Held keys then repeat as KeyPress only: otherwise the server emits a KeyRelease+KeyPress
++        // pair per repeat and a pair split across poll batches reaches apps as a real release.
++        let detectable = xkb::PerClientFlag::DETECTABLE_AUTO_REPEAT;
++        if let Err(err) = get_reply(
++            || "Failed to enable XKB detectable auto-repeat",
++            xcb_connection.xkb_per_client_flags(
++                xkb::ID::USE_CORE_KBD.into(),
++                detectable,
++                detectable,
++                xkb::BoolCtrl::from(0u8),
++                xkb::BoolCtrl::from(0u8),
++                xkb::BoolCtrl::from(0u8),
++            ),
++        ) {
++            log::warn!("x11: {err:?}");
++        }
++
+         let xkb_context = xkbc::Context::new(xkbc::CONTEXT_NO_FLAGS);
+         let xkb_device_id = xkbc::x11::get_core_keyboard_device_id(&xcb_connection);
+         let xkb_state = {
