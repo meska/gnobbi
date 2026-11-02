@@ -684,9 +684,22 @@ pub struct SignInProfile {
     root: PathBuf,
     active: Option<AccountId>,
     vault_mode: bool,
+    /// Mobile: the one account ID this profile root may hold (the ID is global, so the vault
+    /// item key never depends on the root). None = first free `account-N`.
+    fixed: Option<AccountId>,
     _lock: std::fs::File,
 }
 impl SignInProfile {
+    /// Like `open`, but a first sign-in creates `account-<account>` (1..=128) instead of the first free one.
+    pub fn open_as(root: PathBuf, account: AccountId) -> Result<Self, SignInError> {
+        if !(1..=128).contains(&account.as_u64()) {
+            return Err(SignInError::AttemptLimit);
+        }
+        let mut profile = Self::open(root)?;
+        profile.fixed = Some(account);
+        Ok(profile)
+    }
+
     /// Backend-only filesystem work. The explicitly selected parent must exist.
     pub fn open(root: PathBuf) -> Result<Self, SignInError> {
         if !root.is_absolute() {
@@ -756,6 +769,7 @@ impl SignInProfile {
             root,
             active,
             vault_mode,
+            fixed: None,
             _lock: lock,
         })
     }
@@ -811,7 +825,8 @@ impl SignInProfile {
         }
         ensure_no_sealed_attempt(&self.root)?;
         let mut available = None;
-        for id in 1..=128 {
+        let ids = self.fixed.map_or(1..=128, |a| a.as_u64()..=a.as_u64());
+        for id in ids {
             match std::fs::symlink_metadata(self.root.join(format!("account-{id}"))) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     available = Some(AccountId::new(id));
