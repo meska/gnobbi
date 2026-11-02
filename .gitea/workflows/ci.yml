@@ -18,6 +18,10 @@ jobs:
           git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
           git checkout -q "${{ gitea.sha }}"
           echo "CARGO_TARGET_DIR=$HOME/ci/target" >> "$GITHUB_ENV"
+      - name: Design tokens drift
+        run: |
+          python3 crates/matrix-domain/design/generate.py
+          git diff --exit-code
       - name: Icons
         run: python3 packaging/check-icons.py
       - name: Build
