@@ -22,3 +22,23 @@ targets:
     dependencies:
       - framework: Generated/MatrixMobile.xcframework
         embed: false
+  GnobbiMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - Tests
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: chat.gnobbi.mobile.sample.tests
+    dependencies:
+      - target: GnobbiMobile
+schemes:
+  GnobbiMobile:
+    build:
+      targets:
+        GnobbiMobile: all
+        GnobbiMobileTests: [test]
+    test:
+      targets:
+        - GnobbiMobileTests
