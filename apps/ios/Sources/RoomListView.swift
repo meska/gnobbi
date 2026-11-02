@@ -26,7 +26,13 @@ struct RoomListView: View {
             }
             .listStyle(.plain)
             .navigationTitle("Chat")
-            .toolbar { ToolbarItem(placement: .principal) { Text(label(session.state)).font(.caption).foregroundColor(p.secondary) } }
+            .toolbar {
+                ToolbarItem(placement: .principal) { Text(label(session.state)).font(.caption).foregroundColor(p.secondary) }
+                ToolbarItem(placement: .navigationBarTrailing) { Button("Esci") { Task { await session.logout() } }.foregroundColor(p.accent) }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if !session.error.isEmpty { Text(session.error).foregroundColor(p.error).padding() }
+            }
         }
         .sheet(item: $target) { room in SendView(room: room) }
         .onChange(of: session.rooms.count) { _ in autoSend() }

@@ -43,6 +43,22 @@ final class Session: ObservableObject {
         }
     }
 
+    /// Revokes the session on the server and deletes the Keychain entry and the account dir (blocking call, so off the main actor).
+    /// On failure (e.g. offline) nothing is deleted and the user stays signed in with the error shown.
+    func logout() async {
+        guard let h = handle else { return }
+        error = ""
+        do {
+            try await Task.detached { try h.logout() }.value
+            handle = nil
+            rooms = []
+            lastSend = ""
+            signedIn = false
+        } catch {
+            self.error = "Uscita non riuscita: \(error)"
+        }
+    }
+
     func send(room: RoomItem, text: String) {
         do { _ = try handle?.sendText(roomId: room.roomId, body: text); lastSend = "Invio in corso…" }
         catch { lastSend = "Invio non riuscito: \(error)" }
