@@ -82,11 +82,11 @@ fn b_joins_by_alias_and_from_the_directory_then_leaves() {
         let steps = async {
             let account = AccountId::new(2);
             // Bad input and a missing alias stop before any room is touched.
-            assert_eq!(join_room(&b, account, "not an alias").await, Err(OperationError::InvalidInput));
-            assert_eq!(join_room(&b, account, &format!("#gnobbi-test-missing-{nanos}:{server}")).await, Err(OperationError::Unavailable));
+            assert_eq!(join_room(&b, account, "not an alias", &[]).await, Err(OperationError::InvalidInput));
+            assert_eq!(join_room(&b, account, &format!("#gnobbi-test-missing-{nanos}:{server}"), &[]).await, Err(OperationError::Unavailable));
 
             // Join by alias: the room appears in the list as joined.
-            assert_eq!(join_room(&b, account, &format!("#{alias_name}:{server}")).await.unwrap(), alias_scope);
+            assert_eq!(join_room(&b, account, &format!("#{alias_name}:{server}"), &[]).await.unwrap(), alias_scope);
             // Join from the directory: the hit has no alias, so the room ID is the target.
             let mut hit = None;
             for _ in 0..20 {
@@ -98,7 +98,7 @@ fn b_joins_by_alias_and_from_the_directory_then_leaves() {
             }
             let hit = hit.expect("public room not in directory");
             assert_eq!((hit.name.as_str(), hit.alias.as_deref()), (listed_name.as_str(), None));
-            assert_eq!(join_room(&b, account, hit.target()).await.unwrap(), listed_scope);
+            assert_eq!(join_room(&b, account, hit.target(), &[]).await.unwrap(), listed_scope);
 
             let (mut joined_alias, mut joined_listed) = (false, false);
             while !(joined_alias && joined_listed) {

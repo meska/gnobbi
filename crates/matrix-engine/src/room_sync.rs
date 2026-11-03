@@ -517,11 +517,12 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
-                                OperationCommand::JoinRoom { target } => {
+                                OperationCommand::JoinRoom { target, via } => {
                                     let result = crate::operations::join_room(
                                         &operation_client,
                                         account,
                                         &target,
+                                        &via,
                                     )
                                     .await;
                                     OperationResult::RoomStarted { result }
@@ -533,6 +534,16 @@ impl RoomListWorker {
                                     )
                                     .await;
                                     OperationResult::DirectoryFound { result }
+                                }
+                                OperationCommand::ProbeServer { server } => {
+                                    let result = tokio::time::timeout(
+                                        crate::search::TIMEOUT,
+                                        crate::operations::public_rooms(&operation_client, "", Some(&server), None, 1),
+                                    )
+                                    .await
+                                    .unwrap_or(Err(crate::search::SearchError::Timeout))
+                                    .map(|_| ());
+                                    OperationResult::ServerProbed { server, result }
                                 }
                                 OperationCommand::LeaveRoom { scope } => {
                                     let result = crate::operations::leave_room(
