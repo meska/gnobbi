@@ -48,6 +48,51 @@ impl AccountSession {
         })
     }
 
+    /// Sign out another device. First call without auth yields the UIA session; the password
+    /// (always typed by the user, never the vault one) is sent only if the server offers it.
+    pub async fn delete_device(
+        &self,
+        device_id: &str,
+        password: DevicePassword,
+    ) -> Result<(), DeviceDeleteError> {
+        use matrix_sdk::ruma::api::client::uiaa::{AuthData, AuthType, MatrixUserIdentifier, Password, UserIdentifier};
+        let client = self.client.as_ref().ok_or(DeviceDeleteError::LoggedOut)?;
+        let user_id = client.user_id().ok_or(DeviceDeleteError::LoggedOut)?;
+        if device_id.is_empty() || device_id.len() > 255 || device_id.chars().any(char::is_control)
+        {
+            return Err(DeviceDeleteError::InvalidTarget);
+        }
+        let device: matrix_sdk::ruma::OwnedDeviceId = device_id.into();
+        if Some(&*device) == client.device_id() {
+            return Err(DeviceDeleteError::CurrentDevice);
+        }
+        let devices = [device];
+        let info = match client.delete_devices(&devices, None).await {
+            Ok(_) => return Ok(()),
+            Err(error) => match error.as_uiaa_response() {
+                Some(info) => info.clone(),
+                None => return Err(map_delete_error(&error)),
+            },
+        };
+        if !info
+            .flows
+            .iter()
+            .any(|flow| flow.stages == [AuthType::Password])
+        {
+            return Err(DeviceDeleteError::Unavailable);
+        }
+        let mut auth = Password::new(
+            UserIdentifier::Matrix(MatrixUserIdentifier::new(user_id.to_string())),
+            password.0.to_string(),
+        );
+        auth.session = info.session;
+        client
+            .delete_devices(&devices, Some(AuthData::Password(auth)))
+            .await
+            .map(|_| ())
+            .map_err(|error| map_delete_error(&error))
+    }
+
     /// Request only SAS v1 from an explicitly selected, already tracked device.
     pub async fn request_device_verification(
         &self,
@@ -82,6 +127,20 @@ impl AccountSession {
             request,
             failed: false,
         })
+    }
+}
+
+fn map_delete_error(error: &matrix_sdk::HttpError) -> DeviceDeleteError {
+    use matrix_sdk::ruma::api::error::ErrorKind;
+    // A wrong password comes back as a new UIA challenge or M_FORBIDDEN.
+    if error.as_uiaa_response().is_some()
+        || matches!(error.client_api_error_kind(), Some(ErrorKind::Forbidden { .. }))
+    {
+        DeviceDeleteError::WrongPassword
+    } else if error.as_client_api_error().is_some() {
+        DeviceDeleteError::Rejected
+    } else {
+        DeviceDeleteError::Transport
     }
 }
 
@@ -258,6 +317,21 @@ pub(crate) async fn run_service(
                     }
                     VerificationCommand::RenameOwnDevice { account_id: requested, display_name } if requested == account_id => {
                         rename_own_device(&client, &display_name).await
+                    }
+                    VerificationCommand::DeleteDevice { account_id: requested, device_id, password } if requested == account_id => {
+                        match session.delete_device(&device_id, password).await {
+                            Ok(()) => match device_list(&client).await {
+                                Ok(devices) => {
+                                    if events.send(VerificationEvent::Devices { account_id, devices }).await.is_err() { break; }
+                                    Ok(())
+                                }
+                                Err(error) => Err(error),
+                            },
+                            Err(error) => {
+                                if events.send(VerificationEvent::DeviceDeleteFailed { account_id, device_id, error }).await.is_err() { break; }
+                                Ok(())
+                            }
+                        }
                     }
                     _ => Err(VerificationError::WrongScope),
                 }
