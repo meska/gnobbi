@@ -117,6 +117,10 @@ impl RailLayouts {
         self.0.get(&account).cloned().unwrap_or_default()
     }
 
+    pub fn remove(&mut self, account: u64) {
+        self.0.remove(&account);
+    }
+
     pub fn set(&mut self, account: u64, layout: RailLayout) {
         self.0.insert(account, layout);
     }

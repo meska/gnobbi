@@ -189,3 +189,26 @@ fn timing_on_synthetic_rooms() {
         assert!(per.as_millis() < 50, "search too slow: {per:?}");
     }
 }
+
+#[test]
+fn removing_an_account_forgets_its_recents_and_rail_layout_only() {
+    let d = dirs("remove");
+    let mut store = RecentsStore::default();
+    let mut recents = Recents::default();
+    recents.opened(rec("!a:x"));
+    store.set(1, recents.clone());
+    store.set(2, recents.clone());
+    store.save(&d).unwrap();
+    let mut store = RecentsStore::load(&d);
+    store.remove(1);
+    store.save(&d).unwrap();
+    let store = RecentsStore::load(&d);
+    assert_eq!(store.get(1), Recents::default());
+    assert_eq!(store.get(2), recents);
+
+    let mut layouts = matrix_desktop::RailLayouts::default();
+    let layout = matrix_desktop::RailLayout::default();
+    layouts.set(1, layout.clone());
+    layouts.remove(1);
+    assert_eq!(layouts, matrix_desktop::RailLayouts::default());
+}

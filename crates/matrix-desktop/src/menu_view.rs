@@ -117,6 +117,7 @@ impl Shell {
             && self.new_room.is_none()
             && self.room_edit.is_none()
             && self.groups_edit.is_none()
+            && self.confirm_removal.is_none()
         {
             if self.quick.is_some() {
                 self.close_quick_search(window, cx)

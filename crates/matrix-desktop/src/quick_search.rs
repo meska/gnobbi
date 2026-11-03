@@ -288,6 +288,11 @@ impl RecentsStore {
         self.0.get(&account).cloned().unwrap_or_default()
     }
 
+    /// The account is gone: its names, ids and avatars go with it.
+    pub fn remove(&mut self, account: u64) {
+        self.0.remove(&account);
+    }
+
     pub fn set(&mut self, account: u64, recents: Recents) {
         self.0.insert(account, recents);
     }

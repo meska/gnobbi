@@ -85,6 +85,15 @@ impl Shell {
                     if !ok {
                         eprintln!("Gnobbi: account removal did not finish");
                     }
+                    if ok {
+                        // Room names, ids and avatars of the account must not outlive it.
+                        self.recents.remove(removal.id.as_u64());
+                        self.rail_ui.layouts.remove(removal.id.as_u64());
+                        if let Some(dirs) = &self.prefs_dirs {
+                            let _ = self.recents.save(dirs);
+                            let _ = self.rail_ui.layouts.save(dirs);
+                        }
+                    }
                     quit |= ok && removal.leave;
                     false
                 }

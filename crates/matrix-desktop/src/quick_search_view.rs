@@ -60,6 +60,14 @@ fn step(
     })
 }
 
+/// «Svuota» from the keyboard: Backspace/Delete on the highlighted searches, or Cmd/Ctrl+Backspace.
+fn clears(zone: Zone, key: &str, plain: bool, secondary: bool, typing: bool, rows: usize) -> bool {
+    !typing
+        && rows > 0
+        && ((plain && zone == Zone::Rows && matches!(key, "backspace" | "delete"))
+            || (secondary && key == "backspace"))
+}
+
 /// Name under a «Visti» avatar: one line that fits the 64 px cell, ellipsis at the end.
 fn seen_label(name: &str) -> String {
     let name = matrix_desktop::row_text::one_line(name);
@@ -271,6 +279,10 @@ impl Shell {
         let Some(q) = self.quick.as_mut() else {
             return false;
         };
+        if clears(q.zone, key, plain, m.secondary(), !q.term.is_empty(), rows) {
+            self.quick_clear(window, cx);
+            return true;
+        }
         match key {
             "enter" if plain => {
                 let (zone, i) = (q.zone, q.active);
@@ -354,6 +366,9 @@ impl Shell {
                     q.zone == Zone::Seen && q.active == i,
                 ));
             }
+        }
+        if q.term.is_empty() && !self.quick_rows().is_empty() {
+            items.push(item("Svuota".into(), false));
         }
         for (i, hit) in self.quick_rows().iter().enumerate() {
             items.push(item(
@@ -615,6 +630,19 @@ mod tests {
         assert_eq!(step(Seen, 0, "down", 3, 0, false), None);
         assert_eq!(step(Rows, 0, "up", 0, 5, false), None);
         assert_eq!(step(Seen, 0, "tab", 3, 0, false), None);
+    }
+
+    #[test]
+    fn svuota_from_the_keyboard() {
+        // Backspace/Delete on the highlighted searches, empty field.
+        assert!(clears(Rows, "backspace", true, false, false, 2));
+        assert!(clears(Rows, "delete", true, false, false, 2));
+        assert!(!clears(Seen, "backspace", true, false, false, 2));
+        // Cmd/Ctrl+Backspace from any zone.
+        assert!(clears(Seen, "backspace", false, true, false, 2));
+        // Typing: Backspace edits the field. Nothing to clear: no-op.
+        assert!(!clears(Rows, "backspace", true, false, true, 2));
+        assert!(!clears(Rows, "backspace", true, false, false, 0));
     }
 
     #[test]
