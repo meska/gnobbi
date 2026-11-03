@@ -2834,6 +2834,112 @@ mod tests {
         ])))
     }
 
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    struct ThemedHost(TimelineView, matrix_desktop::DesignTokens);
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    impl Render for ThemedHost {
+        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().size_full().flex().flex_col().child(self.0.render(self.1, window, None, None))
+        }
+    }
+
+    /// «Scarica» ↓ painted for real: on a received and an own-sent image and file (not on text, not on
+    /// a row still sending), 32x32 at least, reachable with Tab and Shift-Tab, in the given theme.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn save_icons_painted(dark: bool) {
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
+            let ids = ["$img-in", "$file-in", "$img-out", "$file-out"].map(|id| EventId::new(format!("{id}:fixture.invalid")));
+            let event = |id: &EventId, outgoing: bool, name: Option<&str>, image: bool, ms: u64| HistoryEvent {
+                redacted: false,
+                event_id: id.clone(),
+                body: if image { matrix_engine::history::IMAGE_BODY.into() } else { name.unwrap_or("solo testo").into() },
+                outgoing,
+                timestamp_ms: ms,
+                sender: HistorySender::new(if outgoing { "@me:fixture.invalid" } else { "@a:fixture.invalid" }, None),
+                video: None,
+                styles: Vec::new(),
+                thread: None,
+                thread_root: None,
+                status: false,
+                attachment_name: name.map(Into::into),
+                attachment_size: name.map(|_| 2048),
+            };
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi save icons");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!save:fixture.invalid") };
+                        let mut history = DemoHistory::new(scope, 0);
+                        history.submit_text("ancora in invio".into()); // pending: no icon
+                        let v = TimelineView::with_history(history, cx.focus_handle(), true);
+                        v.append_server(vec![
+                            event(&ids[0], false, Some("foto.png"), true, 1),
+                            event(&ids[1], false, Some("rel.pdf"), false, 2),
+                            event(&ids[2], true, Some("mia.png"), true, 3),
+                            event(&ids[3], true, Some("mio.pdf"), false, 4),
+                            event(&EventId::new("$txt:fixture.invalid"), true, None, false, 5),
+                        ]);
+                        v.images.borrow_mut().insert(ids[0].clone(), ready_image());
+                        v.images.borrow_mut().insert(ids[2].clone(), ready_image());
+                        ThemedHost(v, tokens)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                view.update(cx, |host, window, cx| {
+                    let v = &host.0;
+                    let painted = v.save_painted.borrow();
+                    assert_eq!(painted.len(), 4, "one ↓ per attachment, none on text or on a row still sending");
+                    for id in &ids {
+                        let b = painted.get(id).unwrap_or_else(|| panic!("no ↓ painted for {id:?}"));
+                        assert!(f32::from(b.size.width) >= 32. && f32::from(b.size.height) >= 32., "{id:?}: {:?}", b.size);
+                    }
+                    drop(painted);
+                    v.focus.focus(window);
+                    let mut forward = 0;
+                    if v.enter_icons(false, window) {
+                        forward = 1;
+                        while matches!(v.step_icons(false, window, cx), IconStep::Moved) {
+                            forward += 1;
+                        }
+                    }
+                    v.focus.focus(window);
+                    let mut backward = 0;
+                    if v.enter_icons(true, window) {
+                        backward = 1;
+                        while matches!(v.step_icons(true, window, cx), IconStep::Moved) {
+                            backward += 1;
+                        }
+                    }
+                    println!("SAVEICONS dark={dark} painted=4 tab_stops_forward={forward} tab_stops_backward={backward}");
+                    assert_eq!((forward, backward), (4, 4), "Tab and Shift-Tab reach every ↓ once");
+                    cx.quit();
+                })
+                .unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_save_icons_light() {
+        save_icons_painted(false);
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_save_icons_dark() {
+        save_icons_painted(true);
+    }
+
     #[test]
     #[ignore = "requires private display"]
     fn large_image_view_opens_and_escape_returns_focus_to_timeline() {
