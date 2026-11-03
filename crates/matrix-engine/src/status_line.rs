@@ -65,7 +65,8 @@ pub fn status_text(status: &Status, actor: &str, subject: &str) -> String {
         Status::RoomTopic(t) if t.is_empty() => format!("{actor} ha rimosso l'argomento della stanza"),
         Status::RoomTopic(t) => format!("{actor} ha cambiato l'argomento della stanza in «{t}»"),
         Status::RoomAvatar => format!("{actor} ha cambiato l'avatar della stanza"),
-        Status::DisplayName { old, new } => match (old, new) {
+        // Tuwunel keeps "" as display name: treat blank like absent (as Synapse does).
+        Status::DisplayName { old, new } => match (old.as_deref().map(str::trim).filter(|s| !s.is_empty()), new.as_deref().map(str::trim).filter(|s| !s.is_empty())) {
             (Some(old), Some(new)) => format!("{old} ha cambiato il nome in {new}"),
             (None, Some(new)) => format!("{subject} ha impostato il nome {new}"),
             (_, None) => format!("{subject} ha rimosso il nome visualizzato"),
@@ -123,6 +124,10 @@ mod tests {
             let t = status_text(&s, id, id);
             assert!(t.contains(id) && !t.contains("  ") && !t.contains("«»") && t.trim() == t, "{s:?}: {t}");
         }
+        let dn = |o: &str, n: &str| status_text(&Status::DisplayName { old: Some(o.into()), new: Some(n.into()) }, "erin", "erin");
+        assert_eq!(dn("", "Erin"), "erin ha impostato il nome Erin");
+        assert_eq!(dn("  ", ""), "erin ha rimosso il nome visualizzato");
+        assert_eq!(dn("Erin", ""), "erin ha rimosso il nome visualizzato");
         assert_eq!(status_text(&Status::DisplayName { old: Some("Mar".into()), new: None }, id, id), format!("{id} ha rimosso il nome visualizzato"));
     }
 }
