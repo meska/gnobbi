@@ -31,8 +31,9 @@ pub(crate) fn drawer_shell(
             ),
     )
 }
-/// Settings, Devices, Notifications, Add account, New chat, New room (after the account rows).
-pub(crate) const DRAWER_ROWS: usize = 7;
+/// Settings, Devices, Notifications, Add account, New chat, New room, Join, Quick search (after the account rows).
+pub(crate) const DRAWER_ROWS: usize = 8;
+
 
 impl Shell {
     pub(crate) fn set_menu_open(
@@ -196,6 +197,26 @@ impl Shell {
             self.set_menu_open(!self.menu_open, window, cx);
             return true;
         }
+        if self.connected
+            && m.secondary()
+            && !m.shift
+            && !m.alt
+            && key.key == "k"
+            && self.new_room.is_none()
+            && self.room_edit.is_none()
+            && self.groups_edit.is_none()
+            && self.confirm_removal.is_none()
+        {
+            if self.quick.is_some() {
+                self.close_quick_search(window, cx)
+            } else {
+                self.open_quick_search(window, cx)
+            }
+            return true;
+        }
+        if self.quick.is_some() {
+            return self.quick_key(event, window, cx);
+        }
         if self.menu_open && self.confirm_removal.is_some() {
             match key.key.as_str() {
                 "escape" => self.confirm_removal = None,
@@ -234,6 +255,7 @@ impl Shell {
                         Some(4) if self.connected => self.open_new_room(true, window, cx),
                         Some(5) if self.connected => self.open_new_room(false, window, cx),
                         Some(6) if self.connected => self.open_join_room(window, cx),
+                        Some(7) if self.connected => self.open_quick_search(window, cx),
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }

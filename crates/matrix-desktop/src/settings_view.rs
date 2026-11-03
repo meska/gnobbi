@@ -476,6 +476,16 @@ impl Shell {
                                 this.open_join_room(window, cx)
                             })),
                     )
+                    .child(
+                        row("menu-quick-search")
+                            .border_1()
+                            .border_color(ring(n + 7))
+                            .text_color(rgb(t.text))
+                            .child("Ricerca rapida")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_quick_search(window, cx)
+                            })),
+                    )
                 })
                 .into_any_element();
         }
