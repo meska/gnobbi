@@ -12,6 +12,7 @@ pub enum VerificationError {
     WrongScope,
     Busy,
     TooManyDevices,
+    InvalidName,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +90,11 @@ pub enum VerificationCommand {
     Act {
         target: VerificationTarget,
         action: VerificationAction,
+    },
+    /// Rename the session's own device (`Client::rename_device`, PUT /devices/{id}).
+    RenameOwnDevice {
+        account_id: AccountId,
+        display_name: String,
     },
 }
 pub enum VerificationEvent {

@@ -43,8 +43,11 @@ pub struct AccountSession {
     pub(crate) store: Option<crate::persistence::AccountStore>,
 }
 
+/// OS only: no user name and no hostname (privacy; a hostname variant needs Marco's consent).
 pub(crate) const DEVICE_NAME: &str = if cfg!(target_os = "macos") {
     "Gnobbi (macOS)"
+} else if cfg!(target_os = "windows") {
+    "Gnobbi (Windows)"
 } else {
     "Gnobbi (Linux)"
 };
@@ -209,5 +212,14 @@ impl AccountSession {
                 .ok_or(AuthError::IdentityMismatch)?
                 .to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod device_name_tests {
+    #[test]
+    fn device_name_matches_os_without_user_or_host() {
+        let expected = if cfg!(target_os = "macos") { "Gnobbi (macOS)" } else if cfg!(target_os = "windows") { "Gnobbi (Windows)" } else { "Gnobbi (Linux)" };
+        assert_eq!(super::DEVICE_NAME, expected);
     }
 }
