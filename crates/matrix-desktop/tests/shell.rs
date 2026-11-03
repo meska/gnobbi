@@ -24,8 +24,8 @@ fn shell_fixture_is_explicitly_offline_and_deterministic() {
 fn shell_tokens_define_baseline_geometry_and_green_palette() {
     let t = matrix_desktop::LIGHT;
     assert_eq!(
-        (t.width, t.height, t.sidebar, t.header, t.composer),
-        (1120., 760., 320., 64., 72.)
+        (t.width, t.height, t.sidebar, t.header, t.bottom_bar),
+        (1120., 760., 320., 64., 56.)
     );
     assert_eq!(t.surface, 0xffffff);
     assert_eq!(t.text, 0x17231b);

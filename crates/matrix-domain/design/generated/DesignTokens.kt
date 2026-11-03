@@ -7,7 +7,7 @@ object DesignTokens {
     const val LAYOUT_HEIGHT = 760.0
     const val LAYOUT_SIDEBAR = 320.0
     const val LAYOUT_HEADER = 64.0
-    const val LAYOUT_COMPOSER = 72.0
+    const val LAYOUT_BOTTOM_BAR = 56.0
     const val SPACING_ROW_PAD_Y = 12.0
     const val SPACING_TEXT_GAP = 4.0
     const val SCRIM = 0x00000066L

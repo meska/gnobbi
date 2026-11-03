@@ -7,7 +7,7 @@ width = 1120
 height = 760
 sidebar = 320
 header = 64
-composer = 72
+bottom_bar = 56
 
 [spacing]           # logical px
 row_pad_y = 12

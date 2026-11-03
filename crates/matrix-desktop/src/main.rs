@@ -2044,7 +2044,8 @@ impl Render for Shell {
                         .child(
                             div()
                                 .px_4()
-                                .py_4()
+                                .h(px(t.bottom_bar)) // same token as the composer: one baseline across both columns
+                                .flex_shrink_0()
                                 .border_t_1()
                                 .border_color(rgb(t.border))
                                 .text_size(px(11.))

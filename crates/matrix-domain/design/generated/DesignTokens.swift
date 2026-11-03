@@ -5,7 +5,7 @@ enum DesignTokens {
     static let layoutHeight: Double = 760
     static let layoutSidebar: Double = 320
     static let layoutHeader: Double = 64
-    static let layoutComposer: Double = 72
+    static let layoutBottomBar: Double = 56
     static let spacingRowPadY: Double = 12
     static let spacingTextGap: Double = 4
     static let scrim: UInt32 = 0x00000066

@@ -26,8 +26,8 @@ fn generated_tokens_equal_the_desktop_for_all_four_themes() {
         assert_eq!(theme.is_dark(), g.dark, "dark flag of {}", g.id);
         let d = theme.tokens();
         let l = gen_::LAYOUT;
-        assert_eq!((d.width, d.height, d.sidebar, d.header, d.composer),
-                   (l.width, l.height, l.sidebar, l.header, l.composer), "layout of {}", g.id);
+        assert_eq!((d.width, d.height, d.sidebar, d.header, d.bottom_bar),
+                   (l.width, l.height, l.sidebar, l.header, l.bottom_bar), "layout of {}", g.id);
     }
     assert_eq!(SCRIM, gen_::SCRIM);
     assert_eq!(AVATAR_FALLBACK, gen_::AVATAR_FALLBACK);

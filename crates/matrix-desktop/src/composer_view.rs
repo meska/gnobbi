@@ -1036,7 +1036,7 @@ impl Render for ComposerView {
             })
             .border_t_1()
             .border_color(rgb(t.border))
-            .min_h(px(t.composer))
+            .min_h(px(t.bottom_bar))
             .flex_shrink_0()
             .px_6()
             .py_2()
@@ -2480,6 +2480,8 @@ mod tests {
     fn painted_icons_are_32px_right_of_the_text_and_centred_in_the_bar() {
         rendered_composer("una riga", |v, _, _| {
             let bar = probed("bar");
+            // At rest the one-line composer is exactly the shared bottom-bar height (the list footer uses the same token); the probe is the content box, inside the 1px top border.
+            assert!((f32::from(bar.size.height) + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar {bar:?} vs token {}", v.theme.bottom_bar);
             let mid = centre(bar);
             let text = v.layout.as_ref().expect("text laid out").bounds();
             assert!((centre(text) - mid).abs() <= 1., "text centre {:?} vs bar {mid}", text);

@@ -32,7 +32,7 @@ pub struct Layout {
     pub height: f32,
     pub sidebar: f32,
     pub header: f32,
-    pub composer: f32,
+    pub bottom_bar: f32,
 }
 
 pub const LAYOUT: Layout = Layout {
@@ -40,7 +40,7 @@ pub const LAYOUT: Layout = Layout {
     height: 760.,
     sidebar: 320.,
     header: 64.,
-    composer: 72.,
+    bottom_bar: 56.,
 };
 
 pub const SPACING_ROW_PAD_Y: f32 = 12.;
