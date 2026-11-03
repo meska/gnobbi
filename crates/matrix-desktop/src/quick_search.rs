@@ -216,6 +216,11 @@ impl Recents {
     pub fn searched(&self) -> &[Recent] {
         &self.searched
     }
+    /// The room is gone (left): it leaves both lists.
+    pub fn forget(&mut self, id: &str) {
+        self.seen.retain(|r| r.id != id);
+        self.searched.retain(|r| r.id != id);
+    }
     /// «Svuota» on «Ricerche recenti»; «Visti di recente» is history and stays.
     pub fn clear_searched(&mut self) {
         self.searched.clear();

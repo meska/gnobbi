@@ -60,6 +60,31 @@ fn step(
     })
 }
 
+/// Name under a «Visti» avatar: one line that fits the 64 px cell, ellipsis at the end.
+fn seen_label(name: &str) -> String {
+    let name = matrix_desktop::row_text::one_line(name);
+    // shortcut: counts chars, not pixels (wide glyphs may still clip); upgrade with text measuring.
+    if name.chars().count() > 8 {
+        name.chars().take(7).chain(['…']).collect()
+    } else {
+        name
+    }
+}
+
+/// Row subtitle; a raw room ID (`!abc:server`) is never shown (the screen-reader label keeps it).
+fn secondary_label(secondary: &str) -> &str {
+    if secondary.starts_with('!') {
+        ""
+    } else {
+        secondary
+    }
+}
+
+/// «Nessun risultato» is text: `disabled` is a background token.
+fn no_results_color(t: &matrix_desktop::DesignTokens) -> u32 {
+    t.secondary
+}
+
 impl Shell {
     fn recents_account(&self) -> u64 {
         self.active_scope.account_id.as_u64()
@@ -194,6 +219,16 @@ impl Shell {
                 .find(|r| r.scope.room_id.as_str() == item.id)
                 .map(|r| r.scope.clone())
         }) else {
+            // The room is gone (left): drop the dead entry instead of a click that does nothing.
+            if let Some(item) = item {
+                recents.forget(&item.id);
+                self.recents.set(account, recents);
+                self.save_recents();
+                if let Some(q) = self.quick.as_mut() {
+                    q.active = q.active.saturating_sub(1);
+                }
+                cx.notify();
+            }
             return;
         };
         if zone == Zone::Rows {
@@ -380,7 +415,7 @@ impl Shell {
                                         .text_center()
                                         .text_size(px(11.))
                                         .text_color(rgb(t.text))
-                                        .child(r.name.clone()),
+                                        .child(seen_label(&r.name)),
                                 )
                                 .on_mouse_move(cx.listener(move |this, _, _, cx| {
                                     this.quick_highlight(Zone::Seen, i, cx)
@@ -403,7 +438,7 @@ impl Shell {
                         .text_size(px(12.))
                         .text_color(rgb(t.accent))
                         .child("Svuota")
-                        .on_click(cx.listener(|this, _, _, cx| this.quick_clear(cx))),
+                        .on_click(cx.listener(|this, _, window, cx| this.quick_clear(window, cx))),
                 )
         });
         let list = (rows > 0).then(|| {
@@ -454,12 +489,16 @@ impl Shell {
                                                         ),
                                                     ),
                                                 )
-                                                .child(
-                                                    div()
-                                                        .truncate()
-                                                        .text_size(px(12.))
-                                                        .text_color(rgb(t.secondary))
-                                                        .child(hit.secondary.clone()),
+                                                .children(
+                                                    Some(secondary_label(&hit.secondary))
+                                                        .filter(|s| !s.is_empty())
+                                                        .map(|s| {
+                                                            div()
+                                                                .truncate()
+                                                                .text_size(px(12.))
+                                                                .text_color(rgb(t.secondary))
+                                                                .child(s.to_owned())
+                                                        }),
                                                 ),
                                         )
                                         .on_mouse_move(cx.listener(move |this, _, _, cx| {
@@ -513,7 +552,7 @@ impl Shell {
                             d.child(
                                 div()
                                     .text_size(px(13.))
-                                    .text_color(rgb(t.disabled))
+                                    .text_color(rgb(no_results_color(&t)))
                                     .child("Nessun risultato"),
                             )
                         }),
@@ -535,7 +574,7 @@ impl Shell {
     }
 
     /// «Svuota»: only the search list; «Visti di recente» is history and stays.
-    fn quick_clear(&mut self, cx: &mut Context<Self>) {
+    fn quick_clear(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let account = self.recents_account();
         let mut recents = self.recents.get(account);
         recents.clear_searched();
@@ -544,6 +583,8 @@ impl Shell {
         self.save_recents();
         if let Some(q) = self.quick.as_mut() {
             (q.zone, q.active) = (if has_seen { Zone::Seen } else { Zone::Rows }, 0);
+            // The click took the focus off the field: give it back so typing continues.
+            q.field.read(cx).focus.focus(window);
         }
         cx.notify();
     }
@@ -574,5 +615,69 @@ mod tests {
         assert_eq!(step(Seen, 0, "down", 3, 0, false), None);
         assert_eq!(step(Rows, 0, "up", 0, 5, false), None);
         assert_eq!(step(Seen, 0, "tab", 3, 0, false), None);
+    }
+
+    #[test]
+    fn seen_label_is_one_short_line_with_final_ellipsis() {
+        assert_eq!(seen_label("Anna"), "Anna");
+        assert_eq!(seen_label("12345678"), "12345678");
+        assert_eq!(seen_label("017 Progetto lungo"), "017 Pro…");
+        assert_eq!(seen_label("a\nb"), "a b");
+        assert_eq!(seen_label("àèìòùàèìòù").chars().count(), 8);
+    }
+
+    #[test]
+    fn raw_room_ids_are_not_shown_but_other_secondary_text_is() {
+        assert_eq!(secondary_label("!KBYhOBtiJiD1au:matrix.org"), "");
+        assert_eq!(secondary_label("@bob:matrix.org"), "@bob:matrix.org");
+        assert_eq!(secondary_label("WhatsApp"), "WhatsApp");
+    }
+
+    fn contrast(a: u32, b: u32) -> f64 {
+        let l = |c: u32| {
+            let v = |s: u32| {
+                let x = f64::from((c >> s) & 255) / 255.;
+                if x <= 0.03928 {
+                    x / 12.92
+                } else {
+                    ((x + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * v(16) + 0.7152 * v(8) + 0.0722 * v(0)
+        };
+        (l(a).max(l(b)) + 0.05) / (l(a).min(l(b)) + 0.05)
+    }
+
+    #[test]
+    fn no_results_text_is_readable_in_every_theme() {
+        for t in [
+            matrix_desktop::LIGHT,
+            matrix_desktop::DARK,
+            matrix_desktop::DAY,
+            matrix_desktop::NIGHT,
+        ] {
+            let r = contrast(no_results_color(&t), t.surface);
+            assert!(r >= 4.5, "{r:.2}");
+        }
+    }
+
+    #[test]
+    fn a_left_room_leaves_both_recent_lists() {
+        let item = |id: &str| Recent {
+            id: id.into(),
+            name: id.into(),
+            avatar: None,
+        };
+        let mut r = matrix_desktop::quick_search::Recents::default();
+        (
+            r.opened(item("a")),
+            r.opened(item("b")),
+            r.picked(item("a")),
+            r.picked(item("b")),
+        );
+        r.forget("a");
+        assert_eq!(r.seen().len(), 1);
+        assert_eq!(r.searched().len(), 1);
+        assert_eq!(r.seen()[0].id, "b");
     }
 }
