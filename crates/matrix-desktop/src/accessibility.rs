@@ -5,6 +5,7 @@ use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
 pub mod compact;
 pub mod details;
+pub mod drawer;
 pub mod devices;
 pub mod event_id_copy;
 pub mod filters;
@@ -554,6 +555,8 @@ pub struct NavigationSnapshot {
     #[cfg(feature = "live")]
     pub signin: Option<signin::Snapshot>,
     pub back: Option<compact::BackSnapshot>,
+    /// The open account drawer; while set it is the whole page.
+    pub drawer: Option<drawer::DrawerSnapshot>,
     pub scrollbars: Vec<scrollbars::ScrollbarSnapshot>,
     pub operation_panel: Option<operation_panel::PanelSnapshot>,
     pub spaces: Option<spaces::SpacesSnapshot>,
@@ -587,6 +590,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.action(request);
+        }
+        if let Some(drawer) = &self.drawer {
+            return drawer.action(request).map(NavigationAction::Drawer);
         }
         if matches!(self.new_chat, new_chat::NewChatView::Open(_)) {
             return self.new_chat.action(request).map(NavigationAction::NewChat);
@@ -912,6 +918,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.tree();
+        }
+        if let Some(drawer) = &self.drawer {
+            return drawer.tree();
         }
         if let Some(dialog) = &self.new_room {
             return dialog.tree();
@@ -1474,6 +1483,7 @@ pub enum NavigationAction {
     LoadServerHistory(matrix_engine::RequestTag),
     Devices(devices::DeviceAction),
     Details(details::DetailsAction),
+    Drawer(drawer::DrawerAction),
     Notifications(notifications::NotificationAction),
     Settings(settings::SettingsAction),
     NewChat(new_chat::NewChatAction),

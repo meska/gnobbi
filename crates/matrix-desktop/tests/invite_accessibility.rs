@@ -15,6 +15,7 @@ fn snapshot(rooms: Vec<matrix_desktop::accessibility::SemanticRoom>) -> Navigati
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,

@@ -17,6 +17,7 @@ fn snapshot(tag: matrix_engine::RequestTag, status: HistoryStatus) -> Navigation
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,

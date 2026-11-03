@@ -15,6 +15,7 @@ fn snapshot(history: matrix_desktop::accessibility::HistorySnapshot) -> Navigati
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,

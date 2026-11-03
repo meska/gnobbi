@@ -346,6 +346,7 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
             focused: false,
         }],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,

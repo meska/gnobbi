@@ -18,6 +18,7 @@ fn navigation_routes_scrollbar_value_before_rejecting_other_action_data() {
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![bar.clone()],
         operation_panel: None,
         spaces: None,

@@ -14,6 +14,7 @@ fn snapshot() -> NavigationSnapshot {
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,

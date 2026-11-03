@@ -39,6 +39,7 @@ fn navigation(
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: Some(SpacesSnapshot {

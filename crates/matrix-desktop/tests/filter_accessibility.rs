@@ -15,6 +15,7 @@ fn unread_control_is_absent_when_hidden_or_covered_by_a_sheet() {
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,

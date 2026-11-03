@@ -37,6 +37,7 @@ fn unread_description_updates_without_renaming_or_reidentifying_room() {
             signin: None,
             openers: vec![],
             back: None,
+            drawer: None,
             scrollbars: vec![],
             operation_panel: None,
             spaces: None,

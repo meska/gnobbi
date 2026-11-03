@@ -84,6 +84,7 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
             focused: false,
         }],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,

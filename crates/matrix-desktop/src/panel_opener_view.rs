@@ -440,6 +440,7 @@ mod tests {
             signin: None,
             openers: this.semantic_openers(window),
             back: None,
+            drawer: None,
             scrollbars: vec![],
             operation_panel: None,
             spaces: None,

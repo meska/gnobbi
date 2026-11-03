@@ -215,6 +215,10 @@ impl Shell {
                 this.apply_semantic_filter(action, window, cx);
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::Drawer(action) = action {
+                this.apply_semantic_drawer(action, window, cx);
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::Devices(action) = action {
                 this.apply_semantic_devices(action, window, cx);
                 continue;
@@ -489,7 +493,8 @@ impl Shell {
                 }
                 matrix_desktop::accessibility::NavigationAction::Spaces(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Filter(_) => unreachable!(),
-                matrix_desktop::accessibility::NavigationAction::Devices(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::Devices(_)
+                | matrix_desktop::accessibility::NavigationAction::Drawer(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::LoadServerHistory(_) => {
                     unreachable!()
                 }
@@ -1643,6 +1648,7 @@ impl Render for Shell {
                 signin: None,
                 openers: self.semantic_openers(window),
                 back: self.semantic_back(window),
+                drawer: self.semantic_drawer(),
                 scrollbars: self.semantic_scrollbars(window),
                 operation_panel: self.semantic_operation_panel(window),
                 spaces: self.semantic_spaces(window),
@@ -2860,6 +2866,7 @@ fn main() {
                                 signin: signin.as_ref().map(|view| view.read(cx).semantic_snapshot(window, cx)),
                                 openers: vec![],
                                 back: None,
+                                drawer: None,
         scrollbars: vec![],
         operation_panel: None,
                                 spaces: None,

@@ -44,6 +44,65 @@ impl Shell {
         cx.notify();
     }
 
+    /// The open drawer for the semantic tree; the settings page keeps the plain page tree.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_drawer(
+        &self,
+    ) -> Option<matrix_desktop::accessibility::drawer::DrawerSnapshot> {
+        use matrix_desktop::accessibility::drawer::{DrawerRow, DrawerSnapshot};
+        if !self.menu_open || self.settings_open {
+            return None;
+        }
+        let accounts = self.drawer_accounts();
+        let confirm = accounts
+            .iter()
+            .find(|a| Some(a.id) == self.confirm_removal)
+            .map(|a| (a.id, a.name.clone()));
+        let rows = accounts
+            .into_iter()
+            .map(|a| DrawerRow {
+                switchable: self.can_switch_to(a.id),
+                id: a.id,
+                name: a.name,
+                user_id: a.user_id,
+                unread: a.unread,
+                current: a.current,
+            })
+            .collect();
+        Some(DrawerSnapshot { rows, confirm, connected: self.connected })
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn apply_semantic_drawer(
+        &mut self,
+        action: matrix_desktop::accessibility::drawer::DrawerAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use matrix_desktop::accessibility::drawer::{DrawerAction, DrawerItem};
+        if !self.semantic_drawer().is_some_and(|d| d.allows(&action)) {
+            return;
+        }
+        match action {
+            DrawerAction::Switch(id) => self.switch_account(id, window, cx),
+            DrawerAction::AskRemove(id) => self.confirm_removal = Some(id),
+            DrawerAction::ConfirmRemove => self.remove_account(window, cx),
+            DrawerAction::CancelRemove => self.confirm_removal = None,
+            DrawerAction::Close => self.set_menu_open(false, window, cx),
+            DrawerAction::Item(item) => match item {
+                DrawerItem::Settings => self.set_settings_open(true, window, cx),
+                DrawerItem::Devices => self.open_from_drawer(window, cx, Shell::open_devices_panel),
+                DrawerItem::Notifications => {
+                    self.open_from_drawer(window, cx, Shell::open_notifications_panel)
+                }
+                DrawerItem::AddAccount => self.add_account(window, cx),
+                DrawerItem::NewChat => self.open_new_room(true, window, cx),
+                DrawerItem::NewRoom => self.open_new_room(false, window, cx),
+            },
+        }
+        cx.notify();
+    }
+
     /// Records this window's account in the catalog once the SDK has told us who it is.
     /// The catalog is re-read first: another window may have added an account meanwhile.
     pub(crate) fn record_profile(&mut self) {

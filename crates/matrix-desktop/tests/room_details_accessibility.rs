@@ -23,6 +23,7 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
             focused: false,
         }],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,

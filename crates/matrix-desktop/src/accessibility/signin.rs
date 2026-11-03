@@ -64,6 +64,7 @@ impl super::NavigationSnapshot {
             signin: Some(signin),
             openers: vec![],
             back: None,
+            drawer: None,
             scrollbars: vec![],
             operation_panel: None,
             spaces: None,
