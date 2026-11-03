@@ -43,7 +43,7 @@ async fn build(config: &serde_json::Value, who: &str) -> Client {
         .await
         .unwrap();
     c.matrix_auth()
-        .login_username(&format!("@{who}:matrix-desktop.test"), config[format!("{who}_password")].as_str().unwrap())
+        .login_username(format!("@{who}:matrix-desktop.test"), config[format!("{who}_password")].as_str().unwrap())
         .send()
         .await
         .unwrap();

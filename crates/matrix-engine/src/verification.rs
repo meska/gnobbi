@@ -30,6 +30,8 @@ pub enum DeviceDeleteError {
 }
 
 /// Password typed by the user for one call. Wiped on drop; Debug never prints it.
+// The inner value is read only by the SDK adapter.
+#[cfg_attr(not(feature = "sdk"), allow(dead_code))]
 pub struct DevicePassword(zeroize::Zeroizing<String>);
 impl DevicePassword {
     pub fn new(password: String) -> Self {

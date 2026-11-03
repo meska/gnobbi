@@ -100,7 +100,7 @@ fn names<'a>(seen: &[(u64, &'a str)]) -> Vec<&'a str> {
     seen.iter().map(|(_, n)| *n).collect()
 }
 
-fn times<'a>(seen: &[(u64, &'a str)], status: &str) -> Vec<u64> {
+fn times(seen: &[(u64, &str)], status: &str) -> Vec<u64> {
     seen.iter()
         .filter(|(_, n)| *n == status)
         .map(|(t, _)| *t)

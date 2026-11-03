@@ -62,6 +62,8 @@ pub struct VideoFile {
 }
 
 impl VideoFile {
+    // Only the SDK download path builds one.
+    #[cfg(feature = "sdk")]
     pub(crate) fn new(path: std::path::PathBuf) -> Self {
         Self { path }
     }

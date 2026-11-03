@@ -134,7 +134,7 @@ fn map_delete_error(error: &matrix_sdk::HttpError) -> DeviceDeleteError {
     use matrix_sdk::ruma::api::error::ErrorKind;
     // A wrong password comes back as a new UIA challenge or M_FORBIDDEN.
     if error.as_uiaa_response().is_some()
-        || matches!(error.client_api_error_kind(), Some(ErrorKind::Forbidden { .. }))
+        || matches!(error.client_api_error_kind(), Some(ErrorKind::Forbidden))
     {
         DeviceDeleteError::WrongPassword
     } else if error.as_client_api_error().is_some() {
@@ -414,36 +414,6 @@ fn valid_device_name(name: &str) -> Result<&str, VerificationError> {
     Ok(name)
 }
 
-#[cfg(test)]
-mod rename_tests {
-    use super::*;
-    #[test]
-    fn device_name_validation() {
-        assert_eq!(valid_device_name("  Gnobbi (macOS) ").unwrap(), "Gnobbi (macOS)");
-        assert!(valid_device_name("  ").is_err());
-        assert!(valid_device_name("a\nb").is_err());
-        assert!(valid_device_name(&"x".repeat(129)).is_err());
-    }
-
-    #[test]
-    fn describe_tolerates_missing_or_blank_server_fields() {
-        use matrix_sdk::ruma::{api::client::device::Device, device_id};
-        let mut full = Device::new(device_id!("FULL").to_owned());
-        full.display_name = Some("Mac".into());
-        full.last_seen_ip = Some("203.0.113.1".into());
-        full.last_seen_ts = Some(matrix_sdk::ruma::MilliSecondsSinceUnixEpoch(42u32.into()));
-        let mut blank = Device::new(device_id!("BLANK").to_owned());
-        blank.display_name = Some("  ".into());
-        blank.last_seen_ip = Some("".into());
-        let meta = [full, blank];
-        let d = |id: &str| describe("@a:x", &meta, id.try_into().unwrap(), true);
-        assert_eq!((d("FULL").last_seen_ts, d("FULL").last_seen_ip.as_deref(), d("FULL").display_name.as_deref()), (Some(42), Some("203.0.113.1"), Some("Mac")));
-        assert_eq!((d("BLANK").last_seen_ts, d("BLANK").last_seen_ip, d("BLANK").display_name), (None, None, None));
-        // Device unknown to the server list (devices() failed): still described, nothing invented.
-        assert_eq!((d("NOMETA").last_seen_ts, d("NOMETA").last_seen_ip, d("NOMETA").display_name), (None, None, None));
-    }
-}
-
 async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, VerificationError> {
     let user_id = client.user_id().ok_or(VerificationError::LoggedOut)?;
     let devices = client
@@ -494,4 +464,34 @@ async fn own_device(client: &Client) -> Option<VerificationDevice> {
     let own = client.encryption().get_own_device().await.ok()??;
     let meta = server_meta(client).await;
     Some(describe(user_id.as_str(), &meta, own.device_id(), own.is_verified()))
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+    #[test]
+    fn device_name_validation() {
+        assert_eq!(valid_device_name("  Gnobbi (macOS) ").unwrap(), "Gnobbi (macOS)");
+        assert!(valid_device_name("  ").is_err());
+        assert!(valid_device_name("a\nb").is_err());
+        assert!(valid_device_name(&"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn describe_tolerates_missing_or_blank_server_fields() {
+        use matrix_sdk::ruma::{api::client::device::Device, device_id};
+        let mut full = Device::new(device_id!("FULL").to_owned());
+        full.display_name = Some("Mac".into());
+        full.last_seen_ip = Some("203.0.113.1".into());
+        full.last_seen_ts = Some(matrix_sdk::ruma::MilliSecondsSinceUnixEpoch(42u32.into()));
+        let mut blank = Device::new(device_id!("BLANK").to_owned());
+        blank.display_name = Some("  ".into());
+        blank.last_seen_ip = Some("".into());
+        let meta = [full, blank];
+        let d = |id: &str| describe("@a:x", &meta, id.into(), true);
+        assert_eq!((d("FULL").last_seen_ts, d("FULL").last_seen_ip.as_deref(), d("FULL").display_name.as_deref()), (Some(42), Some("203.0.113.1"), Some("Mac")));
+        assert_eq!((d("BLANK").last_seen_ts, d("BLANK").last_seen_ip, d("BLANK").display_name), (None, None, None));
+        // Device unknown to the server list (devices() failed): still described, nothing invented.
+        assert_eq!((d("NOMETA").last_seen_ts, d("NOMETA").last_seen_ip, d("NOMETA").display_name), (None, None, None));
+    }
 }

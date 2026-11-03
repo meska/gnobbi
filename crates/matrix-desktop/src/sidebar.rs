@@ -970,7 +970,7 @@ mod tests {
         let mut got = names(&sidebar);
         got.sort();
         assert_eq!(got, ["a", "b"]);
-        assert_eq!(sidebar.group_entries()[3].selected, true);
+        assert!(sidebar.group_entries()[3].selected);
         // Counters ignore the group, search and unread filters; the unread filter still applies on top.
         sidebar.set_unread_only(true);
         sidebar.set_query("b");

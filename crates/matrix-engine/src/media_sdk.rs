@@ -29,35 +29,6 @@ pub(crate) fn checked_source(
         .ok_or(MediaError::UnsupportedType)
 }
 
-#[cfg(test)]
-mod checked_source_tests {
-    use super::checked_source;
-    use matrix_sdk::ruma::{MxcUri, OwnedMxcUri, events::room::MediaSource};
-
-    #[test]
-    fn hostile_mxc_sources_are_refused_before_the_sdk_can_panic() {
-        let long = format!("mxc://{}/abc", "a".repeat(250));
-        // Upstream defect this guard exists for; when it goes away the guard can go too.
-        assert!(
-            std::panic::catch_unwind(|| <&MxcUri>::from(long.as_str()).parts().is_ok()).is_err()
-        );
-        for bad in [
-            long.as_str(),
-            "mxc://x/../../etc/passwd",
-            "mxc://x",
-            "https://x/y",
-            "",
-        ] {
-            assert!(
-                checked_source(MediaSource::Plain(OwnedMxcUri::from(bad))).is_err(),
-                "{bad}"
-            );
-        }
-        let ok = OwnedMxcUri::from("mxc://matrix.example.org:8448/abcDEF-_09");
-        assert!(checked_source(MediaSource::Plain(ok)).is_ok());
-    }
-}
-
 async fn cancellable<T>(
     tag: &RequestTag,
     future: impl std::future::Future<Output = Result<T, MediaError>>,
@@ -470,4 +441,33 @@ pub async fn decode_within(
     })
     .await
     .map_err(|_| MediaError::Failed)?
+}
+
+#[cfg(test)]
+mod checked_source_tests {
+    use super::checked_source;
+    use matrix_sdk::ruma::{MxcUri, OwnedMxcUri, events::room::MediaSource};
+
+    #[test]
+    fn hostile_mxc_sources_are_refused_before_the_sdk_can_panic() {
+        let long = format!("mxc://{}/abc", "a".repeat(250));
+        // Upstream defect this guard exists for; when it goes away the guard can go too.
+        assert!(
+            std::panic::catch_unwind(|| <&MxcUri>::from(long.as_str()).parts().is_ok()).is_err()
+        );
+        for bad in [
+            long.as_str(),
+            "mxc://x/../../etc/passwd",
+            "mxc://x",
+            "https://x/y",
+            "",
+        ] {
+            assert!(
+                checked_source(MediaSource::Plain(OwnedMxcUri::from(bad))).is_err(),
+                "{bad}"
+            );
+        }
+        let ok = OwnedMxcUri::from("mxc://matrix.example.org:8448/abcDEF-_09");
+        assert!(checked_source(MediaSource::Plain(ok)).is_ok());
+    }
 }

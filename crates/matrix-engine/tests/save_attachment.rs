@@ -97,7 +97,7 @@ fn save_writes_the_original_and_refuses_over_the_cap_plain_and_encrypted() {
                     )
                 }
             };
-            let png = vec![1u8, 2, 3, 4, 5, 6, 7, 8].repeat(500);
+            let png = [1u8, 2, 3, 4, 5, 6, 7, 8].repeat(500);
             let doc = b"%PDF-1.4 originale".repeat(50);
             let audio = vec![3u8; 2500];
             let cases = [
@@ -122,7 +122,7 @@ fn save_writes_the_original_and_refuses_over_the_cap_plain_and_encrypted() {
             assert!(matches!(result, Err(MediaError::TooLarge)), "encrypted={encrypted}: {result:?}");
             assert!(!dest.exists() && !out.join(format!("{encrypted}-grande.bin.part")).exists());
             // Declared size over the cap: refused before any media request.
-            let declared = send("dich.bin", "application/octet-stream", big.clone(), AttachmentInfo::File(BaseFileInfo { size: Some((big.len() as u32).into()), ..Default::default() })).await;
+            let declared = send("dich.bin", "application/octet-stream", big.clone(), AttachmentInfo::File(BaseFileInfo { size: Some((big.len() as u32).into()) })).await;
             let result = save_attachment(&client, account, &tag, &declared, &out.join("dich.bin"), CAP).await;
             assert!(matches!(result, Err(MediaError::TooLarge)), "{result:?}");
             // Failure (missing directory), then the same event retried on a good path succeeds.

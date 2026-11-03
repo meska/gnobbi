@@ -390,7 +390,8 @@ mod tests {
         let flaky: Vec<_> = (0..20)
             .map(|i| (i * 2, if i % 2 == 0 { Fail } else { Succeed }))
             .collect();
-        let cases: Vec<(&str, Vec<(u64, In)>, Vec<(u64, bool)>)> = vec![
+        type Case = (&'static str, Vec<(u64, In)>, Vec<(u64, bool)>);
+        let cases: Vec<Case> = vec![
             ("outage 1 s", vec![(0, Fail), (1, Succeed)], vec![]),
             ("outage 3 s", vec![(0, Fail), (3, Succeed)], vec![]),
             ("outage 5 s", vec![(0, Fail), (5, Succeed)], vec![]),

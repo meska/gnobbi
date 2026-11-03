@@ -126,19 +126,17 @@ impl Fake {
                 r#"{"errcode":"M_UNRECOGNIZED","error":"x"}"#.to_owned(),
             )),
         };
-        match reply {
-            Some((status, body)) => {
-                self.note(format!("{method} {} -> {status}", kind(&path)));
-                let head = format!(
-                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    body.len()
-                );
-                // The client may have given up already (its own timeout): ignore.
-                let _ = socket.write_all(head.as_bytes()).await;
-                let _ = socket.write_all(body.as_bytes()).await;
-                let _ = socket.shutdown().await;
-            }
-            None => {} // socket dropped: the client sees a closed connection
+        // None: socket dropped, the client sees a closed connection.
+        if let Some((status, body)) = reply {
+            self.note(format!("{method} {} -> {status}", kind(&path)));
+            let head = format!(
+                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            // The client may have given up already (its own timeout): ignore.
+            let _ = socket.write_all(head.as_bytes()).await;
+            let _ = socket.write_all(body.as_bytes()).await;
+            let _ = socket.shutdown().await;
         }
     }
 

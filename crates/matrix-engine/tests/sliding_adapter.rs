@@ -123,6 +123,8 @@ fn adapter_matches_the_classic_loop_and_follows_new_messages() {
 
 #[test]
 #[ignore = "requires the sliding_adapter_probe script"]
+// pump! assigns `ready` on every use; only the first pump reads it.
+#[allow(unused_assignments)]
 fn push_rules_decide_alerts_and_the_room_mute_is_a_server_rule() {
     let config: serde_json::Value = serde_json::from_slice(
         &std::fs::read(std::env::var("FIXTURE_AUTH_CONFIG").unwrap()).unwrap(),

@@ -164,7 +164,7 @@ fn live_device_management_on_a_real_homeserver() {
         }
         assert!(b.whoami().await.is_ok(), "device must survive a wrong password");
         // Another account's device id: what does the server do?
-        let r = sbob.delete_device(&c_id, pw(&config["bob_password"].as_str().unwrap().to_owned())).await;
+        let r = sbob.delete_device(&c_id, pw(config["bob_password"].as_str().unwrap())).await;
         println!("DEVICES foreign_device_id (bob deleting alice's device) -> {r:?}");
         assert!(c.whoami().await.is_ok(), "another account's device must not be touched");
         // Right password: B is gone and its token is dead; C and A untouched.

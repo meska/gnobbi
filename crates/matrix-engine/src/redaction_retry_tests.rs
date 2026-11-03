@@ -51,7 +51,7 @@ fn disposable_operation_redaction_recovers_committed_event_after_lost_tls_respon
         assert_eq!(event["type"], "m.room.redaction");
         let own = client.get_room(&matrix_sdk::ruma::RoomId::parse(&room).unwrap()).unwrap()
             .event(&matrix_sdk::ruma::EventId::parse(&committed).unwrap(), None).await.unwrap();
-        let own: serde_json::Value = serde_json::from_str(own.raw().json().get()).unwrap();
+        let _: serde_json::Value = serde_json::from_str(own.raw().json().get()).unwrap();
         let proven = first.is_ok();
         for _ in 0..3 {
             let result = sync.operate(&request).await;

@@ -1012,7 +1012,7 @@ fn disposable_avatar_edge_cases_corrupt_huge_unreachable_changed() {
         let corrupt = client.media().upload(&mime, junk, None).await.unwrap().content_uri.to_string();
         let got = session.avatar_thumbnail(&corrupt).await.unwrap();
         eprintln!("EDGE corrupt: returned={:?} files={}", got.as_ref().map(Vec::len), files());
-        assert!(got.as_ref().map_or(true, |b| image::load_from_memory(b).is_err()));
+        assert!(got.as_ref().is_none_or(|b| image::load_from_memory(b).is_err()));
 
         // Enormous: 5000x5000 (under Synapse's pixel limit) is cut to a thumbnail; 9000x9000 is refused.
         let big = client.media().upload(&mime, png(5000, 5000, 1), None).await.unwrap().content_uri.to_string();

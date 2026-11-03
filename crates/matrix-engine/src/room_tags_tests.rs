@@ -25,7 +25,7 @@ fn disposable_room_groups_follow_tags_changed_by_another_device() {
         on_b(1).set_tag(TagName::User("u.work".parse().unwrap()), order(0.2)).await.unwrap();
         crate::room_sync::RoomSync::sliding_catch_up(&a).await.unwrap();
         let g = RoomGroups::read(&a).await.unwrap();
-        assert_eq!(g.favourites, [one.clone()]);
+        assert_eq!(g.favourites, std::slice::from_ref(&one));
         assert!(g.low_priority.is_empty());
         assert_eq!(g.user["u.work"], [two.clone(), one.clone()]);
 
@@ -36,7 +36,7 @@ fn disposable_room_groups_follow_tags_changed_by_another_device() {
         crate::room_sync::RoomSync::sliding_catch_up(&a).await.unwrap();
         let g = RoomGroups::read(&a).await.unwrap();
         assert!(g.favourites.is_empty());
-        assert_eq!(g.low_priority, [one.clone()]);
+        assert_eq!(g.low_priority, std::slice::from_ref(&one));
         assert_eq!(g.user["u.work"], [one, two]);
         eprintln!("ROOM_TAGS ok: {g:?}");
     });

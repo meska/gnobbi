@@ -713,12 +713,11 @@ impl ComposerView {
             && !key.modifiers.alt
             && !key.modifiers.platform
             && self.draft.marked().is_none()
+            && self.tab_step(key.modifiers.shift, window)
         {
-            if self.tab_step(key.modifiers.shift, window) {
-                cx.notify();
-                cx.stop_propagation();
-                return;
-            }
+            cx.notify();
+            cx.stop_propagation();
+            return;
         }
         if self.send_focus.is_focused(window) || self.icon_focused(window).is_some() {
             return;
