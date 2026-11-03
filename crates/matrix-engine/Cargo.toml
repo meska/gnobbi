@@ -86,6 +86,10 @@ name = "sync_flapping"
 required-features = ["sdk"]
 
 [[test]]
+name = "fed_directory"
+required-features = ["sdk"]
+
+[[test]]
 name = "fed_invite"
 required-features = ["sdk"]
 
