@@ -76,6 +76,8 @@ pub struct ComposerView {
     focus: FocusHandle,
     send_focus: FocusHandle,
     send_focus_source: u64,
+    /// Emoji, Attach, Voice: tab stops between the field and Send.
+    icon_focus: [FocusHandle; 3],
     layout: Option<TextLayout>,
     scroll: ScrollHandle,
     anchor: usize,
@@ -113,6 +115,7 @@ impl ComposerView {
             focus: cx.focus_handle(),
             send_focus: cx.focus_handle(),
             send_focus_source: 0,
+            icon_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
             layout: None,
             scroll: ScrollHandle::new(),
             anchor: 0,
@@ -271,7 +274,51 @@ impl ComposerView {
     }
 
     pub fn is_focused(&self, window: &Window) -> bool {
-        self.focus.is_focused(window) || self.send_is_focused(window)
+        self.focus.is_focused(window) || self.send_is_focused(window) || self.icon_focused(window).is_some()
+    }
+
+    fn icons_shown(&self) -> bool {
+        self.live && self.recorder.is_none()
+    }
+
+    pub fn icon_focused(&self, window: &Window) -> Option<u8> {
+        (0..3u8).find(|i| self.icon_focus[*i as usize].is_focused(window))
+    }
+
+    /// Tab order: field, Emoji, Attach, Voice, Send (only when sendable).
+    fn stops(&self) -> Vec<FocusHandle> {
+        let mut stops = vec![self.focus.clone()];
+        if self.icons_shown() {
+            stops.extend(self.icon_focus.iter().cloned());
+        }
+        if self.send_eligible() {
+            stops.push(self.send_focus.clone());
+        }
+        stops
+    }
+
+    /// Moves to the neighbouring stop; false at either end, so the window ring takes over.
+    fn tab_step(&self, back: bool, window: &mut Window) -> bool {
+        let stops = self.stops();
+        let Some(at) = stops.iter().position(|s| s.is_focused(window)) else {
+            return false;
+        };
+        let to = if back { at.checked_sub(1) } else { Some(at + 1).filter(|n| *n < stops.len()) };
+        to.map(|n| stops[n].focus(window)).is_some()
+    }
+
+    /// The last stop holds focus: Tab leaves the composer.
+    pub fn at_last_stop(&self, window: &Window) -> bool {
+        self.stops().last().is_some_and(|s| s.is_focused(window))
+    }
+
+    /// Shift-Tab wrap target.
+    pub fn focus_last_stop(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.refresh_send_focus(cx);
+        if let Some(last) = self.stops().last() {
+            last.focus(window);
+        }
+        cx.notify();
     }
 
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -285,6 +332,8 @@ impl ComposerView {
             scope,
             composing: self.draft.marked().is_some(),
             send_focused: self.send_is_focused(window),
+            icon_focused: self.icon_focused(window),
+            live: self.live,
             attachment: self.attachment.as_ref().map(|p| p.filename.clone()),
             mentions: Some(self.mention_options())
                 .filter(|o| !o.is_empty())
@@ -329,6 +378,7 @@ impl ComposerView {
         self.submit(cx);
     }
 
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub fn focus_send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.refresh_send_focus(cx);
         self.send_focus.focus(window);
@@ -664,23 +714,13 @@ impl ComposerView {
             && !key.modifiers.platform
             && self.draft.marked().is_none()
         {
-            if self.send_focus.is_focused(window) && key.modifiers.shift {
-                self.focus.focus(window);
-                cx.notify();
-                cx.stop_propagation();
-                return;
-            }
-            if self.focus.is_focused(window)
-                && !key.modifiers.shift
-                && !self.draft.text().trim().is_empty()
-            {
-                self.send_focus.focus(window);
+            if self.tab_step(key.modifiers.shift, window) {
                 cx.notify();
                 cx.stop_propagation();
                 return;
             }
         }
-        if self.send_focus.is_focused(window) {
+        if self.send_focus.is_focused(window) || self.icon_focused(window).is_some() {
             return;
         }
         // Preedit belongs to the input method, not to chat shortcuts.
@@ -890,16 +930,44 @@ impl EntityInputHandler for ComposerView {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static PROBE: std::cell::RefCell<std::collections::HashMap<&'static str, Bounds<Pixels>>> = Default::default();
+}
+
+/// Rendered-tree test hook: records the laid-out bounds of the parent under `name`.
+#[cfg(test)]
+fn probe(name: &'static str) -> impl IntoElement {
+    canvas(
+        move |bounds, _, _| {
+            PROBE.with(|p| p.borrow_mut().insert(name, bounds));
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .inset_0()
+}
+
+#[cfg(not(test))]
+fn probe(_: &'static str) -> impl IntoElement {
+    div().absolute() // out of flow, so it adds no gap_1 to the column
+}
+
 /// 32x32 hit area, icon only; the a11y tree (accessibility.rs) carries the names.
 fn icon_button(
     id: &'static str,
     kind: Icon,
     t: DesignTokens,
+    focus: &FocusHandle,
+    focused: bool,
     cx: &mut Context<ComposerView>,
     on: impl Fn(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static,
 ) -> impl IntoElement {
     div()
         .id(id)
+        .child(probe(id))
+        .track_focus(focus)
+        .when(focused, |d| d.border_1().border_color(rgb(t.text)))
         .size(px(32.))
         .flex()
         .items_center()
@@ -949,6 +1017,7 @@ impl Render for ComposerView {
             ));
         }
         let sendable = self.sendable();
+        let icon_focus = self.icon_focused(window);
         let options = self.mention_options();
         let mention_selected = self.mention_selected.min(options.len().saturating_sub(1));
         let attachment_name = self.attachment.as_ref().map(|p| p.filename.clone());
@@ -957,6 +1026,7 @@ impl Render for ComposerView {
         let entity = cx.entity();
         div()
             .id("composer")
+            .child(probe("bar"))
             .track_focus(&self.focus)
             .on_key_down(cx.listener(self.key_callback()))
             .when(cfg!(any(target_os = "macos", test)), |element| {
@@ -1253,18 +1323,22 @@ impl Render for ComposerView {
                             ),
                     )
                     .when(self.live && self.recorder.is_none(), |d| {
-                        d.child(icon_button("composer-emoji-toggle", Icon::Emoji, t, cx, |this, _, cx| {
+                        d.child(icon_button("composer-emoji-toggle", Icon::Emoji, t, &self.icon_focus[0], icon_focus == Some(0), cx, |this, _, cx| {
                             this.emoji_open = !this.emoji_open;
                             this.emoji_selected = 0;
                             cx.notify();
                         }))
-                        .child(icon_button("composer-attach", Icon::Attach, t, cx, |this, _, cx| this.pick_file(cx)))
-                        .child(icon_button("composer-record", Icon::Voice, t, cx, |this, _, cx| this.start_recording(cx)))
+                        .child(icon_button("composer-attach", Icon::Attach, t, &self.icon_focus[1], icon_focus == Some(1), cx, |this, _, cx| this.pick_file(cx)))
+                        .child(icon_button("composer-record", Icon::Voice, t, &self.icon_focus[2], icon_focus == Some(2), cx, |this, window, cx| {
+                            this.start_recording(cx);
+                            window.focus(&this.focus); // the icons leave the tree while recording
+                        }))
                     })
                     .child(
                         // Always laid out (32x32) so the icons never move; painted only when there is something to send.
                         div()
                             .id("composer-submit")
+                            .child(probe("send"))
                             .relative()
                             .children(self.send_observer(cx))
                             .track_focus(&self.send_focus)
@@ -1286,7 +1360,8 @@ impl Render for ComposerView {
                                         send(this, window, cx);
                                     }))
                             })
-                            .child(icon(Icon::Send, t.accent)),
+                            // Demo: the arrow is muted so it reads as local-only; the a11y node says «demo».
+                            .child(icon(Icon::Send, if self.live { t.accent } else { t.secondary })),
                     ),
             )
     }
@@ -2348,6 +2423,123 @@ mod tests {
             v.stop_recording(false, cx);
             assert!(v.recorder.is_none());
             let _ = window;
+        });
+    }
+
+    /// Live composer in a 72 px bar (the real min height), text and one icon state checked after paint.
+    fn rendered_composer(text: &'static str, check: impl FnOnce(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static) {
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let bounds = Bounds::centered(None, size(px(800.), px(72.)), cx);
+            let view = cx
+                .open_window(
+                    gpui::WindowOptions { window_bounds: Some(gpui::WindowBounds::Windowed(bounds)), ..Default::default() },
+                    |window, cx| {
+                        cx.new(|cx| {
+                            let mut v = ComposerView::new(
+                                RoomScope {
+                                    account_id: matrix_domain::AccountId::new(1),
+                                    room_id: matrix_domain::RoomId::new("!icons:fixture.invalid"),
+                                },
+                                cx,
+                            );
+                            v.set_live(true);
+                            if std::env::var("COMPOSER_THEME").as_deref() == Ok("dark") {
+                                v.theme = matrix_desktop::DARK;
+                            }
+                            v.draft.replace(None, text);
+                            v.changed(cx);
+                            v.focus.focus(window);
+                            v
+                        })
+                    },
+                )
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(400)).await;
+                view.update(cx, |v, window, cx| check(v, window, cx)).unwrap();
+                // COMPOSER_HOLD_MS keeps the window up with Voice focused, for a screenshot of the real render.
+                if let Some(ms) = std::env::var("COMPOSER_HOLD_MS").ok().and_then(|m| m.parse::<u64>().ok()) {
+                    view.update(cx, |v, window, cx| {
+                        v.icon_focus[2].focus(window);
+                        cx.notify();
+                    })
+                    .unwrap();
+                    executor.timer(std::time::Duration::from_millis(ms)).await;
+                }
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    fn centre(b: Bounds<Pixels>) -> f32 {
+        (f32::from(b.top()) + f32::from(b.bottom())) / 2.
+    }
+
+    fn probed(name: &str) -> Bounds<Pixels> {
+        PROBE.with(|p| *p.borrow().get(name).unwrap_or_else(|| panic!("no painted element {name}")))
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_icons_are_32px_right_of_the_text_and_centred_in_the_bar() {
+        rendered_composer("una riga", |v, _, _| {
+            let bar = probed("bar");
+            let mid = centre(bar);
+            let text = v.layout.as_ref().expect("text laid out").bounds();
+            assert!((centre(text) - mid).abs() <= 1., "text centre {:?} vs bar {mid}", text);
+            let names = ["composer-emoji-toggle", "composer-attach", "composer-record", "send"];
+            let mut left = text.right();
+            for name in names {
+                let b = probed(name);
+                assert!(b.size.width >= px(32.) && b.size.height >= px(32.), "{name} is {:?}", b.size);
+                assert!(b.left() >= left, "{name} must follow the previous control");
+                assert!((centre(b) - mid).abs() <= 1., "{name} centre vs bar {mid}: {b:?}");
+                left = b.right();
+            }
+            eprintln!("bar {bar:?} text {text:?}");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn tab_walks_field_emoji_attach_voice_send_and_back() {
+        rendered_composer("ciao", |v, window, cx| {
+            let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
+            let at = |v: &ComposerView, w: &Window| {
+                [v.focus.is_focused(w)]
+                    .into_iter()
+                    .chain((0..3).map(|i| v.icon_focus[i].is_focused(w)))
+                    .chain([v.send_focus.is_focused(w)])
+                    .position(|f| f)
+            };
+            assert_eq!(at(v, window), Some(0));
+            for stop in 1..=4 {
+                v.key_down(&key("tab"), window, cx);
+                assert_eq!(at(v, window), Some(stop), "Tab {stop}");
+            }
+            assert!(v.at_last_stop(window), "Send is the last stop: the next Tab leaves the composer");
+            v.key_down(&key("tab"), window, cx);
+            assert_eq!(at(v, window), Some(4), "the composer does not trap or wrap by itself");
+            for stop in (0..4).rev() {
+                v.key_down(&key("shift-tab"), window, cx);
+                assert_eq!(at(v, window), Some(stop), "Shift-Tab to {stop}");
+            }
+            // Enter on an icon activates it and never submits or edits the draft.
+            v.key_down(&key("tab"), window, cx);
+            assert_eq!(v.icon_focused(window), Some(0));
+            let ring = v.icon_focus[0].is_focused(window);
+            assert!(ring);
+            v.key_down(&key("enter"), window, cx);
+            assert_eq!(v.draft.text(), "ciao");
+            // The semantic snapshot reports the focused icon.
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            {
+            let scope = RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!icons:fixture.invalid") };
+            assert_eq!(v.semantic_snapshot(scope, window).icon_focused, Some(0));
+            }
         });
     }
 }

@@ -422,6 +422,8 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
         composer: Some(ComposerSnapshot {
             send_source: Some(1),
             send_focused: false,
+            icon_focused: None,
+            live: true,
             send_bounds: None,
             attachment: None,
             mentions: None,
@@ -564,6 +566,8 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
         composer: Some(ComposerSnapshot {
             send_source: Some(1),
             send_focused: false,
+            icon_focused: None,
+            live: true,
             send_bounds: None,
             attachment: None,
             mentions: None,
@@ -638,6 +642,8 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
         composer: Some(ComposerSnapshot {
             send_source: Some(1),
             send_focused: false,
+            icon_focused: None,
+            live: true,
             send_bounds: None,
             attachment: None,
             mentions: None,
@@ -717,6 +723,8 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
         composer: Some(ComposerSnapshot {
             send_source: Some(1),
             send_focused: false,
+            icon_focused: None,
+            live: true,
             send_bounds: None,
             attachment: None,
             mentions: None,

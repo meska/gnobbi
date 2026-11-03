@@ -88,6 +88,8 @@ fn composer_snapshot(room: &str) -> NavigationSnapshot {
     result.composer = Some(matrix_desktop::accessibility::ComposerSnapshot {
         send_source: Some(1),
         send_focused: false,
+        icon_focused: None,
+        live: true,
         send_bounds: None,
         attachment: None,
         mentions: None,

@@ -64,11 +64,7 @@ impl Shell {
             return false;
         }
         self.composer.update(cx, |editor, cx| {
-            if editor.send_eligible() {
-                editor.focus_send(window, cx)
-            } else {
-                editor.focus_from_accessibility(window, cx)
-            }
+            editor.focus_last_stop(window, cx)
         });
         cx.notify();
         true
@@ -214,9 +210,7 @@ impl Shell {
         }
         if !shift && self.chat_visible(window) {
             let editor = self.composer.read(cx);
-            if editor.send_is_focused(window)
-                || (editor.tab_back_ready(window) && !editor.send_eligible())
-            {
+            if editor.at_last_stop(window) {
                 self.focus_first_nav_control(window, cx);
                 return true;
             }

@@ -57,6 +57,10 @@ pub struct ComposerSnapshot {
     pub scope: matrix_domain::RoomScope,
     pub composing: bool,
     pub send_focused: bool,
+    /// 0 Emoji, 1 Attach, 2 Voice.
+    pub icon_focused: Option<u8>,
+    /// False for the local demo, where Send goes nowhere.
+    pub live: bool,
     pub send_bounds: Option<accesskit::Rect>,
     /// File name of the pending attachment, sent with the text as caption.
     pub attachment: Option<String>,
@@ -1270,6 +1274,9 @@ impl NavigationSnapshot {
             tree.nodes.push((COMPOSER, editor));
             let mut send = Node::new(Role::Button);
             send.set_label("Invia messaggio");
+            if !composer.live {
+                send.set_description("demo");
+            }
             if let Some(bounds) = composer.send_bounds {
                 send.set_bounds(bounds);
             }
@@ -1360,6 +1367,8 @@ impl NavigationSnapshot {
                 tree.focus = COMPOSER;
             } else if composer.send_focused {
                 tree.focus = SEND;
+            } else if let Some(icon) = composer.icon_focused {
+                tree.focus = [EMOJI, ATTACH, RECORD][icon as usize];
             }
         }
         for opener in &self.openers {
