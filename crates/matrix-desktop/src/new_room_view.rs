@@ -463,6 +463,38 @@ impl Shell {
         cx.notify();
     }
 
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn apply_semantic_new_room(
+        &mut self,
+        action: matrix_desktop::accessibility::new_room::NewRoomAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use matrix_desktop::accessibility::directory_servers::ServerAction;
+        use matrix_desktop::accessibility::new_room::NewRoomAction;
+        let Some(room) = self.new_room.as_mut().filter(|r| r.join) else {
+            return;
+        };
+        match action {
+            NewRoomAction::Server(ServerAction::Toggle) => {
+                if let Some(p) = &mut room.servers {
+                    if p.is_open() { p.close() } else { p.open() }
+                    room.server_focus.focus(window);
+                }
+            }
+            NewRoomAction::Server(ServerAction::Choose(i)) => {
+                if let Some(choice) = room.servers.as_mut().map(|p| p.choose(i)) {
+                    self.server_choice(choice, window, cx);
+                }
+            }
+            NewRoomAction::Join(i) => {
+                room.rooms.set_active(i);
+                self.submit_new_room(cx);
+            }
+        }
+        cx.notify();
+    }
+
     /// The engine's answer: success closes the dialog and opens the room once the sync lists it.
     pub(crate) fn room_started(
         &mut self,
@@ -511,8 +543,7 @@ impl Shell {
         cx: &gpui::App,
     ) -> Option<matrix_desktop::accessibility::new_room::Snapshot> {
         use accesskit::Role;
-        use matrix_desktop::accessibility::new_room::{Item, Snapshot};
-        use matrix_desktop::search_list::Hit;
+        use matrix_desktop::accessibility::new_room::{Item, Join, Snapshot};
         let room = self.new_room.as_ref()?;
         let item = |role, label: &str, checked, focus: &FocusHandle, bounds| Item {
             role,
@@ -535,28 +566,10 @@ impl Shell {
                 )
             })
             .collect();
-        if let Some(servers) = &room.servers {
-            items.push(item(
-                Role::Button,
-                &format!("Server: {}", servers.shown()),
-                None,
-                &room.server_focus,
-                None,
-            ));
-        }
+        let at = items.len();
         if let Some(field) = &room.add_field {
             let f = field.read(cx);
             items.push(item(Role::TextInput, f.placeholder, None, &f.focus, f.semantic_bounds));
-        }
-        // One node per result (name, alias, members); the highlighted one is what Enter joins.
-        for row in room.rooms.rows() {
-            let label = match row {
-                matrix_desktop::search_list::Row::Hit(hit) => hit.label(),
-                matrix_desktop::search_list::Row::More(more) => {
-                    matrix_desktop::search_list::more_text(more).to_owned()
-                }
-            };
-            items.push(Item { role: Role::Button, label, checked: None, focused: false, bounds: None });
         }
         if !room.dm && !room.join {
             let focus = &room.public_focus;
@@ -582,21 +595,27 @@ impl Shell {
             &room.submit_focus,
             None,
         ));
-        if let Some(text) = room
-            .error
-            .map(|e| error_text(room.dm, room.join, e))
-            .or(room.servers.as_ref().and_then(|p| p.add_error()))
-            .or(room.rooms.status().map(|s| s.text()))
-        {
+        if let Some(error) = room.error {
             items.push(Item {
                 role: Role::Label,
-                label: text.to_owned(),
+                label: error_text(room.dm, room.join, error).to_owned(),
                 checked: None,
                 focused: false,
                 bounds: None,
             });
         }
-        Some(Snapshot { items })
+        let join = room.servers.as_ref().map(|p| {
+            use matrix_desktop::accessibility::directory_servers::ServerMenu;
+            Join::new(
+                at,
+                ServerMenu::of(p),
+                room.server_focus.is_focused(window),
+                &room.rooms.rows(),
+                room.rooms.active(),
+                room.rooms.status(),
+            )
+        });
+        Some(Snapshot { items, join })
     }
 
     /// Selects the room created by the dialog as soon as it is in the list.

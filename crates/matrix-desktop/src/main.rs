@@ -290,6 +290,10 @@ impl Shell {
                 this.apply_semantic_room_search(action, window, cx);
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::NewRoom(action) = action {
+                this.apply_semantic_new_room(action, window, cx);
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::NewChat(action) = action {
                 this.apply_semantic_new_chat(action, window, cx);
                 continue;
@@ -601,6 +605,7 @@ impl Shell {
                 }
                 matrix_desktop::accessibility::NavigationAction::NewChat(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::RoomSearch(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::NewRoom(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Notifications(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::ChooseIcon(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Settings(_) => unreachable!(),

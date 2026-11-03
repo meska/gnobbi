@@ -708,6 +708,9 @@ impl NavigationSnapshot {
         if let Some(drawer) = &self.drawer {
             return drawer.action(request).map(NavigationAction::Drawer);
         }
+        if let Some(dialog) = &self.new_room {
+            return dialog.action(request).map(NavigationAction::NewRoom);
+        }
         if matches!(self.new_chat, new_chat::NewChatView::Open(_)) {
             return self.new_chat.action(request).map(NavigationAction::NewChat);
         }
@@ -1706,6 +1709,7 @@ pub enum NavigationAction {
     Settings(settings::SettingsAction),
     NewChat(new_chat::NewChatAction),
     RoomSearch(room_search::RoomSearchAction),
+    NewRoom(new_room::NewRoomAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
     ChooseIcon(crate::IconChoice),
     ToggleMenu,
