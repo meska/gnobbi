@@ -2746,4 +2746,137 @@ mod tests {
             }
         });
     }
+
+    fn try_probe(name: &str) -> Option<Bounds<Pixels>> {
+        PROBE.with(|p| p.borrow().get(name).copied())
+    }
+
+    /// Settled layout of the three right-hand icons, as (left, top, width, height) in logical px relative to the bar's right edge, plus the bar height.
+    fn icon_layout(last: &'static str) -> ([f32; 4], [f32; 4], [f32; 4], f32) {
+        let bar = probed("bar");
+        let r = |n: &str| {
+            let b = probed(n);
+            [f32::from(b.left() - bar.right()), f32::from(b.top() - bar.top()), f32::from(b.size.width), f32::from(b.size.height)]
+        };
+        (r("composer-emoji-toggle"), r("composer-attach"), r(last), f32::from(bar.size.height))
+    }
+
+    const GAP: f32 = 16.; // gap_4 between the controls
+
+    /// Right edges within 1 physical px of the bar's padding edge at 100/150/200%: logical error * scale, after pixel snapping.
+    fn assert_right_edge_at_scales(last: &str) {
+        let bar = probed("bar");
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let snap = |x: Pixels| (f32::from(x) * scale).round();
+            let want = snap(bar.right() - px(24.));
+            for name in ["composer-emoji-toggle", "composer-attach", last] {
+                let b = probed(name);
+                let right = snap(b.right());
+                let expected = want - snap(px(0.)) - (match name { "composer-emoji-toggle" => 2., "composer-attach" => 1., _ => 0. }) * (32. + GAP) * scale;
+                assert!((right - expected).abs() <= 1., "{name} at {scale}x: right {right} vs {expected}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn icons_sit_on_exact_slots_and_pixel_edge_with_voice() {
+        rendered_composer("", |v, _, _| {
+            let (e, a, r, h) = icon_layout("composer-record");
+            eprintln!("VOICE e={e:?} a={a:?} r={r:?} bar_h={h}");
+            assert_eq!(r[2..], [32., 32.]);
+            assert!((e[0] - (r[0] - 2. * (32. + GAP))).abs() <= 1. && (a[0] - (r[0] - (32. + GAP))).abs() <= 1., "gaps are {GAP}");
+            assert!((e[1] - r[1]).abs() <= 1. && (a[1] - r[1]).abs() <= 1., "same top");
+            assert!((h + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar height at rest {h}");
+            assert_right_edge_at_scales("composer-record");
+            assert!(try_probe("send").is_none(), "Send is not painted (nor clickable) while empty");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn icons_sit_on_the_same_slots_with_send_and_bar_height_is_unchanged() {
+        rendered_composer("ciao", |v, _, _| {
+            let (e, a, s, h) = icon_layout("send");
+            eprintln!("SEND  e={e:?} a={a:?} s={s:?} bar_h={h}");
+            assert_eq!(s[2..], [32., 32.]);
+            assert!((e[0] - (s[0] - 2. * (32. + GAP))).abs() <= 1. && (a[0] - (s[0] - (32. + GAP))).abs() <= 1.);
+            assert!((e[1] - s[1]).abs() <= 1. && (a[1] - s[1]).abs() <= 1.);
+            assert!((h + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar height with text {h}");
+            assert_right_edge_at_scales("send");
+            assert!(try_probe("composer-record").is_none(), "Voice is not a click target while Send shows");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn blank_text_of_any_kind_keeps_the_microphone_and_text_brings_send() {
+        rendered_composer("", |v, _, _| {
+            for blank in [" ", "   ", "\t", "\n", "\r\n", "\u{a0}", "\u{2003}", " \t\n\u{a0}\t "] {
+                v.draft.replace(None, blank);
+                assert!(!v.send_visible(), "{blank:?} must keep Voice");
+                assert!(!v.sendable(), "{blank:?} is not sendable");
+                v.draft.replace(Some(0..blank.len()), "");
+            }
+            for text in ["a", " a", "\u{a0}a\u{a0}", "🙂"] {
+                v.draft.replace(None, text);
+                assert!(v.send_visible(), "{text:?} shows Send");
+                v.draft.replace(Some(0..text.len()), "");
+            }
+            assert!(!v.send_visible(), "emptied again: back to Voice");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn fade_length_midpoint_endpoints_and_reduce_motion_use_a_controlled_clock() {
+        assert!((120..=150).contains(&FADE.as_millis()), "fade is {FADE:?}");
+        rendered_composer("ciao", |v, _, _| {
+            REDUCE_MOTION.with(|r| r.set(Some(false)));
+            v.send_shown = false;
+            v.fade_since = None;
+            let now = Instant::now();
+            // Controlled clock: the start instant is set by hand, never waited for.
+            let mut last = -1.;
+            for (ms, lo, hi) in [(0u64, 0.0, 0.1), (35, 0.15, 0.35), (70, 0.4, 0.6), (105, 0.65, 0.85), (140, 1.0, 1.0)] {
+                v.send_shown = true;
+                v.fade_since = Some(now - Duration::from_millis(ms));
+                let m = v.send_mix();
+                assert!(m >= lo && m <= hi && m >= last, "{ms} ms: {m} not in {lo}..{hi}");
+                last = m;
+            }
+            // Fading out mirrors it, and Voice gets the complement.
+            v.send_shown = false;
+            v.fade_since = Some(now - Duration::from_millis(70));
+            let m = v.send_mix();
+            assert!((0.4..0.6).contains(&m), "fade out half way: {m}");
+            // Reduced motion: no fade at all in either direction, even right after the change.
+            REDUCE_MOTION.with(|r| r.set(Some(true)));
+            v.send_shown = false;
+            v.fade_since = None;
+            assert_eq!(v.sync_fade(true), 1.);
+            assert_eq!(v.sync_fade(false), 0.);
+            assert!(v.fade_since.is_none());
+            REDUCE_MOTION.with(|r| r.set(None));
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn with_a_recording_in_progress_text_never_brings_send_back() {
+        rendered_composer("ciao", |v, _, cx| {
+            v.start_recording(cx);
+            if v.recorder.is_none() {
+                // No microphone on this host (the CT has none): the rule cannot be driven here.
+                eprintln!("SKIPPED-NO-MICROPHONE");
+                return;
+            }
+            assert!(!v.send_visible(), "recording with text: Stop, not Send");
+            assert!(!v.icons_shown());
+            let stops = v.stops();
+            assert_eq!(stops.len(), 1, "only the field is a Tab stop while recording");
+            v.stop_recording(false, cx);
+            assert!(v.send_visible(), "after cancel the text brings Send back");
+        });
+    }
 }
