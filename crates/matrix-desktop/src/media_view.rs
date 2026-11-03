@@ -78,7 +78,7 @@ pub(crate) fn save_icon(
         .flex()
         .items_center()
         .justify_center()
-        .size(px(24.))
+        .size(px(32.))
         .rounded_sm()
         .text_size(px(14.))
         .text_color(rgb(t.accent))
