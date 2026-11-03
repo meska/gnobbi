@@ -179,7 +179,7 @@ impl DemoHistory {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
                     }),
-                    time: format!("{:02}:{:02}", index / 60 % 24, index % 60),
+                    time: crate::time_fmt::clock_time(index as u64 * 60_000),
                 }
             })
             .collect();

@@ -1,3 +1,4 @@
+use matrix_desktop::time_fmt::clock_time;
 use matrix_desktop::DemoHistory;
 use matrix_domain::{AccountId, RoomId, RoomScope};
 use std::collections::HashSet;
@@ -11,12 +12,17 @@ fn scope() -> RoomScope {
 
 #[test]
 fn fixture_timestamp_is_event_data_not_current_list_position() {
+    // Local time of the fixture timestamp: the row keeps its own event time, whatever the zone.
+    let at = |h: &DemoHistory, i: usize| clock_time(i as u64 * 60_000) == h.events()[i].time;
     let mut history = DemoHistory::new(scope(), 61);
-    assert_eq!(history.events()[0].time, "00:00");
-    assert_eq!(history.events()[60].time, "01:00");
+    assert!(at(&history, 0) && at(&history, 60));
+    let (first, hour) = (
+        history.events()[0].time.clone(),
+        history.events()[60].time.clone(),
+    );
     history.prepend_older(25);
-    assert_eq!(history.events()[25].time, "00:00");
-    assert_eq!(history.events()[85].time, "01:00");
+    assert_eq!(history.events()[25].time, first);
+    assert_eq!(history.events()[85].time, hour);
 }
 
 #[test]
