@@ -59,10 +59,11 @@ pub(crate) fn rows<H: Hit, V: 'static>(
                     let detail = hit.detail();
                     base.child(picture)
                         .child(if detail.is_empty() {
-                            div().min_w_0().child(line(hit.label(), t.text))
+                            div().min_w_0().flex_1().child(line(hit.label(), t.text))
                         } else {
                             div()
                                 .min_w_0()
+                                .flex_1()
                                 .flex()
                                 .flex_col()
                                 .child(line(hit.title().to_owned(), t.text))
