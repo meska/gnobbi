@@ -28,7 +28,7 @@ struct RoomListView: View {
             .navigationTitle("Chat")
             .toolbar {
                 ToolbarItem(placement: .principal) { Text(label(session.state)).font(.caption).foregroundColor(p.secondary) }
-                ToolbarItem(placement: .navigationBarTrailing) { Button("Esci") { Task { await session.logout() } }.foregroundColor(p.accent) }
+                ToolbarItem(placement: .navigationBarTrailing) { Button("Esci") { Task { await session.logout() } }.disabled(session.loggingOut).foregroundColor(p.accent) }
             }
             .safeAreaInset(edge: .bottom) {
                 if !session.error.isEmpty { Text(session.error).foregroundColor(p.error).padding() }

@@ -8,7 +8,9 @@ final class Session: ObservableObject {
     @Published var lastSend = ""
     @Published var error = ""
     @Published var signedIn = false
+    @Published var loggingOut = false
     private var handle: MobileSession?
+    private var trustedRootPem: String?
     private let dir: String = {
         // The bridge creates this directory itself with mode 0700 and refuses a pre-made looser one.
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -17,6 +19,7 @@ final class Session: ObservableObject {
     }()
 
     func signIn(homeserver: String, user: String, password: String, trustedRootPem: String?) async {
+        self.trustedRootPem = trustedRootPem
         await open { listener in
             try await GnobbiMobile.signIn(dataDir: self.dir, homeserver: homeserver, userId: user, password: password,
                                     secrets: nil, listener: listener, trustedRootPem: trustedRootPem)
@@ -24,6 +27,7 @@ final class Session: ObservableObject {
     }
 
     func restore(trustedRootPem: String?) async {
+        self.trustedRootPem = trustedRootPem
         await open { listener in
             // Native Keychain vault (secrets: nil). First saved account only: no account picker yet.
             guard let account = try listSavedAccounts(dataDir: self.dir).first else { throw MobileError.NoSession }
@@ -44,9 +48,12 @@ final class Session: ObservableObject {
     }
 
     /// Revokes the session on the server and deletes the Keychain entry and the account dir (blocking call, so off the main actor).
-    /// On failure (e.g. offline) nothing is deleted and the user stays signed in with the error shown.
+    /// On failure (e.g. offline) the bridge has already stopped the worker, so the dead handle is dropped and the
+    /// account is reopened with restore_session (the documented recovery); the error stays shown and "Esci" can be retried.
     func logout() async {
-        guard let h = handle else { return }
+        guard let h = handle, !loggingOut else { return }
+        loggingOut = true
+        defer { loggingOut = false }
         error = ""
         do {
             try await Task.detached { try h.logout() }.value
@@ -55,7 +62,12 @@ final class Session: ObservableObject {
             lastSend = ""
             signedIn = false
         } catch {
-            self.error = "Uscita non riuscita: \(error)"
+            handle = nil
+            rooms = []
+            signedIn = false
+            let failure = "Uscita non riuscita: \(error)"
+            await restore(trustedRootPem: trustedRootPem)
+            self.error = failure
         }
     }
 
