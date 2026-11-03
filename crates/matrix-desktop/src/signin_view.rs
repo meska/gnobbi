@@ -22,16 +22,6 @@ pub struct SignInView {
     recover_focus: FocusHandle,
     copy_focus: FocusHandle,
     focus_next: Option<usize>,
-    /// Old profile and data dir while the offer to adopt it is open.
-    legacy: Option<(std::path::PathBuf, std::path::PathBuf)>,
-    legacy_note: Option<&'static str>,
-    /// Old-name vault entries found for the adopted profile: (old profile folder, new profile folder).
-    vault_copy: Option<(std::path::PathBuf, std::path::PathBuf)>,
-    vault_note: Option<&'static str>,
-    #[cfg(test)]
-    legacy_bounds: std::rc::Rc<
-        std::cell::RefCell<std::collections::HashMap<&'static str, gpui::Bounds<gpui::Pixels>>>,
-    >,
     #[cfg(test)]
     painted_submit: Option<PaintedSubmit>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -315,80 +305,6 @@ impl SignInView {
         self.form.vault = vault;
         self
     }
-    pub fn with_legacy(mut self, offer: Option<(std::path::PathBuf, std::path::PathBuf)>) -> Self {
-        self.legacy = offer;
-        self
-    }
-    /// Looks (read-only, off the UI thread) for vault entries saved under the old app name for
-    /// the profile at `new`; if any exist the sign-in offers to copy them. Nothing is written here.
-    pub fn check_vault_copy(
-        &mut self,
-        candidates: Vec<std::path::PathBuf>,
-        new: std::path::PathBuf,
-        cx: &mut Context<Self>,
-    ) {
-        #[cfg(all(feature = "linux-vault", target_os = "linux"))]
-        {
-            let executor = cx.background_executor().clone();
-            cx.spawn(async move |this, cx| {
-                let found = executor
-                    .spawn(async move {
-                        candidates
-                            .into_iter()
-                            .find(|old| matrix_engine::vault::legacy_pending(old, &new) > 0)
-                            .map(|old| (old, new))
-                    })
-                    .await;
-                if let Some(found) = found {
-                    this.update(cx, |this, cx| {
-                        this.vault_copy = Some(found);
-                        cx.notify();
-                    })
-                    .ok();
-                }
-            })
-            .detach();
-        }
-        #[cfg(not(all(feature = "linux-vault", target_os = "linux")))]
-        let _ = (candidates, new, cx);
-    }
-    fn copy_vault(&mut self, cx: &mut Context<Self>) {
-        let Some((old, new)) = self.vault_copy.take() else {
-            return;
-        };
-        #[cfg(all(feature = "linux-vault", target_os = "linux"))]
-        {
-            let executor = cx.background_executor().clone();
-            cx.spawn(async move |this, cx| {
-                let done = executor
-                    .spawn(async move { matrix_engine::vault::copy_legacy_profile(&old, &new) })
-                    .await;
-                this.update(cx, |this, cx| {
-                    this.vault_note = Some(if done.is_ok() {
-                        "Chiave copiata. Quella vecchia è rimasta dov'era."
-                    } else {
-                        "Impossibile copiare la chiave: quella vecchia è intatta."
-                    });
-                    cx.notify();
-                })
-                .ok();
-            })
-            .detach();
-        }
-        #[cfg(not(all(feature = "linux-vault", target_os = "linux")))]
-        let _ = (old, new, cx);
-    }
-    fn adopt_legacy(&mut self, cx: &mut Context<Self>) {
-        if let Some((legacy, data)) = self.legacy.take() {
-            self.legacy_note = Some(
-                match matrix_desktop::legacy_profile::adopt(&legacy, &data) {
-                    Ok(()) => "Profilo spostato. Riapri Gnobbi per sbloccarlo.",
-                    Err(_) => "Impossibile spostare il profilo: quello vecchio è intatto.",
-                },
-            );
-            cx.notify();
-        }
-    }
     pub fn new(route: SignInUi, cx: &mut Context<Self>) -> Self {
         Self {
             theme: LIGHT,
@@ -401,12 +317,6 @@ impl SignInView {
             recover_focus: cx.focus_handle(),
             copy_focus: cx.focus_handle(),
             focus_next: None,
-            legacy: None,
-            legacy_note: None,
-            vault_copy: None,
-            vault_note: None,
-            #[cfg(test)]
-            legacy_bounds: Default::default(),
             #[cfg(test)]
             painted_submit: None,
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -795,89 +705,6 @@ impl Render for SignInView {
                 );
             }
         }
-        if !recovery && self.mode == SignInMode::Password {
-            #[cfg(test)]
-            let seen = self.legacy_bounds.clone();
-            let button = move |id: &'static str, label: &'static str| {
-                let b = div()
-                    .id(id)
-                    .relative()
-                    .px_3()
-                    .h(px(32.))
-                    .flex()
-                    .items_center()
-                    .border_1()
-                    .border_color(rgb(t.accent))
-                    .text_color(rgb(t.accent))
-                    .cursor_pointer()
-                    .child(label);
-                #[cfg(test)]
-                let b = {
-                    let seen = seen.clone();
-                    b.child(
-                        gpui::canvas(
-                            |_, _, _| (),
-                            move |bounds, _, _, _| {
-                                seen.borrow_mut().insert(id, bounds);
-                            },
-                        )
-                        .absolute()
-                        .size_full(),
-                    )
-                };
-                b
-            };
-            if self.legacy.is_some() {
-                card = card
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .child("Hai un profilo Dime precedente."),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                button("legacy-adopt", "Usa il profilo esistente")
-                                    .on_click(cx.listener(|this, _, _, cx| this.adopt_legacy(cx))),
-                            )
-                            .child(button("legacy-ignore", "Ignora").on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.legacy = None;
-                                    cx.notify();
-                                },
-                            ))),
-                    );
-            } else if let Some(note) = self.legacy_note {
-                card = card.child(div().text_size(px(12.)).child(note));
-            }
-            if self.vault_copy.is_some() {
-                card = card
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .child("Chiave del profilo precedente trovata nel portachiavi."),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                button("vault-copy", "Copia la chiave")
-                                    .on_click(cx.listener(|this, _, _, cx| this.copy_vault(cx))),
-                            )
-                            .child(button("vault-skip", "Non ora").on_click(cx.listener(
-                                |this, _, _, cx| {
-                                    this.vault_copy = None;
-                                    cx.notify();
-                                },
-                            ))),
-                    );
-            } else if let Some(note) = self.vault_note {
-                card = card.child(div().text_size(px(12.)).child(note));
-            }
-        }
         card = card
             .child(
                 div()
@@ -1040,76 +867,6 @@ mod tests {
                 cx.update(|cx| cx.quit()).unwrap();
             }).detach();
         });
-    }
-
-    #[test]
-    #[ignore = "requires private display"]
-    fn painted_legacy_adopt_click_moves_profile() {
-        let (old_kept, new_has) = legacy_click("legacy-adopt");
-        assert!(!old_kept && new_has, "adopt click must move the profile");
-    }
-
-    #[test]
-    #[ignore = "requires private display"]
-    fn painted_legacy_ignore_click_moves_nothing() {
-        let (old_kept, new_has) = legacy_click("legacy-ignore");
-        assert!(old_kept && !new_has, "ignore click must move nothing");
-    }
-
-    /// Real mouse click (xdotool on X11, the Wayland input helper under sway) on the painted button; returns (old profile still there, new profile has it).
-    fn legacy_click(id: &'static str) -> (bool, bool) {
-        assert_eq!(
-            std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
-            Ok("1")
-        );
-        let root =
-            std::env::temp_dir().join(format!("dime-legacy-click-{}-{id}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let (legacy, data) = (root.join("old"), root.join("data"));
-        std::fs::create_dir_all(&legacy).unwrap();
-        std::fs::create_dir_all(&data).unwrap();
-        std::fs::write(legacy.join("marker"), "x").unwrap();
-        let offer = (legacy.clone(), data.clone());
-        gpui::Application::new().run(move |cx| {
-            let capacity = std::num::NonZeroUsize::new(1).unwrap();
-            let (_events, event_rx) = matrix_engine::bounded(capacity);
-            let (commands, _requests) = matrix_engine::bounded(capacity);
-            let view = cx
-                .open_window(gpui::WindowOptions::default(), |_, cx| {
-                    cx.new(|cx| {
-                        SignInView::new(
-                            SignInUi {
-                                events: event_rx,
-                                setup: matrix_engine::bounded(capacity).1,
-                                commands,
-                            },
-                            cx,
-                        )
-                        .with_legacy(Some(offer))
-                    })
-                })
-                .unwrap();
-            let executor = cx.background_executor().clone();
-            cx.spawn(async move |cx| {
-                executor.timer(std::time::Duration::from_millis(500)).await;
-                let b = view
-                    .update(cx, |v, _, _| {
-                        *v.legacy_bounds.borrow().get(id).expect("button painted")
-                    })
-                    .unwrap();
-                let c = b.center();
-                crate::navigation_resize_test::click(f32::from(c.x) as i32, f32::from(c.y) as i32);
-                executor.timer(std::time::Duration::from_millis(400)).await;
-                cx.update(|cx| cx.quit()).unwrap();
-            })
-            .detach();
-        });
-        let r = (
-            legacy.join("marker").exists(),
-            data.join("profile").join("marker").exists(),
-        );
-        let _ = std::fs::remove_dir_all(&root);
-        r
     }
 
     #[test]

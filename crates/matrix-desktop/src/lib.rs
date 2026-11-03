@@ -39,7 +39,6 @@ pub mod desktop_entry;
 pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use account_list::{AccountRow, account_rows, initials};
 pub use app_dirs::{AppDirs, Platform, app_dirs};
-pub mod legacy_profile;
 mod preferences;
 mod rail_layout;
 pub use rail_layout::{RailLayout, RailLayouts};
