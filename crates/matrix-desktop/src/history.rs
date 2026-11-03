@@ -27,6 +27,13 @@ pub struct VideoFacts {
     pub size: Option<String>,
 }
 
+fn video_facts(v: matrix_engine::history::VideoInfo) -> VideoFacts {
+    VideoFacts {
+        duration: v.duration_ms.map(matrix_engine::history::duration_label),
+        size: v.size.map(matrix_engine::history::human_size),
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct DemoEvent {
     /// Observed server event/ACK, never a peer read receipt or fixture inference.
@@ -323,6 +330,16 @@ impl DemoHistory {
                 row.styles.clone_from(&event.styles);
                 changed_body = true;
             }
+            // The ACK row is born without attachment facts and the server copy is then dropped as a duplicate.
+            if let Some(row) = self.events.iter_mut().find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
+                && row.attachment_name.is_none()
+                && event.attachment_name.is_some()
+            {
+                row.attachment_name.clone_from(&event.attachment_name);
+                row.attachment_size = event.attachment_size;
+                row.video = event.video.clone().map(video_facts);
+                changed_body = true;
+            }
             // The count moves when a reply arrives, the text does not.
             if let Some(row) = self.events.iter_mut().find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
                 && row.thread != event.thread
@@ -370,10 +387,7 @@ impl DemoHistory {
                 status: event.status,
                 attachment_name: event.attachment_name,
                 attachment_size: event.attachment_size,
-                video: event.video.map(|v| VideoFacts {
-                    duration: v.duration_ms.map(matrix_engine::history::duration_label),
-                    size: v.size.map(matrix_engine::history::human_size),
-                }),
+                video: event.video.map(video_facts),
             })
             .collect::<Vec<_>>();
         let count = rows
