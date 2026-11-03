@@ -18,6 +18,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - alsa 0.11.0 — Apache-2.0/MIT — https://github.com/diwic/alsa-rs
 - alsa-sys 0.4.0 — MIT — https://github.com/diwic/alsa-sys
 - android_system_properties 0.1.6 — MIT OR Apache-2.0 — https://github.com/nical/android_system_properties
+- anstyle 1.0.14 — MIT OR Apache-2.0 — https://github.com/rust-cli/anstyle.git
 - anyhow 1.0.104 — MIT OR Apache-2.0 — https://github.com/dtolnay/anyhow
 - anymap2 0.13.0 — MIT/Apache-2.0 — https://github.com/azriel91/anymap2
 - ar_archive_writer 0.5.3 — Apache-2.0 WITH LLVM-exception — https://github.com/rust-lang/ar_archive_writer
@@ -33,10 +34,15 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - ash-window 0.13.0 — MIT OR Apache-2.0 — https://github.com/ash-rs/ash
 - ashpd 0.11.1 — MIT — https://github.com/bilelmoussaoui/ashpd
 - ashpd 0.12.3 — MIT — https://github.com/bilelmoussaoui/ashpd
+- askama 0.16.1 — MIT OR Apache-2.0 — https://github.com/askama-rs/askama
+- askama_derive 0.16.1 — MIT OR Apache-2.0 — https://github.com/askama-rs/askama
+- askama_macros 0.16.1 — MIT OR Apache-2.0 — https://github.com/askama-rs/askama
+- askama_parser 0.16.1 — MIT OR Apache-2.0 — https://github.com/askama-rs/askama
 - assign 1.1.1 — MIT — https://github.com/Kelerchian/assign
 - async-broadcast 0.7.2 — MIT OR Apache-2.0 — https://github.com/smol-rs/async-broadcast
 - async-channel 1.9.0 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-channel
 - async-channel 2.5.0 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-channel
+- async-compat 0.2.6 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-compat
 - async-compression 0.4.50 — MIT OR Apache-2.0 — https://github.com/Nullus157/async-compression
 - async-executor 1.14.0 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-executor
 - async-fs 2.2.0 — Apache-2.0 OR MIT — https://github.com/smol-rs/async-fs
@@ -71,6 +77,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - base64 0.22.1 — MIT OR Apache-2.0 — https://github.com/marshallpierce/rust-base64
 - base64 0.23.1 — MIT OR Apache-2.0 — https://github.com/marshallpierce/rust-base64
 - base64ct 1.8.3 — Apache-2.0 OR MIT — https://github.com/RustCrypto/formats
+- basic-toml 0.1.10 — MIT OR Apache-2.0 — https://github.com/dtolnay/basic-toml
 - bindgen 0.71.1 — BSD-3-Clause — https://github.com/rust-lang/rust-bindgen
 - bit-set 0.8.0 — Apache-2.0 OR MIT — https://github.com/contain-rs/bit-set
 - bit-vec 0.8.0 — Apache-2.0 OR MIT — https://github.com/contain-rs/bit-vec
@@ -101,6 +108,9 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - bytesize 2.7.0 — Apache-2.0 — https://github.com/bytesize-rs/bytesize
 - calloop 0.13.0 — MIT — https://github.com/Smithay/calloop
 - calloop-wayland-source 0.3.0 — MIT — https://github.com/smithay/calloop-wayland-source
+- camino 1.2.6 — MIT OR Apache-2.0 — https://github.com/camino-rs/camino
+- cargo-platform 0.3.3 — MIT OR Apache-2.0 — https://github.com/rust-lang/cargo
+- cargo_metadata 0.23.1 — MIT — https://github.com/oli-obk/cargo_metadata
 - cbc 0.1.2 — MIT OR Apache-2.0 — https://github.com/RustCrypto/block-modes
 - cbc 0.2.1 — MIT OR Apache-2.0 — https://github.com/RustCrypto/block-modes
 - cbindgen 0.28.0 — MPL-2.0 — https://github.com/mozilla/cbindgen
@@ -115,6 +125,10 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - cipher 0.4.4 — MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
 - cipher 0.5.2 — MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
 - clang-sys 1.9.1 — Apache-2.0 — https://github.com/KyleMayes/clang-sys
+- clap 4.6.7 — MIT OR Apache-2.0 — https://github.com/clap-rs/clap
+- clap_builder 4.6.7 — MIT OR Apache-2.0 — https://github.com/clap-rs/clap
+- clap_derive 4.6.7 — MIT OR Apache-2.0 — https://github.com/clap-rs/clap
+- clap_lex 1.1.1 — MIT OR Apache-2.0 — https://github.com/clap-rs/clap
 - cmake 0.1.58 — MIT OR Apache-2.0 — https://github.com/rust-lang/cmake-rs
 - cmov 0.5.4 — Apache-2.0 OR MIT — https://github.com/RustCrypto/utils
 - cocoa 0.25.0 — MIT OR Apache-2.0 — https://github.com/servo/core-foundation-rs
@@ -164,7 +178,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - ctor 0.4.3 — Apache-2.0 OR MIT — https://github.com/mmastrac/rust-ctor
 - ctor-proc-macro 0.0.6 — Apache-2.0 OR MIT — https://github.com/mmastrac/rust-ctor
 - ctr 0.10.1 — MIT OR Apache-2.0 — https://github.com/RustCrypto/block-modes
-- ctutils 0.4.3 — Apache-2.0 OR MIT — https://github.com/RustCrypto/utils
+- ctutils 0.4.4 — Apache-2.0 OR MIT — https://github.com/RustCrypto/utils
 - curve25519-dalek 5.0.0 — BSD-3-Clause — https://github.com/dalek-cryptography/curve25519-dalek/tree/main/curve25519-dalek
 - curve25519-dalek-derive 0.1.1 — MIT/Apache-2.0 — https://github.com/dalek-cryptography/curve25519-dalek
 - dasp_sample 0.11.0 — MIT OR Apache-2.0 — https://github.com/rustaudio/sample.git
@@ -250,6 +264,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - foreign-types-shared 0.3.1 — MIT/Apache-2.0 — https://github.com/sfackler/foreign-types
 - form_urlencoded 1.2.2 — MIT OR Apache-2.0 — https://github.com/servo/rust-url
 - freetype-sys 0.20.1 — MIT — https://github.com/PistonDevelopers/freetype-sys.git
+- fs-err 3.3.2 — MIT OR Apache-2.0 — https://github.com/andrewhickman/fs-err
 - fs_extra 1.3.0 — MIT — https://github.com/webdesus/fs_extra
 - futf 0.1.5 — MIT / Apache-2.0 — https://github.com/servo/futf
 - futures 0.3.34 — MIT OR Apache-2.0 — https://github.com/rust-lang/futures-rs
@@ -277,6 +292,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - gloo-timers 0.4.0 — MIT OR Apache-2.0 — https://github.com/rustwasm/gloo/tree/master/crates/timers
 - gloo-utils 0.3.0 — MIT OR Apache-2.0 — https://github.com/rustwasm/gloo/tree/master/crates/utils
 - glow 0.16.0 — MIT OR Apache-2.0 OR Zlib — https://github.com/grovesNL/glow
+- goblin 0.8.2 — MIT — https://github.com/m4b/goblin
 - gpu-alloc 0.6.2 — MIT OR Apache-2.0 — https://github.com/zakarumych/gpu-alloc
 - gpu-alloc-ash 0.7.1 — MIT OR Apache-2.0 — https://github.com/zakarumych/gpu-alloc
 - gpu-alloc-types 0.3.1 — MIT OR Apache-2.0 — https://github.com/zakarumych/gpu-alloc
@@ -507,6 +523,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - pin-utils 0.1.1 — MIT OR Apache-2.0 — https://github.com/rust-lang/pin-utils
 - piper 0.2.5 — MIT OR Apache-2.0 — https://github.com/smol-rs/piper
 - pkg-config 0.3.34 — MIT OR Apache-2.0 — https://github.com/rust-lang/pkg-config-rs
+- plain 0.2.3 — MIT/Apache-2.0 — https://github.com/randomites/plain
 - png 0.17.16 — MIT OR Apache-2.0 — https://github.com/image-rs/image-png
 - png 0.18.1 — MIT OR Apache-2.0 — https://github.com/image-rs/image-png
 - polling 3.11.0 — Apache-2.0 OR MIT — https://github.com/smol-rs/polling
@@ -594,13 +611,13 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - rustc_version 0.4.1 — MIT OR Apache-2.0 — https://github.com/djc/rustc-version-rs
 - rustix 0.38.44 — Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT — https://github.com/bytecodealliance/rustix
 - rustix 1.1.5 — Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT — https://github.com/bytecodealliance/rustix
-- rustls 0.23.45 — Apache-2.0 OR ISC OR MIT — https://github.com/rustls/rustls
+- rustls 0.23.46 — Apache-2.0 OR ISC OR MIT — https://github.com/rustls/rustls
 - rustls-native-certs 0.8.4 — Apache-2.0 OR ISC OR MIT — https://github.com/rustls/rustls-native-certs
 - rustls-pemfile 2.2.0 — Apache-2.0 OR ISC OR MIT — https://github.com/rustls/pemfile
 - rustls-pki-types 1.15.1 — MIT OR Apache-2.0 — https://github.com/rustls/pki-types
 - rustls-platform-verifier 0.7.1 — MIT OR Apache-2.0 — https://github.com/rustls/rustls-platform-verifier
 - rustls-platform-verifier-android 0.2.0 — MIT OR Apache-2.0 — https://github.com/rustls/rustls-platform-verifier
-- rustls-webpki 0.103.15 — ISC — https://github.com/rustls/webpki
+- rustls-webpki 0.103.16 — ISC — https://github.com/rustls/webpki
 - rustversion 1.0.23 — MIT OR Apache-2.0 — https://github.com/dtolnay/rustversion
 - rustybuzz 0.14.1 — MIT — https://github.com/RazrFalcon/rustybuzz
 - rustybuzz 0.20.1 — MIT — https://github.com/harfbuzz/rustybuzz
@@ -614,6 +631,8 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - scopeguard 1.2.0 — MIT OR Apache-2.0 — https://github.com/bluss/scopeguard
 - screencapturekit 0.2.8 — MIT OR Apache-2.0 — https://github.com/svtlabs/screencapturekit-rs/tree/main/screencapturekit
 - screencapturekit-sys 0.2.8 — MIT OR Apache-2.0 — https://github.com/svtlabs/screencapturekit-rs/tree/main/screencapturekit-sys
+- scroll 0.12.0 — MIT — https://github.com/m4b/scroll
+- scroll_derive 0.12.1 — MIT — https://github.com/m4b/scroll
 - seahash 4.1.0 — MIT — https://gitlab.redox-os.org/redox-os/seahash
 - sealed 0.6.0 — MIT OR Apache-2.0 — https://github.com/jmg-duarte/sealed-rs
 - sealed 0.7.0 — MIT OR Apache-2.0 — https://github.com/jmg-duarte/sealed-rs
@@ -656,6 +675,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - slab 0.4.12 — MIT — https://github.com/tokio-rs/slab
 - slotmap 1.1.1 — Zlib — https://github.com/orlp/slotmap
 - smallvec 1.16.2 — MIT OR Apache-2.0 — https://github.com/servo/rust-smallvec
+- smawk 0.3.3 — MIT — https://github.com/mgeisler/smawk
 - smol 2.0.2 — Apache-2.0 OR MIT — https://github.com/smol-rs/smol
 - smol_str 0.2.2 — MIT OR Apache-2.0 — https://github.com/rust-analyzer/smol_str
 - socket2 0.6.5 — MIT OR Apache-2.0 — https://github.com/rust-lang/socket2
@@ -669,6 +689,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - strict-num 0.1.1 — MIT — https://github.com/RazrFalcon/strict-num
 - string_cache 0.9.0 — MIT OR Apache-2.0 — https://github.com/servo/string-cache
 - string_cache_codegen 0.6.1 — MIT OR Apache-2.0 — https://github.com/servo/string-cache
+- strsim 0.11.1 — MIT — https://github.com/rapidfuzz/strsim-rs
 - strum 0.26.3 — MIT — https://github.com/Peternator7/strum
 - strum 0.27.2 — MIT — https://github.com/Peternator7/strum
 - strum_macros 0.26.4 — MIT — https://github.com/Peternator7/strum
@@ -701,6 +722,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - tendril 0.4.3 — MIT/Apache-2.0 — https://github.com/servo/tendril
 - tendril 0.5.1 — MIT OR Apache-2.0 — https://github.com/servo/html5ever
 - termcolor 1.4.1 — Unlicense OR MIT — https://github.com/BurntSushi/termcolor
+- textwrap 0.16.4 — MIT — https://github.com/mgeisler/textwrap
 - thiserror 1.0.69 — MIT OR Apache-2.0 — https://github.com/dtolnay/thiserror
 - thiserror 2.0.21 — MIT OR Apache-2.0 — https://github.com/dtolnay/thiserror
 - thiserror-impl 1.0.69 — MIT OR Apache-2.0 — https://github.com/dtolnay/thiserror
@@ -763,6 +785,14 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - unicode-vo 0.1.0 — MIT/Apache-2.0 — https://github.com/RazrFalcon/unicode-vo
 - unicode-width 0.2.2 — MIT OR Apache-2.0 — https://github.com/unicode-rs/unicode-width
 - unicode-xid 0.2.6 — MIT OR Apache-2.0 — https://github.com/unicode-rs/unicode-xid
+- uniffi 0.32.2 — MPL-2.0 — https://github.com/mozilla/uniffi-rs
+- uniffi_bindgen 0.32.2 — MPL-2.0 — https://github.com/mozilla/uniffi-rs
+- uniffi_core 0.32.2 — MPL-2.0 — https://github.com/mozilla/uniffi-rs
+- uniffi_internal_macros 0.32.2 — MPL-2.0 — https://github.com/mozilla/uniffi-rs
+- uniffi_macros 0.32.2 — MPL-2.0 — https://github.com/mozilla/uniffi-rs
+- uniffi_meta 0.32.2 — MPL-2.0 — https://github.com/mozilla/uniffi-rs
+- uniffi_pipeline 0.32.2 — MPL-2.0 — https://github.com/mozilla/uniffi-rs
+- uniffi_udl 0.32.2 — MPL-2.0 — https://github.com/mozilla/uniffi-rs
 - universal-hash 0.6.1 — MIT OR Apache-2.0 — https://github.com/RustCrypto/traits
 - untrusted 0.9.0 — ISC — https://github.com/briansmith/untrusted
 - url 2.5.8 — MIT OR Apache-2.0 — https://github.com/servo/rust-url
@@ -800,11 +830,13 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - wayland-protocols 0.32.13 — MIT — https://github.com/smithay/wayland-rs
 - wayland-protocols-plasma 0.2.0 — MIT — https://github.com/smithay/wayland-rs
 - wayland-scanner 0.31.11 — MIT — https://github.com/smithay/wayland-rs
+- wayland-server 0.31.14 — MIT — https://github.com/smithay/wayland-rs
 - wayland-sys 0.31.11 — MIT — https://github.com/smithay/wayland-rs
 - web-sys 0.3.106 — MIT OR Apache-2.0 — https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/web-sys
 - web-time 1.1.0 — MIT OR Apache-2.0 — https://github.com/daxpedda/web-time
 - web_atoms 0.2.6 — MIT OR Apache-2.0 — https://github.com/servo/html5ever
-- webpki-root-certs 1.0.9 — CDLA-Permissive-2.0 — https://github.com/rustls/webpki-roots
+- webpki-root-certs 1.0.10 — CDLA-Permissive-2.0 — https://github.com/rustls/webpki-roots
+- weedle2 5.0.0 — MIT — https://github.com/mozilla/uniffi-rs
 - weezl 0.1.12 — MIT OR Apache-2.0 — https://github.com/image-rs/weezl
 - which 6.0.3 — MIT — https://github.com/harryfei/which-rs.git
 - wide 0.7.33 — Zlib OR Apache-2.0 OR MIT — https://github.com/Lokathor/wide

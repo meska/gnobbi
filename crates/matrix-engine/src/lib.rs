@@ -31,6 +31,8 @@ pub mod room_tags;
 pub mod sliding;
 #[cfg(feature = "sdk")]
 pub mod threads;
+#[cfg(feature = "sdk")]
+pub mod user_search;
 pub mod verification;
 #[cfg(feature = "sdk")]
 mod warm;
@@ -102,6 +104,7 @@ pub enum RoomSyncStatus {
 pub mod discovery;
 mod generation;
 pub mod history;
+pub mod status_line;
 #[cfg(all(feature = "mac-vault", target_os = "macos"))]
 pub mod keychain;
 pub mod media;

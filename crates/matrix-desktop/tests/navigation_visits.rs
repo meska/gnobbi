@@ -33,10 +33,13 @@ fn navigation(
     open: bool,
 ) -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: Some(SpacesSnapshot {
@@ -50,10 +53,11 @@ fn navigation(
             choices: spaces.rail_choices(sidebar),
         }),
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

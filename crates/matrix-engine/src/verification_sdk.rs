@@ -218,21 +218,9 @@ pub(crate) async fn run_service(
     let mut active: Option<VerificationFlow> = None;
     let mut previous = None;
     let mut ticks = tokio::time::interval(std::time::Duration::from_millis(200));
-    if let Some(user_id) = client.user_id() {
-        let display_name = client.account().get_display_name().await.ok().flatten();
-        let user_id = user_id.to_string();
-        if events
-            .send(VerificationEvent::Profile {
-                account_id,
-                user_id,
-                display_name,
-            })
-            .await
-            .is_err()
-        {
-            return;
-        }
-    }
+    // Profile name and picture are re-read every minute: a change made elsewhere shows up without restart.
+    let mut shown = None;
+    let mut profile_ticks = tokio::time::interval(PROFILE_REFRESH);
     loop {
         let result = tokio::select! {
             command = commands.recv() => {
@@ -266,8 +254,23 @@ pub(crate) async fn run_service(
                             _ => Err(VerificationError::UnknownFlow),
                         }
                     }
+                    VerificationCommand::RenameOwnDevice { account_id: requested, display_name } if requested == account_id => {
+                        rename_own_device(&client, &display_name).await
+                    }
                     _ => Err(VerificationError::WrongScope),
                 }
+            }
+            _ = profile_ticks.tick() => {
+                match own_profile(&client).await {
+                    Some(profile) if shown.as_ref() != Some(&profile) => {
+                        shown = Some(profile.clone());
+                        let (user_id, display_name, avatar) = profile;
+                        let device_id = client.device_id().map(|d| d.to_string());
+                        if events.send(VerificationEvent::Profile { account_id, user_id, display_name, device_id, avatar }).await.is_err() { break; }
+                    }
+                    _ => (),
+                }
+                Ok(())
             }
             _ = ticks.tick() => {
                 if let Some(flow) = &mut active {
@@ -302,6 +305,48 @@ pub(crate) async fn run_service(
                 _ => (),
             }
         }
+    }
+}
+
+const PROFILE_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Own id, name and picture as the SDK reports them; a failed read keeps what is already shown.
+async fn own_profile(client: &Client) -> Option<(String, Option<String>, Option<String>)> {
+    let user_id = client.user_id()?.to_string();
+    let account = client.account();
+    let display_name = account.get_display_name().await.ok()?;
+    let avatar = account
+        .get_avatar_url()
+        .await
+        .ok()?
+        .map(|uri| uri.to_string());
+    Some((user_id, display_name, avatar))
+}
+
+async fn rename_own_device(client: &Client, name: &str) -> Result<(), VerificationError> {
+    let name = valid_device_name(name)?;
+    let id = client.device_id().ok_or(VerificationError::LoggedOut)?;
+    client.rename_device(id, name).await.map_err(|_| VerificationError::Transport)?;
+    Ok(())
+}
+
+fn valid_device_name(name: &str) -> Result<&str, VerificationError> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 128 || name.chars().any(char::is_control) {
+        return Err(VerificationError::InvalidName);
+    }
+    Ok(name)
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+    #[test]
+    fn device_name_validation() {
+        assert_eq!(valid_device_name("  Gnobbi (macOS) ").unwrap(), "Gnobbi (macOS)");
+        assert!(valid_device_name("  ").is_err());
+        assert!(valid_device_name("a\nb").is_err());
+        assert!(valid_device_name(&"x".repeat(129)).is_err());
     }
 }
 

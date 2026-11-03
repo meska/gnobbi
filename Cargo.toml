@@ -1,7 +1,7 @@
 [workspace]
-members = ["crates/matrix-domain", "crates/matrix-engine", "crates/matrix-desktop"]
+members = ["crates/matrix-domain", "crates/matrix-engine", "crates/matrix-desktop", "crates/matrix-mobile"]
 default-members = ["crates/matrix-domain", "crates/matrix-engine"]
-exclude = ["vendor/matrix-sdk-0.19.1"]
+exclude = ["vendor/matrix-sdk-0.19.1", "vendor/gpui-0.2.2"]
 resolver = "3"
 
 [workspace.package]
@@ -28,3 +28,5 @@ codegen-units = 16
 
 [patch.crates-io]
 matrix-sdk = { path = "vendor/matrix-sdk-0.19.1" }
+# Wayland: modifiers/key before keymap panicked (client.rs unwrap); see vendor/gpui-0.2.2.patch.
+gpui = { path = "vendor/gpui-0.2.2" }

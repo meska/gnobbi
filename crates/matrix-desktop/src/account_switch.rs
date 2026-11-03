@@ -86,6 +86,15 @@ pub(crate) fn start_background(
     (workers, accounts, active)
 }
 
+/// Why a switch to a parked account cannot happen, or None when it can.
+pub(crate) fn switch_blocker(status: Option<&RoomSyncStatus>) -> Option<&'static str> {
+    match status {
+        None => Some("Non disponibile"),
+        Some(RoomSyncStatus::AuthenticationFailed) => Some("Accedi di nuovo"),
+        _ => None,
+    }
+}
+
 impl Shell {
     /// Keeps the background accounts syncing; their new-message alerts go out like the shown one's.
     pub(crate) fn pump_parked(&mut self) {
@@ -203,30 +212,49 @@ impl Shell {
 
     /// Whether `id` is another account that can be shown now.
     pub(crate) fn can_switch_to(&self, id: AccountId) -> bool {
-        self.active_id.is_some_and(|active| active != id)
+        self.active_id != Some(id)
             && self
                 .parked
                 .get(&id)
-                .is_some_and(|s| s.status != RoomSyncStatus::AuthenticationFailed)
+                .is_some_and(|s| switch_blocker(Some(&s.status)).is_none())
     }
 
     /// Shows account `id` (catalog ID). The one shown so far keeps syncing in the background.
+    /// When it cannot be shown the drawer stays open and the row says why.
     pub(crate) fn switch_account(
         &mut self,
         id: AccountId,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.set_menu_open(false, window, cx);
-        if !self.can_switch_to(id) {
+        if self.active_id == Some(id) {
+            self.set_menu_open(false, window, cx);
             return;
         }
-        let (Some(current), Some(next)) = (self.active_id, self.parked.remove(&id)) else {
+        let status = self.parked.get(&id).map(|s| s.status);
+        let blocker = switch_blocker(status.as_ref());
+        // No secrets: only catalog IDs and why a click was refused.
+        eprintln!(
+            "gnobbi: switch to {id:?}: shown={:?} parked={} refused={blocker:?}",
+            self.active_id,
+            status.is_some()
+        );
+        if let Some(reason) = blocker {
+            self.switch_error = Some((id, reason));
+            cx.notify();
+            return;
+        }
+        self.switch_error = None;
+        self.set_menu_open(false, window, cx);
+        let Some(next) = self.parked.remove(&id) else {
             return;
         };
         let mut leaving = self.take_state();
-        leaving.park();
-        self.parked.insert(current, leaving);
+        // No shown account in the catalog: nothing to park it under, so choosing one just shows it.
+        if let Some(current) = self.active_id {
+            leaving.park();
+            self.parked.insert(current, leaving);
+        }
         self.put_state(next);
         self.active_id = Some(id);
         self.clear_account_views(cx);
@@ -247,9 +275,12 @@ impl Shell {
         self.pending_open = None;
         self.groups_edit = None;
         self.members_requested = None;
+        self.room_members.clear();
+        self.profile = None;
         self.read_dirty = false;
         self.confirm_redaction = None;
         self.room_menu = None;
+        self.confirm_leave = None;
         self.compact_chat = false;
         self.set_room_details_open(false);
         self.set_spaces_open(false);
@@ -263,5 +294,30 @@ impl Shell {
         let scope = self.draft_scope();
         self.composer
             .update(cx, |editor, cx| editor.switch_room(scope, cx));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only a failed unlock refuses a started account, whether or not one is shown; every refusal fits the one-line row.
+    #[test]
+    fn blocker_only_for_failed_unlock_and_one_line() {
+        for s in [
+            RoomSyncStatus::Connecting,
+            RoomSyncStatus::Ready,
+            RoomSyncStatus::SyncFailed,
+        ] {
+            assert!(switch_blocker(Some(&s)).is_none());
+        }
+        let all = [
+            switch_blocker(None),
+            switch_blocker(Some(&RoomSyncStatus::AuthenticationFailed)),
+        ];
+        for m in all.into_iter().map(|m| m.expect("refusal")) {
+            assert!(!m.is_empty() && !m.contains('\n') && m.chars().count() <= 30);
+        }
+        assert_ne!(all[0], all[1]);
     }
 }

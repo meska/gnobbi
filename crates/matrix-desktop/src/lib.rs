@@ -2,12 +2,17 @@
 
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
+pub mod new_chat;
 pub mod notifications;
 /// The Linux build pins DejaVu; Windows has no DejaVu and gpui panics on a missing family.
 #[cfg(not(windows))]
 pub const UI_FONT: &str = "DejaVu Sans";
 #[cfg(windows)]
 pub const UI_FONT: &str = "Segoe UI";
+#[cfg(not(windows))]
+pub const SERIF_FONT: &str = "DejaVu Serif";
+#[cfg(windows)]
+pub const SERIF_FONT: &str = "Georgia";
 #[cfg(not(windows))]
 pub const MONO_FONT: &str = "DejaVu Sans Mono";
 #[cfg(windows)]
@@ -28,6 +33,7 @@ pub use signin_form::{
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
+pub mod app_icon;
 mod account_catalog;
 mod account_erase;
 pub use account_erase::erase_account;
@@ -40,10 +46,16 @@ pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use account_list::{AccountRow, account_rows, initials};
 pub use app_dirs::{AppDirs, Platform, app_dirs};
 pub mod legacy_profile;
+mod accent;
+pub use accent::{Accent, current_accent, set_accent, system_accent};
 mod preferences;
 mod rail_layout;
+mod room_prefs;
+pub use room_prefs::RoomPrefs;
 pub use rail_layout::{RailLayout, RailLayouts};
-pub use preferences::{Preferences, Theme};
+pub use preferences::{
+    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,
+};
 mod composer;
 mod connection_options;
 pub mod panel_openers;
@@ -68,7 +80,9 @@ pub use links::{
 };
 mod voice;
 pub use voice::{max_note_samples, voice_attachment};
+mod attachment_save;
 mod live_media;
+pub use attachment_save::{SaveState, Saves, failure_label as save_failure_label, offers_save, over_cap as save_over_cap, retryable as save_retryable, start_dir as save_start_dir};
 pub use live_media::LiveMedia;
 mod live_delivery;
 pub use live_delivery::LiveDelivery;
@@ -83,8 +97,9 @@ pub use history::{
 mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 pub mod row_text;
+pub mod time_fmt;
 mod sidebar;
-pub use sidebar::{Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
+pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DesignTokens {
@@ -114,7 +129,7 @@ pub const DEMO_NOTICE: &str = "DEMO OFFLINE · nessun account connesso";
 /// Scrim behind dialogs (RGBA): the same in every theme.
 pub const SCRIM: u32 = 0x0000_0066;
 /// Avatar fallback colour: identity, not theme.
-pub const AVATAR_FALLBACK: u32 = 0x5288b5;
+pub const AVATAR_FALLBACK: u32 = 0x53936b;
 
 pub struct DemoRoom {
     pub name: &'static str,
@@ -210,33 +225,33 @@ pub const LIGHT: DesignTokens = DesignTokens {
     header: 64.,
     composer: 72.,
     surface: 0xffffff,
-    text: 0x17212b,
-    secondary: 0x465b70,
+    text: 0x17231b,
+    secondary: 0x46604e,
     accent: 0x1264aa,
-    timeline: 0xe8f0ed,
+    timeline: 0xe9f0eb,
     outgoing: 0xd9fdd3,
-    selected: 0xe8f3fd,
-    border: 0xe3e9ed,
-    input: 0xf1f4f6,
-    disabled: 0xe8eef2,
-    selection: 0xd0e5fa,
+    selected: 0xe9f5ec,
+    border: 0xe4eae6,
+    input: 0xf1f4f2,
+    disabled: 0xe9efeb,
+    selection: 0xd0ead8,
     error: 0xb43030,
     on_accent: 0xffffff,
-    avatar_text: 0x101922,
+    avatar_text: 0x101b14,
 };
 
 pub const DARK: DesignTokens = DesignTokens {
-    surface: 0x17212b,
-    text: 0xe5edf5,
-    secondary: 0xb3c5d5,
+    surface: 0x17231b,
+    text: 0xe5efe8,
+    secondary: 0xb4c9ba,
     accent: 0x80c8ff,
-    timeline: 0x101922,
+    timeline: 0x101b14,
     outgoing: 0x244436,
-    selected: 0x263b50,
-    border: 0x41586b,
-    input: 0x202f3d,
-    disabled: 0x263442,
-    selection: 0x294563,
+    selected: 0x25402f,
+    border: 0x425c4b,
+    input: 0x203226,
+    disabled: 0x26372c,
+    selection: 0x254d34,
     error: 0xffb3b3,
     on_accent: 0x101922,
     ..LIGHT
@@ -244,33 +259,33 @@ pub const DARK: DesignTokens = DesignTokens {
 
 /// «Giorno»: bright and neutral, stronger text than «Classico».
 pub const DAY: DesignTokens = DesignTokens {
-    text: 0x111418,
-    secondary: 0x474f58,
+    text: 0x111512,
+    secondary: 0x47514a,
     accent: 0x0b5cad,
-    timeline: 0xf4f6f8,
-    outgoing: 0xe3f1ff,
-    selected: 0xe8f0fa,
-    border: 0xd5dbe1,
-    input: 0xf1f3f5,
-    disabled: 0xe6e9ec,
-    selection: 0xcfe3fb,
+    timeline: 0xf4f6f5,
+    outgoing: 0xd2f6dd,
+    selected: 0xe7f3ea,
+    border: 0xd5dcd7,
+    input: 0xf1f3f2,
+    disabled: 0xe6eae7,
+    selection: 0xcde9d6,
     error: 0xb00020,
     ..LIGHT
 };
 
 /// «Notte»: near-black surfaces for dark rooms.
 pub const NIGHT: DesignTokens = DesignTokens {
-    surface: 0x0b0e12,
-    text: 0xe8edf2,
-    secondary: 0xa9b6c3,
+    surface: 0x0b0f0c,
+    text: 0xe8eeea,
+    secondary: 0xa9b9ae,
     accent: 0x7cc4ff,
     timeline: 0x000000,
     outgoing: 0x16301f,
-    selected: 0x16222e,
-    border: 0x3a4856,
-    input: 0x151a20,
-    disabled: 0x1b222a,
-    selection: 0x1f3a56,
+    selected: 0x16251b,
+    border: 0x3a4b3f,
+    input: 0x141c17,
+    disabled: 0x1a241d,
+    selection: 0x1b412a,
     error: 0xffb3b3,
     on_accent: 0x000000,
     ..LIGHT

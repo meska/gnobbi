@@ -136,18 +136,22 @@ fn send_intents(
 ) -> [matrix_desktop::accessibility::NavigationAction; 2] {
     use matrix_desktop::accessibility::{NavigationSnapshot, semantic_session::SemanticSession};
     let snapshot = NavigationSnapshot {
+        title: matrix_desktop::window::TITLE.into(),
+        new_chat: Default::default(),
         #[cfg(feature = "live")]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -379,6 +383,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let timeline =
                     TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
                 timeline.append_server(vec![matrix_engine::history::HistoryEvent {
+                    redacted: false,
                     event_id: matrix_domain::EventId::new("$visibility:test"),
                     body: "deterministic native visibility fixture".into(),
                     outgoing: true,
@@ -387,6 +392,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     video: None,
                     styles: Vec::new(),
                     thread: None,
+                    thread_root: None,
+                    status: false,
+                    attachment_name: None,
+                    attachment_size: None,
                 }]);
                 this.timeline = Some(timeline);
                 this.navigation_wide = false;
@@ -518,7 +527,7 @@ fn install_signin_queue(window: &mut Window, cx: &mut Context<Shell>) {
             assert_eq!(view.read(cx).semantic_snapshot(window,cx).focused,Some(Control::Phrase));
             let selected = this.active_scope.clone();
             let dark = this.theme.is_dark();
-            for action in [A::ToggleTheme(0), A::FocusSearch, A::FocusComposer, A::SubmitComposer { source: 0, scope: selected.clone(), text: "hidden chat sentinel".into() }] {
+            for action in [A::FocusMenu, A::FocusSearch, A::FocusComposer, A::SubmitComposer { source: 0, scope: selected.clone(), text: "hidden chat sentinel".into() }] {
                 assert!(this.dispatch_signin_action(&action,window,cx));
             }
             assert_eq!(this.active_scope, selected);

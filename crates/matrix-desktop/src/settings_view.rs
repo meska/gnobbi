@@ -10,11 +10,63 @@ impl Shell {
     ) {
         self.settings_open = open;
         if open {
+            self.settings_row = 0;
             self.settings_focus.focus(window)
         } else {
             self.drawer_focus.focus(window)
         }
         cx.notify();
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_settings(
+        &self,
+    ) -> Option<matrix_desktop::accessibility::settings::SettingsSnapshot> {
+        self.settings_open.then(|| {
+            matrix_desktop::accessibility::settings::SettingsSnapshot {
+                focus: self.settings_row,
+                on: [
+                    self.prefs.debug,
+                    self.prefs.read_receipts,
+                    self.prefs.hide_redacted,
+                ],
+            }
+        })
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn apply_semantic_settings(
+        &mut self,
+        action: matrix_desktop::accessibility::settings::SettingsAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use matrix_desktop::accessibility::settings::SettingsAction;
+        if !self.settings_open {
+            return;
+        }
+        match action {
+            SettingsAction::Focus(row) => {
+                self.settings_row = row;
+                self.settings_focus.focus(window);
+                cx.notify();
+            }
+            SettingsAction::Set(row, on) => {
+                self.settings_row = row;
+                if self.semantic_settings().is_some_and(|s| s.on[row] != on) {
+                    self.toggle_setting(row, cx);
+                }
+            }
+        }
+    }
+
+    /// Settings rows in screen order: 0 debug, 1 read receipts, 2 hide deleted messages.
+    pub(crate) fn toggle_setting(&mut self, row: usize, cx: &mut Context<Self>) {
+        match row {
+            0 => self.toggle_debug(cx),
+            1 => self.toggle_read_receipts(cx),
+            _ => self.toggle_hide_redacted(cx),
+        }
     }
 
     pub(crate) fn toggle_debug(&mut self, cx: &mut Context<Self>) {
@@ -23,13 +75,159 @@ impl Shell {
     }
 
     pub(crate) fn choose_theme(&mut self, theme: matrix_desktop::Theme, cx: &mut Context<Self>) {
-        self.set_theme(theme, cx);
         self.prefs.theme = Some(theme);
+        self.apply_theme(cx);
         self.save_prefs(cx);
+    }
+
+    pub(crate) fn choose_auto_night(&mut self, auto: matrix_desktop::AutoNight, cx: &mut Context<Self>) {
+        self.prefs.auto_night = auto;
+        self.apply_theme(cx);
+        self.save_prefs(cx);
+    }
+
+    pub(crate) fn choose_font(&mut self, font: matrix_desktop::FontChoice, cx: &mut Context<Self>) {
+        self.prefs.font = font;
+        matrix_desktop::set_font(font);
+        self.save_prefs(cx);
+    }
+
+    pub(crate) fn choose_icon(&mut self, icon: matrix_desktop::IconChoice, window: &Window, cx: &mut Context<Self>) {
+        self.prefs.icon = icon;
+        matrix_desktop::app_icon::apply(icon, window);
+        self.save_prefs(cx);
+    }
+
+    /// Three thumbnails in a row; the chosen one gets an accent border. No visible text.
+    fn icon_row(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> gpui::AnyElement {
+        div()
+            .px_4()
+            .py_1()
+            .flex()
+            .gap_2()
+            .children(matrix_desktop::IconChoice::ALL.map(|icon| {
+                let picture = std::sync::Arc::new(gpui::Image::from_bytes(
+                    gpui::ImageFormat::Png,
+                    icon.thumbnail().to_vec(),
+                ));
+                div()
+                    .id(("settings-icon", icon as usize))
+                    .p_1()
+                    .rounded_lg()
+                    .border_2()
+                    .border_color(rgb(if self.prefs.icon == icon { t.accent } else { t.surface }))
+                    .cursor_pointer()
+                    .child(gpui::img(picture).size(px(48.)))
+                    .on_click(cx.listener(move |this, _, window, cx| this.choose_icon(icon, window, cx)))
+            }))
+            .into_any_element()
+    }
+
+    /// One row of mutually exclusive text choices; the chosen one is semibold with an accent border.
+    fn choice_row<T: Copy + PartialEq + 'static>(
+        &self,
+        id: &'static str,
+        options: &[(T, &'static str)],
+        current: T,
+        t: matrix_desktop::DesignTokens,
+        cx: &mut Context<Self>,
+        pick: fn(&mut Self, T, &mut Context<Self>),
+    ) -> gpui::AnyElement {
+        div()
+            .px_4()
+            .py_1()
+            .flex()
+            .gap_2()
+            .children(options.iter().enumerate().map(|(i, &(value, label))| {
+                let chosen = value == current;
+                div()
+                    .id((id, i))
+                    .px_3()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(if chosen { t.accent } else { t.surface }))
+                    .text_color(rgb(t.text))
+                    .when(chosen, |d| d.font_weight(gpui::FontWeight::SEMIBOLD))
+                    .cursor_pointer()
+                    .child(label)
+                    .on_click(cx.listener(move |this, _, _, cx| pick(this, value, cx)))
+            }))
+            .into_any_element()
+    }
+
+    /// `None` follows the OS accent. The accent is process-wide so every `tokens()` call sees it.
+    pub(crate) fn choose_accent(&mut self, accent: Option<matrix_desktop::Accent>, cx: &mut Context<Self>) {
+        self.prefs.accent = accent;
+        matrix_desktop::set_accent(self.prefs.effective_accent());
+        self.set_theme(self.theme, cx);
+        self.save_prefs(cx);
+    }
+
+    /// Mini window in the theme's own colours (rail, bubbles, accent); the chosen one gets an accent border.
+    fn render_theme_preview(
+        &self,
+        theme: matrix_desktop::Theme,
+        t: matrix_desktop::DesignTokens,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let p = theme.tokens();
+        let chosen = self.theme == theme;
+        div()
+            .id(("settings-theme", theme as usize))
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .py_1()
+            .rounded_lg()
+            .border_2()
+            .border_color(rgb(if chosen { t.accent } else { t.surface }))
+            .cursor_pointer()
+            .child(
+                div()
+                    .w_full()
+                    .h(px(64.))
+                    .flex()
+                    .rounded_md()
+                    .overflow_hidden()
+                    .border_1()
+                    .border_color(rgb(p.border))
+                    .child(div().w(px(12.)).h_full().bg(rgb(p.surface)))
+                    .child(
+                        div()
+                            .flex_1()
+                            .h_full()
+                            .p_1()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .bg(rgb(p.timeline))
+                            .child(div().w(px(18.)).h(px(10.)).rounded_sm().bg(rgb(p.surface)))
+                            .child(div().flex().justify_end().child(div().w(px(22.)).h(px(10.)).rounded_sm().bg(rgb(p.outgoing))))
+                            .child(div().w(px(12.)).h(px(10.)).rounded_sm().bg(rgb(p.accent))),
+                    ),
+            )
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(rgb(t.text))
+                    .when(chosen, |d| d.font_weight(gpui::FontWeight::SEMIBOLD))
+                    .child(theme.label()),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.choose_theme(theme, cx)))
+            .into_any_element()
     }
 
     pub(crate) fn toggle_read_receipts(&mut self, cx: &mut Context<Self>) {
         self.prefs.read_receipts = !self.prefs.read_receipts;
+        self.save_prefs(cx);
+    }
+
+    pub(crate) fn toggle_hide_redacted(&mut self, cx: &mut Context<Self>) {
+        self.prefs.hide_redacted = !self.prefs.hide_redacted;
         self.save_prefs(cx);
     }
 
@@ -70,21 +268,20 @@ impl Shell {
             .enumerate()
             .map(|(index, a)| {
                 let id = a.id;
-                let switchable = self.can_switch_to(id);
+                let error = self.switch_error.filter(|(e, _)| *e == id).map(|(_, m)| m);
                 div()
                     .id(("menu-account", a.id.as_u64() as usize))
-                    .h(px(52.))
+                    .min_h(px(52.))
                     .mx_2()
                     .px_3()
                     .rounded_lg()
                     .border_1()
                     .border_color(ring(index))
-                    .when(switchable, |d| {
-                        d.cursor_pointer()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.switch_account(id, window, cx)
-                            }))
-                    })
+                    .cursor_pointer()
+                    .hover(|d| d.bg(rgb(t.surface)))
+                    .on_click(
+                        cx.listener(move |this, _, window, cx| this.switch_account(id, window, cx)),
+                    )
                     .flex()
                     .items_center()
                     .gap_3()
@@ -110,7 +307,16 @@ impl Shell {
                                     .text_color(rgb(t.text))
                                     .child(a.name.clone()),
                             )
-                            .when(a.name != a.user_id, |d| {
+                            .when_some(error, |d, m| {
+                                d.child(
+                                    // wraps: a refusal is never cut mid-word
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(rgb(t.accent))
+                                        .child(m),
+                                )
+                            })
+                            .when(error.is_none() && a.name != a.user_id, |d| {
                                 d.child(
                                     div()
                                         .truncate()
@@ -174,9 +380,11 @@ impl Shell {
         let row = |id: &'static str| {
             div()
                 .id(id)
-                .h(px(44.))
+                .min_h(px(44.))
                 .mx_2()
                 .px_3()
+                .py_1()
+                .gap_3()
                 .flex()
                 .items_center()
                 .justify_between()
@@ -258,11 +466,24 @@ impl Shell {
                                 this.open_new_room(false, window, cx)
                             })),
                     )
+                    .child(
+                        row("menu-join-room")
+                            .border_1()
+                            .border_color(ring(n + 6))
+                            .text_color(rgb(t.text))
+                            .child("Unisciti")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_join_room(window, cx)
+                            })),
+                    )
                 })
                 .into_any_element();
         }
+        // The label takes the leftover width and wraps; the switch never shrinks (BUG-4).
+        let label = |text: &'static str| div().flex_1().min_w_0().child(text);
         let switch = |on: bool| {
             div()
+                .flex_shrink_0()
                 .w(px(36.))
                 .h(px(20.))
                 .rounded_full()
@@ -294,27 +515,91 @@ impl Shell {
                     .track_focus(&self.settings_focus)
                     .text_color(rgb(t.text))
                     .border_1()
-                    .border_color(rgb(if self.settings_focus.is_focused(window) {
-                        t.accent
-                    } else {
-                        t.surface
-                    }))
-                    .child("Modalità debug")
+                    .border_color(rgb(
+                        if self.settings_row == 0 && self.settings_focus.is_focused(window) {
+                            t.accent
+                        } else {
+                            t.surface
+                        },
+                    ))
+                    .child(label("Modalità debug"))
                     .child(switch(self.prefs.debug))
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_debug(cx))),
+                    .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
+                        // Enter/Space are handled in menu_key; GPUI's key-up click on this focused row would toggle twice.
+                        if !event.is_keyboard() {
+                            this.toggle_debug(cx)
+                        }
+                    })),
             )
-            .children(matrix_desktop::Theme::ALL.map(|theme| {
-                row([
-                    "settings-theme-classic",
-                    "settings-theme-day",
-                    "settings-theme-dark",
-                    "settings-theme-night",
-                ][theme as usize])
-                .text_color(rgb(t.text))
-                .child(theme.label())
-                .child(switch(self.theme == theme))
-                .on_click(cx.listener(move |this, _, _, cx| this.choose_theme(theme, cx)))
-            }))
+            .child(
+                div()
+                    .h(px(t.header))
+                    .px_4()
+                    .flex()
+                    .items_center()
+                    .text_color(rgb(t.text))
+                    .child("Aspetto"),
+            )
+            .child(div().px_3().flex().gap_1().children(
+                matrix_desktop::Theme::ALL.map(|theme| self.render_theme_preview(theme, t, cx)),
+            ))
+            .child(
+                div()
+                    .px_4()
+                    .py_3()
+                    .flex()
+                    .flex_wrap()
+                    .gap_2()
+                    .children(matrix_desktop::Accent::ALL.map(|a| {
+                        let tone = self.theme.tokens_with(a).accent;
+                        let chosen = self.prefs.accent == Some(a);
+                        div()
+                            .id(("settings-accent", a as usize))
+                            .size(px(28.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .border_2()
+                            .border_color(rgb(if chosen { t.text } else { t.surface }))
+                            .cursor_pointer()
+                            .child(div().size(px(20.)).rounded_full().bg(rgb(tone)))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.choose_accent(Some(a), cx)
+                            }))
+                    })),
+            )
+            .child(
+                row("settings-accent-system")
+                    .text_color(rgb(t.text))
+                    .child("Colore principale di sistema")
+                    .child(switch(self.prefs.accent.is_none()))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let next = this.prefs.accent.map_or(Some(matrix_desktop::Accent::Blue), |_| None);
+                        this.choose_accent(next, cx)
+                    })),
+            )
+            .child(self.icon_row(t, cx))
+            .child(
+                div().px_4().pt_2().text_color(rgb(t.text)).child("Notte automatica"),
+            )
+            .child(self.choice_row(
+                "settings-auto-night",
+                &matrix_desktop::AutoNight::ALL.map(|a| (a, a.label())),
+                self.prefs.auto_night,
+                t,
+                cx,
+                Self::choose_auto_night,
+            ))
+            .child(div().px_4().pt_2().text_color(rgb(t.text)).child("Carattere"))
+            .child(self.choice_row(
+                "settings-font",
+                &matrix_desktop::FontChoice::ALL.map(|f| (f, f.label())),
+                self.prefs.font,
+                t,
+                cx,
+                Self::choose_font,
+            ))
             .child(
                 div()
                     .h(px(t.header))
@@ -327,10 +612,34 @@ impl Shell {
             .child(
                 row("settings-read-receipts")
                     .text_color(rgb(t.text))
-                    .child("Conferme di lettura")
+                    .border_1()
+                    .border_color(rgb(
+                        if self.settings_row == 1 && self.settings_focus.is_focused(window) {
+                            t.accent
+                        } else {
+                            t.surface
+                        },
+                    ))
+                    .child(label("Conferme di lettura"))
                     .child(switch(self.prefs.read_receipts))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
+            )
+            .child(
+                row("settings-hide-redacted")
+                    .text_color(rgb(t.text))
+                    .border_1()
+                    .border_color(rgb(
+                        if self.settings_row == 2 && self.settings_focus.is_focused(window) {
+                            t.accent
+                        } else {
+                            t.surface
+                        },
+                    ))
+                    .child(label("Nascondi messaggi eliminati"))
+                    .child(switch(self.prefs.hide_redacted))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_redacted(cx))),
             )
             .into_any_element()
     }
 }
+

@@ -81,6 +81,8 @@ fn parked_account_learns_its_profile_and_a_closed_worker_is_noticed() {
             account_id: AccountId::new(1),
             user_id: "@gnobbi-test-bob:test".into(),
             display_name: Some("gnobbi-test-bob".into()),
+            device_id: Some("BOBDEV".into()),
+            avatar: None,
         })
         .is_ok()
     );
@@ -192,7 +194,10 @@ fn an_alert_from_a_background_account_opens_that_room_when_the_account_is_shown(
     assert!(tx.try_send(room(1, "!x:test", 0, 0)).is_ok());
     assert!(tx.try_send(room(1, "!y:test", 0, 0)).is_ok());
     state.pump();
-    assert!(tx.try_send(RoomListEvent::Alert(scope(1, "!y:test"))).is_ok());
+    assert!(
+        tx.try_send(RoomListEvent::Alert(scope(1, "!y:test")))
+            .is_ok()
+    );
     let alerts = state.pump();
     let (account_id, target) = alerts[0].target();
     assert_eq!((account_id, target), (None, &scope(1, "!y:test")));

@@ -31,18 +31,22 @@ fn unread_description_updates_without_renaming_or_reidentifying_room() {
         let id = rooms[0].id;
         assert_eq!(*stable.get_or_insert(id), id);
         let tree = NavigationSnapshot {
+            title: "Gnobbi".into(),
+            new_chat: Default::default(),
             #[cfg(all(feature = "live", unix))]
             signin: None,
             openers: vec![],
             back: None,
+            drawer: None,
             scrollbars: vec![],
             operation_panel: None,
             spaces: None,
             navigation_revision: 0,
-            theme_focused: false,
-            theme_bounds: None,
+            icon_choice: None,
             unread_filter: None,
+            new_room: None,
             devices: Default::default(),
+            settings: None,
             details: Default::default(),
             notifications: Default::default(),
             dark: false,

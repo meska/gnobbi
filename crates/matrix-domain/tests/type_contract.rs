@@ -9,7 +9,9 @@ fn compiler_enforces_identity_kinds_and_required_scope() {
         .parent()
         .unwrap()
         .to_path_buf();
-    let libraries: Vec<_> = fs::read_dir(&deps)
+    // A shared target dir holds one rlib per profile hash (dev build vs test of another
+    // crate); the one this invocation just built is the newest.
+    let library = fs::read_dir(&deps)
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .filter(|path| {
@@ -22,8 +24,8 @@ fn compiler_enforces_identity_kinds_and_required_scope() {
                     .extension()
                     .is_some_and(|extension| extension == "rlib")
         })
-        .collect();
-    assert_eq!(libraries.len(), 1, "expected one current domain library");
+        .max_by_key(|path| fs::metadata(path).unwrap().modified().unwrap())
+        .expect("a current domain library");
     let directory = deps.join(format!("identity-contract-{}", std::process::id()));
     fs::create_dir(&directory).unwrap();
     let cases = [
@@ -74,7 +76,7 @@ fn compiler_enforces_identity_kinds_and_required_scope() {
                     "--error-format=json",
                     "--extern",
                 ])
-                .arg(format!("matrix_domain={}", libraries[0].display()))
+                .arg(format!("matrix_domain={}", library.display()))
                 .arg(&source)
                 .arg("-o")
                 .arg(directory.join(format!("{name}.rmeta")))

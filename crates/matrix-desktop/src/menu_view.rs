@@ -3,8 +3,36 @@
 use crate::*;
 
 pub(crate) const DRAWER_WIDTH: f32 = 280.;
+
+/// Full-window scrim (click = `on_close`) holding `panel` as a left drawer that slides in; shared by the menu and the rail editor.
+pub(crate) fn drawer_shell(
+    scrim_id: &'static str,
+    panel: gpui::Stateful<gpui::Div>,
+    t: matrix_desktop::DesignTokens,
+    on_close: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::Stateful<gpui::Div> {
+    use gpui::{Animation, AnimationExt};
+    div().id(scrim_id).occlude().absolute().inset_0().bg(gpui::rgba(matrix_desktop::SCRIM)).on_click(on_close).child(
+        panel
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .flex()
+            .flex_col()
+            .w(px(DRAWER_WIDTH))
+            .bg(rgb(t.surface))
+            .border_r_1()
+            .border_color(rgb(t.border))
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .with_animation(
+                "drawer-slide",
+                Animation::new(std::time::Duration::from_millis(140)),
+                |d, delta| d.left(px(-DRAWER_WIDTH * (1. - delta))),
+            ),
+    )
+}
 /// Settings, Devices, Notifications, Add account, New chat, New room (after the account rows).
-pub(crate) const DRAWER_ROWS: usize = 6;
+pub(crate) const DRAWER_ROWS: usize = 7;
 
 impl Shell {
     pub(crate) fn set_menu_open(
@@ -22,6 +50,7 @@ impl Shell {
         }
         self.settings_open = false;
         self.confirm_removal = None;
+        self.switch_error = None;
         self.drawer_row = 0;
         if open {
             self.drawer_focus.focus(window)
@@ -43,6 +72,65 @@ impl Shell {
         cx.notify();
     }
 
+    /// The open drawer for the semantic tree; the settings page keeps the plain page tree.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_drawer(
+        &self,
+    ) -> Option<matrix_desktop::accessibility::drawer::DrawerSnapshot> {
+        use matrix_desktop::accessibility::drawer::{DrawerRow, DrawerSnapshot};
+        if !self.menu_open || self.settings_open {
+            return None;
+        }
+        let accounts = self.drawer_accounts();
+        let confirm = accounts
+            .iter()
+            .find(|a| Some(a.id) == self.confirm_removal)
+            .map(|a| (a.id, a.name.clone()));
+        let rows = accounts
+            .into_iter()
+            .map(|a| DrawerRow {
+                switchable: self.can_switch_to(a.id),
+                id: a.id,
+                name: a.name,
+                user_id: a.user_id,
+                unread: a.unread,
+                current: a.current,
+            })
+            .collect();
+        Some(DrawerSnapshot { rows, confirm, connected: self.connected })
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn apply_semantic_drawer(
+        &mut self,
+        action: matrix_desktop::accessibility::drawer::DrawerAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use matrix_desktop::accessibility::drawer::{DrawerAction, DrawerItem};
+        if !self.semantic_drawer().is_some_and(|d| d.allows(&action)) {
+            return;
+        }
+        match action {
+            DrawerAction::Switch(id) => self.switch_account(id, window, cx),
+            DrawerAction::AskRemove(id) => self.confirm_removal = Some(id),
+            DrawerAction::ConfirmRemove => self.remove_account(window, cx),
+            DrawerAction::CancelRemove => self.confirm_removal = None,
+            DrawerAction::Close => self.set_menu_open(false, window, cx),
+            DrawerAction::Item(item) => match item {
+                DrawerItem::Settings => self.set_settings_open(true, window, cx),
+                DrawerItem::Devices => self.open_from_drawer(window, cx, Shell::open_devices_panel),
+                DrawerItem::Notifications => {
+                    self.open_from_drawer(window, cx, Shell::open_notifications_panel)
+                }
+                DrawerItem::AddAccount => self.add_account(window, cx),
+                DrawerItem::NewChat => self.open_new_room(true, window, cx),
+                DrawerItem::NewRoom => self.open_new_room(false, window, cx),
+            },
+        }
+        cx.notify();
+    }
+
     /// Records this window's account in the catalog once the SDK has told us who it is.
     /// The catalog is re-read first: another window may have added an account meanwhile.
     pub(crate) fn record_profile(&mut self) {
@@ -58,7 +146,9 @@ impl Shell {
         if catalog.record_login(dirs, root, user_id, label) && catalog.save(dirs).is_ok() {
             self.accounts = catalog.clone();
         }
-        self.active_id = catalog.id_for_root(dirs, root);
+        self.active_id = catalog
+            .id_for_root(dirs, root)
+            .or_else(|| catalog.id_for_user(user_id));
     }
 
     /// Starts the sign-in for a new account in its own window and profile folder; this window
@@ -121,8 +211,19 @@ impl Shell {
             match key.key.as_str() {
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
                 "escape" => self.set_menu_open(false, window, cx),
-                "enter" | "space" if activate && self.settings_open => self.toggle_debug(cx),
+                "enter" | "space" if activate && self.settings_open => {
+                    self.toggle_setting(self.settings_row, cx)
+                }
+                // Settings keep one focus stop; Up/Down/Tab (Shift+Tab backwards) walk its three switches.
+                "up" | "down" | "tab" if self.settings_open => {
+                    let back = key.key == "up" || m.shift;
+                    self.settings_row = (self.settings_row + if back { 2 } else { 1 }) % 3;
+                    self.settings_focus.focus(window);
+                    cx.notify();
+                }
                 "enter" | "space" if activate => {
+                    // The key-up of this press would click the menu button we hand focus back to.
+                    self.swallow_menu_key_up = true;
                     match self.drawer_row.checked_sub(accounts.len()) {
                         None => self.switch_account(accounts[self.drawer_row].id, window, cx),
                         Some(1) => self.open_from_drawer(window, cx, Shell::open_devices_panel),
@@ -132,6 +233,7 @@ impl Shell {
                         Some(3) if self.connected => self.add_account(window, cx),
                         Some(4) if self.connected => self.open_new_room(true, window, cx),
                         Some(5) if self.connected => self.open_new_room(false, window, cx),
+                        Some(6) if self.connected => self.open_join_room(window, cx),
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }
@@ -140,7 +242,6 @@ impl Shell {
                     cx.notify();
                 }
                 // The drawer holds one focus stop; Up/Down/Tab move between its rows.
-                "tab" if self.settings_open => self.settings_focus.focus(window),
                 "up" | "down" | "tab" => {
                     let back = key.key == "up" || m.shift;
                     let rows = DRAWER_ROWS + accounts.len();
@@ -160,6 +261,16 @@ impl Shell {
             && self.menu_focus.is_focused(window)
         {
             self.set_menu_open(true, window, cx);
+            return true;
+        }
+        if key.key == "tab"
+            && !m.control
+            && !m.alt
+            && !m.platform
+            && self.menu_focus.is_focused(window)
+            && !(self.notifications_open || self.verification_open || self.room_details_open)
+        {
+            self.menu_tab(m.shift, window, cx);
             return true;
         }
         false
@@ -186,6 +297,16 @@ impl Shell {
                 }
             })
             .track_focus(&self.menu_focus)
+            .children({
+                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                {
+                    Some(self.space_observer(matrix_desktop::accessibility::MENU, cx))
+                }
+                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                {
+                    None::<gpui::AnyElement>
+                }
+            })
             .w(px(36.))
             .h(px(36.))
             .flex_shrink_0()
@@ -218,63 +339,40 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        use gpui::{Animation, AnimationExt};
-        div()
-            .id("menu-scrim")
-            .absolute()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .top_0()
-            .bg(gpui::rgba(matrix_desktop::SCRIM))
-            .on_click(cx.listener(|this, _, window, cx| this.set_menu_open(false, window, cx)))
-            .child(
-                div()
-                    .id("menu-drawer")
-                    .track_focus(&self.drawer_focus)
-                    .children({
-                        #[cfg(test)]
-                        {
-                            crate::sidebar_navigation_test::observe("menu-drawer".into())
-                        }
-                        #[cfg(not(test))]
-                        {
-                            None::<gpui::AnyElement>
-                        }
-                    })
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .flex()
-                    .flex_col()
-                    .w(px(DRAWER_WIDTH))
-                    .bg(rgb(t.surface))
-                    .border_r_1()
-                    .border_color(rgb(t.border))
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .when(!self.settings_open, |d| {
-                        d.children(self.render_drawer_header(t))
-                    })
-                    .child(div().flex_1().child(self.render_drawer_body(t, window, cx)))
-                    .child(
-                        div()
-                            .px_4()
-                            .py_3()
-                            .text_size(px(12.))
-                            .text_color(rgb(t.secondary))
-                            .child(concat!("Gnobbi ", env!("CARGO_PKG_VERSION"))),
-                    )
-                    .with_animation(
-                        "menu-drawer-slide",
-                        Animation::new(std::time::Duration::from_millis(140)),
-                        |d, delta| d.left(px(-DRAWER_WIDTH * (1. - delta))),
-                    ),
-            )
+        drawer_shell(
+            "menu-scrim",
+            div()
+                .id("menu-drawer")
+                .track_focus(&self.drawer_focus)
+                .children({
+                    #[cfg(test)]
+                    {
+                        crate::sidebar_navigation_test::observe("menu-drawer".into())
+                    }
+                    #[cfg(not(test))]
+                    {
+                        None::<gpui::AnyElement>
+                    }
+                })
+                .when(!self.settings_open, |d| d.children(self.render_drawer_header(t)))
+                // Scrolls so that Settings stays reachable on short windows (150%); the footer stays put.
+                .child(div().id("drawer-body").flex_1().min_h_0().overflow_y_scroll().child(self.render_drawer_body(t, window, cx)))
+                .child(
+                    div()
+                        .px_4()
+                        .py_3()
+                        .text_size(px(12.))
+                        .text_color(rgb(t.secondary))
+                        .child(concat!("Gnobbi ", env!("CARGO_PKG_VERSION"))),
+                ),
+            t,
+            cx.listener(|this, _, window, cx| this.set_menu_open(false, window, cx)),
+        )
             .children(self.render_removal_dialog(t, cx))
             .into_any_element()
     }
 
-    /// Telegram-style profile block: initials avatar, name and Matrix ID, both from the SDK.
+    /// Telegram-style profile block: picture (initials as fallback), name and Matrix ID, both from the SDK.
     fn render_drawer_header(&self, t: matrix_desktop::DesignTokens) -> Option<gpui::AnyElement> {
         let (id, name) = self.verification.profile()?;
         let name = name.clone().unwrap_or_else(|| id.clone());
@@ -287,8 +385,12 @@ impl Shell {
                 .gap_1()
                 .border_b_1()
                 .border_color(rgb(t.border))
-                .child(
-                    div()
+                .child(match self.avatars.get(self.verification.profile_avatar()) {
+                    Some(image) => div()
+                        .mb_2()
+                        .child(avatar_view::round(image, 56.))
+                        .into_any_element(),
+                    None => div()
                         .size(px(56.))
                         .mb_2()
                         .flex()
@@ -298,8 +400,9 @@ impl Shell {
                         .bg(rgb(matrix_desktop::AVATAR_FALLBACK))
                         .text_size(px(20.))
                         .text_color(rgb(t.avatar_text))
-                        .child(matrix_desktop::initials(&name)),
-                )
+                        .child(matrix_desktop::initials(&name))
+                        .into_any_element(),
+                })
                 .child(
                     div()
                         .truncate()
@@ -318,5 +421,36 @@ impl Shell {
                 })
                 .into_any_element(),
         )
+    }
+}
+
+impl Shell {
+    /// Ring stop before the rail (wide) or the list header (compact): forward enters the ring, backward leaves it.
+    fn menu_tab(&mut self, shift: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let wide = window.viewport_size().width >= px(800.);
+        match (wide, shift) {
+            (true, false) => {
+                self.rail_ui.target = self.sidebar.navigation_entries()[0].scope.clone();
+                self.reveal_rail_target(window, cx);
+                self.rail_ui.focus.focus(window);
+            }
+            (false, false) => self.first_list_stop().focus(window),
+            (true, true) => {
+                if !self.focus_last_chat_control(window, cx) {
+                    self.list_focus.focus(window);
+                }
+            }
+            (false, true) if self.connected && self.sidebar.spaces().next().is_some() => {
+                self.compact_spaces_tab(true, window, cx);
+            }
+            (false, true) => {
+                if !(self.connected
+                    && self.focus_opener(matrix_desktop::panel_openers::Control::Notifications, window, cx))
+                {
+                    self.list_focus.focus(window);
+                }
+            }
+        }
+        cx.notify();
     }
 }

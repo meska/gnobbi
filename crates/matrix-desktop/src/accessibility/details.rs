@@ -16,6 +16,13 @@ pub enum DetailsAction {
     Open(RoomScope),
     Close(RoomScope),
     Copy(RoomScope),
+    /// Member row: read that user's profile.
+    Profile {
+        scope: RoomScope,
+        user_id: String,
+    },
+    /// «Membri» link of a profile: back to the member list.
+    Members(RoomScope),
     Focus {
         scope: RoomScope,
         control: DetailsControl,
@@ -31,6 +38,17 @@ impl DetailsView {
                 if request.target_node == OPEN && request.action == Action::Click =>
             {
                 Some(DetailsAction::Open(scope.clone()))
+            }
+            Self::Open(panel) if request.action == Action::Click && request.target_node == BACK => {
+                panel.back.then(|| DetailsAction::Members(panel.scope.clone()))
+            }
+            Self::Open(panel)
+                if request.action == Action::Click && panel.person(request.target_node).is_some() =>
+            {
+                Some(DetailsAction::Profile {
+                    scope: panel.scope.clone(),
+                    user_id: panel.person(request.target_node)?.to_owned(),
+                })
             }
             Self::Open(panel) => {
                 let control = [DetailsControl::Close, DetailsControl::Copy]
@@ -58,12 +76,19 @@ impl DetailsView {
                 Self::Open(panel),
                 DetailsAction::Close(scope)
                 | DetailsAction::Copy(scope)
+                | DetailsAction::Profile { scope, .. }
+                | DetailsAction::Members(scope)
                 | DetailsAction::Focus { scope, .. },
             ) => panel.scope == *scope,
             _ => false,
         }
     }
 }
+
+/// «Membri» link shown while a profile is open (ids 33.. are the labels).
+pub const BACK: NodeId = NodeId(1 << 40);
+/// Labels before the people in the sheet: name, kind, count, topic, encryption, room id.
+const FIXED_LABELS: u64 = 6;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DetailsControl {
@@ -84,10 +109,19 @@ pub struct DetailsSnapshot {
     pub scope: RoomScope,
     pub name: String,
     pub info: matrix_engine::RoomInfo,
+    /// Members of the room (with the user id a click opens), or the opened profile.
+    pub people: Vec<(String, Option<String>)>,
+    /// A profile is shown (or loading): «Membri» leads back to the list.
+    pub back: bool,
     pub focus: DetailsControl,
     pub bounds: [Option<accesskit::Rect>; 2],
 }
 impl DetailsSnapshot {
+    /// User id behind a member row's node.
+    fn person(&self, id: NodeId) -> Option<&str> {
+        let index = id.0.checked_sub(33 + FIXED_LABELS)? as usize;
+        self.people.get(index)?.1.as_deref()
+    }
     pub fn next_focus(&self) -> DetailsControl {
         match self.focus {
             DetailsControl::Close => DetailsControl::Copy,
@@ -125,14 +159,20 @@ impl DetailsSnapshot {
             }
             .into(),
             self.scope.room_id.as_str().to_owned(),
-            "Stato dell'ultima sync. Nessuna modifica, invito o adesione automatica.".into(),
         ]
         .into_iter()
+        .chain(self.people.iter().map(|(label, _)| label.clone()))
         .enumerate()
         {
             let id = NodeId(33 + index as u64);
-            let mut node = Node::new(Role::Label);
-            node.set_value(label);
+            let actionable = id.0 >= 33 + FIXED_LABELS && self.person(id).is_some();
+            let mut node = Node::new(if actionable { Role::Button } else { Role::Label });
+            if actionable {
+                node.set_label(label);
+                node.add_action(Action::Click);
+            } else {
+                node.set_value(label);
+            }
             root.push_child(id);
             nodes.push((id, node));
         }
@@ -152,6 +192,13 @@ impl DetailsSnapshot {
             }
             root.push_child(control.id());
             nodes.push((control.id(), node));
+        }
+        if self.back {
+            let mut node = Node::new(Role::Button);
+            node.set_label("Membri");
+            node.add_action(Action::Click);
+            root.push_child(BACK);
+            nodes.push((BACK, node));
         }
         nodes.insert(0, (ROOT, root));
         TreeUpdate {

@@ -148,7 +148,7 @@ impl AccountState {
         let d = self.routes.drain();
         let mut alerts = Vec::new();
         for result in d.operations {
-            if !matches!(result, OperationResult::Members { .. }) {
+            if !matches!(result, OperationResult::Members { .. } | OperationResult::Thread { .. } | OperationResult::ThreadSent { .. }) {
                 self.operations.apply(result);
             }
         }

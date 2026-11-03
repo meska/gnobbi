@@ -1,0 +1,27 @@
+# Usa e getta: non deployare. Due homeserver locali per i test live della
+# user directory (ricerca utenti). Avviati da run.sh con volumi freschi.
+services:
+  synapse:
+    image: docker.io/matrixdotorg/synapse:latest
+    environment:
+      - SYNAPSE_SERVER_NAME=synapse.test
+      - SYNAPSE_REPORT_STATS=no
+    ports:
+      - "18008:8008"
+    volumes:
+      - synapse-data:/data
+
+  tuwunel:
+    image: ghcr.io/matrix-construct/tuwunel:latest
+    environment:
+      - TUWUNEL_CONFIG=/etc/tuwunel/tuwunel.toml
+    ports:
+      - "18009:8008"
+    volumes:
+      - ./tuwunel-runtime.toml:/etc/tuwunel/tuwunel.toml:ro
+      - tuwunel-data:/var/lib/tuwunel
+    stop_grace_period: 30m
+
+volumes:
+  synapse-data:
+  tuwunel-data:

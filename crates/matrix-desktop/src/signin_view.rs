@@ -598,13 +598,7 @@ impl Render for SignInView {
             FormStatus::Failed(error) => Some(error),
             _ => None,
         };
-        let section = if recovery {
-            "Cronologia cifrata"
-        } else if unlock {
-            "Sblocca"
-        } else {
-            "Accedi"
-        };
+        let section = matrix_desktop::window::signin_section(recovery, unlock);
         window.set_window_title(&matrix_desktop::window::title_for(Some((
             section,
             error.is_some()
@@ -958,7 +952,7 @@ impl Render for SignInView {
             .size_full()
             .bg(rgb(t.surface))
             .text_color(rgb(t.text))
-            .font_family(matrix_desktop::UI_FONT)
+            .font_family(matrix_desktop::ui_font())
             .flex()
             .flex_col()
             .items_center()

@@ -4,18 +4,22 @@ use matrix_desktop::accessibility::{NavigationSnapshot, semantic_session::Semant
 
 fn snapshot(visible: bool) -> NavigationSnapshot {
     NavigationSnapshot {
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
         unread_filter: None,
         devices: Default::default(),
+        settings: None,
+        icon_choice: None,
+        new_room: None,
+        title: String::new(),
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -27,35 +31,6 @@ fn snapshot(visible: bool) -> NavigationSnapshot {
         history: None,
         list_focused: false,
         composer: None,
-    }
-}
-
-#[test]
-fn theme_handle_retires_when_the_filtered_sidebar_source_changes() {
-    let mut view = snapshot(true);
-    let mut session = SemanticSession::new(view.clone());
-    let theme = session
-        .tree()
-        .nodes
-        .into_iter()
-        .find(|(_, n)| n.label() == Some("Menu elenco"))
-        .unwrap()
-        .0;
-    view.query = "different eligibility".into();
-    view.navigation_revision += 1;
-    session.update(view.clone());
-    for action in [Action::Focus, Action::Click] {
-        assert!(
-            session
-                .action(&ActionRequest {
-                    action,
-                    target_tree: TreeId::ROOT,
-                    target_node: theme,
-                    data: None
-                })
-                .is_none(),
-            "retired theme handle must not translate against a replacement sidebar source"
-        );
     }
 }
 

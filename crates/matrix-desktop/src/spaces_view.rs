@@ -28,7 +28,7 @@ impl Shell {
             return;
         }
         #[cfg(test)]
-        sidebar_navigation_test::ACTIVATIONS[2].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        sidebar_navigation_test::ACTIVATIONS[1].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.spaces_ui.target.is_none() {
             self.set_spaces_open(!self.spaces_open);
         } else {
@@ -124,7 +124,7 @@ impl Shell {
                 self.list_focus.focus(window);
             }
         } else {
-            self.theme_focus.focus(window);
+            self.menu_focus.focus(window);
         }
         cx.notify();
     }
@@ -240,7 +240,7 @@ impl Shell {
             return;
         };
         #[cfg(test)]
-        crate::sidebar_navigation_test::ACTIVATIONS[2]
+        crate::sidebar_navigation_test::ACTIVATIONS[1]
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if let Some(action) = view.action(&accesskit::ActionRequest {
             action: accesskit::Action::Click,
@@ -277,7 +277,11 @@ impl Shell {
             account: self.active_scope.account_id,
             open: persistent || self.spaces_open,
             active: self.sidebar.active_space().cloned(),
-            focused: if persistent {
+            focused: if self.menu_focus.is_focused(window) {
+                Some(matrix_desktop::accessibility::MENU)
+            } else if persistent && self.rail_ui.edit_focus.is_focused(window) {
+                Some(matrix_desktop::accessibility::spaces::EDIT)
+            } else if persistent {
                 self.rail_ui.focus.is_focused(window).then(|| {
                     choices
                         .iter()
@@ -310,6 +314,9 @@ impl Shell {
             return;
         };
         match action {
+            SpacesAction::Focus { id, .. } if id == matrix_desktop::accessibility::spaces::EDIT => {
+                self.rail_ui.edit_focus.focus(window);
+            }
             SpacesAction::Focus { id, .. } => {
                 if view.persistent {
                     self.rail_ui.target = view

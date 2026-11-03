@@ -12,7 +12,10 @@ serde_json = "=1.0.151"
 url = "=2.5.8"
 zeroize = "=1.9.1"
 cpal = "=0.18.2"
+chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 
+# Trace log to stderr, only when RUST_LOG is set (e.g. RUST_LOG=gnobbi::sync_status=info).
+tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"], optional = true }
 image = { version = "=0.25.10", default-features = false, optional = true }
 
 # GPUI backend features are per target. Non-macOS keeps exactly the Linux snapshot's
@@ -23,10 +26,15 @@ gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x
 
 [target.'cfg(target_os = "macos")'.dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["runtime_shaders", "font-kit"], optional = true }
+# Runtime app icon (both already in the tree through gpui).
+cocoa = "=0.26.0"
+objc = "=0.2.7"
 
 # Windows: the comctl32 v6 manifest gpui ships; without it the exe dies at load (TaskDialogIndirect not found).
 [target.'cfg(target_os = "windows")'.dependencies]
 gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"], optional = true }
+raw-window-handle = "=0.6.2"
+windows = { version = "=0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 accesskit = { version = "=0.24.1", optional = true }
@@ -37,9 +45,11 @@ accesskit_unix = { version = "=0.22.1", optional = true }
 linux-a11y = ["dep:accesskit", "dep:accesskit_unix"]
 default = ["desktop"]
 desktop = ["dep:gpui", "dep:image"]
-live = ["desktop", "matrix-engine/sdk"]
+live = ["desktop", "matrix-engine/sdk", "dep:tracing-subscriber"]
 # Test-only fixture driver, absent from ordinary/default/live desktop builds.
 perf-probe = ["desktop"]
+# Test-only fixture hook (src/rail_drag_test.rs) for builds that must run as a plain binary: macOS has no libtest main thread for gpui.
+gui-fixture = ["desktop"]
 # New profiles keep their protection secret in the OS vault instead of a local phrase.
 linux-vault = ["live", "matrix-engine/linux-vault"]
 mac-vault = ["live", "matrix-engine/mac-vault"]
@@ -49,3 +59,15 @@ windows-vault = ["live", "matrix-engine/windows-vault"]
 name = "gnobbi"
 path = "src/main.rs"
 required-features = ["desktop"]
+
+# Fake compositor for tests/wayland_keymap_order.rs (modifiers sent before keymap).
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+wayland-server = "0.31.14"
+wayland-protocols = { version = "0.32.13", features = ["server"] }
+
+[dev-dependencies]
+tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time", "macros", "sync"] }
+
+[[test]]
+name = "space_projection_live"
+required-features = ["live"]

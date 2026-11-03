@@ -1,15 +1,19 @@
 //! Experimental Linux AT-SPI projection for theme, search and room navigation.
 //! This is not complete screen-reader support for the messenger.
 
-use accesskit::{Action, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
+use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
 pub mod compact;
 pub mod details;
+pub mod drawer;
 pub mod devices;
 pub mod event_id_copy;
 pub mod filters;
 pub mod links;
+pub mod new_room;
+pub mod new_chat;
 pub mod notifications;
+pub mod settings;
 pub mod offline_delivery;
 pub mod operation_panel;
 pub mod pagination;
@@ -21,12 +25,18 @@ pub mod semantic_session;
 pub mod signin;
 pub mod spaces;
 
+/// One radio node per app icon choice (Settings > Appearance).
+fn icon_node(icon: crate::IconChoice) -> NodeId {
+    NodeId(70 + icon as u64)
+}
+
 pub const ROOT: NodeId = NodeId(1);
-pub const THEME: NodeId = NodeId(2);
 pub const SEARCH: NodeId = NodeId(3);
 pub const ROOM_LIST: NodeId = NodeId(4);
 pub const COMPOSER: NodeId = NodeId(5);
 pub const SEND: NodeId = NodeId(6);
+/// Rail / compact-header button that opens the drawer.
+pub const MENU: NodeId = NodeId(9); // 7 run, 8 message list, 10-13 history controls
 // Above the composer text runs ((1 << 63) + n) and below the link/room ranges.
 pub const ATTACH: NodeId = NodeId((1 << 63) - 1);
 pub const ATTACHMENT: NodeId = NodeId((1 << 63) - 2);
@@ -95,6 +105,9 @@ pub struct SemanticMessage {
     /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
     pub play: Option<NodeId>,
     pub play_bounds: Option<accesskit::Rect>,
+    /// «Scarica» on a received attachment (slot +7 of the message's block of 8).
+    pub save: Option<NodeId>,
+    pub save_bounds: Option<accesskit::Rect>,
     pub bounds: Option<accesskit::Rect>,
     pub id: NodeId,
     pub event: matrix_domain::ScopedTimelineId,
@@ -152,6 +165,7 @@ impl HistorySnapshot {
                 .push_str(" · Demo offline · Nessuna consegna Matrix");
             message.retry = None;
             message.play = None;
+            message.save = None;
             message.event_id_copy = None;
             message.actions = None;
         }
@@ -301,7 +315,8 @@ impl HistoryNodes {
                     selection: Default::default(),
                     actions_bounds: None,
                     actions_focused: false,
-                    actions: (event.send_state.is_none()
+                    actions: (event.menu_available(true)
+                        && event.send_state.is_none()
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 2)),
                     retry_bounds: None,
@@ -313,6 +328,9 @@ impl HistoryNodes {
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 6)),
                     play_bounds: None,
+                    save: crate::offers_save(event, true)
+                    .then_some(NodeId(id.0 + 7)),
+                    save_bounds: None,
                     bounds: None,
                     id,
                     event: event.id.clone(),
@@ -322,6 +340,8 @@ impl HistoryNodes {
                         event.time,
                         if event.outgoing {
                             "In uscita"
+                        } else if event.status {
+                            "Stato della stanza"
                         } else {
                             "In entrata"
                         },
@@ -374,6 +394,30 @@ pub struct SemanticRoom {
     pub name: String,
     pub unread: u64,
     pub selected: bool,
+    /// Set for an invitation row: it carries «Accetta» / «Rifiuta» child buttons.
+    pub invite: Option<crate::InviteState>,
+    /// Set while the row's context menu is open: «Esci» button, `true` once it asks «Uscire?».
+    pub leave: Option<bool>,
+}
+
+fn invite_state_label(state: crate::InviteState) -> &'static str {
+    match state {
+        crate::InviteState::Idle => "Invito",
+        crate::InviteState::ConfirmReject => "Rifiutare?",
+        crate::InviteState::Busy => "Attendi…",
+        crate::InviteState::Failed => "Non riuscito",
+    }
+}
+
+/// Child buttons of an invitation row live in their own id range (room ids start at 100).
+const INVITE_ACCEPT: u64 = 1 << 40;
+const INVITE_REJECT: u64 = 1 << 41;
+const LEAVE: u64 = 1 << 42;
+
+impl SemanticRoom {
+    fn invite_buttons(&self) -> [(NodeId, bool); 2] {
+        [(NodeId(self.id.0 + INVITE_ACCEPT), true), (NodeId(self.id.0 + INVITE_REJECT), false)]
+    }
 }
 
 pub struct RoomNodes {
@@ -431,6 +475,8 @@ impl RoomNodes {
                     name: room.name.clone(),
                     unread: room.unread,
                     selected: sidebar.selected().is_some_and(|r| r.scope == room.scope),
+                    invite: room.info.invited.then(|| sidebar.invite_state(&room.scope)),
+                    leave: None,
                 }
             })
             .collect()
@@ -509,16 +555,22 @@ pub struct NavigationSnapshot {
     #[cfg(feature = "live")]
     pub signin: Option<signin::Snapshot>,
     pub back: Option<compact::BackSnapshot>,
+    /// The open account drawer; while set it is the whole page.
+    pub drawer: Option<drawer::DrawerSnapshot>,
     pub scrollbars: Vec<scrollbars::ScrollbarSnapshot>,
     pub operation_panel: Option<operation_panel::PanelSnapshot>,
     pub spaces: Option<spaces::SpacesSnapshot>,
     pub navigation_revision: u64,
-    pub theme_focused: bool,
-    pub theme_bounds: Option<accesskit::Rect>,
+    /// Current app icon while Settings is open; None hides the three choices.
+    pub icon_choice: Option<crate::IconChoice>,
     pub unread_filter: Option<filters::UnreadFilter>,
+    pub new_room: Option<new_room::Snapshot>,
     pub devices: devices::DeviceView,
     pub details: details::DetailsView,
     pub notifications: notifications::NotificationView,
+    /// Some while the drawer's Settings page is open: it hides everything else.
+    pub settings: Option<settings::SettingsSnapshot>,
+    pub new_chat: new_chat::NewChatView,
     pub dark: bool,
     pub visible: bool,
     pub query: String,
@@ -528,6 +580,8 @@ pub struct NavigationSnapshot {
     pub history: Option<HistorySnapshot>,
     pub list_focused: bool,
     pub composer: Option<ComposerSnapshot>,
+    /// Same string as the native window title.
+    pub title: String,
 }
 
 impl NavigationSnapshot {
@@ -536,6 +590,12 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.action(request);
+        }
+        if let Some(drawer) = &self.drawer {
+            return drawer.action(request).map(NavigationAction::Drawer);
+        }
+        if matches!(self.new_chat, new_chat::NewChatView::Open(_)) {
+            return self.new_chat.action(request).map(NavigationAction::NewChat);
         }
         if request.target_tree == TreeId::ROOT
             && request.data.is_none()
@@ -628,6 +688,9 @@ impl NavigationSnapshot {
         if request.target_tree != TreeId::ROOT || request.data.is_some() {
             return None;
         }
+        if let Some(settings) = &self.settings {
+            return settings.action(request).map(NavigationAction::Settings);
+        }
         if let Some(control) = panel_openers::Control::ALL
             .into_iter()
             .find(|c| c.id() == request.target_node)
@@ -646,6 +709,15 @@ impl NavigationSnapshot {
                     focus_only: request.action == Action::Focus,
                 }),
             );
+        }
+        if self.icon_choice.is_some()
+            && request.data.is_none()
+            && matches!(request.action, Action::Click | Action::Focus)
+            && let Some(icon) = crate::IconChoice::ALL
+                .into_iter()
+                .find(|i| icon_node(*i) == request.target_node)
+        {
+            return Some(NavigationAction::ChooseIcon(icon));
         }
         if let Some(action) = self.devices.action(request) {
             return Some(NavigationAction::Devices(action));
@@ -728,6 +800,13 @@ impl NavigationSnapshot {
             if let Some(message) = history
                 .messages
                 .iter()
+                .find(|m| m.save == Some(request.target_node))
+            {
+                return Some(NavigationAction::SaveAttachment(message.event.clone()));
+            }
+            if let Some(message) = history
+                .messages
+                .iter()
                 .find(|m| m.actions == Some(request.target_node))
             {
                 return Some(NavigationAction::OpenMessageActions(message.event.clone()));
@@ -794,11 +873,28 @@ impl NavigationSnapshot {
             (COMPOSER, Action::Focus) if self.composer.is_some() => {
                 Some(NavigationAction::FocusComposer)
             }
-            (THEME, Action::Click) if self.visible => None, // placeholder list menu
-            (THEME, Action::Focus) if self.visible => {
-                Some(NavigationAction::FocusTheme(self.navigation_revision))
-            }
+            (MENU, Action::Click) if self.visible => Some(NavigationAction::ToggleMenu),
+            (MENU, Action::Focus) if self.visible => Some(NavigationAction::FocusMenu),
             (SEARCH, Action::Focus) if self.visible => Some(NavigationAction::FocusSearch),
+            (id, Action::Click)
+                if self.visible
+                    && let Some((room, accept)) = self.rooms.iter().find_map(|room| {
+                        let button = room.invite_buttons().into_iter().find(|(b, _)| *b == id)?;
+                        (room.invite.is_some_and(|s| s != crate::InviteState::Busy))
+                            .then_some((room, button.1))
+                    }) =>
+            {
+                Some(NavigationAction::AnswerInvite { scope: room.scope.clone(), accept })
+            }
+            (id, Action::Click)
+                if self.visible
+                    && let Some(room) = self
+                        .rooms
+                        .iter()
+                        .find(|room| room.leave.is_some() && NodeId(room.id.0 + LEAVE) == id) =>
+            {
+                Some(NavigationAction::LeaveRoom(room.scope.clone()))
+            }
             (id, action @ (Action::Click | Action::Focus))
                 if self.visible && self.rooms.iter().any(|room| room.id == id) =>
             {
@@ -823,6 +919,18 @@ impl NavigationSnapshot {
         if let Some(signin) = &self.signin {
             return signin.tree();
         }
+        if let Some(drawer) = &self.drawer {
+            return drawer.tree();
+        }
+        if let Some(dialog) = &self.new_room {
+            return dialog.tree();
+        }
+        if let Some(settings) = &self.settings {
+            return settings.tree();
+        }
+        if let Some(tree) = self.new_chat.tree() {
+            return tree;
+        }
         if let devices::DeviceView::Open(panel) = &self.devices {
             return panel.tree();
         }
@@ -833,13 +941,16 @@ impl NavigationSnapshot {
             return panel.tree();
         }
         let mut tree = theme_tree(self.dark);
+        tree.nodes[0].1.set_label(self.title.clone());
         if self.visible {
-            if let Some(bounds) = self.theme_bounds {
-                tree.nodes[1].1.set_bounds(bounds);
-            }
-            if self.theme_focused {
-                tree.focus = THEME;
-            }
+            let mut menu = Node::new(Role::Button);
+            menu.set_label("Menu");
+            menu.add_action(Action::Click);
+            menu.add_action(Action::Focus);
+            let mut children = tree.nodes[0].1.children().to_vec();
+            children.insert(0, MENU);
+            tree.nodes[0].1.set_children(children);
+            tree.nodes.push((MENU, menu));
             let mut search = Node::new(Role::SearchInput);
             search.set_label("Cerca conversazioni");
             search.set_value(self.query.clone());
@@ -875,8 +986,13 @@ impl NavigationSnapshot {
             tree.nodes.push((ROOM_LIST, list));
             for room in &self.rooms {
                 let mut node = Node::new(Role::ListBoxOption);
-                node.set_label(room.name.clone());
+                // The invitation state is part of the name, so it is read with the room name.
+                node.set_label(match room.invite {
+                    Some(state) => format!("{}, {}", room.name, invite_state_label(state)),
+                    None => room.name.clone(),
+                });
                 node.set_description(match room.unread {
+                    _ if room.invite.is_some() => "Invito".to_owned(),
                     0 => "Nessun messaggio non letto".to_owned(),
                     1 => "1 messaggio non letto".to_owned(),
                     count => format!("{count} messaggi non letti"),
@@ -887,6 +1003,28 @@ impl NavigationSnapshot {
                 }
                 node.add_action(Action::Click);
                 node.add_action(Action::Focus);
+                if let Some(state) = room.invite.filter(|s| *s != crate::InviteState::Busy) {
+                    for (id, accept) in room.invite_buttons() {
+                        let mut button = Node::new(Role::Button);
+                        button.set_label(match (accept, state) {
+                            (true, crate::InviteState::Failed) => "Riprova",
+                            (true, _) => "Accetta",
+                            (false, crate::InviteState::ConfirmReject) => "Conferma",
+                            (false, _) => "Rifiuta",
+                        });
+                        button.add_action(Action::Click);
+                        node.push_child(id);
+                        tree.nodes.push((id, button));
+                    }
+                }
+                if let Some(confirming) = room.leave {
+                    let id = NodeId(room.id.0 + LEAVE);
+                    let mut button = Node::new(Role::Button);
+                    button.set_label(if confirming { "Uscire?" } else { "Esci" });
+                    button.add_action(Action::Click);
+                    node.push_child(id);
+                    tree.nodes.push((id, button));
+                }
                 tree.nodes.push((room.id, node));
             }
             if self.search_focused {
@@ -989,6 +1127,16 @@ impl NavigationSnapshot {
                     }
                     node.push_child(id);
                     tree.nodes.push((id, play));
+                }
+                if let Some(id) = message.save {
+                    let mut save = Node::new(Role::Button);
+                    save.set_label("Scarica");
+                    save.add_action(Action::Click);
+                    if let Some(bounds) = message.save_bounds {
+                        save.set_bounds(bounds);
+                    }
+                    node.push_child(id);
+                    tree.nodes.push((id, save));
                 }
                 if let Some(id) = message.retry {
                     let mut retry = Node::new(Role::Button);
@@ -1254,13 +1402,29 @@ impl NavigationSnapshot {
         {
             let nodes = spaces.nodes();
             if let Some(id) = spaces.focused
-                && nodes.iter().any(|(node_id, _)| *node_id == id)
+                && (id == MENU || nodes.iter().any(|(node_id, _)| *node_id == id))
             {
                 tree.focus = id;
+            }
+            if let Some(bounds) = spaces.bounds.get(&MENU)
+                && let Some((_, menu)) = tree.nodes.iter_mut().find(|(id, _)| *id == MENU)
+            {
+                menu.set_bounds(*bounds);
             }
             for (id, node) in nodes {
                 tree.nodes[0].1.push_child(id);
                 tree.nodes.push((id, node));
+            }
+        }
+        if let Some(current) = self.icon_choice {
+            for icon in crate::IconChoice::ALL {
+                let mut node = Node::new(Role::RadioButton);
+                node.set_label(icon.label());
+                node.set_toggled(if icon == current { Toggled::True } else { Toggled::False });
+                node.add_action(Action::Click);
+                node.add_action(Action::Focus);
+                tree.nodes[0].1.push_child(icon_node(icon));
+                tree.nodes.push((icon_node(icon), node));
             }
         }
         if let Some(panel) = &self.operation_panel {
@@ -1277,14 +1441,9 @@ impl NavigationSnapshot {
 pub fn theme_tree(dark: bool) -> TreeUpdate {
     let mut root = Node::new(Role::Window);
     root.set_label("Gnobbi");
-    root.set_children(vec![THEME]);
-    let mut theme = Node::new(Role::Button);
-    let _ = dark; // theme now lives on Ctrl+Shift+D only
-    theme.set_label("Menu elenco");
-    theme.add_action(Action::Click);
-    theme.add_action(Action::Focus);
+    let _ = dark; // theme lives on Ctrl+Shift+D only
     TreeUpdate {
-        nodes: vec![(ROOT, root), (THEME, theme)],
+        nodes: vec![(ROOT, root)],
         tree: Some(Tree::new(ROOT)),
         tree_id: TreeId::ROOT,
         focus: ROOT,
@@ -1313,6 +1472,7 @@ pub enum NavigationAction {
     Scrollbar(scrollbars::ScrollbarAction),
     OperationPanel(operation_panel::PanelAction),
     PlayVideo(matrix_domain::ScopedTimelineId),
+    SaveAttachment(matrix_domain::ScopedTimelineId),
     FocusMessageActions(matrix_domain::ScopedTimelineId),
     OpenMessageActions(matrix_domain::ScopedTimelineId),
     FocusMessageRetry(matrix_domain::ScopedTimelineId),
@@ -1323,10 +1483,14 @@ pub enum NavigationAction {
     LoadServerHistory(matrix_engine::RequestTag),
     Devices(devices::DeviceAction),
     Details(details::DetailsAction),
+    Drawer(drawer::DrawerAction),
     Notifications(notifications::NotificationAction),
+    Settings(settings::SettingsAction),
+    NewChat(new_chat::NewChatAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
-    ToggleTheme(u64),
-    FocusTheme(u64),
+    ChooseIcon(crate::IconChoice),
+    ToggleMenu,
+    FocusMenu,
     FocusSearch,
     FocusComposer,
     FocusSend {
@@ -1340,6 +1504,8 @@ pub enum NavigationAction {
         text: String,
     },
     ActivateRoom(RoomIntent),
+    AnswerInvite { scope: matrix_domain::RoomScope, accept: bool },
+    LeaveRoom(matrix_domain::RoomScope),
     FocusRoom(RoomIntent),
 }
 

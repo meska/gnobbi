@@ -36,7 +36,7 @@ pub struct HistorySession {
     next: Option<String>,
     status: HistoryStatus,
     /// Body and thread reply count: a new reply must hand the root over again.
-    seen: HashMap<EventId, (String, Option<u32>)>,
+    seen: HashMap<EventId, (String, Option<(u32, u32)>)>,
     live_views: ViewRequests,
     live_pending: bool,
     dirty: bool,
@@ -121,7 +121,7 @@ impl HistorySession {
                             if self.seen.contains_key(&event.event_id) {
                                 return false;
                             }
-                            self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| t.num_replies)));
+                            self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread))));
                             true
                         })
                         .collect(),
@@ -138,6 +138,11 @@ impl HistorySession {
         if self.scope.as_ref() == Some(scope) {
             self.dirty = true;
         }
+    }
+
+    /// Read the room once more shortly: our own receipt comes back through sync after the request returned.
+    pub fn settle_soon(&mut self) {
+        self.settle = Some(std::time::Instant::now() + SETTLE);
     }
 
     /// One history job at a time, without replacing the older-history cursor.
@@ -221,10 +226,10 @@ impl HistorySession {
         let published: Vec<_> = std::mem::take(&mut self.live_rows)
                 .into_iter()
                 .filter(|event| {
-                    if self.seen.get(&event.event_id).is_some_and(|(b, n)| *b == event.body && *n == event.thread.as_ref().map(|t| t.num_replies)) {
+                    if self.seen.get(&event.event_id).is_some_and(|(b, n)| *b == event.body && *n == event.thread.as_ref().map(|t| (t.num_replies, t.unread))) {
                         return false;
                     }
-                    self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| t.num_replies)));
+                    self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread))));
                     true
                 })
                 .collect();

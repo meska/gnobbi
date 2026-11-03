@@ -125,3 +125,21 @@ fn corrupt_or_unknown_file_is_empty_untouched_and_not_overwritten() {
         assert_eq!(std::fs::read(&file).unwrap(), body, "case {i}");
     }
 }
+
+/// The shown account must be found even when its folder is spelled differently from the
+/// catalog's (symlinked HOME) or is not listed at all but its user is: otherwise a switch is refused.
+#[test]
+fn shown_account_is_found_by_resolved_folder_or_user() {
+    let d = dirs("shown");
+    let mut c = AccountCatalog::load(&d);
+    let id = c.add("@a:example.org", "https://example.org", "A");
+    c.ensure_dirs(&d, id).unwrap();
+    let real = c.data_dir(&d, id).unwrap();
+    assert_eq!(c.id_for_root(&d, &real), Some(id));
+    let link = d.data.parent().unwrap().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    assert_eq!(c.id_for_root(&d, &link), Some(id));
+    assert_eq!(c.id_for_root(&d, &d.data.join("elsewhere")), None);
+    assert_eq!(c.id_for_user("@a:example.org"), Some(id));
+    assert_eq!(c.id_for_user("@z:example.org"), None);
+}

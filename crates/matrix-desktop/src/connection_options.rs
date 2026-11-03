@@ -59,18 +59,14 @@ impl RestoreOptions {
 }
 
 /// Launched from a `.app` bundle with no arguments (Finder, TestFlight): open the connected
-/// sign-in on the app's own profile directory instead of the offline demo.
-/// `home` is the app container HOME when sandboxed. Explicit arguments always win.
+/// sign-in like Linux, so `default_signin_args` picks the profile under the app data directory
+/// (the one the account catalog lists). Explicit arguments always win.
 pub fn bundle_launch_args(exe: &str, home: Option<&str>, args: &[String]) -> Option<Vec<String>> {
     if !args.is_empty() || !exe.contains(".app/Contents/MacOS/") {
         return None;
     }
-    let home = home.filter(|home| home.starts_with('/'))?;
-    let profile = format!(
-        "{}/Library/Application Support/Dime/profile",
-        home.trim_end_matches('/')
-    );
-    Some(vec!["--signin".to_owned(), profile])
+    home.filter(|home| home.starts_with('/'))?;
+    Some(vec!["--signin".to_owned()])
 }
 
 /// Linux and Windows binaries started with no arguments: open the connected sign-in like the macOS bundle.

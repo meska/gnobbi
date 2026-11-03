@@ -208,9 +208,22 @@ impl AccountCatalog {
 
     /// The account whose profile folder is `root`.
     pub fn id_for_root(&self, dirs: &AppDirs, root: &Path) -> Option<AccountId> {
+        // The same folder can arrive spelled differently (symlinked HOME, `..`): compare resolved paths too.
+        let real = std::fs::canonicalize(root).ok();
         self.accounts
             .iter()
-            .find(|a| dirs.data.join(&a.dir) == root)
+            .find(|a| {
+                let dir = dirs.data.join(&a.dir);
+                dir == root || real.is_some() && std::fs::canonicalize(&dir).ok() == real
+            })
+            .map(|a| a.id)
+    }
+
+    /// The account listed for `user_id`: a window whose folder is not listed still belongs to it.
+    pub fn id_for_user(&self, user_id: &str) -> Option<AccountId> {
+        self.accounts
+            .iter()
+            .find(|a| a.user_id.as_deref() == Some(user_id))
             .map(|a| a.id)
     }
 
