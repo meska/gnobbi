@@ -76,6 +76,7 @@ struct Shell {
     groups_edit: Option<groups_edit_view::GroupsEdit>,
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
     refocus_menu: bool,
+    refocus_list: bool,
     drawer_row: usize,
     settings_focus: FocusHandle,
     /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
@@ -1606,6 +1607,10 @@ impl Render for Shell {
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
         }
+        // The sign-in inputs are gone after login: without this nothing has focus and shortcuts stay dead.
+        if std::mem::take(&mut self.refocus_list) {
+            self.list_focus.focus(window);
+        }
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -2507,6 +2512,7 @@ fn main() {
                                         if let Some(signin) = &this.signin
                                             && let Some(account) = signin.update(cx, |view, cx| view.poll(cx)) {
                                             this.signin = None;
+                                            this.refocus_list = true;
                                             this.sidebar = Sidebar::connected(account);
                                             this.active_scope.account_id = account;
                                             this.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
@@ -2809,6 +2815,7 @@ fn main() {
                         pending_open: None,
                         groups_edit: None,
                         refocus_menu: false,
+                        refocus_list: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),
                         settings_row: 0,
