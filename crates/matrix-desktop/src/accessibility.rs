@@ -6,6 +6,7 @@ use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 pub mod compact;
 pub mod details;
 pub mod devices;
+pub mod directory_servers;
 pub mod event_id_copy;
 pub mod filters;
 pub mod links;

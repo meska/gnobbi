@@ -5,6 +5,7 @@ mod avatar_view;
 mod compact_view;
 mod composer_view;
 mod editing_command;
+mod directory_servers_view;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;

@@ -50,6 +50,7 @@ mod accent;
 pub mod legacy_profile;
 pub use accent::{Accent, current_accent, set_accent, system_accent};
 mod preferences;
+pub mod directory_servers;
 mod rail_layout;
 mod room_prefs;
 pub use preferences::{
