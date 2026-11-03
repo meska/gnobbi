@@ -76,6 +76,18 @@ pub struct VerificationDevice {
     pub user_id: String,
     pub device_id: String,
     pub verified: bool,
+    pub display_name: Option<String>,
+    /// Milliseconds since the Unix epoch; `None` if the server does not report it.
+    pub last_seen_ts: Option<u64>,
+    pub last_seen_ip: Option<String>,
+}
+/// Most recently active first; devices without a timestamp last; ties by id.
+pub fn sort_devices(devices: &mut [VerificationDevice]) {
+    devices.sort_by(|a, b| {
+        b.last_seen_ts
+            .cmp(&a.last_seen_ts)
+            .then_with(|| a.device_id.cmp(&b.device_id))
+    });
 }
 pub enum VerificationCommand {
     List {
@@ -110,3 +122,25 @@ pub enum VerificationEvent {
 }
 #[cfg(feature = "sdk")]
 pub(crate) use sdk::run_service;
+
+#[cfg(test)]
+mod sort_tests {
+    use super::*;
+    fn d(id: &str, ts: Option<u64>) -> VerificationDevice {
+        VerificationDevice {
+            user_id: "@a:x".into(),
+            device_id: id.into(),
+            verified: false,
+            display_name: None,
+            last_seen_ts: ts,
+            last_seen_ip: None,
+        }
+    }
+    #[test]
+    fn newest_first_missing_last_ties_by_id() {
+        let mut v = vec![d("Z", None), d("B", Some(5)), d("A", None), d("C", Some(9)), d("A2", Some(5))];
+        sort_devices(&mut v);
+        let ids: Vec<_> = v.iter().map(|x| x.device_id.as_str()).collect();
+        assert_eq!(ids, ["C", "A2", "B", "A", "Z"]);
+    }
+}

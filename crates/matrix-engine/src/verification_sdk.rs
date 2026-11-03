@@ -312,6 +312,8 @@ async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, Verific
         .get_user_devices(user_id)
         .await
         .map_err(|_| VerificationError::Transport)?;
+    // Server-side metadata; failure here must not hide the device list.
+    let meta = client.devices().await.map(|r| r.devices).unwrap_or_default();
     let mut result = Vec::new();
     for device in devices.devices() {
         if Some(device.device_id()) == client.device_id() {
@@ -324,8 +326,23 @@ async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, Verific
             user_id: user_id.to_string(),
             device_id: device.device_id().to_string(),
             verified: device.is_verified(),
+            display_name: meta
+                .iter()
+                .find(|m| m.device_id == device.device_id())
+                .and_then(|m| m.display_name.clone())
+                .filter(|n| !n.trim().is_empty()),
+            last_seen_ts: meta
+                .iter()
+                .find(|m| m.device_id == device.device_id())
+                .and_then(|m| m.last_seen_ts)
+                .map(|t| t.0.into()),
+            last_seen_ip: meta
+                .iter()
+                .find(|m| m.device_id == device.device_id())
+                .and_then(|m| m.last_seen_ip.clone())
+                .filter(|i| !i.trim().is_empty()),
         });
     }
-    result.sort_by(|a, b| a.device_id.cmp(&b.device_id));
+    sort_devices(&mut result);
     Ok(result)
 }

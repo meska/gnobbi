@@ -75,6 +75,9 @@ fn device_initiation_uses_stable_scoped_ids_and_rejects_removed_or_busy_targets(
         user_id: "@alice:matrix-desktop.test".into(),
         device_id: "A".into(),
         verified: false,
+        display_name: None,
+        last_seen_ts: None,
+        last_seen_ip: None,
     };
     let b = VerificationDevice {
         device_id: "B".into(),
@@ -447,6 +450,9 @@ fn device_overview_reads_sdk_devices_without_offering_unverified_sas_actions() {
             user_id: "@alice:matrix-desktop.test".into(),
             device_id: "FIXTURE_DEVICE".into(),
             verified: false,
+            display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
         }],
     });
     let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6]);
