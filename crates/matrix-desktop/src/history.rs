@@ -62,6 +62,8 @@ pub struct DemoEvent {
     pub thread_root: Option<matrix_domain::EventId>,
     /// A status row (join, invite, rename…): drawn as a quiet centred line, not a bubble.
     pub status: bool,
+    /// Could not be decrypted: the row offers «Recupera chiavi» while the recovery is incomplete.
+    pub utd: bool,
 }
 
 impl DemoEvent {
@@ -179,6 +181,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
                     attachment_name: None,
                     attachment_size: None,
@@ -259,6 +262,7 @@ impl DemoHistory {
             thread: None,
             thread_root: None,
             status: false,
+            utd: false,
             video: None,
             attachment_name: None,
             attachment_size: None,
@@ -385,6 +389,7 @@ impl DemoHistory {
                 thread: event.thread,
                 thread_root: event.thread_root,
                 status: event.status,
+                utd: event.utd,
                 attachment_name: event.attachment_name,
                 attachment_size: event.attachment_size,
                 video: event.video.map(video_facts),
@@ -527,6 +532,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
                     attachment_name: None,
                     attachment_size: None,
@@ -612,6 +618,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
                     attachment_name: None,
                     attachment_size: None,

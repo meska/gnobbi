@@ -137,6 +137,12 @@ pub enum VerificationCommand {
         account_id: AccountId,
         display_name: String,
     },
+    /// «Recupera chiavi» after sign-in: the recovery key is consumed by this one call. The answer is
+    /// `KeysRecovery` events (same states and failures as the sign-in step).
+    RecoverKeys {
+        account_id: AccountId,
+        key: crate::signin::Secret,
+    },
     /// Sign out another device (UIA password). On success a fresh `Devices` event follows.
     DeleteDevice {
         account_id: AccountId,
@@ -165,6 +171,16 @@ pub enum VerificationEvent {
         device: VerificationDevice,
     },
     Snapshot(VerificationSnapshot),
+    /// Progress of a `RecoverKeys` command.
+    KeysRecovery {
+        account_id: AccountId,
+        state: crate::signin::RecoveryState,
+    },
+    /// Whether key recovery is complete (see `recovery::keys_recovered`); sent at start, on change and after a recovery.
+    KeysComplete {
+        account_id: AccountId,
+        complete: bool,
+    },
     Error {
         account_id: AccountId,
         error: VerificationError,

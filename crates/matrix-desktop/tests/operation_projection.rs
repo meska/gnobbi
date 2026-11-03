@@ -112,6 +112,7 @@ fn fixture() -> (DemoHistory, LiveOperations) {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -167,6 +168,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -226,6 +228,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -251,6 +254,7 @@ fn refresh_server_keeps_edited_suffix_on_local_clock_time() {
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);

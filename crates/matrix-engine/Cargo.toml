@@ -96,3 +96,7 @@ required-features = ["sdk"]
 [[test]]
 name = "e2ee_device_matrix"
 required-features = ["sdk"]
+
+[[test]]
+name = "recovery_later"
+required-features = ["sdk"]

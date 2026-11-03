@@ -356,6 +356,7 @@ mod tests {
             thread: None,
             thread_root: None,
             status: false,
+            utd: false,
         }
     }
 

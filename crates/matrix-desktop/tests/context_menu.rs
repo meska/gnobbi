@@ -23,6 +23,7 @@ fn live_history() -> DemoHistory {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -68,6 +69,7 @@ fn two_live() -> DemoHistory {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     };

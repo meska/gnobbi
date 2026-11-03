@@ -23,6 +23,7 @@ fn live_mapping_carries_sender_id_and_name() {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -62,6 +63,7 @@ fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> Hi
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }

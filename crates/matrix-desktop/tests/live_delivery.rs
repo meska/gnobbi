@@ -56,6 +56,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -81,6 +82,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -119,6 +121,7 @@ fn repeated_ack_projection_preserves_server_content_after_edit_or_redaction() {
             styles: Vec::new(),
             thread: None, thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
             attachment_size: None,
         }]);
@@ -152,6 +155,7 @@ fn appended_live_echo_merges_pending_row_in_both_ack_orders() {
             styles: Vec::new(),
             thread: None, thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
             attachment_size: None,
         };
@@ -587,6 +591,7 @@ fn refresh_server_gives_own_ack_row_the_local_clock_time() {
             thread: None,
             thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
             attachment_size: None,
         }]);

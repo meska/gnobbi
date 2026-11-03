@@ -96,6 +96,8 @@ pub struct HistoryEvent {
     pub thread_root: Option<EventId>,
     /// A status row (join, invite, rename…): `body` is its wording and `sender` the person it shows.
     pub status: bool,
+    /// The event could not be decrypted (no keys): the only rows a key recovery can fix.
+    pub utd: bool,
 }
 
 /// The summary under a thread root, as the Timeline keeps it (live).

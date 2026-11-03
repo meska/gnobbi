@@ -32,6 +32,7 @@ fn confirmed_redaction_has_semantics_not_inferred_from_message_body() {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -99,6 +100,7 @@ fn own_reaction_is_named_separately_from_edit_and_delivery() {
         styles: Vec::new(),
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     }]);
@@ -200,6 +202,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
             styles: Vec::new(),
             thread: None, thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
             attachment_size: None,
         },
@@ -214,6 +217,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
             styles: Vec::new(),
             thread: None, thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
             attachment_size: None,
         },
