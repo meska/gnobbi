@@ -32,6 +32,8 @@ mod settings_view;
 #[cfg(any(test, feature = "gui-fixture"))]
 mod rail_drag_test;
 #[cfg(test)]
+mod bar_alignment_test;
+#[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;
@@ -2047,6 +2049,11 @@ impl Render for Shell {
                                 .h(px(t.bottom_bar)) // same token as the composer: one baseline across both columns
                                 .flex_shrink_0()
                                 .border_t_1()
+                                .relative()
+                                .children({
+                                    #[cfg(test)] { bar_alignment_test::observe() }
+                                    #[cfg(not(test))] { None::<gpui::AnyElement> }
+                                })
                                 .border_color(rgb(t.border))
                                 .text_size(px(11.))
                                 .text_color(rgb(t.secondary))
@@ -2261,6 +2268,7 @@ fn main() {
         || panel_opener_view::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || bar_alignment_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
     {
         vec![]
     } else {
@@ -2809,6 +2817,8 @@ fn main() {
                     panel_opener_view::install(window, cx);
                     #[cfg(test)]
                     sidebar_navigation_test::install(window, cx);
+                    #[cfg(test)]
+                    bar_alignment_test::install(window, cx);
                     #[cfg(any(test, feature = "gui-fixture"))]
                     rail_drag_test::install(window, cx);
                     Shell {
