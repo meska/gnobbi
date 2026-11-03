@@ -183,6 +183,8 @@ struct Shell {
     room_scrollbar: scrollbar_view::Scrollbar,
     members_scroll: UniformListScrollHandle,
     members_scrollbar: scrollbar_view::Scrollbar,
+    info_scroll: UniformListScrollHandle, // only its base ScrollHandle is used, to share the scrollbar
+    info_scrollbar: scrollbar_view::Scrollbar,
 }
 
 impl Shell {
@@ -2963,6 +2965,8 @@ fn main() {
                         room_scrollbar: Default::default(),
                         members_scroll: UniformListScrollHandle::new(),
                         members_scrollbar: Default::default(),
+                        info_scroll: UniformListScrollHandle::new(),
+                        info_scrollbar: Default::default(),
                     }
                 })
             },

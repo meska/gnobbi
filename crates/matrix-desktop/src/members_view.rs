@@ -143,7 +143,7 @@ impl Shell {
                 .flex()
                 .flex_col()
                 .flex_1()
-                .min_h(px(88.))
+                .min_h(px(176.)) // 4 rows even in a short window; the info block scrolls instead
                 .child(div().mb_2().child("Membri"))
                 .child(
                     // Same virtual list + scrollbar as the room list: only visible rows exist.

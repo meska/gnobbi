@@ -343,7 +343,7 @@ impl Shell {
                     // An opened profile takes the whole sheet.
                     .when(self.profile.is_none(), |d| d
                     .child(
-                    div().id("room-details-info").flex().flex_col().gap_4().flex_shrink().min_h_0().overflow_y_scroll()
+                    div().relative().flex().flex_col().flex_shrink().min_h_0().child(div().id("room-details-info").flex().flex_col().gap_4().min_h_0().track_scroll(&self.info_scroll.0.borrow().base_handle).overflow_y_scroll()
                     .child(
                         div()
                             .text_size(px(20.))
@@ -426,7 +426,13 @@ impl Shell {
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_room_edit(window, cx)
                             })),
+                    ))
+                    .child(self.info_scrollbar.render(
+                        "room-info-scrollbar",
+                        scrollbar_view::ScrollTarget::Rooms(self.info_scroll.clone()),
+                        t,
                     )))
+                    )
                     .child(self.render_people(cx)),
             )
             .into_any_element()
