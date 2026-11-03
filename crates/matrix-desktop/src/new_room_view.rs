@@ -651,6 +651,7 @@ impl Shell {
         Some(
             div()
                 .id("new-room-layer")
+                .occlude()
                 .absolute()
                 .inset_0()
                 .flex()
