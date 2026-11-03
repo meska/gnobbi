@@ -76,6 +76,8 @@ struct Shell {
     groups_edit: Option<groups_edit_view::GroupsEdit>,
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
     refocus_menu: bool,
+    /// The «Unisciti» server-name field went away: the next render puts the focus back on the search field.
+    refocus_join_field: bool,
     drawer_row: usize,
     settings_focus: FocusHandle,
     /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
@@ -1360,6 +1362,7 @@ impl Shell {
             self.members_requested = Some(self.active_scope.clone());
         }
         self.flush_user_search();
+        self.flush_room_search();
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
@@ -1426,8 +1429,14 @@ impl Shell {
                             state: matrix_engine::operations::SearchState::Error,
                             all_available: false,
                         },
-                        OperationCommand::SearchDirectory { .. } => OperationResult::DirectoryFound {
-                            result: Err(OperationError::Unavailable),
+                        OperationCommand::SearchRooms { term, .. } => OperationResult::RoomSearch {
+                            state: matrix_engine::search::SearchState::Error {
+                                term,
+                                error: matrix_engine::search::SearchError::Network,
+                            },
+                        },
+                        OperationCommand::MoreRooms => OperationResult::RoomSearch {
+                            state: matrix_engine::search::SearchState::Idle,
                         },
                         OperationCommand::ProbeServer { server } => OperationResult::ServerProbed {
                             server,
@@ -1597,6 +1606,9 @@ impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
+        }
+        if std::mem::take(&mut self.refocus_join_field) {
+            self.focus_dialog_field(window, cx);
         }
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
@@ -2594,8 +2606,12 @@ fn main() {
                                                 this.room_edited(result, cx);
                                                 continue;
                                             }
-                                            if let matrix_engine::operations::OperationResult::DirectoryFound { result } = result {
-                                                this.directory_found(result, cx);
+                                            if let matrix_engine::operations::OperationResult::RoomSearch { state } = result {
+                                                this.room_search_result(state, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::ServerProbed { server, result } = result {
+                                                this.server_probed(server, result, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::UserSearch { state, all_available } = result {
@@ -2841,6 +2857,7 @@ fn main() {
                         pending_open: None,
                         groups_edit: None,
                         refocus_menu: false,
+                        refocus_join_field: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),
                         settings_row: 0,

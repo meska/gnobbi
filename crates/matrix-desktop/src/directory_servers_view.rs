@@ -4,10 +4,11 @@
 use crate::*;
 use matrix_desktop::directory_servers::{Row, ServerPicker};
 
-#[allow(dead_code)] // hosted by the join dialog, which owns the picker
 /// `on_toggle` opens/closes the menu, `on_choose(i)` picks row `i`, `on_close` is a click outside.
 pub(crate) fn render_server_picker(
     picker: &ServerPicker,
+    focus: &FocusHandle,
+    focused: bool,
     t: matrix_desktop::DesignTokens,
     on_toggle: impl Fn(&mut Window, &mut App) + 'static,
     on_choose: impl Fn(usize, &mut Window, &mut App) + Clone + 'static,
@@ -15,6 +16,7 @@ pub(crate) fn render_server_picker(
 ) -> gpui::AnyElement {
     let button = div()
         .id("directory-server")
+        .track_focus(focus)
         .px_3()
         .py_2()
         .flex()
@@ -22,7 +24,7 @@ pub(crate) fn render_server_picker(
         .rounded_md()
         .cursor_pointer()
         .border_1()
-        .border_color(rgb(t.border))
+        .border_color(rgb(if focused { t.accent } else { t.border }))
         .text_color(rgb(t.text))
         .child(format!("{} ▾", picker.shown()))
         .on_click(move |_, window, cx| on_toggle(window, cx));

@@ -6,7 +6,7 @@
 use matrix_domain::{AccountId, RoomId, RoomScope};
 use matrix_engine::{
     RoomListDiff, RoomListEvent, bounded,
-    operations::{OperationError, join_room, leave_room, search_directory},
+    operations::{OperationError, join_room, leave_room, public_rooms},
     room_sync::RoomSync,
     sdk::{
         Client,
@@ -90,7 +90,7 @@ fn b_joins_by_alias_and_from_the_directory_then_leaves() {
             // Join from the directory: the hit has no alias, so the room ID is the target.
             let mut hit = None;
             for _ in 0..20 {
-                hit = search_directory(&b, &listed_name).await.unwrap().into_iter().find(|d| d.room_id == listed_scope.room_id.as_str());
+                hit = public_rooms(&b, &listed_name, None, None, 20).await.unwrap().hits.into_iter().find(|d| d.room_id == listed_scope.room_id.as_str());
                 if hit.is_some() {
                     break;
                 }

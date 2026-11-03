@@ -99,10 +99,14 @@ pub enum OperationCommand {
         /// Servers that can answer the join (`server_name`); empty = the target's own server.
         via: Vec<String>,
     },
-    /// Public directory of the user's homeserver, filtered by `term`.
-    SearchDirectory {
+    /// «Unisciti» search of a public room directory (`server` None = the account's own),
+    /// answered with `OperationResult::RoomSearch` as it progresses. The term is never logged.
+    SearchRooms {
         term: String,
+        server: Option<String>,
     },
+    /// «Altri risultati» of the running room search.
+    MoreRooms,
     /// «Aggiungi nuovo server…»: one directory request to see whether `server` answers.
     ProbeServer {
         server: String,
@@ -172,8 +176,8 @@ pub enum OperationResult {
         user_id: String,
         result: Result<UserProfile, OperationError>,
     },
-    DirectoryFound {
-        result: Result<Vec<DirectoryRoom>, OperationError>,
+    RoomSearch {
+        state: crate::search::SearchState<DirectoryRoom>,
     },
     ServerProbed {
         server: String,
@@ -602,25 +606,6 @@ pub async fn public_rooms(
         directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind())
     })?;
     Ok(directory_page(response, &origin))
-}
-
-/// First page (20) of the homeserver's public room directory matching `term`.
-#[cfg(feature = "sdk")]
-pub async fn search_directory(
-    client: &matrix_sdk::Client,
-    term: &str,
-) -> Result<Vec<DirectoryRoom>, OperationError> {
-    use crate::search::SearchError::*;
-    tokio::time::timeout(std::time::Duration::from_secs(20), public_rooms(client, term, None, None, crate::search::PAGE))
-        .await
-        .map_err(|_| OperationError::Transport)?
-        .map(|p| p.hits)
-        .map_err(|e| match e {
-            Refused => OperationError::Forbidden,
-            Unreachable => OperationError::Unavailable,
-            InvalidServer => OperationError::InvalidInput,
-            Timeout | Network => OperationError::Transport,
-        })
 }
 
 /// Leave a joined room (`Room::leave`), then forget it (`Room::forget`) so the store drops it too.

@@ -376,6 +376,17 @@ impl RoomListWorker {
                         use crate::operations::{OperationCommand, OperationResult};
                         let mut search = crate::user_search::UserSearch::for_client(operation_client.clone());
                         let mut search_rx = search.as_ref().map(|s| s.subscribe());
+                        let rooms_client = operation_client.clone();
+                        let mut rooms = crate::search::Search::<Option<String>, crate::operations::DirectoryRoom>::new(
+                            None,
+                            move |term, server, since| {
+                                let client = rooms_client.clone();
+                                async move {
+                                    crate::operations::public_rooms(&client, &term, server.as_deref(), since, crate::search::PAGE).await
+                                }
+                            },
+                        );
+                        let mut rooms_rx = rooms.subscribe();
                         loop {
                             let command = tokio::select! {
                                 command = shutdown_receive(&operation_stop, &mut operations) => {
@@ -397,6 +408,12 @@ impl RoomListWorker {
                                         operation_results.send(OperationResult::UserSearch { state, all_available }),
                                     )
                                     .await;
+                                    clean &= matches!(sent, Some(Ok(())) | None);
+                                    continue;
+                                }
+                                Ok(()) = rooms_rx.changed() => {
+                                    let state = rooms_rx.borrow_and_update().clone();
+                                    let sent = until_stopped(&operation_stop, operation_results.send(OperationResult::RoomSearch { state })).await;
                                     clean &= matches!(sent, Some(Ok(())) | None);
                                     continue;
                                 }
@@ -527,13 +544,13 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
-                                OperationCommand::SearchDirectory { term } => {
-                                    let result = crate::operations::search_directory(
-                                        &operation_client,
-                                        &term,
-                                    )
-                                    .await;
-                                    OperationResult::DirectoryFound { result }
+                                OperationCommand::SearchRooms { term, server } => {
+                                    rooms.set_query(&term, server);
+                                    continue;
+                                }
+                                OperationCommand::MoreRooms => {
+                                    rooms.more();
+                                    continue;
                                 }
                                 OperationCommand::ProbeServer { server } => {
                                     let result = tokio::time::timeout(
