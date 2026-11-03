@@ -591,6 +591,9 @@ fn refresh_server_gives_own_ack_row_the_local_clock_time() {
             attachment_size: None,
         }]);
         assert_eq!(rows.events()[0].time, expected);
+        // A later delivery projection must not put the placeholder back.
+        rows.project_delivery(delivery.items(&scope()));
+        assert_eq!(rows.events()[0].time, expected);
     }
 }
 

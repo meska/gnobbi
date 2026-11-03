@@ -584,7 +584,8 @@ impl DemoHistory {
                 }
                 row.send_state = state;
                 row.server_confirmed = state.is_none();
-                if state.is_none() {
+                // Once the server timestamp is known the row already shows the local clock time.
+                if state.is_none() && row.timestamp_ms == 0 {
                     row.time = "ACK server".into();
                 }
                 if let Some(local) = local.filter(|r| *r != index) {
