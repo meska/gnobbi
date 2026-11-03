@@ -20,7 +20,7 @@ pub const MONO_FONT: &str = "Consolas";
 mod verification;
 #[cfg(feature = "desktop")]
 pub mod window;
-pub use verification::DeviceVerification;
+pub use verification::{DeviceVerification, device_detail, device_label, device_title};
 #[cfg(feature = "live")]
 mod signin_form;
 #[cfg(feature = "live")]

@@ -230,6 +230,8 @@ pub(crate) async fn run_service(
                         match device_list(&client).await {
                             Ok(devices) => {
                                 if events.send(VerificationEvent::Devices { account_id, devices }).await.is_err() { break; }
+                                if let Some(device) = own_device(&client).await
+                                    && events.send(VerificationEvent::OwnDevice { account_id, device }).await.is_err() { break; }
                                 Ok(())
                             }
                             Err(error) => Err(error),
@@ -358,7 +360,7 @@ async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, Verific
         .await
         .map_err(|_| VerificationError::Transport)?;
     // Server-side metadata; failure here must not hide the device list.
-    let meta = client.devices().await.map(|r| r.devices).unwrap_or_default();
+    let meta = server_meta(client).await;
     let mut result = Vec::new();
     for device in devices.devices() {
         if Some(device.device_id()) == client.device_id() {
@@ -367,27 +369,37 @@ async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, Verific
         if result.len() == 128 {
             return Err(VerificationError::TooManyDevices);
         }
-        result.push(VerificationDevice {
-            user_id: user_id.to_string(),
-            device_id: device.device_id().to_string(),
-            verified: device.is_verified(),
-            display_name: meta
-                .iter()
-                .find(|m| m.device_id == device.device_id())
-                .and_then(|m| m.display_name.clone())
-                .filter(|n| !n.trim().is_empty()),
-            last_seen_ts: meta
-                .iter()
-                .find(|m| m.device_id == device.device_id())
-                .and_then(|m| m.last_seen_ts)
-                .map(|t| t.0.into()),
-            last_seen_ip: meta
-                .iter()
-                .find(|m| m.device_id == device.device_id())
-                .and_then(|m| m.last_seen_ip.clone())
-                .filter(|i| !i.trim().is_empty()),
-        });
+        result.push(describe(user_id.as_str(), &meta, device.device_id(), device.is_verified()));
     }
     sort_devices(&mut result);
     Ok(result)
+}
+
+async fn server_meta(client: &Client) -> Vec<matrix_sdk::ruma::api::client::device::Device> {
+    client.devices().await.map(|r| r.devices).unwrap_or_default()
+}
+
+fn describe(
+    user_id: &str,
+    meta: &[matrix_sdk::ruma::api::client::device::Device],
+    device_id: &matrix_sdk::ruma::DeviceId,
+    verified: bool,
+) -> VerificationDevice {
+    let m = meta.iter().find(|m| m.device_id == device_id);
+    VerificationDevice {
+        user_id: user_id.to_owned(),
+        device_id: device_id.to_string(),
+        verified,
+        display_name: m.and_then(|m| m.display_name.clone()).filter(|n| !n.trim().is_empty()),
+        last_seen_ts: m.and_then(|m| m.last_seen_ts).map(|t| t.0.into()),
+        last_seen_ip: m.and_then(|m| m.last_seen_ip.clone()).filter(|i| !i.trim().is_empty()),
+    }
+}
+
+/// This session's own device, with the state the SDK knows locally (no HTTP for the state).
+async fn own_device(client: &Client) -> Option<VerificationDevice> {
+    let user_id = client.user_id()?;
+    let own = client.encryption().get_own_device().await.ok()??;
+    let meta = server_meta(client).await;
+    Some(describe(user_id.as_str(), &meta, own.device_id(), own.is_verified()))
 }

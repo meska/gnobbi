@@ -256,7 +256,13 @@ impl DeviceOverview {
     ) -> Self {
         let mut labels: Vec<String> = model
             .own_device()
-            .map(|id| format!("Questo dispositivo · {id}"))
+            .map(|id| match model.own() {
+                Some(own) => format!(
+                    "Questo dispositivo · {}",
+                    crate::device_label(own)
+                ),
+                None => format!("Questo dispositivo · {id}"),
+            })
             .into_iter()
             .collect();
         labels.push("Altri dispositivi".into());
@@ -264,15 +270,7 @@ impl DeviceOverview {
             labels.push("Nessun altro dispositivo disponibile".into());
         }
         labels.extend(model.devices().iter().map(|device| {
-            format!(
-                "{} · {}",
-                device.device_id,
-                if device.verified {
-                    "Verificato"
-                } else {
-                    "Non verificato"
-                }
-            )
+            crate::device_label(device)
         }));
         labels.push(model.status_label().into());
         if let Some(snapshot) = model.snapshot() {
@@ -383,15 +381,7 @@ impl DeviceOverview {
                 DeviceControl::Comparison => self.comparison.as_deref().unwrap_or_default(),
                 DeviceControl::Device(id) => {
                     let device = &self.devices.iter().find(|d| d.id == id).unwrap().device;
-                    device_label = format!(
-                        "Avvia verifica con {} · {}",
-                        device.device_id,
-                        if device.verified {
-                            "Verificato"
-                        } else {
-                            "Non verificato"
-                        }
-                    );
+                    device_label = format!("Avvia verifica con {}", crate::device_label(device));
                     &device_label
                 }
             };

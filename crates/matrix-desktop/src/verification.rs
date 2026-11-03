@@ -5,6 +5,31 @@ use matrix_engine::verification::{
     VerificationState,
 };
 
+/// Row title as in Element: the display name, else the ID.
+pub fn device_title(d: &matrix_engine::verification::VerificationDevice) -> &str {
+    d.display_name.as_deref().unwrap_or(&d.device_id)
+}
+
+/// «Verificato · Ultima attività 17:11 · 192.0.2.17 · ID»; only the fields present
+/// (the ID is the title when there is no name). `time` formats a ms timestamp.
+pub fn device_detail(
+    d: &matrix_engine::verification::VerificationDevice,
+    time: impl Fn(u64) -> String,
+) -> String {
+    let mut parts = vec![if d.verified { "Verificato" } else { "Non verificato" }.to_owned()];
+    parts.extend(d.last_seen_ts.map(|t| format!("Ultima attività {}", time(t))));
+    parts.extend(d.last_seen_ip.clone());
+    if d.display_name.is_some() {
+        parts.push(d.device_id.clone());
+    }
+    parts.join(" · ")
+}
+
+/// Screen-reader text: the same data as the row, «title · detail».
+pub fn device_label(d: &matrix_engine::verification::VerificationDevice) -> String {
+    format!("{} · {}", device_title(d), device_detail(d, crate::time_fmt::day_or_time))
+}
+
 pub struct DeviceVerification {
     account: AccountId,
     snapshot: Option<VerificationSnapshot>,
@@ -14,6 +39,7 @@ pub struct DeviceVerification {
     failed: bool,
     profile: Option<(String, Option<String>)>,
     own_device: Option<String>,
+    own: Option<matrix_engine::verification::VerificationDevice>,
     profile_avatar: Option<String>,
 }
 impl DeviceVerification {
@@ -27,6 +53,7 @@ impl DeviceVerification {
             failed: false,
             profile: None,
             own_device: None,
+            own: None,
             profile_avatar: None,
         }
     }
@@ -41,6 +68,10 @@ impl DeviceVerification {
     /// This session's device ID (not in `devices()`); None until the profile arrives.
     pub fn own_device(&self) -> Option<&str> {
         self.own_device.as_deref()
+    }
+    /// This session's device with name, state and last activity; None until the first list arrives.
+    pub fn own(&self) -> Option<&matrix_engine::verification::VerificationDevice> {
+        self.own.as_ref()
     }
     pub fn devices(&self) -> &[matrix_engine::verification::VerificationDevice] {
         &self.devices
@@ -99,6 +130,9 @@ impl DeviceVerification {
                 account_id,
                 devices,
             } if account_id == self.account => self.devices = devices,
+            VerificationEvent::OwnDevice { account_id, device } if account_id == self.account => {
+                self.own = Some(device)
+            }
             VerificationEvent::Error { account_id, .. } if account_id == self.account => {
                 self.failed = true;
                 self.pending = None;
@@ -241,5 +275,46 @@ mod profile_tests {
             avatar: None,
         });
         assert_eq!(v.profile_avatar(), None);
+    }
+
+    fn dev(name: Option<&str>, verified: bool, ts: Option<u64>, ip: Option<&str>) -> matrix_engine::verification::VerificationDevice {
+        matrix_engine::verification::VerificationDevice {
+            user_id: "@a:x".into(),
+            device_id: "ABCDEF".into(),
+            verified,
+            display_name: name.map(Into::into),
+            last_seen_ts: ts,
+            last_seen_ip: ip.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn device_line_shows_only_present_fields() {
+        let t = |ms: u64| format!("T{ms}");
+        let full = dev(Some("Gnobbi (macOS)"), true, Some(7), Some("192.0.2.17"));
+        assert_eq!(device_title(&full), "Gnobbi (macOS)");
+        assert_eq!(device_detail(&full, t), "Verificato · Ultima attività T7 · 192.0.2.17 · ABCDEF");
+        let bare = dev(None, false, None, None);
+        assert_eq!(device_title(&bare), "ABCDEF");
+        assert_eq!(device_detail(&bare, t), "Non verificato");
+        assert_eq!(device_detail(&dev(Some("N"), false, None, Some("::1")), t), "Non verificato · ::1 · ABCDEF");
+    }
+
+    #[test]
+    fn screen_reader_label_has_the_row_data() {
+        assert_eq!(device_label(&dev(None, true, None, None)), "ABCDEF · Verificato");
+        let l = device_label(&dev(Some("Mac"), false, Some(1), Some("203.0.113.1")));
+        assert!(l.starts_with("Mac · Non verificato · Ultima attività ") && l.ends_with(" · 203.0.113.1 · ABCDEF"), "{l}");
+    }
+
+    #[test]
+    fn own_device_comes_from_its_own_event() {
+        let mut v = DeviceVerification::new(AccountId::new(1));
+        let ev = |n| VerificationEvent::OwnDevice { account_id: AccountId::new(n), device: dev(None, true, None, None) };
+        v.apply(ev(2));
+        assert!(v.own().is_none());
+        v.apply(ev(1));
+        assert!(v.own().is_some_and(|d| d.verified));
+        assert!(v.devices().is_empty());
     }
 }

@@ -247,8 +247,14 @@ impl Shell {
                 .when_some(self.device_scroll_handle(), |d, handle| d.track_scroll(&handle))
                 .p_4().flex().flex_col().gap_3()
                 .when_some(panel.own_device(), |d, id| d.child(div().w_full().flex_shrink_0().min_h(px(56.)).px_3().py_2().rounded_lg().bg(rgb(t.input)).flex().flex_col().gap_1()
-                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Questo dispositivo"))
-                    .child(div().min_w_0().text_size(px(12.)).truncate().child(matrix_desktop::row_text::one_line(id)))))
+                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(match panel.own() {
+                        Some(own) if own.display_name.is_some() => format!("Questo dispositivo · {}", matrix_desktop::device_title(own)),
+                        _ => "Questo dispositivo".to_owned(),
+                    }))
+                    .child(div().min_w_0().text_size(px(12.)).child(matrix_desktop::row_text::one_line(&match panel.own() {
+                        Some(own) => matrix_desktop::device_detail(own, matrix_desktop::time_fmt::day_or_time),
+                        None => id.to_owned(),
+                    })))))
                 .child("Altri dispositivi")
                 .child(div().id("verification-refresh").anchor_scroll(self.device_anchor(1)).relative().children(self.device_observer(1, cx))
                     .when(focused_control == Some(1), |d| d.border_1().border_color(rgb(t.accent)))
@@ -269,10 +275,10 @@ impl Shell {
                         .w_full().flex_shrink_0().min_h(px(56.)).px_3().py_2().rounded_lg().bg(rgb(t.input))
                         .flex().flex_col().gap_1()
                         .child(div().flex().justify_between().gap_2()
-                            .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(if device.verified { t.secondary } else { t.error }))
-                                .child(if device.verified { "✓ Verificato" } else { "⚠ Non verificato" }))
+                            .child(div().min_w_0().font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::row_text::one_line(matrix_desktop::device_title(device))))
                             .when(!device.verified, |d| d.child(div().text_color(rgb(t.accent)).child("Verifica"))))
-                        .child(div().min_w_0().text_size(px(12.)).truncate().child(matrix_desktop::row_text::one_line(&device.device_id)))
+                        .child(div().min_w_0().text_size(px(12.)).text_color(rgb(if device.verified { t.secondary } else { t.error }))
+                            .child(matrix_desktop::row_text::one_line(&matrix_desktop::device_detail(device, matrix_desktop::time_fmt::day_or_time))))
                         .when(!device.verified, |d| d.cursor_pointer()
                             .on_click(cx.listener(move |this, _, _, cx| { this.verification.begin(index); cx.notify(); })))
                 }))

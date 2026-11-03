@@ -59,24 +59,21 @@ fn selected_device_id_is_shown_in_full() {
 }
 
 #[test]
-fn long_ids_ellipsize_on_their_own_line() {
+fn detail_line_wraps_under_the_title_instead_of_clipping() {
     let row = row_source();
-    let start = row.find(".min_w_0()").expect("id line");
-    let id_line = &row[start..start + row[start..].find("device.device_id").unwrap()];
-    assert!(id_line.contains(".truncate()"), "long ID must ellipsize");
-    assert!(id_line.contains(".min_w_0()"), "flex child needs min_w_0 or the ID stretches the row");
-    assert!(id_line.contains("one_line("), "newlines in an ID must not add rows");
-    assert!(
-        row.find("\"Verifica\"").unwrap() < start,
-        "ID must come after, not share the line with, the status/button line"
-    );
+    let start = row.find("device_detail").expect("detail line");
+    let line_start = row[..start].rfind(".child(div()").unwrap();
+    let detail = &row[line_start..];
+    assert!(detail.contains(".min_w_0()"), "flex child needs min_w_0");
+    assert!(detail.contains("one_line("), "newlines in a name/IP must not add rows");
+    assert!(!row.contains(".truncate()"), "name, status, IP and ID wrap; nothing is cut");
+    assert!(row.find("\"Verifica\"").unwrap() < start, "detail comes after the title/button line");
 }
 
 #[test]
 fn unverified_status_is_prominent_with_action_and_verified_is_not() {
     let row = row_source();
-    assert!(row.contains("SEMIBOLD"), "status must be bold");
-    assert!(row.contains("⚠ Non verificato") && row.contains("✓ Verificato"));
+    assert!(row.contains("SEMIBOLD"), "title must be bold");
     assert!(row.contains("t.error"), "unverified must use the error colour");
     let action = row.find("\"Verifica\"").expect("verify action");
     assert!(
@@ -121,6 +118,9 @@ fn devices(n: usize, verified: impl Fn(usize) -> bool, id: impl Fn(usize) -> Str
             user_id: "@alice:matrix-desktop.test".into(),
             device_id: id(i),
             verified: verified(i),
+            display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
         })
         .collect()
 }
@@ -204,4 +204,29 @@ fn own_device_row_is_a_label_shown_once_and_never_clickable() {
     assert!(!own[0].1.supports_action(Action::Click));
     let first = nodes.iter().skip(1).find(|(_, n)| n.role() == Role::Label).unwrap();
     assert_eq!(first.1.value(), Some("Questo dispositivo · OWN"), "own device comes first");
+}
+
+#[test]
+fn screen_reader_text_carries_name_state_time_ip_and_id_for_own_and_other_devices() {
+    let account = AccountId::new(7);
+    let mut model = DeviceVerification::new(account);
+    let full = |id: &str, verified| VerificationDevice {
+        user_id: "@a:x".into(),
+        device_id: id.into(),
+        verified,
+        display_name: Some("Gnobbi (Linux)".into()),
+        last_seen_ts: Some(0),
+        last_seen_ip: Some("192.0.2.17".into()),
+    };
+    model.apply(VerificationEvent::Profile { account_id: account, user_id: "@a:x".into(), display_name: None, device_id: Some("OWN".into()), avatar: None });
+    model.apply(VerificationEvent::OwnDevice { account_id: account, device: full("OWN", true) });
+    model.apply(VerificationEvent::Devices { account_id: account, devices: vec![full("D1", false)] });
+    let rows = DeviceNodes::default().project(account, &model);
+    let nodes = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6]).with_devices(rows).tree().nodes;
+    let at = matrix_desktop::time_fmt::day_or_time(0);
+    let own = format!("Questo dispositivo · Gnobbi (Linux) · Verificato · Ultima attività {at} · 192.0.2.17 · OWN");
+    let other = format!("Gnobbi (Linux) · Non verificato · Ultima attività {at} · 192.0.2.17 · D1");
+    assert!(has_value(&nodes, &own), "{own}");
+    assert!(has_value(&nodes, &other), "{other}");
+    assert!(nodes.iter().any(|(_, n)| n.label() == Some(format!("Avvia verifica con {other}").as_str())));
 }

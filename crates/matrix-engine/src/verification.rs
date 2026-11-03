@@ -124,6 +124,11 @@ pub enum VerificationEvent {
         account_id: AccountId,
         devices: Vec<VerificationDevice>,
     },
+    /// This session's device (never in `Devices`): name, state and last activity.
+    OwnDevice {
+        account_id: AccountId,
+        device: VerificationDevice,
+    },
     Snapshot(VerificationSnapshot),
     Error {
         account_id: AccountId,
