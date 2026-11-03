@@ -928,6 +928,11 @@ thread_local! {
     static PROBE: std::cell::RefCell<std::collections::HashMap<&'static str, Bounds<Pixels>>> = Default::default();
 }
 
+#[cfg(test)]
+pub(crate) fn painted_bar() -> Bounds<Pixels> {
+    PROBE.with(|p| *p.borrow().get("bar").expect("composer bar was never painted"))
+}
+
 /// Rendered-tree test hook: records the laid-out bounds of the parent under `name`.
 #[cfg(test)]
 fn probe(name: &'static str) -> impl IntoElement {
