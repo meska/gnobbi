@@ -790,14 +790,8 @@ impl ComposerView {
                 }
                 "enter" => self.submit(cx),
                 "left" | "right" | "backspace" | "delete" => {
-                    let previous = self.draft.text()[..self.cursor]
-                        .char_indices()
-                        .last()
-                        .map_or(0, |(i, _)| i);
-                    let next = self.draft.text()[self.cursor..]
-                        .chars()
-                        .next()
-                        .map_or(self.cursor, |c| self.cursor + c.len_utf8());
+                    let previous = matrix_desktop::prev_boundary(self.draft.text(), self.cursor);
+                    let next = matrix_desktop::next_boundary(self.draft.text(), self.cursor);
                     match key.key.as_str() {
                         "left" => self.choose(
                             if !selected.is_empty() && !key.modifiers.shift {

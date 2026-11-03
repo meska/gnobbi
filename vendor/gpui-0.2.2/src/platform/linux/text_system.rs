@@ -371,8 +371,54 @@ impl CosmicTextSystemState {
         }
     }
 
+    /// GNOBBI: emoji clusters always use the bundled "Noto Color Emoji", so the set is the same
+    /// everywhere. A text font that has its own monochrome glyph for U+1F600 would otherwise win
+    /// over the colour fallback. No-op when that family is not registered.
+    fn with_emoji_runs(&mut self, text: &str, font_runs: &[FontRun]) -> Vec<FontRun> {
+        use icu_properties::{CodePointSetData, props::EmojiPresentation};
+        use unicode_segmentation::UnicodeSegmentation as _;
+        if text.is_ascii() {
+            return font_runs.to_vec();
+        }
+        let Some(emoji_font) = self.emoji_font_id() else {
+            return font_runs.to_vec();
+        };
+        let presentation = CodePointSetData::new::<EmojiPresentation>();
+        let is_emoji = |cluster: &str| {
+            cluster.contains('\u{FE0F}')
+                || cluster.chars().next().is_some_and(|c| presentation.contains(c))
+        };
+        let mut out: Vec<FontRun> = Vec::with_capacity(font_runs.len());
+        let mut push = |out: &mut Vec<FontRun>, len: usize, font_id: FontId| {
+            match out.last_mut() {
+                Some(last) if last.font_id == font_id => last.len += len,
+                _ => out.push(FontRun { len, font_id }),
+            }
+        };
+        let mut start = 0;
+        for run in font_runs {
+            let end = (start + run.len).min(text.len());
+            for cluster in text[start..end].graphemes(true) {
+                let font_id = if is_emoji(cluster) { emoji_font } else { run.font_id };
+                push(&mut out, cluster.len(), font_id);
+            }
+            start = end;
+        }
+        out
+    }
+
+    fn emoji_font_id(&mut self) -> Option<FontId> {
+        // The last face wins: the registered (bundled) one comes after the system fonts.
+        let bundled = self.font_system.db().faces().filter(|f| {
+            f.families.iter().any(|(name, _)| name == "Noto Color Emoji")
+        }).last()?.id;
+        Some(self.font_id_for_cosmic_id(bundled))
+    }
+
     #[profiling::function]
     fn layout_line(&mut self, text: &str, font_size: Pixels, font_runs: &[FontRun]) -> LineLayout {
+        let emoji_runs = self.with_emoji_runs(text, font_runs);
+        let font_runs = &emoji_runs[..];
         let mut attrs_list = AttrsList::new(&Attrs::new());
         let mut offs = 0;
         for run in font_runs {

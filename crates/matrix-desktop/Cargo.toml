@@ -12,6 +12,7 @@ serde_json = "=1.0.151"
 url = "=2.5.8"
 zeroize = "=1.9.1"
 cpal = "=0.18.2"
+unicode-segmentation = "=1.13.3"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 
 # Trace log to stderr, only when RUST_LOG is set (e.g. RUST_LOG=gnobbi::sync_status=info).

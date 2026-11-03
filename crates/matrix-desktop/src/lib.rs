@@ -59,7 +59,9 @@ pub use preferences::{
 mod composer;
 mod connection_options;
 pub mod panel_openers;
-pub use composer::{Composer, EMOJI_SET, mention_matches, mention_token};
+pub use composer::{
+    Composer, EMOJI_SET, mention_matches, mention_token, next_boundary, prev_boundary,
+};
 pub use connection_options::create_private_dir;
 pub use connection_options::{
     RestoreOptions, SignInOptions, bundle_launch_args, default_signin_args, linux_launch_args,

@@ -296,7 +296,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - gpu-alloc 0.6.2 — MIT OR Apache-2.0 — https://github.com/zakarumych/gpu-alloc
 - gpu-alloc-ash 0.7.1 — MIT OR Apache-2.0 — https://github.com/zakarumych/gpu-alloc
 - gpu-alloc-types 0.3.1 — MIT OR Apache-2.0 — https://github.com/zakarumych/gpu-alloc
-- gpui 0.2.2 — Apache-2.0 — https://github.com/zed-industries/zed
+- gpui 0.2.2 — Apache-2.0 — https://github.com/zed-industries/zed — vendored with a local Linux text-system modification (emoji clusters use the bundled Noto Color Emoji); provenance and modified file in vendor/gpui-0.2.2/GNOBBI-PATCH.md.
 - gpui-macros 0.2.2 — Apache-2.0
 - gpui_collections 0.2.2 — Apache-2.0
 - gpui_derive_refineable 0.2.2 — Apache-2.0
@@ -961,9 +961,18 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - zvariant_derive 5.15.0 — MIT — https://github.com/z-galaxy/zbus/
 - zvariant_utils 4.2.0 — MIT — https://github.com/z-galaxy/zbus/
 
+## Bundled font: Noto Color Emoji
+
+- Noto Color Emoji 2.051 (NotoColorEmoji.ttf, CBDT/CBLC colour bitmaps), Copyright 2013 Google LLC, SIL Open Font License 1.1.
+- Source: https://github.com/googlefonts/noto-emoji/blob/v2.051/fonts/NotoColorEmoji.ttf (release tag v2.051, file unmodified).
+- SHA-256: `72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b`
+- File: `crates/matrix-desktop/assets/fonts/NotoColorEmoji.ttf`; license text next to it in `NotoColorEmoji-OFL.txt` (SHA-256 `6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2`).
+- The font is embedded in the Linux binary at build time (no network at run time, nothing extra in the AppImage); it is used for every emoji cluster, so the set is the same on every Linux system. macOS and Windows use the system emoji font.
+- The OFL allows bundling and redistribution with software; the font is not sold by itself and is not renamed or modified.
+
 ## AppImage package
 
-The Linux AppImage bundles only the application binary, its desktop entry, metadata and icons (own assets). No system libraries are bundled; GPU, Wayland and Vulkan libraries come from the host. The AppImage file embeds the upstream type 2 runtime from the AppImage project (MIT; it statically links squashfuse, BSD-2-Clause, and libfuse, LGPL-2.1-or-later): https://github.com/AppImage/type2-runtime
+The Linux AppImage bundles only the application binary (which embeds the font above), its desktop entry, metadata and icons (own assets). No system libraries are bundled; GPU, Wayland and Vulkan libraries come from the host. The AppImage file embeds the upstream type 2 runtime from the AppImage project (MIT; it statically links squashfuse, BSD-2-Clause, and libfuse, LGPL-2.1-or-later): https://github.com/AppImage/type2-runtime
 
 ## App icons
 

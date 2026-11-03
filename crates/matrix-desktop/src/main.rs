@@ -6,6 +6,7 @@ mod compact_view;
 mod composer_icons;
 mod composer_view;
 mod editing_command;
+mod emoji_font;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;
@@ -2426,6 +2427,7 @@ fn main() {
         .and_then(Result::ok);
     let mut notification_handle = notification_worker.as_ref().map(|worker| worker.handle());
     Application::new().run(move |cx: &mut App| {
+        emoji_font::register(cx);
         #[cfg(target_os = "macos")]
         cx.set_menus(vec![
             gpui::Menu { name: "Gnobbi".into(), items: vec![] },
