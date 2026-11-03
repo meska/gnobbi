@@ -424,6 +424,24 @@ mod rename_tests {
         assert!(valid_device_name("a\nb").is_err());
         assert!(valid_device_name(&"x".repeat(129)).is_err());
     }
+
+    #[test]
+    fn describe_tolerates_missing_or_blank_server_fields() {
+        use matrix_sdk::ruma::{api::client::device::Device, device_id};
+        let mut full = Device::new(device_id!("FULL").to_owned());
+        full.display_name = Some("Mac".into());
+        full.last_seen_ip = Some("203.0.113.1".into());
+        full.last_seen_ts = Some(matrix_sdk::ruma::MilliSecondsSinceUnixEpoch(42u32.into()));
+        let mut blank = Device::new(device_id!("BLANK").to_owned());
+        blank.display_name = Some("  ".into());
+        blank.last_seen_ip = Some("".into());
+        let meta = [full, blank];
+        let d = |id: &str| describe("@a:x", &meta, id.try_into().unwrap(), true);
+        assert_eq!((d("FULL").last_seen_ts, d("FULL").last_seen_ip.as_deref(), d("FULL").display_name.as_deref()), (Some(42), Some("203.0.113.1"), Some("Mac")));
+        assert_eq!((d("BLANK").last_seen_ts, d("BLANK").last_seen_ip, d("BLANK").display_name), (None, None, None));
+        // Device unknown to the server list (devices() failed): still described, nothing invented.
+        assert_eq!((d("NOMETA").last_seen_ts, d("NOMETA").last_seen_ip, d("NOMETA").display_name), (None, None, None));
+    }
 }
 
 async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, VerificationError> {

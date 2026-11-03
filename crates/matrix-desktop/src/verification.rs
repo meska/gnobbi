@@ -411,6 +411,49 @@ mod profile_tests {
     }
 
     #[test]
+    fn last_activity_uses_the_shared_local_time_format() {
+        use chrono::FixedOffset;
+        const THU_2330: u64 = 1_768_519_800_000; // 2026-01-15 23:30 UTC
+        const DAY: u64 = 86_400_000;
+        let cet = FixedOffset::east_opt(3600).unwrap();
+        let d = dev(Some("N"), true, Some(THU_2330), None);
+        let at = |now| device_detail(&d, |t| crate::time_fmt::day_or_time_in(t, now, &cet));
+        // 23:30 UTC is already Friday 16 Jan 00:30 in CET: the local day decides, not UTC.
+        assert_eq!(at(THU_2330 + 60_000), "Verificato · Ultima attività 00:30 · ABCDEF");
+        assert_eq!(at(THU_2330 + 3 * DAY), "Verificato · Ultima attività venerdì · ABCDEF");
+        assert_eq!(at(THU_2330 + 30 * DAY), "Verificato · Ultima attività 16 gen · ABCDEF");
+    }
+
+    #[test]
+    fn delete_acts_on_the_active_account_only() {
+        use matrix_engine::verification::DeviceDeleteError;
+        let (a, b) = (AccountId::new(1), AccountId::new(2));
+        let mut v = DeviceVerification::new(a);
+        let list = |acc, id: &str| VerificationEvent::Devices { account_id: acc, devices: vec![{ let mut d = dev(Some("X"), true, None, None); d.device_id = id.into(); d }] };
+        v.apply(list(b, "OTHERACC"));
+        assert!(v.devices().is_empty(), "another account's list is ignored");
+        v.apply(list(a, "MINE"));
+        assert!(v.open_delete(0) && v.submit_delete(zeroize::Zeroizing::new("pw".into())));
+        match v.pending.take() {
+            Some(VerificationCommand::DeleteDevice { account_id, device_id, .. }) => assert_eq!((account_id, device_id.as_str()), (a, "MINE")),
+            _ => panic!("expected DeleteDevice"),
+        }
+        // A failure reported for another account or another device leaves this dialog untouched.
+        v.apply(VerificationEvent::DeviceDeleteFailed { account_id: b, device_id: "MINE".into(), error: DeviceDeleteError::WrongPassword });
+        v.apply(VerificationEvent::DeviceDeleteFailed { account_id: a, device_id: "ELSE".into(), error: DeviceDeleteError::WrongPassword });
+        assert_eq!(v.delete_dialog().unwrap().error, None);
+        // Every error text is a single line; empty password and a second submit are refused.
+        for e in [DeviceDeleteError::WrongPassword, DeviceDeleteError::Unavailable, DeviceDeleteError::Transport, DeviceDeleteError::Rejected] {
+            v.apply(VerificationEvent::DeviceDeleteFailed { account_id: a, device_id: "MINE".into(), error: e });
+            let text = v.delete_dialog().unwrap().error.unwrap();
+            assert!(!text.contains('\n') && !text.is_empty(), "{text:?}");
+        }
+        assert!(!v.submit_delete(zeroize::Zeroizing::new(String::new())), "empty password");
+        assert!(v.submit_delete(zeroize::Zeroizing::new("x".into())));
+        assert!(!v.submit_delete(zeroize::Zeroizing::new("x".into())), "no double submit while busy");
+    }
+
+    #[test]
     fn own_device_comes_from_its_own_event() {
         let mut v = DeviceVerification::new(AccountId::new(1));
         let ev = |n| VerificationEvent::OwnDevice { account_id: AccountId::new(n), device: dev(None, true, None, None) };
