@@ -2072,9 +2072,18 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 open!(Some(343));
                 shot(&format!("s10-{label}-top"));
                 let (a0, amax, ta0, _) = state!();
-                wheel!(ox + w - 150, oy + 60, 6, 3); // over the info block
+                wheel!(ox + w - 150, oy + 150, 6, 3); // over the info block (below the 420 px header)
                 shot(&format!("s10-{label}-after-wheel-on-info"));
                 let (a1, _, ta1, _) = state!();
+                let (list_h, info_off, info_max) = this.update_in(cx, |this, _, _| {
+                    let i = this.info_scroll.0.borrow().base_handle.clone();
+                    let l = this.members_scroll.0.borrow().base_handle.clone();
+                    (f32::from(l.bounds().size.height), f32::from(i.offset().y), f32::from(i.max_offset().height))
+                }).unwrap();
+                println!("INFO S10-{label} member list viewport {list_h:.0}px, info offset {info_off:.0} (max {info_max:.0})");
+                check!(list_h >= 130., "S10-{label}: member list keeps >= 3 rows ({list_h:.0}px)");
+                check!(h >= 600 || (info_max > 0. && info_off < 0.), "S10-{label}: info block scrolls by wheel (offset {info_off:.0}, max {info_max:.0})");
+                check!(h >= 600 || this.update_in(cx, |this, _, _| this.info_scrollbar.thumb_centre().is_some()).unwrap(), "S10-{label}: info block shows its scrollbar thumb");
                 wheel!(ox + w - 150, oy + h - 25, 6, 3); // over the member list (bottom edge of the window)
                 let (a2, _, ta2, _) = state!();
                 shot(&format!("s10-{label}-after-wheel-on-list"));
