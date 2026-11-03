@@ -11,6 +11,7 @@ use matrix_domain::AccountId;
 include!("lifecycle_tests.rs");
 include!("encryption_tests.rs");
 include!("verification_tests.rs");
+include!("device_delete_tests.rs");
 include!("recovery_tests.rs");
 include!("media_tests.rs");
 include!("room_tags_tests.rs");

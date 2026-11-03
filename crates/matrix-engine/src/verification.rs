@@ -14,6 +14,36 @@ pub enum VerificationError {
     TooManyDevices,
 }
 
+/// Why a remote device could not be signed out. One-line user messages live in the UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceDeleteError {
+    /// This session: use logout instead.
+    CurrentDevice,
+    InvalidTarget,
+    LoggedOut,
+    /// Server offers no m.login.password flow (SSO/OIDC): "Non disponibile con questo account".
+    Unavailable,
+    WrongPassword,
+    Rejected,
+    Transport,
+}
+
+/// Password typed by the user for one call. Wiped on drop; Debug never prints it.
+#[cfg(feature = "sdk")]
+pub struct DevicePassword(zeroize::Zeroizing<String>);
+#[cfg(feature = "sdk")]
+impl DevicePassword {
+    pub fn new(password: String) -> Self {
+        Self(zeroize::Zeroizing::new(password))
+    }
+}
+#[cfg(feature = "sdk")]
+impl std::fmt::Debug for DevicePassword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DevicePassword(..)")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerificationAction {
     Accept,
@@ -90,6 +120,13 @@ pub enum VerificationCommand {
         target: VerificationTarget,
         action: VerificationAction,
     },
+    /// Sign out another device (UIA password). On success a fresh `Devices` event follows.
+    #[cfg(feature = "sdk")]
+    DeleteDevice {
+        account_id: AccountId,
+        device_id: String,
+        password: DevicePassword,
+    },
 }
 pub enum VerificationEvent {
     /// Own identity as the SDK reports it (display name is the account's profile name, if set).
@@ -106,6 +143,11 @@ pub enum VerificationEvent {
     Error {
         account_id: AccountId,
         error: VerificationError,
+    },
+    DeviceDeleteFailed {
+        account_id: AccountId,
+        device_id: String,
+        error: DeviceDeleteError,
     },
 }
 #[cfg(feature = "sdk")]
