@@ -30,7 +30,16 @@ pub fn device_label(d: &matrix_engine::verification::VerificationDevice) -> Stri
     format!("{} · {}", device_title(d), device_detail(d, crate::time_fmt::day_or_time))
 }
 
+/// Open «Disconnetti» confirmation: the device to sign out and the one-line outcome of the last try.
+pub struct DeleteDialog {
+    pub device_id: String,
+    pub name: String,
+    pub busy: bool,
+    pub error: Option<&'static str>,
+}
+
 pub struct DeviceVerification {
+    delete: Option<DeleteDialog>,
     account: AccountId,
     snapshot: Option<VerificationSnapshot>,
     pending: Option<VerificationCommand>,
@@ -45,6 +54,7 @@ pub struct DeviceVerification {
 impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
         Self {
+            delete: None,
             account,
             snapshot: None,
             pending: None,
@@ -75,6 +85,41 @@ impl DeviceVerification {
     }
     pub fn devices(&self) -> &[matrix_engine::verification::VerificationDevice] {
         &self.devices
+    }
+    pub fn delete_dialog(&self) -> Option<&DeleteDialog> {
+        self.delete.as_ref()
+    }
+    /// Opens the confirmation for `devices()[index]`; never for this session's own device.
+    pub fn open_delete(&mut self, index: usize) -> bool {
+        let Some(d) = self.devices.get(index) else { return false };
+        if self.own_device.as_deref() == Some(&d.device_id) || self.delete.is_some() {
+            return false;
+        }
+        self.delete = Some(DeleteDialog {
+            device_id: d.device_id.clone(),
+            name: device_title(d).to_owned(),
+            busy: false,
+            error: None,
+        });
+        true
+    }
+    pub fn cancel_delete(&mut self) {
+        self.delete = None;
+    }
+    /// Queues the sign-out with the password typed now; the password lives only in the command.
+    pub fn submit_delete(&mut self, mut password: zeroize::Zeroizing<String>) -> bool {
+        let Some(dialog) = self.delete.as_mut().filter(|d| !d.busy) else { return false };
+        if password.is_empty() || self.pending.is_some() {
+            return false;
+        }
+        dialog.busy = true;
+        dialog.error = None;
+        self.pending = Some(VerificationCommand::DeleteDevice {
+            account_id: self.account,
+            device_id: dialog.device_id.clone(),
+            password: matrix_engine::verification::DevicePassword::new(std::mem::take(&mut *password)),
+        });
+        true
     }
     pub fn can_begin(&self) -> bool {
         self.pending.is_none()
@@ -129,7 +174,26 @@ impl DeviceVerification {
             VerificationEvent::Devices {
                 account_id,
                 devices,
-            } if account_id == self.account => self.devices = devices,
+            } if account_id == self.account => {
+                // The engine sends a fresh list only after a successful sign-out.
+                if self.delete.as_ref().is_some_and(|d| d.busy && !devices.iter().any(|x| x.device_id == d.device_id)) {
+                    self.delete = None;
+                }
+                self.devices = devices
+            }
+            VerificationEvent::DeviceDeleteFailed { account_id, device_id, error }
+                if account_id == self.account =>
+            {
+                use matrix_engine::verification::DeviceDeleteError::*;
+                if let Some(d) = self.delete.as_mut().filter(|d| d.device_id == device_id) {
+                    d.busy = false;
+                    d.error = Some(match error {
+                        Unavailable => "Non disponibile con questo account",
+                        WrongPassword => "Password non corretta",
+                        _ => "Non riuscito. Riprova.",
+                    });
+                }
+            }
             VerificationEvent::OwnDevice { account_id, device } if account_id == self.account => {
                 self.own = Some(device)
             }
@@ -137,6 +201,7 @@ impl DeviceVerification {
                 self.failed = true;
                 self.pending = None;
                 self.deciding = false;
+                self.delete = None;
             }
             _ => (),
         }
@@ -305,6 +370,44 @@ mod profile_tests {
         assert_eq!(device_label(&dev(None, true, None, None)), "ABCDEF · Verificato");
         let l = device_label(&dev(Some("Mac"), false, Some(1), Some("203.0.113.1")));
         assert!(l.starts_with("Mac · Non verificato · Ultima attività ") && l.ends_with(" · 203.0.113.1 · ABCDEF"), "{l}");
+    }
+
+    #[test]
+    fn delete_flow_outcomes() {
+        use matrix_engine::verification::DeviceDeleteError;
+        let a = AccountId::new(1);
+        let mut v = DeviceVerification::new(a);
+        let list = |ids: &[&str]| VerificationEvent::Devices {
+            account_id: a,
+            devices: ids.iter().map(|i| { let mut d = dev(Some("Vecchio"), true, None, None); d.device_id = (*i).into(); d }).collect(),
+        };
+        v.apply(VerificationEvent::Profile { account_id: a, user_id: "@a:x".into(), display_name: None, device_id: Some("OWN".into()), avatar: None });
+        v.apply(list(&["OWN", "OLD"]));
+        assert!(!v.open_delete(0), "never the current device");
+        assert!(v.open_delete(1));
+        assert_eq!(v.delete_dialog().unwrap().name, "Vecchio");
+        let pw = || zeroize::Zeroizing::new("pw".to_owned());
+        // wrong password: one line, dialog stays, retry possible
+        assert!(v.submit_delete(pw()));
+        assert!(matches!(v.pending, Some(VerificationCommand::DeleteDevice { .. })));
+        v.pending = None;
+        let fail = |error| VerificationEvent::DeviceDeleteFailed { account_id: a, device_id: "OLD".into(), error };
+        v.apply(fail(DeviceDeleteError::WrongPassword));
+        assert_eq!(v.delete_dialog().unwrap().error, Some("Password non corretta"));
+        v.apply(fail(DeviceDeleteError::Unavailable));
+        assert_eq!(v.delete_dialog().unwrap().error, Some("Non disponibile con questo account"));
+        // success: the refreshed list no longer has the device
+        assert!(v.submit_delete(pw()));
+        v.pending = None;
+        v.apply(list(&["OWN", "OLD"])); // unrelated refresh while busy keeps the dialog
+        assert!(v.delete_dialog().is_some());
+        v.apply(list(&["OWN"]));
+        assert!(v.delete_dialog().is_none());
+        // cancel
+        v.apply(list(&["OWN", "OLD"]));
+        assert!(v.open_delete(1));
+        v.cancel_delete();
+        assert!(v.delete_dialog().is_none());
     }
 
     #[test]

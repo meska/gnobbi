@@ -144,6 +144,7 @@ struct Shell {
     active_id: Option<AccountId>,
     verification: matrix_desktop::DeviceVerification,
     verification_open: bool,
+    delete_field: Option<gpui::Entity<login_field::LoginField>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     device_focus: matrix_desktop::accessibility::devices::DeviceControl,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -696,6 +697,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let key = &event.keystroke;
+        // Device sign-out dialog is modal: its field and buttons get the keys.
+        if self.verification_open && self.verification.delete_dialog().is_some() {
+            return;
+        }
         if let Some(timeline) = &self.timeline
             && timeline.viewer_key(&key.key, window)
         {
@@ -2938,6 +2943,7 @@ fn main() {
                         active_id,
                         verification: matrix_desktop::DeviceVerification::new(account_id),
                         verification_open: false,
+                        delete_field: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         device_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

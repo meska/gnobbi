@@ -30,15 +30,12 @@ pub enum DeviceDeleteError {
 }
 
 /// Password typed by the user for one call. Wiped on drop; Debug never prints it.
-#[cfg(feature = "sdk")]
 pub struct DevicePassword(zeroize::Zeroizing<String>);
-#[cfg(feature = "sdk")]
 impl DevicePassword {
     pub fn new(password: String) -> Self {
         Self(zeroize::Zeroizing::new(password))
     }
 }
-#[cfg(feature = "sdk")]
 impl std::fmt::Debug for DevicePassword {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("DevicePassword(..)")
@@ -139,7 +136,6 @@ pub enum VerificationCommand {
         display_name: String,
     },
     /// Sign out another device (UIA password). On success a fresh `Devices` event follows.
-    #[cfg(feature = "sdk")]
     DeleteDevice {
         account_id: AccountId,
         device_id: String,
