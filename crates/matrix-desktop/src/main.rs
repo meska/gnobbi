@@ -2132,7 +2132,8 @@ impl Render for Shell {
                                 )
                                 .when(self.connected && self.sidebar.selected().is_some(), |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Info, window, cx))),
                         )
-                        .when(self.connected && matches!(self.history.status(), HistoryStatus::Loading | HistoryStatus::Failed), |d| d.child(div().id("load-server-history").relative().h(px(24.)).flex_shrink_0().px_6().flex().items_center().bg(rgb(t.surface)).text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer()
+                        // a11y: the strip is also the history Tab stop, so it must stay in the focus tree (a hairline when it has no text).
+                        .when(self.connected && (cfg!(all(feature = "linux-a11y", target_os = "linux")) || matches!(self.history.status(), HistoryStatus::Loading | HistoryStatus::Failed)), |d| d.child(div().id("load-server-history").relative().h(px(if self.history.status().strip_label().is_some() { 24. } else { 0. })).flex_shrink_0().px_6().flex().items_center().bg(rgb(t.surface)).text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer()
                             .map(|d| {
                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                 {
