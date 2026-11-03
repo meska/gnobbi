@@ -1320,20 +1320,8 @@ impl Render for ComposerView {
                                 .inset_0(),
                             ),
                     )
-                    .when(self.live && self.recorder.is_none(), |d| {
-                        d.child(icon_button("composer-emoji-toggle", Icon::Emoji, t, &self.icon_focus[0], icon_focus == Some(0), cx, |this, _, cx| {
-                            this.emoji_open = !this.emoji_open;
-                            this.emoji_selected = 0;
-                            cx.notify();
-                        }))
-                        .child(icon_button("composer-attach", Icon::Attach, t, &self.icon_focus[1], icon_focus == Some(1), cx, |this, _, cx| this.pick_file(cx)))
-                        .child(icon_button("composer-record", Icon::Voice, t, &self.icon_focus[2], icon_focus == Some(2), cx, |this, window, cx| {
-                            this.start_recording(cx);
-                            window.focus(&this.focus); // the icons leave the tree while recording
-                        }))
-                    })
                     .child(
-                        // Always laid out (32x32) so the icons never move; painted only when there is something to send.
+                        // Left of the icons and absent (display: none) when there is nothing to send: the icons stay flush right and never move.
                         div()
                             .id("composer-submit")
                             .child(probe("send"))
@@ -1346,7 +1334,7 @@ impl Render for ComposerView {
                             .justify_center()
                             .rounded_lg()
                             .flex_shrink_0()
-                            .when(!sendable, |d| d.invisible())
+                            .when(!sendable, |d| d.hidden())
                             .when(self.send_focus.is_focused(window), |d| {
                                 d.border_1().border_color(rgb(t.text))
                             })
@@ -1360,7 +1348,19 @@ impl Render for ComposerView {
                             })
                             // Demo: the arrow is muted so it reads as local-only; the a11y node says «demo».
                             .child(icon(Icon::Send, if self.live { t.accent } else { t.secondary })),
-                    ),
+                    )
+                    .when(self.live && self.recorder.is_none(), |d| {
+                        d.child(icon_button("composer-emoji-toggle", Icon::Emoji, t, &self.icon_focus[0], icon_focus == Some(0), cx, |this, _, cx| {
+                            this.emoji_open = !this.emoji_open;
+                            this.emoji_selected = 0;
+                            cx.notify();
+                        }))
+                        .child(icon_button("composer-attach", Icon::Attach, t, &self.icon_focus[1], icon_focus == Some(1), cx, |this, _, cx| this.pick_file(cx)))
+                        .child(icon_button("composer-record", Icon::Voice, t, &self.icon_focus[2], icon_focus == Some(2), cx, |this, window, cx| {
+                            this.start_recording(cx);
+                            window.focus(&this.focus); // the icons leave the tree while recording
+                        }))
+                    }),
             )
     }
 }
@@ -2490,7 +2490,7 @@ mod tests {
             let mid = centre(bar);
             let text = v.layout.as_ref().expect("text laid out").bounds();
             assert!((centre(text) - mid).abs() <= 1., "text centre {:?} vs bar {mid}", text);
-            let names = ["composer-emoji-toggle", "composer-attach", "composer-record", "send"];
+            let names = ["send", "composer-emoji-toggle", "composer-attach", "composer-record"];
             let mut left = text.right();
             for name in names {
                 let b = probed(name);
@@ -2501,6 +2501,40 @@ mod tests {
             }
             eprintln!("bar {bar:?} text {text:?}");
         });
+    }
+
+    /// Emoji, Attach, Voice form one block and end exactly at the bar's right padding edge (no space reserved for Send), whatever the text.
+    fn assert_icons_flush_right(v: &mut ComposerView) {
+        let bar = probed("bar");
+        let (e, a, r) = (probed("composer-emoji-toggle"), probed("composer-attach"), probed("composer-record"));
+        let d = |x: Pixels, y: Pixels| (f32::from(x) - f32::from(y)).abs();
+        // The probe spans the bar's padding box; px_6 leaves 24 px on the right.
+        assert!(d(r.right(), bar.right() - px(24.)) <= 1., "Voice {r:?} vs bar {bar:?}");
+        // Same gap between the three, so they form one block ending at the edge.
+        assert!(d(a.left() - e.right(), r.left() - a.right()) <= 1., "uneven gaps: {e:?} {a:?} {r:?}");
+        let _ = v;
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn icons_flush_right_with_no_text() {
+        rendered_composer("", |v, _, _| assert_icons_flush_right(v));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn icons_flush_right_with_text_and_send() {
+        rendered_composer("una riga", |v, _, _| {
+            assert_icons_flush_right(v);
+            let (s, e) = (probed("send"), probed("composer-emoji-toggle"));
+            assert!(s.right() <= e.left(), "Send {s:?} sits left of the icons");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn icons_flush_right_with_many_lines() {
+        rendered_composer("uno\ndue\ntre\nquattro\ncinque", |v, _, _| assert_icons_flush_right(v));
     }
 
     #[test]
