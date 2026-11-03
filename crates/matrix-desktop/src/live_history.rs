@@ -137,6 +137,9 @@ impl HistorySession {
     pub fn activity(&mut self, scope: &RoomScope) {
         if self.scope.as_ref() == Some(scope) {
             self.dirty = true;
+            // The Timeline applies a sync batch in its own task: a read right now can still hold the
+            // old body of a redacted/edited row, and nothing else would announce it again.
+            self.settle_soon();
         }
     }
 

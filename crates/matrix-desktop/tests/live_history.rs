@@ -764,7 +764,7 @@ fn a_room_with_threads_is_read_once_more_after_new_rows() {
     assert!(view.refresh().is_none(), "not before the delay");
     std::thread::sleep(matrix_desktop::SETTLE);
     assert!(view.refresh().is_some(), "the summary may have moved after the reply row");
-    // A room without threads asks for nothing more.
+    // A room without threads is read once more after activity (the Timeline may lag), then rests.
     let mut plain = HistorySession::new();
     let initial = plain.select(Some(room.clone())).unwrap();
     plain.apply(page(&initial, &["$a"], None));
@@ -772,5 +772,8 @@ fn a_room_with_threads_is_read_once_more_after_new_rows() {
     let refresh = plain.refresh().unwrap();
     plain.apply_live(page(&refresh, &["$a", "$b"], None)).unwrap();
     std::thread::sleep(matrix_desktop::SETTLE);
-    assert!(plain.refresh().is_none());
+    let refresh = plain.refresh().expect("a redaction the Timeline applied late must be read");
+    assert!(plain.apply_live(page(&refresh, &["$a", "$b"], None)).unwrap().is_empty());
+    std::thread::sleep(matrix_desktop::SETTLE);
+    assert!(plain.refresh().is_none(), "the settle read does not re-arm itself");
 }
