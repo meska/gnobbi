@@ -2205,10 +2205,9 @@ fn main() {
             .ok()
             .and_then(|path| path.to_str().map(str::to_owned));
         let home = std::env::var("HOME").ok();
-        let bundled = exe
-            .as_deref()
-            .and_then(|exe| matrix_desktop::bundle_launch_args(exe, home.as_deref(), &args));
-        bundled.unwrap_or(args)
+        exe.as_deref()
+            .and_then(|exe| matrix_desktop::bundle_launch_args(exe, home.as_deref(), &args))
+            .unwrap_or(args)
     };
     // Without `live` there is no connected sign-in to open: the bare launch stays the offline fixture.
     // Windows tester builds launch like Linux: a double-click opens the sign-in, not the offline demo.
@@ -2218,43 +2217,6 @@ fn main() {
         not(test)
     ))]
     let args = matrix_desktop::linux_launch_args(&args);
-    #[cfg(feature = "live")]
-    let legacy_offer = (args.first().is_some_and(|a| a == "--signin")
-        && args.get(1).is_none_or(|a| a == "--ca-file"))
-    .then(|| {
-        let dirs =
-            matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
-        let legacy = matrix_desktop::legacy_profile::legacy_path(std::path::Path::new(
-            &std::env::var("HOME").ok()?,
-        ));
-        let renamed = matrix_desktop::legacy_profile::renamed_path(&dirs.data);
-        [Some(legacy), renamed]
-            .into_iter()
-            .flatten()
-            .find(|old| matrix_desktop::legacy_profile::offered(old, &dirs.data))
-            .map(|old| (old, dirs.data))
-    })
-    .flatten();
-    // Old profile folders whose vault keys may still be saved under the previous app name.
-    #[cfg(feature = "live")]
-    let vault_candidates = (args.first().is_some_and(|a| a == "--signin")
-        && args.get(1).is_none_or(|a| a == "--ca-file"))
-    .then(|| {
-        let dirs =
-            matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok())?;
-        let home = std::env::var("HOME").ok()?;
-        let old = [
-            Some(matrix_desktop::legacy_profile::legacy_path(
-                std::path::Path::new(&home),
-            )),
-            matrix_desktop::legacy_profile::renamed_path(&dirs.data),
-        ];
-        Some((
-            old.into_iter().flatten().collect::<Vec<_>>(),
-            dirs.data.join("profile"),
-        ))
-    })
-    .flatten();
     let args = match matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| {
         std::env::var(k).ok()
     }) {
@@ -2456,9 +2418,7 @@ fn main() {
                     search_focus.focus(window);
                     #[cfg(feature = "live")]
                     let signin = signin_ui.take().map(|route| cx.new(|cx| {
-                        let mut view = signin_view::SignInView::new(route, cx).with_vault(signin_vault).with_legacy(legacy_offer.clone());
-                        if let Some((candidates, profile)) = &vault_candidates { view.check_vault_copy(candidates.clone(), profile.clone(), cx); }
-                        view
+                        signin_view::SignInView::new(route, cx).with_vault(signin_vault)
                     }));
                     #[cfg(feature = "live")]
                     if let Some(signin) = &signin {

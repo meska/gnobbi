@@ -34,12 +34,10 @@ fn restore_arguments_are_explicit_and_never_contain_passphrases() {
 #[test]
 fn bundle_launch_without_arguments_opens_connected_sign_in_in_the_app_profile() {
     use matrix_desktop::bundle_launch_args;
-    let exe = "/Applications/Dime.app/Contents/MacOS/Dime";
+    let exe = "/Applications/Gnobbi.app/Contents/MacOS/Gnobbi";
     let home = Some("/Users/x/Library/Containers/net.meskatech.dime/Data");
-    let args = bundle_launch_args(exe, home, &[]).unwrap();
-    // No path: `default_signin_args` adds `<data>/profile`, the folder the catalog lists
-    // (a path under the old `Dime` folder was never in the catalog, so the drawer had no active account).
-    assert_eq!(args, ["--signin"]);
+    // No path: `default_signin_args` adds `<data>/profile`, the folder the catalog lists.
+    assert_eq!(bundle_launch_args(exe, home, &[]).unwrap(), ["--signin"]);
     // Explicit arguments always win; a bare binary (tests, demo) stays offline.
     let given = vec!["--signin".to_owned(), "/p".to_owned()];
     assert!(bundle_launch_args(exe, home, &given).is_none());
@@ -53,9 +51,9 @@ fn bundle_launch_without_arguments_opens_connected_sign_in_in_the_app_profile() 
 fn bundle_profile_directory_is_created_private() {
     use std::os::unix::fs::PermissionsExt;
     let base = std::env::temp_dir().join(format!("dime-profile-test-{}", std::process::id()));
-    let profile = base.join("Library/Application Support/Dime/profile");
+    let profile = base.join("Library/Application Support/Gnobbi/profile");
     matrix_desktop::create_private_dir(&profile).unwrap();
-    for dir in [&profile, &base.join("Library/Application Support/Dime")] {
+    for dir in [&profile, &base.join("Library/Application Support/Gnobbi")] {
         assert_eq!(
             std::fs::metadata(dir).unwrap().permissions().mode() & 0o777,
             0o700
