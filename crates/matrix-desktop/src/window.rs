@@ -57,6 +57,19 @@ pub fn window_options() -> WindowOptions {
     }
 }
 
+/// gpui 0.2.2 (still so on zed main) sizes the Metal drawable at window creation with the
+/// fallback scale 2.0 (window has no screen yet). On a 1x display no backing-properties
+/// event follows, so the UI is drawn at half size in the top-left corner until the first
+/// real resize. Two resizes make gpui recompute the drawable with the real scale.
+/// shortcut: drop when gpui fixes `get_scale_factor`/initial drawable size upstream.
+pub fn refresh_drawable(window: &mut gpui::Window) {
+    if cfg!(target_os = "macos") && window.scale_factor() == 1.0 {
+        let size = window.viewport_size();
+        window.resize(size + gpui::size(gpui::px(1.), gpui::px(1.)));
+        window.resize(size);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

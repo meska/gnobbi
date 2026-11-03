@@ -2435,6 +2435,7 @@ fn main() {
                 ..matrix_desktop::window::window_options()
             },
             |window, cx| {
+                matrix_desktop::window::refresh_drawable(window);
                 cx.new(|cx| {
                     let search_focus = cx.focus_handle();
                     let unread_focus = cx.focus_handle();
