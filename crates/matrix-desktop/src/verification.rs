@@ -59,6 +59,7 @@ pub struct DeviceVerification {
     profile_avatar: Option<String>,
     /// Key recovery complete (backup on, cross-signing keys held); None until the engine says.
     keys_complete: Option<bool>,
+    #[cfg(feature = "live")]
     key_recovery: Option<matrix_engine::signin::RecoveryState>,
 }
 impl DeviceVerification {
@@ -77,6 +78,7 @@ impl DeviceVerification {
             own: None,
             profile_avatar: None,
             keys_complete: None,
+            #[cfg(feature = "live")]
             key_recovery: None,
         }
     }
@@ -166,14 +168,17 @@ impl DeviceVerification {
     pub fn offers_recover_keys(&self, utd: bool) -> bool {
         utd && self.keys_complete == Some(false)
     }
+    #[cfg(feature = "live")]
     /// State of the last «Recupera chiavi» attempt, for the key field.
     pub fn key_recovery(&self) -> Option<matrix_engine::signin::RecoveryState> {
         self.key_recovery
     }
+    #[cfg(feature = "live")]
     /// One-line failure shown by the key field: the same wording as the sign-in step.
     pub fn key_recovery_message(&self) -> Option<&'static str> {
         self.key_recovery.and_then(crate::signin_form::recovery_message)
     }
+    #[cfg(feature = "live")]
     /// Queues the recovery with the key typed now; the key lives only in the command (same checks as sign-in).
     pub fn recover_keys(&mut self, mut key: zeroize::Zeroizing<String>) -> bool {
         use matrix_engine::signin::{RecoveryFailure, RecoveryState, Secret};
@@ -283,11 +288,13 @@ impl DeviceVerification {
                     _ => "Non riuscito. Riprova.",
                 });
             }
+            #[cfg(feature = "live")]
             VerificationEvent::KeysRecovery { account_id, state } if account_id == self.account => {
                 self.key_recovery = Some(state);
             }
             VerificationEvent::KeysComplete { account_id, complete } if account_id == self.account => {
                 self.keys_complete = Some(complete);
+                #[cfg(feature = "live")]
                 if complete {
                     self.key_recovery = None;
                 }
@@ -609,6 +616,7 @@ mod profile_tests {
 #[cfg(test)]
 mod key_recovery_tests {
     use super::*;
+    #[cfg(feature = "live")]
     use matrix_engine::signin::{RecoveryFailure, RecoveryState};
 
     fn complete(account: u64, complete: bool) -> VerificationEvent {
@@ -628,6 +636,7 @@ mod key_recovery_tests {
         assert!(!v.offers_recover_keys(true), "gone everywhere once complete");
     }
 
+    #[cfg(feature = "live")]
     #[test]
     fn key_goes_into_one_command_and_failures_use_the_sign_in_wording() {
         let mut v = DeviceVerification::new(AccountId::new(1));

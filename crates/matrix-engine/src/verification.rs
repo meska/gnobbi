@@ -139,6 +139,7 @@ pub enum VerificationCommand {
     },
     /// «Recupera chiavi» after sign-in: the recovery key is consumed by this one call. The answer is
     /// `KeysRecovery` events (same states and failures as the sign-in step).
+    #[cfg(feature = "sdk")]
     RecoverKeys {
         account_id: AccountId,
         key: crate::signin::Secret,
@@ -172,6 +173,7 @@ pub enum VerificationEvent {
     },
     Snapshot(VerificationSnapshot),
     /// Progress of a `RecoverKeys` command.
+    #[cfg(feature = "sdk")]
     KeysRecovery {
         account_id: AccountId,
         state: crate::signin::RecoveryState,
