@@ -70,6 +70,7 @@ fn edit_step(at: EditFocus, open: bool, key: &str, shift: bool) -> Option<(EditF
         (EditFocus::Button, "tab") if shift => Some((EditFocus::Rail, open)),
         (EditFocus::Button, "tab") => Some((EditFocus::List, open)),
         (EditFocus::Button | EditFocus::Panel, "escape") => Some((EditFocus::Button, false)),
+        (EditFocus::List, "escape") if open => Some((EditFocus::Button, false)),
         (EditFocus::Panel, "tab") => Some((EditFocus::Panel, true)), // empty panel: nothing to tab to
         _ => None,
     }
@@ -85,6 +86,8 @@ pub(crate) struct RailUi {
     pub(crate) target: Option<RoomScope>,
     scroll: gpui::ScrollHandle,
     pub(crate) edit_scroll: gpui::ScrollHandle,
+    /// Current drag auto-scroll step (0 = none) and whether the ticking loop runs.
+    edge: std::rc::Rc<(std::cell::Cell<f32>, std::cell::Cell<bool>)>,
     anchors: std::cell::RefCell<HashMap<Option<RoomScope>, gpui::ScrollAnchor>>,
 }
 impl RailUi {
@@ -99,6 +102,7 @@ impl RailUi {
             target: None,
             scroll: gpui::ScrollHandle::new(),
             edit_scroll: gpui::ScrollHandle::new(),
+            edge: Default::default(),
             anchors: Default::default(),
         }
     }
@@ -147,6 +151,29 @@ impl Render for RailDrag {
             .text_color(rgb(t.text))
             .text_size(px(14.))
             .child(self.name.clone())
+    }
+}
+
+/// Closes the edit drawer and hands focus back to «Modifica»; edits are already saved per action.
+fn close_edit(cx: &Context<Shell>) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static {
+    cx.listener(|this, _, window, cx| {
+        this.rail_ui.edit_open = false;
+        this.rail_ui.edit_focus.focus(window);
+        cx.notify();
+    })
+}
+
+const AUTOSCROLL_ZONE: f32 = 40.;
+const AUTOSCROLL_STEP: f32 = 8.; // per 16 ms tick
+
+/// Scroll step for a drag at `y` in a list spanning `top..bottom`: positive scrolls up, negative down, 0 = not in an edge zone.
+fn autoscroll_step(y: f32, top: f32, bottom: f32) -> f32 {
+    if y < top + AUTOSCROLL_ZONE {
+        AUTOSCROLL_STEP
+    } else if y > bottom - AUTOSCROLL_ZONE {
+        -AUTOSCROLL_STEP
+    } else {
+        0.
     }
 }
 
@@ -299,6 +326,8 @@ impl Shell {
             Some(EditFocus::Button)
         } else if self.rail_ui.edit_panel_focus.is_focused(window) {
             Some(EditFocus::Panel)
+        } else if self.rail_ui.edit_open && self.first_list_stop().is_focused(window) {
+            Some(EditFocus::List)
         } else {
             None
         };
@@ -651,51 +680,67 @@ impl Shell {
         let action = |id: (&'static str, usize), label: &'static str, color: u32| {
             div().id(id).px_2().py_1().rounded_md().text_size(px(12.)).text_color(rgb(color)).cursor_pointer().child(label)
         };
-        div()
+        let header_button = |id: &'static str, label: &'static str| {
+            div().id(id).px_2().py_1().rounded_md().cursor_pointer().text_size(px(14.)).text_color(rgb(t.accent)).child(label)
+        };
+        let edge = self.rail_ui.edge.clone();
+        let scroll = self.rail_ui.edit_scroll.clone();
+        let panel = div()
             .id("rail-edit-panel")
             .track_focus(&self.rail_ui.edit_panel_focus)
-            .absolute()
-            .left(px(72.))
-            .top_0()
-            .bottom_0()
-            .w(window.viewport_size().width.min(px(320.)))
-            .bg(rgb(t.surface))
-            .border_r_1()
-            .border_color(rgb(if focused { t.accent } else { t.border }))
-            .flex()
-            .flex_col()
-            .overflow_y_scroll()
-            .track_scroll(&self.rail_ui.edit_scroll)
-            // shortcut: gpui has no drag auto-scroll; the list scrolls only while the pointer moves in the edge zone.
-            .on_drag_move::<RailDrag>({
-                let scroll = self.rail_ui.edit_scroll.clone();
-                move |e, window, _| {
-                    let (top, bottom) = (e.bounds.top(), e.bounds.bottom());
-                    let y = e.event.position.y;
-                    let step = if y < top + px(40.) { px(14.) } else if y > bottom - px(40.) { px(-14.) } else { return };
-                    let mut at = scroll.offset();
-                    at.y = (at.y + step).clamp(-scroll.max_offset().height, px(0.));
-                    scroll.set_offset(at);
-                    window.refresh();
-                }
-            })
             .child(
                 div()
-                    .id("rail-edit-groups")
-                    .h(px(44.))
+                    .id("rail-edit-header")
+                    .h(px(56.))
                     .flex_shrink_0()
                     .px_3()
                     .flex()
                     .items_center()
-                    .cursor_pointer()
-                    .text_size(px(14.))
-                    .text_color(rgb(t.accent))
-                    .child("Gruppi")
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.rail_ui.edit_open = false;
+                    .gap_1()
+                    .border_b_1()
+                    .border_color(rgb(t.border))
+                    .child(div().flex_1().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child("Gruppi"))
+                    .child(header_button("rail-edit-groups", "Crea").on_click(cx.listener(|this, _, window, cx| {
                         this.open_groups_edit(window, cx);
-                    })),
+                    })))
+                    .child(header_button("rail-edit-close", "Chiudi").on_click(close_edit(cx))),
             )
+            .child(
+                div()
+                    .id("rail-edit-list")
+                    .flex_1()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.rail_ui.edit_scroll)
+                    // gpui has no drag auto-scroll: remember the zone and tick while the drag lasts, so a still pointer keeps scrolling.
+                    .on_drag_move::<RailDrag>(move |e, window, cx| {
+                        let step = autoscroll_step(f32::from(e.event.position.y), f32::from(e.bounds.top()), f32::from(e.bounds.bottom()));
+                        edge.0.set(step);
+                        if step == 0. || edge.1.replace(true) {
+                            return;
+                        }
+                        let (edge, scroll) = (edge.clone(), scroll.clone());
+                        window
+                            .spawn(cx, async move |cx| {
+                                loop {
+                                    cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
+                                    let step = edge.0.get();
+                                    if step == 0. || !cx.update(|_, cx| cx.has_active_drag()).unwrap_or(false) {
+                                        break;
+                                    }
+                                    let mut at = scroll.offset();
+                                    at.y = (at.y + px(step)).clamp(-scroll.max_offset().height, px(0.));
+                                    scroll.set_offset(at);
+                                    if cx.update(|window, _| window.refresh()).is_err() {
+                                        break;
+                                    }
+                                }
+                                edge.1.set(false);
+                            })
+                            .detach();
+                    })
             .children(spaces.iter().enumerate().map(|(row, (entry, hidden))| {
                 let hidden = *hidden;
                 let on = focused && row == cursor;
@@ -736,7 +781,8 @@ impl Shell {
             }))
             // Below the last row: drop here = move to the end.
             .child(insertion_slot(div().id("rail-edit-slot-end").flex_1().min_h(px(44.)).border_t_2(), spaces.len(), t.accent, cx))
-            .into_any_element()
+            );
+        crate::menu_view::drawer_shell("rail-edit-scrim", panel, t, close_edit(cx)).into_any_element()
     }
 }
 
@@ -751,6 +797,16 @@ mod edit_focus_tests {
         assert_eq!(edit_step(Panel, true, "escape", false), Some((Button, false)));
         assert_eq!(edit_step(Button, true, "enter", false), Some((Button, false)));
         assert_eq!(edit_step(Button, true, "escape", false), Some((Button, false)));
+        assert_eq!(edit_step(List, true, "escape", false), Some((Button, false)));
+        assert_eq!(edit_step(List, false, "escape", false), None);
+    }
+
+    #[test]
+    fn autoscroll_zones() {
+        use super::autoscroll_step;
+        assert!(autoscroll_step(110., 100., 500.) > 0.);
+        assert!(autoscroll_step(490., 100., 500.) < 0.);
+        assert_eq!(autoscroll_step(300., 100., 500.), 0.);
     }
 
     #[test]

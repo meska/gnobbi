@@ -3,6 +3,34 @@
 use crate::*;
 
 pub(crate) const DRAWER_WIDTH: f32 = 280.;
+
+/// Full-window scrim (click = `on_close`) holding `panel` as a left drawer that slides in; shared by the menu and the rail editor.
+pub(crate) fn drawer_shell(
+    scrim_id: &'static str,
+    panel: gpui::Stateful<gpui::Div>,
+    t: matrix_desktop::DesignTokens,
+    on_close: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::Stateful<gpui::Div> {
+    use gpui::{Animation, AnimationExt};
+    div().id(scrim_id).occlude().absolute().inset_0().bg(gpui::rgba(matrix_desktop::SCRIM)).on_click(on_close).child(
+        panel
+            .absolute()
+            .top_0()
+            .bottom_0()
+            .flex()
+            .flex_col()
+            .w(px(DRAWER_WIDTH))
+            .bg(rgb(t.surface))
+            .border_r_1()
+            .border_color(rgb(t.border))
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .with_animation(
+                "drawer-slide",
+                Animation::new(std::time::Duration::from_millis(140)),
+                |d, delta| d.left(px(-DRAWER_WIDTH * (1. - delta))),
+            ),
+    )
+}
 /// Settings, Devices, Notifications, Add account, New chat, New room (after the account rows).
 pub(crate) const DRAWER_ROWS: usize = 7;
 
@@ -311,59 +339,35 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        use gpui::{Animation, AnimationExt};
-        div()
-            .id("menu-scrim")
-            .absolute()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .top_0()
-            .bg(gpui::rgba(matrix_desktop::SCRIM))
-            .on_click(cx.listener(|this, _, window, cx| this.set_menu_open(false, window, cx)))
-            .child(
-                div()
-                    .id("menu-drawer")
-                    .track_focus(&self.drawer_focus)
-                    .children({
-                        #[cfg(test)]
-                        {
-                            crate::sidebar_navigation_test::observe("menu-drawer".into())
-                        }
-                        #[cfg(not(test))]
-                        {
-                            None::<gpui::AnyElement>
-                        }
-                    })
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .flex()
-                    .flex_col()
-                    .w(px(DRAWER_WIDTH))
-                    .bg(rgb(t.surface))
-                    .border_r_1()
-                    .border_color(rgb(t.border))
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .when(!self.settings_open, |d| {
-                        d.children(self.render_drawer_header(t))
-                    })
-                    // Scrolls so that Settings stays reachable on short windows (150%); the footer stays put.
-                    .child(div().id("drawer-body").flex_1().min_h_0().overflow_y_scroll().child(self.render_drawer_body(t, window, cx)))
-                    .child(
-                        div()
-                            .px_4()
-                            .py_3()
-                            .text_size(px(12.))
-                            .text_color(rgb(t.secondary))
-                            .child(concat!("Gnobbi ", env!("CARGO_PKG_VERSION"))),
-                    )
-                    .with_animation(
-                        "menu-drawer-slide",
-                        Animation::new(std::time::Duration::from_millis(140)),
-                        |d, delta| d.left(px(-DRAWER_WIDTH * (1. - delta))),
-                    ),
-            )
+        drawer_shell(
+            "menu-scrim",
+            div()
+                .id("menu-drawer")
+                .track_focus(&self.drawer_focus)
+                .children({
+                    #[cfg(test)]
+                    {
+                        crate::sidebar_navigation_test::observe("menu-drawer".into())
+                    }
+                    #[cfg(not(test))]
+                    {
+                        None::<gpui::AnyElement>
+                    }
+                })
+                .when(!self.settings_open, |d| d.children(self.render_drawer_header(t)))
+                // Scrolls so that Settings stays reachable on short windows (150%); the footer stays put.
+                .child(div().id("drawer-body").flex_1().min_h_0().overflow_y_scroll().child(self.render_drawer_body(t, window, cx)))
+                .child(
+                    div()
+                        .px_4()
+                        .py_3()
+                        .text_size(px(12.))
+                        .text_color(rgb(t.secondary))
+                        .child(concat!("Gnobbi ", env!("CARGO_PKG_VERSION"))),
+                ),
+            t,
+            cx.listener(|this, _, window, cx| this.set_menu_open(false, window, cx)),
+        )
             .children(self.render_removal_dialog(t, cx))
             .into_any_element()
     }

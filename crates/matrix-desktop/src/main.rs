@@ -2145,7 +2145,7 @@ impl Render for Shell {
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
             .children(self.render_room_edit(t, window, cx))
-            .children(self.render_groups_edit(t, cx)))
+            .children(self.render_groups_edit(t, window, cx)))
             .into_any_element()
     }
 }

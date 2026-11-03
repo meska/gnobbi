@@ -15,8 +15,8 @@ use std::time::Duration;
 
 pub(crate) static ACTIVE: AtomicBool = AtomicBool::new(false);
 const ROWS: usize = 24;
-const X: i32 = 192; // inside the panel (left 72, width 320), clear of the Nascondi button
-const HEAD: f32 = 44.; // «Gruppi» row
+const X: i32 = 120; // inside the drawer (left 0, width 280), clear of the Nascondi button
+const HEAD: f32 = 56.; // fixed «Gruppi / Crea / Chiudi» header
 const SLOT: f32 = 46.; // 2 px line + 44 px row
 
 /// Pointer and keys through xdotool (X11) or, when WL_INPUT is set, a held-button RFB session to wayvnc + wtype.
@@ -77,6 +77,13 @@ impl Input {
         match self {
             Input::X(_) => drop(run("xdotool", &["key", &format!("alt+{key}")])),
             Input::Wl(..) => drop(run("wtype", &["-M", "alt", "-k", key, "-m", "alt"])),
+        }
+    }
+
+    fn key(&self, key: &str) {
+        match self {
+            Input::X(_) => drop(run("xdotool", &["key", key])),
+            Input::Wl(..) => drop(run("wtype", &["-k", key])),
         }
     }
 
@@ -240,8 +247,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         input.glide(&ex, (X, row_y(0)), (X, edge), 10).await;
         input.glide(&ex, (X, edge), (X, edge - 6), 12).await; // small moves inside the zone
         let moving = offset(cx);
+        pause(&ex, 600).await; // pointer still: the list must keep scrolling on its own
         input.shot(tag, "autoscroll-during");
-        pause(&ex, 600).await;
         let still = offset(cx);
         let note = format!("AUTOSCROLL after moving in the edge zone: {moving}; after 600 ms of a still pointer: {still}\n");
         eprint!("{note}");
@@ -249,6 +256,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::OpenOptions::new().create(true).append(true).open(format!("{dir}/{tag}-notes.txt")).unwrap().write_all(note.as_bytes()).unwrap();
         assert!(moving < 0., "moving in the bottom edge zone must scroll the list");
+        assert!(still < moving, "a still pointer in the edge zone keeps scrolling ({moving} -> {still})");
         let mid = (height / 2.) as i32;
         input.glide(&ex, (X, edge - 6), (X, mid), 8).await;
         let off = offset(cx);
@@ -259,6 +267,25 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         let got = get(cx);
         assert_eq!(got[slot - 1], first, "row dropped on slot {slot} (offset {off}) after auto-scroll");
         input.shot(tag, "autoscroll-after");
+
+        // 5. Closing: a click on the scrim, then Esc.
+        let open = |cx: &mut gpui::AsyncWindowContext| this.update_in(cx, |this, _, _| this.rail_ui.edit_open).unwrap();
+        assert!(open(cx), "drawer open before closing");
+        input.mv(700, 300);
+        input.button(true);
+        input.button(false);
+        pause(&ex, 300).await;
+        assert!(!open(cx), "click on the scrim closes the drawer");
+        this.update_in(cx, |this, window, cx| {
+            this.rail_ui.edit_open = true;
+            this.rail_ui.edit_panel_focus.focus(window);
+            cx.notify();
+        })
+        .unwrap();
+        pause(&ex, 300).await;
+        input.key("Escape");
+        pause(&ex, 300).await;
+        assert!(!open(cx), "Esc closes the drawer");
 
         this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
     })
