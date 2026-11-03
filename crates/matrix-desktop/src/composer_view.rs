@@ -8,7 +8,38 @@ use crate::composer_icons::{Icon, icon};
 use matrix_desktop::{Composer, DesignTokens, LIGHT, RoomDrafts};
 use matrix_domain::RoomScope;
 use std::ops::Range;
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, rc::Rc, time::{Duration, Instant}};
+
+const FADE: Duration = Duration::from_millis(140);
+
+/// OS «reduce motion»: queried only when the Voice/Send swap starts, so a change takes effect at the next swap.
+fn reduce_motion() -> bool {
+    #[cfg(test)]
+    if let Some(v) = REDUCE_MOTION.with(|r| r.get()) {
+        return v;
+    }
+    #[cfg(target_os = "macos")]
+    // SAFETY: render runs on the main thread; NSWorkspace.sharedWorkspace is always available.
+    unsafe {
+        use objc::{class, msg_send, runtime::{BOOL, NO, Object}, sel, sel_impl};
+        let ws: *mut Object = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let r: BOOL = msg_send![ws, accessibilityDisplayShouldReduceMotion];
+        return r != NO;
+    }
+    #[cfg(target_os = "linux")]
+    return std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "enable-animations"])
+        .output()
+        .is_ok_and(|o| o.stdout.starts_with(b"false"));
+    // shortcut: Windows has no query yet (animates always); add SPI_GETCLIENTAREAANIMATION when the Windows build ships.
+    #[allow(unreachable_code)]
+    false
+}
+
+#[cfg(test)]
+thread_local! {
+    static REDUCE_MOTION: Cell<Option<bool>> = const { Cell::new(None) };
+}
 
 pub(crate) struct SendVisit {
     generation: Cell<u64>,
@@ -76,6 +107,9 @@ pub struct ComposerView {
     focus: FocusHandle,
     send_focus: FocusHandle,
     send_focus_source: u64,
+    /// Last `send_visible()` seen by render, and when the fade towards it began (None: settled or reduced motion).
+    send_shown: bool,
+    fade_since: Option<Instant>,
     /// Emoji, Attach, Voice: tab stops between the field and Send.
     icon_focus: [FocusHandle; 3],
     layout: Option<TextLayout>,
@@ -115,6 +149,8 @@ impl ComposerView {
             focus: cx.focus_handle(),
             send_focus: cx.focus_handle(),
             send_focus_source: 0,
+            send_shown: false,
+            fade_since: None,
             icon_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
             layout: None,
             scroll: ScrollHandle::new(),
@@ -285,13 +321,16 @@ impl ComposerView {
         (0..3u8).find(|i| self.icon_focus[*i as usize].is_focused(window))
     }
 
-    /// Tab order: field, Emoji, Attach, Voice, Send (only when sendable).
+    /// Tab order: field, Emoji, Attach, then the one of Voice | Send that is showing.
     fn stops(&self) -> Vec<FocusHandle> {
         let mut stops = vec![self.focus.clone()];
         if self.icons_shown() {
-            stops.extend(self.icon_focus.iter().cloned());
+            stops.extend(self.icon_focus[..2].iter().cloned());
+            if !self.send_visible() {
+                stops.push(self.icon_focus[2].clone());
+            }
         }
-        if self.send_eligible() {
+        if self.send_visible() {
             stops.push(self.send_focus.clone());
         }
         stops
@@ -360,11 +399,6 @@ impl ComposerView {
     /// The text field itself (not Send) holds focus and no IME preedit is active.
     pub fn tab_back_ready(&self, window: &Window) -> bool {
         self.focus.is_focused(window) && self.draft.marked().is_none()
-    }
-
-    /// Tab from the text field reaches Send only for a non-blank draft outside IME preedit.
-    pub fn send_eligible(&self) -> bool {
-        self.draft.marked().is_none() && !self.draft.text().trim().is_empty()
     }
 
     pub fn focus_from_accessibility(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -477,6 +511,36 @@ impl ComposerView {
             cx.emit(Submitted(text));
         }
         self.changed(cx);
+    }
+
+    /// Single source of truth for Send replacing Voice (view, Tab order and a11y tree follow it).
+    fn send_visible(&self) -> bool {
+        self.recorder.is_none() && self.sendable()
+    }
+
+    /// Send's opacity (Voice gets the complement): 0..1 along the fade, the settled value otherwise.
+    fn send_mix(&self) -> f32 {
+        let settled = f32::from(u8::from(self.send_shown));
+        match self.fade_since {
+            Some(since) => {
+                let p = (since.elapsed().as_secs_f32() / FADE.as_secs_f32()).min(1.);
+                if self.send_shown { p } else { 1. - p }
+            }
+            None => settled,
+        }
+    }
+
+    /// Follows `visible`: starts a fade on change (none with reduce motion), ends it when done. Returns Send's opacity.
+    fn sync_fade(&mut self, visible: bool) -> f32 {
+        if visible != self.send_shown {
+            self.send_shown = visible;
+            self.fade_since = (!reduce_motion()).then(Instant::now);
+        }
+        let mix = self.send_mix();
+        if mix == f32::from(u8::from(self.send_shown)) {
+            self.fade_since = None;
+        }
+        mix
     }
 
     fn sendable(&self) -> bool {
@@ -960,7 +1024,7 @@ fn icon_button(
     focused: bool,
     cx: &mut Context<ComposerView>,
     on: impl Fn(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static,
-) -> impl IntoElement {
+) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .child(probe(id))
@@ -1014,7 +1078,11 @@ impl Render for ComposerView {
                 },
             ));
         }
-        let sendable = self.sendable();
+        let send_visible = self.send_visible();
+        let mix = self.sync_fade(send_visible);
+        if self.fade_since.is_some() {
+            window.request_animation_frame();
+        }
         let icon_focus = self.icon_focused(window);
         let options = self.mention_options();
         let mention_selected = self.mention_selected.min(options.len().saturating_sub(1));
@@ -1320,35 +1388,6 @@ impl Render for ComposerView {
                                 .inset_0(),
                             ),
                     )
-                    .child(
-                        // Left of the icons and absent (display: none) when there is nothing to send: the icons stay flush right and never move.
-                        div()
-                            .id("composer-submit")
-                            .child(probe("send"))
-                            .relative()
-                            .children(self.send_observer(cx))
-                            .track_focus(&self.send_focus)
-                            .size(px(32.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_lg()
-                            .flex_shrink_0()
-                            .when(!sendable, |d| d.hidden())
-                            .when(self.send_focus.is_focused(window), |d| {
-                                d.border_1().border_color(rgb(t.text))
-                            })
-                            .when(sendable, |d| {
-                                let send = self.send_callback();
-                                d.cursor_pointer()
-                                    .hover(|s| s.bg(rgb(t.selected)))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        send(this, window, cx);
-                                    }))
-                            })
-                            // Demo: the arrow is muted so it reads as local-only; the a11y node says «demo».
-                            .child(icon(Icon::Send, if self.live { t.accent } else { t.secondary })),
-                    )
                     .when(self.live && self.recorder.is_none(), |d| {
                         d.child(icon_button("composer-emoji-toggle", Icon::Emoji, t, &self.icon_focus[0], icon_focus == Some(0), cx, |this, _, cx| {
                             this.emoji_open = !this.emoji_open;
@@ -1356,10 +1395,67 @@ impl Render for ComposerView {
                             cx.notify();
                         }))
                         .child(icon_button("composer-attach", Icon::Attach, t, &self.icon_focus[1], icon_focus == Some(1), cx, |this, _, cx| this.pick_file(cx)))
-                        .child(icon_button("composer-record", Icon::Voice, t, &self.icon_focus[2], icon_focus == Some(2), cx, |this, window, cx| {
-                            this.start_recording(cx);
-                            window.focus(&this.focus); // the icons leave the tree while recording
-                        }))
+                    })
+                    // Voice and Send share this 32x32 slot and cross-fade (opacity only). The one that is fading out or hidden is inert: no click, no focus, no a11y node.
+                    .when(self.icons_shown() || send_visible || mix > 0., |d| {
+                        d.child(
+                            div()
+                                .relative()
+                                .size(px(32.))
+                                .flex_shrink_0()
+                                .when(self.icons_shown() && (!send_visible || mix < 1.), |slot| {
+                                    slot.child(if send_visible {
+                                        div()
+                                            .id("composer-record")
+                                            .absolute()
+                                            .inset_0()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .opacity(1. - mix)
+                                            .child(icon(Icon::Voice, t.accent))
+                                            .into_any_element()
+                                    } else {
+                                        icon_button("composer-record", Icon::Voice, t, &self.icon_focus[2], icon_focus == Some(2), cx, |this, window, cx| {
+                                            this.start_recording(cx);
+                                            window.focus(&this.focus); // the icons leave the tree while recording
+                                        })
+                                        .absolute()
+                                        .inset_0()
+                                        .opacity(1. - mix)
+                                        .into_any_element()
+                                    })
+                                })
+                                .when(send_visible || mix > 0., |slot| {
+                                    slot.child(
+                                        div()
+                                            .id("composer-submit")
+                                            .child(probe("send"))
+                                            .children(self.send_observer(cx))
+                                            .absolute()
+                                            .inset_0()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_lg()
+                                            .opacity(mix)
+                                            .when(send_visible, |d| {
+                                                let send = self.send_callback();
+                                                d.track_focus(&self.send_focus)
+                                                    .when(self.send_focus.is_focused(window), |d| {
+                                                        d.border_1().border_color(rgb(t.text))
+                                                    })
+                                                    .cursor_pointer()
+                                                    .hover(|s| s.bg(rgb(t.selected)))
+                                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                                        send(this, window, cx);
+                                                    }))
+                                            })
+                                            // Demo: the arrow is muted so it reads as local-only; the a11y node says «demo».
+                                            .child(icon(Icon::Send, if self.live { t.accent } else { t.secondary })),
+                                    )
+                                }),
+                        )
                     }),
             )
     }
@@ -2490,7 +2586,7 @@ mod tests {
             let mid = centre(bar);
             let text = v.layout.as_ref().expect("text laid out").bounds();
             assert!((centre(text) - mid).abs() <= 1., "text centre {:?} vs bar {mid}", text);
-            let names = ["send", "composer-emoji-toggle", "composer-attach", "composer-record"];
+            let names = ["composer-emoji-toggle", "composer-attach", "send"];
             let mut left = text.right();
             for name in names {
                 let b = probed(name);
@@ -2504,9 +2600,10 @@ mod tests {
     }
 
     /// Emoji, Attach, Voice form one block and end exactly at the bar's right padding edge (no space reserved for Send), whatever the text.
-    fn assert_icons_flush_right(v: &mut ComposerView) {
+    fn assert_icons_flush_right(v: &mut ComposerView, last: &str) {
         let bar = probed("bar");
-        let (e, a, r) = (probed("composer-emoji-toggle"), probed("composer-attach"), probed("composer-record"));
+        let (e, a, r) = (probed("composer-emoji-toggle"), probed("composer-attach"), probed(last));
+        assert!((f32::from(r.size.width) - 32.).abs() <= 0.5 && (f32::from(r.size.height) - 32.).abs() <= 0.5, "{last} is {:?}", r.size);
         let d = |x: Pixels, y: Pixels| (f32::from(x) - f32::from(y)).abs();
         // The probe spans the bar's padding box; px_6 leaves 24 px on the right.
         assert!(d(r.right(), bar.right() - px(24.)) <= 1., "Voice {r:?} vs bar {bar:?}");
@@ -2518,23 +2615,96 @@ mod tests {
     #[test]
     #[ignore = "requires private display"]
     fn icons_flush_right_with_no_text() {
-        rendered_composer("", |v, _, _| assert_icons_flush_right(v));
+        rendered_composer("", |v, _, _| assert_icons_flush_right(v, "composer-record"));
     }
 
     #[test]
     #[ignore = "requires private display"]
     fn icons_flush_right_with_text_and_send() {
         rendered_composer("una riga", |v, _, _| {
-            assert_icons_flush_right(v);
-            let (s, e) = (probed("send"), probed("composer-emoji-toggle"));
-            assert!(s.right() <= e.left(), "Send {s:?} sits left of the icons");
+            // Send takes Voice's slot: same 32x32 rectangle at the right edge, after Emoji and Attach.
+            assert_icons_flush_right(v, "send");
+            assert!(probed("send").left() >= probed("composer-attach").right());
         });
     }
 
     #[test]
     #[ignore = "requires private display"]
     fn icons_flush_right_with_many_lines() {
-        rendered_composer("uno\ndue\ntre\nquattro\ncinque", |v, _, _| assert_icons_flush_right(v));
+        rendered_composer("uno\ndue\ntre\nquattro\ncinque", |v, _, _| assert_icons_flush_right(v, "send"));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn fade_is_opacity_only_instant_with_reduced_motion_and_follows_the_text_rule() {
+        rendered_composer("", |v, _, _| {
+            assert!(!v.send_visible(), "empty: Voice");
+            for blank in [" ", "\t", "\n", "\u{a0}", " \t\n\u{a0}"] {
+                v.draft.replace(None, blank);
+                assert!(!v.send_visible(), "blank {blank:?} keeps Voice");
+                v.draft.replace(Some(0..blank.len()), "");
+            }
+            v.draft.replace(None, "ciao");
+            assert!(v.send_visible());
+            REDUCE_MOTION.with(|r| r.set(Some(false)));
+            assert!(v.sync_fade(true) < 0.2, "starts from Voice");
+            assert!(v.fade_since.is_some());
+            v.fade_since = Some(Instant::now() - FADE / 2);
+            let mid = v.send_mix();
+            assert!((0.3..0.7).contains(&mid), "half way through the fade: {mid}");
+            v.fade_since = Some(Instant::now() - FADE * 2);
+            assert_eq!(v.sync_fade(true), 1.);
+            assert!(v.fade_since.is_none(), "settled");
+            // Back to Voice fades out the same way.
+            assert!(v.sync_fade(false) > 0.8);
+            v.fade_since = Some(Instant::now() - FADE / 2);
+            assert!(v.send_mix() > 0. && v.send_mix() < 1.);
+            v.fade_since = None;
+            v.send_shown = false;
+            REDUCE_MOTION.with(|r| r.set(Some(true)));
+            assert_eq!(v.sync_fade(true), 1., "reduce motion: instant");
+            assert!(v.fade_since.is_none(), "reduce motion: no animation");
+            REDUCE_MOTION.with(|r| r.set(None));
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn tab_skips_voice_while_send_shows_and_the_reverse() {
+        let at = |v: &ComposerView, w: &Window| {
+            [v.focus.is_focused(w)]
+                .into_iter()
+                .chain((0..3).map(|i| v.icon_focus[i].is_focused(w)))
+                .chain([v.send_focus.is_focused(w)])
+                .position(|f| f)
+        };
+        rendered_composer("ciao", move |v, window, cx| {
+            let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
+            for stop in [1, 2, 4] {
+                v.key_down(&key("tab"), window, cx);
+                assert_eq!(at(v, window), Some(stop), "text: field, Emoji, Attach, Send");
+            }
+            assert!(v.at_last_stop(window));
+            for stop in [2, 1, 0] {
+                v.key_down(&key("shift-tab"), window, cx);
+                assert_eq!(at(v, window), Some(stop));
+            }
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn tab_reaches_voice_when_there_is_nothing_to_send() {
+        rendered_composer("", |v, window, cx| {
+            let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
+            for _ in 0..3 {
+                v.key_down(&key("tab"), window, cx);
+            }
+            assert_eq!(v.icon_focused(window), Some(2), "field, Emoji, Attach, Voice");
+            assert!(v.at_last_stop(window));
+            v.key_down(&key("tab"), window, cx);
+            assert_eq!(v.icon_focused(window), Some(2), "Send is not a stop");
+        });
     }
 
     #[test]
@@ -2550,14 +2720,14 @@ mod tests {
                     .position(|f| f)
             };
             assert_eq!(at(v, window), Some(0));
-            for stop in 1..=4 {
+            for stop in [1, 2, 4] {
                 v.key_down(&key("tab"), window, cx);
                 assert_eq!(at(v, window), Some(stop), "Tab {stop}");
             }
             assert!(v.at_last_stop(window), "Send is the last stop: the next Tab leaves the composer");
             v.key_down(&key("tab"), window, cx);
             assert_eq!(at(v, window), Some(4), "the composer does not trap or wrap by itself");
-            for stop in (0..4).rev() {
+            for stop in [2, 1, 0] {
                 v.key_down(&key("shift-tab"), window, cx);
                 assert_eq!(at(v, window), Some(stop), "Shift-Tab to {stop}");
             }

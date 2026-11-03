@@ -467,8 +467,11 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
             .find(|(n, _)| *n == id)
             .map(|(_, node)| node.label().unwrap().to_owned())
     };
+    assert_eq!(label_of(&tree, RECORD), None, "text to send: Send takes Voice's place");
+    let mut blank = snapshot.clone();
+    blank.composer.as_mut().unwrap().text.clear();
     assert_eq!(
-        label_of(&tree, RECORD).as_deref(),
+        label_of(&blank.tree(), RECORD).as_deref(),
         Some("Registra nota vocale")
     );
     assert_eq!(label_of(&tree, RECORDING), None);
@@ -667,19 +670,26 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
             .nodes
             .into_iter()
             .find(|(id, _)| *id == SEND)
-            .unwrap()
-            .1
+            .map(|(_, n)| n)
     };
-    assert_eq!(button(&snapshot).role(), accesskit::Role::Button);
-    assert_eq!(button(&snapshot).label(), Some("Invia messaggio"));
-    assert!(!button(&snapshot).is_disabled());
-    assert!(button(&snapshot).supports_action(accesskit::Action::Click));
+    // Voice and Send are one slot: exactly one of the two nodes exists at a time.
+    let voice = |snapshot: &NavigationSnapshot| {
+        snapshot.tree().nodes.iter().any(|(id, _)| *id == matrix_desktop::accessibility::RECORD)
+    };
+    let send = button(&snapshot).unwrap();
+    assert_eq!(send.role(), accesskit::Role::Button);
+    assert_eq!(send.label(), Some("Invia messaggio"));
+    assert!(!send.is_disabled());
+    assert!(send.supports_action(accesskit::Action::Click));
+    assert!(!voice(&snapshot));
     snapshot.composer.as_mut().unwrap().composing = true;
-    assert!(button(&snapshot).is_disabled());
-    assert!(!button(&snapshot).supports_action(accesskit::Action::Click));
+    assert!(button(&snapshot).is_none() && voice(&snapshot));
     snapshot.composer.as_mut().unwrap().composing = false;
-    snapshot.composer.as_mut().unwrap().text = " \n".into();
-    assert!(button(&snapshot).is_disabled());
+    snapshot.composer.as_mut().unwrap().text = " \t\n\u{a0}".into();
+    assert!(button(&snapshot).is_none() && voice(&snapshot));
+    snapshot.composer.as_mut().unwrap().text = "hello".into();
+    snapshot.composer.as_mut().unwrap().recording = Some(3);
+    assert!(button(&snapshot).is_none() && !voice(&snapshot), "recording: Send never replaces the recording controls");
     snapshot.composer = None;
     assert!(!snapshot.tree().nodes.iter().any(|(id, _)| *id == SEND));
 }

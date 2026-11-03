@@ -1272,24 +1272,24 @@ impl NavigationSnapshot {
             }
             tree.nodes[0].1.push_child(COMPOSER);
             tree.nodes.push((COMPOSER, editor));
-            let mut send = Node::new(Role::Button);
-            send.set_label("Invia messaggio");
-            if !composer.live {
-                send.set_description("demo");
-            }
-            if let Some(bounds) = composer.send_bounds {
-                send.set_bounds(bounds);
-            }
-            if composer.composing
-                || (composer.text.trim().is_empty() && composer.attachment.is_none())
+            // Same rule as the composer view: Send replaces Voice in one slot, never both.
+            if composer.recording.is_none()
+                && !composer.composing
+                && (!composer.text.trim().is_empty() || composer.attachment.is_some())
             {
-                send.set_disabled();
-            } else {
+                let mut send = Node::new(Role::Button);
+                send.set_label("Invia messaggio");
+                if !composer.live {
+                    send.set_description("demo");
+                }
+                if let Some(bounds) = composer.send_bounds {
+                    send.set_bounds(bounds);
+                }
                 send.add_action(Action::Focus);
                 send.add_action(Action::Click);
+                tree.nodes[0].1.push_child(SEND);
+                tree.nodes.push((SEND, send));
             }
-            tree.nodes[0].1.push_child(SEND);
-            tree.nodes.push((SEND, send));
             let mut attach = Node::new(Role::Button);
             attach.set_label("Allega file");
             tree.nodes[0].1.push_child(ATTACH);
@@ -1320,6 +1320,8 @@ impl NavigationSnapshot {
                     (RECORD_CANCEL, "Annulla registrazione"),
                     (RECORD_SEND, "Invia nota vocale"),
                 ]
+            } else if tree.nodes.iter().any(|(id, _)| *id == SEND) {
+                &[]
             } else {
                 &[(RECORD, "Registra nota vocale")]
             };
