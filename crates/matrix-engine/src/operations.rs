@@ -747,13 +747,18 @@ pub async fn user_profile(
 ) -> Result<UserProfile, OperationError> {
     use matrix_sdk::ruma::api::client::profile::{AvatarUrl, DisplayName};
     let id = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
-    let profile = tokio::time::timeout(
+    let fetched = tokio::time::timeout(
         std::time::Duration::from_secs(15),
         client.account().fetch_user_profile_of(&id),
     )
     .await
-    .map_err(|_| OperationError::Transport)?
-    .map_err(|e| classify(&e))?;
+    .map_err(|_| OperationError::Transport)?;
+    let profile = match fetched {
+        Ok(p) => p,
+        // Synapse answers 404 for a user with no display name and no avatar: a user we share a room with is an empty profile, not a missing one.
+        Err(e) if is_not_found(&e) && shares_room_with(client, &id).await => Default::default(),
+        Err(e) => return Err(classify(&e)),
+    };
     Ok(UserProfile {
         user_id: id.to_string(),
         name: profile
@@ -766,6 +771,16 @@ pub async fn user_profile(
         verified: user_identity(client, &id).await.map(|i| i.is_verified()),
         ignored: is_ignored(client, &id).await,
     })
+}
+
+#[cfg(feature = "sdk")]
+async fn shares_room_with(client: &matrix_sdk::Client, id: &matrix_sdk::ruma::UserId) -> bool {
+    for room in client.joined_rooms() {
+        if matches!(room.get_member_no_sync(id).await, Ok(Some(_))) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(feature = "sdk")]
