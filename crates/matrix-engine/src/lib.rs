@@ -55,6 +55,8 @@ pub struct RoomInfo {
     pub avatar: Option<String>,
     /// Text of the SDK latest event when it is a message; None otherwise.
     pub preview: Option<String>,
+    /// Timestamp (ms since epoch) of the SDK latest event; None when the room has none yet.
+    pub last_event_ts: Option<u64>,
     /// The user has an invitation to this room and has not answered it. Listed by the SDK
     /// filter; the other fields describe the room as the invite shows it.
     pub invited: bool,
