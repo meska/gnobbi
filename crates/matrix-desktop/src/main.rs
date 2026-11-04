@@ -34,6 +34,8 @@ mod rail_drag_test;
 #[cfg(test)]
 mod bar_alignment_test;
 #[cfg(test)]
+mod member_profile_test;
+#[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;
