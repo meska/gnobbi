@@ -34,6 +34,8 @@ mod rail_drag_test;
 #[cfg(test)]
 mod bar_alignment_test;
 #[cfg(test)]
+mod member_profile_test;
+#[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;
@@ -168,6 +170,19 @@ struct Shell {
     /// Joined members of the shown room (room sheet) and the profile opened from them.
     room_members: Vec<matrix_engine::operations::Member>,
     profile: Option<members_view::ProfileState>,
+    /// Focused control of the opened profile (index in Tab order) and the action whose copy just happened.
+    profile_focus: usize,
+    /// Scroll of the opened profile (short windows); follows the keyboard focus.
+    profile_scroll: gpui::ScrollHandle,
+    profile_copied: Option<matrix_desktop::ProfileAct>,
+    /// «Invia messaggio» of a profile is waiting for the engine.
+    profile_dm: bool,
+    /// The action of the profile that just failed (verify, moderation); shown for a moment, like the copy confirmation.
+    profile_failed: Option<matrix_desktop::ProfileAct>,
+    /// What the room lets the current user do to the profile's user (id it was asked for, rights).
+    profile_rights: Option<(String, matrix_engine::operations::MemberRights)>,
+    /// Destructive moderation act waiting for its confirmation.
+    profile_confirm: Option<matrix_desktop::ProfileAct>,
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
@@ -812,6 +827,10 @@ impl Shell {
             return;
         }
         if self.room_details_open {
+            if self.profile.is_some() && self.profile_key(key.key.as_str(), key.modifiers.shift, window, cx) {
+                cx.stop_propagation();
+                return;
+            }
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             if matches!(key.key.as_str(), "tab" | "space" | "enter") {
                 use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
@@ -1413,6 +1432,26 @@ impl Shell {
                         },
                         OperationCommand::Profile { user_id } => OperationResult::Profile {
                             user_id,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::VerifyUser { user_id } => OperationResult::UserVerification {
+                            user_id,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::Ignore { user_id, ignore } => OperationResult::Ignored {
+                            user_id,
+                            ignore,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::MemberRights { scope, user_id } => OperationResult::MemberRights {
+                            scope,
+                            user_id,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::Moderate { scope, user_id, action } => OperationResult::Moderated {
+                            scope,
+                            user_id,
+                            action,
                             result: Err(OperationError::Unavailable),
                         },
                         OperationCommand::Members { scope } => OperationResult::Members {
@@ -2581,6 +2620,26 @@ fn main() {
                                                 this.profile_found(user_id, result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::UserVerification { result, .. } = result {
+                                                this.act_done(matrix_desktop::ProfileAct::Verify, result.is_ok(), cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Ignored { user_id, ignore, result } = result {
+                                                this.ignored_set(user_id, ignore, result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::MemberRights { scope, user_id, result } = result {
+                                                if scope == this.active_scope {
+                                                    this.rights_found(user_id, result, cx);
+                                                }
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Moderated { scope, user_id, action, result } = result {
+                                                if scope == this.active_scope {
+                                                    this.moderated(user_id, action, result, cx);
+                                                }
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::TagsEdited { result } = result {
                                                 this.groups_edited(result, cx);
                                                 continue;
@@ -2914,6 +2973,13 @@ fn main() {
                         room_details_open: false,
                         room_members: Vec::new(),
                         profile: None,
+                        profile_focus: 0,
+                        profile_scroll: gpui::ScrollHandle::new(),
+                        profile_copied: None,
+                        profile_dm: false,
+                        profile_failed: None,
+                        profile_rights: None,
+                        profile_confirm: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

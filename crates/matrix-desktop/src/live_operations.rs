@@ -226,6 +226,10 @@ impl LiveOperations {
             | OperationResult::DirectoryFound { .. }
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
+            | OperationResult::UserVerification { .. }
+            | OperationResult::Ignored { .. }
+            | OperationResult::MemberRights { .. }
+            | OperationResult::Moderated { .. }
             | OperationResult::Thread { .. }
             | OperationResult::ThreadSent { .. }
             | OperationResult::Members { .. }

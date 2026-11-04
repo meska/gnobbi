@@ -297,3 +297,100 @@ pub const NIGHT: DesignTokens = DesignTokens {
     on_accent: 0x000000,
     ..LIGHT
 };
+
+/// Actions of an opened member profile, in tab order after back/close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileAct {
+    CopyId,
+    Message,
+    Link,
+    Quote,
+    Verify,
+    /// Moderation, only offered when the room power levels allow it.
+    Power(i64),
+    RemoveMessages,
+    Kick,
+    Ban,
+    /// Account-wide, not a room right: offered for every other user, after the moderation blocks.
+    Ignore,
+    Unignore,
+    /// The two answers of the confirmation of a destructive act.
+    Confirm,
+    Cancel,
+}
+
+/// What the profile shows about trust: nothing for oneself or when the SDK has no identity, the offer while
+/// unverified, the «Verificato» sign once verified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VerifyMark {
+    Hidden,
+    Offer,
+    Verified,
+}
+pub fn verify_mark(me: bool, verified: Option<bool>) -> VerifyMark {
+    match (me, verified) {
+        (true, _) | (_, None) => VerifyMark::Hidden,
+        (_, Some(false)) => VerifyMark::Offer,
+        (_, Some(true)) => VerifyMark::Verified,
+    }
+}
+impl ProfileAct {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CopyId => "Copia ID utente",
+            Self::Message => "Invia messaggio",
+            Self::Link => "Condividi link utente",
+            Self::Quote => "Cita",
+            Self::Verify => "Verifica utente",
+            Self::Power(0) => "Rendi utente",
+            Self::Power(50) => "Rendi moderatore",
+            Self::Power(100) => "Rendi amministratore",
+            Self::Power(_) => "Cambia livello",
+            Self::RemoveMessages => "Rimuovi i messaggi recenti",
+            Self::Kick => "Espelli",
+            Self::Ban => "Banna",
+            Self::Ignore => "Ignora",
+            Self::Unignore => "Smetti di ignorare",
+            Self::Confirm => "Conferma",
+            Self::Cancel => "Annulla",
+        }
+    }
+
+    /// Block of the profile the action sits in; blocks are separated by a line, destructive ones last.
+    pub fn section(self) -> u8 {
+        match self {
+            Self::Power(_) => 1,
+            Self::RemoveMessages => 2,
+            Self::Kick | Self::Ban => 3,
+            Self::Ignore | Self::Unignore => 4,
+            Self::Confirm | Self::Cancel => 5,
+            _ => 0,
+        }
+    }
+
+    /// Needs a confirmation naming the user, and is drawn in the danger colour.
+    pub fn destructive(self) -> bool {
+        matches!(self, Self::RemoveMessages | Self::Kick | Self::Ban | Self::Ignore | Self::Confirm)
+    }
+}
+
+/// Moderation entries of a profile, from what the room allows the current user; empty for a plain user.
+pub fn moderation_acts(r: &matrix_engine::operations::MemberRights) -> Vec<ProfileAct> {
+    let mut acts: Vec<_> = r.levels.iter().map(|l| ProfileAct::Power(*l)).collect();
+    if !r.recent.is_empty() {
+        acts.push(ProfileAct::RemoveMessages);
+    }
+    acts.extend(r.kick.then_some(ProfileAct::Kick));
+    acts.extend(r.ban.then_some(ProfileAct::Ban));
+    acts
+}
+
+/// The question a destructive act asks before it runs; it names the user (and counts the messages).
+pub fn confirm_question(act: ProfileAct, name: &str, messages: usize) -> String {
+    match act {
+        ProfileAct::Kick => format!("Espellere {name}?"),
+        ProfileAct::Ban => format!("Bannare {name}?"),
+        ProfileAct::Ignore => format!("Ignorare {name}?"),
+        _ => format!("Rimuovere {messages} messaggi di {name}?"),
+    }
+}

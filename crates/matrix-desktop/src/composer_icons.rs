@@ -8,6 +8,10 @@ pub enum Icon {
     Voice,
     Emoji,
     Send,
+    Back,
+    Close,
+    Copy,
+    Check,
 }
 
 fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
@@ -42,6 +46,13 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
             ]
         }
         Icon::Send => vec![vec![(10., 16.), (10., 4.)], vec![(4.5, 9.5), (10., 4.), (15.5, 9.5)]],
+        Icon::Back => vec![vec![(12.5, 4.), (6.5, 10.), (12.5, 16.)]],
+        Icon::Close => vec![vec![(5., 5.), (15., 15.)], vec![(15., 5.), (5., 15.)]],
+        Icon::Copy => vec![
+            vec![(8., 8.), (15., 8.), (15., 16.), (8., 16.), (8., 8.)],
+            vec![(5., 12.), (5., 4.), (12., 4.)],
+        ],
+        Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![
             arc((10., 10.), 7.5, 0., 2. * PI),
             vec![(7.5, 8.), (7.5, 9.)],

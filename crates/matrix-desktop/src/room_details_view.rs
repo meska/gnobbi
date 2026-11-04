@@ -21,7 +21,9 @@ impl Shell {
                 info: room.info.clone(),
                 people: self.people_labels(),
                 back: self.profile.is_some(),
+                acts: self.profile_acts(),
                 focus: self.details_focus,
+                profile_focus: self.profile_focus,
                 bounds: self.a11y_details_bounds,
             }))
         } else if window.viewport_size().width >= px(800.) || self.compact_chat {
@@ -50,6 +52,8 @@ impl Shell {
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
+            DetailsAction::FocusRing { index, .. } => self.profile_focus = index,
+            DetailsAction::Act { act, .. } => self.profile_act(act, window, cx),
             DetailsAction::Profile { user_id, .. } => self.open_profile(user_id, cx),
             DetailsAction::Members(_) => self.profile = None,
             DetailsAction::Copy(scope) => {
@@ -301,7 +305,7 @@ impl Shell {
             .bg(rgb(t.surface))
             .border_l_1()
             .border_color(rgb(t.border))
-            .child(
+            .when(self.profile.is_none(), |d| d.child(
                 div()
                     .h(px(t.header))
                     .flex_shrink_0()
@@ -330,7 +334,7 @@ impl Shell {
                                 cx.notify();
                             })),
                     ),
-            )
+            ))
             .child(
                 div()
                     .id("room-details-content")
@@ -348,6 +352,7 @@ impl Shell {
                         div()
                             .text_size(px(20.))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .flex_shrink_0() // truncate clips, so in a short sheet flex would squash the title to half a line
                             .truncate()
                             .child(matrix_desktop::row_text::one_line(&room.name)),
                     )

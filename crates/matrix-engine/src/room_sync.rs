@@ -467,6 +467,40 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::Profile { user_id, result }
                                 }
+                                OperationCommand::VerifyUser { user_id } => {
+                                    let result = crate::operations::request_user_verification(
+                                        &operation_client,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::UserVerification { user_id, result }
+                                }
+                                OperationCommand::Ignore { user_id, ignore } => {
+                                    let result = crate::operations::set_ignored(&operation_client, &user_id, ignore).await;
+                                    OperationResult::Ignored { user_id, ignore, result }
+                                }
+                                OperationCommand::MemberRights { scope, user_id } => {
+                                    let result = crate::operations::load_member_rights(
+                                        &operation_client,
+                                        &operation_timelines,
+                                        account,
+                                        &scope,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::MemberRights { scope, user_id, result }
+                                }
+                                OperationCommand::Moderate { scope, user_id, action } => {
+                                    let result = crate::operations::moderate(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                        &user_id,
+                                        &action,
+                                    )
+                                    .await;
+                                    OperationResult::Moderated { scope, user_id, action, result }
+                                }
                                 OperationCommand::MarkRoom {
                                     scope,
                                     read,
