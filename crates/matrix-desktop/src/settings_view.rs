@@ -235,7 +235,7 @@ impl Shell {
                         row("menu-add-account")
                             .border_1()
                             .border_color(ring(n + 3))
-                            .text_color(rgb(t.accent))
+                            .text_color(rgb(t.text))
                             .child("Aggiungi account")
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.add_account(window, cx)),
