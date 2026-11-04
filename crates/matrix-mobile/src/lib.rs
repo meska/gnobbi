@@ -21,7 +21,7 @@ use matrix_domain::{AccountId, RoomId, RoomScope};
 use matrix_engine::{
     Receiver, RoomListDiff, RoomListEvent, RoomSyncStatus, Sender,
     auth::{AccountSession, AuthError},
-    persistence::AccountStore,
+    persistence::{AccountStore, StoreError},
     room_sync::RoomListWorker,
     sending::{SendError, SendEvent, SendRequest, fresh_transaction_id},
     signin::{
@@ -621,8 +621,13 @@ pub fn remove_local_account(
     }
     let id = AccountId::new(account);
     let root = profile_root(&data_dir, account);
-    // Holding the profile lock proves no session has the account open.
+    // The profile lock only serialises sign-ins; an open session holds the store lock.
     let _lock = SignInProfile::open_as(root.clone(), id).map_err(MobileError::from)?;
+    // Any other open error (broken store) is exactly what this call exists to clean up.
+    let _store = match AccountStore::open(&root, id) {
+        Err(StoreError::Busy) => return Err(MobileError::Busy),
+        other => other.ok(),
+    };
     source
         .delete_account(id)
         .map_err(|_| MobileError::SecretStore)?;

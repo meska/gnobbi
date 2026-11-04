@@ -279,10 +279,13 @@ fn an_open_account_cannot_be_removed_locally() {
     let dir = unique_dir();
     ensure_dirs(Path::new(&dir)).unwrap();
     fake_saved(&dir, 1);
-    let open = SignInProfile::open_as(profile_root(Path::new(&dir), 1), AccountId::new(1)).unwrap();
+    // A live session holds the store lock, not the profile lock (released after open_session).
+    let root = profile_root(Path::new(&dir), 1);
+    let open = AccountStore::create(&root, AccountId::new(1)).unwrap();
     let secrets = Arc::new(Deletes::default());
     assert_eq!(remove_local_account(dir.clone(), 1, Some(secrets.clone())), Err(MobileError::Busy));
     assert!(secrets.0.lock().unwrap().is_empty());
+    assert!(root.join("account-1").is_dir());
     drop(open);
     let _ = std::fs::remove_dir_all(dir);
 }
