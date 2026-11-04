@@ -1,0 +1,27 @@
+name: win-smoke
+on:
+  push:
+    branches: [win-smoke-t6d39af53]
+jobs:
+  windows:
+    runs-on: windows-x64
+    steps:
+      - name: Checkout
+        run: |
+          git init -q .
+          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
+          git checkout -q "${{ gitea.sha }}"
+      - name: Build
+        run: cargo build --locked -j4 --release -p matrix-desktop --features windows-vault
+      - name: Test
+        run: cargo test --locked -j4 -p matrix-domain
+      - name: Test engine
+        run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
+      - name: Package zip
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\make-tester-package.ps1
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gnobbi-windows-x64
+          path: dist/*.zip
+          if-no-files-found: error
