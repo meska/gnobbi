@@ -4,6 +4,11 @@
 pub mod accessibility;
 pub mod new_chat;
 pub mod notifications;
+
+/// Send is shown for a committed, non-blank draft or an attachment, never while recording.
+pub fn send_visible(composing: bool, text: &str, attachment: bool, recording: bool) -> bool {
+    !recording && !composing && (!text.trim().is_empty() || attachment)
+}
 /// The Linux build pins DejaVu; Windows has no DejaVu and gpui panics on a missing family.
 #[cfg(not(windows))]
 pub const UI_FONT: &str = "DejaVu Sans";

@@ -1,6 +1,7 @@
 //! Experimental Linux AT-SPI projection for theme, search and room navigation.
 //! This is not complete screen-reader support for the messenger.
 
+use crate::send_visible;
 use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
 pub mod compact;
@@ -96,11 +97,6 @@ impl ComposerSnapshot {
     pub fn send_visible(&self) -> bool {
         send_visible(self.composing, &self.text, self.attachment.is_some(), self.recording.is_some())
     }
-}
-
-/// Send is shown for a committed, non-blank draft or an attachment, never while recording.
-pub fn send_visible(composing: bool, text: &str, attachment: bool, recording: bool) -> bool {
-    !recording && !composing && (!text.trim().is_empty() || attachment)
 }
 
 #[derive(Clone)]

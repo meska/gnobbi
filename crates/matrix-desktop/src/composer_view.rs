@@ -521,7 +521,7 @@ impl ComposerView {
 
     /// Send replacing Voice: the rule lives in the a11y module so the tree and actions cannot diverge.
     fn send_visible(&self) -> bool {
-        matrix_desktop::accessibility::send_visible(
+        matrix_desktop::send_visible(
             self.draft.marked().is_some(),
             self.draft.text(),
             self.attachment.is_some(),
