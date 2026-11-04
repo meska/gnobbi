@@ -173,8 +173,12 @@ struct Shell {
     profile_copied: Option<matrix_desktop::ProfileAct>,
     /// «Invia messaggio» of a profile is waiting for the engine.
     profile_dm: bool,
-    /// «Verifica utente» request failed; shown for a moment, like the copy confirmation.
-    profile_verify_failed: bool,
+    /// The action of the profile that just failed (verify, moderation); shown for a moment, like the copy confirmation.
+    profile_failed: Option<matrix_desktop::ProfileAct>,
+    /// What the room lets the current user do to the profile's user (id it was asked for, rights).
+    profile_rights: Option<(String, matrix_engine::operations::MemberRights)>,
+    /// Destructive moderation act waiting for its confirmation.
+    profile_confirm: Option<matrix_desktop::ProfileAct>,
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
@@ -1430,6 +1434,17 @@ impl Shell {
                             user_id,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::MemberRights { scope, user_id } => OperationResult::MemberRights {
+                            scope,
+                            user_id,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::Moderate { scope, user_id, action } => OperationResult::Moderated {
+                            scope,
+                            user_id,
+                            action,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::Members { scope } => OperationResult::Members {
                             scope,
                             members: Err(OperationError::Unavailable),
@@ -2597,7 +2612,19 @@ fn main() {
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::UserVerification { result, .. } = result {
-                                                this.verify_requested(result.is_ok(), cx);
+                                                this.act_done(matrix_desktop::ProfileAct::Verify, result.is_ok(), cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::MemberRights { scope, user_id, result } = result {
+                                                if scope == this.active_scope {
+                                                    this.rights_found(user_id, result, cx);
+                                                }
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Moderated { scope, user_id, action, result } = result {
+                                                if scope == this.active_scope {
+                                                    this.moderated(user_id, action, result, cx);
+                                                }
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::TagsEdited { result } = result {
@@ -2936,7 +2963,9 @@ fn main() {
                         profile_focus: 0,
                         profile_copied: None,
                         profile_dm: false,
-                        profile_verify_failed: false,
+                        profile_failed: None,
+                        profile_rights: None,
+                        profile_confirm: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

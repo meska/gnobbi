@@ -133,6 +133,10 @@ pub enum OperationCommand {
     },
     /// «Verifica utente»: ask `user_id` for an interactive verification.
     VerifyUser { user_id: String },
+    /// What the current user may do to `user_id` in this room (moderation entries of the profile).
+    MemberRights { scope: RoomScope, user_id: String },
+    /// A moderation action on `user_id` in this room.
+    Moderate { scope: RoomScope, user_id: String, action: Moderation },
     /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
     ThreadSend {
         scope: RoomScope,
@@ -170,6 +174,17 @@ pub enum OperationResult {
     },
     UserVerification {
         user_id: String,
+        result: Result<(), OperationError>,
+    },
+    MemberRights {
+        scope: RoomScope,
+        user_id: String,
+        result: Result<MemberRights, OperationError>,
+    },
+    Moderated {
+        scope: RoomScope,
+        user_id: String,
+        action: Moderation,
         result: Result<(), OperationError>,
     },
     DirectoryFound {
@@ -250,6 +265,29 @@ pub struct UserProfile {
     pub avatar: Option<String>,
     /// Cross-signing trust of the user; `None` when the SDK has no identity for them.
     pub verified: Option<bool>,
+}
+
+/// Moderation of a room member. `RedactMessages` carries the exact events the user confirmed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Moderation {
+    Kick,
+    Ban,
+    SetPower(i64),
+    RedactMessages(Vec<String>),
+}
+
+/// Power levels the profile offers; a custom level of the member shows only as «not one of these».
+pub const POWER_LEVELS: [i64; 3] = [0, 50, 100];
+
+/// What the current user may do to a joined member, per the room power levels.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemberRights {
+    pub kick: bool,
+    pub ban: bool,
+    /// Levels of `POWER_LEVELS` the user may give (at most their own, not the member's current one).
+    pub levels: Vec<i64>,
+    /// Loaded, not yet deleted messages of the member the user may delete; the confirmation counts these.
+    pub recent: Vec<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -751,6 +789,134 @@ pub async fn request_user_verification(
     Ok(())
 }
 
+/// Rights of `me` over `target` from the room power levels (SDK checks stay with ruma). The bool is
+/// whether `me` may delete the messages of others. Nothing for oneself or a non-member.
+#[cfg(feature = "sdk")]
+fn member_rights(
+    pl: &matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels,
+    me: &matrix_sdk::ruma::UserId,
+    target: &matrix_sdk::ruma::UserId,
+    joined: bool,
+) -> (MemberRights, bool) {
+    use matrix_sdk::ruma::{Int, events::room::power_levels::UserPowerLevel};
+    if !joined || me == target {
+        return Default::default();
+    }
+    let (mine, theirs) = (pl.for_user(me), pl.for_user(target));
+    let levels = if pl.user_can_change_user_power_level(me, target) {
+        POWER_LEVELS
+            .into_iter()
+            .filter(|l| {
+                let l = UserPowerLevel::Int(Int::from(*l as i32));
+                l <= mine && l != theirs
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let rights = MemberRights {
+        kick: pl.user_can_kick_user(me, target),
+        ban: pl.user_can_ban_user(me, target),
+        levels,
+        recent: Vec::new(),
+    };
+    (rights, pl.user_can_redact_event_of_other(me))
+}
+
+#[cfg(feature = "sdk")]
+async fn moderation_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    user_id: &str,
+) -> Result<(matrix_sdk::Room, matrix_sdk::ruma::OwnedUserId), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let target = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| OperationError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(OperationError::Unavailable)?;
+    Ok((room, target))
+}
+
+#[cfg(feature = "sdk")]
+pub(crate) async fn load_member_rights(
+    client: &matrix_sdk::Client,
+    timelines: &crate::room_sync::Timelines,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    user_id: &str,
+) -> Result<MemberRights, OperationError> {
+    use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
+    let (room, target) = moderation_room(client, account, scope, user_id).await?;
+    let me = client.user_id().ok_or(OperationError::Unavailable)?;
+    tokio::time::timeout(WAIT, async {
+        let pl = room.power_levels().await.map_err(|_| OperationError::Unavailable)?;
+        let joined = room
+            .get_member(&target)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|m| matches!(m.membership(), matrix_sdk::ruma::events::room::member::MembershipState::Join));
+        let (mut rights, redact) = member_rights(&pl, me, &target, joined);
+        if redact {
+            // shortcut: only messages the timeline has loaded count as «recent»; upgrade by paginating if wanted.
+            let timeline = timelines.get(&room).await.map_err(|_| OperationError::Unavailable)?;
+            rights.recent = timeline
+                .items()
+                .await
+                .iter()
+                .filter_map(|i| i.as_event())
+                .filter(|e| e.sender() == target && !matches!(e.content(), TimelineItemContent::MsgLike(m) if matches!(m.kind, MsgLikeKind::Redacted)))
+                .filter_map(|e| e.event_id().map(ToString::to_string))
+                .collect();
+        }
+        Ok(rights)
+    })
+    .await
+    .map_err(|_| OperationError::Transport)?
+}
+
+/// Re-checks the rights at the moment of the action (the levels may have changed since the panel loaded),
+/// then runs it through the SDK. Redaction deletes exactly the events given, nothing else.
+#[cfg(feature = "sdk")]
+pub(crate) async fn moderate(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    user_id: &str,
+    action: &Moderation,
+) -> Result<(), OperationError> {
+    let (room, target) = moderation_room(client, account, scope, user_id).await?;
+    let me = client.user_id().ok_or(OperationError::Unavailable)?;
+    let pl = room.power_levels().await.map_err(|_| OperationError::Unavailable)?;
+    let (rights, redact) = member_rights(&pl, me, &target, true);
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        match action {
+            Moderation::Kick if rights.kick => room.kick_user(&target, None).await.map_err(|e| classify(&e)),
+            Moderation::Ban if rights.ban => room.ban_user(&target, None).await.map_err(|e| classify(&e)),
+            Moderation::SetPower(l) if rights.levels.contains(l) => room
+                .update_power_levels(vec![(&*target, matrix_sdk::ruma::Int::from(*l as i32))])
+                .await
+                .map(drop)
+                .map_err(|e| classify(&e)),
+            Moderation::RedactMessages(ids) if redact && me != target => {
+                for id in ids {
+                    let id = matrix_sdk::ruma::EventId::parse(id).map_err(|_| OperationError::InvalidInput)?;
+                    room.redact(&id, None, None).await.map_err(|e| classify(&e.into()))?;
+                }
+                Ok(())
+            }
+            _ => Err(OperationError::Forbidden),
+        }
+    })
+    .await
+    .map_err(|_| OperationError::Transport)?
+}
+
 #[cfg(feature = "sdk")]
 #[derive(Default)]
 pub(crate) struct OperationJournal {
@@ -1177,6 +1343,38 @@ async fn own_reaction(
 #[cfg(all(test, feature = "sdk"))]
 mod tests {
     use super::*;
+
+    fn levels(users: &[(&str, i32)]) -> matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels {
+        use matrix_sdk::ruma::{Int, events::room::power_levels::*, room_version_rules::AuthorizationRules};
+        let rules = AuthorizationRules::V10;
+        let mut c = RoomPowerLevelsEventContent::new(&rules);
+        for (u, l) in users {
+            c.users.insert(matrix_sdk::ruma::UserId::parse(*u).unwrap(), Int::from(*l));
+        }
+        RoomPowerLevels::new(c.into(), &rules, [])
+    }
+
+    #[test]
+    fn moderator_rights_stop_at_own_level_and_at_peers() {
+        let id = |s| matrix_sdk::ruma::UserId::parse(s).unwrap();
+        let pl = levels(&[("@mod:x", 50), ("@mod2:x", 50), ("@admin:x", 100)]);
+        let rights = |me, who, joined| member_rights(&pl, &id(me), &id(who), joined);
+        // a plain user may do nothing, and deletes nothing
+        assert_eq!(rights("@u:x", "@v:x", true), (MemberRights::default(), false));
+        // the moderator: kick/ban a plain member, offers Moderatore and no Utente (already 0), nothing above self
+        let (r, redact) = rights("@mod:x", "@v:x", true);
+        assert!(r.kick && r.ban && redact);
+        assert_eq!(r.levels, vec![50]);
+        // not over a peer or a superior, not over self, not over a non-member
+        for who in ["@mod2:x", "@admin:x", "@mod:x"] {
+            let (r, _) = rights("@mod:x", who, true);
+            assert!(!r.kick && !r.ban, "{who}");
+            assert!(r.levels.is_empty() || who == "@mod:x", "{who}");
+        }
+        assert_eq!(rights("@mod:x", "@v:x", false).0, MemberRights::default());
+        // the admin may give every level the member does not have yet
+        assert_eq!(rights("@admin:x", "@mod:x", true).0.levels, vec![0, 100]);
+    }
     #[test]
     fn full_reaction_journal_keeps_confirmed_identity_without_accepting_new_writes() {
         use matrix_domain::{AccountId, RoomId};

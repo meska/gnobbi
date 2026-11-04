@@ -475,6 +475,28 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::UserVerification { user_id, result }
                                 }
+                                OperationCommand::MemberRights { scope, user_id } => {
+                                    let result = crate::operations::load_member_rights(
+                                        &operation_client,
+                                        &operation_timelines,
+                                        account,
+                                        &scope,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::MemberRights { scope, user_id, result }
+                                }
+                                OperationCommand::Moderate { scope, user_id, action } => {
+                                    let result = crate::operations::moderate(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                        &user_id,
+                                        &action,
+                                    )
+                                    .await;
+                                    OperationResult::Moderated { scope, user_id, action, result }
+                                }
                                 OperationCommand::MarkRoom {
                                     scope,
                                     read,

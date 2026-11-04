@@ -1,7 +1,7 @@
 //! Member list and another user's profile, inside the room sheet. The engine reads both (SDK).
 use crate::*;
 use matrix_desktop::ProfileAct;
-use matrix_engine::operations::{OperationCommand, OperationError, UserProfile};
+use matrix_engine::operations::{MemberRights, Moderation, OperationCommand, OperationError, UserProfile};
 
 pub(crate) enum ProfileState {
     Loading(String),
@@ -24,6 +24,15 @@ pub(crate) enum ProfileCtl {
     Act(ProfileAct),
 }
 
+fn act_for(action: &Moderation) -> ProfileAct {
+    match action {
+        Moderation::Kick => ProfileAct::Kick,
+        Moderation::Ban => ProfileAct::Ban,
+        Moderation::SetPower(l) => ProfileAct::Power(*l),
+        Moderation::RedactMessages(_) => ProfileAct::RemoveMessages,
+    }
+}
+
 impl Shell {
     fn own_user_id(&self) -> Option<&str> {
         self.accounts.get(self.active_id?)?.user_id.as_deref()
@@ -36,6 +45,10 @@ impl Shell {
             return Vec::new();
         };
         let me = self.own_user_id() == Some(p.user_id.as_str());
+        // A confirmation replaces the list: only its two answers are left to reach.
+        if self.profile_confirm.is_some() {
+            return vec![ProfileAct::Confirm, ProfileAct::Cancel];
+        }
         let mut acts = vec![ProfileAct::CopyId];
         if !me {
             acts.push(ProfileAct::Message);
@@ -47,7 +60,21 @@ impl Shell {
         if matrix_desktop::verify_mark(me, p.verified) == matrix_desktop::VerifyMark::Offer {
             acts.push(ProfileAct::Verify);
         }
+        if let Some((id, rights)) = &self.profile_rights
+            && *id == p.user_id
+        {
+            acts.extend(matrix_desktop::moderation_acts(rights));
+        }
         acts
+    }
+
+    /// The confirmation question while a destructive act waits, naming the user.
+    fn confirm_question(&self) -> Option<String> {
+        let (Some(act), Some(ProfileState::Loaded(p))) = (self.profile_confirm, &self.profile) else {
+            return None;
+        };
+        let n = self.profile_rights.as_ref().map_or(0, |(_, r)| r.recent.len());
+        Some(matrix_desktop::confirm_question(act, &p.name, n))
     }
 
     fn verify_mark(&self) -> matrix_desktop::VerifyMark {
@@ -79,6 +106,7 @@ impl Shell {
     pub(crate) fn profile_key(&mut self, key: &str, shift: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let ctls = self.profile_ctls();
         match key {
+            "escape" if self.profile_confirm.is_some() => self.profile_confirm = None,
             "escape" => self.profile = None,
             "tab" => {
                 let n = ctls.len();
@@ -130,22 +158,76 @@ impl Shell {
                 self.set_room_details_open(false);
                 self.composer.update(cx, |editor, cx| editor.insert_mention(user_id, &name, window, cx));
             }
+            ProfileAct::Power(level) => self.moderate(user_id, Moderation::SetPower(level)),
+            ProfileAct::RemoveMessages | ProfileAct::Kick | ProfileAct::Ban => {
+                // Cancel is the focused answer: Enter on a stray press does not destroy anything.
+                self.profile_confirm = Some(act);
+                self.profile_focus = self.profile_ctls().len() - 1;
+            }
+            ProfileAct::Cancel => self.profile_confirm = None,
+            ProfileAct::Confirm => {
+                let confirmed = self.profile_confirm.take();
+                let events = self.profile_rights.as_ref().map(|(_, r)| r.recent.clone()).unwrap_or_default();
+                match confirmed {
+                    Some(ProfileAct::Kick) => self.moderate(user_id, Moderation::Kick),
+                    Some(ProfileAct::Ban) => self.moderate(user_id, Moderation::Ban),
+                    // The events counted in the question are the ones deleted.
+                    Some(ProfileAct::RemoveMessages) => self.moderate(user_id, Moderation::RedactMessages(events)),
+                    _ => {}
+                }
+            }
+        }
+        if matches!(act, ProfileAct::Confirm | ProfileAct::Cancel) {
+            self.profile_focus = 0;
         }
         cx.notify();
     }
 
-    /// Outcome of «Verifica utente»: the row flashes accent (sent) or error (failed) for a moment, no text.
-    pub(crate) fn verify_requested(&mut self, sent: bool, cx: &mut Context<Self>) {
-        if sent {
-            self.profile_copied = Some(ProfileAct::Verify);
+    fn moderate(&mut self, user_id: String, action: Moderation) {
+        if self.pending_operation_command.is_none() {
+            self.pending_operation_command = Some(OperationCommand::Moderate {
+                scope: self.active_scope.clone(),
+                user_id,
+                action,
+            });
+        }
+    }
+
+    pub(crate) fn rights_found(&mut self, user_id: String, result: Result<MemberRights, OperationError>, cx: &mut Context<Self>) {
+        if let Ok(rights) = result {
+            self.profile_rights = Some((user_id, rights));
+            cx.notify();
+        }
+    }
+
+    /// Outcome of a moderation act: a kicked or banned user leaves the member list (and the profile closes);
+    /// the other acts flash like the rest and reload the rights.
+    pub(crate) fn moderated(&mut self, user_id: String, action: Moderation, result: Result<(), OperationError>, cx: &mut Context<Self>) {
+        if result.is_ok() && matches!(action, Moderation::Kick | Moderation::Ban) {
+            self.room_members.retain(|m| m.user_id != user_id);
+            self.members_requested = None; // the composer's completion list reloads too
+            self.profile = None;
+            cx.notify();
+            return;
+        }
+        if result.is_ok() && self.pending_operation_command.is_none() {
+            self.pending_operation_command = Some(OperationCommand::MemberRights { scope: self.active_scope.clone(), user_id });
+        }
+        self.act_done(act_for(&action), result.is_ok(), cx);
+    }
+
+    /// Outcome of an act with a server answer: its row flashes accent (done) or error (failed) for a moment, no text.
+    pub(crate) fn act_done(&mut self, act: ProfileAct, ok: bool, cx: &mut Context<Self>) {
+        if ok {
+            self.profile_copied = Some(act);
         } else {
-            self.profile_verify_failed = true;
+            self.profile_failed = Some(act);
         }
         cx.spawn(async move |this, cx| {
             cx.background_executor().timer(std::time::Duration::from_millis(1200)).await;
             this.update(cx, |this, cx| {
                 this.profile_copied = None;
-                this.profile_verify_failed = false;
+                this.profile_failed = None;
                 cx.notify();
             })
             .ok();
@@ -163,6 +245,8 @@ impl Shell {
             self.profile = Some(ProfileState::Loading(user_id));
             self.profile_focus = 0;
             self.profile_copied = None;
+            self.profile_rights = None;
+            self.profile_confirm = None;
             cx.notify();
         }
     }
@@ -176,7 +260,15 @@ impl Shell {
         let waiting = matches!(&self.profile, Some(ProfileState::Loading(id)) if *id == user_id);
         if waiting {
             self.profile = Some(match result {
-                Ok(profile) => ProfileState::Loaded(profile),
+                Ok(profile) => {
+                    if self.pending_operation_command.is_none() {
+                        self.pending_operation_command = Some(OperationCommand::MemberRights {
+                            scope: self.active_scope.clone(),
+                            user_id: profile.user_id.clone(),
+                        });
+                    }
+                    ProfileState::Loaded(profile)
+                }
                 Err(_) => ProfileState::Failed(user_id),
             });
             cx.notify();
@@ -204,6 +296,7 @@ impl Shell {
                 if self.verify_mark() == matrix_desktop::VerifyMark::Verified {
                     labels.push(("Verificato".to_owned(), None));
                 }
+                labels.extend(self.confirm_question().map(|q| (q, None)));
                 labels
             }
             Some(_) => Vec::new(),
@@ -263,8 +356,48 @@ impl Shell {
                 // One separated block per kind of action; verify, moderation and ignore are added as further blocks,
                 // the destructive ones at the end.
                 let section = || div().flex().flex_col().w_full().pt_2().border_t_1().border_color(rgb(t.border));
-                let acts = self.profile_acts();
                 let copied = self.profile_copied;
+                // Blocks of actions separated by lines; the destructive blocks come last, a confirmation alone.
+                let mut groups: Vec<Vec<ProfileAct>> = Vec::new();
+                for act in self.profile_acts().into_iter().filter(|a| *a != ProfileAct::CopyId) {
+                    match groups.last_mut() {
+                        Some(g) if g[0].section() == act.section() => g.push(act),
+                        _ => groups.push(vec![act]),
+                    }
+                }
+                let question = self.confirm_question();
+                let mut blocks = Vec::new();
+                for group in groups {
+                    let mut block = section();
+                    if let Some(q) = &question
+                        && group[0].section() == 4
+                    {
+                        block = block.child(div().px_2().pb_1().child(matrix_desktop::row_text::one_line(q)));
+                    }
+                    for act in group {
+                        let ctl = ProfileCtl::Act(act);
+                        let color = if self.profile_failed == Some(act) || act.destructive() {
+                            t.error
+                        } else if copied == Some(act) {
+                            t.accent
+                        } else {
+                            t.text
+                        };
+                        block = block.child(
+                            ring(ctl)(div().id(act.label()))
+                                .h(px(40.))
+                                .flex()
+                                .items_center()
+                                .px_2()
+                                .cursor_pointer()
+                                .hover(|s| s.bg(rgb(t.border)))
+                                .text_color(rgb(color))
+                                .child(act.label())
+                                .on_click(cx.listener(move |this, _, window, cx| this.activate_ctl(ctl, window, cx))),
+                        );
+                    }
+                    blocks.push(block);
+                }
                 div()
                     .id("profile-panel")
                     .flex()
@@ -304,27 +437,7 @@ impl Shell {
                     .when(self.verify_mark() == matrix_desktop::VerifyMark::Verified, |d| {
                         d.child(composer_icons::icon(composer_icons::Icon::Check, t.accent))
                     })
-                    .child(section().children(
-                        acts.into_iter().filter(|a| *a != ProfileAct::CopyId).map(|act| {
-                            let ctl = ProfileCtl::Act(act);
-                            ring(ctl)(div().id(act.label()))
-                                .h(px(40.))
-                                .flex()
-                                .items_center()
-                                .px_2()
-                                .cursor_pointer()
-                                .hover(|s| s.bg(rgb(t.border)))
-                                .text_color(rgb(if act == ProfileAct::Verify && self.profile_verify_failed {
-                                    t.error
-                                } else if copied == Some(act) {
-                                    t.accent
-                                } else {
-                                    t.text
-                                }))
-                                .child(act.label())
-                                .on_click(cx.listener(move |this, _, window, cx| this.activate_ctl(ctl, window, cx)))
-                        }),
-                    ))
+                    .children(blocks)
                     .into_any_element()
             }
             Some(state) => {
