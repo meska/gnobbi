@@ -22,6 +22,7 @@ mkdir -p "$d/usr/bin" "$d/usr/share/metainfo" "$d/usr/share/applications"
 for s in 16 32 64 128 256 512; do mkdir -p "$d/usr/share/icons/hicolor/${s}x${s}/apps"; cp "$src/icon-$s.png" "$d/usr/share/icons/hicolor/${s}x${s}/apps/$APP_ID.png"; done
 cp "$src/icon-512.png" "$d/$APP_ID.png"
 cp "$bin" "$d/usr/bin/gnobbi"
+mkdir -p "$d/usr/share/doc/gnobbi"; cp "$root/THIRD_PARTY_NOTICES.md" "$root/LICENSE-MIT" "$root/LICENSE-APACHE" "$d/usr/share/doc/gnobbi/"
 cp "$src/$APP_ID.desktop" "$d/$APP_ID.desktop"; cp "$src/$APP_ID.desktop" "$d/usr/share/applications/"
 cp "$src/$APP_ID.metainfo.xml" "$d/usr/share/metainfo/"
 cat > "$d/AppRun" <<'L'

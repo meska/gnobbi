@@ -42,6 +42,7 @@ cat > "$APP/Contents/Info.plist" <<P
 P
 cp "$PROFILE" "$APP/Contents/embedded.provisionprofile"
 cp "$root/packaging/macos/Gnobbi.icns" "$APP/Contents/Resources/Gnobbi.icns"
+cp "$root/THIRD_PARTY_NOTICES.md" "$root/LICENSE-MIT" "$root/LICENSE-APACHE" "$APP/Contents/Resources/"
 cat > "$OUT/app.entitlements" <<E2
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
