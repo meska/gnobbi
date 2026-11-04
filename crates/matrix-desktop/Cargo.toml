@@ -13,7 +13,7 @@ url = "=2.5.8"
 zeroize = "=1.9.1"
 cpal = "=0.18.2"
 
-image = { version = "=0.25.10", default-features = false, optional = true }
+image = { version = "=0.25.10", default-features = false, features = ["png"], optional = true }
 
 # GPUI backend features are per target. Non-macOS keeps exactly the Linux snapshot's
 # wayland + x11. macOS uses Metal with shaders compiled at runtime (no Xcode Metal Toolchain

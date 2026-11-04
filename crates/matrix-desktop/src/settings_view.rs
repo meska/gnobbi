@@ -183,6 +183,9 @@ impl Shell {
                 .rounded_lg()
                 .cursor_pointer()
         };
+        if self.about_open {
+            return self.render_about(t, window, cx);
+        }
         if !self.settings_open {
             let n = self.drawer_accounts().len();
             let ring = |i: usize| {

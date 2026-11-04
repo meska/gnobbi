@@ -9,6 +9,7 @@ mod filter_view;
 mod groups_edit_view;
 mod login_field;
 mod media_view;
+mod about_view;
 mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
@@ -35,7 +36,8 @@ mod voice_recorder;
 use composer_view::{ComposerView, Submitted};
 
 use gpui::{
-    App, Application, Bounds, Context, FocusHandle, KeyDownEvent, ScrollStrategy,
+    App, Application, Bounds, ClipboardItem, Context, FocusHandle, KeyDownEvent, ObjectFit, RenderImage,
+    ScrollStrategy,
     UniformListScrollHandle, Window, WindowBounds, WindowOptions, div, point, prelude::*, px, rgb,
     size, uniform_list,
 };
@@ -59,6 +61,11 @@ struct Shell {
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
     settings_open: bool,
+    about_open: bool,
+    about_row: usize,
+    about_focus: FocusHandle,
+    about_system: String,
+    about_icon: Option<std::sync::Arc<RenderImage>>,
     new_room: Option<new_room_view::NewRoom>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
@@ -2670,6 +2677,11 @@ fn main() {
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
+                        about_open: false,
+                        about_row: 0,
+                        about_focus: cx.focus_handle(),
+                        about_system: String::new(),
+                        about_icon: None,
                         new_room: None,
                         pending_open: None,
                         groups_edit: None,

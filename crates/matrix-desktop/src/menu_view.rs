@@ -3,8 +3,8 @@
 use crate::*;
 
 pub(crate) const DRAWER_WIDTH: f32 = 280.;
-/// Settings, Devices, Notifications, Add account, New chat, New room (after the account rows).
-pub(crate) const DRAWER_ROWS: usize = 6;
+/// Settings, Devices, Notifications, Add account, New chat, New room, version line (after the account rows).
+pub(crate) const DRAWER_ROWS: usize = 7;
 
 impl Shell {
     pub(crate) fn set_menu_open(
@@ -21,6 +21,7 @@ impl Shell {
             self.accounts = matrix_desktop::AccountCatalog::load(dirs);
         }
         self.settings_open = false;
+        self.about_open = false;
         self.confirm_removal = None;
         self.drawer_row = 0;
         if open {
@@ -115,6 +116,9 @@ impl Shell {
             cx.notify();
             return true;
         }
+        if self.menu_open && self.about_open {
+            return self.about_key(event, window, cx);
+        }
         if self.menu_open {
             let accounts = self.drawer_accounts();
             let activate = !m.modified() && matches!(key.key.as_str(), "enter" | "space");
@@ -132,6 +136,7 @@ impl Shell {
                         Some(3) if self.connected => self.add_account(window, cx),
                         Some(4) if self.connected => self.open_new_room(true, window, cx),
                         Some(5) if self.connected => self.open_new_room(false, window, cx),
+                        Some(6) => self.set_about_open(true, window, cx),
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }
@@ -252,18 +257,11 @@ impl Shell {
                     .border_r_1()
                     .border_color(rgb(t.border))
                     .on_click(|_, _, cx| cx.stop_propagation())
-                    .when(!self.settings_open, |d| {
+                    .when(!self.settings_open && !self.about_open, |d| {
                         d.children(self.render_drawer_header(t))
                     })
                     .child(div().flex_1().child(self.render_drawer_body(t, window, cx)))
-                    .child(
-                        div()
-                            .px_4()
-                            .py_3()
-                            .text_size(px(12.))
-                            .text_color(rgb(t.secondary))
-                            .child(concat!("Gnobbi ", env!("CARGO_PKG_VERSION"))),
-                    )
+                    .when(!self.about_open, |d| d.child(self.render_version_line(t, window, cx)))
                     .with_animation(
                         "menu-drawer-slide",
                         Animation::new(std::time::Duration::from_millis(140)),
@@ -271,6 +269,32 @@ impl Shell {
                     ),
             )
             .children(self.render_removal_dialog(t, cx))
+            .into_any_element()
+    }
+
+    /// «Gnobbi 0.1.0» at the bottom: looks clickable only on hover or keyboard focus.
+    fn render_version_line(
+        &self,
+        t: matrix_desktop::DesignTokens,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let focused = self.drawer_focus.is_focused(window)
+            && self.drawer_row == self.drawer_accounts().len() + 6;
+        div()
+            .id("menu-about")
+            .mx_2()
+            .my_1()
+            .px_2()
+            .py_2()
+            .rounded_lg()
+            .border_1()
+            .border_color(rgb(if focused { t.accent } else { t.surface }))
+            .text_size(px(12.))
+            .text_color(rgb(t.secondary))
+            .hover(|s| s.bg(rgb(t.border)).text_color(rgb(t.text)))
+            .child(format!("Gnobbi {}", matrix_desktop::build_info::BUILD_INFO.version))
+            .on_click(cx.listener(|this, _, window, cx| this.set_about_open(true, window, cx)))
             .into_any_element()
     }
 
