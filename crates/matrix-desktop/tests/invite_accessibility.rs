@@ -107,3 +107,25 @@ fn the_invitation_state_is_in_the_row_name_and_the_buttons_follow_it() {
     sidebar.invite_answered(&scope, false);
     assert_eq!(view(&sidebar), ("Invitata, Non riuscito".into(), vec!["Riprova".into(), "Rifiuta".into()]));
 }
+
+#[test]
+fn a_room_row_name_carries_the_last_message_time_only_when_known() {
+    let account = AccountId::new(22);
+    let mut sidebar = Sidebar::connected(account);
+    for (name, ts) in [("ConOra", Some(chrono::Utc::now().timestamp_millis() as u64)), ("SenzaOra", None)] {
+        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            scope: RoomScope { account_id: account, room_id: RoomId::new(format!("!{name}:fixture.invalid")) },
+            name: name.into(),
+            unread: 1,
+            info: RoomInfo { last_event_ts: ts, ..Default::default() },
+        }));
+    }
+    let snap = snapshot(RoomNodes::default().project(&sidebar));
+    let tree = snap.tree();
+    let label = |n: &str| {
+        let id = snap.rooms.iter().find(|r| r.name == n).unwrap().id;
+        tree.nodes.iter().find(|(i, _)| *i == id).unwrap().1.label().map(str::to_owned)
+    };
+    assert!(label("ConOra").unwrap().starts_with("ConOra, ultimo messaggio alle "));
+    assert_eq!(label("SenzaOra").as_deref(), Some("SenzaOra"));
+}

@@ -2001,26 +2001,47 @@ impl Render for Shell {
                                                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                                                     .child(matrix_desktop::row_text::one_line(&room.name)),
                                                             )
-                                                            .child(
+                                                            .children(room.stamp().map(|stamp| {
                                                                 div()
                                                                     .flex_shrink_0()
                                                                     .text_size(px(11.))
                                                                     .line_height(px(matrix_desktop::row_text::NAME_LINE_PX))
                                                                     .text_color(rgb(t.secondary))
-                                                                    .when(this.connected && (room.unread > 0 || room.info.marked_unread), |d| d.px_2().rounded_full().bg(rgb(t.accent)).text_color(rgb(t.on_accent)))
-                                                                    .child(if this.connected && room.unread > 0 { room.unread.to_string() } else if this.connected && room.info.marked_unread { "•".to_owned() } else { room.time.to_owned() }),
-                                                            ),
+                                                                    .child(stamp)
+                                                            })),
                                                     )
                                                     .child(
                                                         div()
+                                                            .flex()
+                                                            .items_center()
+                                                            .gap_2()
                                                             .h(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
-                                                            .truncate()
-                                                            .text_size(px(matrix_desktop::row_text::PREVIEW_PX))
-                                                            .line_height(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
-                                                            .text_color(rgb(t.secondary))
-                                                            .child(match invite {
-                                                                Some(state) => invite_view::preview(state).to_owned(),
-                                                                None => this.sidebar.leave_error(&room.scope).map_or_else(|| matrix_desktop::row_text::one_line(&room.preview), str::to_owned),
+                                                            .child(
+                                                                div()
+                                                                    .flex_1()
+                                                                    .min_w_0()
+                                                                    .truncate()
+                                                                    .text_size(px(matrix_desktop::row_text::PREVIEW_PX))
+                                                                    .line_height(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
+                                                                    .text_color(rgb(t.secondary))
+                                                                    .child(match invite {
+                                                                        Some(state) => invite_view::preview(state).to_owned(),
+                                                                        None => this.sidebar.leave_error(&room.scope).map_or_else(|| matrix_desktop::row_text::one_line(&room.preview), str::to_owned),
+                                                                    }),
+                                                            )
+                                                            // Badge under the time, in the preview line (Telegram).
+                                                            .when(this.connected && (room.unread > 0 || room.info.marked_unread), |d| {
+                                                                d.child(
+                                                                    div()
+                                                                        .flex_shrink_0()
+                                                                        .px_2()
+                                                                        .rounded_full()
+                                                                        .bg(rgb(t.accent))
+                                                                        .text_color(rgb(t.on_accent))
+                                                                        .text_size(px(11.))
+                                                                        .line_height(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
+                                                                        .child(if room.unread > 0 { room.unread.to_string() } else { "•".to_owned() }),
+                                                                )
                                                             }),
                                                     ),
                                             )
@@ -2795,6 +2816,17 @@ fn main() {
                         loop {
                             cx.background_executor().timer(std::time::Duration::from_secs(60)).await;
                             if this.update(cx, |this, cx| this.apply_theme(cx)).is_err() {
+                                break;
+                            }
+                        }
+                    }).detach();
+                    // Stamps in the room list change at local midnight: repaint then, no restart needed.
+                    cx.spawn(async move |this, cx| {
+                        loop {
+                            let now = chrono::Utc::now().timestamp_millis().max(0) as u64;
+                            let wait = matrix_desktop::time_fmt::next_local_midnight_ms().map_or(3_600_000, |m| m.saturating_sub(now) + 1_000);
+                            cx.background_executor().timer(std::time::Duration::from_millis(wait.min(3_600_000))).await;
+                            if this.update(cx, |_, cx| cx.notify()).is_err() {
                                 break;
                             }
                         }

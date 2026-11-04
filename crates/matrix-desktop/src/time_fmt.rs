@@ -68,6 +68,20 @@ where
     })
 }
 
+const LIST_WEEKDAYS_SPOKEN: [&str; 7] = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"];
+
+/// Screen-reader form of a `last_message_stamp` («14:27» → «ultimo messaggio alle 14:27»).
+pub fn last_message_spoken(stamp: &str) -> String {
+    let when = if stamp.contains(':') {
+        format!("alle {stamp}")
+    } else if stamp.contains('/') {
+        format!("il {stamp}")
+    } else {
+        LIST_WEEKDAYS.iter().position(|d| *d == stamp).map_or_else(|| stamp.to_owned(), |i| LIST_WEEKDAYS_SPOKEN[i].to_owned())
+    };
+    format!("ultimo messaggio {when}")
+}
+
 /// Same, now and in the system zone.
 pub fn last_message_stamp(timestamp_ms: Option<u64>) -> Option<String> {
     let now = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0);
@@ -93,6 +107,13 @@ pub fn next_local_midnight_ms() -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spoken_stamp_covers_time_weekday_and_date() {
+        assert_eq!(last_message_spoken("14:27"), "ultimo messaggio alle 14:27");
+        assert_eq!(last_message_spoken("mer"), "ultimo messaggio mercoledì");
+        assert_eq!(last_message_spoken("31/10/2026"), "ultimo messaggio il 31/10/2026");
+    }
     use chrono::FixedOffset;
     use chrono::NaiveDate;
 
