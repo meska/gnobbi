@@ -264,7 +264,7 @@ impl Shell {
         rows
     }
 
-    /// One row per catalog account (avatar, name, user ID); a dot marks the shown account and a
+    /// One row per catalog account (avatar, name, user ID); a check and a selected fill mark the shown account and a
     /// click shows another one.
     fn render_account_list(
         &self,
@@ -287,6 +287,7 @@ impl Shell {
                     .border_1()
                     .border_color(ring(index))
                     .cursor_pointer()
+                    .when(a.current, |d| d.bg(rgb(t.selected)))
                     .hover(|d| d.bg(rgb(t.surface)))
                     .on_click(
                         cx.listener(move |this, _, window, cx| this.switch_account(id, window, cx)),
@@ -368,12 +369,14 @@ impl Shell {
                                 cx.notify();
                             })),
                     )
+                    // Shown account: selected row plus a check, separate from the focus ring.
+                    // Unread is only the badge; the accessible name already says «account attivo».
                     .child(
                         div()
-                            .size(px(8.))
+                            .w(px(16.))
                             .flex_shrink_0()
-                            .rounded_full()
-                            .when(a.current, |d| d.bg(rgb(t.accent))),
+                            .text_color(rgb(t.accent))
+                            .child(if a.current { "✓" } else { "" }),
                     )
                     .into_any_element()
             })
@@ -407,7 +410,7 @@ impl Shell {
             let n = self.drawer_accounts().len();
             let ring = |i: usize| {
                 rgb(
-                    if self.drawer_row == i && self.drawer_focus.is_focused(window) {
+                    if self.drawer_keys && self.drawer_row == i && self.drawer_focus.is_focused(window) {
                         t.accent
                     } else {
                         t.surface

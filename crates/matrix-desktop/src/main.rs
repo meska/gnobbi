@@ -95,6 +95,8 @@ struct Shell {
     refocus_menu: bool,
     refocus_list: bool,
     drawer_row: usize,
+    /// True once the drawer is driven by keys: only then is the focus ring drawn.
+    drawer_keys: bool,
     settings_focus: FocusHandle,
     /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
     settings_row: usize,
@@ -2957,6 +2959,7 @@ fn main() {
                         refocus_menu: false,
                         refocus_list: false,
                         drawer_row: 0,
+                        drawer_keys: false,
                         settings_focus: cx.focus_handle(),
                         settings_row: 0,
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),

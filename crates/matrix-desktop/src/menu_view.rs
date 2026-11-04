@@ -52,7 +52,9 @@ impl Shell {
         self.about_open = false;
         self.confirm_removal = None;
         self.switch_error = None;
-        self.drawer_row = 0;
+        // Initial focus goes to the shown account, not to the first catalog row.
+        self.drawer_row = self.drawer_accounts().iter().position(|a| a.current).unwrap_or(0);
+        self.drawer_keys = false;
         if open {
             self.drawer_focus.focus(window)
         } else {
@@ -195,6 +197,7 @@ impl Shell {
         let m = &key.modifiers;
         if self.connected && m.control && m.shift && key.key == "m" {
             self.set_menu_open(!self.menu_open, window, cx);
+            self.drawer_keys = true;
             return true;
         }
         if self.connected
@@ -230,6 +233,7 @@ impl Shell {
             return self.about_key(event, window, cx);
         }
         if self.menu_open {
+            self.drawer_keys = true;
             let accounts = self.drawer_accounts();
             let activate = !m.modified() && matches!(key.key.as_str(), "enter" | "space");
             match key.key.as_str() {
