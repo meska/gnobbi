@@ -1160,6 +1160,7 @@ impl Shell {
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
                 self.active_scope = request.tag.scope().clone();
+                self.remember_last_room();
                 self.note_seen();
                 let draft_scope = self.draft_scope();
                 self.composer
@@ -1197,6 +1198,17 @@ impl Shell {
             self.saved_timelines
                 .insert(self.active_scope.clone(), previous);
             self.active_scope = scope;
+            self.remember_last_room();
+        }
+    }
+
+    /// Called only when the user changes room; writes the file only if the value changed.
+    fn remember_last_room(&mut self) {
+        if self.room_prefs.set_last_open_room(&self.active_scope)
+            && let Some(dirs) = &self.prefs_dirs
+            && let Err(error) = self.room_prefs.save(dirs)
+        {
+            eprintln!("Gnobbi: cannot save room preferences: {error}");
         }
     }
 
