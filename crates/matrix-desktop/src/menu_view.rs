@@ -291,6 +291,7 @@ impl Shell {
             && self.menu_focus.is_focused(window)
         {
             self.set_menu_open(true, window, cx);
+            self.drawer_keys = true;
             return true;
         }
         if key.key == "tab"

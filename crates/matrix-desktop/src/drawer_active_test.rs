@@ -66,6 +66,14 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             check!(this.menu_open && this.drawer_focus.is_focused(window), "shortcut opens the drawer with focus");
             check!(this.drawer_keys && this.drawer_row == 1, "keyboard open: ring {} row {}", this.drawer_keys, this.drawer_row);
         }).unwrap();
+        // 4b. Enter on the focused Menu button is a keyboard open too: ring on from the start.
+        this.update_in(cx, |this, window, cx| { this.set_menu_open(false, window, cx); this.menu_focus.focus(window); }).unwrap();
+        key!("enter");
+        wait(200).await;
+        this.update_in(cx, |this, window, _| {
+            check!(this.menu_open && this.drawer_focus.is_focused(window), "Enter on Menu opens the drawer with focus");
+            check!(this.drawer_keys && this.drawer_row == 1, "Enter open: ring {} row {}", this.drawer_keys, this.drawer_row);
+        }).unwrap();
         // 5. Account change with the drawer open: refused switch keeps the drawer, error on that row, same account shown.
         this.update_in(cx, |this, window, cx| {
             this.switch_account(anna, window, cx); // anna is not parked: refused
