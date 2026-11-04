@@ -56,6 +56,7 @@ mod preferences;
 pub mod quick_search;
 mod rail_layout;
 mod room_prefs;
+pub mod last_room_restore;
 pub use room_prefs::RoomPrefs;
 pub use rail_layout::{RailLayout, RailLayouts};
 pub use preferences::{

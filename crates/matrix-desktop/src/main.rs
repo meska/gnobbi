@@ -81,6 +81,7 @@ struct Shell {
     room_edit: Option<room_edit_view::RoomEdit>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
+    restore: matrix_desktop::last_room_restore::LastRoomRestore,
     groups_edit: Option<groups_edit_view::GroupsEdit>,
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
     refocus_menu: bool,
@@ -1202,9 +1203,37 @@ impl Shell {
         }
     }
 
+    /// Reopens the saved room of the active account once listed. Compact layout: the list stays the
+    /// screen (no `set_compact_chat`), the room is only selected and scrolled into view.
+    fn restore_last_room(&mut self, cx: &mut Context<Self>) {
+        if !self.connected {
+            return;
+        }
+        let account = self.active_scope.account_id;
+        let (prefs, sidebar) = (&self.room_prefs, &mut self.sidebar);
+        let opened = self.restore.poll(
+            account,
+            || prefs.last_open_room(account),
+            std::time::Instant::now(),
+            |room| {
+                let scope = RoomScope { account_id: account, room_id: room.clone() };
+                sidebar.is_joined(&scope) && sidebar.select(&scope)
+            },
+        );
+        if let Some(room) = opened {
+            self.sync_room(cx);
+            let scope = RoomScope { account_id: account, room_id: room };
+            if let Some(position) = self.sidebar.position_of(&scope) {
+                self.scroll.scroll_to_item(position, ScrollStrategy::Top);
+            }
+            cx.notify();
+        }
+    }
+
     /// Called only when the user changes room; writes the file only if the value changed.
     fn remember_last_room(&mut self) {
-        if self.room_prefs.set_last_open_room(&self.active_scope)
+        if !self.restore.waiting()
+            && self.room_prefs.set_last_open_room(&self.active_scope)
             && let Some(dirs) = &self.prefs_dirs
             && let Err(error) = self.room_prefs.save(dirs)
         {
@@ -1271,6 +1300,7 @@ impl Shell {
                         .is_some_and(|selected| selected.scope == self.sidebar.rooms()[index].scope)
                 })
             {
+                self.restore.cancel();
                 self.sidebar.navigate(Navigation::First);
             }
             if !self.sidebar.visible_indices().is_empty() {
@@ -1329,6 +1359,7 @@ impl Shell {
             _ => None,
         };
         if let Some(direction) = direction {
+            self.restore.cancel();
             if let Some(position) = self.sidebar.navigate(direction) {
                 self.scroll.scroll_to_item(position, ScrollStrategy::Top);
             }
@@ -2006,6 +2037,7 @@ impl Render for Shell {
                                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                                 let Some(scope) = callback(&this.a11y_rooms, &this.sidebar) else { return; };
                                                 if !this.sidebar.select(&scope) { return; }
+                                                this.restore.cancel();
                                                 this.sync_room(cx);
                                                 this.set_compact_chat(true);
                                                 this.list_focus.focus(window);
@@ -2596,6 +2628,7 @@ fn main() {
                                             this.composer.update(cx, |editor, cx| editor.switch_room(this.active_scope.clone(), cx));
                                             cx.notify();
                                         }
+                                        this.restore_last_room(cx);
                                         let failed = this
                                             .notification_handle
                                             .as_ref()
@@ -2926,6 +2959,7 @@ fn main() {
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
                         pending_open: None,
+                        restore: Default::default(),
                         groups_edit: None,
                         refocus_menu: false,
                         refocus_list: false,
