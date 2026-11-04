@@ -12,12 +12,18 @@ use std::{cell::Cell, rc::Rc, time::{Duration, Instant}};
 
 const FADE: Duration = Duration::from_millis(140);
 
-/// OS «reduce motion»: queried only when the Voice/Send swap starts, so a change takes effect at the next swap.
+/// OS «reduce motion» (macOS, Linux/GNOME; Windows has no check and always animates).
+/// shortcut: letto una volta per processo, aggiornare se serve seguire il cambio in tempo reale
 fn reduce_motion() -> bool {
     #[cfg(test)]
     if let Some(v) = REDUCE_MOTION.with(|r| r.get()) {
         return v;
     }
+    static CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CACHE.get_or_init(reduce_motion_os)
+}
+
+fn reduce_motion_os() -> bool {
     #[cfg(target_os = "macos")]
     // SAFETY: render runs on the main thread; NSWorkspace.sharedWorkspace is always available.
     unsafe {
@@ -513,9 +519,14 @@ impl ComposerView {
         self.changed(cx);
     }
 
-    /// Single source of truth for Send replacing Voice (view, Tab order and a11y tree follow it).
+    /// Send replacing Voice: the rule lives in the a11y module so the tree and actions cannot diverge.
     fn send_visible(&self) -> bool {
-        self.recorder.is_none() && self.sendable()
+        matrix_desktop::accessibility::send_visible(
+            self.draft.marked().is_some(),
+            self.draft.text(),
+            self.attachment.is_some(),
+            self.recorder.is_some(),
+        )
     }
 
     /// Send's opacity (Voice gets the complement): 0..1 along the fade, the settled value otherwise.
@@ -533,8 +544,10 @@ impl ComposerView {
     /// Follows `visible`: starts a fade on change (none with reduce motion), ends it when done. Returns Send's opacity.
     fn sync_fade(&mut self, visible: bool) -> f32 {
         if visible != self.send_shown {
+            let cur = self.send_mix(); // resume from the current opacity: no jump when reversed mid-fade
             self.send_shown = visible;
-            self.fade_since = (!reduce_motion()).then(Instant::now);
+            self.fade_since = (!reduce_motion())
+                .then(|| Instant::now() - FADE.mul_f32(if visible { cur } else { 1. - cur }));
         }
         let mix = self.send_mix();
         if mix == f32::from(u8::from(self.send_shown)) {
@@ -1079,6 +1092,10 @@ impl Render for ComposerView {
             ));
         }
         let send_visible = self.send_visible();
+        // Send left (e.g. «×» on the attachment) while focused: hand the focus back to the field.
+        if !send_visible && self.send_focus.is_focused(window) {
+            window.focus(&self.focus);
+        }
         let mix = self.sync_fade(send_visible);
         if self.fade_since.is_some() {
             window.request_animation_frame();
@@ -2850,6 +2867,12 @@ mod tests {
             v.fade_since = Some(now - Duration::from_millis(70));
             let m = v.send_mix();
             assert!((0.4..0.6).contains(&m), "fade out half way: {m}");
+            // Reversed half way through: resumes from the current opacity, no jump to 1.
+            v.send_shown = true;
+            v.fade_since = Some(Instant::now() - FADE / 2);
+            v.sync_fade(false);
+            let m = v.send_mix();
+            assert!((0.4..0.6).contains(&m), "reversed mid-fade: {m}");
             // Reduced motion: no fade at all in either direction, even right after the change.
             REDUCE_MOTION.with(|r| r.set(Some(true)));
             v.send_shown = false;
@@ -2877,6 +2900,20 @@ mod tests {
             assert_eq!(stops.len(), 1, "only the field is a Tab stop while recording");
             v.stop_recording(false, cx);
             assert!(v.send_visible(), "after cancel the text brings Send back");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn removing_the_attachment_while_send_is_focused_returns_focus_to_the_field() {
+        rendered_composer("", |v, window, cx| {
+            v.attachment = Some(Pending { filename: "a.txt".into(), data: vec![1], voice: None });
+            v.send_focus.focus(window);
+            assert!(v.send_visible() && v.send_focus.is_focused(window));
+            v.attachment = None;
+            let _ = v.render(window, cx);
+            assert!(!v.send_visible());
+            assert!(v.focus.is_focused(window), "focus must not stay on the unpainted Send");
         });
     }
 }

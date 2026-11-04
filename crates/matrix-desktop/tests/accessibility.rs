@@ -690,6 +690,26 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
     snapshot.composer.as_mut().unwrap().text = "hello".into();
     snapshot.composer.as_mut().unwrap().recording = Some(3);
     assert!(button(&snapshot).is_none() && !voice(&snapshot), "recording: Send never replaces the recording controls");
+    {
+        use matrix_desktop::accessibility::NavigationAction;
+        let on_send = |snapshot: &NavigationSnapshot, action| {
+            snapshot.action(&accesskit::ActionRequest {
+                action,
+                target_tree: accesskit::TreeId::ROOT,
+                target_node: SEND,
+                data: None,
+            })
+        };
+        assert!(on_send(&snapshot, accesskit::Action::Click).is_none(), "recording: no Send click");
+        assert!(on_send(&snapshot, accesskit::Action::Focus).is_none(), "recording: no Send focus");
+        snapshot.composer.as_mut().unwrap().recording = None;
+        assert!(matches!(on_send(&snapshot, accesskit::Action::Click), Some(NavigationAction::SubmitComposer { .. })));
+    }
+    // Focus never points at a node that is not in the tree (accesskit_consumer panics on it).
+    let c = snapshot.composer.as_mut().unwrap();
+    c.text = String::new();
+    c.send_focused = true;
+    assert_ne!(snapshot.tree().focus, SEND);
     snapshot.composer = None;
     assert!(!snapshot.tree().nodes.iter().any(|(id, _)| *id == SEND));
 }

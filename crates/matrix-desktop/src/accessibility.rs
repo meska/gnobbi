@@ -89,9 +89,18 @@ impl ComposerSnapshot {
         self.send_source == Some(source)
             && self.scope == *scope
             && self.text == text
-            && !self.composing
-            && (!text.trim().is_empty() || self.attachment.is_some())
+            && send_visible(self.composing, text, self.attachment.is_some(), self.recording.is_some())
     }
+
+    /// The one rule for Send replacing Voice: view, Tab order, a11y tree and actions all call it.
+    pub fn send_visible(&self) -> bool {
+        send_visible(self.composing, &self.text, self.attachment.is_some(), self.recording.is_some())
+    }
+}
+
+/// Send is shown for a committed, non-blank draft or an attachment, never while recording.
+pub fn send_visible(composing: bool, text: &str, attachment: bool, recording: bool) -> bool {
+    !recording && !composing && (!text.trim().is_empty() || attachment)
 }
 
 #[derive(Clone)]
@@ -855,9 +864,7 @@ impl NavigationSnapshot {
             (SEND, Action::Focus) => {
                 let composer = self.composer.as_ref()?;
                 let source = composer.send_source?;
-                (!composer.composing
-                    && (!composer.text.trim().is_empty() || composer.attachment.is_some()))
-                .then(|| NavigationAction::FocusSend {
+                composer.send_visible().then(|| NavigationAction::FocusSend {
                     scope: composer.scope.clone(),
                     text: composer.text.clone(),
                     source,
@@ -866,9 +873,7 @@ impl NavigationSnapshot {
             (SEND, Action::Click) => {
                 let composer = self.composer.as_ref()?;
                 let source = composer.send_source?;
-                (!composer.composing
-                    && (!composer.text.trim().is_empty() || composer.attachment.is_some()))
-                .then(|| NavigationAction::SubmitComposer {
+                composer.send_visible().then(|| NavigationAction::SubmitComposer {
                     scope: composer.scope.clone(),
                     text: composer.text.clone(),
                     source,
@@ -1272,11 +1277,7 @@ impl NavigationSnapshot {
             }
             tree.nodes[0].1.push_child(COMPOSER);
             tree.nodes.push((COMPOSER, editor));
-            // Same rule as the composer view: Send replaces Voice in one slot, never both.
-            if composer.recording.is_none()
-                && !composer.composing
-                && (!composer.text.trim().is_empty() || composer.attachment.is_some())
-            {
+            if composer.send_visible() {
                 let mut send = Node::new(Role::Button);
                 send.set_label("Invia messaggio");
                 if !composer.live {
@@ -1367,7 +1368,7 @@ impl NavigationSnapshot {
             }
             if composer.focused {
                 tree.focus = COMPOSER;
-            } else if composer.send_focused {
+            } else if composer.send_focused && tree.nodes.iter().any(|(id, _)| *id == SEND) {
                 tree.focus = SEND;
             } else if let Some(icon) = composer.icon_focused {
                 tree.focus = [EMOJI, ATTACH, RECORD][icon as usize];
