@@ -1,5 +1,6 @@
 //! UI-, transport- and SDK-independent domain contracts.
 
+pub mod design;
 pub mod notifications;
 mod sender_label;
 mod timeline;

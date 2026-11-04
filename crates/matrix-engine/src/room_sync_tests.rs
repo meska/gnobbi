@@ -391,3 +391,21 @@ fn nonempty_treats_missing_and_empty_avatar_as_absent() {
         Some("mxc://s/abc")
     );
 }
+
+#[test]
+fn ambiguous_member_name_carries_user_id() {
+    let id = |n: &str| format!("@{n}:example.org");
+    assert_eq!(
+        super::disambiguated_name(Some("Anna"), true, &id("anna1")).as_deref(),
+        Some("Anna (@anna1:example.org)")
+    );
+    assert_eq!(
+        super::disambiguated_name(Some("Anna"), true, &id("anna2")).as_deref(),
+        Some("Anna (@anna2:example.org)")
+    );
+    assert_eq!(
+        super::disambiguated_name(Some("Anna"), false, &id("anna1")).as_deref(),
+        Some("Anna")
+    );
+    assert_eq!(super::disambiguated_name(None, true, &id("x")), None);
+}

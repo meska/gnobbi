@@ -24,6 +24,9 @@ cp "$src/icon-512.png" "$d/$APP_ID.png"
 cp "$bin" "$d/usr/bin/gnobbi"
 cp "$src/$APP_ID.desktop" "$d/$APP_ID.desktop"; cp "$src/$APP_ID.desktop" "$d/usr/share/applications/"
 cp "$src/$APP_ID.metainfo.xml" "$d/usr/share/metainfo/"
+# Own licences and the third-party dependency notices ship with the package.
+mkdir -p "$d/usr/share/doc/gnobbi"
+cp "$root/THIRD_PARTY_NOTICES.md" "$root/LICENSE-MIT" "$root/LICENSE-APACHE" "$d/usr/share/doc/gnobbi/"
 cat > "$d/AppRun" <<'L'
 #!/bin/sh
 # Native Wayland when the session has one; the profile lives in the XDG data directory.

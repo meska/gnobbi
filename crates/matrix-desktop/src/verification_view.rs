@@ -201,6 +201,66 @@ impl Shell {
         }
     }
 
+    fn open_device_delete(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.verification.open_delete(index) {
+            return;
+        }
+        let field = cx.new(|cx| {
+            let mut field = crate::login_field::LoginField::new(true, cx);
+            field.enabled = true;
+            field.placeholder = "Password";
+            field
+        });
+        cx.observe(&field, |_, _, cx| cx.notify()).detach();
+        field.read(cx).focus.focus(window);
+        self.delete_field = Some(field);
+        cx.notify();
+    }
+
+    fn close_device_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.verification.cancel_delete();
+        self.delete_field = None;
+        self.list_focus.focus(window);
+        cx.notify();
+    }
+
+    fn submit_device_delete(&mut self, cx: &mut Context<Self>) {
+        let Some(field) = self.delete_field.clone() else { return };
+        // The field is emptied right here; the password only travels inside the command.
+        let password = field.update(cx, |f, _| f.input.take());
+        self.verification.submit_delete(password);
+        cx.notify();
+    }
+
+    fn render_device_delete(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let dialog = self.verification.delete_dialog()?;
+        let field = self.delete_field.clone()?;
+        field.update(cx, |f, _| f.theme = t);
+        let button = |id: &'static str, label: &'static str, color: u32| div().id(id).px_3().py_2().rounded_md().cursor_pointer().text_color(rgb(color)).child(label);
+        Some(div().id("device-delete-layer").absolute().inset_0().flex().items_center().justify_center()
+            .bg(gpui::rgba(matrix_desktop::SCRIM))
+            .on_click(cx.listener(|this, _, window, cx| this.close_device_delete(window, cx)))
+            .child(div().id("device-delete-dialog").w(px(340.)).p_4().gap_2().flex().flex_col().rounded_lg()
+                .bg(rgb(t.surface)).border_1().border_color(rgb(t.border))
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                    match event.keystroke.key.as_str() {
+                        "enter" => this.submit_device_delete(cx),
+                        "escape" => this.close_device_delete(window, cx),
+                        _ => return,
+                    }
+                    cx.stop_propagation();
+                }))
+                .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child(matrix_desktop::row_text::one_line(&dialog.name)))
+                .child(field)
+                .when_some(dialog.error, |d, e| d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
+                .child(div().flex().justify_end().gap_1()
+                    .child(button("device-delete-cancel", "Annulla", t.accent).on_click(cx.listener(|this, _, window, cx| this.close_device_delete(window, cx))))
+                    .child(button("device-delete-confirm", "Disconnetti", if dialog.busy { t.disabled } else { t.error })
+                        .on_click(cx.listener(|this, _, _, cx| this.submit_device_delete(cx))))))
+            .into_any_element())
+    }
+
     pub(crate) fn render_verification(&mut self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = self.theme.tokens();
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -233,7 +293,8 @@ impl Shell {
         .index();
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
-        div().size_full().flex().flex_col().bg(rgb(t.surface)).text_color(rgb(t.text))
+        let delete_dialog = self.render_device_delete(t, cx);
+        div().size_full().relative().flex().flex_col().bg(rgb(t.surface)).text_color(rgb(t.text))
             .font_family(matrix_desktop::UI_FONT).text_size(px(14.))
             .track_focus(&self.list_focus)
             .capture_key_down(cx.listener(Self::navigation_key))
@@ -246,8 +307,16 @@ impl Shell {
             .child(div().id("verification-content").flex_1().min_h_0().overflow_y_scroll()
                 .when_some(self.device_scroll_handle(), |d, handle| d.track_scroll(&handle))
                 .p_4().flex().flex_col().gap_3()
-                .child("Altri dispositivi del tuo account · SAS")
-                .child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child("Avvia solo una verifica attesa. Confronta i numeri tramite un canale fidato; non confermare se sono diversi."))
+                .when_some(panel.own_device(), |d, id| d.child(div().w_full().flex_shrink_0().min_h(px(56.)).px_3().py_2().rounded_lg().bg(rgb(t.input)).flex().flex_col().gap_1()
+                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(match panel.own() {
+                        Some(own) if own.display_name.is_some() => format!("Questo dispositivo · {}", matrix_desktop::device_title(own)),
+                        _ => "Questo dispositivo".to_owned(),
+                    }))
+                    .child(div().min_w_0().text_size(px(12.)).child(matrix_desktop::row_text::one_line(&match panel.own() {
+                        Some(own) => matrix_desktop::device_detail(own, matrix_desktop::time_fmt::day_or_time),
+                        None => id.to_owned(),
+                    })))))
+                .child("Altri dispositivi")
                 .child(div().id("verification-refresh").anchor_scroll(self.device_anchor(1)).relative().children(self.device_observer(1, cx))
                     .when(focused_control == Some(1), |d| d.border_1().border_color(rgb(t.accent)))
                     .cursor_pointer().text_color(rgb(t.accent)).child("Aggiorna dispositivi")
@@ -259,18 +328,32 @@ impl Shell {
                     let row_focused = row_index.is_some_and(|id| self.device_focus == matrix_desktop::accessibility::devices::DeviceControl::Device(accesskit::NodeId(id as u64))) && panel.can_begin();
                     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                     let row_focused = false;
+                    // Built before the row: the row's source slice ends at its own click handler.
+                    let disconnect = div().id(("verification-device-delete", index)).cursor_pointer().text_color(rgb(t.error))
+                        .child("Disconnetti")
+                        .on_click(cx.listener(move |this, _, window, cx| { this.open_device_delete(index, window, cx); cx.stop_propagation(); }));
                     div().id(("verification-device", index)).relative()
                         .anchor_scroll(row_index.and_then(|id| self.device_anchor(id)))
                         .children(row_index.and_then(|id| self.device_observer(id, cx)))
                         .when(row_focused, |d| d.border_1().border_color(rgb(t.accent)))
-                        .w_full().px_3().py_2().rounded_lg().bg(rgb(t.input)).cursor_pointer().truncate()
-                        .child(matrix_desktop::row_text::one_line(&format!("{} · {}", device.device_id, if device.verified { "Verificato" } else { "Non verificato" })))
-                        .on_click(cx.listener(move |this, _, _, cx| { this.verification.begin(index); cx.notify(); }))
+                        // flex_shrink_0 + no overflow clip on the row: the scroll area scrolls, rows keep their content height.
+                        .w_full().flex_shrink_0().min_h(px(56.)).px_3().py_2().rounded_lg().bg(rgb(t.input))
+                        .flex().flex_col().gap_1()
+                        .child(div().flex().justify_between().gap_2()
+                            .child(div().min_w_0().font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::row_text::one_line(matrix_desktop::device_title(device))))
+                            .child(div().flex().gap_3().flex_shrink_0()
+                                .when(!device.verified, |d| d.child(div().text_color(rgb(t.accent)).child("Verifica")))
+                                .child(disconnect)))
+                        .child(div().min_w_0().text_size(px(12.)).text_color(rgb(if device.verified { t.secondary } else { t.error }))
+                            .child(matrix_desktop::row_text::one_line(&matrix_desktop::device_detail(device, matrix_desktop::time_fmt::day_or_time))))
+                        .when(!device.verified, |d| d.cursor_pointer()
+                            .on_click(cx.listener(move |this, _, _, cx| { this.verification.begin(index); cx.notify(); })))
                 }))
                 .child(div().border_t_1().border_color(rgb(t.border)).pt_3().font_weight(gpui::FontWeight::SEMIBOLD).child(panel.status_label()))
                 .when_some(panel.snapshot(), |d, snapshot| d
                     .child(div().text_size(px(12.)).truncate().child(matrix_desktop::row_text::one_line(&snapshot.user_id)))
-                    .child(div().text_size(px(12.)).truncate().child(matrix_desktop::row_text::one_line(&format!("Dispositivo: {}", snapshot.device_id)))))
+                    // Wraps, not truncated: the full ID ellipsized in the list is readable here once the device is selected.
+                    .child(div().text_size(px(12.)).child(matrix_desktop::row_text::one_line(&format!("Dispositivo: {}", snapshot.device_id)))))
                 .child(div().text_color(rgb(if panel.verified() { t.accent } else { t.error })).child(panel.trust_label()))
                 .when_some(panel.comparison(), |d, (a,b,c)| d.child(div().id("verification-comparison").anchor_scroll(self.device_anchor(5)).relative().children(self.device_observer(5, cx))
                     .when(focused_control == Some(5), |d| d.border_1().border_color(rgb(t.accent)))
@@ -285,6 +368,7 @@ impl Shell {
                         .child(label)
                         .on_click(cx.listener(move |this, _, _, cx| { this.verification.act(action); cx.notify(); }))
                 })))
+            .children(delete_dialog)
             .into_any_element()
     }
 }

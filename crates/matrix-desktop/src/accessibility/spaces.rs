@@ -5,6 +5,8 @@ use std::collections::HashMap;
 
 pub const TOGGLE: NodeId = NodeId(60);
 pub const ALL: NodeId = NodeId(61);
+/// Rail «Modifica» button: a Tab stop of the ring, so it needs a focusable node.
+pub const EDIT: NodeId = NodeId(62);
 
 #[derive(Clone)]
 pub struct SpaceChoice {
@@ -130,6 +132,13 @@ impl SpacesSnapshot {
             return None;
         }
         let id = request.target_node;
+        if id == EDIT && self.persistent && request.action == Action::Focus {
+            return Some(SpacesAction::Focus {
+                revision: self.revision,
+                account: self.account,
+                id,
+            });
+        }
         let known = (id == TOGGLE && !self.persistent)
             || (self.open && self.choices.iter().any(|choice| choice.id == id));
         if !known {
@@ -174,7 +183,8 @@ impl SpacesSnapshot {
         match action {
             SpacesAction::Focus { account, id, .. } => {
                 *account == self.account
-                    && ((*id == TOGGLE && !self.persistent)
+                    && ((*id == EDIT && self.persistent)
+                        || (*id == TOGGLE && !self.persistent)
                         || (self.open && self.choices.iter().any(|choice| choice.id == *id)))
             }
             SpacesAction::SetOpen { account, open, .. } => {
@@ -239,6 +249,15 @@ impl SpacesSnapshot {
                 }
                 nodes.push((choice.id, node));
             }
+        }
+        if self.persistent {
+            let mut edit = Node::new(Role::Button);
+            edit.set_label("Modifica");
+            edit.add_action(Action::Focus);
+            if let Some(bounds) = self.bounds.get(&EDIT) {
+                edit.set_bounds(*bounds);
+            }
+            nodes.push((EDIT, edit));
         }
         nodes
     }

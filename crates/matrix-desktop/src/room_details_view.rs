@@ -19,6 +19,8 @@ impl Shell {
                 scope: room.scope.clone(),
                 name: room.name.clone(),
                 info: room.info.clone(),
+                people: self.people_labels(),
+                back: self.profile.is_some(),
                 focus: self.details_focus,
                 bounds: self.a11y_details_bounds,
             }))
@@ -48,6 +50,8 @@ impl Shell {
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
+            DetailsAction::Profile { user_id, .. } => self.open_profile(user_id, cx),
+            DetailsAction::Members(_) => self.profile = None,
             DetailsAction::Copy(scope) => {
                 self.details_focus = matrix_desktop::accessibility::details::DetailsControl::Copy;
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(
@@ -56,6 +60,33 @@ impl Shell {
             }
         }
         self.list_focus.focus(window);
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_hide_status(&mut self, cx: &mut Context<Self>) {
+        let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone()) else {
+            return;
+        };
+        self.room_prefs.toggle_hide_status(&scope);
+        if let Some(dirs) = &self.prefs_dirs
+            && let Err(error) = self.room_prefs.save(dirs)
+        {
+            eprintln!("Gnobbi: cannot save room preferences: {error}");
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_room_hide_redacted(&mut self, cx: &mut Context<Self>) {
+        let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone()) else {
+            return;
+        };
+        let now = self.room_prefs.hide_redacted(&scope).unwrap_or(self.prefs.hide_redacted);
+        self.room_prefs.set_hide_redacted(&scope, !now);
+        if let Some(dirs) = &self.prefs_dirs
+            && let Err(error) = self.room_prefs.save(dirs)
+        {
+            eprintln!("Gnobbi: cannot save room preferences: {error}");
+        }
         cx.notify();
     }
 
@@ -254,7 +285,12 @@ impl Shell {
         let focused_control = Some(self.details_focus as usize);
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
+        let hide_status = self.room_prefs.hide_status(&room.scope);
+        let hide_redacted = self.room_prefs.hide_redacted(&room.scope).unwrap_or(self.prefs.hide_redacted);
         div()
+            .id("room-details")
+            // Own the wheel: without it the hit-test lets events through to the timeline list.
+            .occlude()
             .absolute()
             .right_0()
             .top_0()
@@ -300,11 +336,14 @@ impl Shell {
                     .id("room-details-content")
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
                     .p_4()
                     .flex()
                     .flex_col()
                     .gap_4()
+                    // An opened profile takes the whole sheet.
+                    .when(self.profile.is_none(), |d| d
+                    .child(
+                    div().relative().flex().flex_col().flex_shrink().min_h_0().child(div().id("room-details-info").flex().flex_col().gap_4().min_h_0().track_scroll(&self.info_scroll.0.borrow().base_handle).overflow_y_scroll()
                     .child(
                         div()
                             .text_size(px(20.))
@@ -362,9 +401,39 @@ impl Shell {
                                 }
                             })),
                     )
-                    .child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child(
-                        "Stato dell'ultima sync. Nessuna modifica, invito o adesione automatica.",
-                    )),
+                    .child(
+                        div()
+                            .id("room-hide-status")
+                            .cursor_pointer()
+                            .text_color(rgb(t.accent))
+                            .child(if hide_status { "Mostra messaggi di stato" } else { "Nascondi messaggi di stato" })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("room-hide-redacted")
+                            .cursor_pointer()
+                            .text_color(rgb(t.accent))
+                            .child(if hide_redacted { "Mostra messaggi eliminati" } else { "Nascondi messaggi eliminati" })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
+                    )
+                    .child(
+                        div()
+                            .id("room-edit-open")
+                            .cursor_pointer()
+                            .text_color(rgb(t.accent))
+                            .child("Modifica")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_room_edit(window, cx)
+                            })),
+                    ))
+                    .child(self.info_scrollbar.render(
+                        "room-info-scrollbar",
+                        scrollbar_view::ScrollTarget::Rooms(self.info_scroll.clone()),
+                        t,
+                    )))
+                    )
+                    .child(self.render_people(cx)),
             )
             .into_any_element()
     }

@@ -159,52 +159,6 @@ pub fn migrate_store_secret(store: &AccountStore, id: AccountId) -> Result<(), V
     store_new(&Key::Account(id), &value)
 }
 
-/// Account folders of the adopted profile that still lack a gnobbi entry while the old profile
-/// folder has one: `(old key, new key)` pairs. Read-only.
-fn legacy_pairs(
-    old: &std::path::Path,
-    new: &std::path::Path,
-) -> Vec<(std::path::PathBuf, std::path::PathBuf)> {
-    let Ok(dir) = std::fs::read_dir(new) else {
-        return Vec::new();
-    };
-    dir.flatten()
-        .filter(|e| e.file_name().to_string_lossy().starts_with("account-") && e.path().is_dir())
-        .map(|e| (old.join(e.file_name()), e.path()))
-        .filter(|(o, n)| {
-            read_legacy(o).is_ok()
-                && matches!(
-                    read_entry("gnobbi", &Key::Store(n)),
-                    Err(VaultError::Missing)
-                )
-        })
-        .collect()
-}
-
-/// How many old-name entries could be copied for the adopted profile (read-only).
-pub fn legacy_pending(old: &std::path::Path, new: &std::path::Path) -> usize {
-    legacy_pairs(old, new).len()
-}
-
-/// Explicit copy of old-name entries to the gnobbi name; the originals stay untouched.
-pub fn copy_legacy_profile(
-    old: &std::path::Path,
-    new: &std::path::Path,
-) -> Result<usize, VaultError> {
-    let pairs = legacy_pairs(old, new);
-    for (o, n) in &pairs {
-        let value = read_raw("dime", &Key::Store(o))?;
-        store_new(&Key::Store(n), &value)?;
-    }
-    Ok(pairs.len())
-}
-
-/// Read-only lookup of a protection secret saved under the previous application name for a
-/// profile folder; never writes or deletes. `Missing` means no such entry.
-pub fn read_legacy(profile: &std::path::Path) -> Result<Secret, VaultError> {
-    read_entry("dime", &Key::Store(profile))
-}
-
 fn read_entry(application: &str, key: &Key) -> Result<Secret, VaultError> {
     let value = read_raw(application, key)?;
     let text = std::str::from_utf8(&value).map_err(|_| VaultError::InvalidItem)?;

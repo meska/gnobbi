@@ -46,6 +46,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
     assert_eq!(rows.events().len(), 1);
     let event = EventId::new("$actual:fixture.invalid");
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: event.clone(),
         body: "own message".into(),
         outgoing: true,
@@ -53,7 +54,10 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }]);
     delivery.apply(SendResult {
         scope: scope(),
@@ -67,6 +71,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
     assert_eq!(rows.events()[0].send_state, None);
     assert_eq!(rows.events()[0].time, "ACK server");
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: event,
         body: "own message".into(),
         outgoing: true,
@@ -74,7 +79,10 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }]);
     assert_eq!(
         rows.events().len(),
@@ -101,6 +109,7 @@ fn repeated_ack_projection_preserves_server_content_after_edit_or_redaction() {
         });
         let mut rows = DemoHistory::new(scope(), 0);
         rows.prepend_server(vec![HistoryEvent {
+            redacted: false,
             event_id: EventId::new("$confirmed"),
             body: body.into(),
             outgoing: true,
@@ -108,7 +117,10 @@ fn repeated_ack_projection_preserves_server_content_after_edit_or_redaction() {
             sender: matrix_engine::history::HistorySender::new("@peer:test", None),
             video: None,
             styles: Vec::new(),
-            thread: None,
+            thread: None, thread_root: None,
+            status: false,
+            attachment_name: None,
+            attachment_size: None,
         }]);
         rows.project_delivery(delivery.items(&scope()));
         rows.project_delivery(delivery.items(&scope()));
@@ -130,6 +142,7 @@ fn appended_live_echo_merges_pending_row_in_both_ack_orders() {
         delivery.submit(scope(), tx.clone(), &mut draft);
         rows.project_delivery(delivery.items(&scope()));
         let echo = || HistoryEvent {
+            redacted: false,
             event_id: EventId::new("$echo"),
             body: "same text città 🦀".into(),
             outgoing: true,
@@ -137,7 +150,10 @@ fn appended_live_echo_merges_pending_row_in_both_ack_orders() {
             sender: matrix_engine::history::HistorySender::new("@peer:test", None),
             video: None,
             styles: Vec::new(),
-            thread: None,
+            thread: None, thread_root: None,
+            status: false,
+            attachment_name: None,
+            attachment_size: None,
         };
         if echo_first {
             rows.append_server(vec![echo()]);
@@ -535,4 +551,83 @@ fn messages_left_in_the_queue_by_an_earlier_run_reappear_pending_or_failed() {
     assert!(delivery.notice(scope(), b.clone(), SendNotice::Retrying));
     assert_eq!(delivery.items(&scope())[1].status, SendStatus::Pending);
     assert_eq!(delivery.failure_label(&scope(), &b), None);
+}
+
+#[test]
+fn refresh_server_gives_own_ack_row_the_local_clock_time() {
+    use matrix_desktop::{DemoHistory, time_fmt::clock_time};
+    use matrix_domain::EventId;
+    use matrix_engine::{history::HistoryEvent, sending::SendResult};
+    let ts = 1_784_158_200_000;
+    {
+        let mut delivery = LiveDelivery::new();
+        let mut draft = Composer::default();
+        draft.replace(None, "own message");
+        let tx = TransactionId::new("clock");
+        delivery.submit(scope(), tx.clone(), &mut draft);
+        let event = EventId::new("$clock");
+        delivery.apply(SendResult {
+            scope: scope(),
+            transaction_id: tx,
+            result: Ok(event.clone()),
+        });
+        let mut rows = DemoHistory::new(scope(), 0);
+        rows.project_delivery(delivery.items(&scope()));
+        assert_eq!(rows.events()[0].time, "ACK server");
+        let expected = clock_time(ts);
+        rows.refresh_server(vec![HistoryEvent {
+            redacted: false,
+            event_id: event,
+            body: "own message".into(),
+            outgoing: true,
+            timestamp_ms: ts,
+            sender: matrix_engine::history::HistorySender::new("@peer:test", None),
+            video: None,
+            styles: Vec::new(),
+            thread: None,
+            thread_root: None,
+            status: false,
+            attachment_name: None,
+            attachment_size: None,
+        }]);
+        assert_eq!(rows.events()[0].time, expected);
+        // A later delivery projection must not put the placeholder back.
+        rows.project_delivery(delivery.items(&scope()));
+        assert_eq!(rows.events()[0].time, expected);
+    }
+}
+
+#[test]
+fn own_sent_file_offers_save_once_the_server_copy_arrives() {
+    use matrix_desktop::{DemoHistory, offers_save};
+    use matrix_domain::EventId;
+    use matrix_engine::{history::HistoryEvent, sending::SendResult};
+    let mut delivery = LiveDelivery::new();
+    let mut draft = Composer::default();
+    draft.replace(None, "foto.png");
+    let tx = TransactionId::new("att");
+    delivery.submit(scope(), tx.clone(), &mut draft);
+    let event = EventId::new("$att");
+    let mut rows = DemoHistory::new(scope(), 0);
+    rows.project_delivery(delivery.items(&scope()));
+    assert!(!offers_save(&rows.events()[0], true), "still sending: no icon");
+    delivery.apply(SendResult { scope: scope(), transaction_id: tx, result: Ok(event.clone()) });
+    rows.project_delivery(delivery.items(&scope()));
+    assert!(!offers_save(&rows.events()[0], true), "ACK row knows no file name yet");
+    rows.refresh_server(vec![HistoryEvent {
+        redacted: false,
+        event_id: event,
+        body: "foto.png".into(),
+        outgoing: true,
+        timestamp_ms: 1,
+        sender: matrix_engine::history::HistorySender::new("@me:test", None),
+        video: None,
+        styles: Vec::new(),
+        thread: None,
+        thread_root: None,
+        status: false,
+        attachment_name: Some("foto.png".into()),
+        attachment_size: Some(10),
+    }]);
+    assert!(offers_save(&rows.events()[0], true));
 }

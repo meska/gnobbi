@@ -9,19 +9,19 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
         let room = created["room_id"].as_str().unwrap();
         room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
         let mut sync = RoomSync::new(login(&config, "alice", 54).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let sent = room_request(&config, "alice", reqwest::Method::PUT,
             &format!("rooms/{room}/send/m.room.message/p054-message"),
             serde_json::json!({"msgtype":"m.text","body":"città 🦀"})).await;
         let event = sent["event_id"].as_str().unwrap();
         room_request(&config, "alice", reqwest::Method::POST,
             &format!("rooms/{room}/receipt/m.read/{event}"), serde_json::json!({})).await;
-        for change in sync.next_batch().await.unwrap() {
+        for change in sync.sliding_round().await.unwrap() {
             if let RoomListDiff::Upsert(summary) = change {
                 assert!(summary.info.public_read_receipts.is_empty(), "own ACK/marker is not peer reading");
             }
         }
-        let mut batch = sync.next_batch_after(async {
+        let mut batch = sync.sliding_round_after(async {
             room_request(&config, "bob", reqwest::Method::POST,
                 &format!("rooms/{room}/receipt/m.read/{event}"), serde_json::json!({})).await;
         }).await.unwrap();
@@ -43,16 +43,16 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
                 }
             }
             if found { break; }
-            batch = sync.next_batch().await.unwrap();
+            batch = sync.sliding_round().await.unwrap();
         }
         assert!(found, "exact public peer marker must reach Dime after incremental sync");
-        assert!(sync.next_batch().await.unwrap().is_empty(), "unchanged markers must not emit duplicate diffs");
+        assert!(sync.sliding_round().await.unwrap().is_empty(), "unchanged markers must not emit duplicate diffs");
         println!("P054_RECEIPT {}", serde_json::json!({"room":room,"event":event,"peer":"@bob:matrix-desktop.test","readers":1,"account":54,"independent_http":true}));
         let next = room_request(&config, "alice", reqwest::Method::PUT,
             &format!("rooms/{room}/send/m.room.message/p054-next"),
             serde_json::json!({"msgtype":"m.text","body":"Next marker"})).await;
         let next = next["event_id"].as_str().unwrap();
-        for change in sync.next_batch_after(async {
+        for change in sync.sliding_round_after(async {
             room_request(&config, "bob", reqwest::Method::POST,
                 &format!("rooms/{room}/receipt/m.read.private/{next}"), serde_json::json!({})).await;
         }).await.unwrap() {
@@ -60,7 +60,7 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
                 assert!(!summary.info.public_read_receipts.iter().any(|r| r.event_id.as_str() == next), "private marker must not advance public peer state");
             }
         }
-        let updated = sync.next_batch_after(async {
+        let updated = sync.sliding_round_after(async {
             room_request(&config, "bob", reqwest::Method::POST,
                 &format!("rooms/{room}/receipt/m.read/{next}"), serde_json::json!({})).await;
         }).await.unwrap();
@@ -71,7 +71,7 @@ fn disposable_receipt_public_peer_reaches_incremental_room_projection() {
         println!("P054_UPDATE {}", serde_json::json!({"room":room,"previous_event":event,"event":next,"readers":1,"private_did_not_advance":true}));
         room_request(&config, "alice", reqwest::Method::POST,
             &format!("rooms/{room}/leave"), serde_json::json!({})).await;
-        assert!(sync.next_batch().await.unwrap().iter().any(|d| matches!(d, RoomListDiff::Remove(s) if s.room_id.as_str() == room)));
+        assert!(sync.sliding_round().await.unwrap().iter().any(|d| matches!(d, RoomListDiff::Remove(s) if s.room_id.as_str() == room)));
     });
 }
 
@@ -112,7 +112,7 @@ fn disposable_open_room_clears_unread_counter() {
         // Latest unread counter shown for the room in the list, once it equals `want` or after 8 batches.
         let settle = async |sync: &mut RoomSync, mut unread: Option<u64>, want: u64| {
             for _ in 0..8 {
-                for change in sync.next_batch().await.unwrap() {
+                for change in sync.sliding_round().await.unwrap() {
                     if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room {
                         unread = Some(s.unread);
                     }
@@ -123,7 +123,7 @@ fn disposable_open_room_clears_unread_counter() {
         };
         // Sent while the sliding run is live: it counts unread from the deliveries it sees.
         let mut unread = None;
-        let batch = sync.next_batch_after(async {
+        let batch = sync.sliding_round_after(async {
             for i in 0..N {
                 room_request(&config, "alice", reqwest::Method::PUT,
                     &format!("rooms/{room}/send/m.room.message/unread-{i}"),
@@ -187,7 +187,7 @@ fn disposable_room_menu_marks_read_and_unread() {
         // (unread, marked_unread) of the room once `done` holds, or the last seen after 8 batches.
         let settle = async |sync: &mut RoomSync, mut seen: Option<(u64, bool)>, done: fn((u64, bool)) -> bool| {
             for _ in 0..8 {
-                for change in sync.next_batch().await.unwrap() {
+                for change in sync.sliding_round().await.unwrap() {
                     if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room {
                         seen = Some((s.unread, s.info.marked_unread));
                     }
@@ -240,10 +240,10 @@ fn disposable_receipt_bob_reads_through_timeline() {
         }
         let (bob, alice) = (sessions.pop().unwrap(), sessions.pop().unwrap());
         let (mut alice, mut bob) = (RoomSync::new(alice), RoomSync::new(bob));
-        alice.next_batch().await.unwrap();
+        alice.sliding_round().await.unwrap();
         // Alice sends while bob's sliding run is live, so bob counts it as unread.
         let mut bob_unread = None;
-        for change in bob.next_batch_after(async {
+        for change in bob.sliding_round_after(async {
             room_request(&config, "alice", reqwest::Method::PUT,
                 &format!("rooms/{room}/send/m.room.message/bob-reads"),
                 serde_json::json!({"msgtype":"m.text","body":"read me"})).await;
@@ -256,7 +256,7 @@ fn disposable_receipt_bob_reads_through_timeline() {
         let event = page.events.last().unwrap().event_id.as_str().to_owned();
         let (mut alice_sees, mut bob_unread) = (false, Some(1));
         for _ in 0..8 {
-            for change in alice.next_batch().await.unwrap().into_iter().chain(bob.next_batch().await.unwrap()) {
+            for change in alice.sliding_round().await.unwrap().into_iter().chain(bob.sliding_round().await.unwrap()) {
                 if let RoomListDiff::Upsert(s) = change && s.scope.room_id.as_str() == room {
                     if s.scope.account_id == AccountId::new(57) && s.info.public_read_receipts.iter().any(|r| r.event_id.as_str() == event && r.readers == 1) { alice_sees = true; }
                     if s.scope.account_id == AccountId::new(58) { bob_unread = Some(s.unread); }

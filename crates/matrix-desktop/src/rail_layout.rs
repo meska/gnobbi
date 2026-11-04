@@ -51,21 +51,29 @@ impl RailLayout {
             .collect()
     }
 
-    /// Moves a space one step (-1 up, +1 down) among `current`, the ids as shown now.
+    /// Moves the space `id` to position `to` among `current`, the ids as arranged now (hidden
+    /// ones included, so `to` counts them). False, and nothing changes, when `id` is unknown,
+    /// `to` is out of range or it is already there.
+    pub fn move_to(&mut self, current: &[String], id: &str, to: usize) -> bool {
+        let Some(from) = current.iter().position(|c| c == id) else {
+            return false;
+        };
+        if to >= current.len() || to == from {
+            return false;
+        }
+        let mut order = current.to_vec();
+        let moved = order.remove(from);
+        order.insert(to, moved);
+        self.order = order;
+        true
+    }
+
+    /// Moves a space one step (-1 up, +1 down); wrapper of `move_to` until the UI drags rows.
     pub fn shift(&mut self, current: &[String], id: &str, delta: isize) -> bool {
         let Some(at) = current.iter().position(|c| c == id) else {
             return false;
         };
-        let Some(to) = at
-            .checked_add_signed(delta)
-            .filter(|to| *to < current.len())
-        else {
-            return false;
-        };
-        let mut order = current.to_vec();
-        order.swap(at, to);
-        self.order = order;
-        true
+        at.checked_add_signed(delta).is_some_and(|to| self.move_to(current, id, to))
     }
 
     pub fn toggle_hidden(&mut self, id: &str) {
@@ -107,6 +115,10 @@ impl RailLayouts {
 
     pub fn get(&self, account: u64) -> RailLayout {
         self.0.get(&account).cloned().unwrap_or_default()
+    }
+
+    pub fn remove(&mut self, account: u64) {
+        self.0.remove(&account);
     }
 
     pub fn set(&mut self, account: u64, layout: RailLayout) {

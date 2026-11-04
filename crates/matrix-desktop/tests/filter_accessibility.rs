@@ -9,16 +9,18 @@ fn unread_control_is_absent_when_hidden_or_covered_by_a_sheet() {
         NavigationAction, NavigationSnapshot, notifications::NotificationView,
     };
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: Some(UnreadFilter {
             account: AccountId::new(17),
             revision: 0,
@@ -26,7 +28,9 @@ fn unread_control_is_absent_when_hidden_or_covered_by_a_sheet() {
             focused: true,
             bounds: None,
         }),
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

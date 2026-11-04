@@ -9,18 +9,22 @@ use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
 
 fn snapshot(history: matrix_desktop::accessibility::HistorySnapshot) -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -44,6 +48,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         0,
     );
     history.prepend_server(vec![matrix_engine::history::HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$same:test"),
         body: "same text".into(),
         outgoing: true,
@@ -51,7 +56,10 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }]);
     history
 }
@@ -239,4 +247,44 @@ fn server_message_exports_a_scoped_actions_opener() {
             .action(&request)
             .is_none()
     );
+}
+
+#[test]
+fn an_attachment_has_a_scarica_button_a_text_row_has_none() {
+    let mut history = DemoHistory::new(
+        RoomScope {
+            account_id: AccountId::new(1),
+            room_id: RoomId::new("!r:test"),
+        },
+        0,
+    );
+    let event = |id: &str, name: Option<&str>| matrix_engine::history::HistoryEvent {
+        event_id: EventId::new(id),
+        body: "x".into(),
+        outgoing: false,
+        redacted: false,
+        timestamp_ms: 0,
+        sender: matrix_engine::history::HistorySender::new("@peer:test", None),
+        video: None,
+        styles: Vec::new(),
+        thread: None,
+        thread_root: None,
+        status: false,
+        attachment_name: name.map(Into::into),
+        attachment_size: None,
+    };
+    history.prepend_server(vec![event("$text:test", None), event("$file:test", Some("a.pdf"))]);
+    let file = history.events()[1].id.clone();
+    let mut projected = HistoryNodes::default().project(&history, 0, true);
+    assert!(projected.messages[0].save.is_none());
+    projected.messages[1].save_bounds = Some(accesskit::Rect::new(1., 2., 25., 26.));
+    let current = snapshot(projected);
+    let tree = current.tree();
+    let scarica: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.label() == Some("Scarica")).collect();
+    assert_eq!(scarica.len(), 1);
+    let (id, node) = scarica[0];
+    assert_eq!(node.role(), Role::Button);
+    assert_eq!(node.bounds(), Some(accesskit::Rect::new(1., 2., 25., 26.)));
+    let request = ActionRequest { target_tree: TreeId::ROOT, target_node: *id, action: Action::Click, data: None };
+    assert!(matches!(current.action(&request), Some(NavigationAction::SaveAttachment(t)) if t == file));
 }

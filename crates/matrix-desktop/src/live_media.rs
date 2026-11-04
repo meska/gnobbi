@@ -26,6 +26,11 @@ pub struct LiveMedia {
     video_done: Option<(EventId, Result<VideoFile, MediaError>)>,
     /// The file the system player was opened on; deleted when replaced or when the app exits.
     playing: Option<VideoFile>,
+    /// «Scarica»: one save at a time on its own lane, so it never disturbs the reads above.
+    save_views: ViewRequests,
+    saving: Option<EventId>,
+    save_command: Option<MediaCommand>,
+    save_done: Option<(EventId, Result<(), MediaError>)>,
 }
 impl LiveMedia {
     pub fn clear(&mut self) {
@@ -38,6 +43,30 @@ impl LiveMedia {
         self.settled.clear();
         self.videos.clear();
         self.cancel_original();
+        self.cancel_save();
+    }
+    /// Save the original of `event` to `path`; false while another save runs.
+    pub fn request_save(&mut self, scope: RoomScope, event: EventId, path: std::path::PathBuf) -> bool {
+        if self.saving.is_some() {
+            return false;
+        }
+        let Ok(tag) = self.save_views.start(scope) else {
+            return false;
+        };
+        self.saving = Some(event.clone());
+        self.save_command = Some(MediaCommand::Save { tag, event, path });
+        true
+    }
+    /// Stop the running save; its answer, if it still comes, is dropped.
+    pub fn cancel_save(&mut self) {
+        self.save_views.cancel();
+        self.saving = None;
+        self.save_command = None;
+        self.save_done = None;
+    }
+    /// The finished save (ok or error), once.
+    pub fn take_saved(&mut self) -> Option<(EventId, Result<(), MediaError>)> {
+        self.save_done.take()
     }
     /// Ask for the full-resolution picture of `event`, replacing any earlier original request.
     pub fn request_original(&mut self, scope: RoomScope, event: EventId) {
@@ -143,6 +172,17 @@ impl LiveMedia {
                 }
             }
         }
+        if let Some(command) = self.save_command.take() {
+            match sender.try_send(command) {
+                Ok(()) => (),
+                Err(
+                    matrix_engine::TrySendError::Full(c) | matrix_engine::TrySendError::Busy(c),
+                ) => self.save_command = Some(c),
+                Err(matrix_engine::TrySendError::Closed(_)) => {
+                    self.save_done = self.saving.take().map(|e| (e, Err(MediaError::Failed)));
+                }
+            }
+        }
         if let Some(command) = self.command.take() {
             match sender.try_send(command) {
                 Ok(()) => (),
@@ -166,6 +206,14 @@ impl LiveMedia {
                 }
                 self.large = None;
                 self.video_done = Some((event, result));
+                return true;
+            }
+            MediaEvent::Saved { tag, event, result } => {
+                if self.saving.as_ref() != Some(&event) || !self.save_views.accepts(&tag) {
+                    return false;
+                }
+                self.saving = None;
+                self.save_done = Some((event, result));
                 return true;
             }
             _ => return false,
@@ -235,5 +283,41 @@ mod tests {
             result: Err(MediaError::Cancelled),
         }));
         assert!(media.take_video().is_none());
+    }
+
+    fn save_request(media: &mut LiveMedia) -> (matrix_engine::RequestTag, EventId) {
+        let event = EventId::new("$file:fixture.invalid");
+        let scope = RoomScope {
+            account_id: AccountId::new(1),
+            room_id: RoomId::new("!r:fixture.invalid"),
+        };
+        assert!(media.request_save(scope, event.clone(), "/tmp/x".into()));
+        let Some(MediaCommand::Save { tag, path, .. }) = media.save_command.take() else {
+            panic!("a save asks the engine to save");
+        };
+        assert_eq!(path, std::path::Path::new("/tmp/x"));
+        (tag, event)
+    }
+
+    #[test]
+    fn a_save_runs_alone_and_its_answer_is_taken_once() {
+        let mut media = LiveMedia::default();
+        let (tag, event) = save_request(&mut media);
+        let scope = tag.scope().clone();
+        assert!(!media.request_save(scope, EventId::new("$other"), "/tmp/y".into()), "one at a time");
+        assert!(media.apply(MediaEvent::Saved { tag, event: event.clone(), result: Err(MediaError::TooLarge) }));
+        assert!(matches!(media.take_saved(), Some((e, Err(MediaError::TooLarge))) if e == event));
+        assert!(media.take_saved().is_none());
+    }
+
+    #[test]
+    fn a_cancelled_save_drops_its_late_answer_and_frees_the_lane() {
+        let mut media = LiveMedia::default();
+        let (tag, event) = save_request(&mut media);
+        let scope = tag.scope().clone();
+        media.cancel_save();
+        assert!(!media.apply(MediaEvent::Saved { tag, event, result: Ok(()) }));
+        assert!(media.take_saved().is_none());
+        assert!(media.request_save(scope, EventId::new("$again"), "/tmp/z".into()));
     }
 }

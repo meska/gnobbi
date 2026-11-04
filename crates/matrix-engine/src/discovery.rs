@@ -121,12 +121,9 @@ impl Discovery {
         if certs.is_empty() {
             return Err(DiscoveryError::InvalidResponse);
         }
-        let mut http = secure_http_builder();
-        for cert in certs {
-            http = http.add_root_certificate(cert);
-        }
         Ok(Self {
-            http: http.build().map_err(|_| DiscoveryError::Transport)?,
+            http: crate::auth::with_trust_roots(secure_http_builder(), certs)
+                .build().map_err(|_| DiscoveryError::Transport)?,
         })
     }
 

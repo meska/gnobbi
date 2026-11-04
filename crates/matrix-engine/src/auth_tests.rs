@@ -11,8 +11,10 @@ use matrix_domain::AccountId;
 include!("lifecycle_tests.rs");
 include!("encryption_tests.rs");
 include!("verification_tests.rs");
+include!("device_delete_tests.rs");
 include!("recovery_tests.rs");
 include!("media_tests.rs");
+include!("avatar_account_tests.rs");
 include!("room_tags_tests.rs");
 include!("space_order_tests.rs");
 include!("account_tests.rs");
@@ -157,7 +159,7 @@ fn disposable_operation_reply_preserves_relation_and_transaction() {
         )
         .await;
         let mut sync = RoomSync::new(login(&config, "alice", 21).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let request = OperationRequest {
             scope: RoomScope {
                 account_id: AccountId::new(21),
@@ -224,7 +226,7 @@ fn disposable_history_rejects_replacement_with_changed_message_type() {
         )
         .await;
         let mut sync = crate::room_sync::RoomSync::new(login(&config, "alice", 51).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let mut views = crate::ViewRequests::new();
         let page = sync
             .history_page(
@@ -273,7 +275,7 @@ fn disposable_operation_edit_uses_replacement_without_second_message() {
         )
         .await;
         let mut sync = RoomSync::new(login(&config, "alice", 21).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let request = OperationRequest {
             scope: RoomScope {
                 account_id: AccountId::new(21),
@@ -326,7 +328,7 @@ fn disposable_operation_edit_and_reply_carry_markdown_formatting() {
             serde_json::json!({"msgtype":"m.text","body":"Prima"})).await["event_id"]
             .as_str().unwrap().to_owned();
         let mut sync = RoomSync::new(login(&config, "alice", 21).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let scope = RoomScope { account_id: AccountId::new(21), room_id: RoomId::new(&room) };
         for (txn, operation) in [
             ("p281b-edit-md", Operation::Edit { body: "**x** ok".into() }),
@@ -364,7 +366,7 @@ fn disposable_operation_rejects_edit_of_another_sender() {
             &format!("rooms/{room}/send/m.room.message/target"),
             serde_json::json!({"msgtype":"m.text","body":"Non modificare"})).await;
         let mut sync = RoomSync::new(login(&config, "bob", 21).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let request = OperationRequest {
             scope: RoomScope { account_id: AccountId::new(21), room_id: RoomId::new(room) },
             transaction_id: TransactionId::new("p021-denied-edit"),
@@ -411,7 +413,7 @@ fn disposable_operation_redaction_removes_content_but_retains_timeline_identity(
         )
         .await;
         let mut sync = RoomSync::new(login(&config, "alice", 21).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let request = OperationRequest {
             scope: RoomScope {
                 account_id: AccountId::new(21),
@@ -472,7 +474,7 @@ fn disposable_operation_reaction_is_idempotent_and_can_be_removed() {
         )
         .await;
         let mut sync = RoomSync::new(login(&config, "alice", 21).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let mut request = OperationRequest {
             scope: RoomScope {
                 account_id: AccountId::new(21),
@@ -532,7 +534,7 @@ fn disposable_operation_redaction_denial_is_typed() {
             &format!("rooms/{room}/send/m.room.message/target"),
             serde_json::json!({"msgtype":"m.text","body":"Protected"})).await;
         let mut sync = RoomSync::new(login(&config, "bob", 21).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let request = OperationRequest {
             scope: RoomScope { account_id: AccountId::new(21), room_id: RoomId::new(room) },
             transaction_id: TransactionId::new("p021-denied-redact"),
@@ -680,7 +682,7 @@ fn disposable_send_reads_actual_event() {
         .await;
         let room = created["room_id"].as_str().unwrap();
         let mut sync = RoomSync::new(login(&config, "alice", 20).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let request = SendRequest {
             scope: RoomScope {
                 account_id: AccountId::new(20),
@@ -813,7 +815,7 @@ fn disposable_timeline_pages_preserve_server_order_and_ids() {
             ids.push(sent["event_id"].as_str().unwrap().to_owned());
         }
         let mut sync = RoomSync::new(login(&config, "alice", 19).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let mut views = ViewRequests::new();
         let scope = RoomScope {
             account_id: AccountId::new(19),
@@ -932,7 +934,7 @@ fn disposable_timeline_cancels_inflight_request_without_server_reply() {
         )
         .await;
         let mut sync = RoomSync::new(login(&config, "alice", 19).await);
-        sync.next_batch().await.unwrap();
+        sync.sliding_round().await.unwrap();
         let mut views = ViewRequests::new();
         let tag = views
             .start(RoomScope {
@@ -999,7 +1001,7 @@ fn disposable_room_list_sync_tracks_created_room() {
             .unwrap()
             .to_owned();
         let mut sync = RoomSync::new(login(&config, "alice", 18).await);
-        let changes = sync.next_batch().await.expect("room sync");
+        let changes = sync.sliding_round().await.expect("room sync");
         let room = changes
             .iter()
             .find_map(|change| match change {
@@ -1011,7 +1013,7 @@ fn disposable_room_list_sync_tracks_created_room() {
         assert_eq!(room.name, "laboratorio");
         assert_eq!(room.unread, 0);
         assert!(
-            sync.next_batch().await.unwrap().is_empty(),
+            sync.sliding_round().await.unwrap().is_empty(),
             "unchanged rooms produce no diffs"
         );
     });
@@ -1033,7 +1035,7 @@ fn disposable_spaces_room_details_from_sync() {
         .await;
         let id = created["room_id"].as_str().unwrap();
         let mut sync = RoomSync::new(login(&config, "alice", 29).await);
-        let batch = sync.next_batch().await.unwrap();
+        let batch = sync.sliding_round().await.unwrap();
         let room = batch
             .iter()
             .find_map(|d| match d {
@@ -1049,7 +1051,7 @@ fn disposable_spaces_room_details_from_sync() {
         assert_eq!(room.info.joined_members, 1);
         assert!(!room.info.is_space);
         assert_eq!(room.info.encrypted, Some(false));
-        assert!(sync.next_batch().await.unwrap().is_empty());
+        assert!(sync.sliding_round().await.unwrap().is_empty());
         let mxc = "mxc://matrix-desktop.test/avatarOne";
         room_request(
             &config,
@@ -1061,7 +1063,7 @@ fn disposable_spaces_room_details_from_sync() {
         .await;
         let mut found = None;
         for _ in 0..20 {
-            for d in sync.next_batch().await.unwrap() {
+            for d in sync.sliding_round().await.unwrap() {
                 if let RoomListDiff::Upsert(r) = d
                     && r.scope.room_id.as_str() == id
                     && r.info.avatar.is_some()
@@ -1093,15 +1095,15 @@ fn disposable_spaces_children_follow_server_state() {
         room_request(&config, "alice", reqwest::Method::PUT, &path,
             serde_json::json!({"via":["matrix-desktop.test"]})).await;
         let mut sync = RoomSync::new(login(&config, "alice", 29).await);
-        let batch = sync.next_batch().await.unwrap();
+        let batch = sync.sliding_round().await.unwrap();
         let summary = batch.iter().find_map(|d| match d {
             RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == space => Some(r), _ => None,
         }).unwrap();
         assert!(summary.info.is_space);
         assert_eq!(summary.info.children.len(), 1);
         assert_eq!(summary.info.children[0].as_str(), child);
-        assert!(sync.next_batch().await.unwrap().is_empty());
-        let batch = sync.next_batch_after(async {
+        assert!(sync.sliding_round().await.unwrap().is_empty());
+        let batch = sync.sliding_round_after(async {
             room_request(&config, "alice", reqwest::Method::PUT, &path, serde_json::json!({})).await;
         }).await.unwrap();
         assert!(batch.iter().any(|d| matches!(d, RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == space && r.info.children.is_empty())));
@@ -1138,7 +1140,7 @@ fn disposable_spaces_invalid_links_redaction_no_autojoin() {
                 &format!("rooms/{space}/state/m.space.child/!invalid:matrix-desktop.test"), content).await;
         }
         let mut sync = RoomSync::new(login(&config, "alice", 29).await);
-        let batch = sync.next_batch().await.unwrap();
+        let batch = sync.sliding_round().await.unwrap();
         assert_eq!(batch.len(), 3, "no unjoined child is joined or projected");
         let summaries: Vec<_> = batch.iter().filter_map(|d| match d { RoomListDiff::Upsert(r) => Some(r), _ => None }).collect();
         let parent = summaries.iter().find(|r| r.scope.room_id.as_str() == space).unwrap();
@@ -1147,7 +1149,7 @@ fn disposable_spaces_invalid_links_redaction_no_autojoin() {
         let encrypted = summaries.iter().find(|r| r.scope.room_id.as_str() == room).unwrap();
         assert_eq!(encrypted.info.encrypted, Some(true));
         assert!(encrypted.info.children.is_empty(), "ordinary rooms cannot invent Spaces");
-        let batch = sync.next_batch_after(async {
+        let batch = sync.sliding_round_after(async {
             room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
             room_request(&config, "alice", reqwest::Method::PUT, &format!("rooms/{room}/state/m.room.topic"), serde_json::json!({"topic":"Updated"})).await;
             room_request(&config, "alice", reqwest::Method::PUT,
@@ -1155,7 +1157,7 @@ fn disposable_spaces_invalid_links_redaction_no_autojoin() {
         }).await.unwrap();
         assert!(batch.iter().any(|d| matches!(d, RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == room && r.info.topic.as_deref() == Some("Updated") && r.info.joined_members == 2 && r.info.encrypted == Some(true))));
         assert!(batch.iter().any(|d| matches!(d, RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == space && !r.info.children.iter().any(|id| id.as_str() == room))));
-        assert!(sync.next_batch().await.unwrap().is_empty());
+        assert!(sync.sliding_round().await.unwrap().is_empty());
     });
 }
 
@@ -1197,11 +1199,11 @@ fn disposable_room_list_sync_removes_left_room() {
         let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom", serde_json::json!({"name": "leave", "visibility": "private"})).await;
         let id = created["room_id"].as_str().unwrap();
         let mut sync = RoomSync::new(login(&config, "alice", 18).await);
-        assert_eq!(sync.next_batch().await.unwrap().len(), 1);
+        assert_eq!(sync.sliding_round().await.unwrap().len(), 1);
         room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{id}/leave"), serde_json::json!({})).await;
-        let changes = sync.next_batch().await.unwrap();
+        let changes = sync.sliding_round().await.unwrap();
         assert!(changes.iter().any(|change| matches!(change, RoomListDiff::Remove(scope) if scope.room_id.as_str() == id && scope.account_id == AccountId::new(18))), "left room must be removed");
-        assert!(sync.next_batch().await.unwrap().is_empty());
+        assert!(sync.sliding_round().await.unwrap().is_empty());
     });
 }
 
@@ -1215,9 +1217,9 @@ fn disposable_room_list_sync_tracks_name_unread_read_marker() {
         let id = created["room_id"].as_str().unwrap();
         room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{id}/join"), serde_json::json!({})).await;
         let mut sync = RoomSync::new(login(&config, "alice", 18).await);
-        assert_eq!(sync.next_batch().await.unwrap().len(), 1);
+        assert_eq!(sync.sliding_round().await.unwrap().len(), 1);
         let mut sent = serde_json::Value::Null;
-        let changes = sync.next_batch_after(async {
+        let changes = sync.sliding_round_after(async {
             room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/state/m.room.name"), serde_json::json!({"name": "renamed"})).await;
             sent = room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/send/m.room.message/p018-message"), serde_json::json!({"msgtype": "m.text", "body": "Disposable unread fixture"})).await;
         }).await.unwrap();
@@ -1227,7 +1229,7 @@ fn disposable_room_list_sync_tracks_name_unread_read_marker() {
         }).expect("rename/message updated room");
         assert_eq!(room.name, "renamed");
         assert!(room.unread >= 1, "server notification count must reach projection");
-        let changes = sync.next_batch_after(async {
+        let changes = sync.sliding_round_after(async {
             room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{id}/read_markers"), serde_json::json!({"m.fully_read": sent["event_id"], "m.read": sent["event_id"]})).await;
         }).await.unwrap();
         assert!(changes.iter().any(|change| matches!(change, RoomListDiff::Upsert(room) if room.scope.room_id.as_str() == id && room.unread == 0)), "read marker must clear projected notification count");
@@ -1261,7 +1263,7 @@ fn disposable_unnamed_room_is_listed_by_participants_not_by_id() {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
         let name = loop {
             let found =
-                sync.next_batch()
+                sync.sliding_round()
                     .await
                     .unwrap()
                     .into_iter()
@@ -1315,12 +1317,12 @@ fn disposable_room_list_preview_is_last_real_message_and_clears_when_deleted() {
                     }
                 }
                 assert!(std::time::Instant::now() < deadline, "preview never matched");
-                batch = sync.next_batch().await.unwrap();
+                batch = sync.sliding_round().await.unwrap();
             }
         };
-        let first = sync.next_batch().await.unwrap();
+        let first = sync.sliding_round().await.unwrap();
         wait_for(&mut sync, &|p| p == Some("ultimo messaggio"), first).await;
-        let redacted = sync.next_batch_after(async {
+        let redacted = sync.sliding_round_after(async {
             room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{id}/redact/{last}/t3"), serde_json::json!({})).await;
         }).await.unwrap();
         // The SDK latest event drops the deleted message (it may show the one before it).
@@ -1772,7 +1774,7 @@ fn disposable_persistent_room_list_shows_saved_rooms_with_homeserver_unreachable
         let mut sync = RoomSync::new(session);
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         loop {
-            let seen = sync.next_batch().await.unwrap().iter().any(|d| matches!(d,
+            let seen = sync.sliding_round().await.unwrap().iter().any(|d| matches!(d,
                 RoomListDiff::Upsert(r) if r.scope.room_id.as_str() == id && r.info.preview.as_deref() == Some("last saved message")));
             if seen {
                 break;

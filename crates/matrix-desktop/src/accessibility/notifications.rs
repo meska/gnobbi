@@ -113,14 +113,12 @@ impl NotificationView {
         close.add_action(Action::Focus);
         root.push_child(CLOSE);
         nodes.push((CLOSE, close));
-        let mut privacy = Node::new(Role::Label);
-        privacy.set_value("Solo questa sessione. Anteprima solo del conteggio. Mai testo, mittente, stanza, media o segreti nelle notifiche OS. Nessun push a client chiuso.");
-        root.push_child(NodeId(25));
-        nodes.push((NodeId(25), privacy));
-        let mut service = Node::new(Role::Label);
-        service.set_value(if panel.service_failed { "Servizio OS non disponibile o richiesta scaduta. Gli avvisi sono best effort." } else { "Linux: richiede notify-send e un servizio notifiche della sessione. Windows/macOS non implementati." });
-        root.push_child(NodeId(26));
-        nodes.push((NodeId(26), service));
+        if panel.service_failed {
+            let mut service = Node::new(Role::Label);
+            service.set_value("Servizio OS non disponibile o richiesta scaduta. Gli avvisi sono best effort.");
+            root.push_child(NodeId(26));
+            nodes.push((NodeId(26), service));
+        }
         nodes.insert(0, (ROOT, root));
         Some(TreeUpdate {
             nodes,

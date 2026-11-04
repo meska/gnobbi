@@ -221,7 +221,15 @@ impl LiveOperations {
             OperationResult::RoomMarked { .. }
             | OperationResult::TagsEdited { .. }
             | OperationResult::RoomStarted { .. }
-            | OperationResult::Members { .. } => false,
+            | OperationResult::RoomEdited { .. }
+            | OperationResult::InviteAnswered { .. }
+            | OperationResult::DirectoryFound { .. }
+            | OperationResult::RoomLeft { .. }
+            | OperationResult::Profile { .. }
+            | OperationResult::Thread { .. }
+            | OperationResult::ThreadSent { .. }
+            | OperationResult::Members { .. }
+            | OperationResult::UserSearch { .. } => false,
             OperationResult::Inspected {
                 tag,
                 target,

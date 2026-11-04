@@ -38,6 +38,11 @@ pub struct AccountStore {
 }
 
 impl AccountStore {
+    /// The caller-allocated identity this store was created or opened for.
+    pub fn account_id(&self) -> AccountId {
+        self.account_id
+    }
+
     /// Explicit opt-in durable password login; passphrase is never persisted.
     pub async fn password_login(
         self,
@@ -77,6 +82,7 @@ impl AccountStore {
             client
                 .matrix_auth()
                 .login_username(expected.as_str(), password)
+                .initial_device_display_name(crate::auth::DEVICE_NAME)
                 .send(),
         )
         .await
@@ -91,6 +97,7 @@ impl AccountStore {
                 AuthError::LoginFailed
             }
         })?;
+        Self::subscribe_event_cache(&client)?;
         let mut session = AccountSession {
             account_id: self.account_id,
             client: Some(client),
@@ -135,8 +142,7 @@ impl AccountStore {
     ) -> Result<crate::auth::AccountSession, crate::auth::AuthError> {
         let cert =
             reqwest::Certificate::from_pem(pem).map_err(|_| crate::auth::AuthError::Transport)?;
-        let http = crate::auth::secure_http_builder()
-            .add_root_certificate(cert)
+        let http = crate::auth::with_trust_roots(crate::auth::secure_http_builder(), vec![cert])
             .build()
             .map_err(|_| crate::auth::AuthError::Transport)?;
         self.restore_with_http(passphrase, http).await
@@ -161,6 +167,7 @@ impl AccountStore {
             .restore_session(sdk_session)
             .await
             .map_err(|_| AuthError::Storage)?;
+        Self::subscribe_event_cache(&client)?;
         let session = AccountSession {
             account_id: self.account_id,
             client: Some(client),
@@ -197,6 +204,14 @@ impl AccountStore {
             .disable_well_known_lookup(true)
             .respect_login_well_known(false)
             .http_client(http)
+            // Like Element X: fetch a missing session key from the existing backup on first
+            // decryption failure; never create backups or cross-signing on the account.
+            .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
+                auto_enable_cross_signing: false,
+                backup_download_strategy:
+                    matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+                auto_enable_backups: false,
+            })
             .request_config(
                 matrix_sdk::config::RequestConfig::new()
                     .retry_limit(0)
@@ -206,12 +221,14 @@ impl AccountStore {
             .build()
             .await
             .map_err(|_| crate::auth::AuthError::Storage)?;
-        // The sqlite store above also holds the event cache, sealed with the same key.
-        client
-            .event_cache()
-            .subscribe()
-            .map_err(|_| crate::auth::AuthError::Storage)?;
         Ok(client)
+    }
+
+    /// The sqlite store also holds the event cache, sealed with the same key. Subscribing starts the
+    /// redecryptor, which gives up for good when there is no OlmMachine yet: call this only AFTER login
+    /// or restore_session, or UTD rows never re-decrypt when keys arrive (backup, forward, import).
+    fn subscribe_event_cache(client: &matrix_sdk::Client) -> Result<(), crate::auth::AuthError> {
+        client.event_cache().subscribe().map_err(|_| crate::auth::AuthError::Storage)
     }
 
     pub fn create(root: &Path, account_id: AccountId) -> Result<Self, StoreError> {
@@ -341,12 +358,12 @@ impl AccountStore {
         let result = (|| {
             file.write_all(&bytes).map_err(|_| StoreError::Io)?;
             file.sync_all().map_err(|_| StoreError::Io)?;
-            fs::hard_link(&pending, self.path.join("session.sealed"))
+            crate::fsx::publish_new(&pending, &self.path.join("session.sealed"))
                 .map_err(|_| StoreError::AlreadyExists)?;
             crate::fsx::sync_dir(&self.path)
                 .map_err(|_| StoreError::Io)
         })();
-        let cleanup = fs::remove_file(pending).map_err(|_| StoreError::Io);
+        let cleanup = crate::fsx::remove_pending(&pending).map_err(|_| StoreError::Io);
         result.and(cleanup)
     }
 

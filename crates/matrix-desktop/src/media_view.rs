@@ -61,6 +61,63 @@ pub(crate) fn inline_picture(state: Option<InlineImage>, t: DesignTokens) -> Any
     }
 }
 
+pub(crate) type SaveClick = std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>;
+
+/// «Scarica» at the bubble's bottom right, icon only: ↓ idle, … while saving (a click stops it).
+/// Its own focusable element, never part of the picture, so a click here cannot open the large view.
+pub(crate) fn save_icon(
+    index: usize,
+    running: bool,
+    t: DesignTokens,
+    click: SaveClick,
+    painted: impl Fn(gpui::Bounds<gpui::Pixels>) + 'static,
+) -> AnyElement {
+    div()
+        .id(("save-attachment", index))
+        .relative()
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(32.))
+        .rounded_sm()
+        .text_size(px(14.))
+        .text_color(rgb(t.accent))
+        .cursor_pointer()
+        .hover(|s| s.bg(rgb(t.border)))
+        .focusable()
+        .tab_stop(true)
+        .focus(|s| s.bg(rgb(t.border)))
+        .on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            click(window, cx)
+        })
+        .child(if running { "…" } else { "↓" })
+        .child(gpui::canvas(|_, _, _| (), move |bounds, _, _, _| painted(bounds)).absolute().inset_0())
+        .into_any_element()
+}
+
+/// One line under the bubble footer: what went wrong and, unless it cannot change, «Riprova».
+pub(crate) fn save_failure(index: usize, error: MediaError, t: DesignTokens, retry: SaveClick) -> AnyElement {
+    div()
+        .flex()
+        .justify_end()
+        .gap_2()
+        .text_size(px(12.))
+        .text_color(rgb(t.error))
+        .child(matrix_desktop::save_failure_label(error))
+        .when(matrix_desktop::save_retryable(error), |d| {
+            d.child(
+                div()
+                    .id(("save-retry", index))
+                    .cursor_pointer()
+                    .text_color(rgb(t.accent))
+                    .on_click(move |_, window, cx| retry(window, cx))
+                    .child("Riprova"),
+            )
+        })
+        .into_any_element()
+}
+
 /// Painted parts of a video bubble, by name, so a test can see what reached the screen.
 pub(crate) type PaintedParts = std::rc::Rc<dyn Fn(&'static str, gpui::Bounds<gpui::Pixels>)>;
 
@@ -256,8 +313,55 @@ impl Shell {
         true
     }
 
+    /// «Scarica»: stop a save on request, and turn a click into the file picker, then into the save.
+    pub(crate) fn drive_saves(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(timeline) = &self.timeline else {
+            return;
+        };
+        if timeline.stop_save.take() {
+            self.media.cancel_save();
+        }
+        let Some((id, name)) = timeline.want_save.borrow_mut().take() else {
+            return;
+        };
+        if matrix_desktop::save_over_cap(timeline.attachment_size(&id)) {
+            timeline.finish_save(&id, Err(MediaError::TooLarge));
+            cx.notify();
+            return;
+        }
+        let picked = cx.prompt_for_new_path(&matrix_desktop::save_start_dir(), Some(&name));
+        let scope = self.active_scope.clone();
+        cx.spawn(async move |this, cx| {
+            // No portal (or it failed): the same one-line error as a failed download, not silence.
+            let picked = picked.await.map_err(|_| MediaError::Failed).and_then(|r| r.map_err(|_| MediaError::Failed));
+            let path = picked.as_ref().ok().cloned().flatten();
+            let _ = this.update(cx, |this, cx| {
+                let Some(timeline) = &this.timeline else {
+                    return;
+                };
+                // Stopped while the picker was open, or the room changed: nothing to save.
+                let wanted = timeline.saves.borrow().state(&id) == Some(matrix_desktop::SaveState::Running)
+                    && scope == this.active_scope;
+                let started = wanted
+                    && path.is_some_and(|path| this.media.request_save(scope, id.clone(), path));
+                if !started && wanted {
+                    match picked {
+                        Err(error) => timeline.finish_save(&id, Err(error)),
+                        Ok(_) => timeline.saves.borrow_mut().cancel(&id),
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Store the answer of the finished read under its message.
     pub(crate) fn update_media_image(&mut self) {
+        if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_saved()) {
+            timeline.finish_save(&id, result);
+            return;
+        }
         if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_video()) {
             let opened = result.and_then(|file| {
                 crate::video_player::open(file.path()).map_err(|_| MediaError::Failed)?;

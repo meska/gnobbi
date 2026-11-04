@@ -1,5 +1,6 @@
 //! Main-page Tab ring seam: room list, footer openers, compact Back, Info and the chat entry.
 use crate::*;
+use crate::timeline_view::IconStep;
 use matrix_desktop::panel_openers::{Control, Intent};
 
 impl Shell {
@@ -45,8 +46,7 @@ impl Shell {
     }
 
     fn chat_visible(&self, window: &Window) -> bool {
-        self.connected
-            && self.timeline.is_some()
+        self.timeline.is_some()
             && self
                 .sidebar
                 .selected()
@@ -64,11 +64,7 @@ impl Shell {
             return false;
         }
         self.composer.update(cx, |editor, cx| {
-            if editor.send_eligible() {
-                editor.focus_send(window, cx)
-            } else {
-                editor.focus_from_accessibility(window, cx)
-            }
+            editor.focus_last_stop(window, cx)
         });
         cx.notify();
         true
@@ -79,9 +75,7 @@ impl Shell {
         if window.viewport_size().width < px(800.) {
             self.back_focus_handle().focus(window);
         } else {
-            self.rail_ui.target = self.sidebar.navigation_entries()[0].scope.clone();
-            self.reveal_rail_target(window, cx);
-            self.rail_ui.focus.focus(window);
+            self.menu_focus.focus(window);
         }
         cx.notify();
     }
@@ -90,6 +84,11 @@ impl Shell {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.connected {
             self.history_focus.focus(window);
+            cx.notify();
+            return;
+        }
+        // The «Scarica» icons painted now come before the composer.
+        if self.chat_visible(window) && self.timeline.as_ref().is_some_and(|t| t.enter_icons(false, window)) {
             cx.notify();
             return;
         }
@@ -115,7 +114,7 @@ impl Shell {
         cx.notify();
     }
 
-    /// Forward from the room list: Info on wide windows, else spaces or the theme button.
+    /// Forward from the room list: Info on wide windows, else spaces or the menu button.
     fn after_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if window.viewport_size().width >= px(800.) {
             if !self.focus_opener(Control::Info, window, cx) {
@@ -124,7 +123,7 @@ impl Shell {
         } else if self.connected && self.sidebar.spaces().next().is_some() {
             self.compact_spaces_tab(false, window, cx);
         } else {
-            self.theme_focus.focus(window);
+            self.menu_focus.focus(window);
         }
     }
 
@@ -164,6 +163,23 @@ impl Shell {
             return false;
         }
         let shift = key.modifiers.shift;
+        if self.chat_visible(window)
+            && let Some(timeline) = &self.timeline
+        {
+            let step = timeline.step_icons(shift, window, cx);
+            match step {
+                IconStep::Moved => {}
+                IconStep::Left if shift => self.focus_before_chat(false, window, cx),
+                IconStep::Left => self
+                    .composer
+                    .update(cx, |editor, cx| editor.focus_from_accessibility(window, cx)),
+                IconStep::Ignored => {}
+            }
+            if !matches!(step, IconStep::Ignored) {
+                cx.notify();
+                return true;
+            }
+        }
         if self.list_focus.is_focused(window) && !shift {
             if self.connected {
                 self.after_list(window, cx);
@@ -194,25 +210,30 @@ impl Shell {
         }
         if !shift && self.chat_visible(window) {
             let editor = self.composer.read(cx);
-            if editor.send_is_focused(window)
-                || (editor.tab_back_ready(window) && !editor.send_eligible())
-            {
+            if editor.at_last_stop(window) {
                 self.focus_first_nav_control(window, cx);
                 return true;
             }
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        if shift && self.chat_visible(window) && self.composer.read(cx).tab_back_ready(window) {
+        if shift && self.connected && self.chat_visible(window) && self.composer.read(cx).tab_back_ready(window) {
             self.history_focus.focus(window);
             cx.notify();
             return true;
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        let entry = self.connected && self.history_focus.is_focused(window);
+        let entry = if self.connected {
+            self.history_focus.is_focused(window)
+        } else {
+            self.composer.read(cx).tab_back_ready(window)
+        };
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let entry = self.composer.read(cx).tab_back_ready(window);
         if entry && shift && (window.viewport_size().width >= px(800.) || self.compact_chat) {
-            self.focus_before_chat(false, window, cx);
+            let icons = self.chat_visible(window) && self.timeline.as_ref().is_some_and(|t| t.enter_icons(true, window));
+            if !icons {
+                self.focus_before_chat(false, window, cx);
+            }
             return true;
         }
         false

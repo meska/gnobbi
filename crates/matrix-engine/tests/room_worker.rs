@@ -1,4 +1,5 @@
 #![cfg(feature = "sdk")]
+#![recursion_limit = "512"]
 
 use matrix_engine::{
     RoomListEvent, RoomSyncStatus, TryReceiveError, auth::AuthError, room_sync::RoomListWorker,

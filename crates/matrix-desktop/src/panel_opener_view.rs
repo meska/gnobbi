@@ -231,8 +231,12 @@ impl Shell {
             } else {
                 gpui::rgba(0)
             })
+            // Info is an icon like the list-header ⋮ (same 36x36 box as the hamburger, 20px glyph); accessible name unchanged.
+            .when(control == Control::Info, |d| {
+                d.w(px(36.)).h(px(36.)).flex().items_center().justify_center().rounded_lg().text_size(px(20.)).hover(|s| s.bg(rgb(t.border)))
+            })
             .child(match control {
-                Control::Info => "Info",
+                Control::Info => "⋮",
                 Control::Devices => "Dispositivi",
                 Control::Notifications => "Notifiche",
             })
@@ -430,18 +434,22 @@ mod tests {
             NavigationSnapshot, semantic_session::SemanticSession,
         };
         let navigation = NavigationSnapshot {
+            title: matrix_desktop::window::TITLE.into(),
+            new_chat: Default::default(),
             #[cfg(feature = "live")]
             signin: None,
             openers: this.semantic_openers(window),
             back: None,
+            drawer: None,
             scrollbars: vec![],
             operation_panel: None,
             spaces: None,
             navigation_revision: 0,
-            theme_focused: false,
-            theme_bounds: None,
+            icon_choice: None,
             unread_filter: None,
+            new_room: None,
             devices: Default::default(),
+            settings: None,
             details: Default::default(),
             notifications: Default::default(),
             dark: false,

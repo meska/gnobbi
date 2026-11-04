@@ -14,8 +14,7 @@ Grazie dell'interesse. Il progetto è in sviluppo iniziale: l'ambito attuale è 
 ```sh
 cargo build --locked -p matrix-desktop --features live,linux-vault
 cargo test --locked -p matrix-domain
-cargo fmt --check
-cargo clippy --locked -- -D warnings
+cargo clippy --locked --workspace --all-targets --features matrix-engine/sdk,matrix-desktop/live,matrix-desktop/linux-vault -- -D warnings
 ```
 
 `Cargo.lock` è versionato: usa sempre `--locked` e aggiorna il lock solo quando cambi davvero le dipendenze.

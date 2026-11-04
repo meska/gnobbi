@@ -81,31 +81,37 @@ impl AvatarCache {
 
     /// The avatar thumbnail bytes for `mxc`, from disk when cached.
     pub async fn get(&self, client: &matrix_sdk::Client, mxc: &str) -> Option<Vec<u8>> {
+        self.try_get(client, mxc).await.ok()
+    }
+
+    /// Like `get`; `Err(true)` is a transient failure (no connection, timeout, 5xx, 429)
+    /// worth asking again later, `Err(false)` is final (missing, refused, junk, too big).
+    pub async fn try_get(&self, client: &matrix_sdk::Client, mxc: &str) -> Result<Vec<u8>, bool> {
         let uri = <&MxcUri>::from(mxc);
-        crate::media_sdk::checked_source(MediaSource::Plain(uri.to_owned())).ok()?;
+        crate::media_sdk::checked_source(MediaSource::Plain(uri.to_owned())).map_err(|_| false)?;
         // The file name comes from the validated URI: media id is [A-Za-z0-9_-], server name is sanitised.
-        let (server, id) = uri.parts().ok()?;
+        let (server, id) = uri.parts().map_err(|_| false)?;
         let name = format!("{}-{id}", server.as_str().replace([':', '[', ']'], "_"));
         let path = self.dir.join(&name);
         if let Ok(bytes) = std::fs::read(&path) {
-            return Some(bytes);
+            return Ok(bytes);
         }
         let lock = self
             .inflight
             .lock()
-            .ok()?
+            .map_err(|_| false)?
             .entry(name.clone())
             .or_default()
             .clone();
         let _turn = lock.lock().await;
         let result = async {
             if let Ok(bytes) = std::fs::read(&path) {
-                return Some(bytes);
+                return Ok(bytes);
             }
-            let _permit = self.permits.acquire().await.ok()?;
+            let _permit = self.permits.acquire().await.map_err(|_| false)?;
             let bytes = self.fetch(client, uri).await?;
-            self.store(&name, &bytes).ok()?;
-            Some(bytes)
+            self.store(&name, &bytes).map_err(|_| false)?;
+            Ok(bytes)
         }
         .await;
         if let Ok(mut inflight) = self.inflight.lock() {
@@ -114,7 +120,7 @@ impl AvatarCache {
         result
     }
 
-    async fn fetch(&self, client: &matrix_sdk::Client, uri: &MxcUri) -> Option<Vec<u8>> {
+    async fn fetch(&self, client: &matrix_sdk::Client, uri: &MxcUri) -> Result<Vec<u8>, bool> {
         let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
         self.peak.fetch_max(now, Ordering::SeqCst);
         self.downloads.fetch_add(1, Ordering::SeqCst);
@@ -135,9 +141,9 @@ impl AvatarCache {
             .fetch_media_content_with_request_config(client, &request, config)
             .await;
         self.active.fetch_sub(1, Ordering::SeqCst);
-        let bytes = bytes.ok()?;
-        crate::media_sdk::mime_of(&bytes)?;
-        Some(bytes)
+        let bytes = bytes.map_err(|e| is_transient(&e))?;
+        crate::media_sdk::mime_of(&bytes).ok_or(false)?;
+        Ok(bytes)
     }
 
     fn store(&self, name: &str, bytes: &[u8]) -> std::io::Result<()> {
@@ -160,6 +166,26 @@ impl AvatarCache {
             let _ = std::fs::remove_file(path);
         }
         Ok(())
+    }
+}
+
+// shortcut: a 502 from a proxy with a non-Matrix body counts as final, upgrade if it shows up.
+fn is_transient(e: &matrix_sdk::Error) -> bool {
+    match e {
+        matrix_sdk::Error::Http(h) => http_transient(h),
+        _ => false,
+    }
+}
+
+fn http_transient(e: &matrix_sdk::HttpError) -> bool {
+    use matrix_sdk::HttpError;
+    match e {
+        HttpError::Reqwest(_) => true,
+        // The SDK caches a failed `/versions` call and hands it back wrapped.
+        HttpError::Cached(inner) => http_transient(inner),
+        _ => e.as_client_api_error().is_some_and(|api| {
+            api.status_code.is_server_error() || api.status_code.as_u16() == 429
+        }),
     }
 }
 
@@ -201,14 +227,17 @@ impl crate::avatar::AvatarSource for AvatarFetcher {
     fn request(&self, mxc: String, out: std::sync::mpsc::Sender<crate::avatar::AvatarPicture>) {
         let me = self.clone();
         self.runtime.spawn(async move {
-            let rgba = async {
-                let bytes = me.cache.get(&me.client, &mxc).await?;
-                tokio::task::spawn_blocking(move || decode(&bytes))
-                    .await
-                    .ok()?
-            }
-            .await;
-            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba });
+            let (rgba, retry) = match me.cache.try_get(&me.client, &mxc).await {
+                Ok(bytes) => (
+                    tokio::task::spawn_blocking(move || decode(&bytes))
+                        .await
+                        .ok()
+                        .flatten(),
+                    false,
+                ),
+                Err(retry) => (None, retry),
+            };
+            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba, retry });
         });
     }
 }

@@ -150,3 +150,50 @@ fn only_hidden_spaces_never_remove_tutte() {
     assert_eq!(out[0], ("Tutte".to_string(), false));
     assert!(out[1..].iter().all(|(_, h)| *h));
 }
+
+fn order(layout: &RailLayout) -> Vec<String> {
+    current(layout)
+}
+
+#[test]
+fn move_to_start_end_and_same_position() {
+    let mut l = RailLayout::default();
+    let cur = current(&l);
+    assert!(l.move_to(&cur, "c", 0));
+    assert_eq!(order(&l), ["c", "a", "b"]);
+    let cur = current(&l);
+    assert!(l.move_to(&cur, "c", 2));
+    assert_eq!(order(&l), ["a", "b", "c"]);
+    let before = l.clone();
+    assert!(!l.move_to(&current(&l), "b", 1));
+    assert_eq!(l, before);
+}
+
+#[test]
+fn move_to_counts_hidden_spaces_and_keeps_them_hidden() {
+    let mut l = RailLayout::default();
+    l.toggle_hidden("b");
+    // a, b(hidden), c: dropping "a" after the hidden one lands at index 2
+    assert!(l.move_to(&current(&l), "a", 2));
+    assert_eq!(
+        shown(&l),
+        names(&[("Tutte", false), ("b", true), ("c", false), ("a", false)])
+    );
+    assert!(l.move_to(&current(&l), "a", 1));
+    assert_eq!(
+        shown(&l),
+        names(&[("Tutte", false), ("b", true), ("a", false), ("c", false)])
+    );
+}
+
+#[test]
+fn move_to_invalid_indices_change_nothing() {
+    let mut l = RailLayout::default();
+    let before = l.clone();
+    let cur = current(&l);
+    assert!(!l.move_to(&cur, "a", 3));
+    assert!(!l.move_to(&cur, "a", usize::MAX));
+    assert!(!l.move_to(&cur, "zz", 0));
+    assert!(!l.move_to(&[], "a", 0));
+    assert_eq!(l, before);
+}

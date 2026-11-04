@@ -35,6 +35,7 @@ cat > "$APP/Contents/Info.plist" <<P
 <key>CFBundleShortVersionString</key><string>$VERSION</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
+<key>ITSAppUsesNonExemptEncryption</key><false/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Gnobbi usa il microfono per registrare le note vocali.</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
@@ -47,6 +48,7 @@ cat > "$OUT/app.entitlements" <<E2
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>com.apple.security.app-sandbox</key><true/>
+<key>com.apple.security.files.user-selected.read-write</key><true/>
 <key>com.apple.security.network.client</key><true/>
 <key>com.apple.security.device.audio-input</key><true/>
 <key>com.apple.application-identifier</key><string>$APPID</string>

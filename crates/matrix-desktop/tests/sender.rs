@@ -13,6 +13,7 @@ fn scope() -> RoomScope {
 fn live_mapping_carries_sender_id_and_name() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        redacted: false,
         event_id: EventId::new("$a"),
         body: "ciao".into(),
         outgoing: false,
@@ -20,7 +21,10 @@ fn live_mapping_carries_sender_id_and_name() {
         sender: HistorySender::new("@anna:test", Some("Anna")),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }]);
     let sender = rows.events()[0].sender.as_ref().expect("sender");
     assert_eq!(sender.id, "@anna:test");
@@ -48,6 +52,7 @@ fn demo_incoming_events_have_sender_and_outgoing_do_not() {
 
 fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> HistoryEvent {
     HistoryEvent {
+        redacted: false,
         event_id: EventId::new(id),
         body: "x".into(),
         outgoing: false,
@@ -55,7 +60,10 @@ fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> Hi
         sender: HistorySender::new(sender, name),
         video: None,
         styles: Vec::new(),
-        thread: None,
+        thread: None, thread_root: None,
+        status: false,
+        attachment_name: None,
+        attachment_size: None,
     }
 }
 
@@ -79,4 +87,28 @@ fn sender_label_follows_the_rule_in_a_group() {
         ]
     );
     assert!((0..4).all(|i| rows.sender_label(i, 2).is_none()));
+}
+
+#[test]
+fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
+    let row = |id: &str, status: bool| HistoryEvent {
+        event_id: EventId::new(id),
+        body: "meska ha invitato Marco".into(),
+        outgoing: false,
+        redacted: false,
+        timestamp_ms: 0,
+        sender: HistorySender::new("@anna:test", Some("Anna")),
+        video: None,
+        styles: Vec::new(),
+        thread: None,
+        thread_root: None,
+        status,
+        attachment_name: None,
+        attachment_size: None,
+    };
+    let mut rows = DemoHistory::new(scope(), 0);
+    rows.prepend_server(vec![row("$s", true), row("$m", false)]);
+    assert!(!rows.events()[0].menu_available(true));
+    assert!(rows.events()[1].menu_available(true));
+    assert_eq!(rows.sender_label(1, 3).as_deref(), Some("Anna"));
 }

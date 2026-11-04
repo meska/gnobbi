@@ -48,6 +48,51 @@ impl AccountSession {
         })
     }
 
+    /// Sign out another device. First call without auth yields the UIA session; the password
+    /// (always typed by the user, never the vault one) is sent only if the server offers it.
+    pub async fn delete_device(
+        &self,
+        device_id: &str,
+        password: DevicePassword,
+    ) -> Result<(), DeviceDeleteError> {
+        use matrix_sdk::ruma::api::client::uiaa::{AuthData, AuthType, MatrixUserIdentifier, Password, UserIdentifier};
+        let client = self.client.as_ref().ok_or(DeviceDeleteError::LoggedOut)?;
+        let user_id = client.user_id().ok_or(DeviceDeleteError::LoggedOut)?;
+        if device_id.is_empty() || device_id.len() > 255 || device_id.chars().any(char::is_control)
+        {
+            return Err(DeviceDeleteError::InvalidTarget);
+        }
+        let device: matrix_sdk::ruma::OwnedDeviceId = device_id.into();
+        if Some(&*device) == client.device_id() {
+            return Err(DeviceDeleteError::CurrentDevice);
+        }
+        let devices = [device];
+        let info = match client.delete_devices(&devices, None).await {
+            Ok(_) => return Ok(()),
+            Err(error) => match error.as_uiaa_response() {
+                Some(info) => info.clone(),
+                None => return Err(map_delete_error(&error)),
+            },
+        };
+        if !info
+            .flows
+            .iter()
+            .any(|flow| flow.stages == [AuthType::Password])
+        {
+            return Err(DeviceDeleteError::Unavailable);
+        }
+        let mut auth = Password::new(
+            UserIdentifier::Matrix(MatrixUserIdentifier::new(user_id.to_string())),
+            password.0.to_string(),
+        );
+        auth.session = info.session;
+        client
+            .delete_devices(&devices, Some(AuthData::Password(auth)))
+            .await
+            .map(|_| ())
+            .map_err(|error| map_delete_error(&error))
+    }
+
     /// Request only SAS v1 from an explicitly selected, already tracked device.
     pub async fn request_device_verification(
         &self,
@@ -82,6 +127,20 @@ impl AccountSession {
             request,
             failed: false,
         })
+    }
+}
+
+fn map_delete_error(error: &matrix_sdk::HttpError) -> DeviceDeleteError {
+    use matrix_sdk::ruma::api::error::ErrorKind;
+    // A wrong password comes back as a new UIA challenge or M_FORBIDDEN.
+    if error.as_uiaa_response().is_some()
+        || matches!(error.client_api_error_kind(), Some(ErrorKind::Forbidden))
+    {
+        DeviceDeleteError::WrongPassword
+    } else if error.as_client_api_error().is_some() {
+        DeviceDeleteError::Rejected
+    } else {
+        DeviceDeleteError::Transport
     }
 }
 
@@ -218,21 +277,9 @@ pub(crate) async fn run_service(
     let mut active: Option<VerificationFlow> = None;
     let mut previous = None;
     let mut ticks = tokio::time::interval(std::time::Duration::from_millis(200));
-    if let Some(user_id) = client.user_id() {
-        let display_name = client.account().get_display_name().await.ok().flatten();
-        let user_id = user_id.to_string();
-        if events
-            .send(VerificationEvent::Profile {
-                account_id,
-                user_id,
-                display_name,
-            })
-            .await
-            .is_err()
-        {
-            return;
-        }
-    }
+    // Profile name and picture are re-read every minute: a change made elsewhere shows up without restart.
+    let mut shown = None;
+    let mut profile_ticks = tokio::time::interval(PROFILE_REFRESH);
     loop {
         let result = tokio::select! {
             command = commands.recv() => {
@@ -242,6 +289,8 @@ pub(crate) async fn run_service(
                         match device_list(&client).await {
                             Ok(devices) => {
                                 if events.send(VerificationEvent::Devices { account_id, devices }).await.is_err() { break; }
+                                if let Some(device) = own_device(&client).await
+                                    && events.send(VerificationEvent::OwnDevice { account_id, device }).await.is_err() { break; }
                                 Ok(())
                             }
                             Err(error) => Err(error),
@@ -266,8 +315,38 @@ pub(crate) async fn run_service(
                             _ => Err(VerificationError::UnknownFlow),
                         }
                     }
+                    VerificationCommand::RenameOwnDevice { account_id: requested, display_name } if requested == account_id => {
+                        rename_own_device(&client, &display_name).await
+                    }
+                    VerificationCommand::DeleteDevice { account_id: requested, device_id, password } if requested == account_id => {
+                        match session.delete_device(&device_id, password).await {
+                            Ok(()) => match device_list(&client).await {
+                                Ok(devices) => {
+                                    if events.send(VerificationEvent::Devices { account_id, devices }).await.is_err() { break; }
+                                    Ok(())
+                                }
+                                Err(error) => Err(error),
+                            },
+                            Err(error) => {
+                                if events.send(VerificationEvent::DeviceDeleteFailed { account_id, device_id, error }).await.is_err() { break; }
+                                Ok(())
+                            }
+                        }
+                    }
                     _ => Err(VerificationError::WrongScope),
                 }
+            }
+            _ = profile_ticks.tick() => {
+                match own_profile(&client).await {
+                    Some(profile) if shown.as_ref() != Some(&profile) => {
+                        shown = Some(profile.clone());
+                        let (user_id, display_name, avatar) = profile;
+                        let device_id = client.device_id().map(|d| d.to_string());
+                        if events.send(VerificationEvent::Profile { account_id, user_id, display_name, device_id, avatar }).await.is_err() { break; }
+                    }
+                    _ => (),
+                }
+                Ok(())
             }
             _ = ticks.tick() => {
                 if let Some(flow) = &mut active {
@@ -305,6 +384,36 @@ pub(crate) async fn run_service(
     }
 }
 
+const PROFILE_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Own id, name and picture as the SDK reports them; a failed read keeps what is already shown.
+async fn own_profile(client: &Client) -> Option<(String, Option<String>, Option<String>)> {
+    let user_id = client.user_id()?.to_string();
+    let account = client.account();
+    let display_name = account.get_display_name().await.ok()?;
+    let avatar = account
+        .get_avatar_url()
+        .await
+        .ok()?
+        .map(|uri| uri.to_string());
+    Some((user_id, display_name, avatar))
+}
+
+async fn rename_own_device(client: &Client, name: &str) -> Result<(), VerificationError> {
+    let name = valid_device_name(name)?;
+    let id = client.device_id().ok_or(VerificationError::LoggedOut)?;
+    client.rename_device(id, name).await.map_err(|_| VerificationError::Transport)?;
+    Ok(())
+}
+
+fn valid_device_name(name: &str) -> Result<&str, VerificationError> {
+    let name = name.trim();
+    if name.is_empty() || name.chars().count() > 128 || name.chars().any(char::is_control) {
+        return Err(VerificationError::InvalidName);
+    }
+    Ok(name)
+}
+
 async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, VerificationError> {
     let user_id = client.user_id().ok_or(VerificationError::LoggedOut)?;
     let devices = client
@@ -312,6 +421,8 @@ async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, Verific
         .get_user_devices(user_id)
         .await
         .map_err(|_| VerificationError::Transport)?;
+    // Server-side metadata; failure here must not hide the device list.
+    let meta = server_meta(client).await;
     let mut result = Vec::new();
     for device in devices.devices() {
         if Some(device.device_id()) == client.device_id() {
@@ -320,12 +431,67 @@ async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, Verific
         if result.len() == 128 {
             return Err(VerificationError::TooManyDevices);
         }
-        result.push(VerificationDevice {
-            user_id: user_id.to_string(),
-            device_id: device.device_id().to_string(),
-            verified: device.is_verified(),
-        });
+        result.push(describe(user_id.as_str(), &meta, device.device_id(), device.is_verified()));
     }
-    result.sort_by(|a, b| a.device_id.cmp(&b.device_id));
+    sort_devices(&mut result);
     Ok(result)
+}
+
+async fn server_meta(client: &Client) -> Vec<matrix_sdk::ruma::api::client::device::Device> {
+    client.devices().await.map(|r| r.devices).unwrap_or_default()
+}
+
+fn describe(
+    user_id: &str,
+    meta: &[matrix_sdk::ruma::api::client::device::Device],
+    device_id: &matrix_sdk::ruma::DeviceId,
+    verified: bool,
+) -> VerificationDevice {
+    let m = meta.iter().find(|m| m.device_id == device_id);
+    VerificationDevice {
+        user_id: user_id.to_owned(),
+        device_id: device_id.to_string(),
+        verified,
+        display_name: m.and_then(|m| m.display_name.clone()).filter(|n| !n.trim().is_empty()),
+        last_seen_ts: m.and_then(|m| m.last_seen_ts).map(|t| t.0.into()),
+        last_seen_ip: m.and_then(|m| m.last_seen_ip.clone()).filter(|i| !i.trim().is_empty()),
+    }
+}
+
+/// This session's own device, with the state the SDK knows locally (no HTTP for the state).
+async fn own_device(client: &Client) -> Option<VerificationDevice> {
+    let user_id = client.user_id()?;
+    let own = client.encryption().get_own_device().await.ok()??;
+    let meta = server_meta(client).await;
+    Some(describe(user_id.as_str(), &meta, own.device_id(), own.is_verified()))
+}
+
+#[cfg(test)]
+mod rename_tests {
+    use super::*;
+    #[test]
+    fn device_name_validation() {
+        assert_eq!(valid_device_name("  Gnobbi (macOS) ").unwrap(), "Gnobbi (macOS)");
+        assert!(valid_device_name("  ").is_err());
+        assert!(valid_device_name("a\nb").is_err());
+        assert!(valid_device_name(&"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn describe_tolerates_missing_or_blank_server_fields() {
+        use matrix_sdk::ruma::{api::client::device::Device, device_id};
+        let mut full = Device::new(device_id!("FULL").to_owned());
+        full.display_name = Some("Mac".into());
+        full.last_seen_ip = Some("203.0.113.1".into());
+        full.last_seen_ts = Some(matrix_sdk::ruma::MilliSecondsSinceUnixEpoch(42u32.into()));
+        let mut blank = Device::new(device_id!("BLANK").to_owned());
+        blank.display_name = Some("  ".into());
+        blank.last_seen_ip = Some("".into());
+        let meta = [full, blank];
+        let d = |id: &str| describe("@a:x", &meta, id.into(), true);
+        assert_eq!((d("FULL").last_seen_ts, d("FULL").last_seen_ip.as_deref(), d("FULL").display_name.as_deref()), (Some(42), Some("203.0.113.1"), Some("Mac")));
+        assert_eq!((d("BLANK").last_seen_ts, d("BLANK").last_seen_ip, d("BLANK").display_name), (None, None, None));
+        // Device unknown to the server list (devices() failed): still described, nothing invented.
+        assert_eq!((d("NOMETA").last_seen_ts, d("NOMETA").last_seen_ip, d("NOMETA").display_name), (None, None, None));
+    }
 }

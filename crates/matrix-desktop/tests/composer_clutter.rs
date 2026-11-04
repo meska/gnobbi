@@ -27,3 +27,14 @@ fn live_header_has_no_constant_caption() {
 fn composer_keeps_accessible_label() {
     assert!(ACCESSIBILITY.contains("set_label(\"Scrivi un messaggio\")"));
 }
+
+#[test]
+fn composer_buttons_are_32px_icons_without_words() {
+    for word in ["\"Allega\"", "\"Voce\"", "\"Emoji\"", "\"Invia\"", "Invia · demo"] {
+        assert!(!COMPOSER.contains(word), "{word} must be an icon, not text");
+    }
+    assert_eq!(COMPOSER.matches(".size(px(32.))").count(), 2, "icon_button + Invia");
+    for id in ["composer-emoji-toggle", "composer-attach", "composer-record"] {
+        assert!(COMPOSER.contains(&format!("icon_button(\"{id}\"")));
+    }
+}

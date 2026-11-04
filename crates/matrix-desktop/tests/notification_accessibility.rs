@@ -71,8 +71,10 @@ fn notification_actions_reject_hidden_disabled_and_stale_room_targets() {
 #[test]
 fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() {
     use matrix_desktop::accessibility::notifications::OPEN;
-    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, THEME};
+    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, SEARCH};
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![matrix_desktop::panel_openers::Snapshot {
@@ -82,13 +84,14 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
             focused: false,
         }],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         dark: false,
         visible: true,
         query: String::new(),
@@ -99,6 +102,7 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
         list_focused: false,
         composer: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: NotificationView::Closed,
     };
@@ -114,8 +118,8 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
         ))
     ));
     snapshot.notifications = panel();
-    assert!(snapshot.tree().nodes.iter().all(|(id, _)| *id != THEME));
-    assert!(snapshot.action(&request(THEME)).is_none());
+    assert!(snapshot.tree().nodes.iter().all(|(id, _)| *id != SEARCH));
+    assert!(snapshot.action(&request(SEARCH)).is_none());
     assert!(snapshot.action(&request(OPEN)).is_none());
     assert!(matches!(
         snapshot.action(&request(CLOSE)),
@@ -200,7 +204,8 @@ fn notification_dialog_exports_current_checkbox_states_and_privacy_text() {
         );
         assert!(node.supports_action(Action::Click));
     }
-    assert!(tree.nodes.iter().any(|(_, node)| {
+    // The help sentences were removed from the panel; only the error state stays.
+    assert!(!tree.nodes.iter().any(|(_, node)| {
         node.value()
             .is_some_and(|s| s.contains("Mai testo, mittente, stanza, media o segreti"))
     }));

@@ -43,11 +43,33 @@ pub struct AccountSession {
     pub(crate) store: Option<crate::persistence::AccountStore>,
 }
 
+/// OS only: no user name and no hostname (privacy; a hostname variant needs Marco's consent).
+pub(crate) const DEVICE_NAME: &str = if cfg!(target_os = "macos") {
+    "Gnobbi (macOS)"
+} else if cfg!(target_os = "windows") {
+    "Gnobbi (Windows)"
+} else {
+    "Gnobbi (Linux)"
+};
+
 pub(crate) fn secure_http_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(10))
+}
+
+/// Extra trust for a private homeserver. Android refuses reqwest's "merge with platform roots"
+/// (rustls-platform-verifier is not initialised there), so the given roots are the only ones.
+// shortcut: Android trusts only the explicit roots; wire the platform verifier before pointing it at public servers.
+pub(crate) fn with_trust_roots(
+    http: reqwest::ClientBuilder,
+    certs: Vec<reqwest::Certificate>,
+) -> reqwest::ClientBuilder {
+    #[cfg(target_os = "android")]
+    return http.tls_certs_only(certs);
+    #[cfg(not(target_os = "android"))]
+    certs.into_iter().fold(http, |http, cert| http.add_root_certificate(cert))
 }
 
 impl AccountSession {
@@ -83,6 +105,14 @@ impl AccountSession {
                 .disable_well_known_lookup(true)
                 .respect_login_well_known(false)
                 .http_client(http)
+                // Like Element X: fetch a missing session key from the existing backup on first
+                // decryption failure; never create backups or cross-signing on the account.
+                .with_encryption_settings(matrix_sdk::encryption::EncryptionSettings {
+                    auto_enable_cross_signing: false,
+                    backup_download_strategy:
+                        matrix_sdk::encryption::BackupDownloadStrategy::AfterDecryptionFailure,
+                    auto_enable_backups: false,
+                })
                 .request_config(
                     RequestConfig::new()
                         .retry_limit(0)
@@ -94,6 +124,7 @@ impl AccountSession {
             client
                 .matrix_auth()
                 .login_username(expected.as_str(), password)
+                .initial_device_display_name(DEVICE_NAME)
                 .send()
                 .await
                 .map_err(|error| {
@@ -181,5 +212,14 @@ impl AccountSession {
                 .ok_or(AuthError::IdentityMismatch)?
                 .to_string(),
         })
+    }
+}
+
+#[cfg(test)]
+mod device_name_tests {
+    #[test]
+    fn device_name_matches_os_without_user_or_host() {
+        let expected = if cfg!(target_os = "macos") { "Gnobbi (macOS)" } else if cfg!(target_os = "windows") { "Gnobbi (Windows)" } else { "Gnobbi (Linux)" };
+        assert_eq!(super::DEVICE_NAME, expected);
     }
 }
