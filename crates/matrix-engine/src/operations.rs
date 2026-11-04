@@ -131,6 +131,8 @@ pub enum OperationCommand {
         /// (`Some(public)`, the «Conferme di lettura» setting).
         read: Option<bool>,
     },
+    /// «Verifica utente»: ask `user_id` for an interactive verification.
+    VerifyUser { user_id: String },
     /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
     ThreadSend {
         scope: RoomScope,
@@ -165,6 +167,10 @@ pub enum OperationResult {
     Profile {
         user_id: String,
         result: Result<UserProfile, OperationError>,
+    },
+    UserVerification {
+        user_id: String,
+        result: Result<(), OperationError>,
     },
     DirectoryFound {
         result: Result<Vec<DirectoryRoom>, OperationError>,
@@ -242,6 +248,8 @@ pub struct UserProfile {
     /// Display name, or the user id when the profile has none.
     pub name: String,
     pub avatar: Option<String>,
+    /// Cross-signing trust of the user; `None` when the SDK has no identity for them.
+    pub verified: Option<bool>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -708,7 +716,39 @@ pub async fn user_profile(
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| id.to_string()),
         avatar: profile.get_static::<AvatarUrl>().ok().flatten().map(|u| u.to_string()),
+        verified: user_identity(client, &id).await.map(|i| i.is_verified()),
     })
+}
+
+/// E2EE identity of `id`: the local store first, else one `/keys/query` (same on Synapse and Tuwunel).
+#[cfg(feature = "sdk")]
+async fn user_identity(
+    client: &matrix_sdk::Client,
+    id: &matrix_sdk::ruma::UserId,
+) -> Option<matrix_sdk::encryption::identities::UserIdentity> {
+    let encryption = client.encryption();
+    if let Ok(Some(identity)) = encryption.get_user_identity(id).await {
+        return Some(identity);
+    }
+    tokio::time::timeout(WAIT, encryption.request_user_identity(id))
+        .await
+        .ok()?
+        .ok()?
+}
+
+/// Sends an interactive verification request to `user_id`; the flow itself continues in the verification UI.
+#[cfg(feature = "sdk")]
+pub async fn request_user_verification(
+    client: &matrix_sdk::Client,
+    user_id: &str,
+) -> Result<(), OperationError> {
+    let id = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let identity = user_identity(client, &id).await.ok_or(OperationError::Unavailable)?;
+    tokio::time::timeout(WAIT, identity.request_verification())
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|_| OperationError::Transport)?;
+    Ok(())
 }
 
 #[cfg(feature = "sdk")]

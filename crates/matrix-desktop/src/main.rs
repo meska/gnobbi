@@ -173,6 +173,8 @@ struct Shell {
     profile_copied: Option<matrix_desktop::ProfileAct>,
     /// «Invia messaggio» of a profile is waiting for the engine.
     profile_dm: bool,
+    /// «Verifica utente» request failed; shown for a moment, like the copy confirmation.
+    profile_verify_failed: bool,
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
@@ -1424,6 +1426,10 @@ impl Shell {
                             user_id,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::VerifyUser { user_id } => OperationResult::UserVerification {
+                            user_id,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::Members { scope } => OperationResult::Members {
                             scope,
                             members: Err(OperationError::Unavailable),
@@ -2590,6 +2596,10 @@ fn main() {
                                                 this.profile_found(user_id, result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::UserVerification { result, .. } = result {
+                                                this.verify_requested(result.is_ok(), cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::TagsEdited { result } = result {
                                                 this.groups_edited(result, cx);
                                                 continue;
@@ -2926,6 +2936,7 @@ fn main() {
                         profile_focus: 0,
                         profile_copied: None,
                         profile_dm: false,
+                        profile_verify_failed: false,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

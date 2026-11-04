@@ -44,7 +44,19 @@ impl Shell {
         if !me {
             acts.push(ProfileAct::Quote);
         }
+        if matrix_desktop::verify_mark(me, p.verified) == matrix_desktop::VerifyMark::Offer {
+            acts.push(ProfileAct::Verify);
+        }
         acts
+    }
+
+    fn verify_mark(&self) -> matrix_desktop::VerifyMark {
+        match &self.profile {
+            Some(ProfileState::Loaded(p)) => {
+                matrix_desktop::verify_mark(self.own_user_id() == Some(p.user_id.as_str()), p.verified)
+            }
+            _ => matrix_desktop::VerifyMark::Hidden,
+        }
     }
 
     fn profile_ctls(&self) -> Vec<ProfileCtl> {
@@ -109,11 +121,36 @@ impl Shell {
                     self.profile_dm = true;
                 }
             }
+            ProfileAct::Verify => {
+                if self.pending_operation_command.is_none() {
+                    self.pending_operation_command = Some(OperationCommand::VerifyUser { user_id });
+                }
+            }
             ProfileAct::Quote => {
                 self.set_room_details_open(false);
                 self.composer.update(cx, |editor, cx| editor.insert_mention(user_id, &name, window, cx));
             }
         }
+        cx.notify();
+    }
+
+    /// Outcome of «Verifica utente»: the row flashes accent (sent) or error (failed) for a moment, no text.
+    pub(crate) fn verify_requested(&mut self, sent: bool, cx: &mut Context<Self>) {
+        if sent {
+            self.profile_copied = Some(ProfileAct::Verify);
+        } else {
+            self.profile_verify_failed = true;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(1200)).await;
+            this.update(cx, |this, cx| {
+                this.profile_copied = None;
+                this.profile_verify_failed = false;
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
         cx.notify();
     }
 
@@ -162,7 +199,13 @@ impl Shell {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub(crate) fn people_labels(&self) -> Vec<(String, Option<String>)> {
         match &self.profile {
-            Some(ProfileState::Loaded(p)) => vec![(format!("Profilo: {}, {}", p.name, p.user_id), None)],
+            Some(ProfileState::Loaded(p)) => {
+                let mut labels = vec![(format!("Profilo: {}, {}", p.name, p.user_id), None)];
+                if self.verify_mark() == matrix_desktop::VerifyMark::Verified {
+                    labels.push(("Verificato".to_owned(), None));
+                }
+                labels
+            }
             Some(_) => Vec::new(),
             None => self
                 .room_members
@@ -258,6 +301,9 @@ impl Shell {
                                 cx,
                             )),
                     )
+                    .when(self.verify_mark() == matrix_desktop::VerifyMark::Verified, |d| {
+                        d.child(composer_icons::icon(composer_icons::Icon::Check, t.accent))
+                    })
                     .child(section().children(
                         acts.into_iter().filter(|a| *a != ProfileAct::CopyId).map(|act| {
                             let ctl = ProfileCtl::Act(act);
@@ -268,7 +314,13 @@ impl Shell {
                                 .px_2()
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgb(t.border)))
-                                .text_color(rgb(if copied == Some(act) { t.accent } else { t.text }))
+                                .text_color(rgb(if act == ProfileAct::Verify && self.profile_verify_failed {
+                                    t.error
+                                } else if copied == Some(act) {
+                                    t.accent
+                                } else {
+                                    t.text
+                                }))
                                 .child(act.label())
                                 .on_click(cx.listener(move |this, _, window, cx| this.activate_ctl(ctl, window, cx)))
                         }),

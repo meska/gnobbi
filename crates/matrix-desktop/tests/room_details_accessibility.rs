@@ -220,11 +220,11 @@ fn profile_actions_are_buttons_with_names_and_route_to_act() {
     let mut panel = panel();
     panel.people = vec![("Profilo: Ada, @ada:fixture.invalid".into(), None)];
     panel.back = true;
-    panel.acts = vec![ProfileAct::CopyId, ProfileAct::Message, ProfileAct::Link, ProfileAct::Quote];
+    panel.acts = vec![ProfileAct::CopyId, ProfileAct::Message, ProfileAct::Link, ProfileAct::Quote, ProfileAct::Verify];
     let tree = panel.tree();
     let scope = panel.scope.clone();
     let view = DetailsView::Open(Box::new(panel));
-    for act in [ProfileAct::CopyId, ProfileAct::Message, ProfileAct::Link, ProfileAct::Quote] {
+    for act in [ProfileAct::CopyId, ProfileAct::Message, ProfileAct::Link, ProfileAct::Quote, ProfileAct::Verify] {
         let (id, node) = tree
             .nodes
             .iter()

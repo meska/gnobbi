@@ -467,6 +467,14 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::Profile { user_id, result }
                                 }
+                                OperationCommand::VerifyUser { user_id } => {
+                                    let result = crate::operations::request_user_verification(
+                                        &operation_client,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::UserVerification { user_id, result }
+                                }
                                 OperationCommand::MarkRoom {
                                     scope,
                                     read,

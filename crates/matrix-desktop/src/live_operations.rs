@@ -226,6 +226,7 @@ impl LiveOperations {
             | OperationResult::DirectoryFound { .. }
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
+            | OperationResult::UserVerification { .. }
             | OperationResult::Thread { .. }
             | OperationResult::ThreadSent { .. }
             | OperationResult::Members { .. }

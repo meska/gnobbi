@@ -305,6 +305,23 @@ pub enum ProfileAct {
     Message,
     Link,
     Quote,
+    Verify,
+}
+
+/// What the profile shows about trust: nothing for oneself or when the SDK has no identity, the offer while
+/// unverified, the «Verificato» sign once verified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VerifyMark {
+    Hidden,
+    Offer,
+    Verified,
+}
+pub fn verify_mark(me: bool, verified: Option<bool>) -> VerifyMark {
+    match (me, verified) {
+        (true, _) | (_, None) => VerifyMark::Hidden,
+        (_, Some(false)) => VerifyMark::Offer,
+        (_, Some(true)) => VerifyMark::Verified,
+    }
 }
 impl ProfileAct {
     pub fn label(self) -> &'static str {
@@ -313,6 +330,7 @@ impl ProfileAct {
             Self::Message => "Invia messaggio",
             Self::Link => "Condividi link utente",
             Self::Quote => "Cita",
+            Self::Verify => "Verifica utente",
         }
     }
 }
