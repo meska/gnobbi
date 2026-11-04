@@ -23,6 +23,7 @@ impl Shell {
                 back: self.profile.is_some(),
                 acts: self.profile_acts(),
                 focus: self.details_focus,
+                profile_focus: self.profile_focus,
                 bounds: self.a11y_details_bounds,
             }))
         } else if window.viewport_size().width >= px(800.) || self.compact_chat {
@@ -51,6 +52,8 @@ impl Shell {
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
+            DetailsAction::FocusRing { index, .. } => self.profile_focus = index,
+            DetailsAction::Act { act, .. } => self.profile_act(act, window, cx),
             DetailsAction::Profile { user_id, .. } => self.open_profile(user_id, cx),
             DetailsAction::Members(_) => self.profile = None,
             DetailsAction::Copy(scope) => {

@@ -35,6 +35,7 @@ fn profile_panel(acts: Vec<A>) -> DetailsSnapshot {
         back: true,
         acts,
         focus: DetailsControl::default(),
+        profile_focus: 0,
         bounds: [None; 2],
     }
 }
@@ -99,7 +100,6 @@ fn confirmation_exposes_only_its_two_answers() {
 }
 
 #[test]
-#[ignore = "defect: the tree's focus is never the profile's first control (‹) nor the act the keyboard is on; act buttons have no Focus action"]
 fn profile_tree_focus_starts_on_the_first_control_and_acts_can_take_focus() {
     let panel = profile_panel(vec![A::CopyId, A::Message, A::Ignore]);
     let tree = panel.tree();

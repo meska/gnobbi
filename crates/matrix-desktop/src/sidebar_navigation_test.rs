@@ -1875,7 +1875,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     let room = this.sidebar.selected().unwrap();
                     matrix_desktop::accessibility::details::DetailsSnapshot {
                         scope: room.scope.clone(), name: room.name.clone(), info: room.info.clone(),
-                        people: this.people_labels(), back: false, acts: vec![], focus: Default::default(), bounds: [None; 2],
+                        people: this.people_labels(), back: false, acts: vec![], focus: Default::default(), profile_focus: 0, bounds: [None; 2],
                     }.tree().nodes.len()
                 }).unwrap();
                 println!("AFTER a11y nodes in sheet tree: {nodes}");

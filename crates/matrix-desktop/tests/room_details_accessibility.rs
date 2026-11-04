@@ -74,6 +74,7 @@ fn panel() -> DetailsSnapshot {
         back: false,
         acts: vec![],
         focus: DetailsControl::Close,
+        profile_focus: 0,
         bounds: [None; 2],
     }
 }
@@ -221,6 +222,9 @@ fn profile_actions_are_buttons_with_names_and_route_to_act() {
     panel.people = vec![("Profilo: Ada, @ada:fixture.invalid".into(), None)];
     panel.back = true;
     panel.acts = vec![ProfileAct::CopyId, ProfileAct::Message, ProfileAct::Link, ProfileAct::Quote, ProfileAct::Verify];
+    let click = |view: &DetailsView, node| {
+        view.action(&accesskit::ActionRequest { action: accesskit::Action::Click, target_tree: accesskit::TreeId::ROOT, target_node: node, data: None })
+    };
     let tree = panel.tree();
     let scope = panel.scope.clone();
     let view = DetailsView::Open(Box::new(panel));
