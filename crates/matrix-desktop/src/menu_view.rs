@@ -235,10 +235,10 @@ impl Shell {
                 "enter" | "space" if activate && self.settings_open => {
                     self.toggle_setting(self.settings_row, cx)
                 }
-                // Settings keep one focus stop; Up/Down/Tab (Shift+Tab backwards) walk its three switches.
+                // Settings keep one focus stop; Up/Down/Tab (Shift+Tab backwards) walk its four switches.
                 "up" | "down" | "tab" if self.settings_open => {
                     let back = key.key == "up" || m.shift;
-                    self.settings_row = (self.settings_row + if back { 2 } else { 1 }) % 3;
+                    self.settings_row = (self.settings_row + if back { 3 } else { 1 }) % 4;
                     self.settings_focus.focus(window);
                     cx.notify();
                 }

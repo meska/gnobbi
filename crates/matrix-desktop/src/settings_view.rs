@@ -29,6 +29,7 @@ impl Shell {
                     self.prefs.debug,
                     self.prefs.read_receipts,
                     self.prefs.hide_redacted,
+                    self.prefs.close_to_tray,
                 ],
             }
         })
@@ -60,12 +61,13 @@ impl Shell {
         }
     }
 
-    /// Settings rows in screen order: 0 debug, 1 read receipts, 2 hide deleted messages.
+    /// Settings rows in screen order: 0 debug, 1 read receipts, 2 hide deleted messages, 3 close to tray.
     pub(crate) fn toggle_setting(&mut self, row: usize, cx: &mut Context<Self>) {
         match row {
             0 => self.toggle_debug(cx),
             1 => self.toggle_read_receipts(cx),
-            _ => self.toggle_hide_redacted(cx),
+            2 => self.toggle_hide_redacted(cx),
+            _ => self.toggle_close_to_tray(cx),
         }
     }
 
@@ -228,6 +230,11 @@ impl Shell {
 
     pub(crate) fn toggle_hide_redacted(&mut self, cx: &mut Context<Self>) {
         self.prefs.hide_redacted = !self.prefs.hide_redacted;
+        self.save_prefs(cx);
+    }
+
+    pub(crate) fn toggle_close_to_tray(&mut self, cx: &mut Context<Self>) {
+        self.prefs.close_to_tray = !self.prefs.close_to_tray;
         self.save_prefs(cx);
     }
 
@@ -648,6 +655,21 @@ impl Shell {
                     .child(label("Nascondi messaggi eliminati"))
                     .child(switch(self.prefs.hide_redacted))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_redacted(cx))),
+            )
+            .child(
+                row("settings-close-to-tray")
+                    .text_color(rgb(t.text))
+                    .border_1()
+                    .border_color(rgb(
+                        if self.settings_row == 3 && self.settings_focus.is_focused(window) {
+                            t.accent
+                        } else {
+                            t.surface
+                        },
+                    ))
+                    .child(label("Riduci nel tray alla chiusura"))
+                    .child(switch(self.prefs.close_to_tray))
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_close_to_tray(cx))),
             )
             .into_any_element()
     }

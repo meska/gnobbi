@@ -426,7 +426,8 @@ impl Sidebar {
         let total = |keep: &dyn Fn(&SidebarRoom) -> bool| {
             self.rooms
                 .iter()
-                .filter(|room| keep(room))
+                // Muted rooms never count: same rule for the list, the drawer and the tray.
+                .filter(|room| !room.info.muted && keep(room))
                 .fold((0u64, 0u64), |(u, m), room| {
                     (
                         u.saturating_add(room.unread),
@@ -713,6 +714,22 @@ mod tests {
                 })
                 .collect(),
         );
+    }
+
+    #[test]
+    fn muted_rooms_do_not_count_in_the_account_unread_total() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        for (id, unread, muted) in [("a", 2, false), ("b", 5, true)] {
+            sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+                scope: RoomScope { account_id: account, room_id: RoomId::new(format!("!{id}:t.invalid")) },
+                name: id.into(),
+                unread,
+                info: RoomInfo { muted, mentions: unread, ..Default::default() },
+            }));
+        }
+        let all = &sidebar.navigation_entries()[0];
+        assert_eq!((all.unread, all.mentions), (2, 2));
     }
 
     #[test]

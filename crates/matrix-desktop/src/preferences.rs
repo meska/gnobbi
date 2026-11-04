@@ -219,6 +219,8 @@ pub struct Preferences {
     pub icon: IconChoice,
     /// «Nascondi messaggi eliminati»: on by default, also when the saved value is missing or not a boolean.
     pub hide_redacted: bool,
+    /// «Riduci nel tray alla chiusura»: off by default, so closing the window keeps quitting.
+    pub close_to_tray: bool,
 }
 
 impl Default for Preferences {
@@ -232,6 +234,7 @@ impl Default for Preferences {
             font: FontChoice::Sans,
             icon: IconChoice::MinimalMark,
             hide_redacted: true,
+            close_to_tray: false,
         }
     }
 }
@@ -286,6 +289,10 @@ impl Preferences {
                 .get("hide_deleted")
                 .and_then(Value::as_bool)
                 .unwrap_or(true),
+            close_to_tray: map
+                .get("close_to_tray")
+                .and_then(Value::as_bool)
+                .unwrap_or_default(),
         }
     }
 
@@ -300,7 +307,7 @@ impl Preferences {
         opts.write(true).create(true).truncate(true);
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray });
         opts.open(&tmp)?.write_all(body.to_string().as_bytes())?;
         std::fs::rename(tmp, dirs.config.join(FILE))
     }

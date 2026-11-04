@@ -16,7 +16,7 @@ fn click(target: accesskit::NodeId, action: Action) -> ActionRequest {
 fn switches_are_labelled_checkboxes_with_state_and_set_explicitly() {
     let snapshot = SettingsSnapshot {
         focus: 2,
-        on: [false, true, false],
+        on: [false, true, false, false],
     };
     let tree = snapshot.tree();
     let boxes: Vec<_> = tree
@@ -27,12 +27,22 @@ fn switches_are_labelled_checkboxes_with_state_and_set_explicitly() {
     let labels: Vec<_> = boxes.iter().map(|(_, n)| n.label().unwrap()).collect();
     assert_eq!(
         labels,
-        ["Modalità debug", "Conferme di lettura", "Nascondi messaggi eliminati"]
+        [
+            "Modalità debug",
+            "Conferme di lettura",
+            "Nascondi messaggi eliminati",
+            "Riduci nel tray alla chiusura"
+        ]
     );
     let toggled: Vec<_> = boxes.iter().map(|(_, n)| n.toggled().unwrap()).collect();
     assert_eq!(
         toggled,
-        [accesskit::Toggled::False, accesskit::Toggled::True, accesskit::Toggled::False]
+        [
+            accesskit::Toggled::False,
+            accesskit::Toggled::True,
+            accesskit::Toggled::False,
+            accesskit::Toggled::False
+        ]
     );
     assert_eq!(tree.focus, boxes[2].0);
     assert_eq!(

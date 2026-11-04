@@ -1,11 +1,12 @@
-//! Drawer settings: three on/off switches (debug, read receipts, hide deleted messages).
+//! Drawer settings: four on/off switches (debug, read receipts, hide deleted messages, close to tray).
 use super::ROOT;
 use accesskit::{Action, ActionRequest, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
-pub const LABELS: [&str; 3] = [
+pub const LABELS: [&str; 4] = [
     "Modalità debug",
     "Conferme di lettura",
     "Nascondi messaggi eliminati",
+    "Riduci nel tray alla chiusura",
 ];
 const BASE: u64 = 70;
 
@@ -16,7 +17,7 @@ fn id(row: usize) -> NodeId {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettingsSnapshot {
     pub focus: usize,
-    pub on: [bool; 3],
+    pub on: [bool; 4],
 }
 #[derive(Debug, PartialEq)]
 pub enum SettingsAction {
@@ -48,14 +49,14 @@ impl SettingsSnapshot {
             nodes,
             tree: Some(Tree::new(ROOT)),
             tree_id: TreeId::ROOT,
-            focus: id(self.focus.min(2)),
+            focus: id(self.focus.min(3)),
         }
     }
     pub fn action(&self, request: &ActionRequest) -> Option<SettingsAction> {
         if request.target_tree != TreeId::ROOT || request.data.is_some() {
             return None;
         }
-        let row = (0..3).find(|r| id(*r) == request.target_node)?;
+        let row = (0..4).find(|r| id(*r) == request.target_node)?;
         match request.action {
             Action::Focus => Some(SettingsAction::Focus(row)),
             Action::Click => Some(SettingsAction::Set(row, !self.on[row])),

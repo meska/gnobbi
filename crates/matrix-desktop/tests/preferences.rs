@@ -18,6 +18,7 @@ fn tmp(name: &str) -> PathBuf {
 
 #[test]
 fn missing_file_gives_defaults() {
+    assert!(!Preferences::default().close_to_tray, "closing keeps quitting unless asked");
     let d = dirs(&tmp("missing"));
     assert_eq!(Preferences::load(&d), Preferences::default());
 }
@@ -34,6 +35,7 @@ fn roundtrip_keeps_values() {
         font: FontChoice::Serif,
         icon: matrix_desktop::IconChoice::Monster,
         hide_redacted: false,
+        close_to_tray: true,
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);

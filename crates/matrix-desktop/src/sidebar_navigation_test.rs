@@ -1635,7 +1635,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             key!("tab");
             key!("tab");
             key!("tab");
-            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "the ring wraps after three stops")).unwrap();
+            key!("tab");
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "the ring wraps after four stops")).unwrap();
             wait(300).await;
             shot("p242-receipts-off");
             key!("escape");
