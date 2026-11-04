@@ -9,7 +9,9 @@ use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 #[cfg(target_os = "macos")]
 const GLYPH_MAC: &[u8] = include_bytes!("../../../packaging/macos/trayTemplate@2x.png");
 // Light glyph for dark panels, dark glyph for light panels.
+#[cfg(not(target_os = "macos"))]
 const GLYPH_LIGHT: &[u8] = include_bytes!("../../../packaging/linux/tray-light@2x.png");
+#[cfg(not(target_os = "macos"))]
 const GLYPH_DARK: &[u8] = include_bytes!("../../../packaging/linux/tray-dark@2x.png");
 
 fn encode(action: TrayAction) -> String {
@@ -261,7 +263,11 @@ mod tests {
 
     #[test]
     fn badge_only_touches_the_lower_right_and_only_when_unread() {
-        let png = image::load_from_memory(GLYPH_DARK).unwrap().to_rgba8();
+        #[cfg(target_os = "macos")]
+        let glyph = GLYPH_MAC;
+        #[cfg(not(target_os = "macos"))]
+        let glyph = GLYPH_DARK;
+        let png = image::load_from_memory(glyph).unwrap().to_rgba8();
         let side = png.width() as usize;
         let base = png.into_raw();
         let mut none = base.clone();
