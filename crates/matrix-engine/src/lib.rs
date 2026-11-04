@@ -51,7 +51,7 @@ pub struct RoomInfo {
     /// Observed public peer markers only; empty means no known marker, not unread.
     pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
     pub topic: Option<String>,
-    /// mxc URI of the room or space avatar as the server gave it; None when it has none. Not downloaded here.
+    /// mxc URI of the avatar to show: the room's own, else the other person's in a 1:1 DM; None means initials. Not downloaded here.
     pub avatar: Option<String>,
     /// Text of the SDK latest event when it is a message; None otherwise.
     pub preview: Option<String>,

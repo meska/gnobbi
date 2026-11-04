@@ -1069,7 +1069,7 @@ impl RoomSync {
                         preview: latest_event_text(&room).await,
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
-                        avatar: room.avatar_url().map(|u| u.to_string()),
+                        avatar: room_avatar(&room).await,
                         marked_unread: room.is_marked_unread(),
                         joined_members: room.joined_members_count(),
                         mentions: if self.sliding_counts {
@@ -1173,6 +1173,30 @@ fn room_label(name: Option<matrix_sdk::RoomDisplayName>, id: &str) -> String {
         Some(N::Named(n) | N::Aliased(n) | N::Calculated(n) | N::EmptyWas(n)) if !n.is_empty() => n,
         _ => id.to_owned(),
     }
+}
+
+/// Avatar to show: the room's own, else for a 1:1 DM the other person's (as Element X does).
+async fn room_avatar(room: &matrix_sdk::Room) -> Option<String> {
+    if let Some(own) = nonempty(room.avatar_url().as_deref()) {
+        return Some(own);
+    }
+    let heroes = room.heroes().await;
+    let [hero] = heroes.as_slice() else {
+        return None;
+    };
+    if !room.is_direct().await.unwrap_or(false) {
+        return None;
+    }
+    if let Some(a) = nonempty(hero.avatar_url.as_deref()) {
+        return Some(a);
+    }
+    let member = room.get_member_no_sync(&hero.user_id).await.ok().flatten()?;
+    nonempty(member.avatar_url())
+}
+
+/// An empty mxc string means "no avatar".
+fn nonempty(uri: Option<&matrix_sdk::ruma::MxcUri>) -> Option<String> {
+    uri.filter(|u| !u.as_str().is_empty()).map(|u| u.to_string())
 }
 
 async fn unstarted_shutdown(
