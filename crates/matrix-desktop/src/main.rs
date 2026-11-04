@@ -38,6 +38,7 @@ mod rail_drag_test;
 mod bar_alignment_test;
 #[cfg(test)]
 mod member_profile_test;
+mod drawer_active_test;
 #[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
@@ -2348,6 +2349,7 @@ fn main() {
         || sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || bar_alignment_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || drawer_active_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
     {
         vec![]
     } else {
@@ -2931,6 +2933,8 @@ fn main() {
                     sidebar_navigation_test::install(window, cx);
                     #[cfg(test)]
                     bar_alignment_test::install(window, cx);
+                    #[cfg(test)]
+                    drawer_active_test::install(window, cx);
                     #[cfg(any(test, feature = "gui-fixture"))]
                     rail_drag_test::install(window, cx);
                     Shell {
