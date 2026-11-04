@@ -311,6 +311,9 @@ pub enum ProfileAct {
     RemoveMessages,
     Kick,
     Ban,
+    /// Account-wide, not a room right: offered for every other user, after the moderation blocks.
+    Ignore,
+    Unignore,
     /// The two answers of the confirmation of a destructive act.
     Confirm,
     Cancel,
@@ -346,6 +349,8 @@ impl ProfileAct {
             Self::RemoveMessages => "Rimuovi i messaggi recenti",
             Self::Kick => "Espelli",
             Self::Ban => "Banna",
+            Self::Ignore => "Ignora",
+            Self::Unignore => "Smetti di ignorare",
             Self::Confirm => "Conferma",
             Self::Cancel => "Annulla",
         }
@@ -357,14 +362,15 @@ impl ProfileAct {
             Self::Power(_) => 1,
             Self::RemoveMessages => 2,
             Self::Kick | Self::Ban => 3,
-            Self::Confirm | Self::Cancel => 4,
+            Self::Ignore | Self::Unignore => 4,
+            Self::Confirm | Self::Cancel => 5,
             _ => 0,
         }
     }
 
     /// Needs a confirmation naming the user, and is drawn in the danger colour.
     pub fn destructive(self) -> bool {
-        matches!(self, Self::RemoveMessages | Self::Kick | Self::Ban | Self::Confirm)
+        matches!(self, Self::RemoveMessages | Self::Kick | Self::Ban | Self::Ignore | Self::Confirm)
     }
 }
 
@@ -384,6 +390,7 @@ pub fn confirm_question(act: ProfileAct, name: &str, messages: usize) -> String 
     match act {
         ProfileAct::Kick => format!("Espellere {name}?"),
         ProfileAct::Ban => format!("Bannare {name}?"),
+        ProfileAct::Ignore => format!("Ignorare {name}?"),
         _ => format!("Rimuovere {messages} messaggi di {name}?"),
     }
 }

@@ -133,6 +133,8 @@ pub enum OperationCommand {
     },
     /// «Verifica utente»: ask `user_id` for an interactive verification.
     VerifyUser { user_id: String },
+    /// Account-wide ignore (`ignore`) or unignore of `user_id`.
+    Ignore { user_id: String, ignore: bool },
     /// What the current user may do to `user_id` in this room (moderation entries of the profile).
     MemberRights { scope: RoomScope, user_id: String },
     /// A moderation action on `user_id` in this room.
@@ -174,6 +176,11 @@ pub enum OperationResult {
     },
     UserVerification {
         user_id: String,
+        result: Result<(), OperationError>,
+    },
+    Ignored {
+        user_id: String,
+        ignore: bool,
         result: Result<(), OperationError>,
     },
     MemberRights {
@@ -265,6 +272,8 @@ pub struct UserProfile {
     pub avatar: Option<String>,
     /// Cross-signing trust of the user; `None` when the SDK has no identity for them.
     pub verified: Option<bool>,
+    /// On the account's ignore list (SDK account data).
+    pub ignored: bool,
 }
 
 /// Moderation of a room member. `RedactMessages` carries the exact events the user confirmed.
@@ -755,7 +764,27 @@ pub async fn user_profile(
             .unwrap_or_else(|| id.to_string()),
         avatar: profile.get_static::<AvatarUrl>().ok().flatten().map(|u| u.to_string()),
         verified: user_identity(client, &id).await.map(|i| i.is_verified()),
+        ignored: is_ignored(client, &id).await,
     })
+}
+
+#[cfg(feature = "sdk")]
+async fn is_ignored(client: &matrix_sdk::Client, id: &matrix_sdk::ruma::UserId) -> bool {
+    use matrix_sdk::ruma::events::ignored_user_list::IgnoredUserListEventContent;
+    let list = client.account().account_data::<IgnoredUserListEventContent>().await;
+    list.ok().flatten().and_then(|raw| raw.deserialize().ok()).is_some_and(|c| c.ignored_users.contains_key(id))
+}
+
+/// Adds `user_id` to the account's ignore list, or removes it (`Account::ignore_user` / `unignore_user`).
+#[cfg(feature = "sdk")]
+pub async fn set_ignored(client: &matrix_sdk::Client, user_id: &str, ignore: bool) -> Result<(), OperationError> {
+    let id = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let account = client.account();
+    tokio::time::timeout(WAIT, async {
+        if ignore { account.ignore_user(&id).await } else { account.unignore_user(&id).await }.map_err(|e| classify(&e))
+    })
+    .await
+    .map_err(|_| OperationError::Transport)?
 }
 
 /// E2EE identity of `id`: the local store first, else one `/keys/query` (same on Synapse and Tuwunel).

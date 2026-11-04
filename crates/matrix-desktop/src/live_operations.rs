@@ -227,6 +227,7 @@ impl LiveOperations {
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
             | OperationResult::UserVerification { .. }
+            | OperationResult::Ignored { .. }
             | OperationResult::MemberRights { .. }
             | OperationResult::Moderated { .. }
             | OperationResult::Thread { .. }

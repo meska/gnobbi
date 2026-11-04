@@ -65,6 +65,9 @@ impl Shell {
         {
             acts.extend(matrix_desktop::moderation_acts(rights));
         }
+        if !me {
+            acts.push(if p.ignored { ProfileAct::Unignore } else { ProfileAct::Ignore });
+        }
         acts
     }
 
@@ -159,11 +162,12 @@ impl Shell {
                 self.composer.update(cx, |editor, cx| editor.insert_mention(user_id, &name, window, cx));
             }
             ProfileAct::Power(level) => self.moderate(user_id, Moderation::SetPower(level)),
-            ProfileAct::RemoveMessages | ProfileAct::Kick | ProfileAct::Ban => {
+            ProfileAct::RemoveMessages | ProfileAct::Kick | ProfileAct::Ban | ProfileAct::Ignore => {
                 // Cancel is the focused answer: Enter on a stray press does not destroy anything.
                 self.profile_confirm = Some(act);
                 self.profile_focus = self.profile_ctls().len() - 1;
             }
+            ProfileAct::Unignore => self.set_ignored(user_id, false),
             ProfileAct::Cancel => self.profile_confirm = None,
             ProfileAct::Confirm => {
                 let confirmed = self.profile_confirm.take();
@@ -171,6 +175,7 @@ impl Shell {
                 match confirmed {
                     Some(ProfileAct::Kick) => self.moderate(user_id, Moderation::Kick),
                     Some(ProfileAct::Ban) => self.moderate(user_id, Moderation::Ban),
+                    Some(ProfileAct::Ignore) => self.set_ignored(user_id, true),
                     // The events counted in the question are the ones deleted.
                     Some(ProfileAct::RemoveMessages) => self.moderate(user_id, Moderation::RedactMessages(events)),
                     _ => {}
@@ -181,6 +186,24 @@ impl Shell {
             self.profile_focus = 0;
         }
         cx.notify();
+    }
+
+    fn set_ignored(&mut self, user_id: String, ignore: bool) {
+        if self.pending_operation_command.is_none() {
+            self.pending_operation_command = Some(OperationCommand::Ignore { user_id, ignore });
+        }
+    }
+
+    /// Outcome of ignore/unignore: on success the profile shows the new state (the SDK has stored it).
+    pub(crate) fn ignored_set(&mut self, user_id: String, ignore: bool, result: Result<(), OperationError>, cx: &mut Context<Self>) {
+        if result.is_ok()
+            && let Some(ProfileState::Loaded(p)) = &mut self.profile
+            && p.user_id == user_id
+        {
+            p.ignored = ignore;
+        }
+        self.profile_focus = 0;
+        self.act_done(if ignore { ProfileAct::Ignore } else { ProfileAct::Unignore }, result.is_ok(), cx);
     }
 
     fn moderate(&mut self, user_id: String, action: Moderation) {
@@ -370,7 +393,7 @@ impl Shell {
                 for group in groups {
                     let mut block = section();
                     if let Some(q) = &question
-                        && group[0].section() == 4
+                        && group[0].section() == 5
                     {
                         block = block.child(div().px_2().pb_1().child(matrix_desktop::row_text::one_line(q)));
                     }

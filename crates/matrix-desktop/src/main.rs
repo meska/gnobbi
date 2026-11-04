@@ -1434,6 +1434,11 @@ impl Shell {
                             user_id,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::Ignore { user_id, ignore } => OperationResult::Ignored {
+                            user_id,
+                            ignore,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::MemberRights { scope, user_id } => OperationResult::MemberRights {
                             scope,
                             user_id,
@@ -2613,6 +2618,10 @@ fn main() {
                                             }
                                             if let matrix_engine::operations::OperationResult::UserVerification { result, .. } = result {
                                                 this.act_done(matrix_desktop::ProfileAct::Verify, result.is_ok(), cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Ignored { user_id, ignore, result } = result {
+                                                this.ignored_set(user_id, ignore, result, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::MemberRights { scope, user_id, result } = result {

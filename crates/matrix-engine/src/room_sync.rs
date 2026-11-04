@@ -475,6 +475,10 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::UserVerification { user_id, result }
                                 }
+                                OperationCommand::Ignore { user_id, ignore } => {
+                                    let result = crate::operations::set_ignored(&operation_client, &user_id, ignore).await;
+                                    OperationResult::Ignored { user_id, ignore, result }
+                                }
                                 OperationCommand::MemberRights { scope, user_id } => {
                                     let result = crate::operations::load_member_rights(
                                         &operation_client,

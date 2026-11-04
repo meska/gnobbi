@@ -24,3 +24,13 @@ fn confirmation_names_the_user_and_counts_messages() {
     assert_eq!(confirm_question(A::Ban, "Ada", 0), "Bannare Ada?");
     assert_eq!(confirm_question(A::RemoveMessages, "Ada", 7), "Rimuovere 7 messaggi di Ada?");
 }
+
+#[test]
+fn ignore_is_destructive_and_confirmed_with_the_name_unignore_is_not_and_both_sit_after_moderation() {
+    assert_eq!(confirm_question(A::Ignore, "Ada", 0), "Ignorare Ada?");
+    assert_eq!((A::Ignore.label(), A::Unignore.label()), ("Ignora", "Smetti di ignorare"));
+    assert!(A::Ignore.destructive() && !A::Unignore.destructive());
+    for a in [A::Ignore, A::Unignore] {
+        assert!(a.section() > A::Ban.section() && a.section() < A::Confirm.section());
+    }
+}
