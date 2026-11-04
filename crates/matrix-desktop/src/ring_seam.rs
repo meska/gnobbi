@@ -37,7 +37,6 @@ impl Shell {
             && self.compact_chat
             && !self.notifications_open
             && !self.verification_open
-            && !self.room_details_open
             && self.timeline.is_some()
             && self
                 .sidebar
@@ -158,7 +157,6 @@ impl Shell {
             || key.modifiers.platform
             || self.notifications_open
             || self.verification_open
-            || self.room_details_open
         {
             return false;
         }

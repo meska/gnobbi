@@ -69,7 +69,6 @@ impl Shell {
         self.refresh_navigation_visibility();
         if self.notifications_open
             || self.verification_open
-            || self.room_details_open
             || (!self.navigation_wide && self.compact_chat)
         {
             if let Some(press) = &mut self.pending_sidebar_key {
@@ -137,7 +136,6 @@ impl Shell {
             && press.revision == self.sidebar.navigation_revision()
             && !self.notifications_open
             && !self.verification_open
-            && !self.room_details_open
             && (self.navigation_wide || !self.compact_chat)
             && match &press.kind {
                 PressKind::Unread => self.connected && self.unread_focus.is_focused(window),
@@ -166,7 +164,7 @@ impl Shell {
         if self.signin.is_some() {
             return;
         }
-        if self.notifications_open || self.verification_open || self.room_details_open {
+        if self.notifications_open || self.verification_open {
             return;
         }
         // Back only exists on the narrow chat page: widening hands its focus to the composer.
@@ -311,7 +309,6 @@ impl Shell {
         (self.connected
             && !self.notifications_open
             && !self.verification_open
-            && !self.room_details_open
             && (window.viewport_size().width >= px(800.) || !self.compact_chat))
             .then_some(matrix_desktop::accessibility::filters::UnreadFilter {
                 account: self.active_scope.account_id,

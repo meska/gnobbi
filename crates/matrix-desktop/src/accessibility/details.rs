@@ -129,7 +129,7 @@ impl DetailsSnapshot {
         }
     }
     pub fn tree(&self) -> TreeUpdate {
-        let mut root = Node::new(Role::Window);
+        let mut root = Node::new(Role::Complementary);
         root.set_label("Informazioni stanza");
         let mut nodes = vec![];
         for (index, label) in [

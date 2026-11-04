@@ -43,7 +43,6 @@ impl Shell {
         if !self.connected
             || self.notifications_open
             || self.verification_open
-            || self.room_details_open
             || (window.viewport_size().width < px(800.) && !self.compact_chat)
             || !self
                 .sidebar

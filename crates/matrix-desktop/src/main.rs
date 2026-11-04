@@ -124,6 +124,8 @@ struct Shell {
     room_details_open: bool,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     details_focus: matrix_desktop::accessibility::details::DetailsControl,
+    /// Focus zone of the non-modal «Informazioni stanza» panel; the composer keeps the keyboard until F6 or a click moves it here.
+    details_zone: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_details_bounds: [Option<accesskit::Rect>; 2],
     spaces_ui: spaces_view::SpacesUi,
@@ -253,7 +255,7 @@ impl Shell {
                 this.apply_semantic_settings(action, window, cx);
                 continue;
             }
-            if this.notifications_open || this.verification_open || this.room_details_open {
+            if this.notifications_open || this.verification_open {
                 continue;
             }
             if let matrix_desktop::accessibility::NavigationAction::LoadServerHistory(tag) = &action
@@ -811,7 +813,18 @@ impl Shell {
             cx.stop_propagation();
             return;
         }
-        if self.room_details_open {
+        if self.room_details_open && key.key == "f6" && !key.modifiers.modified() {
+            if self.details_zone.contains_focused(window, cx) {
+                self.composer.update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
+            } else {
+                self.details_zone.focus(window);
+            }
+            cx.notify();
+            cx.stop_propagation();
+            return;
+        }
+        // Non-modal: the panel only sees keys while it holds the focus; elsewhere they pass through.
+        if self.room_details_open && self.details_zone.contains_focused(window, cx) {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             if matches!(key.key.as_str(), "tab" | "space" | "enter") {
                 use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
@@ -839,10 +852,11 @@ impl Shell {
             }
             if key.key == "escape" {
                 self.set_room_details_open(false);
+                self.list_focus.focus(window);
+                cx.notify();
+                cx.stop_propagation();
+                return;
             }
-            cx.notify();
-            cx.stop_propagation();
-            return;
         }
         if self.connected && key.modifiers.control && key.modifiers.shift && key.key == "n" {
             self.set_room_details_open(false);
@@ -2916,6 +2930,7 @@ fn main() {
                         profile: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
+                        details_zone: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_details_bounds: [None; 2],
                         spaces_ui,

@@ -254,7 +254,6 @@ impl Shell {
     pub(crate) fn semantic_spaces(&self, window: &Window) -> Option<SpacesSnapshot> {
         if self.notifications_open
             || self.verification_open
-            || self.room_details_open
             || (window.viewport_size().width < px(800.) && self.compact_chat)
         {
             return None;
