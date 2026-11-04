@@ -42,6 +42,7 @@ mod signin_view;
 mod spaces_view;
 mod thread_view;
 mod timeline_view;
+mod tray_view;
 mod verification_view;
 mod video_player;
 mod voice_recorder;
@@ -132,6 +133,9 @@ struct Shell {
     spaces_open: bool,
     navigation_wide: bool,
     notifications: matrix_domain::notifications::NotificationPolicy,
+    tray: Option<matrix_desktop::tray::Tray>,
+    /// Not minimized to the tray; the menu entry reads «Riduci» or «Mostra».
+    window_visible: bool,
     notification_handle: Option<matrix_desktop::notifications::NotificationHandle>,
     notifications_open: bool,
     notification_failed: bool,
@@ -2470,7 +2474,7 @@ fn main() {
             },
             |window, cx| {
                 matrix_desktop::window::refresh_drawable(window);
-                cx.new(|cx| {
+                let shell = cx.new(|cx| {
                     let search_focus = cx.focus_handle();
                     let unread_focus = cx.focus_handle();
                     let mut rail_ui = rail_view::RailUi::new(cx);
@@ -2845,6 +2849,19 @@ fn main() {
                     cx.spawn_in(window, async move |this, cx| {
                         loop {
                             cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
+                            if this.update_in(cx, |this, window, cx| this.sync_tray(window, cx)).is_err() {
+                                break;
+                            }
+                        }
+                    }).detach();
+                    cx.observe_window_activation(window, |this: &mut Shell, window, _| {
+                        if window.is_window_active() {
+                            this.window_visible = true;
+                        }
+                    }).detach();
+                    cx.spawn_in(window, async move |this, cx| {
+                        loop {
+                            cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
                             if this.update_in(cx, |this, window, cx| this.open_clicked_alert(window, cx)).is_err() {
                                 break;
                             }
@@ -2968,6 +2985,13 @@ fn main() {
                         notifications: matrix_domain::notifications::NotificationPolicy::new(
                             account_id,
                         ),
+                        // Fixture and test windows must not register a tray on the desktop.
+                        tray: if cfg!(any(test, feature = "gui-fixture", feature = "perf-probe")) {
+                            None
+                        } else {
+                            matrix_desktop::tray::Tray::start()
+                        },
+                        window_visible: true,
                         notification_handle: notification_handle.take(),
                         notifications_open: false,
                         room_details_open: false,
@@ -3042,7 +3066,19 @@ fn main() {
                         info_scroll: UniformListScrollHandle::new(),
                         info_scrollbar: Default::default(),
                     }
-                })
+                });
+                let weak = shell.downgrade();
+                window.on_window_should_close(cx, move |window, cx| {
+                    let hide = weak
+                        .update(cx, |this, _| this.close_hides_to_tray())
+                        .unwrap_or(false);
+                    if hide {
+                        window.minimize_window();
+                        let _ = weak.update(cx, |this, _| this.window_visible = false);
+                    }
+                    !hide
+                });
+                shell
             },
         )
         .expect("could not open desktop window");

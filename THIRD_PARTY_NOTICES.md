@@ -23,6 +23,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - anymap2 0.13.0 — MIT/Apache-2.0 — https://github.com/azriel91/anymap2
 - ar_archive_writer 0.5.3 — Apache-2.0 WITH LLVM-exception — https://github.com/rust-lang/ar_archive_writer
 - arbitrary 1.5.0 — MIT OR Apache-2.0 — https://github.com/rust-fuzz/arbitrary/
+- arc-swap 1.9.3 — MIT OR Apache-2.0 — https://github.com/vorner/arc-swap
 - archery 1.2.3 — MIT — https://github.com/orium/archery
 - arg_enum_proc_macro 0.3.4 — MIT — https://github.com/lu-zero/arg_enum_proc_macro
 - arrayref 0.3.9 — BSD-2-Clause — https://github.com/droundy/arrayref
@@ -168,6 +169,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - cpufeatures 0.2.17 — MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - cpufeatures 0.3.1 — MIT OR Apache-2.0 — https://github.com/RustCrypto/utils
 - crc32fast 1.5.2 — MIT OR Apache-2.0 — https://github.com/srijs/rust-crc32fast
+- crossbeam-channel 0.5.17 — MIT OR Apache-2.0 — https://github.com/crossbeam-rs/crossbeam
 - crossbeam-deque 0.8.8 — MIT OR Apache-2.0 — https://github.com/crossbeam-rs/crossbeam
 - crossbeam-epoch 0.9.21 — MIT OR Apache-2.0 — https://github.com/crossbeam-rs/crossbeam
 - crossbeam-queue 0.3.14 — MIT OR Apache-2.0 — https://github.com/crossbeam-rs/crossbeam
@@ -208,6 +210,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - displaydoc 0.2.7 — MIT OR Apache-2.0 — https://github.com/yaahc/displaydoc
 - dlib 0.5.3 — MIT — https://github.com/elinorbgr/dlib
 - downcast-rs 1.2.1 — MIT/Apache-2.0 — https://github.com/marcianx/downcast-rs
+- dpi 0.1.2 — Apache-2.0 AND MIT — https://github.com/rust-windowing/winit
 - dtor 0.0.6 — Apache-2.0 OR MIT — https://github.com/mmastrac/rust-ctor
 - dtor-proc-macro 0.0.5 — Apache-2.0 OR MIT — https://github.com/mmastrac/rust-ctor
 - dunce 1.0.5 — CC0-1.0 OR MIT-0 OR Apache-2.0 — https://gitlab.com/kornelski/dunce
@@ -379,8 +382,10 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - js-sys 0.3.106 — MIT OR Apache-2.0 — https://github.com/wasm-bindgen/wasm-bindgen/tree/master/crates/js-sys
 - js_int 0.2.2 — MIT — https://github.com/ruma/js_int
 - js_option 0.2.0 — MIT — https://github.com/ruma/js_option
+- keyboard-types 0.8.3 — MIT OR Apache-2.0 — https://github.com/rust-windowing/keyboard-types
 - khronos-egl 6.0.0 — MIT/Apache-2.0 — https://github.com/timothee-haudebourg/khronos-egl
 - konst 0.4.3 — Zlib — https://github.com/rodrimati1992/konst/
+- ksni 0.3.7 — Unlicense — https://github.com/iovxw/ksni
 - kurbo 0.11.3 — Apache-2.0 OR MIT — https://github.com/linebender/kurbo
 - kv-log-macro 1.0.7 — MIT OR Apache-2.0 — https://github.com/yoshuawuyts/kv-log-macro
 - language-tags 0.3.2 — MIT/Apache-2.0 — https://github.com/pyfisch/rust-language-tags
@@ -448,6 +453,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - mint 0.5.9 — MIT — https://github.com/kvark/mint
 - mio 1.2.4 — MIT — https://github.com/tokio-rs/mio
 - moxcms 0.8.1 — BSD-3-Clause OR Apache-2.0 — https://github.com/awxkee/moxcms.git
+- muda 0.21.2 — Apache-2.0 OR MIT — https://github.com/tauri-apps/muda
 - multiversion_no_op 1.0.0 — Apache-2.0 OR MIT — https://github.com/hsivonen/multiversion_no_op
 - naga 25.0.1 — MIT OR Apache-2.0 — https://github.com/gfx-rs/wgpu/tree/trunk/naga
 - nanorand 0.7.0 — Zlib — https://github.com/Absolucy/nanorand-rs
@@ -487,6 +493,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - objc2-core-audio 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
 - objc2-core-audio-types 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
 - objc2-core-foundation 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
+- objc2-core-graphics 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
 - objc2-encode 4.1.0 — MIT — https://github.com/madsmtm/objc2
 - objc2-foundation 0.3.2 — MIT — https://github.com/madsmtm/objc2
 - objc2-metal 0.3.2 — Zlib OR Apache-2.0 OR MIT — https://github.com/madsmtm/objc2
@@ -506,6 +513,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - parking_lot_core 0.9.12 — MIT OR Apache-2.0 — https://github.com/Amanieu/parking_lot
 - paste 1.0.15 — MIT OR Apache-2.0 — https://github.com/dtolnay/paste
 - pastey 0.1.1 — MIT OR Apache-2.0 — https://github.com/as1100k/pastey
+- pastey 0.2.3 — MIT OR Apache-2.0 — https://github.com/as1100k/pastey
 - pathfinder_geometry 0.5.1 — MIT/Apache-2.0 — https://github.com/servo/pathfinder
 - pathfinder_simd 0.5.6 — MIT OR Apache-2.0 — https://github.com/servo/pathfinder
 - pbkdf2 0.12.2 — MIT OR Apache-2.0 — https://github.com/RustCrypto/password-hashes/tree/master/pbkdf2
@@ -718,6 +726,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - taffy 0.9.0 — MIT — https://github.com/DioxusLabs/taffy
 - take-until 0.2.0 — MIT — https://github.com/hdevalke/take-until.git
 - tao-core-video-sys 0.2.0 — MIT
+- task-local 0.1.1 — MIT OR Apache-2.0 — https://github.com/BugenZhao/task-local
 - tempfile 3.27.0 — MIT OR Apache-2.0 — https://github.com/Stebalien/tempfile
 - tendril 0.4.3 — MIT/Apache-2.0 — https://github.com/servo/tendril
 - tendril 0.5.1 — MIT OR Apache-2.0 — https://github.com/servo/html5ever
@@ -761,6 +770,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - tracing-core 0.1.36 — MIT — https://github.com/tokio-rs/tracing
 - tracing-log 0.2.0 — MIT — https://github.com/tokio-rs/tracing
 - tracing-subscriber 0.3.23 — MIT — https://github.com/tokio-rs/tracing
+- tray-icon 0.26.1 — MIT OR Apache-2.0 — https://github.com/tauri-apps/tray-icon
 - try-lock 0.2.5 — MIT — https://github.com/seanmonstar/try-lock
 - ttf-parser 0.20.0 — MIT OR Apache-2.0 — https://github.com/RazrFalcon/ttf-parser
 - ttf-parser 0.21.1 — MIT OR Apache-2.0 — https://github.com/RazrFalcon/ttf-parser
@@ -960,6 +970,10 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - zvariant 5.15.0 — MIT — https://github.com/z-galaxy/zbus/
 - zvariant_derive 5.15.0 — MIT — https://github.com/z-galaxy/zbus/
 - zvariant_utils 4.2.0 — MIT — https://github.com/z-galaxy/zbus/
+
+## Status icon (menu bar / tray)
+
+- The status icon and its menu use tray-icon 0.26.1 with muda 0.21.2 (both MIT OR Apache-2.0, Tauri). On Linux the StatusNotifierItem backend is ksni 0.3.7 (Unlicense, public domain) over D-Bus; no GTK or libappindicator. On macOS they use the system AppKit through objc2. The tray glyph is own artwork derived from the app icon.
 
 ## Bundled font: Noto Color Emoji
 

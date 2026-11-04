@@ -107,6 +107,8 @@ pub mod row_text;
 pub mod time_fmt;
 mod sidebar;
 pub mod tray_menu;
+#[cfg(feature = "desktop")]
+pub mod tray;
 pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]

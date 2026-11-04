@@ -27,6 +27,7 @@ image = { version = "=0.25.10", default-features = false, optional = true }
 gpui = { version = "=0.2.2", default-features = false, features = ["wayland", "x11"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+tray-icon = { version = "=0.26.1", default-features = false, optional = true }
 gpui = { version = "=0.2.2", default-features = false, features = ["runtime_shaders", "font-kit"], optional = true }
 # Runtime app icon (both already in the tree through gpui).
 cocoa = "=0.26.0"
@@ -34,11 +35,14 @@ objc = "=0.2.7"
 
 # Windows: the comctl32 v6 manifest gpui ships; without it the exe dies at load (TaskDialogIndirect not found).
 [target.'cfg(target_os = "windows")'.dependencies]
+tray-icon = { version = "=0.26.1", default-features = false, optional = true }
 gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"], optional = true }
 raw-window-handle = "=0.6.2"
 windows = { version = "=0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# StatusNotifierItem over D-Bus (ksni); the libappindicator default would need GTK.
+tray-icon = { version = "=0.26.1", default-features = false, features = ["ksni"], optional = true }
 accesskit = { version = "=0.24.1", optional = true }
 accesskit_unix = { version = "=0.22.1", optional = true }
 
@@ -46,7 +50,7 @@ accesskit_unix = { version = "=0.22.1", optional = true }
 # Experimental, incomplete Linux semantic adapter; not a release accessibility claim.
 linux-a11y = ["dep:accesskit", "dep:accesskit_unix"]
 default = ["desktop"]
-desktop = ["dep:gpui", "dep:image"]
+desktop = ["dep:gpui", "dep:image", "dep:tray-icon"]
 live = ["desktop", "matrix-engine/sdk", "dep:tracing-subscriber"]
 # Test-only fixture driver, absent from ordinary/default/live desktop builds.
 perf-probe = ["desktop"]
