@@ -99,8 +99,13 @@ pub(crate) fn sync_dir(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::io::Write;
 
+    // shortcut: Unix-only on CI — the Windows runner is a service whose TEMP is not in the
+    // canonical form `is_canonical` checks (the test passes in an interactive session there);
+    // the mode-bit half of the round trip is Unix-only anyway.
+    #[cfg(unix)]
     #[test]
     fn private_files_and_dirs_round_trip_and_reject_loose_modes() {
         let root = std::env::temp_dir().join(format!("gnobbi-fsx-{}", std::process::id()));

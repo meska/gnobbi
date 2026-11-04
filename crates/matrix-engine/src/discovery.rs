@@ -1,6 +1,7 @@
 //! Unauthenticated homeserver preflight. All inputs and remote data are untrusted.
 use url::Url;
-#[cfg(test)]
+// The fixture script needs python3, which the Windows runner does not have (and will not get).
+#[cfg(all(test, unix))]
 #[path = "discovery_tests.rs"]
 mod tests;
 

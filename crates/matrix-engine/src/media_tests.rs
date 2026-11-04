@@ -41,6 +41,20 @@ fn video_thumbnail_receive_cap_precedes_mime_and_decode() {
                     let mut headers = Vec::new();
                     while !headers.ends_with(b"\r\n\r\n") { headers.push(stream.read_u8().await.unwrap()); }
                     let headers = String::from_utf8(headers).unwrap();
+                    // Windows resets the connection (RST) when we close with an unread request
+                    // body, which the SDK reports as a transport failure; drain the body first.
+                    if let Some(len) = headers
+                        .split("\r\n")
+                        .find_map(|l| {
+                            l.split_once(':').and_then(|(k, v)| {
+                                k.eq_ignore_ascii_case("content-length").then(|| v.trim().to_owned())
+                            })
+                        })
+                        .and_then(|v| v.parse::<u64>().ok())
+                    {
+                        let mut request_body = vec![0u8; len as usize];
+                        let _ = stream.read_exact(&mut request_body).await;
+                    }
                     let path = headers.split_whitespace().nth(1).unwrap().to_owned();
                     recorded.lock().unwrap().push(path.clone());
                     let response = if path.contains("/sync?") { serde_json::to_vec(&sync).unwrap() }
@@ -844,7 +858,22 @@ fn image_bubble_uses_thumbnail_and_keeps_original_a_separate_resource() {
                     let (mut stream, _) = listener.accept().await.unwrap();
                     let mut headers = Vec::new();
                     while !headers.ends_with(b"\r\n\r\n") { headers.push(stream.read_u8().await.unwrap()); }
-                    let path = String::from_utf8(headers).unwrap().split_whitespace().nth(1).unwrap().to_owned();
+                    let headers = String::from_utf8(headers).unwrap();
+                    // Windows resets the connection (RST) when we close with an unread request
+                    // body, which the SDK reports as a transport failure; drain the body first.
+                    if let Some(len) = headers
+                        .split("\r\n")
+                        .find_map(|l| {
+                            l.split_once(':').and_then(|(k, v)| {
+                                k.eq_ignore_ascii_case("content-length").then(|| v.trim().to_owned())
+                            })
+                        })
+                        .and_then(|v| v.parse::<u64>().ok())
+                    {
+                        let mut request_body = vec![0u8; len as usize];
+                        let _ = stream.read_exact(&mut request_body).await;
+                    }
+                    let path = headers.split_whitespace().nth(1).unwrap().to_owned();
                     recorded.lock().unwrap().push(path.clone());
                     let (status, response) = if path.contains("/sync?") { ("200 OK", serde_json::to_vec(&sync).unwrap()) }
                         else if path.contains("/event/") { ("200 OK", serde_json::to_vec(&event).unwrap()) }
