@@ -109,7 +109,7 @@ impl Shell {
     pub(crate) fn profile_key(&mut self, key: &str, shift: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let ctls = self.profile_ctls();
         match key {
-            "escape" if self.profile_confirm.is_some() => self.profile_confirm = None,
+            "escape" if self.profile_confirm.take().is_some() => self.profile_focus = 0,
             "escape" => self.profile = None,
             "tab" => {
                 let n = ctls.len();
