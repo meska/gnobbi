@@ -299,6 +299,9 @@ impl ProtectionSource for IosKeychain {
 #[cfg(target_os = "ios")]
 impl AccountProtectionSource for IosKeychain {
     fn create_account(&self, id: AccountId) -> Result<Secret, VaultError> {
+        // iOS keeps Keychain items after uninstall while the data dir is gone: an item for a
+        // free ID is an orphan, so replace it instead of failing every future sign-in.
+        AccountKeychain::new().delete(id)?;
         AccountKeychain::new().create(id)
     }
     fn read_account(&self, id: AccountId) -> Result<Secret, VaultError> {

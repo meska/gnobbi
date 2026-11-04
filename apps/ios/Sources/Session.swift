@@ -24,11 +24,20 @@ final class Session: ObservableObject {
     }
 
     func restore(trustedRootPem: String?) async {
-        await open { listener in
-            // Native Keychain vault (secrets: nil). First saved account only: no account picker yet.
-            guard let account = try listSavedAccounts(dataDir: self.dir).first else { throw MobileError.NoSession }
-            return try await restoreSession(dataDir: self.dir, account: account, secrets: nil, listener: listener, trustedRootPem: trustedRootPem)
+        await open { listener in try await Self.restoreFirstValid(dir: self.dir, listener: listener, trustedRootPem: trustedRootPem) }
+    }
+
+    /// Native Keychain vault (secrets: nil). Tries each saved account; one the server rejects is stale
+    /// (revoked token): forget it locally and move on. `NoSession` when none is left.
+    nonisolated static func restoreFirstValid(dir: String, listener: SyncListener, trustedRootPem: String?) async throws -> MobileSession {
+        for account in try listSavedAccounts(dataDir: dir) {
+            do {
+                return try await restoreSession(dataDir: dir, account: account, secrets: nil, listener: listener, trustedRootPem: trustedRootPem)
+            } catch MobileError.Rejected {
+                try removeLocalAccount(dataDir: dir, account: account, secrets: nil)
+            }
         }
+        throw MobileError.NoSession
     }
 
     private func open(_ make: (Listener) async throws -> MobileSession) async {

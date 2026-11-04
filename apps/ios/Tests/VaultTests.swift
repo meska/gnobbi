@@ -203,17 +203,22 @@ final class VaultTests: XCTestCase {
         let (s2, r2) = try await signInUser(1) // user signs in again from the form
         try await waitRooms(r2, 1)
         close(s2)
-        let first = try XCTUnwrap(listSavedAccounts(dataDir: dir).first)
-        do { let (s3, _) = try await restore(first); close(s3) }
-        catch { XCTFail("next launch restores account \(first) (saved: \(try listSavedAccounts(dataDir: dir))) and fails with \(error), although account \(s2.accountId()) is valid") }
+        do {
+            let s3 = try await Session.restoreFirstValid(dir: dir, listener: Rec(), trustedRootPem: ca)
+            open.append(s3)
+            XCTAssertEqual(s3.accountId(), s2.accountId())
+            close(s3)
+        } catch { XCTFail("next launch fails with \(error), although account \(s2.accountId()) is valid") }
+        XCTAssertEqual(try listSavedAccounts(dataDir: dir), [s2.accountId()], "stale account forgotten")
     }
 
     /// iOS keeps Keychain items when the app is deleted, but the data dir goes away: the next install finds an
     /// orphan item for the account ID it is about to reuse (smallest free ID).
     func testReinstallLeavesOrphanKeychainItem() async throws {
-        let (s, _) = try await signInUser(1)
-        close(s)
-        try FileManager.default.removeItem(atPath: dir); try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        // The leftover of the previous install, planted directly (saves a login: Tuwunel rate-limits per account).
+        var add = match("account-id:1"); add.removeValue(forKey: kSecAttrSynchronizable as String)
+        add[kSecValueData as String] = Data("orphan-secret-from-previous-install".utf8)
+        XCTAssertEqual(SecItemAdd(add as CFDictionary, nil), errSecSuccess)
         XCTAssertEqual(try listSavedAccounts(dataDir: dir), [])
         XCTAssertEqual(try kcItems().count, 1, "orphan item survives")
         let (s2, r2) = try await signInUser(1) // must succeed: the user just reinstalled the app
