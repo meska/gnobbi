@@ -210,6 +210,19 @@ final class VaultTests: XCTestCase {
             close(s3)
         } catch { XCTFail("next launch fails with \(error), although account \(s2.accountId()) is valid") }
         XCTAssertEqual(try listSavedAccounts(dataDir: dir), [s2.accountId()], "stale account forgotten")
+
+        // Restore from backup / new device: the data dir returns, the ThisDeviceOnly Keychain item does not. That
+        // account fails with SecretStore on every launch; it must be skipped (and kept: the Keychain may be only
+        // temporarily unavailable) so that a valid account after it still opens. (Same test: Tuwunel rate-limits logins.)
+        for a in try kcItems() { XCTAssertEqual(SecItemDelete(match(a) as CFDictionary), errSecSuccess) }
+        let (s4, r4) = try await signInUser(1)
+        try await waitRooms(r4, 1)
+        close(s4)
+        let s5 = try await Session.restoreFirstValid(dir: dir, listener: Rec(), trustedRootPem: ca)
+        open.append(s5)
+        XCTAssertEqual(s5.accountId(), s4.accountId())
+        close(s5)
+        XCTAssertEqual(try listSavedAccounts(dataDir: dir), [s2.accountId(), s4.accountId()], "dir without Keychain item kept")
     }
 
     /// iOS keeps Keychain items when the app is deleted, but the data dir goes away: the next install finds an
@@ -226,20 +239,4 @@ final class VaultTests: XCTestCase {
         try await logout(s2)
     }
 
-    /// Restore from backup / new device: the data dir returns, the ThisDeviceOnly Keychain item does not. Account 1
-    /// fails with SecretStore on every launch; it must be skipped (and kept: the Keychain may be only temporarily
-    /// unavailable) so that the valid account 2 still opens.
-    func testRestoreSkipsAccountWithoutKeychainItem() async throws {
-        let (s, _) = try await signInUser(1)
-        let stale = s.accountId(); close(s)
-        for a in try kcItems() { XCTAssertEqual(SecItemDelete(match(a) as CFDictionary), errSecSuccess) }
-        let (s2, r2) = try await signInUser(1)
-        try await waitRooms(r2, 1)
-        close(s2)
-        let s3 = try await Session.restoreFirstValid(dir: dir, listener: Rec(), trustedRootPem: ca)
-        open.append(s3)
-        XCTAssertEqual(s3.accountId(), s2.accountId())
-        close(s3)
-        XCTAssertEqual(try listSavedAccounts(dataDir: dir), [stale, s2.accountId()], "stale dir kept")
-    }
 }
