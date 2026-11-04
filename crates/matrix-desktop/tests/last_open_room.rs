@@ -79,3 +79,15 @@ fn clear_removes_only_that_account() {
     assert_eq!(l.last_open_room(AccountId::new(1)), None);
     assert_eq!(l.last_open_room(AccountId::new(2)), Some(RoomId::new("!b:srv")));
 }
+
+/// Regression: room version 12 (default on Synapse 1.163 / Tuwunel 1.9.4) has ids `!<hash>` with no
+/// `:server` part. The store must keep them, or the last room is never saved on a current server.
+#[test]
+fn room_version_12_id_without_server_part_is_stored() {
+    let d = dirs("v12");
+    let id = "!Jo8cLkzGGIQVpwoiVhAbCdEfGhIjKlMnOpQrStUvWxY";
+    let mut p = RoomPrefs::default();
+    assert!(p.set_last_open_room(&scope(1, id)), "v12 id must be accepted");
+    p.save(&d).unwrap();
+    assert_eq!(RoomPrefs::load(&d).last_open_room(AccountId::new(1)), Some(RoomId::new(id)), "and survive a reload");
+}
