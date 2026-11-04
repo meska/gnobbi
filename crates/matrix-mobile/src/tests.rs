@@ -287,6 +287,33 @@ fn an_open_account_cannot_be_removed_locally() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn busy_sign_in_leaves_the_concurrent_login_directory_alone() {
+    let dir = unique_dir();
+    ensure_dirs(Path::new(&dir)).unwrap();
+    let root = profile_root(Path::new(&dir), 1);
+    let first = SignInProfile::open_as(root.clone(), AccountId::new(1)).unwrap();
+    // The race: both sign_ins got id 1 from free_id before either created the directory.
+    let job = Job::SignIn {
+        homeserver: "https://x.invalid".into(),
+        user: "@a:x.invalid".into(),
+        password: Secret::new("pw".into()).unwrap(),
+    };
+    let outcome = start(
+        root.clone(),
+        AccountId::new(1),
+        vault(Some(Arc::new(NoSecrets))).unwrap(),
+        Arc::new(Recorder::default()),
+        job,
+        None,
+    )
+    .await;
+    assert_eq!(outcome.err(), Some(MobileError::Busy));
+    assert!(root.join(".profile-lock").exists());
+    drop(first);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[cfg(not(target_os = "ios"))]
 #[test]
 fn without_a_callback_only_ios_has_a_vault() {

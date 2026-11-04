@@ -511,7 +511,8 @@ async fn start(
     if let Err(error) = signed_in {
         drop(worker);
         // A refused first sign-in leaves an empty profile directory behind: no selector, no store.
-        if !root.join("active-account").exists() {
+        // Busy: another sign-in owns this directory right now, so it is not ours to delete.
+        if error != MobileError::Busy && !root.join("active-account").exists() {
             let _ = std::fs::remove_dir_all(&root);
         }
         return Err(error);
