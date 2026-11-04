@@ -172,6 +172,8 @@ struct Shell {
     profile: Option<members_view::ProfileState>,
     /// Focused control of the opened profile (index in Tab order) and the action whose copy just happened.
     profile_focus: usize,
+    /// Scroll of the opened profile (short windows); follows the keyboard focus.
+    profile_scroll: gpui::ScrollHandle,
     profile_copied: Option<matrix_desktop::ProfileAct>,
     /// «Invia messaggio» of a profile is waiting for the engine.
     profile_dm: bool,
@@ -2972,6 +2974,7 @@ fn main() {
                         room_members: Vec::new(),
                         profile: None,
                         profile_focus: 0,
+                        profile_scroll: gpui::ScrollHandle::new(),
                         profile_copied: None,
                         profile_dm: false,
                         profile_failed: None,

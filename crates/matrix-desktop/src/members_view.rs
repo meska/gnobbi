@@ -122,8 +122,30 @@ impl Shell {
             }
             _ => return false,
         }
+        self.scroll_profile_to_focus();
         cx.notify();
         true
+    }
+
+    /// Bring the focused control into view. Children of the panel: header, picture, name, id, [check], then one block per group.
+    fn scroll_profile_to_focus(&self) {
+        let ix = match self.profile_ctls().get(self.profile_focus) {
+            Some(ProfileCtl::Act(a)) if *a != ProfileAct::CopyId => {
+                let mut sections = Vec::new();
+                for x in self.profile_acts().into_iter().filter(|x| *x != ProfileAct::CopyId) {
+                    if sections.last() != Some(&x.section()) {
+                        sections.push(x.section());
+                    }
+                    if x == *a {
+                        break;
+                    }
+                }
+                3 + usize::from(self.verify_mark() == matrix_desktop::VerifyMark::Verified) + sections.len()
+            }
+            Some(ProfileCtl::Act(_)) => 3,
+            _ => 0,
+        };
+        self.profile_scroll.scroll_to_item(ix);
     }
 
     pub(crate) fn profile_act(&mut self, act: ProfileAct, window: &mut Window, cx: &mut Context<Self>) {
@@ -267,6 +289,7 @@ impl Shell {
             });
             self.profile = Some(ProfileState::Loading(user_id));
             self.profile_focus = 0;
+            self.profile_scroll.set_offset(Default::default());
             self.profile_copied = None;
             self.profile_rights = None;
             self.profile_confirm = None;
@@ -423,6 +446,10 @@ impl Shell {
                 }
                 div()
                     .id("profile-panel")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.profile_scroll)
                     .flex()
                     .flex_col()
                     .items_center()

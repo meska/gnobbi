@@ -352,6 +352,7 @@ impl Shell {
                         div()
                             .text_size(px(20.))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .flex_shrink_0() // truncate clips, so in a short sheet flex would squash the title to half a line
                             .truncate()
                             .child(matrix_desktop::row_text::one_line(&room.name)),
                     )

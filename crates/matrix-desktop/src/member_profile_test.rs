@@ -273,6 +273,18 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         let _ = window;
     });
 
+    // 7b. A panel taller than the window scrolls, and Shift+Tab to the last act brings its block into view.
+    shell!(|this, _, _| load(this, profile(ADA, "Ada", Some(false), false), Some(mod_rights())));
+    wait(200).await;
+    key!("shift-tab");
+    wait(300).await;
+    shell!(|this, _, _| {
+        let h = &this.profile_scroll;
+        let (view, last) = (h.bounds(), h.bounds_for_item(h.children_count() - 1).expect("last block painted"));
+        let bottom = last.bottom() + h.offset().y; // block bounds are laid out, not scrolled
+        assert!(bottom <= view.bottom() + px(1.), "last act in view (block bottom {bottom:?} > panel bottom {:?}, offset {:?}, max {:?})", view.bottom(), h.offset(), h.max_offset());
+    });
+
     // 8. A profile that cannot be read: a failed state with ‹ and ✕ only; Esc leaves it.
     shell!(|this, _, cx| {
         this.open_profile("@zz:fixture.test".into(), cx);
