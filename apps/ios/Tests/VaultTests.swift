@@ -203,19 +203,21 @@ final class VaultTests: XCTestCase {
         // Restore from backup / new device: the data dir returns, the ThisDeviceOnly Keychain item does not. That
         // account fails with SecretStore on every launch; it must be skipped (and kept: the Keychain may be only
         // temporarily unavailable) so that a valid account after it still opens. (Same test: Tuwunel rate-limits logins.)
-        for a in try kcItems() { XCTAssertEqual(SecItemDelete(match(a) as CFDictionary), errSecSuccess) }
-        do { let (s3, _) = try await restore(s2.accountId()); close(s3); XCTFail("restore succeeded without the Keychain item") }
-        catch { XCTAssertEqual(error as? MobileError, .SecretStore, "got \(error)") }
+        // The new login takes the smallest free ID (1), so it is tried BEFORE s2 (2): losing its item makes s2 the only valid one.
         let (s4, r4) = try await signInUser(1)
         try await waitRooms(r4, 1)
         close(s4)
+        XCTAssertLessThan(s4.accountId(), s2.accountId())
+        XCTAssertEqual(SecItemDelete(match("account-id:\(s4.accountId())") as CFDictionary), errSecSuccess)
+        do { let (s6, _) = try await restore(s4.accountId()); close(s6); XCTFail("restore succeeded without the Keychain item") }
+        catch { XCTAssertEqual(error as? MobileError, .SecretStore, "got \(error)") }
         let s5 = try await Session.restoreFirstValid(dir: dir, listener: Rec(), trustedRootPem: ca)
         open.append(s5)
-        XCTAssertEqual(s5.accountId(), s4.accountId())
+        XCTAssertEqual(s5.accountId(), s2.accountId())
         close(s5)
-        XCTAssertEqual(try listSavedAccounts(dataDir: dir).sorted(), [s2.accountId(), s4.accountId()].sorted(), "dir without Keychain item kept")
-        try removeLocalAccount(dataDir: dir, account: s2.accountId(), secrets: nil) // works without the item
-        XCTAssertEqual(try listSavedAccounts(dataDir: dir), [s4.accountId()])
+        XCTAssertEqual(try listSavedAccounts(dataDir: dir), [s4.accountId(), s2.accountId()], "dir without Keychain item kept")
+        try removeLocalAccount(dataDir: dir, account: s4.accountId(), secrets: nil) // works without the item
+        XCTAssertEqual(try listSavedAccounts(dataDir: dir), [s2.accountId()])
     }
 
     /// iOS keeps Keychain items when the app is deleted, but the data dir goes away: the next install finds an
