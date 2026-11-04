@@ -1547,6 +1547,56 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 31 {
+            // «Informazioni su Gnobbi»: version row opens it, Tab ring, Copy, Back/Close/Esc, reopening starts at Back.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
+            wait(400).await;
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+            key!("enter");
+            wait(300).await;
+            key!("up"); // wraps from the first row to the version line
+            key!("enter");
+            wait(300).await;
+            this.update_in(cx, |this, window, _| {
+                assert!(this.about_open && this.menu_open && this.about_focus.is_focused(window), "version row opens About and takes focus");
+                assert_eq!(this.about_row, 0, "initial focus is ‹ Indietro");
+                assert!(!this.about_system.is_empty() && !this.about_system.contains('\n'));
+            }).unwrap();
+            for want in [1, 2, 3, 4, 0] {
+                key!("tab");
+                this.update_in(cx, |this, _, _| assert_eq!(this.about_row, want, "Tab walks the five actions and wraps")).unwrap();
+            }
+            key!("shift-tab");
+            this.update_in(cx, |this, _, _| assert_eq!(this.about_row, 4, "Shift+Tab wraps backwards to Chiudi")).unwrap();
+            for _ in 0..2 { key!("up"); }
+            this.update_in(cx, |this, _, _| assert_eq!(this.about_row, 2)).unwrap();
+            key!("down");
+            key!("space"); // Copia informazioni
+            let (want, got) = this.update_in(cx, |this, _, cx| {
+                assert_eq!(this.about_row, 3);
+                (matrix_desktop::build_info::BUILD_INFO.copy_text(&this.about_system), cx.read_from_clipboard().and_then(|c| c.text()))
+            }).unwrap();
+            assert_eq!(got.as_deref(), Some(want.as_str()), "Copia informazioni puts the shown build info on the clipboard");
+            // Esc steps back to the drawer, one more closes it.
+            key!("escape");
+            this.update_in(cx, |this, window, _| assert!(!this.about_open && this.menu_open && this.drawer_focus.is_focused(window), "Esc returns to the drawer")).unwrap();
+            // Reopen: selection restarts at Back; Enter on Back also returns.
+            key!("enter");
+            this.update_in(cx, |this, window, _| assert!(this.about_open && this.about_row == 0 && this.about_focus.is_focused(window), "reopening starts at ‹ Indietro")).unwrap();
+            key!("enter");
+            this.update_in(cx, |this, window, _| assert!(!this.about_open && this.menu_open && this.drawer_focus.is_focused(window), "Back returns to the drawer")).unwrap();
+            // Chiudi closes the whole drawer.
+            key!("enter");
+            key!("up");
+            this.update_in(cx, |this, _, _| assert_eq!(this.about_row, 4, "Up from Back wraps to Chiudi")).unwrap();
+            key!("enter");
+            this.update_in(cx, |this, window, cx| {
+                assert!(!this.menu_open && !this.about_open && this.menu_focus.is_focused(window), "Chiudi closes About and the drawer: menu_open={} about_open={} menu_focus={}", this.menu_open, this.about_open, this.menu_focus.is_focused(window));
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 29 {
             // Devices and Notifications live in the drawer: Down/Enter open them, the list footer no longer has them.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -2908,6 +2958,20 @@ fn debug_mode_shows_event_ids_and_the_room_line() {
         Ok("1")
     );
     DYNAMIC.store(28, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn about_page_opens_from_the_version_row_and_works_from_the_keyboard() {
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
+    DYNAMIC.store(31, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
