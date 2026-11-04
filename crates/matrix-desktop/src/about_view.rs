@@ -32,9 +32,13 @@ impl Shell {
 
     /// Writes `text` under the cache folder and opens it with the system's default app.
     fn open_text(&self, name: &str, text: &str, cx: &mut Context<Self>) {
-        let dir = self.prefs_dirs.as_ref().map_or_else(std::env::temp_dir, |d| d.cache.clone());
+        let dir = self
+            .prefs_dirs
+            .as_ref()
+            .map_or_else(std::env::temp_dir, |d| d.cache.clone());
         let path = dir.join(name);
-        let written = matrix_desktop::create_private_dir(&dir).and_then(|()| std::fs::write(&path, text));
+        let written =
+            matrix_desktop::create_private_dir(&dir).and_then(|()| std::fs::write(&path, text));
         match written {
             Ok(()) => {
                 if let Ok(url) = url::Url::from_file_path(&path) {
@@ -78,7 +82,8 @@ impl Shell {
             }
             "up" | "down" | "tab" => {
                 let back = key.key == "up" || m.shift;
-                self.about_row = (self.about_row + if back { ABOUT_ROWS - 1 } else { 1 }) % ABOUT_ROWS;
+                self.about_row =
+                    (self.about_row + if back { ABOUT_ROWS - 1 } else { 1 }) % ABOUT_ROWS;
                 cx.notify();
             }
             _ => return false,
@@ -104,7 +109,11 @@ impl Shell {
                 .rounded_lg()
                 .cursor_pointer()
                 .border_1()
-                .border_color(rgb(if focused && self.about_row == index { t.accent } else { t.surface }))
+                .border_color(rgb(if focused && self.about_row == index {
+                    t.accent
+                } else {
+                    t.surface
+                }))
                 .text_color(rgb(t.text))
                 .child(label)
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -137,7 +146,10 @@ impl Shell {
                     .items_center()
                     .gap_1()
                     .children(self.about_icon.clone().map(|icon| {
-                        img(icon).size(px(64.)).flex_shrink_0().object_fit(ObjectFit::Contain)
+                        img(icon)
+                            .size(px(64.))
+                            .flex_shrink_0()
+                            .object_fit(ObjectFit::Contain)
                     }))
                     .child(
                         div()
@@ -170,5 +182,7 @@ fn app_icon() -> Option<std::sync::Arc<RenderImage>> {
     for pixel in rgba.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
-    Some(std::sync::Arc::new(RenderImage::new([image::Frame::new(rgba)])))
+    Some(std::sync::Arc::new(RenderImage::new([image::Frame::new(
+        rgba,
+    )])))
 }
