@@ -899,7 +899,7 @@ pub(crate) async fn load_member_rights(
                 .await
                 .iter()
                 .filter_map(|i| i.as_event())
-                .filter(|e| e.sender() == target && !matches!(e.content(), TimelineItemContent::MsgLike(m) if matches!(m.kind, MsgLikeKind::Redacted)))
+                .filter(|e| e.sender() == target && matches!(e.content(), TimelineItemContent::MsgLike(m) if !matches!(m.kind, MsgLikeKind::Redacted))) // real messages only: membership/profile/state events must never be redacted
                 .filter_map(|e| e.event_id().map(ToString::to_string))
                 .collect();
         }
