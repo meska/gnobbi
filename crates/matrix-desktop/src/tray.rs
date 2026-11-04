@@ -54,7 +54,8 @@ pub(crate) fn draw_badge(rgba: &mut [u8], side: usize, unread: u64) {
     let scale = (side / 22).max(1);
     let (x0, y0) = (side * 12 / 22, side * 12 / 22);
     let (bw, bh) = (side - x0, side - y0);
-    let mut put = |x: usize, y: usize, px: [u8; 4]| rgba[(y * side + x) * 4..][..4].copy_from_slice(&px);
+    let mut put =
+        |x: usize, y: usize, px: [u8; 4]| rgba[(y * side + x) * 4..][..4].copy_from_slice(&px);
     for y in 0..bh {
         for x in 0..bw {
             let corner = (x == 0 || x == bw - 1) && (y == 0 || y == bh - 1);
@@ -64,14 +65,21 @@ pub(crate) fn draw_badge(rgba: &mut [u8], side: usize, unread: u64) {
         }
     }
     let text_w = text.len() * 3 * scale + (text.len() - 1) * scale;
-    let (tx, ty) = (x0 + (bw.saturating_sub(text_w)) / 2, y0 + (bh.saturating_sub(5 * scale)) / 2);
+    let (tx, ty) = (
+        x0 + (bw.saturating_sub(text_w)) / 2,
+        y0 + (bh.saturating_sub(5 * scale)) / 2,
+    );
     for (n, ch) in text.bytes().enumerate() {
         let rows = DIGITS[(ch - b'0') as usize];
         for (row, bits) in rows.iter().enumerate() {
             for col in 0..3 {
                 if bits >> (2 - col) & 1 == 1 {
                     for (dy, dx) in (0..scale).flat_map(|y| (0..scale).map(move |x| (y, x))) {
-                        put(tx + (n * 4 + col) * scale + dx, ty + row * scale + dy, [255; 4]);
+                        put(
+                            tx + (n * 4 + col) * scale + dx,
+                            ty + row * scale + dy,
+                            [255; 4],
+                        );
                     }
                 }
             }
@@ -120,13 +128,26 @@ fn build_menu(items: &[TrayItem]) -> Menu {
             TrayItem::Separator => menu.append(&PredefinedMenuItem::separator()),
             // muda has no avatar-plus-check on one entry: the shown account gets a "✓" in the
             // title (which assistive tech reads) and keeps its avatar.
-            TrayItem::Entry { action, label, checked, .. } => {
-                let title = if *checked { format!("✓ {label}") } else { label.clone() };
+            TrayItem::Entry {
+                action,
+                label,
+                checked,
+                ..
+            } => {
+                let title = if *checked {
+                    format!("✓ {label}")
+                } else {
+                    label.clone()
+                };
                 let id = encode(*action);
                 match action {
-                    TrayAction::SwitchAccount(account) => {
-                        menu.append(&IconMenuItem::with_id(id, title, true, avatar(*account), None))
-                    }
+                    TrayAction::SwitchAccount(account) => menu.append(&IconMenuItem::with_id(
+                        id,
+                        title,
+                        true,
+                        avatar(*account),
+                        None,
+                    )),
                     _ => menu.append(&MenuItem::with_id(id, title, true, None)),
                 }
             }
@@ -161,7 +182,12 @@ impl Tray {
         let builder = builder.with_icon(icon);
         let built = builder.build();
         match built {
-            Ok(icon) => Some(Self { icon, rx, menu: None, badge: None }),
+            Ok(icon) => Some(Self {
+                icon,
+                rx,
+                menu: None,
+                badge: None,
+            }),
             Err(error) => {
                 eprintln!("Gnobbi: no tray icon: {error}");
                 None
@@ -198,9 +224,17 @@ impl Tray {
             }
             // macOS: the count is text next to the icon, absent at 0. Elsewhere it is in the icon.
             if cfg!(target_os = "macos") {
-                self.icon.set_title(Some(if unread > 0 { unread.to_string() } else { String::new() }));
+                self.icon.set_title(Some(if unread > 0 {
+                    unread.to_string()
+                } else {
+                    String::new()
+                }));
             }
-            let tip = if unread > 0 { format!("Gnobbi, {unread} non letti") } else { "Gnobbi".into() };
+            let tip = if unread > 0 {
+                format!("Gnobbi, {unread} non letti")
+            } else {
+                "Gnobbi".into()
+            };
             let _ = self.icon.set_tooltip(Some(tip));
             self.badge = Some((unread, dark_panel));
         }
@@ -240,7 +274,10 @@ mod tests {
         for y in 0..side {
             for x in 0..side {
                 if x < from || y < from {
-                    assert_eq!(some[(y * side + x) * 4..][..4], base[(y * side + x) * 4..][..4]);
+                    assert_eq!(
+                        some[(y * side + x) * 4..][..4],
+                        base[(y * side + x) * 4..][..4]
+                    );
                 }
             }
         }

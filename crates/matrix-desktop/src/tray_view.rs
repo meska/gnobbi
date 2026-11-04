@@ -15,14 +15,23 @@ impl Shell {
         for action in tray.actions() {
             self.apply_tray_action(action, window, cx);
         }
-        let items = tray_menu(self.window_visible, self.notifications.enabled(), &self.drawer_accounts());
+        let items = tray_menu(
+            self.window_visible,
+            self.notifications.enabled(),
+            &self.drawer_accounts(),
+        );
         let unread = total_unread(&self.account_counts());
         if let Some(tray) = &mut self.tray {
             tray.update(&items, unread, self.system_dark);
         }
     }
 
-    fn apply_tray_action(&mut self, action: TrayAction, window: &mut Window, cx: &mut Context<Self>) {
+    fn apply_tray_action(
+        &mut self,
+        action: TrayAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match action {
             TrayAction::ToggleWindow if self.window_visible => {
                 window.minimize_window();
@@ -30,7 +39,8 @@ impl Shell {
             }
             TrayAction::ToggleWindow => self.show_window(window),
             TrayAction::ToggleNotifications => {
-                self.notifications.set_enabled(!self.notifications.enabled());
+                self.notifications
+                    .set_enabled(!self.notifications.enabled());
                 if let Some(handle) = &self.notification_handle {
                     handle.cancel_pending();
                 }
