@@ -187,8 +187,15 @@ impl RoomListWorker {
                     let mut media_task = tokio::spawn(async move {
                         let mut clean = true;
                         let mut cache = crate::media::MediaCache::new(8 * 1024 * 1024);
-                        while let Some(command) =
-                            shutdown_receive(&media_stop, &mut media_requests).await
+                        // Saves run in their own tasks (a big file must not hold the thumbnails) and report here.
+                        let (saved_tx, mut saved_rx) = tokio::sync::mpsc::unbounded_channel();
+                        while let Some(command) = next_media_command(
+                            &media_stop,
+                            &mut media_requests,
+                            &mut saved_rx,
+                            &mut media_results,
+                        )
+                        .await
                         {
                             use crate::media::{MediaCommand, MediaEvent};
                             let result = match command {
@@ -309,6 +316,12 @@ impl RoomListWorker {
                                     };
                                     MediaEvent::VideoDownloaded { tag, event, result }
                                 }
+                                MediaCommand::Save { tag, event, path } => {
+                                    if !tag.is_cancelled() {
+                                        spawn_save(&media_client, account, &media_stop, &saved_tx, tag, event, path);
+                                    }
+                                    continue;
+                                }
                                 MediaCommand::VideoThumbnail { tag, event } => {
                                     if tag.is_cancelled()
                                         || media_stop.load(std::sync::atomic::Ordering::Acquire)
@@ -361,10 +374,45 @@ impl RoomListWorker {
                     let mut operations_task = tokio::spawn(async move {
                         let mut clean = true;
                         use crate::operations::{OperationCommand, OperationResult};
-                        while let Some(command) =
-                            shutdown_receive(&operation_stop, &mut operations).await
-                        {
+                        let mut search = crate::user_search::UserSearch::for_client(operation_client.clone());
+                        let mut search_rx = search.as_ref().map(|s| s.subscribe());
+                        loop {
+                            let command = tokio::select! {
+                                command = shutdown_receive(&operation_stop, &mut operations) => {
+                                    match command {
+                                        Some(command) => command,
+                                        None => break,
+                                    }
+                                }
+                                Some(()) = async {
+                                    match &mut search_rx {
+                                        Some(rx) => rx.changed().await.ok(),
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    let state = search_rx.as_mut().unwrap().borrow_and_update().clone();
+                                    let all_available = search.as_ref().is_some_and(|s| s.all_available());
+                                    let sent = until_stopped(
+                                        &operation_stop,
+                                        operation_results.send(OperationResult::UserSearch { state, all_available }),
+                                    )
+                                    .await;
+                                    clean &= matches!(sent, Some(Ok(())) | None);
+                                    continue;
+                                }
+                            };
                             let result = match command {
+                                OperationCommand::SearchUsers { term, all } => {
+                                    if let Some(search) = &mut search {
+                                        search.set_filter(if all {
+                                            crate::user_search::Filter::All
+                                        } else {
+                                            crate::user_search::Filter::SameInstance
+                                        });
+                                        search.set_term(&term);
+                                    }
+                                    continue;
+                                }
                                 OperationCommand::Inspect { tag, target } => {
                                     if tag.is_cancelled()
                                         || operation_stop.load(std::sync::atomic::Ordering::Acquire)
@@ -411,10 +459,53 @@ impl RoomListWorker {
                                     .map(u64::from);
                                     OperationResult::Members { scope, members, upload_limit }
                                 }
+                                OperationCommand::Profile { user_id } => {
+                                    let result = crate::operations::user_profile(
+                                        &operation_client,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::Profile { user_id, result }
+                                }
+                                OperationCommand::VerifyUser { user_id } => {
+                                    let result = crate::operations::request_user_verification(
+                                        &operation_client,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::UserVerification { user_id, result }
+                                }
+                                OperationCommand::Ignore { user_id, ignore } => {
+                                    let result = crate::operations::set_ignored(&operation_client, &user_id, ignore).await;
+                                    OperationResult::Ignored { user_id, ignore, result }
+                                }
+                                OperationCommand::MemberRights { scope, user_id } => {
+                                    let result = crate::operations::load_member_rights(
+                                        &operation_client,
+                                        &operation_timelines,
+                                        account,
+                                        &scope,
+                                        &user_id,
+                                    )
+                                    .await;
+                                    OperationResult::MemberRights { scope, user_id, result }
+                                }
+                                OperationCommand::Moderate { scope, user_id, action } => {
+                                    let result = crate::operations::moderate(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                        &user_id,
+                                        &action,
+                                    )
+                                    .await;
+                                    OperationResult::Moderated { scope, user_id, action, result }
+                                }
                                 OperationCommand::MarkRoom {
                                     scope,
                                     read,
                                     public,
+                                    main_only,
                                 } => {
                                     let result = crate::operations::mark_room(
                                         &operation_client,
@@ -423,6 +514,7 @@ impl RoomListWorker {
                                         &scope,
                                         read,
                                         public,
+                                        main_only,
                                     )
                                     .await;
                                     OperationResult::RoomMarked { scope, result }
@@ -436,6 +528,18 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
+                                OperationCommand::EditRoom { scope, name, topic, avatar } => {
+                                    let result = crate::operations::edit_room(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                        name.as_deref(),
+                                        topic.as_deref(),
+                                        avatar.as_deref(),
+                                    )
+                                    .await;
+                                    OperationResult::RoomEdited { result }
+                                }
                                 OperationCommand::CreateRoom { name, topic, public } => {
                                     let result = crate::operations::create_room(
                                         &operation_client,
@@ -446,6 +550,50 @@ impl RoomListWorker {
                                     )
                                     .await;
                                     OperationResult::RoomStarted { result }
+                                }
+                                OperationCommand::JoinRoom { target } => {
+                                    let result = crate::operations::join_room(
+                                        &operation_client,
+                                        account,
+                                        &target,
+                                    )
+                                    .await;
+                                    OperationResult::RoomStarted { result }
+                                }
+                                OperationCommand::SearchDirectory { term } => {
+                                    let result = crate::operations::search_directory(
+                                        &operation_client,
+                                        &term,
+                                    )
+                                    .await;
+                                    OperationResult::DirectoryFound { result }
+                                }
+                                OperationCommand::LeaveRoom { scope } => {
+                                    let result = crate::operations::leave_room(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                    )
+                                    .await;
+                                    OperationResult::RoomLeft { scope, result }
+                                }
+                                OperationCommand::AnswerInvite { scope, accept } => {
+                                    let result = crate::operations::answer_invite(
+                                        &operation_client,
+                                        account,
+                                        &scope,
+                                        accept,
+                                    )
+                                    .await;
+                                    OperationResult::InviteAnswered { scope, accept, result }
+                                }
+                                OperationCommand::Thread { scope, root, want, read } => {
+                                    let result = crate::threads::open_scoped(&operation_client, &operation_timelines, account, &scope, &root, want, read).await;
+                                    OperationResult::Thread { scope, root, result }
+                                }
+                                OperationCommand::ThreadSend { scope, root, reply_to, body } => {
+                                    let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body).await;
+                                    OperationResult::ThreadSent { scope, root, result }
                                 }
                                 OperationCommand::SetMuted { scope, muted } => {
                                     let result = crate::notify::set_muted(&operation_client, account, &scope, muted).await;
@@ -710,8 +858,6 @@ pub struct RoomSync {
     latest_watched: std::collections::BTreeSet<String>,
     /// SDK space graph, created at the first projection.
     spaces: Option<matrix_sdk_ui::spaces::SpaceService>,
-    /// Sliding sync sends no server counts: unread comes from the SDK's client-side counts.
-    pub(crate) sliding_counts: bool,
     timelines: Timelines,
     operation_state: std::sync::Arc<tokio::sync::Mutex<crate::operations::OperationJournal>>,
 }
@@ -785,7 +931,6 @@ impl RoomSync {
             timeline_heads: BTreeMap::new(),
             latest_watched: Default::default(),
             spaces: None,
-            sliding_counts: false,
             timelines: Default::default(),
             operation_state: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
         }
@@ -815,7 +960,7 @@ impl RoomSync {
         read: bool,
     ) -> Result<(), crate::operations::OperationError> {
         let client = self.session.client.as_ref().expect("store-backed session");
-        crate::operations::mark_room(client, &self.timelines, self.session.account_id(), scope, read, true).await
+        crate::operations::mark_room(client, &self.timelines, self.session.account_id(), scope, read, true, false).await
     }
 
     /// A thread: root from the room's own timeline (the thread's `hit_start` is not reliable,
@@ -828,6 +973,39 @@ impl RoomSync {
     ) -> Result<crate::threads::ThreadPage, crate::history::HistoryError> {
         let room = self.thread_room(scope)?;
         crate::threads::open(&self.timelines, &room, root, want).await
+    }
+
+    /// Read receipt of one thread (its root as `thread_id`).
+    pub async fn mark_thread_read(
+        &self,
+        scope: &RoomScope,
+        root: &matrix_domain::EventId,
+        public: bool,
+    ) -> Result<bool, crate::operations::OperationError> {
+        let client = self.session.client.as_ref().ok_or(crate::operations::OperationError::Unavailable)?;
+        crate::threads::mark_read_scoped(client, &self.timelines, self.session.account_id(), scope, root, public).await
+    }
+
+    /// Read receipt `main` for the room's own timeline (the same call the open view makes).
+    pub async fn mark_main_read(&self, scope: &RoomScope, public: bool) -> Result<bool, crate::operations::OperationError> {
+        use crate::operations::OperationError as E;
+        let client = self.session.client.as_ref().ok_or(E::Unavailable)?;
+        let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| E::WrongScope)?;
+        let room = client.get_room(&id).ok_or(E::Unavailable)?;
+        let timeline = self.timelines.get(&room).await.map_err(|_| E::Unavailable)?;
+        crate::threads::mark_main(&room, &timeline, public).await.map_err(|_| E::Transport)
+    }
+
+    /// A text into a thread (plain, or a reply to one of its events); waits for the server.
+    pub async fn send_in_thread(
+        &self,
+        scope: &RoomScope,
+        root: &matrix_domain::EventId,
+        reply_to: Option<&matrix_domain::EventId>,
+        body: &str,
+    ) -> Result<matrix_domain::EventId, crate::operations::OperationError> {
+        let client = self.session.client.as_ref().ok_or(crate::operations::OperationError::Unavailable)?;
+        crate::threads::send_scoped(client, &self.timelines, self.session.account_id(), scope, root, reply_to, body).await
     }
 
     /// The room's threads, newest activity first (one `ThreadListService` page).
@@ -909,8 +1087,7 @@ impl RoomSync {
         let Ok(timeline) = self.timelines.get(&room).await else {
             return;
         };
-        let read = if public { ReceiptType::Read } else { ReceiptType::ReadPrivate };
-        let _ = timeline.mark_as_read(read).await;
+        let _ = crate::threads::mark_main(&room, &timeline, public).await;
         let _ = timeline.mark_as_read(ReceiptType::FullyRead).await;
     }
 
@@ -918,15 +1095,15 @@ impl RoomSync {
     /// room list changed compared to the previous call (the run itself empties and refills it
     /// while it starts, so the net difference is what a caller can rely on).
     #[cfg(test)]
-    pub async fn next_batch(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
-        self.next_batch_after(async {}).await
+    pub(crate) async fn sliding_round(&mut self) -> Result<Vec<RoomListDiff>, SyncError> {
+        self.sliding_round_after(async {}).await
     }
 
-    /// Like `next_batch`, but `action` runs once the run is `Ready`: what it changes on the
+    /// Like `sliding_round`, but `action` runs once the run is `Ready`: what it changes on the
     /// server reaches the room list as a live delivery, as in the app (sliding sync only counts
     /// unread from deliveries it sees, so messages sent before the run show as one).
     #[cfg(test)]
-    pub async fn next_batch_after(
+    pub(crate) async fn sliding_round_after(
         &mut self,
         action: impl std::future::Future<Output = ()>,
     ) -> Result<Vec<RoomListDiff>, SyncError> {
@@ -970,6 +1147,12 @@ impl RoomSync {
                 .map(|(_, room)| RoomListDiff::Remove(room.scope.clone())),
         );
         Ok(diffs)
+    }
+
+    /// Fixture: one sliding round for a bare client, the only way tests catch a client up.
+    #[cfg(test)]
+    pub(crate) async fn sliding_catch_up(client: &matrix_sdk::Client) -> Result<(), SyncError> {
+        Self::from_client(matrix_domain::AccountId::new(0), client.clone()).sliding_round().await.map(drop)
     }
 
     /// Folds one sync delivery (classic /sync or sliding sync) into peer receipts;
@@ -1059,24 +1242,16 @@ impl RoomSync {
                         room_id: RoomId::new(id.clone()),
                     },
                     name: room_label(room.display_name().await.ok(), &id),
-                    unread: if self.sliding_counts {
-                        room.num_unread_notifications()
-                    } else {
-                        room.unread_notification_counts().notification_count
-                    },
+                    unread: room.num_unread_notifications(),
                     info: crate::RoomInfo {
                         public_read_receipts: peer_receipts,
                         preview: latest_event_text(&room).await,
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
-                        avatar: room.avatar_url().map(|u| u.to_string()),
+                        avatar: room_avatar(&room).await,
                         marked_unread: room.is_marked_unread(),
                         joined_members: room.joined_members_count(),
-                        mentions: if self.sliding_counts {
-                            room.num_unread_mentions()
-                        } else {
-                            room.unread_notification_counts().highlight_count
-                        },
+                        mentions: room.num_unread_mentions(),
                         is_space: room.is_space(),
                         children,
                         encrypted: (!room.encryption_state().is_unknown())
@@ -1175,6 +1350,30 @@ fn room_label(name: Option<matrix_sdk::RoomDisplayName>, id: &str) -> String {
     }
 }
 
+/// Avatar to show: the room's own, else for a 1:1 DM the other person's (as Element X does).
+async fn room_avatar(room: &matrix_sdk::Room) -> Option<String> {
+    if let Some(own) = nonempty(room.avatar_url().as_deref()) {
+        return Some(own);
+    }
+    let heroes = room.heroes().await;
+    let [hero] = heroes.as_slice() else {
+        return None;
+    };
+    if !room.is_direct().await.unwrap_or(false) {
+        return None;
+    }
+    if let Some(a) = nonempty(hero.avatar_url.as_deref()) {
+        return Some(a);
+    }
+    let member = room.get_member_no_sync(&hero.user_id).await.ok().flatten()?;
+    nonempty(member.avatar_url())
+}
+
+/// An empty mxc string means "no avatar".
+fn nonempty(uri: Option<&matrix_sdk::ruma::MxcUri>) -> Option<String> {
+    uri.filter(|u| !u.as_str().is_empty()).map(|u| u.to_string())
+}
+
 async fn unstarted_shutdown(
     sends: &mut crate::Receiver<crate::sending::SendRequest>,
     operations: &mut crate::Receiver<crate::operations::OperationCommand>,
@@ -1197,6 +1396,49 @@ async fn unstarted_shutdown(
         Err(ShutdownError::WriteUnconfirmed)
     } else {
         Ok(())
+    }
+}
+
+/// One save in its own task; its answer goes to `done` (see [`next_media_command`]).
+fn spawn_save(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    stop: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    done: &tokio::sync::mpsc::UnboundedSender<crate::media::MediaEvent>,
+    tag: crate::RequestTag,
+    event: matrix_domain::EventId,
+    path: std::path::PathBuf,
+) {
+    let (client, stop, done) = (client.clone(), stop.clone(), done.clone());
+    tokio::spawn(async move {
+        let save = crate::video_file::save_attachment(
+            &client,
+            account,
+            &tag,
+            &event,
+            &path,
+            crate::media::MAX_SAVE_BYTES,
+        );
+        if let Some(result) = until_stopped(&stop, save).await {
+            let _ = done.send(crate::media::MediaEvent::Saved { tag, event, result });
+        }
+    });
+}
+
+/// The next media command; a finished save is forwarded to the UI while waiting for it.
+async fn next_media_command(
+    stop: &std::sync::atomic::AtomicBool,
+    requests: &mut crate::Receiver<crate::media::MediaCommand>,
+    saved: &mut tokio::sync::mpsc::UnboundedReceiver<crate::media::MediaEvent>,
+    results: &mut crate::Sender<crate::media::MediaEvent>,
+) -> Option<crate::media::MediaCommand> {
+    loop {
+        tokio::select! {
+            Some(done) = saved.recv() => {
+                let _ = until_stopped(stop, results.send(done)).await;
+            }
+            command = shutdown_receive(stop, requests) => return command,
+        }
     }
 }
 
@@ -1283,7 +1525,8 @@ impl Timelines {
         let builder = room.timeline_builder();
         let builder = match root {
             Some(root_event_id) => builder.with_focus(TimelineFocus::Thread { root_event_id }),
-            None => builder,
+            // Replies live in the thread panel only; the root stays with its summary.
+            None => builder.with_focus(TimelineFocus::Live { hide_threaded_events: true }),
         };
         let timeline = std::sync::Arc::new(
             builder
@@ -1314,7 +1557,7 @@ async fn thread_info(
         TimelineDetails::Ready(e) => Some(history_sender(room, &e.sender).await),
         _ => None,
     };
-    Some(crate::history::ThreadInfo { num_replies: summary.num_replies, latest_sender })
+    Some(crate::history::ThreadInfo { num_replies: summary.num_replies, latest_sender, unread: 0 })
 }
 
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
@@ -1338,13 +1581,34 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             continue;
         };
         let Some(content) = event.content().as_msglike() else {
+            // Membership, profile and room-state items: shown as status rows, never as bubbles.
+            if let Some(row) = status_row(room, event, id).await {
+                out.rows.push(row);
+            }
             continue;
         };
-        let (mut video, mut styles) = (None, Vec::new());
+        let (mut video, mut styles, mut attachment_name, mut attachment_size) = (None, Vec::new(), None, None);
         let body = match &content.kind {
             MsgLikeKind::Message(message) => match message.msgtype() {
-                MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
+                MessageType::Image(i) => {
+                    attachment_name = Some(crate::history::proposed_name(i.filename()));
+                    attachment_size = i.info.as_deref().and_then(|i| i.size).map(u64::from);
+                    crate::history::IMAGE_BODY.into()
+                }
                 msgtype => {
+                    attachment_name = match msgtype {
+                        MessageType::Video(v) => Some(crate::history::proposed_name(v.filename())),
+                        MessageType::Audio(a) => Some(crate::history::proposed_name(a.filename())),
+                        MessageType::File(f) => Some(crate::history::proposed_name(f.filename())),
+                        _ => None,
+                    };
+                    attachment_size = match msgtype {
+                        MessageType::Video(m) => m.info.as_deref().and_then(|i| i.size),
+                        MessageType::Audio(m) => m.info.as_deref().and_then(|i| i.size),
+                        MessageType::File(m) => m.info.as_deref().and_then(|i| i.size),
+                        _ => None,
+                    }
+                    .map(u64::from);
                     video = match msgtype {
                         MessageType::Video(v) => Some(video_info(v)),
                         MessageType::Audio(a) => Some(audio_info(a)),
@@ -1360,7 +1624,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             MsgLikeKind::Redacted => "[Messaggio eliminato]".into(),
             // A UTD stays a real row with server identity, never ciphertext or silence.
             MsgLikeKind::UnableToDecrypt(_) => {
-                "[Messaggio cifrato · chiavi non disponibili o decifratura fallita]".into()
+                "Cifrato · chiavi non disponibili".into()
             }
             _ => continue,
         };
@@ -1378,14 +1642,91 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             event_id: matrix_domain::EventId::new(id.as_str()),
             body,
             outgoing: event.is_own(),
+            redacted: matches!(content.kind, MsgLikeKind::Redacted),
             timestamp_ms: event.timestamp().0.into(),
             sender: history_sender(room, event.sender()).await,
             video,
             styles,
             thread: thread_info(room, content).await,
+            thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
+            status: false,
+            attachment_name,
+            attachment_size,
         });
     }
     out
+}
+
+/// A status row from a membership, profile or room-state item; `None` for kinds we do not word
+/// (unknown or hidden state stays out of the timeline).
+async fn status_row(
+    room: &matrix_sdk::Room,
+    event: &matrix_sdk_ui::timeline::EventTimelineItem,
+    id: &matrix_sdk::ruma::EventId,
+) -> Option<crate::history::HistoryEvent> {
+    use crate::status_line::{Status, status_text};
+    use matrix_sdk::ruma::events::StateEventContentChange::Original;
+    use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange as State, MembershipChange as M, TimelineItemContent as C};
+    let actor = history_sender(room, event.sender()).await;
+    let label = |s: &crate::history::HistorySender| crate::status_line::display_label(s.name.as_deref(), &s.id);
+    // `shown` is the person whose avatar leads the row; `subject` is who the sentence is about.
+    let (status, shown, subject) = match event.content() {
+        C::MembershipChange(change) => {
+            let status = match change.change()? {
+                M::Joined | M::InvitationAccepted => Status::Joined,
+                M::Left => Status::Left,
+                M::Banned | M::KickedAndBanned => Status::Banned,
+                M::Unbanned => Status::Unbanned,
+                M::Kicked => Status::Kicked,
+                M::Invited => Status::Invited,
+                M::InvitationRejected => Status::InvitationRejected,
+                M::InvitationRevoked => Status::InvitationRevoked,
+                _ => return None,
+            };
+            let mut who = history_sender(room, change.user_id()).await;
+            who.name = who.name.or_else(|| change.display_name());
+            let name = label(&who);
+            (status, who, name)
+        }
+        C::ProfileChange(change) => {
+            let who = history_sender(room, change.user_id()).await;
+            let status = match (change.displayname_change(), change.avatar_url_change()) {
+                (Some(name), _) => Status::DisplayName { old: name.old.clone(), new: name.new.clone() },
+                (None, Some(_)) => Status::MemberAvatar,
+                (None, None) => return None,
+            };
+            let name = label(&who);
+            (status, who, name)
+        }
+        C::OtherState(state) => {
+            let status = match state.content() {
+                State::RoomCreate(Original { .. }) if room.is_direct().await.unwrap_or(false) => Status::CreatedDirect,
+                State::RoomCreate(Original { .. }) => Status::Created,
+                State::RoomName(Original { content, .. }) => Status::RoomName(content.name.clone()),
+                State::RoomTopic(Original { content, .. }) => Status::RoomTopic(content.topic.clone()),
+                State::RoomAvatar(Original { .. }) => Status::RoomAvatar,
+                _ => return None,
+            };
+            let name = label(&actor);
+            (status, actor.clone(), name)
+        }
+        _ => return None,
+    };
+    Some(crate::history::HistoryEvent {
+        event_id: matrix_domain::EventId::new(id.as_str()),
+        body: status_text(&status, &label(&actor), &subject),
+        outgoing: false,
+        redacted: false,
+        timestamp_ms: event.timestamp().0.into(),
+        sender: shown,
+        video: None,
+        styles: Vec::new(),
+        thread: None,
+        thread_root: None,
+        status: true,
+        attachment_name: None,
+        attachment_size: None,
+    })
 }
 
 /// Grow the timeline backwards until at least `want` rows are loaded or the room starts.
@@ -1450,7 +1791,8 @@ fn joined(
         .ok_or(HistoryError::Unavailable)
 }
 
-/// Saved messages of one room, as the room's Timeline holds them. Never touches the network.
+/// Saved messages of one room, as the room's Timeline holds them. Answers from disk; a pagination
+/// step that would need the network is dropped after 1 s, so an unreachable server only delays it.
 async fn saved_page(
     client: &matrix_sdk::Client,
     timelines: &Timelines,
@@ -1459,7 +1801,27 @@ async fn saved_page(
 ) -> Result<crate::history::HistoryPage, crate::history::HistoryError> {
     let room = joined(client, &tag, account_id)?;
     let timeline = timelines.get(&room).await?;
-    let now = loaded(&room, &timeline).await;
+    let mut now = loaded(&room, &timeline).await;
+    // The timeline starts from the newest saved chunk only. When that one holds nothing visible
+    // (only status rows, e.g. the join), step back through the older saved chunks; the SDK reads the disk first.
+    // shortcut: a step that has to leave the disk is dropped after 1 s, and at most 10 steps.
+    for _ in 0..10 {
+        if now.rows.iter().any(|r| !r.status) || now.at_start {
+            break;
+        }
+        let step = tokio::time::timeout(
+            Duration::from_secs(1),
+            timeline.paginate_backwards(PAGE as u16),
+        )
+        .await;
+        if !matches!(step, Ok(Ok(_))) {
+            break;
+        }
+        // The timeline applies the chunk in its own task; a disk read lands within milliseconds.
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        now = loaded(&room, &timeline).await;
+    }
+    crate::threads::annotate_unread(timelines, &room, &mut now.rows).await;
     let next = cursor(&now.rows, now.at_start);
     Ok(crate::history::HistoryPage {
         tag,
@@ -1489,7 +1851,8 @@ async fn open_page(
         .ok_or(crate::history::HistoryError::Unavailable)?;
     let timeline = timelines.get(&room).await?;
     // Best effort: a failed gap keeps what is saved.
-    let (now, _) = fill(&room, &timeline, PAGE).await;
+    let (mut now, _) = fill(&room, &timeline, PAGE).await;
+    crate::threads::annotate_unread(timelines, &room, &mut now.rows).await;
     let next = cursor(&now.rows, now.at_start);
     Ok((
         crate::history::HistoryPage {
@@ -1543,12 +1906,20 @@ pub(crate) async fn serve_history(
     emit(crate::history::HistoryResult { tag, page }).await
 }
 
+/// Matrix spec «Calculating the display name for a user»: an ambiguous name carries the user id.
+fn disambiguated_name(name: Option<&str>, ambiguous: bool, id: &str) -> Option<String> {
+    name.map(|n| if ambiguous { format!("{n} ({id})") } else { n.to_owned() })
+}
+
 async fn history_sender(
     room: &matrix_sdk::room::Room,
     id: &matrix_sdk::ruma::UserId,
 ) -> crate::history::HistorySender {
     let member = room.get_member_no_sync(id).await.ok().flatten();
-    crate::history::HistorySender::new(id.as_str(), member.as_ref().and_then(|m| m.display_name()))
+    let name = member
+        .as_ref()
+        .and_then(|m| disambiguated_name(m.display_name(), m.name_ambiguous(), id.as_str()));
+    crate::history::HistorySender::new(id.as_str(), name.as_deref())
         .with_avatar(
             member
                 .as_ref()
@@ -1729,7 +2100,8 @@ async fn load_history(
         return Err(HistoryError::Cancelled);
     }
     let from = now.rows.len().saturating_sub(PAGE);
-    let events: Vec<_> = now.rows.drain(from..).collect();
+    let mut events: Vec<_> = now.rows.drain(from..).collect();
+    crate::threads::annotate_unread(timelines, &room, &mut events).await;
     // Rows left over older than this page still count as "more" even at the start.
     let next = cursor(&events, now.at_start && from == 0);
     Ok(HistoryPage { tag, events, next })

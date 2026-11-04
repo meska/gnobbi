@@ -3,12 +3,22 @@
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
 pub mod build_info;
+pub mod new_chat;
 pub mod notifications;
+
+/// Send is shown for a committed, non-blank draft or an attachment, never while recording.
+pub fn send_visible(composing: bool, text: &str, attachment: bool, recording: bool) -> bool {
+    !recording && !composing && (!text.trim().is_empty() || attachment)
+}
 /// The Linux build pins DejaVu; Windows has no DejaVu and gpui panics on a missing family.
 #[cfg(not(windows))]
 pub const UI_FONT: &str = "DejaVu Sans";
 #[cfg(windows)]
 pub const UI_FONT: &str = "Segoe UI";
+#[cfg(not(windows))]
+pub const SERIF_FONT: &str = "DejaVu Serif";
+#[cfg(windows)]
+pub const SERIF_FONT: &str = "Georgia";
 #[cfg(not(windows))]
 pub const MONO_FONT: &str = "DejaVu Sans Mono";
 #[cfg(windows)]
@@ -16,7 +26,7 @@ pub const MONO_FONT: &str = "Consolas";
 mod verification;
 #[cfg(feature = "desktop")]
 pub mod window;
-pub use verification::DeviceVerification;
+pub use verification::{DeviceVerification, device_detail, device_label, device_title};
 #[cfg(feature = "live")]
 mod signin_form;
 #[cfg(feature = "live")]
@@ -29,6 +39,7 @@ pub use signin_form::{
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
+pub mod app_icon;
 mod account_catalog;
 mod account_erase;
 pub use account_erase::erase_account;
@@ -40,15 +51,23 @@ pub mod desktop_entry;
 pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use account_list::{AccountRow, account_rows, initials};
 pub use app_dirs::{AppDirs, Platform, app_dirs};
-pub mod legacy_profile;
+mod accent;
+pub use accent::{Accent, current_accent, set_accent, system_accent};
 mod preferences;
+pub mod quick_search;
 mod rail_layout;
+mod room_prefs;
+pub use room_prefs::RoomPrefs;
 pub use rail_layout::{RailLayout, RailLayouts};
-pub use preferences::{Preferences, Theme};
+pub use preferences::{
+    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,
+};
 mod composer;
 mod connection_options;
 pub mod panel_openers;
-pub use composer::{Composer, EMOJI_SET, mention_matches, mention_token};
+pub use composer::{
+    Composer, EMOJI_SET, mention_matches, mention_token, next_boundary, prev_boundary,
+};
 pub use connection_options::create_private_dir;
 pub use connection_options::{
     RestoreOptions, SignInOptions, bundle_launch_args, default_signin_args, linux_launch_args,
@@ -69,7 +88,9 @@ pub use links::{
 };
 mod voice;
 pub use voice::{max_note_samples, voice_attachment};
+mod attachment_save;
 mod live_media;
+pub use attachment_save::{SaveState, Saves, failure_label as save_failure_label, offers_save, over_cap as save_over_cap, retryable as save_retryable, start_dir as save_start_dir};
 pub use live_media::LiveMedia;
 mod live_delivery;
 pub use live_delivery::LiveDelivery;
@@ -84,8 +105,12 @@ pub use history::{
 mod scrollbar;
 pub use scrollbar::{ScrollbarGeometry, VirtualScrollExtent};
 pub mod row_text;
+pub mod time_fmt;
 mod sidebar;
-pub use sidebar::{Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
+pub mod tray_menu;
+#[cfg(feature = "desktop")]
+pub mod tray;
+pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
 #[derive(Clone, Copy, Debug)]
 pub struct DesignTokens {
@@ -93,7 +118,7 @@ pub struct DesignTokens {
     pub height: f32,
     pub sidebar: f32,
     pub header: f32,
-    pub composer: f32,
+    pub bottom_bar: f32,
     pub surface: u32,
     pub text: u32,
     pub secondary: u32,
@@ -115,7 +140,7 @@ pub const DEMO_NOTICE: &str = "DEMO OFFLINE · nessun account connesso";
 /// Scrim behind dialogs (RGBA): the same in every theme.
 pub const SCRIM: u32 = 0x0000_0066;
 /// Avatar fallback colour: identity, not theme.
-pub const AVATAR_FALLBACK: u32 = 0x5288b5;
+pub const AVATAR_FALLBACK: u32 = 0x53936b;
 
 pub struct DemoRoom {
     pub name: &'static str,
@@ -209,35 +234,35 @@ pub const LIGHT: DesignTokens = DesignTokens {
     height: 760.,
     sidebar: 320.,
     header: 64.,
-    composer: 72.,
+    bottom_bar: 56.,
     surface: 0xffffff,
-    text: 0x17212b,
-    secondary: 0x465b70,
+    text: 0x17231b,
+    secondary: 0x46604e,
     accent: 0x1264aa,
-    timeline: 0xe8f0ed,
+    timeline: 0xe9f0eb,
     outgoing: 0xd9fdd3,
-    selected: 0xe8f3fd,
-    border: 0xe3e9ed,
-    input: 0xf1f4f6,
-    disabled: 0xe8eef2,
-    selection: 0xd0e5fa,
+    selected: 0xe9f5ec,
+    border: 0xe4eae6,
+    input: 0xf1f4f2,
+    disabled: 0xe9efeb,
+    selection: 0xd0ead8,
     error: 0xb43030,
     on_accent: 0xffffff,
-    avatar_text: 0x101922,
+    avatar_text: 0x101b14,
 };
 
 pub const DARK: DesignTokens = DesignTokens {
-    surface: 0x17212b,
-    text: 0xe5edf5,
-    secondary: 0xb3c5d5,
+    surface: 0x17231b,
+    text: 0xe5efe8,
+    secondary: 0xb4c9ba,
     accent: 0x80c8ff,
-    timeline: 0x101922,
+    timeline: 0x101b14,
     outgoing: 0x244436,
-    selected: 0x263b50,
-    border: 0x41586b,
-    input: 0x202f3d,
-    disabled: 0x263442,
-    selection: 0x294563,
+    selected: 0x25402f,
+    border: 0x425c4b,
+    input: 0x203226,
+    disabled: 0x26372c,
+    selection: 0x254d34,
     error: 0xffb3b3,
     on_accent: 0x101922,
     ..LIGHT
@@ -245,34 +270,131 @@ pub const DARK: DesignTokens = DesignTokens {
 
 /// «Giorno»: bright and neutral, stronger text than «Classico».
 pub const DAY: DesignTokens = DesignTokens {
-    text: 0x111418,
-    secondary: 0x474f58,
+    text: 0x111512,
+    secondary: 0x47514a,
     accent: 0x0b5cad,
-    timeline: 0xf4f6f8,
-    outgoing: 0xe3f1ff,
-    selected: 0xe8f0fa,
-    border: 0xd5dbe1,
-    input: 0xf1f3f5,
-    disabled: 0xe6e9ec,
-    selection: 0xcfe3fb,
+    timeline: 0xf4f6f5,
+    outgoing: 0xd2f6dd,
+    selected: 0xe7f3ea,
+    border: 0xd5dcd7,
+    input: 0xf1f3f2,
+    disabled: 0xe6eae7,
+    selection: 0xcde9d6,
     error: 0xb00020,
     ..LIGHT
 };
 
 /// «Notte»: near-black surfaces for dark rooms.
 pub const NIGHT: DesignTokens = DesignTokens {
-    surface: 0x0b0e12,
-    text: 0xe8edf2,
-    secondary: 0xa9b6c3,
+    surface: 0x0b0f0c,
+    text: 0xe8eeea,
+    secondary: 0xa9b9ae,
     accent: 0x7cc4ff,
     timeline: 0x000000,
     outgoing: 0x16301f,
-    selected: 0x16222e,
-    border: 0x3a4856,
-    input: 0x151a20,
-    disabled: 0x1b222a,
-    selection: 0x1f3a56,
+    selected: 0x16251b,
+    border: 0x3a4b3f,
+    input: 0x141c17,
+    disabled: 0x1a241d,
+    selection: 0x1b412a,
     error: 0xffb3b3,
     on_accent: 0x000000,
     ..LIGHT
 };
+
+/// Actions of an opened member profile, in tab order after back/close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileAct {
+    CopyId,
+    Message,
+    Link,
+    Quote,
+    Verify,
+    /// Moderation, only offered when the room power levels allow it.
+    Power(i64),
+    RemoveMessages,
+    Kick,
+    Ban,
+    /// Account-wide, not a room right: offered for every other user, after the moderation blocks.
+    Ignore,
+    Unignore,
+    /// The two answers of the confirmation of a destructive act.
+    Confirm,
+    Cancel,
+}
+
+/// What the profile shows about trust: nothing for oneself or when the SDK has no identity, the offer while
+/// unverified, the «Verificato» sign once verified.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VerifyMark {
+    Hidden,
+    Offer,
+    Verified,
+}
+pub fn verify_mark(me: bool, verified: Option<bool>) -> VerifyMark {
+    match (me, verified) {
+        (true, _) | (_, None) => VerifyMark::Hidden,
+        (_, Some(false)) => VerifyMark::Offer,
+        (_, Some(true)) => VerifyMark::Verified,
+    }
+}
+impl ProfileAct {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CopyId => "Copia ID utente",
+            Self::Message => "Invia messaggio",
+            Self::Link => "Condividi link utente",
+            Self::Quote => "Cita",
+            Self::Verify => "Verifica utente",
+            Self::Power(0) => "Rendi utente",
+            Self::Power(50) => "Rendi moderatore",
+            Self::Power(100) => "Rendi amministratore",
+            Self::Power(_) => "Cambia livello",
+            Self::RemoveMessages => "Rimuovi i messaggi recenti",
+            Self::Kick => "Espelli",
+            Self::Ban => "Banna",
+            Self::Ignore => "Ignora",
+            Self::Unignore => "Smetti di ignorare",
+            Self::Confirm => "Conferma",
+            Self::Cancel => "Annulla",
+        }
+    }
+
+    /// Block of the profile the action sits in; blocks are separated by a line, destructive ones last.
+    pub fn section(self) -> u8 {
+        match self {
+            Self::Power(_) => 1,
+            Self::RemoveMessages => 2,
+            Self::Kick | Self::Ban => 3,
+            Self::Ignore | Self::Unignore => 4,
+            Self::Confirm | Self::Cancel => 5,
+            _ => 0,
+        }
+    }
+
+    /// Needs a confirmation naming the user, and is drawn in the danger colour.
+    pub fn destructive(self) -> bool {
+        matches!(self, Self::RemoveMessages | Self::Kick | Self::Ban | Self::Ignore | Self::Confirm)
+    }
+}
+
+/// Moderation entries of a profile, from what the room allows the current user; empty for a plain user.
+pub fn moderation_acts(r: &matrix_engine::operations::MemberRights) -> Vec<ProfileAct> {
+    let mut acts: Vec<_> = r.levels.iter().map(|l| ProfileAct::Power(*l)).collect();
+    if !r.recent.is_empty() {
+        acts.push(ProfileAct::RemoveMessages);
+    }
+    acts.extend(r.kick.then_some(ProfileAct::Kick));
+    acts.extend(r.ban.then_some(ProfileAct::Ban));
+    acts
+}
+
+/// The question a destructive act asks before it runs; it names the user (and counts the messages).
+pub fn confirm_question(act: ProfileAct, name: &str, messages: usize) -> String {
+    match act {
+        ProfileAct::Kick => format!("Espellere {name}?"),
+        ProfileAct::Ban => format!("Bannare {name}?"),
+        ProfileAct::Ignore => format!("Ignorare {name}?"),
+        _ => format!("Rimuovere {messages} messaggi di {name}?"),
+    }
+}

@@ -24,21 +24,57 @@ pub enum OperationError {
     Transport,
 }
 
+/// User search types live here, outside the `sdk` feature, because the desktop shows them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserHit {
+    pub user_id: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Filter {
+    #[default]
+    SameInstance,
+    All,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SearchState {
+    Idle,
+    Searching,
+    /// `direct` is the «Avvia con @nome:server» entry: set when the term is a valid user ID,
+    /// even if the directory did not return it (then `hits` may be empty).
+    Results {
+        hits: Vec<UserHit>,
+        direct: Option<String>,
+    },
+    NoResults,
+    /// One line in the UI, no detail.
+    Error,
+}
+
 pub enum OperationCommand {
     Inspect {
         tag: crate::RequestTag,
         target: EventId,
     },
     Apply(OperationRequest),
-    /// Joined members for the @ completion.
+    /// Joined members for the @ completion and the member list.
     Members {
         scope: RoomScope,
+    },
+    /// Global profile of another user (name, avatar), for the profile panel.
+    Profile {
+        user_id: String,
     },
     /// Room-level read marker from the room menu; `public` is the «Conferme di lettura» setting.
     MarkRoom {
         scope: RoomScope,
         read: bool,
         public: bool,
+        /// Opening the room: receipt `main` only, so unread threads stay unread. The menu reads everything.
+        main_only: bool,
     },
     /// New direct chat with `user_id` (reuses an existing one).
     StartDm {
@@ -50,12 +86,65 @@ pub enum OperationCommand {
         topic: Option<String>,
         public: bool,
     },
+    /// «Modifica stanza»: only the parts that changed; avatar is an image file read here.
+    EditRoom {
+        scope: RoomScope,
+        name: Option<String>,
+        topic: Option<String>,
+        avatar: Option<std::path::PathBuf>,
+    },
+    /// Join by alias (`#a:server`) or room ID (`!id:server`), typed or taken from the directory.
+    JoinRoom {
+        target: String,
+    },
+    /// Public directory of the user's homeserver, filtered by `term`.
+    SearchDirectory {
+        term: String,
+    },
+    /// «Esci»: leave the joined room and forget it, so it drops out of the list.
+    LeaveRoom {
+        scope: RoomScope,
+    },
+    /// Answer to an invitation, only on the user's click: accept joins, reject leaves (both SDK).
+    AnswerInvite {
+        scope: RoomScope,
+        accept: bool,
+    },
+    /// «Nuova chat» search; answered with `OperationResult::UserSearch` as it progresses.
+    SearchUsers {
+        term: String,
+        all: bool,
+    },
     /// Group (room tag) change asked for by the user in «Modifica»; the only writer of tags.
     EditTags(TagEdit),
     /// «Silenzia»: the room push rule; the outcome comes back as `RoomMarked` and the next sync projects it.
     SetMuted {
         scope: RoomScope,
         muted: bool,
+    },
+    /// Read-only thread panel: the root and the newest `want` replies (SDK thread timeline).
+    Thread {
+        scope: RoomScope,
+        root: EventId,
+        want: usize,
+        /// The panel is on screen in the focused window: also send the thread's read receipt
+        /// (`Some(public)`, the «Conferme di lettura» setting).
+        read: Option<bool>,
+    },
+    /// «Verifica utente»: ask `user_id` for an interactive verification.
+    VerifyUser { user_id: String },
+    /// Account-wide ignore (`ignore`) or unignore of `user_id`.
+    Ignore { user_id: String, ignore: bool },
+    /// What the current user may do to `user_id` in this room (moderation entries of the profile).
+    MemberRights { scope: RoomScope, user_id: String },
+    /// A moderation action on `user_id` in this room.
+    Moderate { scope: RoomScope, user_id: String, action: Moderation },
+    /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
+    ThreadSend {
+        scope: RoomScope,
+        root: EventId,
+        reply_to: Option<EventId>,
+        body: String,
     },
 }
 /// One explicit change of the personal groups. `tag` is the full tag name (`m.favourite`,
@@ -69,11 +158,66 @@ pub enum TagEdit {
     Delete { tag: String },
 }
 pub enum OperationResult {
+    /// The server accepted the text; `Ok` carries the new event's ID.
+    ThreadSent {
+        scope: RoomScope,
+        root: EventId,
+        result: Result<EventId, OperationError>,
+    },
+    Thread {
+        scope: RoomScope,
+        root: EventId,
+        // Boxed: the page is far bigger than the other results.
+        result: Result<Box<crate::history::ThreadPage>, OperationError>,
+    },
+    Profile {
+        user_id: String,
+        result: Result<UserProfile, OperationError>,
+    },
+    UserVerification {
+        user_id: String,
+        result: Result<(), OperationError>,
+    },
+    Ignored {
+        user_id: String,
+        ignore: bool,
+        result: Result<(), OperationError>,
+    },
+    MemberRights {
+        scope: RoomScope,
+        user_id: String,
+        result: Result<MemberRights, OperationError>,
+    },
+    Moderated {
+        scope: RoomScope,
+        user_id: String,
+        action: Moderation,
+        result: Result<(), OperationError>,
+    },
+    DirectoryFound {
+        result: Result<Vec<DirectoryRoom>, OperationError>,
+    },
+    RoomLeft {
+        scope: RoomScope,
+        result: Result<(), OperationError>,
+    },
+    UserSearch {
+        state: SearchState,
+        all_available: bool,
+    },
     TagsEdited {
         result: Result<(), OperationError>,
     },
     RoomStarted {
         result: Result<RoomScope, OperationError>,
+    },
+    InviteAnswered {
+        scope: RoomScope,
+        accept: bool,
+        result: Result<(), OperationError>,
+    },
+    RoomEdited {
+        result: Result<(), OperationError>,
     },
     Members {
         scope: RoomScope,
@@ -96,11 +240,63 @@ pub enum OperationResult {
     },
 }
 
+/// One public-directory hit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirectoryRoom {
+    pub room_id: String,
+    pub alias: Option<String>,
+    pub name: String,
+    pub members: u64,
+}
+impl DirectoryRoom {
+    /// What `JoinRoom` takes: the alias when the room has one, else the room ID.
+    pub fn target(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.room_id)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Member {
     pub user_id: String,
     /// Display name, or the user id when the member has none.
     pub name: String,
+    /// `mxc://` avatar of the member in this room.
+    pub avatar: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UserProfile {
+    pub user_id: String,
+    /// Display name, or the user id when the profile has none.
+    pub name: String,
+    pub avatar: Option<String>,
+    /// Cross-signing trust of the user; `None` when the SDK has no identity for them.
+    pub verified: Option<bool>,
+    /// On the account's ignore list (SDK account data).
+    pub ignored: bool,
+}
+
+/// Moderation of a room member. `RedactMessages` carries the exact events the user confirmed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Moderation {
+    Kick,
+    Ban,
+    SetPower(i64),
+    RedactMessages(Vec<String>),
+}
+
+/// Power levels the profile offers; a custom level of the member shows only as «not one of these».
+pub const POWER_LEVELS: [i64; 3] = [0, 50, 100];
+
+/// What the current user may do to a joined member, per the room power levels.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MemberRights {
+    pub kick: bool,
+    pub ban: bool,
+    /// Levels of `POWER_LEVELS` the user may give (at most their own, not the member's current one).
+    pub levels: Vec<i64>,
+    /// Loaded, not yet deleted messages of the member the user may delete; the confirmation counts these.
+    pub recent: Vec<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -217,6 +413,7 @@ pub(crate) async fn mark_room(
     scope: &RoomScope,
     read: bool,
     public: bool,
+    main_only: bool,
 ) -> Result<(), OperationError> {
     if scope.account_id != account {
         return Err(OperationError::WrongScope);
@@ -234,7 +431,11 @@ pub(crate) async fn mark_room(
             .await
             .map_err(|_| OperationError::Unavailable)?;
         let kind = if public { ReceiptType::Read } else { ReceiptType::ReadPrivate };
-        timeline.mark_as_read(kind).await.map_err(|_| OperationError::Transport)?;
+        if main_only {
+            crate::threads::mark_main(&room, &timeline, public).await.map_err(|_| OperationError::Transport)?;
+        } else {
+            timeline.mark_as_read(kind).await.map_err(|_| OperationError::Transport)?;
+        }
         timeline
             .mark_as_read(ReceiptType::FullyRead)
             .await
@@ -255,7 +456,18 @@ pub async fn start_dm(
 ) -> Result<RoomScope, OperationError> {
     let user = matrix_sdk::ruma::UserId::parse(user_id.trim())
         .map_err(|_| OperationError::InvalidInput)?;
-    let room = match client.get_dm_room(&user) {
+    use matrix_sdk::ruma::events::room::member::MembershipState;
+    // Reuse unless the store says B left/was banned: B's membership may not have synced yet (None/Err), which is not a reason for a second room.
+    // get_dm_room() takes an arbitrary DM: after a declined invite there are two, so pick the first one B has not left.
+    let mut reusable = None;
+    for room in client.get_dm_rooms(&user) {
+        let gone = matches!(room.get_member_no_sync(&user).await, Ok(Some(m)) if matches!(m.membership(), MembershipState::Leave | MembershipState::Ban));
+        if !gone {
+            reusable = Some(room);
+            break;
+        }
+    }
+    let room = match reusable {
         Some(room) => room,
         None => timeout_create(async {
             // Only NotFound stops: other profile failures (private profiles, network) fall through to create_dm.
@@ -272,6 +484,151 @@ pub async fn start_dm(
         account_id: account,
         room_id: matrix_domain::RoomId::new(room.room_id().as_str()),
     })
+}
+
+/// Accept (`Room::join`: the server finds the inviting server from the invite, also over federation)
+/// or reject (`Room::leave`) an invitation. Anything that is not an open invitation stops here.
+#[cfg(feature = "sdk")]
+pub async fn answer_invite(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    accept: bool,
+) -> Result<(), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
+    let room = client.get_room(&id).ok_or(OperationError::Unavailable)?;
+    if room.state() != matrix_sdk::RoomState::Invited {
+        return Err(OperationError::Unavailable);
+    }
+    let answer = async { if accept { room.join().await } else { room.leave().await } };
+    tokio::time::timeout(std::time::Duration::from_secs(30), answer)
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e))
+}
+
+/// Join by alias or room ID (`Client::join_room_by_id_or_alias`; the server resolves an alias, a bare
+/// room ID is tried through its own server). Not a room the server lets the user into: `Forbidden`.
+#[cfg(feature = "sdk")]
+pub async fn join_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    target: &str,
+) -> Result<RoomScope, OperationError> {
+    use matrix_sdk::ruma::{OwnedRoomOrAliasId, OwnedServerName};
+    let target = OwnedRoomOrAliasId::try_from(target.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let via: Vec<OwnedServerName> = match target.is_room_id() {
+        true => target.server_name().into_iter().map(ToOwned::to_owned).collect(),
+        false => Vec::new(),
+    };
+    let room = timeout_create(client.join_room_by_id_or_alias(&target, &via)).await?;
+    Ok(RoomScope {
+        account_id: account,
+        room_id: matrix_domain::RoomId::new(room.room_id().as_str()),
+    })
+}
+
+/// First page (20) of the homeserver's public room directory matching `term`.
+#[cfg(feature = "sdk")]
+pub async fn search_directory(
+    client: &matrix_sdk::Client,
+    term: &str,
+) -> Result<Vec<DirectoryRoom>, OperationError> {
+    let mut search = matrix_sdk::room_directory_search::RoomDirectorySearch::new(client.clone());
+    let term = Some(term.trim().to_owned()).filter(|t| !t.is_empty());
+    tokio::time::timeout(std::time::Duration::from_secs(20), search.search(term, 20, None))
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e))?;
+    Ok(search
+        .results()
+        .0
+        .iter()
+        .map(|d| DirectoryRoom {
+            room_id: d.room_id.to_string(),
+            alias: d.alias.as_ref().map(ToString::to_string),
+            name: d.name.clone().unwrap_or_else(|| d.alias.as_ref().map_or_else(|| d.room_id.to_string(), ToString::to_string)),
+            members: d.joined_members,
+        })
+        .collect())
+}
+
+/// Leave a joined room (`Room::leave`), then forget it (`Room::forget`) so the store drops it too.
+/// A failed forget does not undo the leave: the list already shows the room gone.
+#[cfg(feature = "sdk")]
+pub async fn leave_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+) -> Result<(), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(OperationError::Unavailable)?;
+    tokio::time::timeout(std::time::Duration::from_secs(30), room.leave())
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e))?;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), room.forget()).await;
+    Ok(())
+}
+
+/// Name, topic and avatar through the SDK state-event setters; the server decides on permissions.
+#[cfg(feature = "sdk")]
+pub async fn edit_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    name: Option<&str>,
+    topic: Option<&str>,
+    avatar: Option<&std::path::Path>,
+) -> Result<(), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str())
+        .map_err(|_| OperationError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(OperationError::Unavailable)?;
+    let name = name.map(str::trim);
+    if name == Some("") {
+        return Err(OperationError::InvalidInput);
+    }
+    if let Some(name) = name {
+        within(room.set_name(name.to_owned())).await?;
+    }
+    if let Some(topic) = topic {
+        within(room.set_room_topic(topic.trim())).await?;
+    }
+    if let Some(path) = avatar {
+        let mime = mime_guess::from_path(path).first_or_octet_stream();
+        if mime.type_() != mime_guess::mime::IMAGE {
+            return Err(OperationError::InvalidInput);
+        }
+        let data = tokio::fs::read(path).await.map_err(|_| OperationError::InvalidInput)?;
+        within(room.upload_avatar(&mime, data, None)).await?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sdk")]
+async fn within<T>(call: impl std::future::Future<Output = matrix_sdk::Result<T>>) -> Result<(), OperationError> {
+    tokio::time::timeout(std::time::Duration::from_secs(20), call)
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map(drop)
+        .map_err(|e| classify(&e))
 }
 
 /// Private rooms are born encrypted (like the SDK's DMs); public ones are not.
@@ -377,8 +734,231 @@ pub async fn members(
             name: m
                 .display_name()
                 .map_or_else(|| m.user_id().to_string(), str::to_owned),
+            avatar: m.avatar_url().map(ToString::to_string),
         })
         .collect())
+}
+
+/// Profile of `user_id` from the homeserver (`Account::fetch_user_profile_of`).
+#[cfg(feature = "sdk")]
+pub async fn user_profile(
+    client: &matrix_sdk::Client,
+    user_id: &str,
+) -> Result<UserProfile, OperationError> {
+    use matrix_sdk::ruma::api::client::profile::{AvatarUrl, DisplayName};
+    let id = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let fetched = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        client.account().fetch_user_profile_of(&id),
+    )
+    .await
+    .map_err(|_| OperationError::Transport)?;
+    let profile = match fetched {
+        Ok(p) => p,
+        // Synapse answers 404 for a user with no display name and no avatar: a user we share a room with is an empty profile, not a missing one.
+        Err(e) if is_not_found(&e) && shares_room_with(client, &id).await => Default::default(),
+        Err(e) => return Err(classify(&e)),
+    };
+    Ok(UserProfile {
+        user_id: id.to_string(),
+        name: profile
+            .get_static::<DisplayName>()
+            .ok()
+            .flatten()
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| id.to_string()),
+        avatar: profile.get_static::<AvatarUrl>().ok().flatten().map(|u| u.to_string()),
+        verified: user_identity(client, &id).await.map(|i| i.is_verified()),
+        ignored: is_ignored(client, &id).await,
+    })
+}
+
+#[cfg(feature = "sdk")]
+async fn shares_room_with(client: &matrix_sdk::Client, id: &matrix_sdk::ruma::UserId) -> bool {
+    for room in client.joined_rooms() {
+        if matches!(room.get_member_no_sync(id).await, Ok(Some(_))) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(feature = "sdk")]
+async fn is_ignored(client: &matrix_sdk::Client, id: &matrix_sdk::ruma::UserId) -> bool {
+    use matrix_sdk::ruma::events::ignored_user_list::IgnoredUserListEventContent;
+    let list = client.account().account_data::<IgnoredUserListEventContent>().await;
+    list.ok().flatten().and_then(|raw| raw.deserialize().ok()).is_some_and(|c| c.ignored_users.contains_key(id))
+}
+
+/// Adds `user_id` to the account's ignore list, or removes it (`Account::ignore_user` / `unignore_user`).
+#[cfg(feature = "sdk")]
+pub async fn set_ignored(client: &matrix_sdk::Client, user_id: &str, ignore: bool) -> Result<(), OperationError> {
+    let id = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let account = client.account();
+    tokio::time::timeout(WAIT, async {
+        if ignore { account.ignore_user(&id).await } else { account.unignore_user(&id).await }.map_err(|e| classify(&e))
+    })
+    .await
+    .map_err(|_| OperationError::Transport)?
+}
+
+/// E2EE identity of `id`: the local store first, else one `/keys/query` (same on Synapse and Tuwunel).
+#[cfg(feature = "sdk")]
+async fn user_identity(
+    client: &matrix_sdk::Client,
+    id: &matrix_sdk::ruma::UserId,
+) -> Option<matrix_sdk::encryption::identities::UserIdentity> {
+    let encryption = client.encryption();
+    if let Ok(Some(identity)) = encryption.get_user_identity(id).await {
+        return Some(identity);
+    }
+    tokio::time::timeout(WAIT, encryption.request_user_identity(id))
+        .await
+        .ok()?
+        .ok()?
+}
+
+/// Sends an interactive verification request to `user_id`; the flow itself continues in the verification UI.
+#[cfg(feature = "sdk")]
+pub async fn request_user_verification(
+    client: &matrix_sdk::Client,
+    user_id: &str,
+) -> Result<(), OperationError> {
+    let id = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let identity = user_identity(client, &id).await.ok_or(OperationError::Unavailable)?;
+    tokio::time::timeout(WAIT, identity.request_verification())
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|_| OperationError::Transport)?;
+    Ok(())
+}
+
+/// Rights of `me` over `target` from the room power levels (SDK checks stay with ruma). The bool is
+/// whether `me` may delete the messages of others. Nothing for oneself or a non-member.
+#[cfg(feature = "sdk")]
+fn member_rights(
+    pl: &matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels,
+    me: &matrix_sdk::ruma::UserId,
+    target: &matrix_sdk::ruma::UserId,
+    joined: bool,
+) -> (MemberRights, bool) {
+    use matrix_sdk::ruma::{Int, events::room::power_levels::UserPowerLevel};
+    if !joined || me == target {
+        return Default::default();
+    }
+    let (mine, theirs) = (pl.for_user(me), pl.for_user(target));
+    let levels = if pl.user_can_change_user_power_level(me, target) {
+        POWER_LEVELS
+            .into_iter()
+            .filter(|l| {
+                let l = UserPowerLevel::Int(Int::from(*l as i32));
+                l <= mine && l != theirs
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let rights = MemberRights {
+        kick: pl.user_can_kick_user(me, target),
+        ban: pl.user_can_ban_user(me, target),
+        levels,
+        recent: Vec::new(),
+    };
+    (rights, pl.user_can_redact_event_of_other(me))
+}
+
+#[cfg(feature = "sdk")]
+async fn moderation_room(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    user_id: &str,
+) -> Result<(matrix_sdk::Room, matrix_sdk::ruma::OwnedUserId), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let target = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| OperationError::WrongScope)?;
+    let room = client
+        .get_room(&id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(OperationError::Unavailable)?;
+    Ok((room, target))
+}
+
+#[cfg(feature = "sdk")]
+pub(crate) async fn load_member_rights(
+    client: &matrix_sdk::Client,
+    timelines: &crate::room_sync::Timelines,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    user_id: &str,
+) -> Result<MemberRights, OperationError> {
+    use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineItemContent};
+    let (room, target) = moderation_room(client, account, scope, user_id).await?;
+    let me = client.user_id().ok_or(OperationError::Unavailable)?;
+    tokio::time::timeout(WAIT, async {
+        let pl = room.power_levels().await.map_err(|_| OperationError::Unavailable)?;
+        let joined = room
+            .get_member(&target)
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|m| matches!(m.membership(), matrix_sdk::ruma::events::room::member::MembershipState::Join));
+        let (mut rights, redact) = member_rights(&pl, me, &target, joined);
+        if redact {
+            // shortcut: only messages the timeline has loaded count as «recent»; upgrade by paginating if wanted.
+            let timeline = timelines.get(&room).await.map_err(|_| OperationError::Unavailable)?;
+            rights.recent = timeline
+                .items()
+                .await
+                .iter()
+                .filter_map(|i| i.as_event())
+                .filter(|e| e.sender() == target && matches!(e.content(), TimelineItemContent::MsgLike(m) if !matches!(m.kind, MsgLikeKind::Redacted))) // real messages only: membership/profile/state events must never be redacted
+                .filter_map(|e| e.event_id().map(ToString::to_string))
+                .collect();
+        }
+        Ok(rights)
+    })
+    .await
+    .map_err(|_| OperationError::Transport)?
+}
+
+/// Re-checks the rights at the moment of the action (the levels may have changed since the panel loaded),
+/// then runs it through the SDK. Redaction deletes exactly the events given, nothing else.
+#[cfg(feature = "sdk")]
+pub(crate) async fn moderate(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    user_id: &str,
+    action: &Moderation,
+) -> Result<(), OperationError> {
+    let (room, target) = moderation_room(client, account, scope, user_id).await?;
+    let me = client.user_id().ok_or(OperationError::Unavailable)?;
+    let pl = room.power_levels().await.map_err(|_| OperationError::Unavailable)?;
+    let (rights, redact) = member_rights(&pl, me, &target, true);
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        match action {
+            Moderation::Kick if rights.kick => room.kick_user(&target, None).await.map_err(|e| classify(&e)),
+            Moderation::Ban if rights.ban => room.ban_user(&target, None).await.map_err(|e| classify(&e)),
+            Moderation::SetPower(l) if rights.levels.contains(l) => room
+                .update_power_levels(vec![(&*target, matrix_sdk::ruma::Int::from(*l as i32))])
+                .await
+                .map(drop)
+                .map_err(|e| classify(&e)),
+            Moderation::RedactMessages(ids) if redact && me != target => {
+                for id in ids {
+                    let id = matrix_sdk::ruma::EventId::parse(id).map_err(|_| OperationError::InvalidInput)?;
+                    room.redact(&id, None, None).await.map_err(|e| classify(&e.into()))?;
+                }
+                Ok(())
+            }
+            _ => Err(OperationError::Forbidden),
+        }
+    })
+    .await
+    .map_err(|_| OperationError::Transport)?
 }
 
 #[cfg(feature = "sdk")]
@@ -450,7 +1030,7 @@ pub(crate) async fn perform(
 /// The id of the next event the send queue reports as sent that satisfies `want` (read back from
 /// the server: the queue chooses its own transaction ids).
 #[cfg(feature = "sdk")]
-async fn sent_event(
+pub(crate) async fn sent_event(
     updates: &mut tokio::sync::broadcast::Receiver<matrix_sdk::send_queue::SendQueueUpdate>,
     room: &matrix_sdk::Room,
     want: impl Fn(&serde_json::Value) -> bool,
@@ -807,6 +1387,38 @@ async fn own_reaction(
 #[cfg(all(test, feature = "sdk"))]
 mod tests {
     use super::*;
+
+    fn levels(users: &[(&str, i32)]) -> matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels {
+        use matrix_sdk::ruma::{Int, events::room::power_levels::*, room_version_rules::AuthorizationRules};
+        let rules = AuthorizationRules::V10;
+        let mut c = RoomPowerLevelsEventContent::new(&rules);
+        for (u, l) in users {
+            c.users.insert(matrix_sdk::ruma::UserId::parse(*u).unwrap(), Int::from(*l));
+        }
+        RoomPowerLevels::new(c.into(), &rules, [])
+    }
+
+    #[test]
+    fn moderator_rights_stop_at_own_level_and_at_peers() {
+        let id = |s| matrix_sdk::ruma::UserId::parse(s).unwrap();
+        let pl = levels(&[("@mod:x", 50), ("@mod2:x", 50), ("@admin:x", 100)]);
+        let rights = |me, who, joined| member_rights(&pl, &id(me), &id(who), joined);
+        // a plain user may do nothing, and deletes nothing
+        assert_eq!(rights("@u:x", "@v:x", true), (MemberRights::default(), false));
+        // the moderator: kick/ban a plain member, offers Moderatore and no Utente (already 0), nothing above self
+        let (r, redact) = rights("@mod:x", "@v:x", true);
+        assert!(r.kick && r.ban && redact);
+        assert_eq!(r.levels, vec![50]);
+        // not over a peer or a superior, not over self, not over a non-member
+        for who in ["@mod2:x", "@admin:x", "@mod:x"] {
+            let (r, _) = rights("@mod:x", who, true);
+            assert!(!r.kick && !r.ban, "{who}");
+            assert!(r.levels.is_empty() || who == "@mod:x", "{who}");
+        }
+        assert_eq!(rights("@mod:x", "@v:x", false).0, MemberRights::default());
+        // the admin may give every level the member does not have yet
+        assert_eq!(rights("@admin:x", "@mod:x", true).0.levels, vec![0, 100]);
+    }
     #[test]
     fn full_reaction_journal_keeps_confirmed_identity_without_accepting_new_writes() {
         use matrix_domain::{AccountId, RoomId};

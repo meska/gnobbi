@@ -30,7 +30,7 @@ fn video_thumbnail_receive_cap_precedes_mime_and_decode() {
             }
             if case == "no-info" { content.as_object_mut().unwrap().remove("info"); }
             let event = serde_json::json!({"type":"m.room.message", "event_id":"$video", "room_id":"!video:fixture.invalid", "sender":"@alice:fixture.invalid", "origin_server_ts":1, "content":content});
-            let sync = serde_json::json!({"next_batch":"s1", "rooms":{"join":{"!video:fixture.invalid":{"state":{"events":[{"type":"m.room.member", "state_key":"@alice:fixture.invalid", "sender":"@alice:fixture.invalid", "event_id":"$member", "origin_server_ts":1, "content":{"membership":"join"}}]}, "timeline":{"events":[], "limited":false, "prev_batch":"s0"}, "ephemeral":{"events":[]}, "account_data":{"events":[]}, "unread_notifications":{}}}}});
+            let sync = serde_json::json!({"pos":"1", "lists":{"all_rooms":{"count":1}}, "extensions":{}, "rooms":{"!video:fixture.invalid":{"initial":true, "joined_count":1, "required_state":[{"type":"m.room.member", "state_key":"@alice:fixture.invalid", "sender":"@alice:fixture.invalid", "event_id":"$member", "origin_server_ts":1, "content":{"membership":"join"}}], "timeline":[]}}});
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
             let requests = Arc::new(Mutex::new(Vec::new()));
@@ -61,7 +61,7 @@ fn video_thumbnail_receive_cap_precedes_mime_and_decode() {
                 .server_versions([MatrixVersion::V1_0]).build().await.unwrap();
             let session: matrix_sdk::authentication::matrix::MatrixSession = serde_json::from_value(serde_json::json!({"user_id":"@alice:fixture.invalid", "device_id":"TEST", "access_token":"synthetic"})).unwrap();
             client.restore_session(session).await.unwrap();
-            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
             let session = AccountSession { account_id: AccountId::new(26), client: Some(client), store: None };
             let mut views = crate::ViewRequests::new();
             let tag = views.start(matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new("!video:fixture.invalid") }).unwrap();
@@ -123,7 +123,7 @@ fn disposable_video_thumbnail_decodes_without_persistent_cache() {
             ).await.unwrap();
             let client = session.client.as_ref().unwrap();
             client.encryption().wait_for_e2ee_initialization_tasks().await;
-            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            crate::room_sync::RoomSync::sliding_catch_up(client).await.unwrap();
             let room = client.get_room(&matrix_sdk::ruma::RoomId::parse(&room_id).unwrap()).unwrap();
             let scope = matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new(&room_id) };
             let mut requests = crate::ViewRequests::new();
@@ -399,12 +399,7 @@ fn disposable_media_upload_png_has_actual_server_event_and_bytes() {
             .unwrap()
             .to_owned();
         let session = login(&config, "alice", 26).await;
-        session
-            .client
-            .as_ref()
-            .unwrap()
-            .sync_once(matrix_sdk::config::SyncSettings::default())
-            .await
+        crate::room_sync::RoomSync::sliding_catch_up(session.client.as_ref().unwrap()).await
             .unwrap();
         let scope = matrix_domain::RoomScope {
             account_id: AccountId::new(26),
@@ -467,12 +462,7 @@ fn disposable_media_download_png_returns_exact_bytes_and_preview() {
             .unwrap()
             .to_owned();
         let session = login(&config, "alice", 26).await;
-        session
-            .client
-            .as_ref()
-            .unwrap()
-            .sync_once(matrix_sdk::config::SyncSettings::default())
-            .await
+        crate::room_sync::RoomSync::sliding_catch_up(session.client.as_ref().unwrap()).await
             .unwrap();
         let scope = matrix_domain::RoomScope {
             account_id: AccountId::new(26),
@@ -517,7 +507,7 @@ fn disposable_media_encrypted_png_is_ciphertext_and_preview_decrypts() {
         let session = login(&config, "alice", 26).await;
         let client = session.client.as_ref().unwrap();
         client.encryption().wait_for_e2ee_initialization_tasks().await;
-        client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(client).await.unwrap();
         let scope = matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new(&room) };
         let event = session.send_png(&scope, &matrix_domain::TransactionId::new("p026-encrypted"), MEDIA_PNG.to_vec()).await.unwrap();
         let wire = room_request(&config, "alice", reqwest::Method::GET, &format!("rooms/{room}/event/{}", event.as_str()), serde_json::json!({})).await;
@@ -556,12 +546,7 @@ fn disposable_media_cancel_interrupts_blocked_network_read() {
             .unwrap()
             .to_owned();
         let session = login(&config, "alice", 26).await;
-        session
-            .client
-            .as_ref()
-            .unwrap()
-            .sync_once(matrix_sdk::config::SyncSettings::default())
-            .await
+        crate::room_sync::RoomSync::sliding_catch_up(session.client.as_ref().unwrap()).await
             .unwrap();
         let scope = matrix_domain::RoomScope {
             account_id: AccountId::new(26),
@@ -699,7 +684,7 @@ fn disposable_media_rejects_untrusted_payloads_and_wrong_account() {
         let config = fixture();
         let room = room_request(&config, "alice", reqwest::Method::POST, "createRoom", serde_json::json!({"visibility":"private", "name":"limits"})).await["room_id"].as_str().unwrap().to_owned();
         let session = login(&config, "alice", 26).await;
-        session.client.as_ref().unwrap().sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(session.client.as_ref().unwrap()).await.unwrap();
         let scope = matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new(&room) };
         let mut requests = crate::ViewRequests::new();
         let tag = requests.start(scope.clone()).unwrap();
@@ -849,7 +834,7 @@ fn image_bubble_uses_thumbnail_and_keeps_original_a_separate_resource() {
                 content["url"] = serde_json::json!("mxc://fixture.invalid/original");
             }
             let event = serde_json::json!({"type":"m.room.message", "event_id":"$image", "room_id":"!image:fixture.invalid", "sender":"@alice:fixture.invalid", "origin_server_ts":1, "content":content});
-            let sync = serde_json::json!({"next_batch":"s1", "rooms":{"join":{"!image:fixture.invalid":{"state":{"events":[{"type":"m.room.member", "state_key":"@alice:fixture.invalid", "sender":"@alice:fixture.invalid", "event_id":"$member", "origin_server_ts":1, "content":{"membership":"join"}}]}, "timeline":{"events":[], "limited":false, "prev_batch":"s0"}, "ephemeral":{"events":[]}, "account_data":{"events":[]}, "unread_notifications":{}}}}});
+            let sync = serde_json::json!({"pos":"1", "lists":{"all_rooms":{"count":1}}, "extensions":{}, "rooms":{"!image:fixture.invalid":{"initial":true, "joined_count":1, "required_state":[{"type":"m.room.member", "state_key":"@alice:fixture.invalid", "sender":"@alice:fixture.invalid", "event_id":"$member", "origin_server_ts":1, "content":{"membership":"join"}}], "timeline":[]}}});
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
             let requests = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -879,7 +864,7 @@ fn image_bubble_uses_thumbnail_and_keeps_original_a_separate_resource() {
                 .server_versions([MatrixVersion::V1_0]).build().await.unwrap();
             let session: matrix_sdk::authentication::matrix::MatrixSession = serde_json::from_value(serde_json::json!({"user_id":"@alice:fixture.invalid", "device_id":"TEST", "access_token":"synthetic"})).unwrap();
             client.restore_session(session).await.unwrap();
-            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
             let mut views = crate::ViewRequests::new();
             let tag = views.start(matrix_domain::RoomScope { account_id: AccountId::new(26), room_id: matrix_domain::RoomId::new("!image:fixture.invalid") }).unwrap();
             let got = crate::media_sdk::download_png(&client, AccountId::new(26), &tag, &matrix_domain::EventId::new("$image"), false).await
@@ -935,10 +920,10 @@ fn disposable_avatar_thumbnails_download_cache_cap_and_logout() {
             let mut create = serde_json::json!({"visibility":"private", "name":name});
             if let Some(kind) = kind { create["creation_content"] = serde_json::json!({"type":kind}); }
             let id = room_request(&config, "alice", reqwest::Method::POST, "createRoom", create).await["room_id"].as_str().unwrap().to_owned();
-            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
             let room = client.get_room(&matrix_sdk::ruma::RoomId::parse(&id).unwrap()).unwrap();
             room.upload_avatar(&mime, colour(if kind.is_some() { 200 } else { 100 }), None).await.unwrap();
-            client.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
             mxcs.push(room.avatar_url().unwrap().to_string());
         }
         let upload = |data: Vec<u8>| { let client = client.clone(); let mime = mime.clone(); async move { client.media().upload(&mime, data, None).await.unwrap().content_uri.to_string() } };
@@ -1027,7 +1012,7 @@ fn disposable_avatar_edge_cases_corrupt_huge_unreachable_changed() {
         let corrupt = client.media().upload(&mime, junk, None).await.unwrap().content_uri.to_string();
         let got = session.avatar_thumbnail(&corrupt).await.unwrap();
         eprintln!("EDGE corrupt: returned={:?} files={}", got.as_ref().map(Vec::len), files());
-        assert!(got.as_ref().map_or(true, |b| image::load_from_memory(b).is_err()));
+        assert!(got.as_ref().is_none_or(|b| image::load_from_memory(b).is_err()));
 
         // Enormous: 5000x5000 (under Synapse's pixel limit) is cut to a thumbnail; 9000x9000 is refused.
         let big = client.media().upload(&mime, png(5000, 5000, 1), None).await.unwrap().content_uri.to_string();
@@ -1046,6 +1031,12 @@ fn disposable_avatar_edge_cases_corrupt_huge_unreachable_changed() {
         eprintln!("EDGE unreachable: {:?} in {:?}", none.as_ref().map(Vec::len), started.elapsed());
         assert!(none.is_none() && started.elapsed() < std::time::Duration::from_secs(40));
         assert_eq!(files(), before, "failure leaves no file");
+
+        // Final vs transient: a missing media id is final; a homeserver nobody listens on is worth a retry.
+        let missing = "mxc://matrix-desktop.test/doesnotexist";
+        assert_eq!(cache.try_get(&client, missing).await.err(), Some(false));
+        let dead = matrix_sdk::Client::builder().homeserver_url("http://127.0.0.1:1").build().await.unwrap();
+        assert_eq!(cache.try_get(&dead, "mxc://gone.invalid/abcdefghijklmnop").await.err(), Some(true));
 
         // Changed after the cache: a new mxc is a new download and shows the new picture.
         let first = client.account().upload_avatar(&mime, png(400, 400, 10)).await.unwrap().to_string();

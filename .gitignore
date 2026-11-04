@@ -22,6 +22,17 @@ matrix-test-*.yaml
 *.log
 *.tmp
 
+# Probe userdir-live (container usa e getta)
+/scripts/userdir-live/probe/target/
+
+# Output mobile generati (scripts/mobile.sh + apps/*/stage.sh), mai committati
+/apps/ios/Generated/
+/apps/ios/DerivedData/
+/apps/android/app/src/main/jniLibs/
+
+/scripts/userdir-live/out/
+/scripts/userdir-live/tuwunel-runtime.toml
+
 # Python (script di supporto)
 __pycache__/
 *.pyc
@@ -32,3 +43,4 @@ __pycache__/
 .obsidian/
 *.swp
 .DS_Store
+apps/fixture/.run/

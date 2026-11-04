@@ -75,6 +75,9 @@ fn device_initiation_uses_stable_scoped_ids_and_rejects_removed_or_busy_targets(
         user_id: "@alice:matrix-desktop.test".into(),
         device_id: "A".into(),
         verified: false,
+        display_name: None,
+        last_seen_ts: None,
+        last_seen_ip: None,
     };
     let b = VerificationDevice {
         device_id: "B".into(),
@@ -332,9 +335,11 @@ fn sas_snapshot_exposes_exact_identity_comparison_and_separate_trust() {
 fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
     use accesskit::{ActionRequest, TreeId};
     use matrix_desktop::accessibility::devices::{DeviceAction, DeviceView, OPEN};
-    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, THEME};
+    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, SEARCH};
     let account = AccountId::new(18);
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![matrix_desktop::panel_openers::Snapshot {
@@ -344,14 +349,16 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
             focused: false,
         }],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: DeviceView::Closed(account),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -373,9 +380,9 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
     )));
     let tree = snapshot.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Verifica dispositivi"));
-    assert!(!tree.nodes.iter().any(|(id, _)| *id == THEME));
+    assert!(!tree.nodes.iter().any(|(id, _)| *id == SEARCH));
     let mut request = ActionRequest {
-        target_node: THEME,
+        target_node: SEARCH,
         action: Action::Click,
         target_tree: TreeId::ROOT,
         data: None,
@@ -447,6 +454,9 @@ fn device_overview_reads_sdk_devices_without_offering_unverified_sas_actions() {
             user_id: "@alice:matrix-desktop.test".into(),
             device_id: "FIXTURE_DEVICE".into(),
             verified: false,
+            display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
         }],
     });
     let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6]);
@@ -454,6 +464,7 @@ fn device_overview_reads_sdk_devices_without_offering_unverified_sas_actions() {
     assert_eq!(tree.nodes[0].1.label(), Some("Verifica dispositivi"));
     assert_eq!(tree.focus, DeviceControl::Refresh.id());
     for value in [
+        "Altri dispositivi",
         "FIXTURE_DEVICE · Non verificato",
         "Seleziona un dispositivo",
     ] {
@@ -464,6 +475,12 @@ fn device_overview_reads_sdk_devices_without_offering_unverified_sas_actions() {
             "missing readable value: {value}"
         );
     }
+    assert!(
+        tree.nodes
+            .iter()
+            .all(|(_, n)| !n.value().is_some_and(|v| v.contains("Avvia solo") || v.contains("canale fidato"))),
+        "explanatory copy must not be exposed"
+    );
     let controls: Vec<_> = tree
         .nodes
         .iter()

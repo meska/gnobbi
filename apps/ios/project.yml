@@ -1,0 +1,24 @@
+name: GnobbiMobile
+options:
+  bundleIdPrefix: chat.gnobbi
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_UILaunchScreen_Generation: YES
+targets:
+  GnobbiMobile:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+      - Generated/swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: chat.gnobbi.mobile.sample
+        OTHER_LDFLAGS: ["-lc++"]
+    dependencies:
+      - framework: Generated/MatrixMobile.xcframework
+        embed: false

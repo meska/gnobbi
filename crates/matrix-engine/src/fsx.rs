@@ -19,6 +19,24 @@ pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
     builder.create(path)
 }
 
+/// Publishes `pending` as `dest` without overwriting `dest` (hard link; the caller then removes `pending`).
+pub(crate) fn publish_new(pending: &Path, dest: &Path) -> io::Result<()> {
+    // shortcut: Android's SELinux denies link(2) to apps, so check-then-rename; not atomic against a second writer,
+    // which the profile lock already excludes. Revisit if stores are ever shared between processes.
+    #[cfg(target_os = "android")]
+    return if dest.exists() { Err(io::ErrorKind::AlreadyExists.into()) } else { fs::rename(pending, dest) };
+    #[cfg(not(target_os = "android"))]
+    fs::hard_link(pending, dest)
+}
+
+/// Removes a file that may already be gone (the Android publish path renames it away).
+pub(crate) fn remove_pending(path: &Path) -> io::Result<()> {
+    match fs::remove_file(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
 /// Force an existing directory back to owner-only.
 pub(crate) fn tighten_dir(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
@@ -111,6 +129,23 @@ mod tests {
                 .unwrap();
             assert!(!mode_is(&fs::symlink_metadata(&root).unwrap(), 0o700));
         }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn publish_new_never_overwrites_and_pending_may_be_gone() {
+        let root = std::env::temp_dir().join(format!("gnobbi-fsx-publish-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        create_private_dir(&root).unwrap();
+        let (pending, dest) = (root.join("p"), root.join("d"));
+        fs::write(&pending, b"1").unwrap();
+        publish_new(&pending, &dest).unwrap();
+        remove_pending(&pending).unwrap();
+        remove_pending(&pending).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), b"1");
+        fs::write(&pending, b"2").unwrap();
+        assert!(publish_new(&pending, &dest).is_err());
+        assert_eq!(fs::read(&dest).unwrap(), b"1");
         fs::remove_dir_all(&root).unwrap();
     }
 }

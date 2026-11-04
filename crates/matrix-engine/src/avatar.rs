@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex};
 pub struct AvatarPicture {
     pub mxc: String,
     pub rgba: Option<(u32, u32, Vec<u8>)>,
+    /// With no picture: the failure was transient (offline, timeout, 5xx), ask again later.
+    pub retry: bool,
 }
 
 pub trait AvatarSource: Send + Sync {

@@ -1,0 +1,12 @@
+# Gnobbi vendored gpui
+
+- Version: 0.2.2 (Apache-2.0).
+- Official archive: https://static.crates.io/crates/gpui/gpui-0.2.2.crate
+- Archive SHA-256: `979b45cfa6ec723b6f42330915a1b3769b930d02b2d505f9697f8ca602bee707`.
+- Upstream source file modified: `src/platform/linux/wayland/client.rs`. `wl_keyboard::Event::Modifiers` and `Key` unwrapped `keymap_state`, which stays `None` until a `keymap` event arrives; a compositor (sway after `wtype`) may send `modifiers` first, which panicked at startup. Both events are now ignored while no keymap is known, and the `Modifiers` arm no longer unwraps at all (two locals, as in the upstream PR).
+- Upstream source file modified: `src/platform/linux/x11/client.rs`. Enables XKB DetectableAutoRepeat at startup: without it the X server turns every key repeat into a KeyRelease+KeyPress pair, and gpui only hides the release when both land in one poll batch, so a held Space/Enter reached apps as a real release (intermittent double activation, test `theme_unread_require_completed_current_keyboard_gestures`). Not yet proposed upstream; `is_held` stays `false` on X11.
+- Upstream source file modified: `src/platform/linux/text_system.rs`, plus two Linux dependencies in `Cargo.toml` (`icu_properties` 2.3.0, `unicode-segmentation` 1.13; both already in Cargo.lock). `layout_line` splits each font run at grapheme clusters that are emoji (contain U+FE0F or start with an Emoji_Presentation character: faces, flags, ZWJ and skin-tone sequences, keycaps) and gives them the "Noto Color Emoji" family registered by the app (`crates/matrix-desktop/src/emoji_font.rs`). Without it a text font with its own monochrome glyph for U+1F600 (DejaVu Sans) wins over the colour fallback; upstream has no fallback list on Linux (`TODO: Remove this when Linux have implemented setting fallbacks`). No-op when the family is not registered. Test: `emoji_font::tests::every_emoji_cluster_is_one_noto_glyph` (fails without the patch).
+- Upstream: issues zed-industries/zed#64660 and #64959; fix PR zed-industries/zed#64970 (open on 2026-10-30).
+- Removal (wayland/x11 fixes): drop those two hunks, `../gpui-0.2.2.patch` and the `[patch.crates-io]` entry once that PR is merged and released in a gpui version we bump to.
+- Regression test: `crates/matrix-desktop/tests/wayland_keymap_order.rs` (fake compositor).
+- `../gpui-0.2.2.patch` is generated using `diff -ruN` from the extracted official archive to this directory, excluding the added distribution file `GNOBBI-PATCH.md`. All other upstream files remain byte-identical.

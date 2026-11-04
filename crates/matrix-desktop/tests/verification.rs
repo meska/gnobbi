@@ -63,6 +63,9 @@ fn device_selection_retries_full_queue_and_ignores_foreign_account() {
             user_id: "@other:fixture.invalid".into(),
             device_id: "WRONG".into(),
             verified: true,
+            display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
         }],
     });
     assert!(panel.devices().is_empty());
@@ -72,6 +75,9 @@ fn device_selection_retries_full_queue_and_ignores_foreign_account() {
             user_id: "@alice:fixture.invalid".into(),
             device_id: "PEER".into(),
             verified: false,
+            display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
         }],
     });
     assert!(!panel.begin(5));
@@ -129,6 +135,9 @@ fn active_flow_cannot_be_replaced_or_confirmed_after_transport_error() {
             user_id: "@alice:fixture.invalid".into(),
             device_id: "PEER".into(),
             verified: false,
+            display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
         }],
     });
     panel.apply(Event::Snapshot(snapshot(State::Compare {

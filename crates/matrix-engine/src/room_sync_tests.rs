@@ -380,3 +380,32 @@ fn audio_info_takes_duration_and_size_from_info_and_never_has_a_thumbnail() {
     let bare = audio(serde_json::json!({"msgtype":"m.audio","body":"a","url":"mxc://t/a"}));
     assert_eq!((bare.duration_ms, bare.size), (None, None));
 }
+
+#[test]
+fn nonempty_treats_missing_and_empty_avatar_as_absent() {
+    use matrix_sdk::ruma::MxcUri;
+    assert_eq!(nonempty(None), None);
+    assert_eq!(nonempty(Some(<&MxcUri>::from(""))), None);
+    assert_eq!(
+        nonempty(Some(<&MxcUri>::from("mxc://s/abc"))).as_deref(),
+        Some("mxc://s/abc")
+    );
+}
+
+#[test]
+fn ambiguous_member_name_carries_user_id() {
+    let id = |n: &str| format!("@{n}:example.org");
+    assert_eq!(
+        super::disambiguated_name(Some("Anna"), true, &id("anna1")).as_deref(),
+        Some("Anna (@anna1:example.org)")
+    );
+    assert_eq!(
+        super::disambiguated_name(Some("Anna"), true, &id("anna2")).as_deref(),
+        Some("Anna (@anna2:example.org)")
+    );
+    assert_eq!(
+        super::disambiguated_name(Some("Anna"), false, &id("anna1")).as_deref(),
+        Some("Anna")
+    );
+    assert_eq!(super::disambiguated_name(None, true, &id("x")), None);
+}

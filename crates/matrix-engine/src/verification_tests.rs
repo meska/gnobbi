@@ -20,15 +20,15 @@ fn fixture_gui_verification_peer() {
             async move { incoming.lock().unwrap().push((event.sender.to_string(), event.content.transaction_id.to_string())); }
         });
         client.encryption().wait_for_e2ee_initialization_tasks().await;
-        verification_sync(&client).await;
-        verification_sync(&client).await;
+        peer_sync(&client).await;
+        peer_sync(&client).await;
         let peer = AccountSession { account_id: AccountId::new(24), client: Some(client.clone()), store: None };
         std::fs::write(root.join("peer-ready"), "ready").unwrap();
         let mut flow: Option<crate::verification::VerificationFlow> = None;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(85);
         while !root.join("peer-stop").exists() {
             assert!(std::time::Instant::now() < deadline, "fixture peer deadline");
-            verification_sync(&client).await;
+            peer_sync(&client).await;
             let request = requests.lock().unwrap().pop();
             if let Some((user, id)) = request {
                 let mut next = peer.receive_device_verification(&user, &id).await.unwrap();
@@ -97,14 +97,18 @@ async fn verification_pair(config: &serde_json::Value) -> (AccountSession, matri
     verification_sync(client).await;
     // The extra requester device was logged in after encrypted_pair. Deliver the
     // device-list change and flush the SDK key query before requesting verification.
-    verification_sync(&peer).await;
-    verification_sync(&peer).await;
+    peer_sync(&peer).await;
+    peer_sync(&peer).await;
     (session, peer)
 }
 
+/// The requester is the client under test (sliding); the peer device stays a plain SDK client.
 async fn verification_sync(client: &matrix_sdk::Client) {
-    client
-        .sync_once(matrix_sdk::config::SyncSettings::default().timeout(std::time::Duration::ZERO))
+    crate::room_sync::RoomSync::sliding_catch_up(client).await.unwrap();
+}
+
+async fn peer_sync(peer: &matrix_sdk::Client) {
+    peer.sync_once(matrix_sdk::config::SyncSettings::default().timeout(std::time::Duration::ZERO))
         .await
         .unwrap();
 }
@@ -134,10 +138,10 @@ fn disposable_verification_sas_confirmation_verifies_exact_devices() {
         assert!(!right.device_verified);
         flow.perform(Action::Confirm).await.unwrap();
         assert_ne!(flow.snapshot().await.unwrap().state, State::Verified);
-        verification_sync(&peer).await;
+        peer_sync(&peer).await;
         incoming.perform(Action::Confirm).await.unwrap();
         verification_sync(client).await;
-        verification_sync(&peer).await;
+        peer_sync(&peer).await;
         verification_sync(client).await;
         let left = flow.snapshot().await.unwrap();
         let right = incoming.snapshot().await.unwrap();
@@ -176,7 +180,7 @@ async fn verification_comparison(
         .await
         .unwrap();
     let id = flow.snapshot().await.unwrap().flow_id;
-    verification_sync(peer).await;
+    peer_sync(peer).await;
     let mut incoming = bob
         .receive_device_verification(client.user_id().unwrap().as_str(), &id)
         .await
@@ -186,10 +190,10 @@ async fn verification_comparison(
     verification_sync(client).await;
     assert_eq!(flow.snapshot().await.unwrap().state, State::Ready);
     flow.perform(Action::StartSas).await.unwrap();
-    verification_sync(peer).await;
+    peer_sync(peer).await;
     incoming.perform(Action::AcceptSas).await.unwrap();
     verification_sync(client).await;
-    verification_sync(peer).await;
+    peer_sync(peer).await;
     verification_sync(client).await;
     (flow, incoming)
 }
@@ -215,13 +219,13 @@ fn disposable_verification_cancel_keeps_both_devices_untrusted() {
             .await
             .unwrap();
         let id = flow.snapshot().await.unwrap().flow_id;
-        verification_sync(&peer).await;
+        peer_sync(&peer).await;
         let incoming = bob
             .receive_device_verification(client.user_id().unwrap().as_str(), &id)
             .await
             .unwrap();
         flow.perform(Action::Cancel).await.unwrap();
-        verification_sync(&peer).await;
+        peer_sync(&peer).await;
         for snapshot in [
             flow.snapshot().await.unwrap(),
             incoming.snapshot().await.unwrap(),
@@ -246,7 +250,7 @@ fn disposable_verification_mismatch_never_trusts_devices() {
         };
         let (mut flow, incoming) = verification_comparison(&alice, &bob).await;
         flow.perform(Action::Mismatch).await.unwrap();
-        verification_sync(&peer).await;
+        peer_sync(&peer).await;
         for snapshot in [
             flow.snapshot().await.unwrap(),
             incoming.snapshot().await.unwrap(),
@@ -279,7 +283,7 @@ fn disposable_verification_start_failure_is_terminal_untrusted() {
             .await
             .unwrap();
         let id = flow.snapshot().await.unwrap().flow_id;
-        verification_sync(&peer).await;
+        peer_sync(&peer).await;
         let mut incoming = bob
             .receive_device_verification(
                 alice.client.as_ref().unwrap().user_id().unwrap().as_str(),

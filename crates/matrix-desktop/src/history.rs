@@ -7,6 +7,10 @@ pub struct DemoHistory {
     scope: RoomScope,
     older_count: usize,
     local_count: usize,
+    hide_redacted: bool,
+    hide_status: bool,
+    /// Redacted/status rows kept out of `events` while hidden.
+    hidden: Vec<DemoEvent>,
 }
 
 /// Demo transport controls only; neither state means delivery to a server.
@@ -21,6 +25,13 @@ pub enum DemoSendState {
 pub struct VideoFacts {
     pub duration: Option<String>,
     pub size: Option<String>,
+}
+
+fn video_facts(v: matrix_engine::history::VideoInfo) -> VideoFacts {
+    VideoFacts {
+        duration: v.duration_ms.map(matrix_engine::history::duration_label),
+        size: v.size.map(matrix_engine::history::human_size),
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,8 +53,15 @@ pub struct DemoEvent {
     pub timestamp_ms: u64,
     /// Set for an `m.video` row: the bubble paints a picture with play symbol instead of `text`.
     pub video: Option<VideoFacts>,
+    /// File name of a received attachment (any kind): the bubble offers «Scarica».
+    pub attachment_name: Option<String>,
+    pub attachment_size: Option<u64>,
     /// Set on a thread root: replies count and who wrote the latest one.
     pub thread: Option<matrix_engine::history::ThreadInfo>,
+    /// Set on a reply inside a thread: the thread's root.
+    pub thread_root: Option<matrix_domain::EventId>,
+    /// A status row (join, invite, rename…): drawn as a quiet centred line, not a bubble.
+    pub status: bool,
 }
 
 impl DemoEvent {
@@ -64,10 +82,15 @@ impl DemoEvent {
     /// «N risposte» under a thread root, with the initials for the latest author's avatar.
     pub fn thread_label(&self) -> Option<(String, String, Option<&str>)> {
         let t = self.thread.as_ref()?;
-        let label = match t.num_replies {
+        let mut label = match t.num_replies {
             1 => "1 risposta".to_owned(),
             n => format!("{n} risposte"),
         };
+        match t.unread {
+            0 => {}
+            1 => label.push_str(" · 1 non letta"),
+            n => label.push_str(&format!(" · {n} non lette")),
+        }
         let who = t.latest_sender.as_ref().map(|s| s.name.as_deref().unwrap_or(&s.id));
         let initials = who.unwrap_or("").trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
         Some((label, initials, t.latest_sender.as_ref().and_then(|s| s.avatar.as_deref())))
@@ -83,7 +106,7 @@ impl DemoEvent {
 
     /// Whether the message offers its actions menu: confirmed server messages only.
     pub fn menu_available(&self, live: bool) -> bool {
-        live && self.send_state.is_none()
+        live && !self.status && self.send_state.is_none()
     }
 }
 
@@ -104,6 +127,16 @@ pub fn opens_message_menu(
 }
 
 impl DemoHistory {
+    /// The thread was read in its panel: its root shows no unread replies until the engine says otherwise.
+    pub fn clear_thread_unread(&mut self, root: &EventId) -> bool {
+        let row = self.events.iter_mut().find(|row| row.id.id == TimelineId::Server(root.clone()));
+        row.and_then(|r| r.thread.as_mut()).is_some_and(|t| std::mem::take(&mut t.unread) > 0)
+    }
+
+    pub fn row(&self, id: &EventId) -> Option<&DemoEvent> {
+        self.events.iter().find(|row| row.id.id == TimelineId::Server(id.clone()))
+    }
+
     /// Message the keyboard menu opens on: `focused` when it still offers one, else the newest.
     pub fn keyboard_menu_target(
         &self,
@@ -144,12 +177,16 @@ impl DemoHistory {
                     timestamp_ms: index as u64 * 60_000,
                     styles: Vec::new(),
                     thread: None,
+                    thread_root: None,
+                    status: false,
                     video: None,
+                    attachment_name: None,
+                    attachment_size: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
                     }),
-                    time: format!("{:02}:{:02}", index / 60 % 24, index % 60),
+                    time: crate::time_fmt::clock_time(index as u64 * 60_000),
                 }
             })
             .collect();
@@ -158,6 +195,9 @@ impl DemoHistory {
             scope,
             older_count: 0,
             local_count: 0,
+            hide_redacted: false,
+            hide_status: false,
+            hidden: Vec::new(),
         }
     }
 
@@ -217,7 +257,11 @@ impl DemoHistory {
             timestamp_ms: 0,
             styles: Vec::new(),
             thread: None,
+            thread_root: None,
+            status: false,
             video: None,
+            attachment_name: None,
+            attachment_size: None,
         });
     }
 
@@ -257,14 +301,43 @@ impl DemoHistory {
     pub fn refresh_server(&mut self, events: Vec<matrix_engine::history::HistoryEvent>) -> bool {
         let mut changed_body = false;
         for event in &events {
+            // Own echo/ACK rows start at ts 0; take the server ts before any redaction hides them.
             if let Some(row) = self
                 .events
                 .iter_mut()
                 .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
-                && (row.text != event.body || row.styles != event.styles)
+                && row.timestamp_ms == 0
             {
+                row.timestamp_ms = event.timestamp_ms;
+                if event.timestamp_ms != 0 {
+                    let edited = row.time.ends_with(" · modificato");
+                    row.time = crate::time_fmt::clock_time(event.timestamp_ms);
+                    if edited {
+                        row.time.push_str(" · modificato");
+                    }
+                }
+            }
+            if let Some(row) = self
+                .events
+                .iter_mut()
+                .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
+                && (row.text != event.body
+                    || row.styles != event.styles
+                    || row.redacted != event.redacted)
+            {
+                row.redacted = event.redacted;
                 row.text.clone_from(&event.body);
                 row.styles.clone_from(&event.styles);
+                changed_body = true;
+            }
+            // The ACK row is born without attachment facts and the server copy is then dropped as a duplicate.
+            if let Some(row) = self.events.iter_mut().find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
+                && row.attachment_name.is_none()
+                && event.attachment_name.is_some()
+            {
+                row.attachment_name.clone_from(&event.attachment_name);
+                row.attachment_size = event.attachment_size;
+                row.video = event.video.clone().map(video_facts);
                 changed_body = true;
             }
             // The count moves when a reply arrives, the text does not.
@@ -284,14 +357,18 @@ impl DemoHistory {
         events: Vec<matrix_engine::history::HistoryEvent>,
         append: bool,
     ) -> usize {
-        let mut seen: std::collections::HashSet<_> =
-            self.events.iter().map(|row| row.id.id.clone()).collect();
+        let mut seen: std::collections::HashSet<_> = self
+            .events
+            .iter()
+            .chain(&self.hidden)
+            .map(|row| row.id.id.clone())
+            .collect();
         let mut rows = events
             .into_iter()
             .filter(|event| seen.insert(TimelineId::Server(event.event_id.clone())))
             .map(|event| DemoEvent {
                 server_confirmed: true,
-                redacted: false,
+                redacted: event.redacted,
                 annotation: String::new(),
                 transaction_id: None,
                 id: ScopedTimelineId {
@@ -300,30 +377,87 @@ impl DemoHistory {
                 },
                 text: event.body,
                 outgoing: event.outgoing,
-                time: format!(
-                    "{:02}:{:02} UTC",
-                    event.timestamp_ms / 3_600_000 % 24,
-                    event.timestamp_ms / 60_000 % 60
-                ),
+                time: crate::time_fmt::clock_time(event.timestamp_ms),
                 send_state: None,
                 sender: (!event.outgoing).then_some(event.sender),
                 timestamp_ms: event.timestamp_ms,
                 styles: event.styles,
                 thread: event.thread,
-                video: event.video.map(|v| VideoFacts {
-                    duration: v.duration_ms.map(matrix_engine::history::duration_label),
-                    size: v.size.map(matrix_engine::history::human_size),
-                }),
+                thread_root: event.thread_root,
+                status: event.status,
+                attachment_name: event.attachment_name,
+                attachment_size: event.attachment_size,
+                video: event.video.map(video_facts),
             })
             .collect::<Vec<_>>();
-        let count = rows.len();
+        let count = rows
+            .iter()
+            .filter(|r| !self.hides(r))
+            .count();
         if append {
             self.events.append(&mut rows);
         } else {
             rows.append(&mut self.events);
             self.events = rows;
         }
+        self.sweep_hidden();
         count
+    }
+
+    fn hides(&self, row: &DemoEvent) -> bool {
+        (self.hide_redacted && row.redacted && row.thread.is_none()) || (self.hide_status && row.status)
+    }
+
+    /// «Nascondi messaggi eliminati»: shows or hides the redacted rows already loaded.
+    /// Returns whether the visible rows changed.
+    pub fn set_hide_redacted(&mut self, hide: bool) -> bool {
+        if self.hide_redacted == hide {
+            return false;
+        }
+        self.hide_redacted = hide;
+        self.reproject();
+        true
+    }
+
+    /// Per-room «Nascondi messaggi di stato»: same projection, for status rows (all of them, room creation included).
+    pub fn set_hide_status(&mut self, hide: bool) -> bool {
+        if self.hide_status == hide {
+            return false;
+        }
+        self.hide_status = hide;
+        self.reproject();
+        true
+    }
+
+    fn reproject(&mut self) {
+        self.sweep_hidden();
+        // shortcut: order by origin_server_ts, not by SDK position; revisit if the timeline shows events out of time order.
+        let (still, back): (Vec<_>, Vec<_>) = std::mem::take(&mut self.hidden)
+            .into_iter()
+            .partition(|r| self.hides(r));
+        self.hidden = still;
+        for row in back {
+            // ts 0 = row not yet synced: it goes to the tail.
+            let at = self
+                .events
+                .iter()
+                .position(|e| row.timestamp_ms != 0 && (e.timestamp_ms == 0 || e.timestamp_ms > row.timestamp_ms))
+                .unwrap_or(self.events.len());
+            self.events.insert(at, row);
+        }
+    }
+
+    /// Moves hidden rows out of `events`; neighbours then group as if they never existed.
+    fn sweep_hidden(&mut self) {
+        let mut kept: Vec<DemoEvent> = Vec::with_capacity(self.events.len());
+        for row in std::mem::take(&mut self.events) {
+            if self.hides(&row) {
+                self.hidden.push(row);
+            } else {
+                kept.push(row);
+            }
+        }
+        self.events = kept;
     }
 
     pub fn project_operations(
@@ -391,7 +525,11 @@ impl DemoHistory {
                     timestamp_ms: 0,
                     styles: Vec::new(),
                     thread: None,
+                    thread_root: None,
+                    status: false,
                     video: None,
+                    attachment_name: None,
+                    attachment_size: None,
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -409,6 +547,7 @@ impl DemoHistory {
                 );
             }
         }
+        self.sweep_hidden();
     }
 
     /// Reconcile outgoing rows by transaction/event ID, never by message text.
@@ -445,7 +584,8 @@ impl DemoHistory {
                 }
                 row.send_state = state;
                 row.server_confirmed = state.is_none();
-                if state.is_none() {
+                // Once the server timestamp is known the row already shows the local clock time.
+                if state.is_none() && row.timestamp_ms == 0 {
                     row.time = "ACK server".into();
                 }
                 if let Some(local) = local.filter(|r| *r != index) {
@@ -470,7 +610,11 @@ impl DemoHistory {
                     timestamp_ms: 0,
                     styles: Vec::new(),
                     thread: None,
+                    thread_root: None,
+                    status: false,
                     video: None,
+                    attachment_name: None,
+                    attachment_size: None,
                 });
             }
         }
@@ -514,7 +658,7 @@ impl DemoHistory {
         let event = self.events.get(index)?;
         let sender = event.sender.as_ref()?;
         let previous = index.checked_sub(1).map(|i| &self.events[i]).map(|prev| {
-            let same = prev.sender.as_ref().is_some_and(|p| p.id == sender.id);
+            let same = !prev.status && prev.sender.as_ref().is_some_and(|p| p.id == sender.id);
             (same, event.timestamp_ms.saturating_sub(prev.timestamp_ms))
         });
         matrix_domain::shows_sender_label(

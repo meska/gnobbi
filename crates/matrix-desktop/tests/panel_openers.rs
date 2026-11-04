@@ -45,18 +45,22 @@ fn painted_root_openers_offer_focus_and_click_from_the_same_source() {
 
 fn navigation() -> NavigationSnapshot {
     NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

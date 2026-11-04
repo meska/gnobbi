@@ -40,6 +40,14 @@ impl HistorySender {
 // shortcut: a user typing exactly this text is shown a failed image, upgrade when rows carry a kind.
 pub const IMAGE_BODY: &str = "\u{fffc}Immagine";
 
+/// Name offered in the save dialog: the sender controls it, so keep one safe path component.
+pub fn proposed_name(raw: &str) -> String {
+    let last = raw.rsplit(['/', '\\']).next().unwrap_or_default();
+    let clean: String = last.chars().filter(|c| !c.is_control()).collect();
+    let clean: String = clean.trim_start_matches(['.', ' ']).chars().take(120).collect();
+    if clean.is_empty() { "allegato".into() } else { clean }
+}
+
 pub fn is_image_body(body: &str) -> bool {
     body == IMAGE_BODY
 }
@@ -71,13 +79,23 @@ pub struct HistoryEvent {
     pub event_id: EventId,
     pub body: String,
     pub outgoing: bool,
+    /// The event was redacted (deleted): `body` is the placeholder, never the old text.
+    pub redacted: bool,
     pub timestamp_ms: u64,
     pub sender: HistorySender,
     pub video: Option<VideoInfo>,
+    /// File name of an image, video, audio or file message: the row can be saved.
+    pub attachment_name: Option<String>,
+    /// Size declared by the sender for that attachment, when it says one.
+    pub attachment_size: Option<u64>,
     /// Bold, italic, code… of a formatted body, as byte ranges of `body` (empty for plain text).
     pub styles: Vec<crate::rich_text::StyleSpan>,
     /// Set on the root of a thread.
     pub thread: Option<ThreadInfo>,
+    /// Set on a reply inside a thread: the thread's root.
+    pub thread_root: Option<EventId>,
+    /// A status row (join, invite, rename…): `body` is its wording and `sender` the person it shows.
+    pub status: bool,
 }
 
 /// The summary under a thread root, as the Timeline keeps it (live).
@@ -86,6 +104,19 @@ pub struct HistoryEvent {
 pub struct ThreadInfo {
     pub num_replies: u32,
     pub latest_sender: Option<HistorySender>,
+    /// Replies by others after our own read marker of the thread (0 while the thread is unknown).
+    pub unread: u32,
+}
+
+/// One thread opened: `root` is None when the room's own timeline does not hold it (the thread
+/// timeline alone does not return it reliably); `replies` are oldest first.
+pub struct ThreadPage {
+    pub root: Option<HistoryEvent>,
+    pub replies: Vec<HistoryEvent>,
+    pub reactions: Vec<ReactionCount>,
+    /// The thread timeline says its start was reached. Servers get this wrong when the thread is
+    /// bigger than the sync window: compare `replies.len()` with `ThreadSummary::num_replies`.
+    pub at_start: bool,
 }
 
 /// How many people reacted to a message with one emoji.
@@ -136,5 +167,21 @@ mod image_body_tests {
         assert!(is_image_body(IMAGE_BODY));
         assert!(!is_image_body("ciao"));
         assert!(!is_image_body(""));
+    }
+}
+
+#[cfg(test)]
+mod proposed_name_tests {
+    use super::proposed_name;
+
+    #[test]
+    fn keeps_one_safe_component() {
+        assert_eq!(proposed_name("../x.pdf"), "x.pdf");
+        assert_eq!(proposed_name("C:\\tmp\\y.txt"), "y.txt");
+        assert_eq!(proposed_name(".bashrc"), "bashrc");
+        assert_eq!(proposed_name("a\nb"), "ab");
+        assert_eq!(proposed_name(""), "allegato");
+        assert_eq!(proposed_name("dir/"), "allegato");
+        assert_eq!(proposed_name(&"n".repeat(500)).len(), 120);
     }
 }

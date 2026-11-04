@@ -1,0 +1,93 @@
+# Single source of the design tokens. Edit here, then run `python3 design/generate.py`
+# (from crates/matrix-domain). Colours are 0xRRGGBB except `scrim` (0xRRGGBBAA).
+# Never write colours or measures by hand in the mobile apps: use the generated files.
+
+[layout]            # logical px
+width = 1120
+height = 760
+sidebar = 320
+header = 64
+bottom_bar = 56
+
+[spacing]           # logical px
+row_pad_y = 12
+text_gap = 4
+
+[constants]
+scrim = "0x00000066"
+avatar_fallback = "0x53936b"
+
+[strings]
+demo_notice = "DEMO OFFLINE · nessun account connesso"
+
+[themes.classic]
+label = "Classico"
+dark = false
+surface = "0xffffff"
+text = "0x17231b"
+secondary = "0x46604e"
+accent = "0x1264aa"
+timeline = "0xe9f0eb"
+outgoing = "0xd9fdd3"
+selected = "0xe9f5ec"
+border = "0xe4eae6"
+input = "0xf1f4f2"
+disabled = "0xe9efeb"
+selection = "0xd0ead8"
+error = "0xb43030"
+on_accent = "0xffffff"
+avatar_text = "0x101b14"
+
+[themes.day]
+label = "Giorno"
+dark = false
+surface = "0xffffff"
+text = "0x111512"
+secondary = "0x47514a"
+accent = "0x0b5cad"
+timeline = "0xf4f6f5"
+outgoing = "0xd2f6dd"
+selected = "0xe7f3ea"
+border = "0xd5dcd7"
+input = "0xf1f3f2"
+disabled = "0xe6eae7"
+selection = "0xcde9d6"
+error = "0xb00020"
+on_accent = "0xffffff"
+avatar_text = "0x101b14"
+
+[themes.dark]
+label = "Scuro"
+dark = true
+surface = "0x17231b"
+text = "0xe5efe8"
+secondary = "0xb4c9ba"
+accent = "0x80c8ff"
+timeline = "0x101b14"
+outgoing = "0x244436"
+selected = "0x25402f"
+border = "0x425c4b"
+input = "0x203226"
+disabled = "0x26372c"
+selection = "0x254d34"
+error = "0xffb3b3"
+on_accent = "0x101922"
+avatar_text = "0x101b14"
+
+[themes.night]
+label = "Notte"
+dark = true
+surface = "0x0b0f0c"
+text = "0xe8eeea"
+secondary = "0xa9b9ae"
+accent = "0x7cc4ff"
+timeline = "0x000000"
+outgoing = "0x16301f"
+selected = "0x16251b"
+border = "0x3a4b3f"
+input = "0x141c17"
+disabled = "0x1a241d"
+selection = "0x1b412a"
+error = "0xffb3b3"
+on_accent = "0x000000"
+avatar_text = "0x101b14"

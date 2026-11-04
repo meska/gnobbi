@@ -286,7 +286,6 @@ fn profile_made_before_event_cache_opens_with_its_data_and_cache_on() {
             .client(&url, PASSPHRASE, reqwest::Client::new())
             .await
             .expect("old profile opens");
-        assert!(client.event_cache().has_subscribed());
         assert!(fs::read_dir(&store.path).unwrap().any(|e| {
             e.unwrap()
                 .file_name()

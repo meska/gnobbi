@@ -1,23 +1,25 @@
 #![cfg(all(feature = "linux-a11y", target_os = "linux"))]
 
-use matrix_desktop::accessibility::{THEME, theme_tree};
-
 #[test]
 fn search_exports_query_and_actual_focus_without_exposing_hidden_controls() {
     use matrix_desktop::accessibility::{NavigationSnapshot, ROOT, SEARCH};
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -38,11 +40,19 @@ fn search_exports_query_and_actual_focus_without_exposing_hidden_controls() {
     assert_eq!(search.value(), Some("caffè"));
     assert_eq!(search.bounds(), snapshot.search_bounds);
     assert!(search.supports_action(accesskit::Action::Focus));
+    assert_eq!(tree.nodes[0].1.label(), Some("Gnobbi"));
     let hidden = NavigationSnapshot {
+        title: "Alice (@alice:example.org)".into(),
+        new_chat: Default::default(),
         visible: false,
         ..snapshot
     }
     .tree();
+    // the window node reads the same string as the native title
+    assert_eq!(
+        hidden.nodes[0].1.label(),
+        Some("Alice (@alice:example.org)")
+    );
     assert_eq!(hidden.focus, ROOT);
     assert_eq!(hidden.nodes.len(), 1);
     assert!(hidden.nodes[0].1.children().is_empty());
@@ -52,18 +62,22 @@ fn search_text_run_exposes_unicode_query_with_append_only_caret() {
     use matrix_desktop::accessibility::{NavigationSnapshot, SEARCH};
     for query in ["caffè 🙂", ""] {
         let tree = NavigationSnapshot {
+            title: "Gnobbi".into(),
+            new_chat: Default::default(),
             #[cfg(all(feature = "live", unix))]
             signin: None,
             openers: vec![],
             back: None,
+            drawer: None,
             scrollbars: vec![],
             operation_panel: None,
             spaces: None,
             navigation_revision: 0,
-            theme_focused: false,
-            theme_bounds: None,
+            icon_choice: None,
             unread_filter: None,
+            new_room: None,
             devices: Default::default(),
+            settings: None,
             details: Default::default(),
             notifications: Default::default(),
             dark: false,
@@ -160,18 +174,22 @@ fn history_tree_exports_scoped_focus_actions_and_logical_positions() {
     let projected = HistoryNodes::default().project(&history, 20, true);
     let message = projected.messages[0].clone();
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -206,6 +224,7 @@ fn history_tree_exports_scoped_focus_actions_and_logical_positions() {
         matches!(snapshot.action(&request), Some(NavigationAction::FocusMessage(id)) if id == message.event)
     );
     let hidden = NavigationSnapshot {
+        new_chat: Default::default(),
         history: None,
         ..snapshot
     };
@@ -227,18 +246,22 @@ fn history_navigation_targets_real_scoped_events_and_omits_unavailable_boundarie
         100,
     );
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -321,18 +344,22 @@ fn selected_room_is_the_semantic_focus_when_the_room_list_owns_keyboard_focus() 
     let rooms = RoomNodes::default().project(&sidebar);
     let selected = rooms[0].id;
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -366,18 +393,22 @@ fn selected_room_is_the_semantic_focus_when_the_room_list_owns_keyboard_focus() 
 fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visibility() {
     use matrix_desktop::accessibility::{COMPOSER, ComposerSnapshot, NavigationSnapshot};
     let snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -391,6 +422,8 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
         composer: Some(ComposerSnapshot {
             send_source: Some(1),
             send_focused: false,
+            icon_focused: None,
+            live: true,
             send_bounds: None,
             attachment: None,
             mentions: None,
@@ -421,6 +454,7 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
     assert_eq!(tree.focus, COMPOSER);
     assert!(tree.nodes[0].1.children().contains(&COMPOSER));
     let hidden = NavigationSnapshot {
+        new_chat: Default::default(),
         composer: None,
         ..snapshot.clone()
     }
@@ -433,8 +467,11 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
             .find(|(n, _)| *n == id)
             .map(|(_, node)| node.label().unwrap().to_owned())
     };
+    assert_eq!(label_of(&tree, RECORD), None, "text to send: Send takes Voice's place");
+    let mut blank = snapshot.clone();
+    blank.composer.as_mut().unwrap().text.clear();
     assert_eq!(
-        label_of(&tree, RECORD).as_deref(),
+        label_of(&blank.tree(), RECORD).as_deref(),
         Some("Registra nota vocale")
     );
     assert_eq!(label_of(&tree, RECORDING), None);
@@ -503,18 +540,22 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
 fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
     use matrix_desktop::accessibility::{COMPOSER, ComposerSnapshot, NavigationSnapshot};
     let tree = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -528,6 +569,8 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
         composer: Some(ComposerSnapshot {
             send_source: Some(1),
             send_focused: false,
+            icon_focused: None,
+            live: true,
             send_bounds: None,
             attachment: None,
             mentions: None,
@@ -573,18 +616,22 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
 fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
     use matrix_desktop::accessibility::{ComposerSnapshot, NavigationSnapshot, SEND};
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -598,6 +645,8 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
         composer: Some(ComposerSnapshot {
             send_source: Some(1),
             send_focused: false,
+            icon_focused: None,
+            live: true,
             send_bounds: None,
             attachment: None,
             mentions: None,
@@ -621,19 +670,46 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
             .nodes
             .into_iter()
             .find(|(id, _)| *id == SEND)
-            .unwrap()
-            .1
+            .map(|(_, n)| n)
     };
-    assert_eq!(button(&snapshot).role(), accesskit::Role::Button);
-    assert_eq!(button(&snapshot).label(), Some("Invia messaggio"));
-    assert!(!button(&snapshot).is_disabled());
-    assert!(button(&snapshot).supports_action(accesskit::Action::Click));
+    // Voice and Send are one slot: exactly one of the two nodes exists at a time.
+    let voice = |snapshot: &NavigationSnapshot| {
+        snapshot.tree().nodes.iter().any(|(id, _)| *id == matrix_desktop::accessibility::RECORD)
+    };
+    let send = button(&snapshot).unwrap();
+    assert_eq!(send.role(), accesskit::Role::Button);
+    assert_eq!(send.label(), Some("Invia messaggio"));
+    assert!(!send.is_disabled());
+    assert!(send.supports_action(accesskit::Action::Click));
+    assert!(!voice(&snapshot));
     snapshot.composer.as_mut().unwrap().composing = true;
-    assert!(button(&snapshot).is_disabled());
-    assert!(!button(&snapshot).supports_action(accesskit::Action::Click));
+    assert!(button(&snapshot).is_none() && voice(&snapshot));
     snapshot.composer.as_mut().unwrap().composing = false;
-    snapshot.composer.as_mut().unwrap().text = " \n".into();
-    assert!(button(&snapshot).is_disabled());
+    snapshot.composer.as_mut().unwrap().text = " \t\n\u{a0}".into();
+    assert!(button(&snapshot).is_none() && voice(&snapshot));
+    snapshot.composer.as_mut().unwrap().text = "hello".into();
+    snapshot.composer.as_mut().unwrap().recording = Some(3);
+    assert!(button(&snapshot).is_none() && !voice(&snapshot), "recording: Send never replaces the recording controls");
+    {
+        use matrix_desktop::accessibility::NavigationAction;
+        let on_send = |snapshot: &NavigationSnapshot, action| {
+            snapshot.action(&accesskit::ActionRequest {
+                action,
+                target_tree: accesskit::TreeId::ROOT,
+                target_node: SEND,
+                data: None,
+            })
+        };
+        assert!(on_send(&snapshot, accesskit::Action::Click).is_none(), "recording: no Send click");
+        assert!(on_send(&snapshot, accesskit::Action::Focus).is_none(), "recording: no Send focus");
+        snapshot.composer.as_mut().unwrap().recording = None;
+        assert!(matches!(on_send(&snapshot, accesskit::Action::Click), Some(NavigationAction::SubmitComposer { .. })));
+    }
+    // Focus never points at a node that is not in the tree (accesskit_consumer panics on it).
+    let c = snapshot.composer.as_mut().unwrap();
+    c.text = String::new();
+    c.send_focused = true;
+    assert_ne!(snapshot.tree().focus, SEND);
     snapshot.composer = None;
     assert!(!snapshot.tree().nodes.iter().any(|(id, _)| *id == SEND));
 }
@@ -648,18 +724,22 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
         room_id: matrix_domain::RoomId::new("!fixture:local.invalid"),
     };
     let mut snapshot = NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        theme_focused: false,
-        theme_bounds: None,
+        icon_choice: None,
         unread_filter: None,
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -673,6 +753,8 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
         composer: Some(ComposerSnapshot {
             send_source: Some(1),
             send_focused: false,
+            icon_focused: None,
+            live: true,
             send_bounds: None,
             attachment: None,
             mentions: None,
@@ -756,71 +838,4 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
         ..request
     };
     assert!(snapshot.action(&malformed).is_none());
-}
-
-#[test]
-fn list_menu_control_exports_its_label_and_role() {
-    let update = theme_tree(false);
-    let (id, button) = update.nodes.iter().find(|(id, _)| *id == THEME).unwrap();
-    assert_eq!(*id, THEME);
-    assert_eq!(button.role(), accesskit::Role::Button);
-    assert_eq!(button.label(), Some("Menu elenco"));
-    assert!(button.supports_action(accesskit::Action::Click));
-    let root = update.tree.unwrap().root;
-    assert!(
-        update
-            .nodes
-            .iter()
-            .any(|(id, node)| *id == root && node.children().contains(&THEME))
-    );
-}
-
-#[test]
-fn theme_focus_is_actionable_visible_and_has_observed_geometry() {
-    use matrix_desktop::accessibility::{NavigationAction, NavigationSnapshot, ROOT};
-    let bounds = accesskit::Rect::new(250., 10., 300., 42.);
-    let mut snapshot = NavigationSnapshot {
-        #[cfg(all(feature = "live", unix))]
-        signin: None,
-        openers: vec![],
-        back: None,
-        scrollbars: vec![],
-        operation_panel: None,
-        spaces: None,
-        navigation_revision: 0,
-        theme_focused: true,
-        theme_bounds: Some(bounds),
-        unread_filter: None,
-        devices: Default::default(),
-        details: Default::default(),
-        notifications: Default::default(),
-        dark: false,
-        visible: true,
-        query: String::new(),
-        search_focused: false,
-        search_bounds: None,
-        rooms: vec![],
-        history: None,
-        list_focused: false,
-        composer: None,
-    };
-    let request = accesskit::ActionRequest {
-        action: accesskit::Action::Focus,
-        target_node: THEME,
-        target_tree: accesskit::TreeId::ROOT,
-        data: None,
-    };
-    assert!(matches!(
-        snapshot.action(&request),
-        Some(NavigationAction::FocusTheme(0))
-    ));
-    let tree = snapshot.tree();
-    assert_eq!(tree.focus, THEME);
-    let node = &tree.nodes.iter().find(|(id, _)| *id == THEME).unwrap().1;
-    assert_eq!(node.bounds(), Some(bounds));
-    assert!(node.supports_action(accesskit::Action::Focus));
-    snapshot.visible = false;
-    assert!(snapshot.action(&request).is_none());
-    assert_eq!(snapshot.tree().focus, ROOT);
-    assert!(!snapshot.tree().nodes.iter().any(|(id, _)| *id == THEME));
 }

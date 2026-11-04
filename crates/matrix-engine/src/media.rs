@@ -19,6 +19,12 @@ pub enum MediaCommand {
         tag: crate::RequestTag,
         event: EventId,
     },
+    /// Save the original of any attachment to `path` (chosen by the user); runs beside the other reads.
+    Save {
+        tag: crate::RequestTag,
+        event: EventId,
+        path: std::path::PathBuf,
+    },
     /// The thumbnail of a video row; the answer is a `Downloaded` event like an image's.
     VideoThumbnail {
         tag: crate::RequestTag,
@@ -42,6 +48,11 @@ pub enum MediaEvent {
         event: EventId,
         result: Result<VideoFile, MediaError>,
     },
+    Saved {
+        tag: crate::RequestTag,
+        event: EventId,
+        result: Result<(), MediaError>,
+    },
 }
 
 /// A plaintext video in the account's private temp dir; the file is removed on drop.
@@ -51,6 +62,8 @@ pub struct VideoFile {
 }
 
 impl VideoFile {
+    // Only the SDK download path builds one.
+    #[cfg(feature = "sdk")]
     pub(crate) fn new(path: std::path::PathBuf) -> Self {
         Self { path }
     }
@@ -77,6 +90,8 @@ pub enum MediaError {
     Failed,
 }
 pub const MAX_MEDIA_BYTES: usize = 25 * 1024 * 1024;
+/// Cap for saving one attachment or opening one video.
+pub const MAX_SAVE_BYTES: usize = 256 * 1024 * 1024;
 pub const MAX_IMAGE_PIXELS: u64 = 40_000_000;
 
 /// Thumbnail and original are separate resources with separate cache entries.

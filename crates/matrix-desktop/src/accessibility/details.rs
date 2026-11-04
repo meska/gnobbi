@@ -16,10 +16,24 @@ pub enum DetailsAction {
     Open(RoomScope),
     Close(RoomScope),
     Copy(RoomScope),
+    /// Member row: read that user's profile.
+    Profile {
+        scope: RoomScope,
+        user_id: String,
+    },
+    /// «Membri» link of a profile: back to the member list.
+    Members(RoomScope),
+    /// Action of the opened profile (message, link, quote, copy id).
+    Act {
+        scope: RoomScope,
+        act: ProfileAct,
+    },
     Focus {
         scope: RoomScope,
         control: DetailsControl,
     },
+    /// Screen-reader focus on a control of the opened profile (index in the keyboard ring: ‹, ✕, acts).
+    FocusRing { scope: RoomScope, index: usize },
 }
 impl DetailsView {
     pub fn action(&self, request: &accesskit::ActionRequest) -> Option<DetailsAction> {
@@ -31,6 +45,28 @@ impl DetailsView {
                 if request.target_node == OPEN && request.action == Action::Click =>
             {
                 Some(DetailsAction::Open(scope.clone()))
+            }
+            Self::Open(panel) if panel.back && request.action == Action::Focus => {
+                let index = panel.ring_index(request.target_node)?;
+                Some(DetailsAction::FocusRing { scope: panel.scope.clone(), index })
+            }
+            Self::Open(panel) if request.action == Action::Click && request.target_node == BACK => {
+                panel.back.then(|| DetailsAction::Members(panel.scope.clone()))
+            }
+            Self::Open(panel)
+                if request.action == Action::Click
+                    && panel.acts.iter().enumerate().any(|(i, _)| panel.act_id(i) == request.target_node) =>
+            {
+                let i = (0..panel.acts.len()).find(|&i| panel.act_id(i) == request.target_node)?;
+                Some(DetailsAction::Act { scope: panel.scope.clone(), act: panel.acts[i] })
+            }
+            Self::Open(panel)
+                if request.action == Action::Click && panel.person(request.target_node).is_some() =>
+            {
+                Some(DetailsAction::Profile {
+                    scope: panel.scope.clone(),
+                    user_id: panel.person(request.target_node)?.to_owned(),
+                })
             }
             Self::Open(panel) => {
                 let control = [DetailsControl::Close, DetailsControl::Copy]
@@ -58,12 +94,23 @@ impl DetailsView {
                 Self::Open(panel),
                 DetailsAction::Close(scope)
                 | DetailsAction::Copy(scope)
-                | DetailsAction::Focus { scope, .. },
+                | DetailsAction::Profile { scope, .. }
+                | DetailsAction::Members(scope)
+                | DetailsAction::Act { scope, .. }
+                | DetailsAction::Focus { scope, .. }
+                | DetailsAction::FocusRing { scope, .. },
             ) => panel.scope == *scope,
             _ => false,
         }
     }
 }
+
+/// «Membri» link shown while a profile is open (ids 33.. are the labels).
+pub const BACK: NodeId = NodeId(1 << 40);
+/// Labels before the people in the sheet: name, kind, count, topic, encryption, room id.
+const FIXED_LABELS: u64 = 6;
+
+pub use crate::ProfileAct;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DetailsControl {
@@ -84,10 +131,38 @@ pub struct DetailsSnapshot {
     pub scope: RoomScope,
     pub name: String,
     pub info: matrix_engine::RoomInfo,
+    /// Members of the room (with the user id a click opens), or the opened profile.
+    pub people: Vec<(String, Option<String>)>,
+    /// A profile is shown (or loading): «Membri» leads back to the list.
+    pub back: bool,
+    /// Actions of the opened profile (empty for the room sheet).
+    pub acts: Vec<ProfileAct>,
     pub focus: DetailsControl,
+    /// Keyboard focus inside an opened profile: index in the ring ‹, ✕, then the acts.
+    pub profile_focus: usize,
     pub bounds: [Option<accesskit::Rect>; 2],
 }
 impl DetailsSnapshot {
+    /// User id behind a member row's node.
+    fn person(&self, id: NodeId) -> Option<&str> {
+        let index = id.0.checked_sub(33 + FIXED_LABELS)? as usize;
+        self.people.get(index)?.1.as_deref()
+    }
+    /// Node of the `index`th profile action (after the people labels).
+    fn act_id(&self, index: usize) -> NodeId {
+        NodeId(33 + FIXED_LABELS + self.people.len() as u64 + index as u64)
+    }
+    /// Node of the `index`th control of the profile's keyboard ring.
+    fn ring_node(&self, index: usize) -> NodeId {
+        match index {
+            0 => BACK,
+            1 => DetailsControl::Close.id(),
+            i => self.act_id(i - 2),
+        }
+    }
+    fn ring_index(&self, id: NodeId) -> Option<usize> {
+        (0..2 + self.acts.len()).find(|&i| self.ring_node(i) == id)
+    }
     pub fn next_focus(&self) -> DetailsControl {
         match self.focus {
             DetailsControl::Close => DetailsControl::Copy,
@@ -125,14 +200,20 @@ impl DetailsSnapshot {
             }
             .into(),
             self.scope.room_id.as_str().to_owned(),
-            "Stato dell'ultima sync. Nessuna modifica, invito o adesione automatica.".into(),
         ]
         .into_iter()
+        .chain(self.people.iter().map(|(label, _)| label.clone()))
         .enumerate()
         {
             let id = NodeId(33 + index as u64);
-            let mut node = Node::new(Role::Label);
-            node.set_value(label);
+            let actionable = id.0 >= 33 + FIXED_LABELS && self.person(id).is_some();
+            let mut node = Node::new(if actionable { Role::Button } else { Role::Label });
+            if actionable {
+                node.set_label(label);
+                node.add_action(Action::Click);
+            } else {
+                node.set_value(label);
+            }
             root.push_child(id);
             nodes.push((id, node));
         }
@@ -153,12 +234,28 @@ impl DetailsSnapshot {
             root.push_child(control.id());
             nodes.push((control.id(), node));
         }
+        for (i, act) in self.acts.iter().enumerate() {
+            let mut node = Node::new(Role::Button);
+            node.set_label(act.label());
+            node.add_action(Action::Click);
+            node.add_action(Action::Focus);
+            root.push_child(self.act_id(i));
+            nodes.push((self.act_id(i), node));
+        }
+        if self.back {
+            let mut node = Node::new(Role::Button);
+            node.set_label("Membri");
+            node.add_action(Action::Click);
+            node.add_action(Action::Focus);
+            root.push_child(BACK);
+            nodes.push((BACK, node));
+        }
         nodes.insert(0, (ROOT, root));
         TreeUpdate {
             nodes,
             tree: Some(Tree::new(ROOT)),
             tree_id: TreeId::ROOT,
-            focus: self.focus.id(),
+            focus: if self.back { self.ring_node(self.profile_focus) } else { self.focus.id() },
         }
     }
 }

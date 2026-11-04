@@ -135,7 +135,7 @@ impl Shell {
         cx.notify();
     }
 
-    pub(crate) fn render_groups_edit(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+    pub(crate) fn render_groups_edit(&self, t: matrix_desktop::DesignTokens, window: &Window, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         let edit = self.groups_edit.as_ref()?;
         edit.field.update(cx, |f, _| f.theme = t);
         let user_group = edit.selected.starts_with("u.");
@@ -160,7 +160,7 @@ impl Shell {
                     div()
                         .id("groups-dialog")
                         .w(px(360.))
-                        .max_h(px(520.))
+                        .max_h((window.viewport_size().height - px(48.)).min(px(520.)))
                         .p_4()
                         .gap_2()
                         .flex()

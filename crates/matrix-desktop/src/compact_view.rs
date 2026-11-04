@@ -152,6 +152,7 @@ impl Shell {
 
     pub(crate) fn set_room_details_open(&mut self, open: bool) {
         self.room_details_open = open;
+        self.profile = None;
         self.refresh_navigation_visibility();
     }
 

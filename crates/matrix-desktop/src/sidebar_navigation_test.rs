@@ -14,24 +14,22 @@ static DYNAMIC: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize:
 /// Key-ups seen by the Shell; GPUI X11 turns an auto-repeat release/press split by scheduling jitter into a real key-up.
 pub(crate) static UPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub(crate) static KEYDOWNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub(crate) static ACTIVATIONS: [std::sync::atomic::AtomicUsize; 3] = [
-    std::sync::atomic::AtomicUsize::new(0),
-    std::sync::atomic::AtomicUsize::new(0),
+pub(crate) static ACTIVATIONS: [std::sync::atomic::AtomicUsize; 2] = [
+    std::sync::atomic::AtomicUsize::new(0), // unread filter
     std::sync::atomic::AtomicUsize::new(0), // rail / compact Spaces
 ];
 const DRAFTS: [&str; 2] = [" caffè 🦀\nprima ", " δεύτερη 🚀\nbozza "];
 
 type PointerCallback = std::rc::Rc<dyn Fn(&mut Shell, &mut Window, &mut Context<Shell>)>;
 thread_local! {
-    static POINTERS: std::cell::RefCell<[Option<PointerCallback>; 2]> = Default::default();
+    static POINTER: std::cell::RefCell<Option<PointerCallback>> = Default::default();
 }
 pub(crate) fn capture_pointer(
-    unread: bool,
     callback: impl Fn(&mut Shell, &mut Window, &mut Context<Shell>) + 'static,
 ) -> PointerCallback {
     let callback: PointerCallback = std::rc::Rc::new(callback);
     if ACTIVE.load(Ordering::SeqCst) {
-        POINTERS.with_borrow_mut(|callbacks| callbacks[unread as usize] = Some(callback.clone()));
+        POINTER.with_borrow_mut(|painted| *painted = Some(callback.clone()));
     }
     callback
 }
@@ -80,14 +78,9 @@ fn painted_space(id: accesskit::NodeId) -> PointerCallback {
             .clone()
     })
 }
-fn painted_pointer(unread: bool) -> PointerCallback {
-    assert!(
-        PAINTED
-            .lock()
-            .unwrap()
-            .contains_key(if unread { "unread" } else { "theme" })
-    );
-    POINTERS.with_borrow(|callbacks| callbacks[unread as usize].as_ref().unwrap().clone())
+fn painted_pointer() -> PointerCallback {
+    assert!(PAINTED.lock().unwrap().contains_key("unread"));
+    POINTER.with_borrow(|painted| painted.as_ref().unwrap().clone())
 }
 
 static PAINTED: std::sync::LazyLock<
@@ -113,10 +106,9 @@ pub(crate) fn observe(label: String) -> Option<gpui::AnyElement> {
     })
 }
 
-const RING: [&str; 10] = [
+const RING: [&str; 9] = [
     "list",
     "search",
-    "theme",
     "unread",
     "devices",
     "notifications",
@@ -145,7 +137,6 @@ fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
     [
         (this.list_focus.is_focused(window), "list"),
         (this.search_focus.is_focused(window), "search"),
-        (this.theme_focus.is_focused(window), "theme"),
         (this.unread_focus.is_focused(window), "unread"),
         (this.opener_ui.focused(Control::Devices, window), "devices"),
         (
@@ -157,7 +148,7 @@ fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
     ]
     .into_iter()
     .find_map(|(focused, name)| focused.then_some(name))
-    .unwrap_or(RING[9])
+    .unwrap_or(RING[8])
 }
 
 fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Context<Shell>) {
@@ -170,7 +161,6 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
     let control = match label {
         "list" => return this.list_focus.focus(window),
         "search" => return this.search_focus.focus(window),
-        "theme" => return this.theme_focus.focus(window),
         "unread" => return this.unread_focus.focus(window),
         "devices" => Control::Devices,
         "notifications" => Control::Notifications,
@@ -204,7 +194,7 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
 fn ring_visible(label: &str, wide: bool, chat: bool) -> bool {
     match (wide, chat) {
         (true, _) => label != "back",
-        (false, false) => ["list", "search", "theme", "unread"].contains(&label),
+        (false, false) => ["list", "search", "unread"].contains(&label),
         (false, true) => ["info", "entry", "back"].contains(&label),
     }
 }
@@ -346,18 +336,22 @@ fn sidebar_session(
 ) -> matrix_desktop::accessibility::semantic_session::SemanticSession {
     use matrix_desktop::accessibility::{NavigationSnapshot, semantic_session::SemanticSession};
     SemanticSession::new(NavigationSnapshot {
+        title: matrix_desktop::window::TITLE.into(),
+        new_chat: Default::default(),
         #[cfg(feature = "live")]
         signin: None,
         openers: vec![],
         back: None,
+        drawer: None,
         scrollbars: vec![],
         operation_panel: None,
         spaces: None,
         navigation_revision: this.sidebar.navigation_revision(),
-        theme_focused: this.theme_focus.is_focused(window),
-        theme_bounds: this.a11y_theme_bounds,
+        icon_choice: None,
         unread_filter: this.semantic_unread(window),
+        new_room: None,
         devices: Default::default(),
+        settings: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: this.theme.is_dark(),
@@ -372,7 +366,7 @@ fn sidebar_session(
     })
 }
 
-fn activation_callback(this: &Shell, window: &Window, unread: bool) -> PointerCallback {
+fn activation_callback(this: &Shell, window: &Window) -> PointerCallback {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     if DYNAMIC.load(Ordering::SeqCst) == 9 {
         let session = sidebar_session(this, window);
@@ -380,14 +374,7 @@ fn activation_callback(this: &Shell, window: &Window, unread: bool) -> PointerCa
             .tree()
             .nodes
             .into_iter()
-            .find(|(_, n)| {
-                n.label()
-                    == Some(if unread {
-                        "Solo stanze non lette"
-                    } else {
-                        "Menu elenco"
-                    })
-            })
+            .find(|(_, n)| n.label() == Some("Solo stanze non lette"))
             .unwrap()
             .0;
         let intents = [accesskit::Action::Focus, accesskit::Action::Click].map(|action| {
@@ -404,32 +391,26 @@ fn activation_callback(this: &Shell, window: &Window, unread: bool) -> PointerCa
         return std::rc::Rc::new(move |this, window, cx| {
             let current = revision == this.sidebar.navigation_revision();
             for intent in &intents {
-                if let matrix_desktop::accessibility::NavigationAction::Filter(action) = intent {
-                    this.apply_semantic_filter(*action, window, cx);
-                } else {
-                    assert!(this.dispatch_sidebar_action(intent, window, cx));
-                }
+                let matrix_desktop::accessibility::NavigationAction::Filter(action) = intent else {
+                    unreachable!("the unread control only translates to filter actions")
+                };
+                this.apply_semantic_filter(*action, window, cx);
             }
             if current {
                 assert!(
-                    if unread {
-                        this.unread_focus.is_focused(window)
-                    } else {
-                        this.theme_focus.is_focused(window)
-                    },
+                    this.unread_focus.is_focused(window),
                     "fresh translated Focus must reach its current native control"
                 );
             }
             eprintln!(
-                "actual pretranslated SemanticSession Focus/Click unread={unread}; revision={}; native focus theme={} unread={}",
+                "actual pretranslated SemanticSession Focus/Click; revision={}; native focus unread={}",
                 this.sidebar.navigation_revision(),
-                this.theme_focus.is_focused(window),
                 this.unread_focus.is_focused(window)
             );
         });
     }
     let _ = (this, window);
-    painted_pointer(unread)
+    painted_pointer()
 }
 
 pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
@@ -471,7 +452,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             if COMPACT.load(Ordering::SeqCst) {
                 assert_eq!(window.viewport_size().width, px(360.));
                 this.set_compact_chat(false);
-                this.theme_focus.focus(window);
+                this.menu_focus.focus(window);
             } else {
                 this.rail_ui.focus.focus(window);
             }
@@ -485,49 +466,49 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             move |this: &Shell| active(this.timeline.as_ref().unwrap()) && saved(&this.saved_timelines[&other_scope])
         }).unwrap();
         if matches!(DYNAMIC.load(Ordering::SeqCst), 8 | 9) {
-            for unread in [false, true] {
+            {
                 for transition in ["query", "unread", "details", "notifications", "devices", "account", "offline", "compact-chat"] {
                     if transition == "compact-chat" && !COMPACT.load(Ordering::SeqCst) { continue; }
                     executor.timer(std::time::Duration::from_millis(150)).await;
                     let callback = this.update_in(cx, |this, window, cx| {
-                        let callback = activation_callback(this, window, unread);
-                        let before = ACTIVATIONS[unread as usize].load(Ordering::SeqCst);
+                        let callback = activation_callback(this, window);
+                        let before = ACTIVATIONS[0].load(Ordering::SeqCst);
                         this.list_focus.focus(window);
                         pointer_transition(this, transition, true);
                         callback(this, window, cx);
-                        assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before, "retired painted callback activated during {transition}, unread={unread}");
+                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "retired painted callback activated during {transition}");
                         assert!(this.list_focus.is_focused(window), "rejected pointer changed focus");
                         pointer_transition(this, transition, false);
                         callback(this, window, cx);
-                        assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before, "retired painted callback activated after {transition} away/back, unread={unread}");
+                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "retired painted callback activated after {transition} away/back");
                         assert!(this.list_focus.is_focused(window));
                         assert!(history(this));
-                        eprintln!("painted pointer retired during/after {transition}, unread={unread}, revision={}", this.sidebar.navigation_revision());
+                        eprintln!("painted pointer retired during/after {transition}, revision={}", this.sidebar.navigation_revision());
                         cx.notify();
                         callback
                     }).unwrap();
                     executor.timer(std::time::Duration::from_millis(150)).await;
                     this.update_in(cx, |this, window, cx| {
-                        let before = ACTIVATIONS[unread as usize].load(Ordering::SeqCst);
+                        let before = ACTIVATIONS[0].load(Ordering::SeqCst);
                         callback(this, window, cx);
-                        assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before, "fresh paint resurrected old pointer");
-                        activation_callback(this, window, unread)(this, window, cx);
-                        assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before + 1, "reacquired painted callback must activate exactly once");
+                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "fresh paint resurrected old pointer");
+                        activation_callback(this, window)(this, window, cx);
+                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before + 1, "reacquired painted callback must activate exactly once");
                         this.sidebar.set_unread_only(false);
                         assert!(history(this));
-                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("pointer-{unread}-{transition}"));
+                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("pointer-{transition}"));
                         cx.notify();
                     }).unwrap();
                 }
             }
             executor.timer(std::time::Duration::from_millis(150)).await;
-            let callbacks = this.update_in(cx, |this, window, _| {
-                let callbacks = [activation_callback(this, window, false), activation_callback(this, window, true)];
+            let callback = this.update_in(cx, |this, window, _| {
+                let callback = activation_callback(this, window);
                 PAINTED.lock().unwrap().clear();
                 navigation_resize_test::FROZEN.store(true, Ordering::SeqCst);
                 if COMPACT.load(Ordering::SeqCst) { navigation_resize_test::resize("1120", "760"); }
                 else { navigation_resize_test::resize("360", "480"); }
-                callbacks
+                callback
             }).unwrap();
             for returned in [false, true] {
                 executor.timer(std::time::Duration::from_millis(200)).await;
@@ -536,14 +517,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert_eq!(window.viewport_size().width, if compact { px(360.) } else { px(1120.) });
                     assert!(PAINTED.lock().unwrap().is_empty(), "Configure must not repaint while suspended");
                     this.list_focus.focus(window);
-                    for (index, callback) in callbacks.iter().enumerate() {
-                        let before = ACTIVATIONS[index].load(Ordering::SeqCst);
-                        callback(this, window, cx);
-                        assert_eq!(ACTIVATIONS[index].load(Ordering::SeqCst), before, "old painted source activated on native Configure");
-                        assert!(this.list_focus.is_focused(window));
-                    }
+                    let before = ACTIVATIONS[0].load(Ordering::SeqCst);
+                    callback(this, window, cx);
+                    assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "old painted source activated on native Configure");
+                    assert!(this.list_focus.is_focused(window));
                     assert!(history(this));
-                    eprintln!("actual native Configure returned={returned}, viewport={:?}, no intermediate paint, both callbacks rejected", window.viewport_size());
+                    eprintln!("actual native Configure returned={returned}, viewport={:?}, no intermediate paint, callback rejected", window.viewport_size());
                     if !returned {
                         if COMPACT.load(Ordering::SeqCst) { navigation_resize_test::resize("360", "480"); }
                         else { navigation_resize_test::resize("1120", "760"); }
@@ -555,13 +534,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }
             executor.timer(std::time::Duration::from_millis(200)).await;
             this.update_in(cx, |this, window, cx| {
-                for (index, callback) in callbacks.iter().enumerate() {
-                    let before = ACTIVATIONS[index].load(Ordering::SeqCst);
-                    callback(this, window, cx);
-                    assert_eq!(ACTIVATIONS[index].load(Ordering::SeqCst), before);
-                    activation_callback(this, window, index == 1)(this, window, cx);
-                    assert_eq!(ACTIVATIONS[index].load(Ordering::SeqCst), before + 1);
-                }
+                let before = ACTIVATIONS[0].load(Ordering::SeqCst);
+                callback(this, window, cx);
+                assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before);
+                activation_callback(this, window)(this, window, cx);
+                assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before + 1);
                 assert!(history(this));
                 cx.notify();
             }).unwrap();
@@ -582,7 +559,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let steps: Vec<(&str, &str)> = if chat {
                 vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "back")]
             } else if COMPACT.load(Ordering::SeqCst) {
-                vec![("tab", "theme"), ("shift-tab", "list")]
+                vec![("tab", "menu"), ("shift-tab", "list")]
             } else {
                 vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "list")]
             };
@@ -602,7 +579,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     use matrix_desktop::panel_openers::Control;
                     let focused = match expected {
                         "list" => this.list_focus.is_focused(window),
-                        "theme" => this.theme_focus.is_focused(window),
+                        "menu" => this.menu_focus.is_focused(window),
                         "back" => this.back_focus_handle().is_focused(window),
                         "devices" => this.opener_ui.focused(Control::Devices, window),
                         "notifications" => this.opener_ui.focused(Control::Notifications, window),
@@ -613,7 +590,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "entry" => this.composer.read(cx).is_focused(window),
                         _ => unreachable!(),
                     };
-                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
                     assert_eq!(this.compact_chat, chat);
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
@@ -639,12 +616,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let cases: &[(bool, bool, &str)] = &[
                 (true, false, "info"), (true, false, "entry"),
-                (true, false, "theme"), (true, false, "unread"), (true, false, "search"), (true, false, "list"),
+                (true, false, "unread"), (true, false, "search"), (true, false, "list"),
                 (true, true, "info"), (true, true, "entry"),
                 (false, true, "info"), (false, true, "entry"),
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 (false, true, "back"),
-                (false, false, "theme"),
                 (false, false, "unread"), (false, false, "search"), (false, false, "list"),
             ];
             let size = |wide: bool| if wide { ("1120", "760") } else { ("360", "480") };
@@ -659,8 +635,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     this.navigation_wide = wide;
                     this.set_compact_chat(chat);
                     cx.notify();
-                    // Theme and unread are only painted where the sidebar is visible.
-                    (wide || !chat).then(|| [false, true].map(|unread| activation_callback(this, window, unread)))
+                    // The unread filter is only painted where the sidebar is visible.
+                    (wide || !chat).then(|| activation_callback(this, window))
                 }).unwrap();
                 wait(200).await;
                 let retired = this.update_in(cx, |this, window, cx| {
@@ -687,14 +663,14 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         assert_eq!(landed, start, "{start} stays visible and must keep focus");
                     }
                     // Retired callbacks: nothing opens, nothing is activated, nothing is sent.
-                    let before = [0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst));
+                    let before = ACTIVATIONS[0].load(Ordering::SeqCst);
                     let draft_before = this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) });
-                    for callback in callbacks.iter().flatten() { callback(this, window, cx); }
+                    for callback in callbacks.iter() { callback(this, window, cx); }
                     for intent in retired.into_iter().flatten() {
                         let hidden = this.opener_ui.source(intent.control) != Some(intent.source);
                         if hidden { this.apply_opener(intent, window, cx); }
                     }
-                    assert_eq!([0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst)), before, "retired Theme/unread callback acted");
+                    assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "retired unread callback acted");
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "retired opener opened a panel");
                     assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }), draft_before);
                     assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }).as_deref(), Some(DRAFTS[0]), "draft must be intact, nothing sent");
@@ -723,10 +699,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // A light/dark change with focus on each ring control keeps the focus target, room, history and drafts.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let mut cases: Vec<(bool, bool, &str)> = vec![];
-            for label in ["list", "search", "theme", "unread", "info", "entry"] {
+            for label in ["list", "search", "unread", "info", "entry"] {
                 cases.push((true, false, label));
             }
-            for label in ["list", "search", "theme", "unread"] {
+            for label in ["list", "search", "unread"] {
                 cases.push((false, false, label));
             }
             for label in ["info", "entry", #[cfg(all(feature = "linux-a11y", target_os = "linux"))] "back"] {
@@ -746,23 +722,21 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     cx.notify();
                 }).unwrap();
                 wait(200).await;
-                let (callbacks, intents) = this.update_in(cx, |this, window, cx| {
+                let (callback, intents) = this.update_in(cx, |this, window, cx| {
                     use matrix_desktop::panel_openers::{Control, Intent};
-                    let callbacks = [false, true].map(|unread| activation_callback(this, window, unread));
+                    let callback = activation_callback(this, window);
                     let intents = Control::ALL.map(|control| this.opener_ui.source(control).map(|source| Intent { control, source, focus_only: false }));
                     this.set_compact_chat(chat);
                     cx.notify();
-                    (callbacks, intents)
+                    (callback, intents)
                 }).unwrap();
                 wait(200).await;
                 let dark_before = this.update_in(cx, |this, window, cx| {
                     ring_focus(this, start, window, cx);
                     assert_eq!(ring_label(this, window, cx), start, "setup must focus {start}");
                     let dark = this.theme.is_dark();
-                    let toggles = ACTIVATIONS[0].load(Ordering::SeqCst);
                     this.toggle_theme(cx);
                     assert_eq!(this.theme.is_dark(), !dark, "theme must flip");
-                    assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), toggles + 1);
                     assert_eq!(ring_label(this, window, cx), start, "theme change moved focus off {start}");
                     cx.notify();
                     dark
@@ -775,15 +749,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert_eq!(this.theme.is_dark(), !dark_before);
                     assert_eq!(this.compact_chat, chat);
                     // Hidden sidebar callbacks and openers stay inert after the theme change.
-                    let before = [0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst));
+                    let before = ACTIVATIONS[0].load(Ordering::SeqCst);
                     let draft_before = this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) });
                     if !wide && chat {
-                        for callback in &callbacks { callback(this, window, cx); }
+                        callback(this, window, cx);
                     }
                     for intent in intents.into_iter().flatten() {
                         if this.opener_ui.source(intent.control) != Some(intent.source) { this.apply_opener(intent, window, cx); }
                     }
-                    assert_eq!([0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst)), before, "hidden callback acted after theme change");
+                    assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "hidden callback acted after theme change");
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "hidden opener opened a panel");
                     assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }), draft_before);
                     assert_eq!(draft_before.as_deref(), Some(DRAFTS[0]), "draft must be intact, nothing sent");
@@ -810,9 +784,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         if DYNAMIC.load(Ordering::SeqCst) == 18 {
             // Filter and room switch, then the empty and selected-hidden list modes keep a deterministic ring.
             let empty = EMPTY.load(Ordering::SeqCst);
-            // Painted Theme and unread-filter callbacks captured while still visible; the filter change retires them.
+            // The painted unread-filter callback is captured while still visible; the filter change retires them.
             executor.timer(std::time::Duration::from_millis(300)).await;
-            let painted = this.update_in(cx, |this, window, _| [false, true].map(|unread| activation_callback(this, window, unread))).unwrap();
+            let painted = this.update_in(cx, |this, window, _| activation_callback(this, window)).unwrap();
             this.update_in(cx, |this, window, cx| {
                 let name = this.sidebar.rooms()[1].name.clone();
                 this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
@@ -841,16 +815,14 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 move |this: &Shell| active(this.timeline.as_ref().unwrap()) && saved(&this.saved_timelines[&other_scope])
             }).unwrap();
             this.update_in(cx, |this, window, cx| {
-                let before = [0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst));
+                let before = ACTIVATIONS[0].load(Ordering::SeqCst);
                 let unread = this.sidebar.unread_only();
-                for callback in &painted {
-                    callback(this, window, cx);
-                }
+                painted(this, window, cx);
                 assert!(this.list_focus.is_focused(window), "retired callbacks must not steal focus");
-                assert_eq!([0, 1].map(|i| ACTIVATIONS[i].load(Ordering::SeqCst)), before, "retired callbacks must not act");
+                assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "retired callback must not act");
                 assert!(!this.theme.is_dark() && this.sidebar.unread_only() == unread);
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
-                eprintln!("hidden-ring empty={empty}: retired Theme/unread callbacks inert");
+                eprintln!("hidden-ring empty={empty}: retired unread callback inert");
             }).unwrap();
             let steps = [
                 ("tab", "info"), ("tab", "entry"),
@@ -873,7 +845,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "entry" => this.composer.read(cx).is_focused(window),
                         _ => unreachable!(),
                     };
-                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0], "focus must not change the selected room");
                     assert_eq!(this.active_scope, scopes[0]);
@@ -898,7 +870,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let empty = EMPTY.load(Ordering::SeqCst);
             let last = if empty { "composer" } else { "send" };
             let a11y = cfg!(all(feature = "linux-a11y", target_os = "linux"));
-            let first = if chat { "back" } else { "rail0" };
+            let first = if chat { "back" } else { "menu" };
             let mut steps: Vec<(&str, &str)> = vec![("shift-tab", last)];
             if !empty {
                 steps.push(("shift-tab", "composer"));
@@ -915,14 +887,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 steps.push(("tab", "send"));
             }
             steps.push(("tab", first));
-            steps.push(("tab", if chat { "info" } else { "rail1" }));
+            steps.push(("tab", if chat { "info" } else { "rail0" }));
             this.update_in(cx, |this, window, cx| {
                 if chat {
                     this.set_compact_chat(true);
                     this.back_focus_handle().focus(window);
                 } else {
-                    this.rail_ui.target = this.sidebar.navigation_entries()[0].scope.clone();
-                    this.rail_ui.focus.focus(window);
+                    this.menu_focus.focus(window);
                 }
                 if empty {
                     this.composer.update(cx, |v, cx| {
@@ -935,7 +906,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(300)).await;
             // The first key is the one under test from the first control.
-            if !chat { steps.insert(0, ("noop", "rail0")); }
+            if !chat { steps.insert(0, ("noop", "menu")); }
             for (key, expected) in steps {
                 if key != "noop" {
                     cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
@@ -944,6 +915,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     use matrix_desktop::panel_openers::Control;
                     let focused = match expected {
                         "back" => this.back_focus_handle().is_focused(window),
+                        "menu" => this.menu_focus.is_focused(window),
                         "info" => this.opener_ui.focused(Control::Info, window),
                         "send" => this.composer.read(cx).send_is_focused(window),
                         "composer" => this.composer.read(cx).is_focused(window),
@@ -955,7 +927,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         }
                         _ => unreachable!(),
                     };
-                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                    assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "focus must not open a panel");
                     assert_eq!(this.compact_chat, chat);
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
@@ -983,18 +955,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         }
         if DYNAMIC.load(Ordering::SeqCst) == 7 {
             executor.timer(std::time::Duration::from_millis(250)).await;
-            for unread in [false, true] {
-                this.update_in(cx, |this, window, _| {
-                    if unread { this.unread_focus.focus(window); } else { this.theme_focus.focus(window); }
-                }).unwrap();
+            {
+                this.update_in(cx, |this, window, _| this.unread_focus.focus(window)).unwrap();
                 executor.timer(std::time::Duration::from_millis(120)).await;
                 for key in ["space", "enter"] {
-                    let before = ACTIVATIONS[unread as usize].load(Ordering::SeqCst);
+                    let before = ACTIVATIONS[0].load(Ordering::SeqCst);
                     // A release without a matching press must not activate a painted control.
                     native_key(key, false);
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     this.update_in(cx, |this, _, _| {
-                        assert!(!this.theme.is_dark(), "unmatched release activated Theme");
                         assert!(!this.sidebar.unread_only(), "unmatched release activated Unread");
                     }).unwrap();
                     let downs_before = KEYDOWNS.load(Ordering::SeqCst);
@@ -1002,7 +971,6 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     for wait in [100, 900, 150] {
                         executor.timer(std::time::Duration::from_millis(wait)).await;
                         this.update_in(cx, |this, _, _| {
-                            assert!(!this.theme.is_dark(), "press/repeat activated Theme before release");
                             assert!(!this.sidebar.unread_only(), "press/repeat activated Unread before release");
                             assert!(history(this));
                         }).unwrap();
@@ -1011,17 +979,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     native_key(key, false);
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     this.update_in(cx, |this, window, cx| {
-                        assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), before + 1, "exactly one actual callback activation per gesture");
-                        eprintln!("current release {unread}/{key}: exact callback count {} -> {}", before, before+1);
-                        assert!(!this.theme.is_dark(), "⋮ never changes the theme");
-                        assert_eq!(this.sidebar.unread_only(), unread, "completed gesture must activate Unread once");
-                        if this.theme.is_dark() { this.toggle_theme(cx); }
+                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before + 1, "exactly one actual callback activation per gesture");
+                        eprintln!("current release {key}: exact callback count {} -> {}", before, before+1);
+                        assert!(this.sidebar.unread_only(), "completed gesture must activate Unread once");
                         this.sidebar.set_unread_only(false);
-                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("release-{unread}-{key}"));
+                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("release-{key}"));
                         cx.notify();
                     }).unwrap();
                     executor.timer(std::time::Duration::from_millis(120)).await;
-                    let stale_before = ACTIVATIONS[unread as usize].load(Ordering::SeqCst);
+                    let stale_before = ACTIVATIONS[0].load(Ordering::SeqCst);
                     native_key(key, true);
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     if std::env::var("P110_RESIZE").as_deref() == Ok("1") {
@@ -1038,15 +1004,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         executor.timer(std::time::Duration::from_millis(200)).await;
                         this.update_in(cx, |this, window, cx| {
                             assert_eq!(window.viewport_size().width, if COMPACT.load(Ordering::SeqCst) { px(360.) } else { px(1120.) });
-                            assert!(!PAINTED.lock().unwrap().contains_key("theme"), "no intermediate sidebar paint allowed");
+                            assert!(!PAINTED.lock().unwrap().contains_key("unread"), "no intermediate sidebar paint allowed");
                             assert!(this.pending_sidebar_key.is_some(), "retain retired press until release");
                             eprintln!("real Configure away/back with paint suspended: {:?}", window.viewport_size());
                             navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
-                            if unread { this.unread_focus.focus(window); } else { this.theme_focus.focus(window); }
+                            this.unread_focus.focus(window);
                             cx.notify();
                         }).unwrap();
                         executor.timer(std::time::Duration::from_millis(200)).await;
-                        assert!(PAINTED.lock().unwrap().contains_key("theme"), "reacquire actual fresh callback paint before releasing held key");
+                        assert!(PAINTED.lock().unwrap().contains_key("unread"), "reacquire actual fresh callback paint before releasing held key");
                     } else {
                         this.update_in(cx, |this, _, cx| {
                             let transition = std::env::var("P112_TRANSITION").unwrap_or_else(|_| "query".into());
@@ -1067,8 +1033,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                             pointer_transition(this, &transition, false);
                         }
                         cx.notify();
-                        assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), stale_before, "release after source retirement must not activate a replacement");
-                        assert!(!this.theme.is_dark());
+                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), stale_before, "release after source retirement must not activate a replacement");
                         assert!(!this.sidebar.unread_only());
                         assert!(history(this));
                     }).unwrap();
@@ -1076,19 +1041,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     this.update_in(cx, |this, window, cx| { this.search_focus.focus(window); cx.notify(); }).unwrap();
                     executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, window, cx| {
-                        if unread { this.unread_focus.focus(window); } else { this.theme_focus.focus(window); }
-                        cx.notify();
-                    }).unwrap();
+                    this.update_in(cx, |this, window, cx| { this.unread_focus.focus(window); cx.notify(); }).unwrap();
                     executor.timer(std::time::Duration::from_millis(900)).await;
                     native_key(key, false);
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     this.update_in(cx, |this, window, cx| {
-                        assert_eq!(ACTIVATIONS[unread as usize].load(Ordering::SeqCst), stale_before, "release after focus away-back must not activate");
-                        assert!(!this.theme.is_dark());
+                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), stale_before, "release after focus away-back must not activate");
                         assert!(!this.sidebar.unread_only());
                         assert!(history(this));
-                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("focus-retired-{unread}-{key}"));
+                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("focus-retired-{key}"));
                     }).unwrap();
                 }
             }
@@ -1364,7 +1325,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // Rail and compact Spaces activate once per completed key gesture, never on press/repeat or from a retired source.
             let compact = COMPACT.load(Ordering::SeqCst);
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
-            let count = || ACTIVATIONS[2].load(Ordering::SeqCst);
+            let count = || ACTIVATIONS[1].load(Ordering::SeqCst);
             let entries = this.update_in(cx, |this, _, _| this.sidebar.navigation_entries()).unwrap();
             let (alpha, beta) = (entries[1].scope.clone(), entries[2].scope.clone());
             let account = scopes[0].account_id;
@@ -1490,6 +1451,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(700).await;
             this.update_in(cx, |this, _, cx| {
                 let events = (1..=3).map(|n| matrix_engine::history::HistoryEvent {
+                    redacted: false,
                     event_id: matrix_domain::EventId::new(format!("$debugevent{n}:gnobbi.test")),
                     body: format!("Messaggio {n}"),
                     outgoing: n == 2,
@@ -1498,6 +1460,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     video: None,
                     styles: Vec::new(),
                     thread: None,
+                    thread_root: None,
+                    status: false,
+                    attachment_name: None,
+                    attachment_size: None,
                 }).collect();
                 // The harness timeline is an offline fixture; debug ids only show on live rows.
                 let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
@@ -1515,7 +1481,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             return;
         }
         if DYNAMIC.load(Ordering::SeqCst) == 30 {
-            // List header: ⋮ leftmost, then the space icon and name, search full width below; «Tutte» and a space.
+            // List header: space icon and name on the first row, search full width below; «Tutte» and a space.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let shot = |name: &str| {
                 let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
@@ -1523,11 +1489,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             };
             let layout = |label: &str| {
                 let p = PAINTED.lock().unwrap();
-                let (menu, icon, name, search, list) = (p["theme"], p["list-avatar"], p["list-name"], p["search"], p["list"]);
-                assert!(menu.left() < icon.left() && menu.right() <= icon.left(), "{label}: ⋮ {menu:?} left of icon {icon:?}");
+                let (icon, name, search, list) = (p["list-avatar"], p["list-name"], p["search"], p["list"]);
                 assert!(icon.right() <= name.left(), "{label}: icon {icon:?} left of name {name:?}");
-                assert!(search.top() >= menu.bottom() && search.top() >= name.bottom(), "{label}: search {search:?} below the row");
-                assert!(search.left() <= menu.left() + px(16.) && search.right() + px(1.) >= name.right(), "{label}: search {search:?} spans the row");
+                assert!(search.top() >= icon.bottom() && search.top() >= name.bottom(), "{label}: search {search:?} below the row");
+                assert!(search.left() <= icon.left() + px(16.) && search.right() + px(1.) >= name.right(), "{label}: search {search:?} spans the row");
                 assert!(search.bottom() <= list.top(), "{label}: list below search");
             };
             wait(500).await;
@@ -1643,19 +1608,22 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(300).await;
             this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window), "shortcut reopens the drawer")).unwrap();
             key!("up");
-            this.update_in(cx, |this, _, _| assert_eq!(this.drawer_row, 6, "Up from the first row wraps to the last")).unwrap();
-            for _ in 0..4 {
+            this.update_in(cx, |this, _, _| assert_eq!(this.drawer_row, crate::menu_view::DRAWER_ROWS - 1, "Up from the first row wraps to the last")).unwrap();
+            for _ in 0..crate::menu_view::DRAWER_ROWS - 3 {
                 key!("up");
             }
             key!("enter");
             this.update_in(cx, |this, window, cx| {
-                assert!(this.notifications_open, "Up four times from the first row reaches Notifications");
+                assert!(this.notifications_open, "Up from the last row back from the first row reaches Notifications");
                 this.set_notifications_open(false);
                 this.set_menu_open(true, window, cx);
             }).unwrap();
             key!("escape");
             this.update_in(cx, |this, window, cx| {
                 assert!(!this.menu_open && this.menu_focus.is_focused(window), "Esc closes the drawer");
+                this.switch_error = Some((matrix_domain::AccountId::new(1), "Riprova tra poco"));
+                this.set_menu_open(true, window, cx);
+                assert!(this.switch_error.is_none(), "opening the drawer clears a stale row error");
                 cx.quit();
             }).unwrap();
             return;
@@ -1694,11 +1662,31 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, _| {
                 assert!(!this.prefs.debug && !saved(&dirs).debug, "Space toggles it off and saves");
             }).unwrap();
-            this.update_in(cx, |this, _, cx| {
-                assert!(this.prefs.read_receipts && saved(&dirs).read_receipts, "read receipts default to on");
-                this.toggle_read_receipts(cx);
-                assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "turning it off is saved");
+            this.update_in(cx, |this, _, _| assert!(this.prefs.hide_redacted, "deleted messages are hidden by default")).unwrap();
+            // Ring of three: debug, read receipts, hide deleted. Each key press must change exactly one switch.
+            key!("tab");
+            key!("space");
+            this.update_in(cx, |this, _, _| {
+                assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "Tab then Space turns read receipts off and saves");
+                assert!(!this.prefs.debug && this.prefs.hide_redacted, "and nothing else");
             }).unwrap();
+            key!("tab");
+            key!("space");
+            this.update_in(cx, |this, _, _| {
+                assert!(!this.prefs.hide_redacted && !saved(&dirs).hide_redacted && !this.prefs.debug && !this.prefs.read_receipts, "second Tab then Space shows deleted messages and saves");
+            }).unwrap();
+            key!("enter");
+            this.update_in(cx, |this, _, _| assert!(this.prefs.hide_redacted && saved(&dirs).hide_redacted, "Enter toggles it back")).unwrap();
+            key!("shift-tab");
+            key!("space");
+            this.update_in(cx, |this, _, _| assert!(this.prefs.read_receipts && saved(&dirs).read_receipts && !this.prefs.debug, "Shift+Tab walks back to read receipts")).unwrap();
+            key!("up");
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "Up from read receipts reaches debug")).unwrap();
+            key!("tab");
+            key!("tab");
+            key!("tab");
+            key!("tab");
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "the ring wraps after four stops")).unwrap();
             wait(300).await;
             shot("p242-receipts-off");
             key!("escape");
@@ -1711,6 +1699,64 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let _ = std::fs::remove_dir_all(dirs.config.parent().unwrap());
                 cx.quit();
             }).unwrap();
+            return;
+        }
+        if matches!(DYNAMIC.load(Ordering::SeqCst), 32 | 33) {
+            // Tab ring from the menu button; compact (33) has the button in the list header, wide (32) on the rail.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
+            let names = |this: &mut Shell, window: &mut Window| -> &'static str {
+                [("menu", &this.menu_focus), ("rail", &this.rail_ui.focus), ("unread", &this.unread_focus), ("search", &this.search_focus), ("list", &this.list_focus), ("spaces", &this.spaces_ui.focus)]
+                    .into_iter().find(|(_, h)| h.is_focused(window)).map_or("other", |(n, _)| n)
+            };
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+            wait(300).await;
+            let mut forward = vec![];
+            for _ in 0..6 {
+                forward.push(this.update_in(cx, |this, window, _| names(this, window)).unwrap());
+                key!("tab");
+                wait(100).await;
+            }
+            eprintln!("TAB-ORDER forward {forward:?}");
+            let wide = DYNAMIC.load(Ordering::SeqCst) == 32;
+            // menu -> rail entries (+ their edit button) -> list header -> search -> list; compact has no rail but the Spaces strip after the list.
+            let want: &[&str] = if wide { &["menu", "rail", "rail", "rail", "other", "unread"] } else { &["menu", "unread", "search", "list", "spaces", "menu"] };
+            assert_eq!(forward, want);
+            let mut back = vec![];
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+            for _ in 0..6 {
+                back.push(this.update_in(cx, |this, window, _| names(this, window)).unwrap());
+                key!("shift-tab");
+                wait(100).await;
+            }
+            eprintln!("TAB-ORDER backward {back:?}");
+            if wide {
+                // Shift+Tab on the first rail entry leaves the rail for the menu button.
+                this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+                key!("tab");
+                key!("shift-tab");
+                assert_eq!(this.update_in(cx, |this, window, _| names(this, window)).unwrap(), "menu");
+            } else {
+                assert_eq!(back, ["menu", "spaces", "list", "search", "unread", "menu"]);
+            }
+            // The button stays reachable (inside the window) and closing the drawer gives focus back to it.
+            let menu = { PAINTED.lock().unwrap()["menu-button"] };
+            let size = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+            assert!(menu.left() >= px(0.) && menu.top() >= px(0.) && menu.right() <= size.width && menu.bottom() <= size.height, "menu {menu:?} inside {size:?}");
+            this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
+            for close in ["escape", "ctrl-shift-m"] {
+                key!("enter");
+                wait(200).await;
+                this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window))).unwrap();
+                key!(close);
+                wait(200).await;
+                this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "{close} returns focus to the menu button")).unwrap();
+            }
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 91 {
+            crate::member_profile_test::scenario(this, cx, executor).await;
             return;
         }
         if DYNAMIC.load(Ordering::SeqCst) == 26 {
@@ -1728,9 +1774,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(500).await;
             shot("p183-closed");
             // The button sits at the top of the rail, above «Tutte», and the list header no longer holds it.
-            let (menu, first, theme) = { let p = PAINTED.lock().unwrap(); (p["menu-button"], p["rail-None"], p["theme"]) };
-            assert!(menu.right() <= px(72.) && menu.bottom() <= first.top(), "menu {menu:?} above the first rail entry {first:?}");
-            assert!(menu.top() >= px(0.) && theme.left() >= px(72.), "theme toggle {theme:?} is in the list header, right of the rail");
+            let (menu, first, avatar) = { let p = PAINTED.lock().unwrap(); (p["menu-button"], p.get("rail-None").copied(), p["list-avatar"]) };
+            assert!(menu.right() <= px(72.) && first.is_none_or(|first| menu.bottom() <= first.top()), "menu {menu:?} above the first rail entry {first:?}");
+            assert!(menu.top() >= px(0.) && avatar.left() >= px(72.), "list header icon {avatar:?} is right of the rail");
             // Real pointer clicks need an input device: xdotool on the private X11 display.
             let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap().stdout).unwrap().lines().next().expect("window").to_string();
             macro_rules! click { ($x:expr, $y:expr) => { assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", &win, &(($x) as i32).to_string(), &(($y) as i32).to_string(), "click", "1"]).status().unwrap().success()) }; }
@@ -1740,21 +1786,23 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, window, _| assert!(this.menu_open && this.drawer_focus.is_focused(window), "click opens the drawer and moves focus")).unwrap();
             // Layering: the open drawer spans the full height from the left edge and covers the rail, which gets no click.
             let drawer = { PAINTED.lock().unwrap()["menu-drawer"] };
-            assert!(drawer.left() <= px(0.) && drawer.top() <= px(0.) && drawer.right() >= first.right() && drawer.bottom() >= first.bottom(), "drawer {drawer:?} covers menu {menu:?} and rail {first:?}");
-            let selected = this.update_in(cx, |this, _, _| this.active_scope.clone()).unwrap();
-            let ups = ACTIVATIONS[2].load(Ordering::SeqCst);
-            // Just under the drawer's last row, still over the bottom edge of «Tutte».
-            click!(f32::from(first.center().x), f32::from(first.bottom()) - 3.);
-            wait(500).await;
-            // The point may land on a drawer row (which closes it); either way the rail entry underneath stays untouched.
-            this.update_in(cx, |this, _, _| assert!(this.active_scope == selected && ACTIVATIONS[2].load(Ordering::SeqCst) == ups, "the rail entry under the drawer received the click")).unwrap();
-            this.update_in(cx, |this, _, _| assert!(this.menu_open, "a click over the rail leaves the drawer open")).unwrap();
-            click!(bx, by);
-            wait(500).await;
-            this.update_in(cx, |this, _, _| assert!(this.menu_open)).unwrap();
+            // linux-a11y paints the rail through semantic observers: no «rail-None» bounds to click over, so only the layering check is skipped there.
+            if let Some(first) = first {
+                assert!(drawer.left() <= px(0.) && drawer.top() <= px(0.) && drawer.right() >= first.right() && drawer.bottom() >= first.bottom(), "drawer {drawer:?} covers menu {menu:?} and rail {first:?}");
+                let selected = this.update_in(cx, |this, _, _| this.active_scope.clone()).unwrap();
+                let ups = ACTIVATIONS[1].load(Ordering::SeqCst);
+                // Just under the drawer's last row, still over the bottom edge of «Tutte».
+                click!(f32::from(first.center().x), f32::from(first.bottom()) - 3.);
+                wait(500).await;
+                // The point may land on a drawer row (which closes it); either way the rail entry underneath stays untouched.
+                this.update_in(cx, |this, _, _| assert!(this.active_scope == selected && ACTIVATIONS[1].load(Ordering::SeqCst) == ups, "the rail entry under the drawer received the click")).unwrap();
+            }
+            // The point sits on a drawer row (Notifiche), which closes the drawer and opens its panel: start the outside click from a plain open drawer.
+            this.update_in(cx, |this, window, cx| { this.set_notifications_open(false); this.set_settings_open(false, window, cx); this.set_menu_open(false, window, cx); this.set_menu_open(true, window, cx); }).unwrap();
+            wait(300).await;
             click!(600., 400.);
             wait(500).await;
-            this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "click outside closes, focus returns to the button")).unwrap();
+            this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "click outside closes, focus returns to the button: open={} menu_focused={} settings={}", this.menu_open, this.menu_focus.is_focused(window), this.settings_open)).unwrap();
             this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
             key!("enter");
             wait(500).await;
@@ -1841,6 +1889,281 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(700).await;
             let ok = std::process::Command::new("grim").arg("/tmp/gui-out/p181-preview.png").status().map(|s| s.success()).unwrap_or(false);
             assert!(ok, "screenshot");
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 40 {
+            // Room sheet with N members: draw time, a11y nodes, and the wheel over the sheet scrolls only the member list.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let path = format!("/tmp/gui-out/{name}.png");
+                let wl = std::env::var_os("WAYLAND_DISPLAY").is_some();
+                let ok = if wl { std::process::Command::new("grim").arg(&path).status() } else { std::process::Command::new("import").args(["-window", "root", &path]).status() };
+                assert!(ok.unwrap().success(), "shot {name}");
+            };
+            let members = |n: usize| (0..n).map(|i| matrix_engine::operations::Member {
+                user_id: format!("@utente{i:04}:fixture.test"), name: format!("Utente di prova {i:04}"), avatar: None,
+            }).collect::<Vec<_>>();
+            let mut report = serde_json::Map::new();
+            for (label, n) in [("closed", None), ("open-0", Some(0)), ("open-1000", Some(1000)), ("open-343", Some(343))] {
+                this.update_in(cx, |this, _, cx| {
+                    match n { Some(n) => { this.room_members = members(n); this.set_room_details_open(true); } None => this.set_room_details_open(false) }
+                    cx.notify();
+                }).unwrap();
+                wait(300).await;
+                let mut v: Vec<f64> = (0..40).map(|_| cx.update(|window, app| {
+                    window.refresh();
+                    let t = std::time::Instant::now(); let _ = window.draw(app); t.elapsed().as_secs_f64() * 1000.
+                }).unwrap()).collect();
+                v.drain(..5); v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                let (med, p95, max) = (v[v.len() / 2], v[(v.len() as f64 * 0.95) as usize - 1], *v.last().unwrap());
+                println!("AFTER draw {label}: median {med:.2} ms p95 {p95:.2} ms max {max:.2} ms");
+                report.insert(format!("draw_{label}"), serde_json::json!({"median_ms": med, "p95_ms": p95, "max_ms": max, "samples": v.len()}));
+            }
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            {
+                let nodes = this.update_in(cx, |this, _, _| {
+                    let room = this.sidebar.selected().unwrap();
+                    matrix_desktop::accessibility::details::DetailsSnapshot {
+                        scope: room.scope.clone(), name: room.name.clone(), info: room.info.clone(),
+                        people: this.people_labels(), back: false, acts: vec![], focus: Default::default(), profile_focus: 0, bounds: [None; 2],
+                    }.tree().nodes.len()
+                }).unwrap();
+                println!("AFTER a11y nodes in sheet tree: {nodes}");
+                report.insert("a11y_sheet_nodes_343".into(), nodes.into());
+            }
+            // Wheel over the sheet's member list: does the timeline behind it move too?
+            this.update_in(cx, |this, _, cx| { this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.)); cx.notify(); }).unwrap();
+            wait(400).await;
+            shot("sheet-343-top");
+            let size = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+            let start = this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().top_row()).unwrap();
+            let (x, y) = ((f32::from(size.width) - 150.) as i32, (f32::from(size.height) * 0.7) as i32);
+            if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+                // Wayland: virtual pointer helper (tools/wayland/pointer.c) built by the runner; output 1920x1080 scale 1.
+                use std::io::{BufRead, Write};
+                let mut ptr = std::process::Command::new("/tmp/gui-out/pointer").env("DIME_ISOLATED_WAYLAND", "1")
+                    .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+                let mut input = ptr.stdin.take().unwrap();
+                let mut output = std::io::BufReader::new(ptr.stdout.take().unwrap());
+                wait(1500).await; // let GPUI bind wl_pointer for the new seat capability
+                for action in ["move 0", "move 0", "scroll 1", "scroll 1", "scroll 1", "scroll 1", "scroll 1"] {
+                    writeln!(input, "{} {} 1920 1080 {action}", 1920 - 150, (1080. * 0.7) as i32).unwrap();
+                    let mut line = String::new(); output.read_line(&mut line).unwrap();
+                    assert_eq!(line, "done\n");
+                    wait(150).await;
+                }
+                drop(input); let _ = ptr.wait();
+            } else {
+                let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap().stdout).unwrap().lines().next().expect("window").to_string();
+                assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", &win, &x.to_string(), &y.to_string(), "click", "--repeat", "5", "--delay", "40", "5"]).status().unwrap().success());
+            }
+            wait(500).await;
+            let end = this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().top_row()).unwrap();
+            shot("sheet-343-after-wheel");
+            println!("AFTER wheel over sheet at ({x},{y}) of {size:?}: timeline top {start:?} -> {end:?}");
+            let listed = this.update_in(cx, |this, _, _| this.members_scroll.0.borrow().base_handle.offset().y).unwrap();
+            assert!(listed < px(0.), "the member list did not scroll: {listed:?}");
+            assert_eq!(start, end, "the timeline moved under a wheel over the sheet");
+            report.insert("wheel_point".into(), serde_json::json!([x, y, f32::from(size.width), f32::from(size.height)]));
+            report.insert("timeline_top_before".into(), format!("{start:?}").into());
+            report.insert("timeline_top_after".into(), format!("{end:?}").into());
+            report.insert("timeline_moved_by_wheel_over_sheet".into(), (start != end).into());
+            std::fs::write("/tmp/gui-out/sheet-report.json", serde_json::to_string_pretty(&report).unwrap()).unwrap();
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 41 {
+            // Exploratory matrix for the room sheet vs timeline wheel (Wayland only: needs the virtual pointer helper).
+            use std::io::{BufRead, Write};
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            let shot = |name: &str| {
+                let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status();
+                assert!(ok.unwrap().success(), "shot {name}");
+            };
+            let members = |n: usize| (0..n).map(|i| matrix_engine::operations::Member {
+                user_id: format!("@utente{i:04}:fixture.test"), name: format!("Utente di prova {i:04}"), avatar: None,
+            }).collect::<Vec<_>>();
+            let mut ptr = std::process::Command::new("/tmp/gui-out/pointer").env("DIME_ISOLATED_WAYLAND", "1")
+                .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+            let mut input = ptr.stdin.take().unwrap();
+            let mut output = std::io::BufReader::new(ptr.stdout.take().unwrap());
+            let mut send = |x: i32, y: i32, a: &str| {
+                writeln!(input, "{x} {y} 1920 1080 {a}").unwrap();
+                let mut line = String::new(); output.read_line(&mut line).unwrap();
+                assert_eq!(line, "done\n", "pointer helper died on: {x} {y} {a}");
+            };
+            let mut report = serde_json::Map::new();
+            let mut fails: Vec<String> = vec![];
+            macro_rules! check { ($ok:expr, $($m:tt)*) => {{
+                let ok = $ok; let msg = format!($($m)*);
+                println!("{} {msg}", if ok { "PASS" } else { "FAIL" });
+                report.insert(msg.clone(), ok.into());
+                if !ok { fails.push(msg); }
+            }}; }
+            macro_rules! state { () => { this.update_in(cx, |this, _, _| {
+                let h = this.members_scroll.0.borrow().base_handle.clone();
+                (f32::from(h.offset().y), f32::from(h.max_offset().height), this.timeline.as_ref().unwrap().top_row(),
+                 f32::from(this.scroll.0.borrow().base_handle.offset().y))
+            }).unwrap() }; }
+            macro_rules! open { ($n:expr) => {{
+                this.update_in(cx, |this, _, cx| {
+                    match $n { Some(n) => { this.room_members = members(n); this.set_room_details_open(true); } None => this.set_room_details_open(false) }
+                    this.members_scroll.0.borrow().base_handle.set_offset(gpui::point(px(0.), px(0.)));
+                    this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.));
+                    cx.notify();
+                }).unwrap();
+                wait(400).await;
+            }}; }
+            // Bursts of wheel ticks; trackpad-with-inertia is approximated by decaying deltas sent back to back.
+            macro_rules! wheel { ($x:expr, $y:expr, $n:expr, $d:expr) => {{ for _ in 0..$n { send($x, $y, &format!("scroll {}", $d)); } wait(300).await; }}; }
+            wait(1500).await; // GPUI binds wl_pointer for the new seat
+            send(10, 10, "move 0");
+            let size = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+            let (sx, sy) = (1920 - 150, (f32::from(size.height) * 0.7) as i32); // over the sheet
+            let (tx, ty) = (700, sy); // over the timeline (sheet starts right of x=1400)
+
+            open!(Some(343));
+            let (m0, max, t0, _) = state!();
+            check!(max > 0., "343 members: list has scroll extent (max {max:.0}px)");
+            // S1 wheel down on the sheet
+            wheel!(sx, sy, 5, 1);
+            let (m1, _, t1, _) = state!();
+            check!(m1 < m0 && t1 == t0, "S1 wheel down over sheet: list {m0:.0}->{m1:.0}, timeline unchanged");
+            shot("s1-scrolled");
+            // S2 to the bottom, then 40 more ticks past the end
+            wheel!(sx, sy, 100, 5);
+            let (m2, _, t2, _) = state!();
+            check!((m2 + max).abs() < 1., "S2 bottom reached: offset {m2:.0} == -{max:.0}");
+            wheel!(sx, sy, 40, 3);
+            let (m2b, _, t2b, _) = state!();
+            check!(m2b == m2 && t2b == t2 && t2 == t0, "S2 40 ticks past the bottom: list stays, timeline unchanged");
+            shot("s2-bottom");
+            // S3 back to top, then 40 more up
+            wheel!(sx, sy, 100, -5);
+            let (m3, _, t3, _) = state!();
+            check!(m3 == 0., "S3 top reached: offset {m3:.0}");
+            wheel!(sx, sy, 40, -3);
+            let (m3b, _, t3b, _) = state!();
+            check!(m3b == 0. && t3b == t0 && t3 == t0, "S3 40 ticks past the top: list stays, timeline unchanged");
+            // S4 inertia-like burst: 30 decaying ticks without waits, from the middle
+            wheel!(sx, sy, 3, 4);
+            for d in (1..=30).rev() { send(sx, sy, &format!("scroll {}", (d / 3).max(1))); }
+            wait(300).await;
+            let (m4, _, t4, _) = state!();
+            check!(m4 < 0. && t4 == t0, "S4 inertia-like burst: list {m4:.0}, timeline unchanged");
+            // S5 pointer on the timeline: only the timeline moves
+            let (ma, _, ta, _) = state!();
+            wheel!(tx, ty, 5, -3);
+            let (mb, _, tb, _) = state!();
+            check!(mb == ma && tb != ta, "S5 wheel over timeline: timeline moved, list unchanged ({ma:.0})");
+            this.update_in(cx, |this, _, _| this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.))).unwrap();
+            // S6 scrollbar thumb drag
+            let pre = state!();
+            wheel!(sx, sy, 3, 2); // makes the thumb visible/active
+            println!("INFO S6 list offset before/after 3 ticks: {:.0} -> {:.0} (max {:.0})", pre.0, state!().0, pre.1);
+            shot("s6-thumb-visible");
+            let before = state!();
+            let thumb = this.update_in(cx, |this, _, _| this.members_scrollbar.thumb_centre()).unwrap();
+            check!(thumb.is_some(), "S6 members scrollbar has painted geometry");
+            if let Some(c) = thumb {
+                let (cxp, cyp) = (f32::from(c.x) as i32, f32::from(c.y) as i32);
+                println!("INFO S6 thumb centre ({cxp},{cyp}) window {size:?}");
+                send(cxp, cyp, "move 0"); wait(150).await;
+                send(cxp, cyp, "press 0"); wait(150).await;
+                for step in 1..=8 { send(cxp, cyp - step * 25, "move 0"); wait(60).await; }
+                shot("s6-dragging");
+                send(cxp, cyp - 200, "release 0"); wait(300).await;
+                let after = state!();
+                check!(after.0 > before.0 && after.2 == before.2, "S6 thumb drag (upwards): list {:.0}->{:.0}, timeline unchanged", before.0, after.0);
+                send(10, 10, "move 0"); wait(1500).await;
+                shot("s6-after-release-faded");
+            }
+            // S7 few members and empty room
+            for n in [5usize, 1, 0] {
+                open!(Some(n));
+                let (m, mx, t, _) = state!();
+                wheel!(sx, sy, 10, 5);
+                wheel!(sx, sy, 10, -5);
+                let (m_, _, t_, _) = state!();
+                check!(m_ == m && t_ == t, "S7 {n} members (extent {mx:.0}): wheel over sheet moves neither list nor timeline");
+                shot(&format!("s7-{n}-members"));
+            }
+            // S8 close the panel mid-scroll: the same wheel point now reaches the timeline; reopen resets nothing odd
+            open!(Some(343));
+            wheel!(sx, sy, 5, 3);
+            let (mo, _, to, _) = state!();
+            open!(None);
+            let (_, _, tc, _) = state!();
+            wheel!(sx, sy, 5, -3);
+            let (_, _, tc2, _) = state!();
+            check!(tc == to && tc2 != tc, "S8 panel closed: wheel at same point scrolls timeline ({:?}->{:?})", tc.1, tc2.1);
+            this.update_in(cx, |this, _, cx| { this.set_room_details_open(true); cx.notify(); }).unwrap();
+            wait(400).await;
+            let (mr, _, _, _) = state!();
+            println!("INFO S8 reopen: list offset before close {mo:.0}, after reopen {mr:.0}");
+            report.insert("s8_offset_before_close_after_reopen".into(), serde_json::json!([mo, mr]));
+            let (r0, _, rt0, _) = state!();
+            wheel!(sx, sy, 5, 3);
+            let (r1, _, rt1, _) = state!();
+            check!(r1 < r0 && rt1 == rt0, "S8 reopened panel scrolls its list again, timeline unchanged");
+            // S9 room list regression: wheel on the left list never moves the sheet list or the timeline
+            let (l0, _, lt0, rl0) = state!();
+            wheel!(150, sy, 5, 3);
+            let (l1, _, lt1, rl1) = state!();
+            println!("INFO S9 room list offset {rl0:.0}->{rl1:.0}");
+            check!(l1 == l0 && lt1 == lt0, "S9 wheel over room list leaves sheet list and timeline alone");
+            // S10 small windows: sheet taller than the window. The pointer helper works in output coordinates, so read where sway put the window.
+            let origin = || -> (i32, i32) {
+                fn find(v: &serde_json::Value) -> Option<(i64, i64)> {
+                    if v["focused"] == true && v["rect"].is_object() { return Some((v["rect"]["x"].as_i64()?, v["rect"]["y"].as_i64()?)); }
+                    v["nodes"].as_array().into_iter().chain(v["floating_nodes"].as_array()).flatten().find_map(find)
+                }
+                let out = std::process::Command::new("swaymsg").args(["-t", "get_tree"]).output().unwrap();
+                let tree: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+                let (x, y) = find(&tree).expect("focused window in sway tree");
+                (x as i32, y as i32)
+            };
+            for (h_req, label) in [(700, "700"), (420, "420")] {
+                let cmd = format!("floating enable, resize set width 1000 height {h_req}, move position 0 0");
+                let st = std::process::Command::new("swaymsg").arg(cmd).status();
+                wait(1000).await;
+                let small = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+                let (ox, oy) = origin();
+                println!("INFO S10-{label} swaymsg {st:?} viewport {small:?} origin ({ox},{oy})");
+                let (w, h) = (f32::from(small.width) as i32, f32::from(small.height) as i32);
+                open!(Some(343));
+                shot(&format!("s10-{label}-top"));
+                let (a0, amax, ta0, _) = state!();
+                wheel!(ox + w - 150, oy + 150, 6, 3); // over the info block (below the 420 px header)
+                shot(&format!("s10-{label}-after-wheel-on-info"));
+                let (a1, _, ta1, _) = state!();
+                let (list_h, info_off, info_max) = this.update_in(cx, |this, _, _| {
+                    let i = this.info_scroll.0.borrow().base_handle.clone();
+                    let l = this.members_scroll.0.borrow().base_handle.clone();
+                    (f32::from(l.bounds().size.height), f32::from(i.offset().y), f32::from(i.max_offset().height))
+                }).unwrap();
+                println!("INFO S10-{label} member list viewport {list_h:.0}px, info offset {info_off:.0} (max {info_max:.0})");
+                check!(list_h >= 130., "S10-{label}: member list keeps >= 3 rows ({list_h:.0}px)");
+                check!(h >= 600 || (info_max > 0. && info_off < 0.), "S10-{label}: info block scrolls by wheel (offset {info_off:.0}, max {info_max:.0})");
+                check!(h >= 600 || this.update_in(cx, |this, _, _| this.info_scrollbar.thumb_centre().is_some()).unwrap(), "S10-{label}: info block shows its scrollbar thumb");
+                wheel!(ox + w - 150, oy + h - 25, 6, 3); // over the member list (bottom edge of the window)
+                let (a2, _, ta2, _) = state!();
+                shot(&format!("s10-{label}-after-wheel-on-list"));
+                println!("INFO S10-{label} list offset {a0:.0} (extent {amax:.0}) -> info-wheel {a1:.0} -> list-wheel {a2:.0}");
+                check!(ta1 == ta0 && ta2 == ta0, "S10-{label} window {w}x{h}: timeline unchanged by wheel over the sheet");
+                check!(a1 == a0, "S10-{label}: wheel over the info block does not move the member list");
+                check!(amax > 0. && a2 < a0, "S10-{label}: member list scrolls under the pointer at the bottom edge (extent {amax:.0})");
+            }
+            // S11 resize larger while scrolled
+            let _ = std::process::Command::new("swaymsg").arg("resize set width 1900 height 1000").status();
+            wait(800).await;
+            let (b, bmax, _, _) = state!();
+            check!(b <= 0. && b >= -bmax - 1., "S11 resize larger while scrolled: offset {b:.0} within extent {bmax:.0}");
+            shot("s11-resized-back");
+            std::fs::write("/tmp/gui-out/matrix-report.json", serde_json::to_string_pretty(&report).unwrap()).unwrap();
+            drop(send); drop(input); let _ = ptr.wait();
+            assert!(fails.is_empty(), "failed: {fails:#?}");
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
@@ -1993,13 +2316,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
-                assert!(this.theme_focus.is_focused(window));
+                assert!(this.unread_focus.is_focused(window));
                 this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary { scope: beta, name: "Beta replacement".into(), unread: 0, info: matrix_engine::RoomInfo { is_space: true, ..Default::default() } }));
                 cx.notify();
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
-                assert!(this.theme_focus.is_focused(window), "replacement eligibility must not steal focus back");
+                assert!(this.unread_focus.is_focused(window), "replacement eligibility must not steal focus back");
                 assert!(!this.spaces_open);
                 assert_eq!(this.sidebar.active_space(), None);
                 assert!(history(this));
@@ -2025,7 +2348,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 space
             }).unwrap();
             for dark in [false, true] {
-                for (query, unread, group, count) in [("",false,false,302), ("",true,false,1), ("",true,true,1), ("no matches ",true,true,0), ("",false,true,2), ("",false,false,302)] {
+                for (query, unread, group, count) in [("",false,false,300), ("",true,false,1), ("",true,true,1), ("no matches ",true,true,0), ("",false,true,1), ("",false,false,300)] {
                     this.update_in(cx, |this, _, cx| {
                         if this.theme.is_dark() != dark { this.toggle_theme(cx); }
                         this.sidebar.set_query(query);
@@ -2063,7 +2386,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
                 assert_eq!(window.viewport_size().width, px(1120.));
-                assert!(this.theme_focus.is_focused(window), "native Configure must move hidden compact focus to visible Theme before repaint");
+                assert!(this.unread_focus.is_focused(window), "native Configure must move hidden compact focus to the visible unread filter before repaint");
                 this.rail_ui.focus.focus(window);
                 navigation_resize_test::resize("360", "480");
                 cx.notify();
@@ -2106,7 +2429,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
                 assert!(this.list_focus.is_focused(window));
-                for label in ["theme", "search", "list"] {
+                for label in ["unread", "search", "list"] {
                     let bounds = PAINTED.lock().unwrap()[label];
                     assert!(bounds.left() >= px(72.) && bounds.right() <= window.viewport_size().width && bounds.bottom() <= window.viewport_size().height);
                     eprintln!("fresh post-Configure desktop {label} bounds={bounds:?}, native focus=list");
@@ -2179,12 +2502,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
-                assert!(this.theme_focus.is_focused(window), "last joined Space removal must reach visible Theme, not hidden menu");
+                assert!(this.unread_focus.is_focused(window), "last joined Space removal must reach the visible unread filter, not hidden menu");
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                 assert_eq!(this.active_scope, scopes[0]);
                 assert_eq!(this.sidebar.active_space(), None);
                 assert!(history(this));
-                eprintln!("compact: removed preceding choice retains Beta; last Space removal focuses Theme without activation");
+                eprintln!("compact: removed preceding choice retains Beta; last Space removal focuses the unread filter without activation");
                 preserve_drafts_and_capture(this, &scopes, window, cx, &format!("dynamic{}", DYNAMIC.load(Ordering::SeqCst)));
                 cx.quit();
             }).unwrap();
@@ -2212,19 +2535,19 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             return;
         }
         let steps = if COMPACT.load(Ordering::SeqCst) && OPEN.load(Ordering::SeqCst) {
-            vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "list"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list")]
+            vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "list"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "menu"), ("tab", "unread"), ("tab", "search"), ("tab", "list")]
         } else if !COMPACT.load(Ordering::SeqCst) && SPACES.load(Ordering::SeqCst) {
-            vec![("tab", "theme"), ("shift-tab", "rail2"), ("shift-tab", "rail1"), ("shift-tab", "rail0"), ("tab", "rail1"), ("tab", "rail2"), ("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "rail2")]
+            vec![("tab", "edit"), ("shift-tab", "rail2"), ("shift-tab", "rail1"), ("shift-tab", "rail0"), ("tab", "rail1"), ("tab", "rail2"), ("tab", "edit"), ("tab", "unread"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "edit"), ("shift-tab", "rail2")]
         } else if COMPACT.load(Ordering::SeqCst) {
             if CONNECTED.load(Ordering::SeqCst) {
-                vec![("tab", "unread"), ("tab", "search"), ("tab", "list"), ("tab", "space0"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "space0"), ("tab", "theme")]
+                vec![("tab", "unread"), ("tab", "search"), ("tab", "list"), ("tab", "space0"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "menu"), ("shift-tab", "space0"), ("tab", "menu")]
             } else {
-                vec![("tab", "search"), ("tab", "list"), ("tab", "theme"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "theme")]
+                vec![("tab", "search"), ("tab", "list"), ("tab", "menu"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "menu")]
             }
         } else if CONNECTED.load(Ordering::SeqCst) {
-            vec![("tab", "theme"), ("tab", "unread"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "theme"), ("shift-tab", "rail")]
+            vec![("tab", "edit"), ("tab", "unread"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "edit"), ("shift-tab", "rail")]
         } else {
-            vec![("tab", "theme"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "theme"), ("shift-tab", "rail")]
+            vec![("tab", "edit"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "edit"), ("shift-tab", "rail")]
         };
         for (key, expected) in steps {
             cx.update(|window, cx| {
@@ -2232,8 +2555,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             this.update_in(cx, |this, window, cx| {
                 let focused = match expected {
-                    "theme" => this.theme_focus.is_focused(window),
                     "unread" => this.unread_focus.is_focused(window),
+                    "menu" => this.menu_focus.is_focused(window),
+                    "edit" => this.rail_ui.edit_focus.is_focused(window),
                     "search" => this.search_focus.is_focused(window),
                     "list" => this.list_focus.is_focused(window),
                     "devices" => this.opener_ui.focused(matrix_desktop::panel_openers::Control::Devices, window),
@@ -2252,7 +2576,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     },
                     _ => unreachable!(),
                 };
-                assert!(focused, "{key} must reach {expected} through actual Shell dispatch");
+                assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                 assert_eq!(this.active_scope, scopes[0]);
                 assert!(!this.theme.is_dark() && !this.sidebar.unread_only());
@@ -2329,18 +2653,26 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.sidebar.set_space(None);
             this.list_focus.focus(window);
         }).unwrap();
-        for (key, index) in [("down", 1), ("up", 0)] {
+        // The list is ordered by recency, so the row below scopes[0] is not necessarily scopes[1].
+        let below = this.update_in(cx, |this, _, _| {
+            let visible = this.sidebar.visible_indices();
+            let at = visible.iter().position(|&i| this.sidebar.rooms()[i].scope == scopes[0]).unwrap();
+            this.sidebar.rooms()[visible[at + 1]].scope.clone()
+        }).unwrap();
+        for (key, expected) in [("down", &below), ("up", &scopes[0])] {
             cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx); }).unwrap();
             this.update_in(cx, |this, window, cx| {
                 assert!(this.list_focus.is_focused(window));
-                assert_eq!(this.sidebar.selected().unwrap().scope, scopes[index]);
-                assert_eq!(this.active_scope, scopes[index]);
-                this.composer.update(cx, |v,cx| {
-                    let mut actual=None;
-                    assert_eq!(v.text_for_range(0..65536,&mut actual,window,cx).as_deref(), Some(DRAFTS[index]));
-                });
-                if index == 0 { assert!(history(this)); }
-                eprintln!("list arrow {key}: exact room/history/draft{index}");
+                assert_eq!(&this.sidebar.selected().unwrap().scope, expected);
+                assert_eq!(&this.active_scope, expected);
+                if expected == &scopes[0] {
+                    this.composer.update(cx, |v,cx| {
+                        let mut actual=None;
+                        assert_eq!(v.text_for_range(0..65536,&mut actual,window,cx).as_deref(), Some(DRAFTS[0]));
+                    });
+                    assert!(history(this));
+                }
+                eprintln!("list arrow {key}: exact room/history");
             }).unwrap();
         }
         this.update_in(cx, |this, window, cx| {
@@ -2743,7 +3075,7 @@ fn compact_chat_seam_runs_from_back_through_info_both_ways() {
 
 #[test]
 #[ignore = "requires private display"]
-fn wide_chat_end_wraps_to_first_rail_control_both_ways() {
+fn wide_chat_end_wraps_to_menu_both_ways() {
     assert_eq!(
         std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
         Ok("1")
@@ -2850,6 +3182,22 @@ fn page_up_and_home_keep_the_row_being_read_in_place() {
         Ok("1")
     );
     DYNAMIC.store(21, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn wheel_over_room_sheet_scrolls_only_the_member_list() {
+    DYNAMIC.store(40, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn wheel_over_room_sheet_matrix_edges_inertia_scrollbar_resize() {
+    DYNAMIC.store(41, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
@@ -2988,6 +3336,39 @@ fn drawer_offers_devices_and_notifications_and_the_footer_does_not() {
     DYNAMIC.store(29, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn tab_ring_wide_from_the_menu_button() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(32, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn tab_ring_compact_from_the_menu_button() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(33, Ordering::SeqCst);
+    COMPACT.store(true, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn member_detail_profile_actions_and_keyboard() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(91, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }

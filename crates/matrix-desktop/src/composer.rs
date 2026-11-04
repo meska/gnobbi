@@ -1,6 +1,24 @@
 //! UI-local editable text; deliberately independent of backend transport.
 use std::ops::Range;
 
+/// Byte offset of the grapheme cluster before `cursor`: ZWJ, skin-tone, flag and keycap emoji move and delete as one.
+pub fn prev_boundary(text: &str, cursor: usize) -> usize {
+    use unicode_segmentation::UnicodeSegmentation as _;
+    text[..cursor]
+        .graphemes(true)
+        .next_back()
+        .map_or(0, |g| cursor - g.len())
+}
+
+/// Byte offset after the grapheme cluster that starts at `cursor`.
+pub fn next_boundary(text: &str, cursor: usize) -> usize {
+    use unicode_segmentation::UnicodeSegmentation as _;
+    text[cursor..]
+        .graphemes(true)
+        .next()
+        .map_or(cursor, |g| cursor + g.len())
+}
+
 fn utf16_byte(text: &str, offset: usize) -> usize {
     let mut units = 0;
     for (index, ch) in text.char_indices() {
@@ -236,6 +254,7 @@ mod mention_tests {
         let m = |id: &str, name: &str| Member {
             user_id: id.into(),
             name: name.into(),
+            avatar: None,
         };
         let members = vec![m("@b:x", "Sabrina"), m("@a:x", "Bruno"), m("@c:x", "@c:x")];
         let names: Vec<_> = mention_matches(&members, "br")
@@ -248,5 +267,27 @@ mod mention_tests {
             .map(|i| m(&format!("@u{i}:x"), &format!("U{i}")))
             .collect();
         assert_eq!(mention_matches(&many, "").len(), 6);
+    }
+}
+
+#[cfg(test)]
+mod cluster_tests {
+    #[test]
+    fn emoji_sequences_move_and_delete_as_one_cluster() {
+        for seq in [
+            "👨\u{200d}👩\u{200d}👧",
+            "👍🏽",
+            "🇮🇹",
+            "1\u{fe0f}\u{20e3}",
+            "❤\u{fe0f}",
+            "è",
+        ] {
+            let text = format!("a{seq}b");
+            let after = 1 + seq.len();
+            assert_eq!(super::next_boundary(&text, 1), after, "{seq:?} forward");
+            assert_eq!(super::prev_boundary(&text, after), 1, "{seq:?} backward");
+        }
+        assert_eq!(super::prev_boundary("", 0), 0);
+        assert_eq!(super::next_boundary("a", 1), 1);
     }
 }
