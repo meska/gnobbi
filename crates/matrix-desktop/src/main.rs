@@ -38,6 +38,7 @@ mod rail_drag_test;
 mod bar_alignment_test;
 #[cfg(test)]
 mod member_profile_test;
+#[cfg(test)]
 mod drawer_active_test;
 #[cfg(test)]
 mod sidebar_navigation_test;
