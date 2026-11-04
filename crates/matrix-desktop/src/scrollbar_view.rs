@@ -4,6 +4,23 @@ use gpui::{prelude::*, *};
 use matrix_desktop::{DesignTokens, ScrollbarGeometry, VirtualScrollExtent};
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
+/// macOS "Show scroll bars: Always" (and "Automatic" with a mouse) means legacy scrollers.
+fn always_visible() -> bool {
+    static ALWAYS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    // shortcut: letta una volta all'avvio, aggiornare con NSPreferredScrollerStyleDidChangeNotification se serve il cambio a caldo
+    *ALWAYS.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        {
+            use objc::{class, msg_send, sel, sel_impl};
+            // NSScrollerStyleLegacy == 0
+            let style: isize = unsafe { msg_send![class!(NSScroller), preferredScrollerStyle] };
+            style == 0
+        }
+        #[cfg(not(target_os = "macos"))]
+        false
+    })
+}
+
 pub type HistoryExtent = Rc<RefCell<(usize, f32, VirtualScrollExtent)>>;
 
 #[derive(Clone)]
@@ -216,12 +233,13 @@ impl Scrollbar {
                             state.activity = Some(Instant::now());
                         }
                         let elapsed = state.activity.map_or(2., |at| at.elapsed().as_secs_f32());
-                        let opacity = if state.hovered || state.drag.is_some() {
+                        let pinned = geometry.is_some() && always_visible();
+                        let opacity = if state.hovered || state.drag.is_some() || pinned {
                             1.
                         } else {
                             ((1.1 - elapsed) / 0.3).clamp(0., 1.)
                         };
-                        let animate = opacity > 0. && !state.hovered && state.drag.is_none();
+                        let animate = opacity > 0. && !state.hovered && state.drag.is_none() && !pinned;
                         (bounds, geometry, opacity, animate)
                     },
                     move |_, (bounds, geometry, opacity, animate), window, _| {
