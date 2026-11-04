@@ -297,3 +297,22 @@ pub const NIGHT: DesignTokens = DesignTokens {
     on_accent: 0x000000,
     ..LIGHT
 };
+
+/// Actions of an opened member profile, in tab order after back/close.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileAct {
+    CopyId,
+    Message,
+    Link,
+    Quote,
+}
+impl ProfileAct {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::CopyId => "Copia ID utente",
+            Self::Message => "Invia messaggio",
+            Self::Link => "Condividi link utente",
+            Self::Quote => "Cita",
+        }
+    }
+}

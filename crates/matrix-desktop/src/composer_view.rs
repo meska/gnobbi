@@ -239,6 +239,16 @@ impl ComposerView {
         self.changed(cx);
     }
 
+    /// «Cita» from a member profile: `@name` at the caret as a real mention, then the text field gets the focus.
+    pub fn insert_mention(&mut self, user_id: String, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let label = if name.starts_with('@') { name.to_owned() } else { format!("@{name}") };
+        if self.draft.replace(None, &format!("{label} ")) {
+            self.mentions.push(matrix_engine::sending::Mention { user_id, label });
+        }
+        window.focus(&self.focus);
+        self.changed(cx);
+    }
+
     /// Insert `EMOJI[index]` at the caret (over the selection) and give the focus back to the text.
     fn pick_emoji(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         self.emoji_open = false;

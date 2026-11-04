@@ -72,6 +72,7 @@ fn panel() -> DetailsSnapshot {
         info: room.info.clone(),
         people: vec![],
         back: false,
+        acts: vec![],
         focus: DetailsControl::Close,
         bounds: [None; 2],
     }
@@ -210,4 +211,28 @@ fn member_rows_open_the_profile_and_the_profile_leads_back_to_the_list() {
     let view = DetailsView::Open(Box::new(panel));
     assert_eq!(click(&view, BACK), Some(DetailsAction::Members(scope)));
     assert!(tree.nodes.iter().filter(|(_, n)| n.role() == Role::Button).count() >= 3);
+}
+
+#[test]
+fn profile_actions_are_buttons_with_names_and_route_to_act() {
+    use matrix_desktop::ProfileAct;
+    use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
+    let mut panel = panel();
+    panel.people = vec![("Profilo: Ada, @ada:fixture.invalid".into(), None)];
+    panel.back = true;
+    panel.acts = vec![ProfileAct::CopyId, ProfileAct::Message, ProfileAct::Link, ProfileAct::Quote];
+    let tree = panel.tree();
+    let scope = panel.scope.clone();
+    let view = DetailsView::Open(Box::new(panel));
+    for act in [ProfileAct::CopyId, ProfileAct::Message, ProfileAct::Link, ProfileAct::Quote] {
+        let (id, node) = tree
+            .nodes
+            .iter()
+            .find(|(_, n)| n.role() == Role::Button && n.label() == Some(act.label()))
+            .unwrap_or_else(|| panic!("no button named {}", act.label()));
+        assert!(node.supports_action(accesskit::Action::Click));
+        let action = click(&view, *id).unwrap();
+        assert_eq!(action, DetailsAction::Act { scope: scope.clone(), act });
+        assert!(view.allows(&action));
+    }
 }

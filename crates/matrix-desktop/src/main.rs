@@ -168,6 +168,11 @@ struct Shell {
     /// Joined members of the shown room (room sheet) and the profile opened from them.
     room_members: Vec<matrix_engine::operations::Member>,
     profile: Option<members_view::ProfileState>,
+    /// Focused control of the opened profile (index in Tab order) and the action whose copy just happened.
+    profile_focus: usize,
+    profile_copied: Option<matrix_desktop::ProfileAct>,
+    /// «Invia messaggio» of a profile is waiting for the engine.
+    profile_dm: bool,
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
@@ -812,6 +817,10 @@ impl Shell {
             return;
         }
         if self.room_details_open {
+            if self.profile.is_some() && self.profile_key(key.key.as_str(), key.modifiers.shift, window, cx) {
+                cx.stop_propagation();
+                return;
+            }
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             if matches!(key.key.as_str(), "tab" | "space" | "enter") {
                 use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
@@ -2914,6 +2923,9 @@ fn main() {
                         room_details_open: false,
                         room_members: Vec::new(),
                         profile: None,
+                        profile_focus: 0,
+                        profile_copied: None,
+                        profile_dm: false,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

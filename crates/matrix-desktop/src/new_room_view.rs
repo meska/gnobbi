@@ -342,6 +342,17 @@ impl Shell {
         result: Result<RoomScope, OperationError>,
         cx: &mut Context<Self>,
     ) {
+        if self.new_room.is_none() && std::mem::take(&mut self.profile_dm) {
+            // «Invia messaggio» of a member profile: open the chat; a failure leaves the profile as it is.
+            if let Ok(scope) = result {
+                self.sidebar.keep_visible(scope.clone());
+                self.pending_open = Some(scope);
+                self.set_room_details_open(false);
+                self.open_started_room(cx);
+            }
+            cx.notify();
+            return;
+        }
         // A late answer for a dialog the user already closed (or reopened) is ignored.
         let Some(room) = self.new_room.as_mut().filter(|room| room.busy) else {
             return;

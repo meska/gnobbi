@@ -21,6 +21,7 @@ impl Shell {
                 info: room.info.clone(),
                 people: self.people_labels(),
                 back: self.profile.is_some(),
+                acts: self.profile_acts(),
                 focus: self.details_focus,
                 bounds: self.a11y_details_bounds,
             }))
@@ -301,7 +302,7 @@ impl Shell {
             .bg(rgb(t.surface))
             .border_l_1()
             .border_color(rgb(t.border))
-            .child(
+            .when(self.profile.is_none(), |d| d.child(
                 div()
                     .h(px(t.header))
                     .flex_shrink_0()
@@ -330,7 +331,7 @@ impl Shell {
                                 cx.notify();
                             })),
                     ),
-            )
+            ))
             .child(
                 div()
                     .id("room-details-content")
