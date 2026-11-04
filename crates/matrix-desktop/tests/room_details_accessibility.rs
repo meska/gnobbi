@@ -211,3 +211,65 @@ fn member_rows_open_the_profile_and_the_profile_leads_back_to_the_list() {
     assert_eq!(click(&view, BACK), Some(DetailsAction::Members(scope)));
     assert!(tree.nodes.iter().filter(|(_, n)| n.role() == Role::Button).count() >= 3);
 }
+
+fn navigation(details: matrix_desktop::accessibility::details::DetailsView) -> matrix_desktop::accessibility::NavigationSnapshot {
+    use matrix_desktop::accessibility::NavigationSnapshot;
+    NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
+        #[cfg(all(feature = "live", unix))]
+        signin: None,
+        openers: vec![],
+        back: None,
+        drawer: None,
+        scrollbars: vec![],
+        operation_panel: None,
+        spaces: None,
+        navigation_revision: 0,
+        icon_choice: None,
+        unread_filter: None,
+        new_room: None,
+        devices: Default::default(),
+        settings: None,
+        details,
+        notifications: Default::default(),
+        dark: false,
+        visible: true,
+        query: String::new(),
+        search_focused: false,
+        search_bounds: None,
+        rooms: vec![],
+        history: None,
+        list_focused: false,
+        composer: None,
+    }
+}
+
+#[test]
+fn details_panel_is_a_named_complementary_not_a_modal_dialog() {
+    let tree = panel().tree();
+    let root = &tree.nodes[0].1;
+    assert_eq!(root.role(), Role::Complementary);
+    assert_eq!(root.label(), Some("Informazioni stanza"));
+    for (id, node) in &tree.nodes {
+        assert!(!matches!(node.role(), Role::Dialog | Role::AlertDialog | Role::Window), "{id:?} is a {:?}", node.role());
+        assert!(!node.is_modal(), "{id:?} is aria-modal");
+        assert!(!node.is_hidden(), "{id:?} is hidden");
+    }
+}
+
+// Defect (card to mazinga): NavigationSnapshot::tree()/action() still return only the panel while it is open, so the
+// screen reader loses the list, the search field and the composer. Remove the ignore when the panel is merged into the app tree.
+#[test]
+#[ignore = "DIFETTO: the semantic tree still replaces the whole app while the panel is open"]
+fn open_panel_does_not_hide_the_rest_of_the_app_from_the_screen_reader() {
+    use accesskit::{Action, ActionRequest, TreeId};
+    use matrix_desktop::accessibility::details::DetailsView;
+    use matrix_desktop::accessibility::SEARCH;
+    let open = navigation(DetailsView::Open(Box::new(panel())));
+    let tree = open.tree();
+    assert!(tree.nodes.iter().any(|(id, _)| *id == SEARCH), "search field must stay in the tree");
+    assert!(tree.nodes.iter().any(|(_, n)| n.label() == Some("Informazioni stanza") && n.role() == Role::Complementary), "panel must stay in the tree");
+    let request = ActionRequest { action: Action::Click, target_tree: TreeId::ROOT, target_node: SEARCH, data: None };
+    assert!(open.action(&request).is_some(), "search stays actionable");
+}

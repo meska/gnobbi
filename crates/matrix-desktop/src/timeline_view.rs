@@ -1007,6 +1007,11 @@ impl TimelineView {
         close_viewer(&self.viewing, &self.focus, key, window)
     }
 
+    #[cfg(test)]
+    pub(crate) fn is_focused(&self, window: &gpui::Window) -> bool {
+        self.focus.is_focused(window)
+    }
+
     pub fn focus_timeline(&self, window: &mut gpui::Window) {
         self.focus.focus(window);
     }
@@ -1759,6 +1764,8 @@ impl TimelineView {
                                     })
                                     .relative()
                                     .child(canvas(|_, _, _| (), move |bounds, _, window, _| {
+                                        #[cfg(test)]
+                                        crate::details_panel_test::bubble_painted(index, bounds);
                                         // Accessible link bounds come from the text itself: first line only when a link wraps.
                                         for target in &paint_targets {
                                             let r = target.range();
