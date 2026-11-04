@@ -398,3 +398,16 @@ fn ambiguous_member_name_carries_user_id() {
     );
     assert_eq!(super::disambiguated_name(None, true, &id("x")), None);
 }
+
+#[test]
+fn latest_event_ts_is_the_sdk_timestamp_or_none() {
+    use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
+    use matrix_sdk_ui::timeline::{LatestEventValue, TimelineDetails};
+    assert_eq!(latest_event_ts(&LatestEventValue::None), None);
+    let invite = LatestEventValue::RemoteInvite {
+        timestamp: MilliSecondsSinceUnixEpoch(1_700_000_000_123_u64.try_into().unwrap()),
+        inviter: None,
+        inviter_profile: TimelineDetails::Unavailable,
+    };
+    assert_eq!(latest_event_ts(&invite), Some(1_700_000_000_123));
+}
