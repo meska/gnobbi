@@ -1,4 +1,6 @@
 #![recursion_limit = "256"]
+// Release on Windows: GUI subsystem, no console window (--help output is lost there).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 mod account_remove;
 mod account_switch;
 mod avatar_view;

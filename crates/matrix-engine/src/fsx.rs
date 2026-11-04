@@ -13,10 +13,10 @@ pub(crate) fn private_file(opts: &mut fs::OpenOptions) -> &mut fs::OpenOptions {
 
 /// Create one directory owner-only (0700 on Unix); the parent must exist.
 pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
-    let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder.create(path)
+    return std::os::unix::fs::DirBuilderExt::mode(&mut fs::DirBuilder::new(), 0o700).create(path);
+    #[cfg(not(unix))]
+    fs::DirBuilder::new().create(path)
 }
 
 /// Publishes `pending` as `dest` without overwriting `dest` (hard link; the caller then removes `pending`).

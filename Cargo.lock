@@ -4479,6 +4479,7 @@ dependencies = [
  "chrono",
  "cocoa 0.26.0",
  "cpal",
+ "embed-resource",
  "gpui",
  "image",
  "matrix-domain",
