@@ -17,10 +17,11 @@ impl Shell {
     }
 
     pub(crate) fn choose_install(&mut self, choice: Choice, cx: &mut Context<Self>) {
+        let icon = self.prefs.icon;
         let changed = self.install_offer.choose(
             choice,
             &mut self.prefs.desktop_entry_dont_ask,
-            matrix_desktop::desktop_entry::install_for_current_user,
+            || matrix_desktop::desktop_entry::install_for_current_user(icon),
         );
         if changed {
             self.save_prefs(cx);
@@ -28,23 +29,22 @@ impl Shell {
         cx.notify();
     }
 
-    /// Escape = «Non ora», Enter = «Aggiungi al menu» (not while the composer has the focus).
-    pub(crate) fn install_offer_key(
-        &mut self,
-        key: &str,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        if !self.install_offer.open {
+    /// Escape = «Non ora», only when no drawer/overlay is open: those close first. No Enter shortcut,
+    /// it would fire on list/quick-search activations meant for something else.
+    pub(crate) fn install_offer_key(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
+        let other_layer = self.menu_open
+            || self.settings_open
+            || self.quick.is_some()
+            || self.new_room.is_some()
+            || self.room_edit.is_some()
+            || self.groups_edit.is_some()
+            || self.notifications_open
+            || self.verification_open
+            || self.room_details_open;
+        if !self.install_offer.open || other_layer || key != "escape" {
             return false;
         }
-        match key {
-            "escape" => self.choose_install(Choice::Later, cx),
-            "enter" if !self.composer.read(cx).is_focused(window) => {
-                self.choose_install(Choice::Add, cx)
-            }
-            _ => return false,
-        }
+        self.choose_install(Choice::Later, cx);
         true
     }
 

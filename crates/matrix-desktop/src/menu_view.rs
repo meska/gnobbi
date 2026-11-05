@@ -196,7 +196,7 @@ impl Shell {
         let key = &event.keystroke;
         let m = &key.modifiers;
         #[cfg(target_os = "linux")]
-        if !m.modified() && self.install_offer_key(&key.key, window, cx) {
+        if !m.modified() && self.install_offer_key(&key.key, cx) {
             return true;
         }
         if self.connected && m.control && m.shift && key.key == "m" {
