@@ -2906,27 +2906,48 @@ mod tests {
         });
     }
 
-    #[test]
-    #[ignore = "requires private display"]
-    fn painted_icons_are_32px_right_of_the_text_and_centred_in_the_bar() {
-        rendered_composer("una riga", |v, _, _| {
+    /// Emoji, Poll, Attach and the last slot (Voice when empty, Send otherwise) are ≥32x32, in order right of the text,
+    /// and the text and every control are centred on the bar within 1 physical px (the scale comes from the harness:
+    /// GPUI_X11_SCALE_FACTOR on X11).
+    fn assert_icons_in_the_bar(text: &'static str, last: &'static str, bar_at_rest: bool) {
+        rendered_composer(text, move |v, window, _| {
+            let tol = 1. / window.scale_factor() + 1e-3;
             let bar = probed("bar");
-            // At rest the one-line composer is exactly the shared bottom-bar height (the list footer uses the same token); the probe is the content box, inside the 1px top border.
-            assert!((f32::from(bar.size.height) + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar {bar:?} vs token {}", v.theme.bottom_bar);
             let mid = centre(bar);
             let text = v.layout.as_ref().expect("text laid out").bounds();
-            assert!((centre(text) - mid).abs() <= 1., "text centre {:?} vs bar {mid}", text);
-            let names = ["composer-emoji-toggle", "composer-poll", "composer-attach", "send"];
+            assert!((centre(text) - mid).abs() <= tol, "text centre {text:?} vs bar {mid}");
             let mut left = text.right();
-            for name in names {
+            for name in ["composer-emoji-toggle", "composer-poll", "composer-attach", last] {
                 let b = probed(name);
                 assert!(b.size.width >= px(32.) && b.size.height >= px(32.), "{name} is {:?}", b.size);
                 assert!(b.left() >= left, "{name} must follow the previous control");
-                assert!((centre(b) - mid).abs() <= 1., "{name} centre vs bar {mid}: {b:?}");
+                assert!((centre(b) - mid).abs() <= tol, "{name} centre vs bar {mid}: {b:?}");
                 left = b.right();
+            }
+            if bar_at_rest {
+                // At rest the one-line composer is exactly the shared bottom-bar height (the list footer uses the same token); the probe is the content box, inside the 1px top border.
+                assert!((f32::from(bar.size.height) + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar {bar:?} vs token {}", v.theme.bottom_bar);
             }
             eprintln!("bar {bar:?} text {text:?}");
         });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_icons_are_32px_right_of_the_text_and_centred_in_the_bar() {
+        assert_icons_in_the_bar("una riga", "send", true);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_voice_is_32px_right_of_the_text_and_centred_in_the_bar() {
+        assert_icons_in_the_bar("", "composer-record", false);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_icons_stay_centred_in_a_bar_grown_by_many_lines() {
+        assert_icons_in_the_bar("uno\ndue\ntre\nquattro\ncinque", "send", false);
     }
 
     /// Emoji, Poll, Attach, Voice form one block and end exactly at the bar's right padding edge (no space reserved for Send), whatever the text.
