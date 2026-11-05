@@ -11,14 +11,6 @@ pub const SEEN_LIMIT: usize = 10;
 pub const SEARCHED_LIMIT: usize = 8;
 const FILE: &str = "quick-search.json";
 
-/// Result groups. Only `Local` is filled here; the others are for server-backed sources.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Section {
-    Local,
-    Users,
-    PublicRooms,
-}
-
 /// Row shown by the UI. `avatar` is the mxc reference for the `Avatars` cache.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Hit {
@@ -29,11 +21,58 @@ pub struct Hit {
     pub secondary: String,
 }
 
-/// A source of hits for one section. The local `Index` is the only implementor for now;
-/// «Utenti» and «Stanze pubbliche» (server directory) will implement it too.
-pub trait Source {
-    fn section(&self) -> Section;
-    fn search(&self, query: &str, limit: usize) -> Vec<Hit>;
+/// «Cerca» entries: each one becomes a chip in the field and limits the results to its kind.
+/// «Stanze pubbliche» / «Spazi pubblici» join with the public-directory card.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Category {
+    People,
+}
+
+impl Category {
+    pub const ALL: [Category; 1] = [Category::People];
+
+    pub fn label(self) -> &'static str {
+        "Persone"
+    }
+
+    /// Screen-reader name of the chip.
+    pub fn chip_label(self) -> String {
+        format!("Filtro: {}", self.label())
+    }
+}
+
+/// Server users shown under the local results when no chip is active.
+pub const USERS_LIMIT: usize = 5;
+
+/// Esc: first press removes the chip, the next closes the overlay.
+pub fn escape_closes(chip: Option<Category>) -> bool {
+    chip.is_none()
+}
+
+/// Backspace on an empty field removes the chip.
+pub fn backspace_removes_chip(chip: Option<Category>, term: &str) -> bool {
+    chip.is_some() && term.is_empty()
+}
+
+/// The term to send to the user search, if it differs from what was last sent. Nothing goes out
+/// for an empty field that never searched (chip or not); clearing a sent term cancels it.
+pub fn user_request(term: &str, sent: Option<&str>) -> Option<String> {
+    (term != sent.unwrap_or("")).then(|| term.to_owned())
+}
+
+/// «Utenti» rows: capped at `USERS_LIMIT` without a chip, all of them with the chip.
+pub fn user_hits(entries: Vec<crate::new_chat::Entry>, chip: Option<Category>) -> Vec<Hit> {
+    let limit = if chip.is_some() { usize::MAX } else { USERS_LIMIT };
+    entries
+        .into_iter()
+        .take(limit)
+        .map(|e| Hit {
+            name: e.name.filter(|n| !n.is_empty()).unwrap_or_else(|| e.user_id.clone()),
+            id: e.user_id.clone(),
+            avatar: e.avatar,
+            secondary: e.user_id,
+        })
+        .collect()
 }
 
 /// A room or DM known locally.
@@ -147,14 +186,10 @@ impl Index {
     }
 }
 
-impl Source for Index {
-    fn section(&self) -> Section {
-        Section::Local
-    }
-
+impl Index {
     /// Best field match decides relevance; ties: most recent activity, then name, then id.
     /// An empty query yields nothing (the UI shows the recent lists instead).
-    fn search(&self, query: &str, limit: usize) -> Vec<Hit> {
+    pub fn search(&self, query: &str, limit: usize) -> Vec<Hit> {
         let q = normalize(query.trim());
         if q.is_empty() {
             return Vec::new();

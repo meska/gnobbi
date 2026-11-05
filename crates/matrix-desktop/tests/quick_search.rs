@@ -91,7 +91,6 @@ fn secondary_label_is_bridge_else_matrix_id() {
     assert_eq!(hit("b").secondary, "@b:s");
     assert_eq!(hit("b").avatar.as_deref(), Some("mxc://s/av"));
     assert_eq!(hit("c").secondary, "!c:s");
-    assert_eq!(index.section(), Section::Local);
 }
 
 #[test]
@@ -247,4 +246,41 @@ fn view_entries_find_dm_by_matrix_id_contact_and_room_by_alias_even_with_empty_s
     assert_eq!(names(&index, "bianchi"), ["Roberta Bianchi"]);
     assert_eq!(names(&index, "#officina:matrix-desktop.test"), ["Officina"]);
     assert_eq!(names(&index, "#bottega"), ["Officina"]);
+}
+
+#[test]
+fn chip_keys_and_user_requests() {
+    let chip = Some(Category::People);
+    assert_eq!(Category::People.chip_label(), "Filtro: Persone");
+    // Esc: chip first, then close. Backspace removes the chip only on an empty field.
+    assert!(!escape_closes(chip) && escape_closes(None));
+    assert!(backspace_removes_chip(chip, "") && !backspace_removes_chip(chip, "a"));
+    assert!(!backspace_removes_chip(None, ""));
+    // Empty field (with or without chip): no request until something was sent.
+    assert_eq!(user_request("", None), None);
+    assert_eq!(user_request("an", None).as_deref(), Some("an"));
+    assert_eq!(user_request("an", Some("an")), None);
+    assert_eq!(user_request("", Some("an")).as_deref(), Some(""));
+}
+
+#[test]
+fn users_are_capped_at_five_without_chip_and_complete_with_it() {
+    use matrix_desktop::new_chat::Entry as U;
+    let users = || {
+        (0..8)
+            .map(|i| U {
+                user_id: format!("@u{i}:s"),
+                name: (i % 2 == 0).then(|| format!("U{i}")),
+                avatar: None,
+                direct: false,
+            })
+            .collect::<Vec<_>>()
+    };
+    let capped = user_hits(users(), None);
+    assert_eq!(capped.len(), USERS_LIMIT);
+    assert_eq!(user_hits(users(), Some(Category::People)).len(), 8);
+    // Display name when there is one, else the ID; the ID is always the secondary label.
+    assert_eq!((capped[0].name.as_str(), capped[0].secondary.as_str()), ("U0", "@u0:s"));
+    assert_eq!(capped[1].name, "@u1:s");
+    assert_eq!(capped[1].id, "@u1:s");
 }

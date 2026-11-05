@@ -400,6 +400,11 @@ impl Shell {
         if let Some(room) = self.new_room.as_mut().filter(|r| r.dm && !r.busy) {
             room.picker.set_state(state, all_available);
             cx.notify();
+        } else if self.new_room.is_none()
+            && let Some(q) = self.quick.as_mut()
+        {
+            q.set_users(state);
+            cx.notify();
         }
     }
 

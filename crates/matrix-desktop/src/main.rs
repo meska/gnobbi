@@ -1657,6 +1657,7 @@ impl Shell {
         self.flush_user_search();
         self.flush_room_search();
         self.flush_directory();
+        self.flush_quick_users();
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
