@@ -181,6 +181,12 @@ impl DeviceVerification {
                 }
                 self.devices = devices
             }
+            VerificationEvent::DeviceDeleted { account_id, device_id } if account_id == self.account => {
+                self.devices.retain(|x| x.device_id != device_id);
+                if self.delete.as_ref().is_some_and(|d| d.device_id == device_id) {
+                    self.delete = None;
+                }
+            }
             VerificationEvent::DeviceDeleteFailed { account_id, device_id, error }
                 if account_id == self.account =>
             {
@@ -396,6 +402,14 @@ mod profile_tests {
         assert_eq!(v.delete_dialog().unwrap().error, Some("Password non corretta"));
         v.apply(fail(DeviceDeleteError::Unavailable));
         assert_eq!(v.delete_dialog().unwrap().error, Some("Non disponibile con questo account"));
+        // success but the re-read failed: engine says DeviceDeleted; dialog closes, row goes, no failure
+        assert!(v.submit_delete(pw()));
+        v.pending = None;
+        v.apply(VerificationEvent::DeviceDeleted { account_id: a, device_id: "OLD".into() });
+        assert!(v.delete_dialog().is_none() && !v.failed);
+        assert!(v.devices.iter().all(|d| d.device_id != "OLD"));
+        v.apply(list(&["OWN", "OLD"]));
+        assert!(v.open_delete(1));
         // success: the refreshed list no longer has the device
         assert!(v.submit_delete(pw()));
         v.pending = None;

@@ -108,6 +108,14 @@ fn delete_device_without_password_flow_sends_no_password() {
 }
 
 #[test]
+fn delete_device_404_unrecognized_means_unavailable() {
+    let mas = r#"{"errcode":"M_UNRECOGNIZED","error":"Unrecognized request"}"#;
+    let (r, bodies) = delete(vec![(404, mas)], "OTHER");
+    assert_eq!(r, Err(DeviceDeleteError::Unavailable));
+    assert_eq!(bodies.len(), 1);
+}
+
+#[test]
 fn password_never_appears_in_debug_output() {
     let p = DevicePassword::new("hunter2".into());
     assert!(!format!("{p:?}").contains("hunter2"));

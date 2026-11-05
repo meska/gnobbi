@@ -137,6 +137,9 @@ fn map_delete_error(error: &matrix_sdk::HttpError) -> DeviceDeleteError {
         || matches!(error.client_api_error_kind(), Some(ErrorKind::Forbidden))
     {
         DeviceDeleteError::WrongPassword
+    } else if matches!(error.client_api_error_kind(), Some(ErrorKind::Unrecognized)) {
+        // MAS/OIDC accounts: the homeserver has no delete_devices endpoint (404 M_UNRECOGNIZED).
+        DeviceDeleteError::Unavailable
     } else if error.as_client_api_error().is_some() {
         DeviceDeleteError::Rejected
     } else {
@@ -325,7 +328,11 @@ pub(crate) async fn run_service(
                                     if events.send(VerificationEvent::Devices { account_id, devices }).await.is_err() { break; }
                                     Ok(())
                                 }
-                                Err(error) => Err(error),
+                                // The device is gone: a failed re-read is not a verification error.
+                                Err(_) => {
+                                    if events.send(VerificationEvent::DeviceDeleted { account_id, device_id }).await.is_err() { break; }
+                                    Ok(())
+                                }
                             },
                             Err(error) => {
                                 if events.send(VerificationEvent::DeviceDeleteFailed { account_id, device_id, error }).await.is_err() { break; }

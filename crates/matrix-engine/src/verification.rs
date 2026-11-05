@@ -174,6 +174,11 @@ pub enum VerificationEvent {
         device_id: String,
         error: DeviceDeleteError,
     },
+    /// Sign-out succeeded but the list could not be re-read: the UI drops the row itself.
+    DeviceDeleted {
+        account_id: AccountId,
+        device_id: String,
+    },
 }
 #[cfg(feature = "sdk")]
 pub(crate) use sdk::run_service;
