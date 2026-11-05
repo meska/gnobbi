@@ -1308,14 +1308,15 @@ fn latest_event_text(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Opti
     })
 }
 
-/// Timestamp (ms since epoch) of the SDK latest event, exactly as the SDK gives it; None when it has none.
+/// Timestamp (ms since epoch) of the latest *message*; None for no event, a non-message event (state, redaction)
+/// or an invite (its stamp is the local receipt time, not the event's), so the row never shows a time without a message.
 pub(crate) fn latest_event_ts(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Option<u64> {
-    use matrix_sdk_ui::timeline::LatestEventValue::{Local, None, Remote, RemoteInvite};
+    use matrix_sdk_ui::timeline::LatestEventValue::{Local, Remote};
     match latest {
-        Remote { timestamp, .. } | RemoteInvite { timestamp, .. } | Local { timestamp, .. } => {
+        Remote { timestamp, content, .. } | Local { timestamp, content, .. } if content.as_message().is_some() => {
             Some(timestamp.0.into())
         }
-        None => Option::None,
+        _ => None,
     }
 }
 

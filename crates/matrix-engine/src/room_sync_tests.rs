@@ -400,7 +400,7 @@ fn ambiguous_member_name_carries_user_id() {
 }
 
 #[test]
-fn latest_event_ts_is_the_sdk_timestamp_or_none() {
+fn latest_event_ts_is_none_for_no_event_and_for_invites() {
     use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
     use matrix_sdk_ui::timeline::{LatestEventValue, TimelineDetails};
     assert_eq!(latest_event_ts(&LatestEventValue::None), None);
@@ -409,5 +409,5 @@ fn latest_event_ts_is_the_sdk_timestamp_or_none() {
         inviter: None,
         inviter_profile: TimelineDetails::Unavailable,
     };
-    assert_eq!(latest_event_ts(&invite), Some(1_700_000_000_123));
+    assert_eq!(latest_event_ts(&invite), None, "invite stamp is client receipt time");
 }
