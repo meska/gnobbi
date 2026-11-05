@@ -601,7 +601,8 @@ pub async fn public_rooms(
     let local = client.user_id().map(|u| u.server_name().to_owned());
     let request = directory_request(term, server, local.as_deref(), since, limit)?;
     let origin = request.server.as_ref().map(ToString::to_string).or_else(|| local.map(|l| l.to_string())).unwrap_or_default();
-    let response = client.public_rooms_filtered(request).await.map_err(|e| {
+    // The SDK retries 5xx; a home server's 502 for a dead remote must surface at once, not as a 20 s timeout.
+    let response = client.send(request).with_request_config(matrix_sdk::config::RequestConfig::new().disable_retry()).await.map_err(|e| {
         let api = e.as_client_api_error();
         directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind())
     })?;
