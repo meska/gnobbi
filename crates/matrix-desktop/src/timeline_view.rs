@@ -76,6 +76,10 @@ fn close_viewer(
 type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
+/// Painted «Recupera chiavi» control (`false`) and key field (`true`) by message.
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+type SemanticBounds2 = Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, bool), Bounds<Pixels>>>>;
+
 const SENDER_AVATAR_PX: f32 = 32.;
 const STATUS_AVATAR_PX: f32 = 12.;
 
@@ -121,6 +125,11 @@ pub struct TimelineView {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     save_painted: Rc<RefCell<std::collections::HashMap<matrix_domain::EventId, Bounds<Pixels>>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
+    recover: crate::recover_keys_view::Ui,
+    recover_field: crate::recover_keys_view::Field,
+    recover_focus: crate::recover_keys_view::Focus,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    recover_bounds: SemanticBounds2,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
     pub(crate) video_painted: Rc<RefCell<VideoParts>>,
@@ -239,6 +248,24 @@ impl TimelineView {
         Self::with_history(DemoHistory::new(scope, count), focus, false)
     }
 
+    /// The shell's key-recovery model for this frame: offered on every undecryptable bubble, Pending, last failure.
+    pub fn set_key_recovery(&self, offered: bool, pending: bool, message: Option<&'static str>) {
+        self.recover.borrow_mut().set_state(offered, pending, message);
+    }
+
+    /// The key typed in the field, handed over once; the shell queues it and nothing keeps it.
+    pub fn take_recovery_key(&self) -> Option<zeroize::Zeroizing<String>> {
+        self.recover.borrow_mut().take_submitted()
+    }
+
+    /// Screen-reader click on «Recupera chiavi», or Focus on its field: opens the field and focuses it.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn focus_semantic_recover(&self, id: &ScopedTimelineId, window: &mut gpui::Window, cx: &mut gpui::App) -> bool {
+        self.live
+            && self.history.borrow().events().iter().any(|e| e.id == *id && e.utd)
+            && crate::recover_keys_view::open(&self.recover, &self.recover_field, id, window, cx)
+    }
+
     pub fn set_debug(&self, on: bool) {
         self.debug.set(on);
     }
@@ -286,6 +313,11 @@ impl TimelineView {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             save_painted: Rc::default(),
             link_menu: Rc::default(),
+            recover: Rc::default(),
+            recover_field: Rc::default(),
+            recover_focus: Rc::default(),
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            recover_bounds: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
             sender_pictures: Rc::default(),
@@ -602,6 +634,30 @@ impl TimelineView {
                     f64::from(f32::from(bounds.right())) * scale,
                     f64::from(f32::from(bounds.bottom())) * scale,
                 ));
+            }
+        }
+        if self.live {
+            let ui = self.recover.borrow();
+            let open = history.events().iter().map(|e| &e.id).find(|id| ui.is_open(id));
+            snapshot.offer_recover_keys(ui.offered(), open, ui.status());
+            let rect = |b: &Bounds<Pixels>| {
+                accesskit::Rect::new(
+                    f64::from(f32::from(b.left())) * scale,
+                    f64::from(f32::from(b.top())) * scale,
+                    f64::from(f32::from(b.right())) * scale,
+                    f64::from(f32::from(b.bottom())) * scale,
+                )
+            };
+            let field_focus = self.recover_field.borrow().as_ref().is_some_and(|(_, f)| f.is_focused(window));
+            for message in &mut snapshot.messages {
+                let bounds = self.recover_bounds.borrow();
+                let control_focus = self.recover_focus.borrow().get(&message.event).is_some_and(|f| f.is_focused(window));
+                if let Some(r) = &mut message.recover {
+                    r.control_bounds = bounds.get(&(message.event.clone(), false)).map(rect);
+                    r.field_bounds = bounds.get(&(message.event.clone(), true)).map(rect);
+                    r.control_focused = control_focus;
+                    r.field_focused = r.field && field_focus;
+                }
             }
         }
         use matrix_desktop::accessibility::links::{ConfirmationControl, ConfirmationSnapshot};
@@ -1435,6 +1491,11 @@ impl TimelineView {
         let (saves, want_save, stop_save) = (self.saves.clone(), self.want_save.clone(), self.stop_save.clone());
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let save_painted = self.save_painted.clone();
+        let (recover, recover_field, recover_focus) = (self.recover.clone(), self.recover_field.clone(), self.recover_focus.clone());
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let recover_painted: SemanticBounds2 = Rc::default();
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let row_recover_painted = recover_painted.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1482,7 +1543,7 @@ impl TimelineView {
             .overflow_hidden()
             .bg(rgb(t.timeline))
             .child(
-                list(self.state.clone(), move |index, _, _| {
+                list(self.state.clone(), move |index, _, cx| {
                     let row_extent = row_extent.clone();
                     let delivery = delivery.clone();
                     let operations = operations.clone();
@@ -1593,6 +1654,13 @@ impl TimelineView {
                         }
                         _ => (None, None),
                     };
+                    let recover_keys = event.utd.then(|| {
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        let painted: crate::recover_keys_view::Painted = { let (map, id) = (row_recover_painted.clone(), event.id.clone()); Rc::new(move |field, bounds| { map.borrow_mut().insert((id.clone(), field), bounds); }) };
+                        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                        let painted: crate::recover_keys_view::Painted = Rc::new(|_, _| ());
+                        crate::recover_keys_view::row(index, &event.id, t, (&recover, &recover_field, &recover_focus), painted, cx)
+                    }).flatten();
                     let mut body = StyledText::new(event.text.clone());
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
@@ -1843,6 +1911,7 @@ impl TimelineView {
                                         .child(stamp),
                                 ))
                                 .children(save_failure)
+                                .children(recover_keys)
                                 .when_some((debug && live).then(|| event.debug_id().map(str::to_owned)).flatten(), |d, id| {
                                     let copied = id.clone();
                                     d.child(div().id(("event-debug-id", index)).w_full().text_right().text_size(px(10.)).line_height(px(14.))
@@ -1991,6 +2060,7 @@ impl TimelineView {
                 {
                     let published = self.semantic_bounds.clone();
                     let published_retry = self.retry_bounds.clone();
+                    let published_recover = self.recover_bounds.clone();
                     let published_actions = self.actions_bounds.clone();
                     let published_selection = self.selection_bounds.clone();
                     let state = self.state.clone();
@@ -2006,6 +2076,11 @@ impl TimelineView {
                         painted.borrow_mut().retain(|_, bounds| bounds.bottom() > viewport.top() && bounds.top() < viewport.bottom());
                         retry_painted.borrow_mut().retain(|_, bounds| bounds.bottom() > viewport.top() && bounds.top() < viewport.bottom());
                         actions_painted.borrow_mut().retain(|_, bounds| bounds.bottom() > viewport.top() && bounds.top() < viewport.bottom());
+                        recover_painted.borrow_mut().retain(|_, bounds| bounds.bottom() > viewport.top() && bounds.top() < viewport.bottom());
+                        if *published_recover.borrow() != *recover_painted.borrow() {
+                            *published_recover.borrow_mut() = recover_painted.borrow().clone();
+                            window.on_next_frame(|window, _| window.refresh());
+                        }
                         if *published_actions.borrow() != *actions_painted.borrow() {
                             *published_actions.borrow_mut() = actions_painted.borrow().clone();
                             window.on_next_frame(|window, _| window.refresh());
@@ -2869,6 +2944,7 @@ mod tests {
                 status: false,
                 attachment_name: name.map(Into::into),
                 attachment_size: name.map(|_| 2048),
+                utd: false,
             };
             let view = cx
                 .open_window(gpui::WindowOptions::default(), |window, cx| {
@@ -2941,6 +3017,90 @@ mod tests {
     #[ignore = "requires private display"]
     fn painted_save_icons_dark() {
         save_icons_painted(true);
+    }
+
+    /// «Recupera chiavi» painted for real on the undecryptable bubble only, a Tab stop, opening the key
+    /// field on Enter/click; the key typed with X11 keys reaches the shell once and the field is empty.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_recover_keys_field_takes_the_key_once() {
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let utd = EventId::new("$utd:fixture.invalid");
+            let ok = EventId::new("$ok:fixture.invalid");
+            let event = |id: &EventId, utd: bool, ms: u64| HistoryEvent {
+                redacted: false,
+                event_id: id.clone(),
+                body: if utd { "Impossibile decifrare".into() } else { "leggibile".into() },
+                outgoing: false,
+                timestamp_ms: ms,
+                sender: HistorySender::new("@a:fixture.invalid", None),
+                video: None,
+                styles: Vec::new(),
+                thread: None,
+                thread_root: None,
+                status: false,
+                utd,
+                attachment_name: None,
+                attachment_size: None,
+            };
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi recover keys");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!rk:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), true);
+                        v.append_server(vec![event(&ok, false, 1), event(&utd, true, 2)]);
+                        v.set_key_recovery(true, false, None);
+                        ThemedHost(v, matrix_desktop::LIGHT)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                let id = view.update(cx, |host, window, cx| {
+                    let v = &host.0;
+                    let id = v.history.borrow().events().iter().find(|e| e.utd).unwrap().id.clone();
+                    {
+                        let painted = v.recover_bounds.borrow();
+                        assert_eq!(painted.len(), 1, "one control, on the undecryptable bubble only");
+                        assert!(painted.contains_key(&(id.clone(), false)));
+                    }
+                    v.focus.focus(window);
+                    assert!(v.enter_icons(false, window), "Tab reaches the control");
+                    assert!(matches!(v.step_icons(false, window, cx), IconStep::Left), "and it is the only stop");
+                    assert!(v.recover_field.borrow().is_none(), "no field before it is opened");
+                    assert!(crate::recover_keys_view::open(&v.recover, &v.recover_field, &id, window, cx));
+                    id
+                }).unwrap();
+                executor.timer(std::time::Duration::from_millis(600)).await;
+                view.update(cx, |host, _, _| {
+                    assert!(host.0.recover_bounds.borrow().contains_key(&(id.clone(), true)), "the key field is painted");
+                }).unwrap();
+                let xdotool = |args: &[&str]| assert!(std::process::Command::new("xdotool").args(args).status().unwrap().success());
+                xdotool(&["type", "--delay", "30", "EsTu abc"]);
+                xdotool(&["key", "Return"]);
+                executor.timer(std::time::Duration::from_millis(600)).await;
+                view.update(cx, |host, _, cx| {
+                    let v = &host.0;
+                    assert_eq!(v.take_recovery_key().as_deref().map(String::as_str), Some("EsTu abc"));
+                    assert!(v.take_recovery_key().is_none(), "handed over once");
+                    let (field, _) = v.recover_field.borrow().clone().unwrap();
+                    assert_eq!(field.read(cx).input.display_text(), "", "the field is empty after the submit");
+                    // Pending: no second submit, the status line says so.
+                    v.set_key_recovery(true, true, None);
+                    assert!(!v.recover.borrow().accepts_key());
+                    // Complete: field and control are gone.
+                    v.set_key_recovery(false, false, None);
+                    assert!(!v.recover.borrow().is_open(&id));
+                    cx.quit();
+                }).unwrap();
+            })
+            .detach();
+        });
     }
 
     #[test]

@@ -61,6 +61,7 @@ fn event(id: &str, outgoing: bool, name: Option<&str>, image: bool, redacted: bo
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: name.map(Into::into),
         attachment_size: name.map(|_| 10),
     }

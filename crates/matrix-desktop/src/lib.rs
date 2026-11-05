@@ -24,6 +24,7 @@ pub const MONO_FONT: &str = "DejaVu Sans Mono";
 #[cfg(windows)]
 pub const MONO_FONT: &str = "Consolas";
 mod verification;
+pub mod recover_keys;
 #[cfg(feature = "desktop")]
 pub mod window;
 pub use verification::{DeviceVerification, device_detail, device_label, device_title};

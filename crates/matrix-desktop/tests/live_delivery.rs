@@ -631,6 +631,7 @@ fn own_sent_file_offers_save_once_the_server_copy_arrives() {
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: Some("foto.png".into()),
         attachment_size: Some(10),
     }]);

@@ -29,6 +29,7 @@ mod panel_opener_view;
 mod rail_view;
 mod ring_seam;
 mod room_details_view;
+mod recover_keys_view;
 mod room_menu_view;
 mod scrollbar_view;
 mod settings_view;
@@ -357,6 +358,21 @@ impl Shell {
                 }
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::RecoverKeys(id) = &action {
+                if this.connected
+                    && id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this.timeline.as_ref().is_some_and(|timeline| {
+                        timeline
+                            .semantic_snapshot(&mut this.a11y_history, window)
+                            .allows_recover_keys(id)
+                            && timeline.focus_semantic_recover(id, window, cx)
+                    })
+                {
+                    cx.notify();
+                }
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::SaveAttachment(id) = &action {
                 if id.scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
@@ -516,6 +532,7 @@ impl Shell {
                 matrix_desktop::accessibility::NavigationAction::CopyEventId(_)
                 | matrix_desktop::accessibility::NavigationAction::PlayVideo(_)
                 | matrix_desktop::accessibility::NavigationAction::SaveAttachment(_)
+                | matrix_desktop::accessibility::NavigationAction::RecoverKeys(_)
                 | matrix_desktop::accessibility::NavigationAction::OfflineDelivery(_) => {
                     unreachable!()
                 }
@@ -1095,6 +1112,9 @@ impl Shell {
                 }
                 NavigationAction::SaveAttachment(id) => {
                     timeline.save_attachment(&id);
+                }
+                NavigationAction::RecoverKeys(id) => {
+                    timeline.focus_semantic_recover(&id, window, cx);
                 }
                 NavigationAction::LinkConfirmation(intent) => {
                     timeline.apply_confirmation(&intent, window, cx);
@@ -2243,7 +2263,7 @@ impl Render for Shell {
                         .when(self.prefs.debug && self.connected && self.sidebar.selected().is_some(), |d| d.child(
                             div().flex_shrink_0().px_4().py_1().text_size(px(11.)).text_color(rgb(t.secondary))
                                 .child(matrix_desktop::debug_room_line(&self.active_scope, connection_label))))
-                        .when_some(self.timeline.as_ref(), |d, timeline| { timeline.set_debug(self.prefs.debug); d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone())))})
+                        .when_some(self.timeline.as_ref(), |d, timeline| { timeline.set_debug(self.prefs.debug); { let (offered, pending, message) = self.key_recovery_state(); timeline.set_key_recovery(offered, pending, message); } d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone())))})
                         .when(self.connected && self.timeline.is_none(), |d| d.child(div().flex_1().bg(rgb(t.timeline)).p_6().child("Nessuna stanza selezionata. Nessun messaggio demo.")))
                         .when(self.connected, |d| d.child(self.render_operations(window, cx)))
                         .when(!self.connected || self.sidebar.selected().is_some(), |d| d.child(self.composer.clone())),
@@ -2807,6 +2827,7 @@ fn main() {
                                             cx.notify();
                                         }
                                         this.drive_saves(cx);
+                                        this.drive_recover_keys(cx);
                                         if this.drive_avatars() {
                                             cx.notify();
                                         }
