@@ -502,3 +502,76 @@ fn device_overview_reads_sdk_devices_without_offering_unverified_sas_actions() {
             .any(|(_, n)| n.label() == Some("Chiudi verifica dispositivi"))
     );
 }
+
+#[test]
+fn disconnect_buttons_and_password_dialog_are_reachable_and_never_expose_the_password() {
+    use accesskit::{ActionRequest, TreeId};
+    use matrix_desktop::accessibility::devices::{DeviceAction, DeviceNodes, DeviceView};
+    let account = AccountId::new(18);
+    let device = |id: &str, name: &str| VerificationDevice {
+        user_id: "@alice:matrix-desktop.test".into(),
+        device_id: id.into(),
+        verified: true,
+        display_name: Some(name.into()),
+        last_seen_ts: None,
+        last_seen_ip: None,
+    };
+    let mut model = DeviceVerification::new(account);
+    model.apply(VerificationEvent::Profile {
+        account_id: account,
+        user_id: "@alice:matrix-desktop.test".into(),
+        display_name: None,
+        device_id: Some("OWN".into()),
+        avatar: None,
+    });
+    // The current device is even listed here: it still gets no «Disconnetti».
+    model.apply(VerificationEvent::Devices {
+        account_id: account,
+        devices: vec![device("A", "Telefono"), device("OWN", "Questo")],
+    });
+    let mut ids = DeviceNodes::default();
+    let view = |model: &DeviceVerification, ids: &mut DeviceNodes, focus| {
+        let rows = ids.project(account, model);
+        DeviceView::Open(Box::new(
+            DeviceOverview::project(account, model, focus, [None; 6]).with_devices(rows),
+        ))
+    };
+    let DeviceView::Open(panel) = view(&model, &mut ids, DeviceControl::Close) else { unreachable!() };
+    let rows = ids.project(account, &model);
+    let delete_a = DeviceControl::Delete(rows[0].id);
+    assert_eq!(panel.controls(), vec![DeviceControl::Close, DeviceControl::Refresh, delete_a]);
+    let tree = panel.tree();
+    let node = &tree.nodes.iter().find(|(id, _)| *id == delete_a.id()).unwrap().1;
+    assert_eq!((node.role(), node.label()), (Role::Button, Some("Disconnetti Telefono")));
+    assert!(node.supports_action(Action::Click));
+    assert!(!tree.nodes.iter().any(|(_, n)| n.label().is_some_and(|l| l.contains("Questo"))));
+    // Keyboard ring reaches it.
+    assert_eq!(panel.next_control(true), delete_a);
+    // Click → same open-dialog request the pointer produces.
+    let view_open = DeviceView::Open(panel.clone());
+    let click = ActionRequest { action: Action::Click, target_node: delete_a.id(), target_tree: TreeId::ROOT, data: None };
+    let action = view_open.action(&click).expect("click maps");
+    assert!(matches!(&action, DeviceAction::OpenDelete { device, .. } if device.device_id == "A"));
+    assert!(view_open.allows(&action));
+    assert!(!view_open.allows(&DeviceAction::OpenDelete { account, device: device("OWN", "Questo") }));
+    // Dialog open: Dialog named after the device, password field without value, cancel/confirm, error line.
+    assert!(model.open_delete(0));
+    let DeviceView::Open(panel) = view(&model, &mut ids, DeviceControl::Close) else { unreachable!() };
+    assert_eq!(panel.focus, DeviceControl::DialogField);
+    assert_eq!(panel.controls(), vec![DeviceControl::DialogField, DeviceControl::DialogCancel, DeviceControl::DialogConfirm]);
+    let tree = panel.tree();
+    assert_eq!(tree.focus, DeviceControl::DialogField.id());
+    let by = |c: DeviceControl| &tree.nodes.iter().find(|(id, _)| *id == c.id()).unwrap().1;
+    let dialog = tree.nodes.iter().map(|(_, n)| n).find(|n| n.role() == Role::Dialog).unwrap();
+    assert_eq!(dialog.label(), Some("Telefono"));
+    let field = by(DeviceControl::DialogField);
+    assert_eq!((field.role(), field.value(), field.label()), (Role::PasswordInput, None, Some("Password")));
+    assert_eq!(by(DeviceControl::DialogCancel).label(), Some("Annulla"));
+    assert_eq!(by(DeviceControl::DialogConfirm).label(), Some("Disconnetti"));
+    let open = DeviceView::Open(panel);
+    let click = |c: DeviceControl| ActionRequest { action: Action::Click, target_node: c.id(), target_tree: TreeId::ROOT, data: None };
+    assert!(matches!(open.action(&click(DeviceControl::DialogCancel)), Some(DeviceAction::CancelDelete(a)) if a == account));
+    assert!(matches!(open.action(&click(DeviceControl::DialogConfirm)), Some(DeviceAction::SubmitDelete(a)) if a == account));
+    assert!(open.action(&click(DeviceControl::DialogField)).is_none());
+    assert!(!open.allows(&DeviceAction::OpenDelete { account, device: device("A", "Telefono") }));
+}

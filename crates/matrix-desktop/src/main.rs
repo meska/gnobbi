@@ -734,6 +734,31 @@ impl Shell {
         let key = &event.keystroke;
         // Device sign-out dialog is modal: its field and buttons get the keys.
         if self.verification_open && self.verification.delete_dialog().is_some() {
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            {
+                use matrix_desktop::accessibility::devices::{DeviceAction, DeviceControl, DeviceView};
+                let view = self.semantic_devices(window);
+                let DeviceView::Open(panel) = &view else { return };
+                // Enter in the field is the dialog's own submit; buttons get Enter/Space here.
+                let action = match key.key.as_str() {
+                    "tab" => Some(DeviceAction::Focus {
+                        account: panel.account,
+                        control: panel.next_control(key.modifiers.shift),
+                    }),
+                    "escape" => Some(DeviceAction::CancelDelete(panel.account)),
+                    "enter" | "space" if panel.focus != DeviceControl::DialogField => view.action(&accesskit::ActionRequest {
+                        action: accesskit::Action::Click,
+                        target_tree: accesskit::TreeId::ROOT,
+                        target_node: panel.control_id(panel.focus),
+                        data: None,
+                    }),
+                    _ => return,
+                };
+                if let Some(action) = action {
+                    self.apply_semantic_devices(action, window, cx);
+                }
+                cx.stop_propagation();
+            }
             return;
         }
         if self.quick.is_some() {

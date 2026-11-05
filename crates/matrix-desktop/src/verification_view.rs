@@ -72,6 +72,25 @@ impl Shell {
             return;
         }
         match action {
+            DeviceAction::OpenDelete { device, .. } => {
+                if let Some(index) = self.verification.devices().iter().position(|d| *d == device) {
+                    self.open_device_delete(index, window, cx);
+                    self.device_focus = DeviceControl::DialogField;
+                }
+                return;
+            }
+            DeviceAction::CancelDelete(_) => {
+                let back = self.verification.delete_dialog().and_then(|dialog| {
+                    self.semantic_device_rows().into_iter().find(|r| r.device.device_id == dialog.device_id)
+                });
+                self.close_device_delete(window, cx);
+                self.device_focus = back.map_or(DeviceControl::Close, |r| DeviceControl::Delete(r.id));
+                return;
+            }
+            DeviceAction::SubmitDelete(_) => {
+                self.submit_device_delete(cx);
+                return;
+            }
             DeviceAction::Open(_) => {
                 self.set_verification_open(true);
                 self.device_focus = Default::default();
@@ -81,11 +100,18 @@ impl Shell {
             DeviceAction::Close(_) => self.set_verification_open(false),
             DeviceAction::Focus { control, .. } => {
                 self.device_focus = control;
+                if control == DeviceControl::DialogField {
+                    if let Some(field) = &self.delete_field {
+                        field.read(cx).focus.focus(window);
+                    }
+                    return;
+                }
                 if control != DeviceControl::Close {
                     let anchor = match control {
-                        DeviceControl::Device(id) => {
+                        DeviceControl::Device(id) | DeviceControl::Delete(id) => {
                             self.device_scroll.rows.get(&id).map(|r| r.0.clone())
                         }
+                        DeviceControl::DialogCancel | DeviceControl::DialogConfirm => None,
                         _ => Some(self.device_scroll.anchors[control.index().unwrap()].clone()),
                     };
                     if let Some(anchor) = anchor {
@@ -236,7 +262,16 @@ impl Shell {
         let dialog = self.verification.delete_dialog()?;
         let field = self.delete_field.clone()?;
         field.update(cx, |f, _| f.theme = t);
-        let button = |id: &'static str, label: &'static str, color: u32| div().id(id).px_3().py_2().rounded_md().cursor_pointer().text_color(rgb(color)).child(label);
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let focus = self.device_focus;
+        let button = |id: &'static str, label: &'static str, color: u32| {
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            let on = (id == "device-delete-cancel" && focus == matrix_desktop::accessibility::devices::DeviceControl::DialogCancel)
+                || (id == "device-delete-confirm" && focus == matrix_desktop::accessibility::devices::DeviceControl::DialogConfirm);
+            #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+            let on = false;
+            div().id(id).px_3().py_2().rounded_md().cursor_pointer().text_color(rgb(color)).when(on, |d| d.border_1().border_color(rgb(t.accent))).child(label)
+        };
         Some(div().id("device-delete-layer").absolute().inset_0().flex().items_center().justify_center()
             .bg(gpui::rgba(matrix_desktop::SCRIM))
             .on_click(cx.listener(|this, _, window, cx| this.close_device_delete(window, cx)))
@@ -329,7 +364,12 @@ impl Shell {
                     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                     let row_focused = false;
                     // Built before the row: the row's source slice ends at its own click handler.
+                    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                    let delete_focused = row_index.is_some_and(|id| self.device_focus == matrix_desktop::accessibility::devices::DeviceControl::Delete(accesskit::NodeId(id as u64)));
+                    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                    let delete_focused = false;
                     let disconnect = div().id(("verification-device-delete", index)).cursor_pointer().text_color(rgb(t.error))
+                        .when(delete_focused, |d| d.border_1().border_color(rgb(t.accent)))
                         .child("Disconnetti")
                         .on_click(cx.listener(move |this, _, window, cx| { this.open_device_delete(index, window, cx); cx.stop_propagation(); }));
                     div().id(("verification-device", index)).relative()

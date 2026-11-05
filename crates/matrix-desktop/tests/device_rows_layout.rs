@@ -150,7 +150,9 @@ fn a11y_tree_has_title_refresh_and_per_row_name_status_and_action_without_explan
     let row = nodes.iter().find(|(_, n)| n.label() == Some("Avvia verifica con DEV1 · Non verificato"));
     assert!(row.expect("unverified row").1.supports_action(Action::Click));
     // Verified rows: read-only label above, no clickable "Avvia verifica" node.
-    assert!(!nodes.iter().any(|(_, n)| n.label().is_some_and(|l| l.contains("DEV0"))));
+    assert!(!nodes.iter().any(|(_, n)| n.label().is_some_and(|l| l.starts_with("Avvia") && l.contains("DEV0"))));
+    // Every other row still has its own «Disconnetti».
+    assert!(nodes.iter().any(|(_, n)| n.label() == Some("Disconnetti DEV0") && n.supports_action(Action::Click)));
     for (_, n) in &nodes {
         for text in [n.label(), n.value()].into_iter().flatten() {
             assert!(!REMOVED.iter().any(|p| text.contains(p)), "removed copy exposed: {text}");

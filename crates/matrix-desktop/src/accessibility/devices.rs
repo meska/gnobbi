@@ -110,6 +110,13 @@ pub enum DeviceAction {
         device: VerificationDevice,
         previous: Option<Box<VerificationSnapshot>>,
     },
+    /// «Disconnetti» on a row: opens the password dialog (same path as the pointer click).
+    OpenDelete {
+        account: AccountId,
+        device: VerificationDevice,
+    },
+    CancelDelete(AccountId),
+    SubmitDelete(AccountId),
 }
 impl std::fmt::Debug for DeviceAction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -140,6 +147,13 @@ impl DeviceView {
                     Action::Click => Some(match control {
                         DeviceControl::Close => DeviceAction::Close(panel.account),
                         DeviceControl::Refresh => DeviceAction::Refresh(panel.account),
+                        DeviceControl::Delete(id) => DeviceAction::OpenDelete {
+                            account: panel.account,
+                            device: panel.devices.iter().find(|d| d.id == id)?.device.clone(),
+                        },
+                        DeviceControl::DialogCancel => DeviceAction::CancelDelete(panel.account),
+                        DeviceControl::DialogConfirm => DeviceAction::SubmitDelete(panel.account),
+                        DeviceControl::DialogField => return None,
                         DeviceControl::Device(id) => DeviceAction::Begin {
                             account: panel.account,
                             device: panel.devices.iter().find(|d| d.id == id)?.device.clone(),
@@ -190,6 +204,17 @@ impl DeviceView {
                         .iter()
                         .any(|d| d.account == *account && d.device == *device)
             }
+            (Self::Open(panel), DeviceAction::OpenDelete { account, device }) => {
+                panel.account == *account
+                    && panel.dialog.is_none()
+                    && panel
+                        .devices
+                        .iter()
+                        .any(|d| d.device == *device && panel.deletable(d))
+            }
+            (Self::Open(panel), DeviceAction::CancelDelete(a) | DeviceAction::SubmitDelete(a)) => {
+                panel.account == *a && panel.dialog.is_some()
+            }
             _ => false,
         }
     }
@@ -205,11 +230,20 @@ pub enum DeviceControl {
     Cancel,
     Comparison,
     Device(NodeId),
+    /// «Disconnetti» of the row whose device handle is the payload.
+    Delete(NodeId),
+    DialogField,
+    DialogCancel,
+    DialogConfirm,
 }
 impl DeviceControl {
     pub fn id(self) -> NodeId {
         match self {
             Self::Device(id) => id,
+            Self::Delete(id) => NodeId(id.0 | 1 << 58),
+            Self::DialogField => NodeId(47),
+            Self::DialogCancel => NodeId(48),
+            Self::DialogConfirm => NodeId(49),
             _ => NodeId(41 + self.index().unwrap() as u64),
         }
     }
@@ -221,7 +255,8 @@ impl DeviceControl {
             Self::Mismatch => 3,
             Self::Cancel => 4,
             Self::Comparison => 5,
-            Self::Device(_) => return None,
+            Self::Device(_) | Self::Delete(_) => return None,
+            Self::DialogField | Self::DialogCancel | Self::DialogConfirm => return None,
         })
     }
     fn decision(self) -> Option<VerificationAction> {
@@ -245,6 +280,9 @@ pub struct DeviceOverview {
     comparison: Option<String>,
     devices: Vec<SemanticDevice>,
     can_begin: bool,
+    own_device: Option<String>,
+    /// Open «Disconnetti» dialog: device name and last outcome. The password is never here.
+    dialog: Option<(String, Option<&'static str>)>,
     flow_ids: [NodeId; 4],
 }
 impl DeviceOverview {
@@ -296,12 +334,14 @@ impl DeviceOverview {
             comparison,
             devices: vec![],
             can_begin: model.can_begin(),
+            own_device: model.own_device().map(str::to_owned),
+            dialog: model.delete_dialog().map(|d| (d.name.clone(), d.error)),
             flow_ids: [NodeId(43), NodeId(44), NodeId(45), NodeId(46)],
         };
-        if !matches!(panel.focus, DeviceControl::Device(_))
+        if !matches!(panel.focus, DeviceControl::Device(_) | DeviceControl::Delete(_))
             && !panel.controls().contains(&panel.focus)
         {
-            panel.focus = DeviceControl::Close;
+            panel.focus = panel.controls()[0];
         }
         panel
     }
@@ -312,21 +352,32 @@ impl DeviceOverview {
             .filter(|d| d.account == self.account)
             .collect();
         if !self.controls().contains(&self.focus) {
-            self.focus = DeviceControl::Close;
+            self.focus = self.controls()[0];
         }
         self
     }
 
+    fn deletable(&self, d: &SemanticDevice) -> bool {
+        self.own_device.as_deref() != Some(&d.device.device_id)
+    }
+
     pub fn controls(&self) -> Vec<DeviceControl> {
+        if self.dialog.is_some() {
+            return vec![
+                DeviceControl::DialogField,
+                DeviceControl::DialogCancel,
+                DeviceControl::DialogConfirm,
+            ];
+        }
         let mut controls = vec![DeviceControl::Close, DeviceControl::Refresh];
-        if self.can_begin {
+        for d in &self.devices {
             // Verified rows are read-only labels: re-verification is not offered.
-            controls.extend(
-                self.devices
-                    .iter()
-                    .filter(|d| !d.device.verified)
-                    .map(|d| DeviceControl::Device(d.id)),
-            );
+            if self.can_begin && !d.device.verified {
+                controls.push(DeviceControl::Device(d.id));
+            }
+            if self.deletable(d) {
+                controls.push(DeviceControl::Delete(d.id));
+            }
         }
         if self.comparison.is_some() {
             controls.push(DeviceControl::Comparison);
@@ -359,7 +410,51 @@ impl DeviceOverview {
         controls[(index + if reverse { controls.len() - 1 } else { 1 }) % controls.len()]
     }
 
+    fn dialog_tree(&self, name: &str, error: Option<&str>) -> TreeUpdate {
+        let mut root = Node::new(Role::Window);
+        root.set_label("Verifica dispositivi");
+        let mut dialog = Node::new(Role::Dialog);
+        dialog.set_label(name);
+        let mut nodes = vec![];
+        if let Some(error) = error {
+            let id = NodeId(1 << 59);
+            let mut node = Node::new(Role::Label);
+            node.set_value(error);
+            dialog.push_child(id);
+            nodes.push((id, node));
+        }
+        for control in self.controls() {
+            let (role, label) = match control {
+                DeviceControl::DialogField => (Role::PasswordInput, "Password"),
+                DeviceControl::DialogCancel => (Role::Button, "Annulla"),
+                _ => (Role::Button, "Disconnetti"),
+            };
+            // No value on the field: the typed password is never published.
+            let mut node = Node::new(role);
+            node.set_label(label);
+            node.add_action(Action::Focus);
+            if control != DeviceControl::DialogField {
+                node.add_action(Action::Click);
+            }
+            dialog.push_child(control.id());
+            nodes.push((control.id(), node));
+        }
+        let dialog_id = NodeId((1 << 59) + 1);
+        root.push_child(dialog_id);
+        nodes.insert(0, (dialog_id, dialog));
+        nodes.insert(0, (ROOT, root));
+        TreeUpdate {
+            nodes,
+            tree: Some(Tree::new(ROOT)),
+            tree_id: TreeId::ROOT,
+            focus: self.control_id(self.focus),
+        }
+    }
+
     pub fn tree(&self) -> TreeUpdate {
+        if let Some((name, error)) = &self.dialog {
+            return self.dialog_tree(name, *error);
+        }
         let mut root = Node::new(Role::Window);
         root.set_label("Verifica dispositivi");
         let mut nodes = vec![];
@@ -384,6 +479,14 @@ impl DeviceOverview {
                     device_label = format!("Avvia verifica con {}", crate::device_label(device));
                     &device_label
                 }
+                DeviceControl::Delete(id) => {
+                    let device = &self.devices.iter().find(|d| d.id == id).unwrap().device;
+                    device_label = format!("Disconnetti {}", crate::device_title(device));
+                    &device_label
+                }
+                DeviceControl::DialogField
+                | DeviceControl::DialogCancel
+                | DeviceControl::DialogConfirm => unreachable!("dialog has its own tree"),
             };
             let comparison = control == DeviceControl::Comparison;
             let mut node = Node::new(if comparison {
@@ -401,7 +504,7 @@ impl DeviceOverview {
                 node.add_action(Action::Click);
             }
             let bounds = match control {
-                DeviceControl::Device(id) => self
+                DeviceControl::Device(id) | DeviceControl::Delete(id) => self
                     .devices
                     .iter()
                     .find(|d| d.id == id)
