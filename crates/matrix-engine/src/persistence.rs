@@ -203,6 +203,8 @@ impl AccountStore {
             .homeserver_url(homeserver.as_str())
             .disable_well_known_lookup(true)
             .respect_login_well_known(false)
+            // Without it a room whose last event is not displayable has no latest event until opened, then jumps up.
+            .with_enable_automatic_back_pagination(true)
             .http_client(http)
             // Like Element X: fetch a missing session key from the existing backup on first
             // decryption failure; never create backups or cross-signing on the account.
