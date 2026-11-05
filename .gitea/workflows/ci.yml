@@ -172,6 +172,8 @@ jobs:
           packaging/linux/publish-site.sh --sign "$T/m10.json" 10
           expect_fail "$T/m10.json" "$T/m10.json.minisig"
           echo "prove negative OK: R3/R4/R5/R7 rifiutati, firma buona accettata"
+      - name: Test firma manifesto (casi negativi e di bordo, chiave efimera)
+        run: packaging/linux/test-publish-signing.sh
       - name: Publish AppImage
         run: |
           app="$HOME/ci/share/Gnobbi-x86_64.AppImage"
