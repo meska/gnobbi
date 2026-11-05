@@ -32,7 +32,7 @@ pub(crate) fn rows<H: Hit, V: 'static>(
                 .on_click(cx.listener(move |this, _, _, cx| on_choose(this, i, cx)));
             match row {
                 Row::More(more) => base
-                    .child(line(more_text(more).to_owned(), t.disabled))
+                    .child(line(more_text(more).to_owned(), t.secondary))
                     .into_any_element(),
                 Row::Hit(hit) => {
                     let initial = hit
@@ -66,7 +66,7 @@ pub(crate) fn rows<H: Hit, V: 'static>(
                                 .flex()
                                 .flex_col()
                                 .child(line(hit.title().to_owned(), t.text))
-                                .child(line(detail, t.disabled).text_size(px(12.)))
+                                .child(line(detail, t.secondary).text_size(px(12.)))
                         })
                         .into_any_element()
                 }
@@ -85,7 +85,7 @@ pub(crate) fn status<H: Hit>(
             .text_color(rgb(if matches!(status, Status::Error(_)) {
                 t.error
             } else {
-                t.disabled
+                t.secondary
             }))
             .child(status.text())
             .into_any_element()
