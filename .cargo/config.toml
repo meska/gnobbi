@@ -1,2 +1,6 @@
 [build]
 jobs = 4
+
+# Windows main thread has a 1 MB stack (8 MB on Linux); deeply nested HTML parsing needs the same headroom.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=/STACK:8388608"]

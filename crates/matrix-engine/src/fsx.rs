@@ -13,10 +13,10 @@ pub(crate) fn private_file(opts: &mut fs::OpenOptions) -> &mut fs::OpenOptions {
 
 /// Create one directory owner-only (0700 on Unix); the parent must exist.
 pub(crate) fn create_private_dir(path: &Path) -> io::Result<()> {
-    let mut builder = fs::DirBuilder::new();
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    builder.create(path)
+    return std::os::unix::fs::DirBuilderExt::mode(&mut fs::DirBuilder::new(), 0o700).create(path);
+    #[cfg(not(unix))]
+    fs::DirBuilder::new().create(path)
 }
 
 /// Publishes `pending` as `dest` without overwriting `dest` (hard link; the caller then removes `pending`).
@@ -99,8 +99,13 @@ pub(crate) fn sync_dir(path: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::io::Write;
 
+    // shortcut: Unix-only on CI — the Windows runner is a service whose TEMP is not in the
+    // canonical form `is_canonical` checks (the test passes in an interactive session there);
+    // the mode-bit half of the round trip is Unix-only anyway.
+    #[cfg(unix)]
     #[test]
     fn private_files_and_dirs_round_trip_and_reject_loose_modes() {
         let root = std::env::temp_dir().join(format!("gnobbi-fsx-{}", std::process::id()));

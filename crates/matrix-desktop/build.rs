@@ -54,4 +54,10 @@ fn main() {
     if let Some(head) = git(&["rev-parse", "--git-path", "HEAD"]) {
         println!("cargo:rerun-if-changed={head}");
     }
+    #[cfg(windows)]
+    {
+        println!("cargo:rerun-if-changed=gnobbi.rc");
+        println!("cargo:rerun-if-changed=../../packaging/windows/gnobbi.ico");
+        embed_resource::compile("gnobbi.rc", embed_resource::NONE).manifest_optional().unwrap();
+    }
 }

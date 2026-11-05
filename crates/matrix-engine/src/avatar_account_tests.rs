@@ -21,9 +21,12 @@ fn avatar_png(seed: u8) -> Vec<u8> {
 }
 
 fn avatar_root(config: &serde_json::Value) -> std::path::PathBuf {
-    use std::os::unix::fs::DirBuilderExt;
     let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap().join("avatars");
-    let _ = std::fs::DirBuilder::new().mode(0o700).create(&root);
+    let mut builder = std::fs::DirBuilder::new();
+    // Windows has no mode bits: the fixture profile dir is already user-private.
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    let _ = builder.create(&root);
     root
 }
 
