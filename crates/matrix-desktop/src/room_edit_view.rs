@@ -201,6 +201,7 @@ impl Shell {
         Some(
             div()
                 .id("room-edit-layer")
+                .occlude()
                 .absolute()
                 .inset_0()
                 .flex()

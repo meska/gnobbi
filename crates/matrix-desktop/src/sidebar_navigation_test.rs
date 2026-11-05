@@ -2167,6 +2167,99 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 90 {
+            // Overlays over the chat: real wheel and click on a point under each one must not reach the timeline or the room list.
+            let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
+            this.update_in(cx, |this, _, cx| {
+                let account_id = this.sidebar.rooms()[0].scope.account_id;
+                for i in 0..60 {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                        scope: RoomScope { account_id, room_id: matrix_domain::RoomId::new(format!("!fill{i:02}:fixture")) },
+                        name: format!("Stanza {i:02}"), unread: 0, info: Default::default(),
+                    }));
+                }
+                cx.notify();
+            }).unwrap();
+            let size = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+            let (w, h) = (f32::from(size.width) as i32, f32::from(size.height) as i32);
+            let (timeline_pt, list_pt) = ((w - 150, h * 7 / 10), (200, h / 2));
+            let wl = std::env::var_os("WAYLAND_DISPLAY").is_some();
+            let mut ptr = wl.then(|| std::process::Command::new("/tmp/gui-out/pointer").env("DIME_ISOLATED_WAYLAND", "1")
+                .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap());
+            let mut input = ptr.as_mut().map(|p| p.stdin.take().unwrap());
+            let mut output = ptr.as_mut().map(|p| std::io::BufReader::new(p.stdout.take().unwrap()));
+            if wl { wait(1500).await; } // let GPUI bind wl_pointer for the new seat capability
+            let win = (!wl).then(|| String::from_utf8(std::process::Command::new("xdotool").args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()]).output().unwrap().stdout).unwrap().lines().next().expect("window").to_string());
+            let mut act = |(x, y): (i32, i32), action: &str, times: usize| {
+                for _ in 0..times {
+                    if let (Some(input), Some(output)) = (input.as_mut(), output.as_mut()) {
+                        use std::io::{BufRead, Write};
+                        for a in ["move 0", action] {
+                            writeln!(input, "{x} {y} {w} {h} {a}").unwrap();
+                            let mut line = String::new(); output.read_line(&mut line).unwrap();
+                            assert_eq!(line, "done\n");
+                        }
+                    } else {
+                        let button = if action.starts_with("click") { "1" } else { "5" };
+                        assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", win.as_ref().unwrap(), &x.to_string(), &y.to_string(), "click", button]).status().unwrap().success());
+                    }
+                }
+            };
+            let mut leaks = Vec::new();
+            // "none" is the control: with no overlay each input must move something, or the probe proves nothing.
+            // The rail panel and the drawer cover the room list only; the dialogs cover the whole window.
+            for (name, list_only) in [("none", false), ("rail-edit", true), ("menu-drawer", true), ("new-room", false), ("room-edit", false)] {
+                this.update_in(cx, |this, window, cx| {
+                    this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.));
+                    match name {
+                        "none" => {}
+                        "rail-edit" => this.rail_ui.edit_open = true,
+                        "menu-drawer" => this.set_menu_open(true, window, cx),
+                        "new-room" => this.open_new_room(false, window, cx),
+                        _ => this.open_room_edit(window, cx),
+                    }
+                    cx.notify();
+                }).unwrap();
+                wait(500).await;
+                let probe = |this: &mut Shell, timeline: bool| (timeline.then(|| this.timeline.as_ref().unwrap().top_row()), this.scroll.0.borrow().base_handle.offset().y, this.sidebar.selected().map(|r| r.scope.clone()));
+                let before = this.update_in(cx, |this, _, _| probe(this, true)).unwrap();
+                for (what, point, action) in [("wheel over timeline", timeline_pt, "scroll 1"), ("wheel over room list", list_pt, "scroll 1"), ("click over room list", list_pt, "click 0")] {
+                    if list_only && what == "wheel over timeline" { continue; }
+                    for _ in 0..(if action.starts_with("click") { 1 } else { 5 }) { act(point, action, 1); wait(150).await; }
+                    wait(400).await;
+                    let after = this.update_in(cx, |this, _, _| probe(this, !action.starts_with("click"))).unwrap();
+                    let moved = match what {
+                        "wheel over timeline" => before.0 != after.0,
+                        "wheel over room list" => before.1 != after.1,
+                        _ => before.2 != after.2,
+                    };
+                    println!("MEASURE {name}: {what} at {point:?}: {} (before {before:?}, after {after:?})", if moved { "reaches the chat" } else { "blocked" });
+                    if moved != (name == "none") { leaks.push(format!("{name}: {what}")); }
+                    // A click may close the overlay: reopen it, and restore the underlying state for the next probe.
+                    this.update_in(cx, |this, window, cx| {
+                        this.rail_ui.edit_open = name == "rail-edit"; // a click closes dialogs and the drawer: reopen
+                        this.set_menu_open(name == "menu-drawer", window, cx);
+                        if name == "new-room" && this.new_room.is_none() { this.open_new_room(false, window, cx); }
+                        if name == "room-edit" && this.room_edit.is_none() { this.open_room_edit(window, cx); }
+                        if let Some(scope) = &before.2 { this.sidebar.select(scope); this.sync_room(cx); }
+                        this.timeline.as_ref().unwrap().scroll_to_row(20, px(7.));
+                        this.scroll.0.borrow().base_handle.set_offset(gpui::point(px(0.), px(0.)));
+                        cx.notify();
+                    }).unwrap();
+                    wait(400).await;
+                }
+                this.update_in(cx, |this, window, cx| {
+                    this.rail_ui.edit_open = false; this.set_menu_open(false, window, cx);
+                    this.new_room = None; this.room_edit = None;
+                }).unwrap();
+                wait(300).await;
+            }
+            drop(input); if let Some(mut p) = ptr { let _ = p.wait(); }
+            std::fs::write("/tmp/gui-out/overlay-leaks.txt", leaks.join("\n")).unwrap();
+            assert!(leaks.is_empty(), "input reached the chat under an overlay: {leaks:?}");
+            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 23 {
             // Connected Shell: the strip above the timeline shows only while an older page loads or after it failed.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -3198,6 +3291,14 @@ fn wheel_over_room_sheet_scrolls_only_the_member_list() {
 #[ignore = "requires private display"]
 fn wheel_over_room_sheet_matrix_edges_inertia_scrollbar_resize() {
     DYNAMIC.store(41, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn overlays_over_the_chat_block_wheel_and_click() {
+    DYNAMIC.store(90, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
