@@ -18,6 +18,7 @@ fn run(home: &Path, args: &[&str]) -> std::process::ExitStatus {
         .args(args)
         .env("HOME", home)
         .env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
         .env("APPIMAGE", "/opt/my apps/Gnobbi.AppImage")
         .status()
         .unwrap()
@@ -75,4 +76,30 @@ fn installs_the_saved_icon_and_falls_back_to_the_default() {
     fs::remove_file(&settings).unwrap();
     assert!(run(&home, &["--install-desktop-entry"]).success());
     assert_icons(&home, IconChoice::MinimalMark);
+}
+
+#[test]
+fn runs_user_cache_commands_and_writes_only_under_home() {
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR")).join("desktop-entry-caches");
+    let _ = fs::remove_dir_all(&root);
+    let home = root.join("home");
+    fs::create_dir_all(&home).unwrap();
+    let share = home.join(".local/share");
+    let mut calls = Vec::new();
+    matrix_desktop::desktop_entry::install_desktop_entry_with(&share, "/opt/G.AppImage", IconChoice::default(), &mut |p, a| {
+        calls.push((p.to_string(), a.iter().map(|x| x.to_path_buf()).collect::<Vec<_>>()))
+    })
+    .unwrap();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(calls[0].0, "update-desktop-database");
+    assert_eq!(calls[0].1, [home.join(".local/share/applications")]);
+    assert_eq!(calls[1].0, "gtk-update-icon-cache");
+    assert_eq!(calls[1].1[2], home.join(".local/share/icons/hicolor"));
+    // A stale Exec is rewritten.
+    matrix_desktop::desktop_entry::install_desktop_entry_with(&share, "/opt/New.AppImage", IconChoice::default(), &mut |_, _| {}).unwrap();
+    let d = fs::read_to_string(home.join(format!(".local/share/applications/{ID}.desktop"))).unwrap();
+    assert!(d.contains("Exec=\"/opt/New.AppImage\""));
+    // Everything lives under HOME; the sandbox root holds nothing else.
+    assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(&home).unwrap().count(), 1);
 }

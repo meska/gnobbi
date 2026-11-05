@@ -5,9 +5,48 @@ use std::{fs, io, path::Path};
 const APP_ID: &str = "net.meskatech.gnobbi";
 const DESKTOP: &str = include_str!("../../../packaging/linux/net.meskatech.gnobbi.desktop");
 
-/// Writes the entry and icons under `home/.local/share`; `exec` is the absolute AppImage path;
-/// `icon` is the saved choice (shown by the shell at its next start or bar restart).
+/// Installs for the current user (CLI and in-app UI): `$APPIMAGE` if set, else `current_exe`.
+pub fn install_for_current_user(icon: IconChoice) -> Result<(), String> {
+    // $APPIMAGE is the AppImage file; current_exe would point into the temporary mount.
+    let exec = std::env::var("APPIMAGE")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned()))
+        .ok_or("executable path unknown")?;
+    let home = std::env::var_os("HOME").ok_or("HOME unknown")?;
+    install_desktop_entry(Path::new(&home), &exec, icon).map_err(|e| e.to_string())
+}
+
+/// User data dir shared by install and detection: an absolute `$XDG_DATA_HOME`, else `home/.local/share`.
+pub(crate) fn user_share(home: &Path, xdg_data_home: Option<&Path>) -> std::path::PathBuf {
+    match xdg_data_home {
+        Some(p) if p.is_absolute() => p.to_path_buf(),
+        _ => home.join(".local/share"),
+    }
+}
+
+/// Writes the entry and icons under the user data dir, then refreshes the user caches.
 pub fn install_desktop_entry(home: &Path, exec: &str, icon: IconChoice) -> io::Result<()> {
+    let xdg = std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty());
+    let share = user_share(home, xdg.as_deref().map(Path::new));
+    install_desktop_entry_with(&share, exec, icon, &mut |prog, args| {
+        // Missing binary or failure is deliberately ignored: the caches are only an optimisation.
+        let _ = std::process::Command::new(prog)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    })
+}
+
+/// Same as [`install_desktop_entry`] with an injectable cache-command runner `(program, args)`.
+pub fn install_desktop_entry_with(
+    share: &Path,
+    exec: &str,
+    icon: IconChoice,
+    run: &mut dyn FnMut(&str, &[&Path]),
+) -> io::Result<()> {
     if !Path::new(exec).is_absolute() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -19,9 +58,9 @@ pub fn install_desktop_entry(home: &Path, exec: &str, icon: IconChoice) -> io::R
         .replace('\\', "\\\\")
         .replace('"', "\\\"")
         .replace('`', "\\`")
-        .replace('$', "\\$");
+        .replace('$', "\\$")
+        .replace('%', "%%");
     let desktop = DESKTOP.replace("Exec=gnobbi", &format!("Exec=\"{quoted}\""));
-    let share = home.join(".local/share");
     let apps = share.join("applications");
     fs::create_dir_all(&apps)?;
     fs::write(apps.join(format!("{APP_ID}.desktop")), desktop)?;
@@ -30,6 +69,11 @@ pub fn install_desktop_entry(home: &Path, exec: &str, icon: IconChoice) -> io::R
         fs::create_dir_all(&dir)?;
         fs::write(dir.join(format!("{APP_ID}.png")), png)?;
     }
+    run("update-desktop-database", &[&apps]);
+    run(
+        "gtk-update-icon-cache",
+        &[Path::new("-f"), Path::new("-t"), &share.join("icons/hicolor")],
+    );
     Ok(())
 }
 
@@ -80,10 +124,8 @@ pub mod detect {
         }
 
         fn user_share(&self) -> Option<PathBuf> {
-            match &self.xdg_data_home {
-                Some(p) if p.is_absolute() => Some(p.clone()),
-                _ => self.home.as_ref().map(|h| h.join(".local/share")),
-            }
+            let home = self.home.as_ref()?;
+            Some(super::user_share(home, self.xdg_data_home.as_deref()))
         }
 
         fn system_shares(&self) -> Vec<PathBuf> {
@@ -134,7 +176,7 @@ pub mod detect {
         } else {
             out.extend(chars.take_while(|c| !c.is_whitespace()));
         }
-        Some(out)
+        Some(out.replace("%%", "%"))
     }
 
     pub fn entry_status(env: &Env) -> EntryStatus {
@@ -189,7 +231,17 @@ pub mod detect {
         }
 
         fn install(env: &Env, exec: &str) {
-            crate::desktop_entry::install_desktop_entry(env.home.as_ref().unwrap(), exec).unwrap();
+            let share = super::super::user_share(
+                env.home.as_ref().unwrap(),
+                env.xdg_data_home.as_deref(),
+            );
+            crate::desktop_entry::install_desktop_entry_with(
+                &share,
+                exec,
+                crate::IconChoice::default(),
+                &mut |_, _| {},
+            )
+            .unwrap();
         }
 
         #[test]
@@ -243,6 +295,25 @@ pub mod detect {
             assert!(!should_prompt(&env, true));
             env.graphical = false;
             assert!(!should_prompt(&env, false));
+        }
+
+        #[test]
+        fn install_and_detect_agree_with_xdg_data_home_set() {
+            let (mut env, root) = setup("xdgrt");
+            env.xdg_data_home = Some(root.join("xdg"));
+            install(&env, env.exec.as_deref().unwrap());
+            assert_eq!(entry_status(&env), EntryStatus::Ok);
+        }
+
+        #[test]
+        fn exec_with_percent_and_space_round_trips() {
+            let (mut env, root) = setup("pct");
+            let exe = root.join("my 50% apps/G.AppImage");
+            fs::create_dir_all(exe.parent().unwrap()).unwrap();
+            fs::write(&exe, "x").unwrap();
+            env.exec = Some(exe.to_string_lossy().into_owned());
+            install(&env, env.exec.as_deref().unwrap());
+            assert_eq!(entry_status(&env), EntryStatus::Ok);
         }
 
         #[test]

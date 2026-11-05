@@ -2276,29 +2276,13 @@ fn main() {
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--install-desktop-entry") {
-        // $APPIMAGE is the AppImage file; current_exe would point into the temporary mount.
-        let exec = std::env::var("APPIMAGE")
-            .ok()
-            .filter(|v| !v.is_empty())
-            .or_else(|| {
-                std::env::current_exe()
-                    .ok()
-                    .map(|p| p.to_string_lossy().into_owned())
-            });
-        let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
         // Saved icon choice; missing or invalid preferences fall back to the default.
         let icon = matrix_desktop::app_dirs(matrix_desktop::Platform::Linux, |k| {
             std::env::var(k).ok()
         })
         .map(|d| matrix_desktop::Preferences::load(&d).icon)
         .unwrap_or_default();
-        let done = match (home, exec) {
-            (Some(home), Some(exec)) => {
-                matrix_desktop::desktop_entry::install_desktop_entry(&home, &exec, icon)
-                    .map_err(|e| e.to_string())
-            }
-            _ => Err("HOME or executable path unknown".into()),
-        };
+        let done = matrix_desktop::desktop_entry::install_for_current_user(icon);
         if let Err(e) = done {
             eprintln!("install-desktop-entry: {e}");
             std::process::exit(1);
