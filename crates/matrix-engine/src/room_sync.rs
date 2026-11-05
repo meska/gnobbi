@@ -1013,6 +1013,12 @@ impl RoomSync {
         self.session.client.as_ref()
     }
 
+    /// Fixture: owned handles so a test can act as the app does while `sliding::run` borrows `self`.
+    #[cfg(test)]
+    pub(crate) fn live_handles_for_test(&self) -> (matrix_sdk::Client, Timelines) {
+        (self.session.client.clone().expect("store-backed session"), self.timelines.clone())
+    }
+
     #[cfg(test)]
     pub(crate) async fn mark_room_for_test(
         &self,
@@ -1995,7 +2001,7 @@ async fn saved_page(
 
 /// Everything the Timeline holds, after the SDK filled what sync left missing (a first
 /// page when it holds less than one).
-async fn open_page(
+pub(crate) async fn open_page(
     client: &matrix_sdk::Client,
     timelines: &Timelines,
     tag: crate::RequestTag,
@@ -2093,7 +2099,7 @@ async fn history_sender(
         )
 }
 
-async fn fetch_history(
+pub(crate) async fn fetch_history(
     client: &matrix_sdk::Client,
     timelines: &Timelines,
     account_id: matrix_domain::AccountId,

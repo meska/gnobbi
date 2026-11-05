@@ -1,5 +1,6 @@
 //! Real-server tests run only inside the disposable network namespace.
 include!("receipt_tests.rs");
+include!("old_room_order_tests.rs");
 include!("live_activity_tests.rs");
 include!("thread_tests.rs");
 
