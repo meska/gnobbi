@@ -807,10 +807,12 @@ impl Shell {
             && key.modifiers.control
             && key.key == "i"
         {
+            if self.room_details_open && self.details_zone.contains_focused(window, cx) {
+                self.list_focus.focus(window);
+            }
             self.set_room_details_open(
                 !self.room_details_open && self.sidebar.selected().is_some(),
             );
-            self.list_focus.focus(window);
             cx.notify();
             cx.stop_propagation();
             return;

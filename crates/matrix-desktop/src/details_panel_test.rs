@@ -94,8 +94,15 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     });
 
     // 2. Keyboard in the composer types text with the panel open; the panel keeps neither focus nor the keys.
-    shell!(|this, window, cx| open_panel(this, window, cx));
-    wait(300).await;
+    shell!(|this, window, cx| {
+        this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx));
+        assert!(this.composer.read(cx).is_focused(window));
+    });
+    key!("ctrl-i");
+    shell!(|this, window, cx| {
+        assert!(this.room_details_open);
+        assert!(this.composer.read(cx).is_focused(window), "opening the panel keeps composer focus");
+    });
     let base = shell!(|this, window, cx| composer_text(this, window, cx));
     key!("h");
     key!("i");
@@ -104,6 +111,17 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(this.composer.read(cx).is_focused(window) && !this.details_zone.contains_focused(window, cx), "composer keeps the focus");
         assert_eq!(composer_text(this, window, cx), format!("{base}hi"), "keys reach the composer");
     });
+
+    // Ctrl+I closes without moving focus outside the panel, but restores list focus from inside it.
+    key!("ctrl-i");
+    shell!(|this, window, cx| assert!(!this.room_details_open && this.composer.read(cx).is_focused(window)));
+    key!("ctrl-i");
+    key!("f6");
+    shell!(|this, window, cx| assert!(this.details_zone.contains_focused(window, cx)));
+    key!("ctrl-i");
+    shell!(|this, window, _| assert!(!this.room_details_open && this.list_focus.is_focused(window)));
+    shell!(|this, window, cx| this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx)));
+    key!("ctrl-i");
 
     // 3. Esc in the composer does not close the panel.
     key!("escape");
