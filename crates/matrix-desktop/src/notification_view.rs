@@ -161,7 +161,10 @@ impl Shell {
             .child(div().h(px(64.)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .border_b_1().border_color(rgb(t.border))
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Notifiche locali"))
-                .child(div().id("notifications-close").relative().children(self.notification_observer(3, cx)).when(focused_control == Some(3), |d| d.border_1().border_color(rgb(t.accent))).cursor_pointer().text_color(rgb(t.accent)).child("Chiudi · Esc")
+                .child(div().id("notifications-close").relative().children(self.notification_observer(3, cx)).when(focused_control == Some(3), |d| d.border_1().border_color(rgb(t.accent)))
+                    .w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
+                    .hover(|s| s.bg(rgb(t.border)))
+                    .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
                     .on_click(cx.listener(|this, _, _, cx| { this.set_notifications_open(false); cx.notify(); }))))
             .child(div().id("notifications-content").flex_1().min_h_0().overflow_y_scroll().p_4().flex().flex_col().gap_3()
                 .children([
