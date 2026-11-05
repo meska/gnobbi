@@ -129,3 +129,40 @@ jobs:
         run: |
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s ios-mobile\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.ios-mobile.status"
+  publish:
+    needs: [linux, macos]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    runs-on: linux-x86_64
+    concurrency:
+      group: publish-main
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        run: |
+          git init -q .
+          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
+          git checkout -q "${{ gitea.sha }}"
+      - name: Publish AppImage
+        run: |
+          app="$HOME/ci/share/Gnobbi-x86_64.AppImage"
+          built="$(sed -n 's/^commit=//p' "$HOME/ci/share/BUILDINFO" 2>/dev/null || true)"
+          if [ ! -f "$app" ]; then
+            echo "::error::AppImage del job linux assente in \$HOME/ci/share (job AppImage non eseguito?)"
+            exit 1
+          fi
+          if [ "$built" != "${{ gitea.sha }}" ]; then
+            echo "::error::AppImage costruita da commit diverso (BUILDINFO=$built, CI=${{ gitea.sha }})"
+            exit 1
+          fi
+          rc=0
+          packaging/linux/publish-site.sh "$app" "${{ gitea.run_number }}" "${{ gitea.sha }}" || rc=$?
+          if [ "$rc" = 75 ]; then
+            echo "::warning::PUBLISH SKIPPED: sito irraggiungibile (publish-site.sh rc=75)"
+            printf 'PUBLISH SKIPPED: sito irraggiungibile (rc=75), build %s non pubblicata.\n' "${{ gitea.run_number }}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          if [ "$rc" != 0 ]; then
+            echo "::error::publish fallito: publish-site.sh rc=$rc (2=config, 3=verifica, 4=upload)"
+            exit "$rc"
+          fi
+          printf 'Publish OK: build %s (%s) - latest.json e AppImage aggiornati.\n' "${{ gitea.run_number }}" "${{ gitea.sha }}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
