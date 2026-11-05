@@ -429,6 +429,8 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
             mentions: None,
             recording: None,
             emoji_open: false,
+            picker_pinned: false,
+            picker_selected: None,
             text: "caffè 🙂\nseconda riga".into(),
             anchor: 0,
             cursor: 0,
@@ -500,28 +502,28 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
         label_of(&mentioning.tree(), MENTIONS).as_deref(),
         Some("Menzioni: alice; Bruno Verdi, selezionato")
     );
-    use matrix_desktop::accessibility::{EMOJI, EMOJI_PICKER};
-    assert_eq!(
-        label_of(&tree, EMOJI).as_deref(),
-        Some("Apri selettore emoji")
-    );
+    use matrix_desktop::accessibility::{
+        EMOJI, EMOJI_CLOSE, EMOJI_ITEM, EMOJI_PANEL, EMOJI_PICKER, EMOJI_TAB,
+    };
+    let expanded = |tree: &accesskit::TreeUpdate| {
+        tree.nodes.iter().find(|(id, _)| *id == EMOJI).unwrap().1.is_expanded()
+    };
+    assert_eq!(label_of(&tree, EMOJI).as_deref(), Some("Emoji"));
+    assert_eq!(expanded(&tree), Some(false));
     assert_eq!(label_of(&tree, EMOJI_PICKER), None);
     let mut picking = snapshot.clone();
     picking.composer.as_mut().unwrap().emoji_open = true;
     let tree = picking.tree();
-    assert_eq!(
-        label_of(&tree, EMOJI).as_deref(),
-        Some("Chiudi selettore emoji")
-    );
-    assert_eq!(
-        label_of(&tree, EMOJI_PICKER).as_deref(),
-        Some("Selettore emoji")
-    );
-    let (_, picker) = tree
-        .nodes
-        .iter()
-        .find(|(id, _)| *id == EMOJI_PICKER)
-        .unwrap();
+    assert_eq!(label_of(&tree, EMOJI).as_deref(), Some("Emoji"), "the label does not change with the state");
+    assert_eq!(expanded(&tree), Some(true));
+    assert_eq!(label_of(&tree, EMOJI_PICKER).as_deref(), Some("Selettore emoji"));
+    assert_eq!(label_of(&tree, EMOJI_CLOSE), None, "the popup has no Close");
+    let node = |id| &tree.nodes.iter().find(|(i, _)| *i == id).unwrap().1;
+    assert_eq!(node(EMOJI_PICKER).role(), accesskit::Role::Group);
+    assert_eq!(node(EMOJI_TAB).role(), accesskit::Role::Tab);
+    assert_eq!(node(EMOJI_TAB).is_selected(), Some(true));
+    let picker = node(EMOJI_PANEL);
+    assert_eq!(picker.role(), accesskit::Role::TabPanel);
     let labels: std::collections::BTreeSet<String> = picker
         .children()
         .iter()
@@ -534,6 +536,16 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
     assert_eq!(picker.children().len(), 32);
     assert_eq!(labels.len(), 32);
     assert!(labels.iter().all(|l| !l.is_empty()));
+    let mut drawer = picking.clone();
+    {
+        let c = drawer.composer.as_mut().unwrap();
+        c.picker_pinned = true;
+        c.picker_selected = Some(3);
+        c.focused = false;
+    }
+    let tree = drawer.tree();
+    assert_eq!(label_of(&tree, EMOJI_CLOSE).as_deref(), Some("Chiudi"));
+    assert_eq!(tree.focus, accesskit::NodeId(EMOJI_ITEM + 3));
 }
 
 #[test]
@@ -576,6 +588,8 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
             mentions: None,
             recording: None,
             emoji_open: false,
+            picker_pinned: false,
+            picker_selected: None,
             text: "caffè 🙂\nseconda riga\n".into(),
             anchor: "caffè 🙂\nseconda riga\n".len(),
             cursor: "caffè ".len(),
@@ -652,6 +666,8 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
             mentions: None,
             recording: None,
             emoji_open: false,
+            picker_pinned: false,
+            picker_selected: None,
             text: "hello".into(),
             anchor: 5,
             cursor: 5,
@@ -760,6 +776,8 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
             mentions: None,
             recording: None,
             emoji_open: false,
+            picker_pinned: false,
+            picker_selected: None,
             scope: scope.clone(),
             composing: false,
             text: "draft 🙂".into(),

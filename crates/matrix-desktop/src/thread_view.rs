@@ -90,6 +90,15 @@ pub(crate) struct ThreadPanel {
     scroll: ScrollHandle,
 }
 
+/// Right-hand column shared by the thread and the emoji drawer. Wide window: docked next to the chat. Narrow: a sheet over it (as the room sheet).
+pub(crate) fn side_panel(id: &'static str, window: &Window, t: matrix_desktop::DesignTokens) -> gpui::Stateful<gpui::Div> {
+    let docked = window.viewport_size().width >= px(800.);
+    div().id(id).occlude()
+        .when(docked, |d| d.h_full().w(px(360.)).flex_shrink_0())
+        .when(!docked, |d| d.absolute().right_0().top_0().bottom_0().w(window.viewport_size().width.min(px(360.))))
+        .flex().flex_col().bg(rgb(t.surface)).border_l_1().border_color(rgb(t.border))
+}
+
 impl ThreadPanel {
     pub(crate) fn new(scope: RoomScope, root: EventId, root_row: ThreadRow, total: u32) -> Self {
         Self {
@@ -295,12 +304,8 @@ impl Shell {
                 })))
         };
         let status = if p.failed { Some("Impossibile caricare · riprova più tardi") } else if p.pending && p.replies.is_empty() { Some("Caricamento…") } else { None };
-        // Wide window: a column next to the chat. Narrow: a sheet over it (as the room sheet).
         let docked = window.viewport_size().width >= px(800.);
-        let panel = div().id("thread-panel").occlude()
-            .when(docked, |d| d.h_full().w(px(360.)).flex_shrink_0())
-            .when(!docked, |d| d.absolute().right_0().top_0().bottom_0().w(window.viewport_size().width.min(px(360.))))
-            .flex().flex_col().bg(rgb(t.surface)).border_l_1().border_color(rgb(t.border))
+        let panel = side_panel("thread-panel", window, t)
             .child(div().h(px(t.header)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Thread"))
                 .child(div().id("thread-close").cursor_pointer().text_color(rgb(t.accent)).child("Chiudi")

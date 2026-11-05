@@ -43,6 +43,7 @@ mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;
 mod spaces_view;
+mod picker_view;
 mod thread_view;
 mod timeline_view;
 mod tray_view;
@@ -793,6 +794,10 @@ impl Shell {
                 cx.stop_propagation();
                 return;
             }
+        }
+        if key.key == "escape" && self.composer.update(cx, |c, cx| c.close_picker(cx)) {
+            cx.stop_propagation();
+            return;
         }
         if self.thread.is_some() && key.key == "escape" {
             self.close_thread();
@@ -1693,6 +1698,7 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let pinned_picker = self.composer.read(cx).pinned_picker();
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
         }
@@ -2246,7 +2252,8 @@ impl Render for Shell {
                 )
             })
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
-            .when(self.thread.is_some(), |d| d.child(self.render_thread(window, cx)))
+            .when_some(pinned_picker.clone(), |d, p| d.child(thread_view::side_panel("emoji-drawer", window, t).child(p)))
+            .when(self.thread.is_some() && pinned_picker.is_none(), |d| d.child(self.render_thread(window, cx)))
             .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
