@@ -224,14 +224,14 @@ fn push_rules_decide_alerts_and_the_room_mute_is_a_server_rule() {
     });
 }
 
-/// Does opening an OLD room reorder the room list? Two rooms, old activity in the first,
+/// Does opening an OLD room keep the room list order? Two rooms, old activity in the first,
 /// newer in the second; the adapter runs, the old one is opened through `open_history`, and
 /// every `Order`/`Diff` around the open is printed. `REORDER_NO_RECEIPTS=1` opens with a
 /// visibility that does not see the last message (no receipts) to isolate the trigger.
 /// Asserts the order is unchanged by the open (regression for the dormant-room jump).
 #[test]
 #[ignore = "requires the sliding_adapter_probe script"]
-fn opening_an_old_room_reorders_the_list() {
+fn opening_an_old_room_keeps_the_order() {
     let config: serde_json::Value = serde_json::from_slice(
         &std::fs::read(std::env::var("FIXTURE_AUTH_CONFIG").unwrap()).unwrap(),
     )
@@ -424,6 +424,8 @@ async fn reorder_probe(
     pump!(Duration::from_secs(8), |_: &Seen| false);
     snapshot(seen, "after-idle");
     let before_open = seen.order_ids.clone();
+    let ours: Vec<&str> = before_open.iter().map(String::as_str).filter(|id| [old_id, dormant_id, new_id].contains(id)).collect();
+    assert_eq!(ours, [new_id, dormant_id, old_id], "precondition: the dormant room keeps its place before the open");
     // Phase 3: open the DORMANT room exactly like the app does.
     eprintln!(
         "{} opening DORMANT (receipts={})",

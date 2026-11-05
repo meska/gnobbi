@@ -57,13 +57,19 @@ async fn order_in_run(
 }
 
 async fn old_room_fixture(account: u64) -> OldRoom {
+    old_room_fixture_with(account, false).await
+}
+
+/// `redact_mid`: MID gets two messages and the last one is redacted, so the SDK has no valid
+/// latest event for it until it back-paginates (the option set in auth.rs / persistence.rs).
+async fn old_room_fixture_with(account: u64, redact_mid: bool) -> OldRoom {
     use crate::room_sync::RoomSync;
     use std::time::Duration;
     const OLD_BURST: usize = 30; // two history pages of 25
     let config = fixture();
     let mut ids = Vec::new();
     let mut old_last_event = String::new();
-    for (n, burst) in [(0, OLD_BURST), (1, 1), (2, 1)] {
+    for (n, burst) in [(0, OLD_BURST), (1, if redact_mid { 2 } else { 1 }), (2, 1)] {
         let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
             serde_json::json!({"invite":["@bob:matrix-desktop.test"],"name":format!("old-room-order-{n}")})).await;
         let room = created["room_id"].as_str().unwrap().to_owned();
@@ -74,6 +80,10 @@ async fn old_room_fixture(account: u64) -> OldRoom {
                 serde_json::json!({"msgtype":"m.text","body":format!("m{n}-{i}")})).await;
             if n == 0 {
                 old_last_event = sent["event_id"].as_str().unwrap().to_owned();
+            }
+            if redact_mid && n == 1 && i == burst - 1 {
+                let event = sent["event_id"].as_str().unwrap();
+                room_request(&config, "alice", reqwest::Method::PUT, &format!("rooms/{room}/redact/{event}/redact-mid"), serde_json::json!({})).await;
             }
         }
         ids.push(room);
@@ -259,5 +269,20 @@ fn disposable_old_room_control_new_message_moves_it_to_top() {
         let after = order_in_run(&mut f.sync, &ids, send).await;
         let _ = std::fs::remove_dir_all(&f.root);
         assert_eq!(after, [ids[0].clone(), ids[2].clone(), ids[1].clone()], "a new message must move OLD to the top (before {:?})", f.before);
+    });
+}
+
+/// Production clients only (auth.rs login, persistence.rs restore): MID's last message is redacted,
+/// MID must keep its place, and opening OLD must not move anything. Removing the SDK option from
+/// either Client builder turns this RED; the test builds no Client of its own.
+#[test]
+#[ignore = "requires disposable homeserver; run via the auth_smoke script"]
+fn disposable_old_room_redacted_last_event_keeps_position() {
+    runtime().block_on(async {
+        let f = old_room_fixture_with(81, true).await;
+        let [old, mid, new] = f.ids.clone();
+        assert_eq!(f.before, [new, mid, old], "redacted last event pushed MID out of place");
+        assert!(!f.open(true).await.events.is_empty());
+        f.back_to_list(async {}, "opening the old chat with a redacted MID").await;
     });
 }
