@@ -5,6 +5,7 @@ pub mod accessibility;
 pub mod build_info;
 pub mod new_chat;
 pub mod notifications;
+pub mod update;
 
 /// Send is shown for a committed, non-blank draft or an attachment, never while recording.
 pub fn send_visible(composing: bool, text: &str, attachment: bool, recording: bool) -> bool {
