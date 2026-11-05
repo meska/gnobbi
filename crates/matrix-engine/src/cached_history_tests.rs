@@ -290,6 +290,13 @@ fn reopened_room_asks_the_server_only_for_the_messages_it_missed() {
             );
         }
 
+        // Marks where the second run starts: no /sync may sit between the two marks.
+        http()
+            .get(format!("{url}_matrix/client/versions?mark=second"))
+            .send()
+            .await
+            .unwrap();
+
         // Restart online: opening the room brings in exactly the missed messages.
         let store = AccountStore::open(&root, AccountId::new(293)).unwrap();
         let value = store.unseal(PASSPHRASE).unwrap();
