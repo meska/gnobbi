@@ -705,7 +705,14 @@ impl ComposerView {
         cx.notify();
     }
 
+    #[cfg_attr(test, allow(unreachable_code, unused_variables))]
     fn pick_file(&mut self, cx: &mut Context<Self>) {
+        // Tests count the request instead of opening a native dialog.
+        #[cfg(test)]
+        {
+            tests::PICKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            return;
+        }
         let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: true,
             directories: false,
@@ -2714,42 +2721,48 @@ mod tests {
         });
     }
 
+    pub(super) static POLLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    pub(super) static PICKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn open_composer(width: f32, text: &'static str, cx: &mut gpui::App) -> gpui::WindowHandle<ComposerView> {
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        let bounds = Bounds::centered(None, size(px(width), px(72.)), cx);
+        cx.open_window(
+            gpui::WindowOptions { window_bounds: Some(gpui::WindowBounds::Windowed(bounds)), ..Default::default() },
+            |window, cx| {
+                cx.new(|cx| {
+                    let mut v = ComposerView::new(
+                        RoomScope {
+                            account_id: matrix_domain::AccountId::new(1),
+                            room_id: matrix_domain::RoomId::new("!icons:fixture.invalid"),
+                        },
+                        cx,
+                    );
+                    v.set_live(true);
+                    if std::env::var("COMPOSER_THEME").as_deref() == Ok("dark") {
+                        v.theme = matrix_desktop::DARK;
+                    }
+                    v.draft.replace(None, text);
+                    if std::env::var("COMPOSER_TEST_ATTACHMENT").as_deref() == Ok("1") {
+                        v.attachment = Some(Pending { filename: "a.txt".into(), data: vec![1], voice: None });
+                    }
+                    v.changed(cx);
+                    v.focus.focus(window);
+                    v
+                })
+            },
+        )
+        .unwrap()
+    }
+
     /// Live composer in a 72 px bar (the real min height), text and one icon state checked after paint.
     fn rendered_composer(text: &'static str, check: impl FnOnce(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static) {
         rendered_composer_at(800., text, check)
     }
 
     fn rendered_composer_at(width: f32, text: &'static str, check: impl FnOnce(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static) {
-        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
         gpui::Application::new().run(move |cx| {
-            let bounds = Bounds::centered(None, size(px(width), px(72.)), cx);
-            let view = cx
-                .open_window(
-                    gpui::WindowOptions { window_bounds: Some(gpui::WindowBounds::Windowed(bounds)), ..Default::default() },
-                    |window, cx| {
-                        cx.new(|cx| {
-                            let mut v = ComposerView::new(
-                                RoomScope {
-                                    account_id: matrix_domain::AccountId::new(1),
-                                    room_id: matrix_domain::RoomId::new("!icons:fixture.invalid"),
-                                },
-                                cx,
-                            );
-                            v.set_live(true);
-                            if std::env::var("COMPOSER_THEME").as_deref() == Ok("dark") {
-                                v.theme = matrix_desktop::DARK;
-                            }
-                            v.draft.replace(None, text);
-                            if std::env::var("COMPOSER_TEST_ATTACHMENT").as_deref() == Ok("1") {
-                                v.attachment = Some(Pending { filename: "a.txt".into(), data: vec![1], voice: None });
-                            }
-                            v.changed(cx);
-                            v.focus.focus(window);
-                            v
-                        })
-                    },
-                )
-                .unwrap();
+            let view = open_composer(width, text, cx);
             let executor = cx.background_executor().clone();
             cx.spawn(async move |cx| {
                 executor.timer(std::time::Duration::from_millis(400)).await;
@@ -2768,6 +2781,86 @@ mod tests {
             .detach();
         });
     }
+
+    /// Focuses `stop`, lets it paint (GPUI turns Enter/Space key-up into a click only on a painted, focused element),
+    /// then sends the real key through xdotool (down + up). Checks that the draft is untouched and Submitted came only from Send.
+    fn press_on(text: &'static str, stop: u8, key: &'static str, check: fn(&mut ComposerView)) {
+        gpui::Application::new().run(move |cx| {
+            let view = open_composer(800., text, cx);
+            let submitted = Rc::new(Cell::new(0));
+            let count = submitted.clone();
+            let entity = view.entity(cx).unwrap();
+            cx.subscribe(&entity, move |_, _: &Submitted, _| count.set(count.get() + 1)).detach();
+            cx.subscribe(&entity, |_, _: &OpenPoll, _| {
+                POLLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            })
+            .detach();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                view.update(cx, |v, window, cx| {
+                    match stop {
+                        0..=3 => v.icon_focus[stop as usize].focus(window),
+                        _ => v.send_focus.focus(window),
+                    }
+                    cx.notify();
+                })
+                .unwrap();
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                // Real X11 key press + release (GPUI clicks on key-up), as the OS delivers it.
+                let ids = std::process::Command::new("xdotool")
+                    .args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()])
+                    .output()
+                    .unwrap();
+                let id = String::from_utf8(ids.stdout).unwrap();
+                assert!(std::process::Command::new("xdotool").args(["windowfocus", id.lines().next().unwrap()]).status().unwrap().success());
+                executor.timer(std::time::Duration::from_millis(200)).await;
+                let sent = std::process::Command::new("xdotool")
+                    .args(["key", if key == "enter" { "Return" } else { "space" }])
+                    .status()
+                    .unwrap();
+                assert!(sent.success());
+                executor.timer(std::time::Duration::from_millis(100)).await;
+                view.update(cx, |v, _, _| {
+                    assert_eq!(v.draft.text(), text, "{key} on a control never edits the draft");
+                    check(v);
+                })
+                .unwrap();
+                assert_eq!(submitted.get(), u32::from(stop == 4), "{key} on stop {stop}: Submitted only from Send");
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    /// One process per case: GPUI's `Application::run` is once per process.
+    macro_rules! activation {
+        ($enter:ident, $space:ident, $text:expr, $stop:expr, $check:expr) => {
+            #[test]
+            #[ignore = "requires private display"]
+            fn $enter() {
+                press_on($text, $stop, "enter", $check);
+            }
+            #[test]
+            #[ignore = "requires private display"]
+            fn $space() {
+                press_on($text, $stop, "space", $check);
+            }
+        };
+    }
+
+    activation!(enter_activates_emoji, space_activates_emoji, "ciao", 0, |v| assert!(v.emoji_open, "Emoji opens the picker"));
+    activation!(enter_activates_attach, space_activates_attach, "ciao", 1, |_| {
+        assert!(PICKS.load(std::sync::atomic::Ordering::SeqCst) >= 1, "Attach asks for a file")
+    });
+    // No microphone on the CT: the activation shows as the error; with one it shows as a recorder.
+    activation!(enter_activates_voice, space_activates_voice, "", 2, |v| {
+        assert!(v.recorder.is_some() || v.attach_error.is_some(), "Voice tried to record")
+    });
+    activation!(enter_activates_poll, space_activates_poll, "ciao", 3, |_| {
+        assert!(POLLS.load(std::sync::atomic::Ordering::SeqCst) >= 1, "Poll emits OpenPoll")
+    });
+    activation!(enter_activates_send, space_activates_send, "ciao", 4, |_| ());
 
     fn centre(b: Bounds<Pixels>) -> f32 {
         (f32::from(b.top()) + f32::from(b.bottom())) / 2.
