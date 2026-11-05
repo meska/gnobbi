@@ -212,3 +212,39 @@ fn removing_an_account_forgets_its_recents_and_rail_layout_only() {
     layouts.remove(1);
     assert_eq!(layouts, matrix_desktop::RailLayouts::default());
 }
+
+#[test]
+fn view_entries_find_dm_by_matrix_id_contact_and_room_by_alias_even_with_empty_server_strings() {
+    use matrix_desktop::Sidebar;
+    use matrix_domain::{AccountId, RoomId, RoomScope};
+    use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
+    let account = AccountId::new(1);
+    let mut sidebar = Sidebar::connected(account);
+    let mut add = |id: &str, name: &str, info: RoomInfo| {
+        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            scope: RoomScope { account_id: account, room_id: RoomId::new(id) },
+            name: name.into(),
+            unread: 0,
+            info,
+        }));
+    };
+    add(
+        "!dm:matrix-desktop.test",
+        "Roberta Bianchi",
+        RoomInfo { dm_user_id: Some("@bob:matrix-desktop.test".into()), aliases: vec!["".into()], ..Default::default() },
+    );
+    add(
+        "!room:matrix-desktop.test",
+        "Officina",
+        RoomInfo {
+            aliases: vec!["#officina:matrix-desktop.test".into(), "".into(), "#bottega:matrix-desktop.test".into()],
+            dm_user_id: Some(String::new()),
+            ..Default::default()
+        },
+    );
+    let index = Index::new(sidebar.rooms().iter().enumerate().map(|(i, r)| Entry::from_room(r, i as u64)));
+    assert_eq!(names(&index, "@bob:matrix-desktop.test"), ["Roberta Bianchi"]);
+    assert_eq!(names(&index, "bianchi"), ["Roberta Bianchi"]);
+    assert_eq!(names(&index, "#officina:matrix-desktop.test"), ["Officina"]);
+    assert_eq!(names(&index, "#bottega"), ["Officina"]);
+}

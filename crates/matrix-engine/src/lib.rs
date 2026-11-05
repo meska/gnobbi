@@ -74,6 +74,11 @@ pub struct RoomInfo {
     pub tags: Vec<String>,
     /// Muted by the user's push rules (`NotificationSettings`), on every device.
     pub muted: bool,
+    /// Canonical alias then alternative aliases, as the SDK room info has them (may hold
+    /// empty strings from servers that send them; callers drop those).
+    pub aliases: Vec<String>,
+    /// Direct room: the peer's Matrix user ID from `m.direct` (SDK `direct_targets`).
+    pub dm_user_id: Option<String>,
 }
 
 /// Stable-ID updates independent of the current UI filter or selection.

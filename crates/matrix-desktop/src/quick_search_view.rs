@@ -168,13 +168,7 @@ impl Shell {
                 .iter()
                 .enumerate()
                 .filter(|(_, r)| !r.info.is_space && !r.info.invited)
-                .map(|(i, r)| Entry {
-                    id: r.scope.room_id.as_str().to_owned(),
-                    name: r.name.clone(),
-                    avatar: r.info.avatar.clone(),
-                    activity: count - i as u64,
-                    ..Default::default()
-                }),
+                .map(|(i, r)| Entry::from_room(r, count - i as u64)),
         );
         let has_searched = !self
             .recents

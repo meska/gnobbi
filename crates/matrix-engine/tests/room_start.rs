@@ -91,6 +91,12 @@ fn a_starts_a_dm_and_creates_rooms_and_b_sees_them() {
         })
         .await;
         assert_eq!(start_dm(&a, account, &bob).await.unwrap(), dm);
+        // Quick search reads the peer from `direct_targets` (RoomInfo::dm_user_id) on both servers.
+        let a_dm = a.get_dm_room(b.user_id().unwrap()).unwrap();
+        assert_eq!(
+            a_dm.direct_targets().iter().map(|u| u.to_string()).collect::<Vec<_>>(),
+            vec![bob.clone()]
+        );
 
         // B is invited to the DM; the DM is flagged direct for B. B is not invited to the rooms.
         until("B sees the DM invite", || {

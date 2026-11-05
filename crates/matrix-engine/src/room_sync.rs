@@ -1259,6 +1259,13 @@ impl RoomSync {
                         tags,
                         muted: room.cached_user_defined_notification_mode()
                             == Some(matrix_sdk::notification_settings::RoomNotificationMode::Mute),
+                        aliases: room
+                            .canonical_alias()
+                            .into_iter()
+                            .chain(room.alt_aliases())
+                            .map(|a| a.to_string())
+                            .collect(),
+                        dm_user_id: room.direct_targets().iter().map(|u| u.to_string()).min(),
                     },
                 },
             );

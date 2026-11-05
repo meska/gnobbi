@@ -52,6 +52,25 @@ pub struct Entry {
     pub activity: u64,
 }
 
+impl Entry {
+    /// Entry for a sidebar row. Servers (Tuwunel) send empty strings where Synapse sends
+    /// nothing: those count as absent. The DM contact name is the room name (SDK display name).
+    pub fn from_room(room: &crate::sidebar::SidebarRoom, activity: u64) -> Self {
+        let present = |s: &str| !s.is_empty();
+        let user_id = room.info.dm_user_id.clone().filter(|u| present(u));
+        Entry {
+            id: room.scope.room_id.as_str().to_owned(),
+            name: room.name.clone(),
+            aliases: room.info.aliases.iter().filter(|a| present(a)).cloned().collect(),
+            contact: user_id.as_ref().map(|_| room.name.clone()),
+            user_id,
+            avatar: room.info.avatar.clone().filter(|a| present(a)),
+            activity,
+            ..Default::default()
+        }
+    }
+}
+
 /// Lowercase, accents stripped (NFD without combining marks).
 pub fn normalize(s: &str) -> String {
     s.nfd()
