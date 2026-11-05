@@ -16,6 +16,9 @@ pub enum DetailsAction {
     Open(RoomScope),
     Close(RoomScope),
     Copy(RoomScope),
+    HideStatus(RoomScope),
+    HideRedacted(RoomScope),
+    Edit(RoomScope),
     /// Member row: read that user's profile.
     Profile {
         scope: RoomScope,
@@ -69,7 +72,7 @@ impl DetailsView {
                 })
             }
             Self::Open(panel) => {
-                let control = [DetailsControl::Close, DetailsControl::Copy]
+                let control = DetailsControl::ALL
                     .into_iter()
                     .find(|c| c.id() == request.target_node)?;
                 match request.action {
@@ -80,6 +83,11 @@ impl DetailsView {
                     Action::Click => Some(match control {
                         DetailsControl::Close => DetailsAction::Close(panel.scope.clone()),
                         DetailsControl::Copy => DetailsAction::Copy(panel.scope.clone()),
+                        DetailsControl::HideStatus => DetailsAction::HideStatus(panel.scope.clone()),
+                        DetailsControl::HideRedacted => {
+                            DetailsAction::HideRedacted(panel.scope.clone())
+                        }
+                        DetailsControl::Edit => DetailsAction::Edit(panel.scope.clone()),
                     }),
                     _ => None,
                 }
@@ -94,6 +102,9 @@ impl DetailsView {
                 Self::Open(panel),
                 DetailsAction::Close(scope)
                 | DetailsAction::Copy(scope)
+                | DetailsAction::HideStatus(scope)
+                | DetailsAction::HideRedacted(scope)
+                | DetailsAction::Edit(scope)
                 | DetailsAction::Profile { scope, .. }
                 | DetailsAction::Members(scope)
                 | DetailsAction::Act { scope, .. }
@@ -117,12 +128,21 @@ pub enum DetailsControl {
     #[default]
     Close,
     Copy,
+    HideStatus,
+    HideRedacted,
+    Edit,
 }
 impl DetailsControl {
+    /// Focus order = visual order.
+    pub const ALL: [Self; 5] = [Self::Close, Self::Copy, Self::HideStatus, Self::HideRedacted, Self::Edit];
     pub fn id(self) -> NodeId {
         match self {
             Self::Close => NodeId(31),
             Self::Copy => NodeId(32),
+            // Above BACK: member labels take every id from 33 up.
+            Self::HideStatus => NodeId((1 << 40) + 1),
+            Self::HideRedacted => NodeId((1 << 40) + 2),
+            Self::Edit => NodeId((1 << 40) + 3),
         }
     }
 }
@@ -140,7 +160,10 @@ pub struct DetailsSnapshot {
     pub focus: DetailsControl,
     /// Keyboard focus inside an opened profile: index in the ring ‹, ✕, then the acts.
     pub profile_focus: usize,
-    pub bounds: [Option<accesskit::Rect>; 2],
+    pub bounds: [Option<accesskit::Rect>; 5],
+    /// Current values: the toggles' accessible names follow the visible labels.
+    pub hide_status: bool,
+    pub hide_redacted: bool,
 }
 impl DetailsSnapshot {
     /// User id behind a member row's node.
@@ -164,10 +187,7 @@ impl DetailsSnapshot {
         (0..2 + self.acts.len()).find(|&i| self.ring_node(i) == id)
     }
     pub fn next_focus(&self) -> DetailsControl {
-        match self.focus {
-            DetailsControl::Close => DetailsControl::Copy,
-            DetailsControl::Copy => DetailsControl::Close,
-        }
+        DetailsControl::ALL[(self.focus as usize + 1) % DetailsControl::ALL.len()]
     }
     pub fn tree(&self) -> TreeUpdate {
         let mut root = Node::new(Role::Window);
@@ -220,6 +240,15 @@ impl DetailsSnapshot {
         for (index, (control, label)) in [
             (DetailsControl::Close, "Chiudi informazioni stanza"),
             (DetailsControl::Copy, "Copia ID stanza"),
+            (
+                DetailsControl::HideStatus,
+                if self.hide_status { "Mostra messaggi di stato" } else { "Nascondi messaggi di stato" },
+            ),
+            (
+                DetailsControl::HideRedacted,
+                if self.hide_redacted { "Mostra messaggi eliminati" } else { "Nascondi messaggi eliminati" },
+            ),
+            (DetailsControl::Edit, "Modifica"),
         ]
         .into_iter()
         .enumerate()

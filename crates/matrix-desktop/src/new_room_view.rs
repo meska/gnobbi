@@ -324,10 +324,9 @@ impl Shell {
             NewChatAction::Cancel => self.close_new_room(window, cx),
             NewChatAction::Choose(user_id) => {
                 let entries = room.picker.entries();
-                match entries.iter().position(|e| e.user_id == user_id) {
-                    Some(at) => room.picker.set_active(at),
-                    // The typed ID of «Avvia» when nothing was listed: submit it as typed.
-                    None => {}
+                // The typed ID of «Avvia» when nothing was listed: submit it as typed.
+                if let Some(at) = entries.iter().position(|e| e.user_id == user_id) {
+                    room.picker.set_active(at);
                 }
                 self.submit_new_room(cx);
             }

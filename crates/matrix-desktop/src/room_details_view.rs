@@ -25,6 +25,11 @@ impl Shell {
                 focus: self.details_focus,
                 profile_focus: self.profile_focus,
                 bounds: self.a11y_details_bounds,
+                hide_status: self.room_prefs.hide_status(&room.scope),
+                hide_redacted: self
+                    .room_prefs
+                    .hide_redacted(&room.scope)
+                    .unwrap_or(self.prefs.hide_redacted),
             }))
         } else if window.viewport_size().width >= px(800.) || self.compact_chat {
             DetailsView::Closed(room.scope.clone())
@@ -40,7 +45,7 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        use matrix_desktop::accessibility::details::DetailsAction;
+        use matrix_desktop::accessibility::details::{DetailsAction, DetailsControl};
         if !self.semantic_details(window).allows(&action) {
             return;
         }
@@ -48,7 +53,7 @@ impl Shell {
             DetailsAction::Open(_) => {
                 self.set_room_details_open(true);
                 self.details_focus = Default::default();
-                self.a11y_details_bounds = [None; 2];
+                self.a11y_details_bounds = [None; 5];
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
@@ -56,8 +61,23 @@ impl Shell {
             DetailsAction::Act { act, .. } => self.profile_act(act, window, cx),
             DetailsAction::Profile { user_id, .. } => self.open_profile(user_id, cx),
             DetailsAction::Members(_) => self.profile = None,
+            DetailsAction::HideStatus(_) => {
+                self.details_focus = DetailsControl::HideStatus;
+                self.toggle_hide_status(cx);
+            }
+            DetailsAction::HideRedacted(_) => {
+                self.details_focus = DetailsControl::HideRedacted;
+                self.toggle_room_hide_redacted(cx);
+            }
+            DetailsAction::Edit(_) => {
+                self.details_focus = DetailsControl::Edit;
+                // The edit form takes the focus: skip the list_focus below.
+                self.open_room_edit(window, cx);
+                cx.notify();
+                return;
+            }
             DetailsAction::Copy(scope) => {
-                self.details_focus = matrix_desktop::accessibility::details::DetailsControl::Copy;
+                self.details_focus = DetailsControl::Copy;
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(
                     scope.room_id.as_str().to_owned(),
                 ));
@@ -409,6 +429,9 @@ impl Shell {
                     .child(
                         div()
                             .id("room-hide-status")
+                            .relative()
+                            .children(self.details_observer(2, cx))
+                            .when(focused_control == Some(2), |d| d.border_1().border_color(rgb(t.accent)))
                             .cursor_pointer()
                             .text_color(rgb(t.accent))
                             .child(if hide_status { "Mostra messaggi di stato" } else { "Nascondi messaggi di stato" })
@@ -417,6 +440,9 @@ impl Shell {
                     .child(
                         div()
                             .id("room-hide-redacted")
+                            .relative()
+                            .children(self.details_observer(3, cx))
+                            .when(focused_control == Some(3), |d| d.border_1().border_color(rgb(t.accent)))
                             .cursor_pointer()
                             .text_color(rgb(t.accent))
                             .child(if hide_redacted { "Mostra messaggi eliminati" } else { "Nascondi messaggi eliminati" })
@@ -425,6 +451,9 @@ impl Shell {
                     .child(
                         div()
                             .id("room-edit-open")
+                            .relative()
+                            .children(self.details_observer(4, cx))
+                            .when(focused_control == Some(4), |d| d.border_1().border_color(rgb(t.accent)))
                             .cursor_pointer()
                             .text_color(rgb(t.accent))
                             .child("Modifica")

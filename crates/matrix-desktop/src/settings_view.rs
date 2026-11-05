@@ -22,8 +22,8 @@ impl Shell {
     pub(crate) fn semantic_settings(
         &self,
     ) -> Option<matrix_desktop::accessibility::settings::SettingsSnapshot> {
-        self.settings_open.then(|| {
-            matrix_desktop::accessibility::settings::SettingsSnapshot {
+        if self.settings_open {
+            Some(matrix_desktop::accessibility::settings::SettingsSnapshot {
                 focus: self.settings_row,
                 on: [
                     self.prefs.debug,
@@ -31,8 +31,10 @@ impl Shell {
                     self.prefs.hide_redacted,
                     self.prefs.close_to_tray,
                 ],
-            }
-        })
+            })
+        } else {
+            None
+        }
     }
 
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

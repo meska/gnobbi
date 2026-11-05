@@ -135,7 +135,7 @@ struct Shell {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     details_focus: matrix_desktop::accessibility::details::DetailsControl,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_details_bounds: [Option<accesskit::Rect>; 2],
+    a11y_details_bounds: [Option<accesskit::Rect>; 5],
     spaces_ui: spaces_view::SpacesUi,
     spaces_open: bool,
     navigation_wide: bool,
@@ -3019,7 +3019,7 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_details_bounds: [None; 2],
+                        a11y_details_bounds: [None; 5],
                         spaces_ui,
                         spaces_open: false,
                         navigation_wide: true,

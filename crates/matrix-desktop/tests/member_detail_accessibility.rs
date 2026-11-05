@@ -36,7 +36,9 @@ fn profile_panel(acts: Vec<A>) -> DetailsSnapshot {
         acts,
         focus: DetailsControl::default(),
         profile_focus: 0,
-        bounds: [None; 2],
+        bounds: [None; 5],
+        hide_status: false,
+        hide_redacted: false,
     }
 }
 

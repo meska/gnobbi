@@ -75,7 +75,9 @@ fn panel() -> DetailsSnapshot {
         acts: vec![],
         focus: DetailsControl::Close,
         profile_focus: 0,
-        bounds: [None; 2],
+        bounds: [None; 5],
+        hide_status: false,
+        hide_redacted: false,
     }
 }
 
@@ -239,4 +241,58 @@ fn profile_actions_are_buttons_with_names_and_route_to_act() {
         assert_eq!(action, DetailsAction::Act { scope: scope.clone(), act });
         assert!(view.allows(&action));
     }
+}
+
+#[test]
+fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
+    use accesskit::{Action, ActionRequest, TreeId};
+    use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
+    let mut panel = panel();
+    let scope = panel.scope.clone();
+    // Tab reaches every control once, in visual order, and wraps.
+    let mut order = vec![panel.focus];
+    for _ in 0..DetailsControl::ALL.len() {
+        panel.focus = panel.next_focus();
+        order.push(panel.focus);
+    }
+    assert_eq!(order[..5], DetailsControl::ALL);
+    assert_eq!(order[5], DetailsControl::Close);
+    let ids: std::collections::HashSet<_> = DetailsControl::ALL.iter().map(|c| c.id()).collect();
+    assert_eq!(ids.len(), 5);
+    panel.people = vec![("Membro: Ada, @ada:x".into(), Some("@ada:x".into()))];
+    let label = |panel: &DetailsSnapshot, c: DetailsControl| {
+        let tree = panel.tree();
+        let node = &tree.nodes.iter().find(|(id, _)| *id == c.id()).unwrap().1;
+        assert_eq!(node.role(), Role::Button);
+        assert!(node.supports_action(Action::Focus) && node.supports_action(Action::Click));
+        node.label().unwrap().to_owned()
+    };
+    assert_eq!(label(&panel, DetailsControl::HideStatus), "Nascondi messaggi di stato");
+    assert_eq!(label(&panel, DetailsControl::HideRedacted), "Nascondi messaggi eliminati");
+    assert_eq!(label(&panel, DetailsControl::Edit), "Modifica");
+    panel.hide_status = true;
+    panel.hide_redacted = true;
+    assert_eq!(label(&panel, DetailsControl::HideStatus), "Mostra messaggi di stato");
+    assert_eq!(label(&panel, DetailsControl::HideRedacted), "Mostra messaggi eliminati");
+    let view = DetailsView::Open(Box::new(panel));
+    for (control, want) in [
+        (DetailsControl::HideStatus, DetailsAction::HideStatus(scope.clone())),
+        (DetailsControl::HideRedacted, DetailsAction::HideRedacted(scope.clone())),
+        (DetailsControl::Edit, DetailsAction::Edit(scope.clone())),
+    ] {
+        let request = ActionRequest {
+            action: Action::Click,
+            target_tree: TreeId::ROOT,
+            target_node: control.id(),
+            data: None,
+        };
+        let got = view.action(&request).unwrap();
+        assert_eq!(got, want);
+        assert!(view.allows(&got));
+    }
+    // The member row (id 33+) is still a profile click, not a control.
+    assert!(matches!(
+        view.action(&ActionRequest { action: Action::Click, target_tree: TreeId::ROOT, target_node: accesskit::NodeId(33 + 6), data: None }),
+        Some(DetailsAction::Profile { .. })
+    ));
 }
