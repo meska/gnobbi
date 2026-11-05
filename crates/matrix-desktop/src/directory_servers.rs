@@ -217,7 +217,7 @@ impl ServerPicker {
     /// `None` = key not handled.
     pub fn key(&mut self, key: &str) -> Option<Choice> {
         if !self.open {
-            return matches!(key, "enter" | "down" | "up").then(|| {
+            return matches!(key, "enter" | "space" | "down" | "up").then(|| {
                 self.open();
                 Choice::Nothing
             });
@@ -226,7 +226,7 @@ impl ServerPicker {
         match key {
             "down" => self.highlighted = (self.highlighted + 1) % n,
             "up" => self.highlighted = (self.highlighted + n - 1) % n,
-            "enter" => return Some(self.choose(self.highlighted)),
+            "enter" | "space" => return Some(self.choose(self.highlighted)),
             "escape" => self.open = false,
             _ => return None,
         }
@@ -415,6 +415,10 @@ mod tests {
         p.key("escape");
         assert!(!p.is_open());
         assert_eq!(p.value(), Some("b.org".into()), "Esc keeps the choice");
+        // Space behaves like Enter (the keyboard click on the button is ignored by the view)
+        assert_eq!(p.key("space"), Some(Choice::Nothing));
+        assert!(p.is_open());
+        assert_eq!(p.key("space"), Some(Choice::Selected));
     }
 
     #[test]

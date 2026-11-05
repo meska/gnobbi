@@ -27,7 +27,12 @@ pub(crate) fn render_server_picker(
         .border_color(rgb(if focused { t.accent } else { t.border }))
         .text_color(rgb(t.text))
         .child(format!("{} ▾", picker.shown()))
-        .on_click(move |_, window, cx| on_toggle(window, cx));
+        .on_click(move |event, window, cx| {
+            // Enter/Space are handled by `ServerPicker::key`; the click GPUI synthesizes on key-up would undo it.
+            if !event.is_keyboard() {
+                on_toggle(window, cx)
+            }
+        });
     let menu = picker.is_open().then(|| {
         let on_choose = on_choose.clone();
         let highlighted = picker.highlighted();
