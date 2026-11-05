@@ -154,15 +154,17 @@ jobs:
             echo "::error::AppImage costruita da commit diverso (BUILDINFO=$built, CI=${{ gitea.sha }})"
             exit 1
           fi
+          # build = rev-list count: deve coincidere con BUILD_INFO.build del binario (build.rs)
+          build="$(git rev-list --count HEAD)"
           rc=0
-          packaging/linux/publish-site.sh "$app" "${{ gitea.run_number }}" "${{ gitea.sha }}" || rc=$?
+          packaging/linux/publish-site.sh "$app" "$build" "${{ gitea.sha }}" || rc=$?
           if [ "$rc" = 75 ]; then
             echo "::warning::PUBLISH SKIPPED: sito irraggiungibile (publish-site.sh rc=75)"
-            printf 'PUBLISH SKIPPED: sito irraggiungibile (rc=75), build %s non pubblicata.\n' "${{ gitea.run_number }}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            printf 'PUBLISH SKIPPED: sito irraggiungibile (rc=75), build %s non pubblicata.\n' "$build" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             exit 0
           fi
           if [ "$rc" != 0 ]; then
             echo "::error::publish fallito: publish-site.sh rc=$rc (2=config, 3=verifica, 4=upload)"
             exit "$rc"
           fi
-          printf 'Publish OK: build %s (%s) - latest.json e AppImage aggiornati.\n' "${{ gitea.run_number }}" "${{ gitea.sha }}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+          printf 'Publish OK: build %s (%s) - latest.json e AppImage aggiornati.\n' "$build" "${{ gitea.sha }}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
