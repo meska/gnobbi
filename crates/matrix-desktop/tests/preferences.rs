@@ -36,6 +36,7 @@ fn roundtrip_keeps_values() {
         icon: matrix_desktop::IconChoice::Monster,
         hide_redacted: false,
         close_to_tray: true,
+        desktop_entry_dont_ask: true,
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);

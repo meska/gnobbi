@@ -48,6 +48,7 @@ mod account_state;
 pub use account_state::{AccountRoutes, AccountState, Drained};
 mod app_dirs;
 pub mod desktop_entry;
+pub mod install_offer;
 pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use account_list::{AccountRow, account_rows, initials};
 pub use app_dirs::{AppDirs, Platform, app_dirs};

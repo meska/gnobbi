@@ -195,6 +195,10 @@ impl Shell {
     ) -> bool {
         let key = &event.keystroke;
         let m = &key.modifiers;
+        #[cfg(target_os = "linux")]
+        if !m.modified() && self.install_offer_key(&key.key, window, cx) {
+            return true;
+        }
         if self.connected && m.control && m.shift && key.key == "m" {
             self.set_menu_open(!self.menu_open, window, cx);
             self.drawer_keys = true;

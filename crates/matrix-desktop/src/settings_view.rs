@@ -240,7 +240,7 @@ impl Shell {
         self.save_prefs(cx);
     }
 
-    fn save_prefs(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn save_prefs(&mut self, cx: &mut Context<Self>) {
         if let Some(dirs) = &self.prefs_dirs
             && let Err(error) = self.prefs.save(dirs)
         {
@@ -679,6 +679,16 @@ impl Shell {
                     .child(switch(self.prefs.close_to_tray))
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_close_to_tray(cx))),
             )
+            .children({
+                #[cfg(target_os = "linux")]
+                {
+                    Some(self.render_install_row(t, cx))
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    None::<gpui::AnyElement>
+                }
+            })
             .into_any_element()
     }
 }

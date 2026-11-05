@@ -9,6 +9,7 @@ pub struct SemanticSession {
     current: HashMap<NodeId, NodeId>,
     next: u64,
     tree: TreeUpdate,
+    install: super::install_offer::Snapshot,
 }
 
 impl SemanticSession {
@@ -19,6 +20,7 @@ impl SemanticSession {
             current: HashMap::new(),
             next: 1,
             tree,
+            install: Default::default(),
         };
         result.update(snapshot);
         result
@@ -142,11 +144,27 @@ impl SemanticSession {
         self.snapshot = snapshot;
     }
 
+    /// The proposal and Settings row live outside the navigation snapshot.
+    pub fn set_install_offer(&mut self, install: super::install_offer::Snapshot) {
+        self.install = install;
+    }
+
     pub fn tree(&self) -> TreeUpdate {
-        self.tree.clone()
+        if let Some(tree) = self.install.tree() {
+            return tree;
+        }
+        let mut tree = self.tree.clone();
+        self.install.add_settings_row(&mut tree);
+        tree
     }
 
     pub fn action(&self, request: &ActionRequest) -> Option<NavigationAction> {
+        if let Some(choice) = self.install.action(request) {
+            return Some(NavigationAction::InstallOffer(choice));
+        }
+        if self.install.dialog.is_some() {
+            return None;
+        }
         let logical = self.current.iter().find_map(|(logical, physical)| {
             (*physical == request.target_node).then_some(*logical)
         })?;

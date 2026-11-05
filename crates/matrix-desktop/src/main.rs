@@ -12,6 +12,8 @@ mod emoji_font;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;
+#[cfg(target_os = "linux")]
+mod install_offer_view;
 mod login_field;
 mod media_view;
 mod about_view;
@@ -86,6 +88,10 @@ struct Shell {
     about_focus: FocusHandle,
     about_system: String,
     about_icon: Option<std::sync::Arc<RenderImage>>,
+    #[cfg(target_os = "linux")]
+    install_offer: matrix_desktop::install_offer::State,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    a11y_offer_bounds: [Option<accesskit::Rect>; 4],
     new_room: Option<new_room_view::NewRoom>,
     quick: Option<quick_search_view::QuickSearch>,
     recents: matrix_desktop::quick_search::RecentsStore,
@@ -283,6 +289,10 @@ impl Shell {
             }
             if let matrix_desktop::accessibility::NavigationAction::Settings(action) = action {
                 this.apply_semantic_settings(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::InstallOffer(choice) = action {
+                this.choose_install(choice, cx);
                 continue;
             }
             if this.notifications_open || this.verification_open || this.room_details_open {
@@ -514,6 +524,7 @@ impl Shell {
                 #[cfg(feature = "live")]
                 matrix_desktop::accessibility::NavigationAction::SignIn(_) => (),
                 matrix_desktop::accessibility::NavigationAction::CopyEventId(_)
+                | matrix_desktop::accessibility::NavigationAction::InstallOffer(_)
                 | matrix_desktop::accessibility::NavigationAction::PlayVideo(_)
                 | matrix_desktop::accessibility::NavigationAction::SaveAttachment(_)
                 | matrix_desktop::accessibility::NavigationAction::OfflineDelivery(_) => {
@@ -1813,6 +1824,12 @@ impl Render for Shell {
             },
             window.is_window_active(),
         );
+        #[cfg(target_os = "linux")]
+        {
+            self.poll_install_offer(window, cx);
+            #[cfg(feature = "linux-a11y")]
+            self.publish_install_offer();
+        }
         if self.notifications_open {
             return self.render_notifications(cx);
         }
@@ -2257,7 +2274,17 @@ impl Render for Shell {
             .children(self.render_new_room(t, window, cx))
             .children(self.render_quick_search(t, cx))
             .children(self.render_room_edit(t, window, cx))
-            .children(self.render_groups_edit(t, window, cx)))
+            .children(self.render_groups_edit(t, window, cx))
+            .children({
+                #[cfg(target_os = "linux")]
+                {
+                    self.render_install_offer(t, cx)
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    None::<gpui::AnyElement>
+                }
+            }))
             .into_any_element()
     }
 }
@@ -2939,6 +2966,10 @@ fn main() {
                         about_focus: cx.focus_handle(),
                         about_system: String::new(),
                         about_icon: None,
+                        #[cfg(target_os = "linux")]
+                        install_offer: Default::default(),
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        a11y_offer_bounds: [None; 4],
                         new_room: None,
                         quick: None,
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),

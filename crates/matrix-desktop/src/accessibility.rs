@@ -10,6 +10,7 @@ pub mod drawer;
 pub mod devices;
 pub mod event_id_copy;
 pub mod filters;
+pub mod install_offer;
 pub mod links;
 pub mod new_room;
 pub mod new_chat;
@@ -1472,6 +1473,7 @@ pub enum NavigationAction {
     #[cfg(feature = "live")]
     SignIn(signin::Intent),
     CopyEventId(event_id_copy::Intent),
+    InstallOffer(crate::install_offer::Choice),
     OfflineDelivery(offline_delivery::Intent),
     CompactBack(compact::BackIntent),
     LinkConfirmation(links::ConfirmationIntent),
@@ -1572,6 +1574,13 @@ impl LinuxAccessibility {
     /// Queues an action as the platform adapter would; lets tests drive the Shell drain.
     pub fn queue_action(&self, action: NavigationAction) {
         let _ = self.queue.try_send(action);
+    }
+
+    /// Publishes the proposal / Settings row state; they are not part of `NavigationSnapshot`.
+    pub fn update_install_offer(&mut self, install: install_offer::Snapshot) {
+        self.snapshot.lock().unwrap().set_install_offer(install);
+        self.adapter
+            .update_if_active(|| self.snapshot.lock().unwrap().tree());
     }
 
     /// A bounded foreground pump must call this, at most eight times per tick.
