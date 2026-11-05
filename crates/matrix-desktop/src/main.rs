@@ -14,6 +14,7 @@ mod login_field;
 mod media_view;
 mod members_view;
 mod menu_view;
+mod name_line;
 #[cfg(test)]
 mod navigation_resize_test;
 mod new_room_view;
@@ -1985,31 +1986,11 @@ impl Render for Shell {
                                                     .flex_1()
                                                     .min_w_0()
                                                     .gap(px(matrix_desktop::row_text::TEXT_GAP_PX))
-                                                    .child(
-                                                        div()
-                                                            .flex()
-                                                            .items_center()
-                                                            .gap_2()
-                                                            .h(px(matrix_desktop::row_text::NAME_LINE_PX))
-                                                            .child(
-                                                                div()
-                                                                    .flex_1()
-                                                                    .min_w_0()
-                                                                    .truncate()
-                                                                    .text_size(px(matrix_desktop::row_text::NAME_PX))
-                                                                    .line_height(px(matrix_desktop::row_text::NAME_LINE_PX))
-                                                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                                                    .child(matrix_desktop::row_text::one_line(&room.name)),
-                                                            )
-                                                            .children(room.stamp().map(|stamp| {
-                                                                div()
-                                                                    .flex_shrink_0()
-                                                                    .text_size(px(11.))
-                                                                    .line_height(px(matrix_desktop::row_text::NAME_LINE_PX))
-                                                                    .text_color(rgb(t.secondary))
-                                                                    .child(stamp)
-                                                            })),
-                                                    )
+                                                    .child(name_line::name_line(
+                                                        gpui::StyledText::new(matrix_desktop::row_text::one_line(&room.name)),
+                                                        room.stamp().map(gpui::StyledText::new),
+                                                        t.secondary,
+                                                    ))
                                                     .child(
                                                         div()
                                                             .flex()

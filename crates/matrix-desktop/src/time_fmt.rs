@@ -23,18 +23,29 @@ pub fn clock_time(timestamp_ms: u64) -> String {
 const WEEKDAYS: [&str; 7] = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"];
 const MONTHS: [&str; 12] = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
 
+/// Days back (inclusive) that still show the weekday name instead of a date; the one threshold of both stamps.
+const WEEKDAY_MAX_DAYS: i64 = 6;
+
+/// `timestamp_ms` in `tz` and how many local calendar days before `now_ms` it is (so 23 h / 25 h DST days still
+/// count as one day). `None` when either instant is out of range.
+fn local_day_delta_in<Tz: TimeZone>(timestamp_ms: u64, now_ms: u64, tz: &Tz) -> Option<(DateTime<Tz>, i64)> {
+    let local = |ms: u64| i64::try_from(ms).ok().and_then(DateTime::from_timestamp_millis).map(|t| t.with_timezone(tz));
+    let (t, now) = (local(timestamp_ms)?, local(now_ms)?);
+    let days = now.date_naive().signed_duration_since(t.date_naive()).num_days();
+    Some((t, days))
+}
+
 /// «17:11» today, the weekday within the last 6 days, «25 ott» before; `now_ms` and the zone are injected for tests.
 pub fn day_or_time_in<Tz: TimeZone>(timestamp_ms: u64, now_ms: u64, tz: &Tz) -> String
 where
     Tz::Offset: std::fmt::Display,
 {
-    let local = |ms: u64| i64::try_from(ms).ok().and_then(DateTime::from_timestamp_millis).map(|t| t.with_timezone(tz));
-    let (Some(t), Some(now)) = (local(timestamp_ms), local(now_ms)) else {
+    let Some((t, days)) = local_day_delta_in(timestamp_ms, now_ms, tz) else {
         return clock_time_in(timestamp_ms, tz);
     };
-    match now.date_naive().signed_duration_since(t.date_naive()).num_days() {
+    match days {
         ..=0 => clock_time_in(timestamp_ms, tz),
-        1..=6 => WEEKDAYS[t.weekday().num_days_from_monday() as usize].to_owned(),
+        1..=WEEKDAY_MAX_DAYS => WEEKDAYS[t.weekday().num_days_from_monday() as usize].to_owned(),
         _ => format!("{} {}", t.day(), MONTHS[t.month0() as usize]),
     }
 }
@@ -45,25 +56,20 @@ pub fn day_or_time(timestamp_ms: u64) -> String {
     day_or_time_in(timestamp_ms, now, &Local)
 }
 
-// Provisional (Telegram Desktop screenshot not received yet): change formats and threshold here only.
-const LIST_WEEKDAYS: [&str; 7] = ["lun", "mar", "mer", "gio", "ven", "sab", "dom"];
-const LIST_DATE_FORMAT: &str = "%d/%m/%Y";
-/// Days back (inclusive) that still show the weekday name.
-const LIST_WEEKDAY_MAX_DAYS: i64 = 6;
+const LIST_WEEKDAYS: [&str; 7] = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+const LIST_DATE_FORMAT: &str = "%d/%m/%y";
 
-/// Conversation-list stamp of the last message: «HH:MM» on the local day of `now_ms`, the short weekday from
-/// yesterday to `LIST_WEEKDAY_MAX_DAYS` ago, else «31/10/2026». `None` when absent (or out of range): show nothing.
+/// Conversation-list stamp of the last message (Telegram): «HH:MM» on the local day of `now_ms`, the short weekday
+/// («Mer») from yesterday to `WEEKDAY_MAX_DAYS` ago, else «26/10/26». `None` when absent (or out of range): show nothing.
 pub fn last_message_stamp_in<Tz: TimeZone>(timestamp_ms: Option<u64>, now_ms: u64, tz: &Tz) -> Option<String>
 where
     Tz::Offset: std::fmt::Display,
 {
-    let local = |ms: u64| i64::try_from(ms).ok().and_then(DateTime::from_timestamp_millis).map(|t| t.with_timezone(tz));
     let ts = timestamp_ms?;
-    let (t, now) = (local(ts)?, local(now_ms)?);
-    // Calendar-day difference, so 23 h / 25 h DST days still count as one day.
-    Some(match now.date_naive().signed_duration_since(t.date_naive()).num_days() {
+    let (t, days) = local_day_delta_in(ts, now_ms, tz)?;
+    Some(match days {
         ..=0 => clock_time_in(ts, tz),
-        1..=LIST_WEEKDAY_MAX_DAYS => LIST_WEEKDAYS[t.weekday().num_days_from_monday() as usize].to_owned(),
+        1..=WEEKDAY_MAX_DAYS => LIST_WEEKDAYS[t.weekday().num_days_from_monday() as usize].to_owned(),
         _ => t.format(LIST_DATE_FORMAT).to_string(),
     })
 }
@@ -111,8 +117,8 @@ mod tests {
     #[test]
     fn spoken_stamp_covers_time_weekday_and_date() {
         assert_eq!(last_message_spoken("14:27"), "ultimo messaggio alle 14:27");
-        assert_eq!(last_message_spoken("mer"), "ultimo messaggio mercoledì");
-        assert_eq!(last_message_spoken("31/10/2026"), "ultimo messaggio il 31/10/2026");
+        assert_eq!(last_message_spoken("Mer"), "ultimo messaggio mercoledì");
+        assert_eq!(last_message_spoken("31/10/26"), "ultimo messaggio il 31/10/26");
     }
     use chrono::FixedOffset;
     use chrono::NaiveDate;
@@ -207,10 +213,10 @@ mod tests {
     fn stamp_same_day_yesterday_and_week_boundary() {
         let now = rome(2026, 11, 4, 12, 0); // Wednesday
         assert_eq!(stamp(rome(2026, 11, 4, 0, 0), now).unwrap(), "00:00");
-        assert_eq!(stamp(rome(2026, 11, 3, 23, 59), now).unwrap(), "mar");
-        assert_eq!(stamp(rome(2026, 10, 29, 8, 0), now).unwrap(), "gio"); // 6 days
-        assert_eq!(stamp(rome(2026, 10, 28, 8, 0), now).unwrap(), "28/10/2026"); // 7 days
-        assert_eq!(stamp(rome(2025, 12, 31, 8, 0), now).unwrap(), "31/12/2025");
+        assert_eq!(stamp(rome(2026, 11, 3, 23, 59), now).unwrap(), "Mar");
+        assert_eq!(stamp(rome(2026, 10, 29, 8, 0), now).unwrap(), "Gio"); // 6 days
+        assert_eq!(stamp(rome(2026, 10, 28, 8, 0), now).unwrap(), "28/10/26"); // 7 days
+        assert_eq!(stamp(rome(2025, 12, 31, 8, 0), now).unwrap(), "31/12/25");
     }
 
     #[test]
@@ -218,7 +224,7 @@ mod tests {
         // 23:59 and 00:01 Rome are on different local days (both are about 23:00 UTC).
         let (late, early) = (rome(2026, 1, 15, 23, 59), rome(2026, 1, 16, 0, 1));
         assert_eq!(stamp(late, late + 30_000).unwrap(), "23:59");
-        assert_eq!(stamp(late, early).unwrap(), "gio");
+        assert_eq!(stamp(late, early).unwrap(), "Gio");
         assert_eq!(stamp(early, early).unwrap(), "00:01");
     }
 
@@ -226,12 +232,12 @@ mod tests {
     fn stamp_across_dst_days() {
         // 2026-03-29 has 23 h: Sunday 00:30 is still «yesterday» on Monday 00:10 (only 22 h 40 min earlier).
         let (s, m) = (rome(2026, 3, 29, 0, 30), rome(2026, 3, 30, 0, 10));
-        assert_eq!(stamp(s, m).unwrap(), "dom");
+        assert_eq!(stamp(s, m).unwrap(), "Dom");
         // 2026-10-25 has 25 h: Saturday 23:30 and Sunday 23:30 are still different days.
-        assert_eq!(stamp(rome(2026, 10, 24, 23, 30), rome(2026, 10, 25, 23, 30)).unwrap(), "sab");
+        assert_eq!(stamp(rome(2026, 10, 24, 23, 30), rome(2026, 10, 25, 23, 30)).unwrap(), "Sab");
         assert_eq!(stamp(rome(2026, 10, 25, 0, 30), rome(2026, 10, 25, 23, 30)).unwrap(), "00:30");
         // Week boundary over the DST change: 7 calendar days back is a date, even if only 6 d 23 h elapsed.
-        assert_eq!(stamp(rome(2026, 3, 25, 0, 30), rome(2026, 4, 1, 0, 10)).unwrap(), "25/03/2026");
+        assert_eq!(stamp(rome(2026, 3, 25, 0, 30), rome(2026, 4, 1, 0, 10)).unwrap(), "25/03/26");
     }
 
     #[test]
@@ -245,7 +251,7 @@ mod tests {
         let tokyo = FixedOffset::east_opt(9 * 3600).unwrap();
         // 2026-01-15 23:30 UTC is already Friday 08:30 in Tokyo.
         assert_eq!(last_message_stamp_in(Some(WINTER_2330), WINTER_2330, &tokyo).unwrap(), "08:30");
-        assert_eq!(last_message_stamp_in(Some(WINTER_2330), WINTER_2330 + 86_400_000, &tokyo).unwrap(), "ven");
+        assert_eq!(last_message_stamp_in(Some(WINTER_2330), WINTER_2330 + 86_400_000, &tokyo).unwrap(), "Ven");
     }
 
     #[test]
