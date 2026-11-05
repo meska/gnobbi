@@ -575,3 +575,51 @@ fn disconnect_buttons_and_password_dialog_are_reachable_and_never_expose_the_pas
     assert!(open.action(&click(DeviceControl::DialogField)).is_none());
     assert!(!open.allows(&DeviceAction::OpenDelete { account, device: device("A", "Telefono") }));
 }
+
+#[test]
+fn rename_button_and_name_dialog_are_reachable() {
+    use accesskit::{ActionRequest, TreeId};
+    use matrix_desktop::accessibility::devices::{DeviceAction, DeviceNodes, DeviceView};
+    let account = AccountId::new(19);
+    let mut model = DeviceVerification::new(account);
+    let view = |model: &DeviceVerification| {
+        let rows = DeviceNodes::default().project(account, model);
+        DeviceView::Open(Box::new(DeviceOverview::project(account, model, DeviceControl::Close, [None; 6]).with_devices(rows)))
+    };
+    let DeviceView::Open(panel) = view(&model) else { unreachable!() };
+    assert!(!panel.controls().contains(&DeviceControl::Rename), "own device not known yet");
+    model.apply(VerificationEvent::OwnDevice {
+        account_id: account,
+        device: VerificationDevice {
+            user_id: "@alice:matrix-desktop.test".into(),
+            device_id: "OWN".into(),
+            verified: true,
+            display_name: Some("Mac".into()),
+            last_seen_ts: None,
+            last_seen_ip: None,
+        },
+    });
+    let click = |c: DeviceControl| ActionRequest { action: Action::Click, target_node: c.id(), target_tree: TreeId::ROOT, data: None };
+    let open = view(&model);
+    let DeviceView::Open(panel) = &open else { unreachable!() };
+    assert_eq!(panel.controls(), vec![DeviceControl::Close, DeviceControl::Rename, DeviceControl::Refresh]);
+    let tree = panel.tree();
+    let node = &tree.nodes.iter().find(|(id, _)| *id == DeviceControl::Rename.id()).unwrap().1;
+    assert_eq!((node.role(), node.label()), (Role::Button, Some("Rinomina")));
+    assert!(node.supports_action(Action::Click));
+    let action = open.action(&click(DeviceControl::Rename)).expect("click maps");
+    assert!(matches!(action, DeviceAction::OpenRename(a) if a == account) && open.allows(&action));
+    // Dialog: titled «Rinomina», plain text field «Nome», Annulla / Salva.
+    assert!(model.open_rename());
+    let open = view(&model);
+    let DeviceView::Open(panel) = &open else { unreachable!() };
+    assert!(!open.allows(&DeviceAction::OpenRename(account)));
+    let tree = panel.tree();
+    let by = |c: DeviceControl| &tree.nodes.iter().find(|(id, _)| *id == c.id()).unwrap().1;
+    let dialog = tree.nodes.iter().map(|(_, n)| n).find(|n| n.role() == Role::Dialog).unwrap();
+    assert_eq!(dialog.label(), Some("Rinomina"));
+    assert_eq!((by(DeviceControl::DialogField).role(), by(DeviceControl::DialogField).label()), (Role::TextInput, Some("Nome")));
+    assert_eq!(by(DeviceControl::DialogCancel).label(), Some("Annulla"));
+    assert_eq!(by(DeviceControl::DialogConfirm).label(), Some("Salva"));
+    assert!(matches!(open.action(&click(DeviceControl::DialogConfirm)), Some(DeviceAction::SubmitDelete(a)) if a == account));
+}

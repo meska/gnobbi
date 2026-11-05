@@ -319,7 +319,17 @@ pub(crate) async fn run_service(
                         }
                     }
                     VerificationCommand::RenameOwnDevice { account_id: requested, display_name } if requested == account_id => {
-                        rename_own_device(&client, &display_name).await
+                        match rename_own_device(&client, &display_name).await {
+                            // Success is the re-read own device: the UI shows the new name from it.
+                            Ok(()) => match own_device(&client).await {
+                                Some(device) => {
+                                    if events.send(VerificationEvent::OwnDevice { account_id, device }).await.is_err() { break; }
+                                    Ok(())
+                                }
+                                None => Err(VerificationError::Transport),
+                            },
+                            Err(error) => Err(error),
+                        }
                     }
                     VerificationCommand::DeleteDevice { account_id: requested, device_id, password } if requested == account_id => {
                         match session.delete_device(&device_id, password).await {

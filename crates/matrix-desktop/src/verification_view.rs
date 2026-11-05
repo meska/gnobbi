@@ -79,12 +79,18 @@ impl Shell {
                 }
                 return;
             }
+            DeviceAction::OpenRename(_) => {
+                self.open_device_rename(window, cx);
+                self.device_focus = DeviceControl::DialogField;
+                return;
+            }
             DeviceAction::CancelDelete(_) => {
+                let renaming = self.verification.rename_dialog().is_some();
                 let back = self.verification.delete_dialog().and_then(|dialog| {
                     self.semantic_device_rows().into_iter().find(|r| r.device.device_id == dialog.device_id)
                 });
                 self.close_device_delete(window, cx);
-                self.device_focus = back.map_or(DeviceControl::Close, |r| DeviceControl::Delete(r.id));
+                self.device_focus = if renaming { DeviceControl::Rename } else { back.map_or(DeviceControl::Close, |r| DeviceControl::Delete(r.id)) };
                 return;
             }
             DeviceAction::SubmitDelete(_) => {
@@ -111,7 +117,7 @@ impl Shell {
                         DeviceControl::Device(id) | DeviceControl::Delete(id) => {
                             self.device_scroll.rows.get(&id).map(|r| r.0.clone())
                         }
-                        DeviceControl::DialogCancel | DeviceControl::DialogConfirm => None,
+                        DeviceControl::Rename | DeviceControl::DialogCancel | DeviceControl::DialogConfirm => None,
                         _ => Some(self.device_scroll.anchors[control.index().unwrap()].clone()),
                     };
                     if let Some(anchor) = anchor {
@@ -243,8 +249,28 @@ impl Shell {
         cx.notify();
     }
 
+    /// «Rinomina» reuses the Disconnetti dialog and its field, as a plain (not password) text field.
+    fn open_device_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.verification.open_rename() {
+            return;
+        }
+        let name = self.verification.own().map(|d| matrix_desktop::device_title(d).to_owned()).unwrap_or_default();
+        let field = cx.new(|cx| {
+            let mut field = crate::login_field::LoginField::new(false, cx);
+            field.enabled = true;
+            field.placeholder = "Nome";
+            field.input.replace(None, &name);
+            field
+        });
+        cx.observe(&field, |_, _, cx| cx.notify()).detach();
+        field.read(cx).focus.focus(window);
+        self.delete_field = Some(field);
+        cx.notify();
+    }
+
     fn close_device_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.verification.cancel_delete();
+        self.verification.cancel_rename();
         self.delete_field = None;
         self.list_focus.focus(window);
         cx.notify();
@@ -252,6 +278,12 @@ impl Shell {
 
     fn submit_device_delete(&mut self, cx: &mut Context<Self>) {
         let Some(field) = self.delete_field.clone() else { return };
+        if self.verification.rename_dialog().is_some() {
+            let name = field.read(cx).input.display_text();
+            self.verification.submit_rename(&name);
+            cx.notify();
+            return;
+        }
         // The field is emptied right here; the password only travels inside the command.
         let password = field.update(cx, |f, _| f.input.take());
         self.verification.submit_delete(password);
@@ -259,7 +291,11 @@ impl Shell {
     }
 
     fn render_device_delete(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let dialog = self.verification.delete_dialog()?;
+        let (title, error, busy, confirm) = match (self.verification.delete_dialog(), self.verification.rename_dialog()) {
+            (Some(d), _) => (d.name.clone(), d.error, d.busy, "Disconnetti"),
+            (None, Some(d)) => ("Rinomina".to_owned(), d.error, d.busy, "Salva"),
+            _ => return None,
+        };
         let field = self.delete_field.clone()?;
         field.update(cx, |f, _| f.theme = t);
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -286,12 +322,12 @@ impl Shell {
                     }
                     cx.stop_propagation();
                 }))
-                .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child(matrix_desktop::row_text::one_line(&dialog.name)))
+                .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child(matrix_desktop::row_text::one_line(&title)))
                 .child(field)
-                .when_some(dialog.error, |d, e| d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
+                .when_some(error, |d, e| d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
                 .child(div().flex().justify_end().gap_1()
                     .child(button("device-delete-cancel", "Annulla", t.accent).on_click(cx.listener(|this, _, window, cx| this.close_device_delete(window, cx))))
-                    .child(button("device-delete-confirm", "Disconnetti", if dialog.busy { t.disabled } else { t.error })
+                    .child(button("device-delete-confirm", confirm, if busy { t.disabled } else if confirm == "Salva" { t.accent } else { t.error })
                         .on_click(cx.listener(|this, _, _, cx| this.submit_device_delete(cx))))))
             .into_any_element())
     }
@@ -329,6 +365,14 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         let delete_dialog = self.render_device_delete(t, cx);
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let rename_focused = self.device_focus == matrix_desktop::accessibility::devices::DeviceControl::Rename;
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        let rename_focused = false;
+        let rename = panel.own().map(|_| div().id("verification-device-rename").cursor_pointer().flex_shrink_0().text_color(rgb(t.accent))
+            .when(rename_focused, |d| d.border_1().border_color(rgb(t.accent)))
+            .child("Rinomina")
+            .on_click(cx.listener(|this, _, window, cx| this.open_device_rename(window, cx))));
         div().size_full().relative().flex().flex_col().bg(rgb(t.surface)).text_color(rgb(t.text))
             .font_family(matrix_desktop::UI_FONT).text_size(px(14.))
             .track_focus(&self.list_focus)
@@ -343,10 +387,12 @@ impl Shell {
                 .when_some(self.device_scroll_handle(), |d, handle| d.track_scroll(&handle))
                 .p_4().flex().flex_col().gap_3()
                 .when_some(panel.own_device(), |d, id| d.child(div().w_full().flex_shrink_0().min_h(px(56.)).px_3().py_2().rounded_lg().bg(rgb(t.input)).flex().flex_col().gap_1()
-                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(match panel.own() {
-                        Some(own) if own.display_name.is_some() => format!("Questo dispositivo · {}", matrix_desktop::device_title(own)),
-                        _ => "Questo dispositivo".to_owned(),
-                    }))
+                    .child(div().flex().justify_between().gap_2()
+                        .child(div().min_w_0().font_weight(gpui::FontWeight::SEMIBOLD).child(match panel.own() {
+                            Some(own) if own.display_name.is_some() => format!("Questo dispositivo · {}", matrix_desktop::device_title(own)),
+                            _ => "Questo dispositivo".to_owned(),
+                        }))
+                        .children(rename))
                     .child(div().min_w_0().text_size(px(12.)).child(matrix_desktop::row_text::one_line(&match panel.own() {
                         Some(own) => matrix_desktop::device_detail(own, matrix_desktop::time_fmt::day_or_time),
                         None => id.to_owned(),

@@ -115,6 +115,9 @@ pub enum DeviceAction {
         account: AccountId,
         device: VerificationDevice,
     },
+    /// «Rinomina» on «Questo dispositivo»: opens the name dialog.
+    OpenRename(AccountId),
+    /// Annulla / confirm of whichever dialog (Disconnetti or Rinomina) is open.
     CancelDelete(AccountId),
     SubmitDelete(AccountId),
 }
@@ -151,6 +154,7 @@ impl DeviceView {
                             account: panel.account,
                             device: panel.devices.iter().find(|d| d.id == id)?.device.clone(),
                         },
+                        DeviceControl::Rename => DeviceAction::OpenRename(panel.account),
                         DeviceControl::DialogCancel => DeviceAction::CancelDelete(panel.account),
                         DeviceControl::DialogConfirm => DeviceAction::SubmitDelete(panel.account),
                         DeviceControl::DialogField => return None,
@@ -204,6 +208,9 @@ impl DeviceView {
                         .iter()
                         .any(|d| d.account == *account && d.device == *device)
             }
+            (Self::Open(panel), DeviceAction::OpenRename(a)) => {
+                panel.account == *a && panel.dialog.is_none() && panel.can_rename
+            }
             (Self::Open(panel), DeviceAction::OpenDelete { account, device }) => {
                 panel.account == *account
                     && panel.dialog.is_none()
@@ -232,6 +239,8 @@ pub enum DeviceControl {
     Device(NodeId),
     /// «Disconnetti» of the row whose device handle is the payload.
     Delete(NodeId),
+    /// «Rinomina» of this session's device.
+    Rename,
     DialogField,
     DialogCancel,
     DialogConfirm,
@@ -241,6 +250,7 @@ impl DeviceControl {
         match self {
             Self::Device(id) => id,
             Self::Delete(id) => NodeId(id.0 | 1 << 58),
+            Self::Rename => NodeId(50),
             Self::DialogField => NodeId(47),
             Self::DialogCancel => NodeId(48),
             Self::DialogConfirm => NodeId(49),
@@ -255,7 +265,7 @@ impl DeviceControl {
             Self::Mismatch => 3,
             Self::Cancel => 4,
             Self::Comparison => 5,
-            Self::Device(_) | Self::Delete(_) => return None,
+            Self::Device(_) | Self::Delete(_) | Self::Rename => return None,
             Self::DialogField | Self::DialogCancel | Self::DialogConfirm => return None,
         })
     }
@@ -281,8 +291,10 @@ pub struct DeviceOverview {
     devices: Vec<SemanticDevice>,
     can_begin: bool,
     own_device: Option<String>,
-    /// Open «Disconnetti» dialog: device name and last outcome. The password is never here.
+    can_rename: bool,
+    /// Open «Disconnetti» or «Rinomina» dialog: title and last outcome. The password is never here.
     dialog: Option<(String, Option<&'static str>)>,
+    dialog_rename: bool,
     flow_ids: [NodeId; 4],
 }
 impl DeviceOverview {
@@ -335,7 +347,12 @@ impl DeviceOverview {
             devices: vec![],
             can_begin: model.can_begin(),
             own_device: model.own_device().map(str::to_owned),
-            dialog: model.delete_dialog().map(|d| (d.name.clone(), d.error)),
+            can_rename: model.own().is_some(),
+            dialog: model
+                .delete_dialog()
+                .map(|d| (d.name.clone(), d.error))
+                .or_else(|| model.rename_dialog().map(|d| ("Rinomina".to_owned(), d.error))),
+            dialog_rename: model.rename_dialog().is_some(),
             flow_ids: [NodeId(43), NodeId(44), NodeId(45), NodeId(46)],
         };
         if !matches!(panel.focus, DeviceControl::Device(_) | DeviceControl::Delete(_))
@@ -369,7 +386,11 @@ impl DeviceOverview {
                 DeviceControl::DialogConfirm,
             ];
         }
-        let mut controls = vec![DeviceControl::Close, DeviceControl::Refresh];
+        let mut controls = vec![DeviceControl::Close];
+        if self.can_rename {
+            controls.push(DeviceControl::Rename);
+        }
+        controls.push(DeviceControl::Refresh);
         for d in &self.devices {
             // Verified rows are read-only labels: re-verification is not offered.
             if self.can_begin && !d.device.verified {
@@ -425,8 +446,10 @@ impl DeviceOverview {
         }
         for control in self.controls() {
             let (role, label) = match control {
+                DeviceControl::DialogField if self.dialog_rename => (Role::TextInput, "Nome"),
                 DeviceControl::DialogField => (Role::PasswordInput, "Password"),
                 DeviceControl::DialogCancel => (Role::Button, "Annulla"),
+                _ if self.dialog_rename => (Role::Button, "Salva"),
                 _ => (Role::Button, "Disconnetti"),
             };
             // No value on the field: the typed password is never published.
@@ -470,6 +493,7 @@ impl DeviceOverview {
             let label = match control {
                 DeviceControl::Close => "Chiudi verifica dispositivi",
                 DeviceControl::Refresh => "Aggiorna dispositivi",
+                DeviceControl::Rename => "Rinomina",
                 DeviceControl::Confirm => "Coincidono",
                 DeviceControl::Mismatch => "Non coincidono",
                 DeviceControl::Cancel => "Annulla verifica",
@@ -509,6 +533,7 @@ impl DeviceOverview {
                     .iter()
                     .find(|d| d.id == id)
                     .and_then(|d| d.bounds),
+                DeviceControl::Rename => None,
                 _ => self.bounds[control.index().unwrap()],
             };
             if let Some(bounds) = bounds {

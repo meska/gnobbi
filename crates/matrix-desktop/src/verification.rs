@@ -38,8 +38,15 @@ pub struct DeleteDialog {
     pub error: Option<&'static str>,
 }
 
+/// Open «Rinomina» dialog for this session's device: the one-line outcome of the last try.
+pub struct RenameDialog {
+    pub busy: bool,
+    pub error: Option<&'static str>,
+}
+
 pub struct DeviceVerification {
     delete: Option<DeleteDialog>,
+    rename: Option<RenameDialog>,
     account: AccountId,
     snapshot: Option<VerificationSnapshot>,
     pending: Option<VerificationCommand>,
@@ -55,6 +62,7 @@ impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
         Self {
             delete: None,
+            rename: None,
             account,
             snapshot: None,
             pending: None,
@@ -92,7 +100,7 @@ impl DeviceVerification {
     /// Opens the confirmation for `devices()[index]`; never for this session's own device.
     pub fn open_delete(&mut self, index: usize) -> bool {
         let Some(d) = self.devices.get(index) else { return false };
-        if self.own_device.as_deref() == Some(&d.device_id) || self.delete.is_some() {
+        if self.own_device.as_deref() == Some(&d.device_id) || self.delete.is_some() || self.rename.is_some() {
             return false;
         }
         self.delete = Some(DeleteDialog {
@@ -105,6 +113,34 @@ impl DeviceVerification {
     }
     pub fn cancel_delete(&mut self) {
         self.delete = None;
+    }
+    pub fn rename_dialog(&self) -> Option<&RenameDialog> {
+        self.rename.as_ref()
+    }
+    /// Opens «Rinomina» for this session's device (known once the first list arrived).
+    pub fn open_rename(&mut self) -> bool {
+        if self.own.is_none() || self.delete.is_some() || self.rename.is_some() {
+            return false;
+        }
+        self.rename = Some(RenameDialog { busy: false, error: None });
+        true
+    }
+    pub fn cancel_rename(&mut self) {
+        self.rename = None;
+    }
+    /// Queues the rename; the engine validates the name and answers with the fresh own device or an error.
+    pub fn submit_rename(&mut self, name: &str) -> bool {
+        let Some(dialog) = self.rename.as_mut().filter(|d| !d.busy) else { return false };
+        if self.pending.is_some() {
+            return false;
+        }
+        dialog.busy = true;
+        dialog.error = None;
+        self.pending = Some(VerificationCommand::RenameOwnDevice {
+            account_id: self.account,
+            display_name: name.to_owned(),
+        });
+        true
     }
     /// Queues the sign-out with the password typed now; the password lives only in the command.
     pub fn submit_delete(&mut self, mut password: zeroize::Zeroizing<String>) -> bool {
@@ -201,7 +237,20 @@ impl DeviceVerification {
                 }
             }
             VerificationEvent::OwnDevice { account_id, device } if account_id == self.account => {
-                self.own = Some(device)
+                self.own = Some(device);
+                // The engine sends the own device after a rename only when it succeeded.
+                if self.rename.as_ref().is_some_and(|d| d.busy) {
+                    self.rename = None;
+                }
+            }
+            VerificationEvent::Error { account_id, error } if account_id == self.account && self.rename.as_ref().is_some_and(|d| d.busy) => {
+                // A failed rename is not a failed verification: the dialog says what happened.
+                let d = self.rename.as_mut().unwrap();
+                d.busy = false;
+                d.error = Some(match error {
+                    matrix_engine::verification::VerificationError::InvalidName => "Nome non valido",
+                    _ => "Non riuscito. Riprova.",
+                });
             }
             VerificationEvent::Error { account_id, .. } if account_id == self.account => {
                 self.failed = true;
@@ -422,6 +471,44 @@ mod profile_tests {
         assert!(v.open_delete(1));
         v.cancel_delete();
         assert!(v.delete_dialog().is_none());
+    }
+
+    #[test]
+    fn rename_own_device_dialog() {
+        use matrix_engine::verification::VerificationError;
+        let a = AccountId::new(1);
+        let mut v = DeviceVerification::new(a);
+        assert!(!v.open_rename(), "own device not known yet");
+        let own = |name: &str| VerificationEvent::OwnDevice { account_id: a, device: dev(Some(name), true, None, None) };
+        v.apply(own("Gnobbi (macOS)"));
+        assert!(v.open_rename());
+        assert!(!v.open_rename(), "one dialog at a time");
+        // cancel
+        v.cancel_rename();
+        assert!(v.rename_dialog().is_none());
+        // invalid name: engine answers Error; dialog stays with one line, no verification failure
+        assert!(v.open_rename());
+        assert!(v.submit_rename("  "));
+        assert!(matches!(&v.pending, Some(VerificationCommand::RenameOwnDevice { display_name, .. }) if display_name == "  "));
+        assert!(!v.submit_rename("x"), "busy");
+        v.pending = None;
+        v.apply(VerificationEvent::Error { account_id: a, error: VerificationError::InvalidName });
+        assert_eq!(v.rename_dialog().unwrap().error, Some("Nome non valido"));
+        assert!(!v.rename_dialog().unwrap().busy && !v.failed);
+        // retry succeeds: the fresh own device closes the dialog and carries the new name
+        assert!(v.submit_rename("Portatile"));
+        v.pending = None;
+        v.apply(VerificationEvent::Error { account_id: a, error: VerificationError::Transport });
+        assert_eq!(v.rename_dialog().unwrap().error, Some("Non riuscito. Riprova."));
+        assert!(v.submit_rename("Portatile"));
+        v.pending = None;
+        v.apply(own("Portatile"));
+        assert!(v.rename_dialog().is_none());
+        assert_eq!(device_title(v.own().unwrap()), "Portatile");
+        // an unrelated own-device refresh never opens or closes anything
+        assert!(v.open_rename());
+        v.apply(own("Portatile"));
+        assert!(v.rename_dialog().is_some());
     }
 
     #[test]
