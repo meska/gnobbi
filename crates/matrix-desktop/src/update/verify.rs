@@ -157,3 +157,7 @@ pub fn verify_file(path: &Path, candidate: &Candidate) -> Result<(), UpdateError
     let _ = (path, candidate);
     todo!("the task")
 }
+
+#[cfg(test)]
+#[path = "verify_tests.rs"]
+mod tests;
