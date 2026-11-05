@@ -141,13 +141,13 @@ pub(crate) struct PickerView {
 impl EventEmitter<PickerEvent> for PickerView {}
 
 impl PickerView {
-    /// `grid_focus` and `selected` are shared with the composer, which exposes them to the a11y tree.
-    pub fn new(grid_focus: FocusHandle, selected: Rc<Cell<usize>>, cx: &mut Context<Self>) -> Self {
+    /// `grid_focus`, `close_focus` and `selected` are shared with the composer, which exposes them to the a11y tree.
+    pub fn new(grid_focus: FocusHandle, close_focus: FocusHandle, selected: Rc<Cell<usize>>) -> Self {
         Self {
             tab: PickerTab::Emoji,
             selected,
             grid_focus,
-            close_focus: cx.focus_handle(),
+            close_focus,
             drawer: false,
             theme: LIGHT,
         }

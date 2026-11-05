@@ -109,6 +109,8 @@ pub struct ComposerView {
     /// The picker's grid focus and highlighted item, shared with `picker_view`.
     picker_focus: FocusHandle,
     picker_selected: Rc<Cell<usize>>,
+    /// The drawer's «Chiudi» focus, shared with `picker_view`.
+    picker_close_focus: FocusHandle,
     /// Dropping the task cancels the pending hover close.
     hover_close: Option<Task<()>>,
     picker_sub: Option<Subscription>,
@@ -138,7 +140,8 @@ impl ComposerView {
     pub fn new(scope: RoomScope, cx: &mut Context<Self>) -> Self {
         let picker_focus = cx.focus_handle();
         let picker_selected = Rc::new(Cell::new(0));
-        let picker_view = cx.new(|cx| PickerView::new(picker_focus.clone(), picker_selected.clone(), cx));
+        let picker_close_focus = cx.focus_handle();
+        let picker_view = cx.new(|_| PickerView::new(picker_focus.clone(), picker_close_focus.clone(), picker_selected.clone()));
         Self {
             visit: Rc::new(SendVisit {
                 generation: Cell::new(0),
@@ -159,6 +162,7 @@ impl ComposerView {
             picker: Picker::default(),
             picker_view,
             picker_focus,
+            picker_close_focus,
             picker_selected,
             hover_close: None,
             picker_sub: None,
@@ -484,6 +488,7 @@ impl ComposerView {
             emoji_open: self.picker.mode != PickerMode::Closed,
             picker_pinned: self.picker.mode == PickerMode::Pinned,
             picker_selected: self.picker_focus.is_focused(window).then(|| self.picker_selected.get()),
+            picker_close_focused: self.picker_close_focus.is_focused(window),
             send_bounds: self
                 .send_bounds
                 .filter(|(source, _)| self.visit.source() == Some(*source))
@@ -2543,6 +2548,96 @@ mod tests {
             assert_eq!(v.picker_selected.get(), 0);
             v.picker_click(true, window, cx);
             assert_eq!(v.picker.mode, PickerMode::Closed);
+        });
+    }
+
+    /// Like the app shell, which draws the pinned drawer next to the composer.
+    struct Host(Entity<ComposerView>);
+
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div().child(self.0.clone()).children(self.0.read(cx).pinned_picker())
+        }
+    }
+
+    /// `command()` only reaches the composer's own key handler, not the grid's `on_key_down`, and a
+    /// view update holds the composer's lease while the grid's event needs it: keys go through the
+    /// window to the focused element, from outside the view, with a frame between steps.
+    #[test]
+    #[ignore = "requires private display"]
+    fn keyboard_in_the_grid_picks_tabs_to_close_and_escapes_back_to_the_field() {
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(|cx| {
+            let mut composer = None;
+            let host = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    let c = cx.new(|cx| {
+                        let v = ComposerView::new(
+                            RoomScope {
+                                account_id: matrix_domain::AccountId::new(1),
+                                room_id: matrix_domain::RoomId::new("!grid:fixture.invalid"),
+                            },
+                            cx,
+                        );
+                        v.focus.focus(window);
+                        v
+                    });
+                    composer = Some(c.clone());
+                    cx.new(|_| Host(c))
+                })
+                .unwrap();
+            let composer = composer.unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                let frame = || executor.timer(std::time::Duration::from_millis(150));
+                frame().await;
+                macro_rules! key {
+                    ($k:expr) => {{
+                        cx.update(|cx| {
+                            cx.update_window(host.into(), |_, w, cx| {
+                                w.dispatch_keystroke(gpui::Keystroke::parse($k).unwrap(), cx);
+                            })
+                            .unwrap()
+                        })
+                        .unwrap();
+                        frame().await;
+                    }};
+                }
+                macro_rules! with {
+                    ($f:expr) => {{
+                        let f: fn(&mut ComposerView, &mut Window, &mut Context<ComposerView>) = $f;
+                        cx.update(|cx| {
+                            cx.update_window(host.into(), |_, w, cx| composer.update(cx, |v, cx| f(v, w, cx))).unwrap()
+                        })
+                        .unwrap();
+                        frame().await;
+                    }};
+                }
+                with!(|v, _, cx| v.set_live(true));
+                with!(|v, w, cx| v.picker_click(true, w, cx));
+                key!("right");
+                key!("enter");
+                with!(|v, w, _| {
+                    assert!(v.draft.text().ends_with(matrix_desktop::EMOJI_SET[1].1), "{:?}", v.draft.text());
+                    assert!(v.focus.is_focused(w));
+                    assert_eq!(v.picker.mode, PickerMode::Pinned);
+                });
+                with!(|v, w, cx| v.picker_click(true, w, cx));
+                with!(|v, w, cx| {
+                    assert_eq!(v.picker.mode, PickerMode::Closed);
+                    v.picker_click(true, w, cx);
+                });
+                with!(|v, w, _| assert!(v.picker_focus.is_focused(w)));
+                key!("tab");
+                with!(|v, w, _| assert!(v.picker_close_focus.is_focused(w)));
+                key!("escape");
+                with!(|v, w, _| {
+                    assert_eq!(v.picker.mode, PickerMode::Closed);
+                    assert!(v.focus.is_focused(w));
+                });
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
         });
     }
 

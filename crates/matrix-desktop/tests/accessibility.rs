@@ -431,6 +431,7 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
             emoji_open: false,
             picker_pinned: false,
             picker_selected: None,
+            picker_close_focused: false,
             text: "caffè 🙂\nseconda riga".into(),
             anchor: 0,
             cursor: 0,
@@ -546,6 +547,12 @@ fn composer_exports_multiline_role_draft_and_focus_independently_of_sidebar_visi
     let tree = drawer.tree();
     assert_eq!(label_of(&tree, EMOJI_CLOSE).as_deref(), Some("Chiudi"));
     assert_eq!(tree.focus, accesskit::NodeId(EMOJI_ITEM + 3));
+    {
+        let c = drawer.composer.as_mut().unwrap();
+        c.picker_selected = None;
+        c.picker_close_focused = true;
+    }
+    assert_eq!(drawer.tree().focus, EMOJI_CLOSE);
 }
 
 #[test]
@@ -590,6 +597,7 @@ fn composer_text_runs_preserve_unicode_hard_lines_and_reversed_selection() {
             emoji_open: false,
             picker_pinned: false,
             picker_selected: None,
+            picker_close_focused: false,
             text: "caffè 🙂\nseconda riga\n".into(),
             anchor: "caffè 🙂\nseconda riga\n".len(),
             cursor: "caffè ".len(),
@@ -668,6 +676,7 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
             emoji_open: false,
             picker_pinned: false,
             picker_selected: None,
+            picker_close_focused: false,
             text: "hello".into(),
             anchor: 5,
             cursor: 5,
@@ -778,6 +787,7 @@ fn semantic_submit_captures_scope_and_body_and_rejects_hidden_or_uncommitted_dra
             emoji_open: false,
             picker_pinned: false,
             picker_selected: None,
+            picker_close_focused: false,
             scope: scope.clone(),
             composing: false,
             text: "draft 🙂".into(),

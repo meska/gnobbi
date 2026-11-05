@@ -97,6 +97,7 @@ fn composer_snapshot(room: &str) -> NavigationSnapshot {
         emoji_open: false,
         picker_pinned: false,
         picker_selected: None,
+        picker_close_focused: false,
         scope: matrix_domain::RoomScope {
             account_id: matrix_domain::AccountId::new(1),
             room_id: matrix_domain::RoomId::new(room),

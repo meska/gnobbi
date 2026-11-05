@@ -79,6 +79,8 @@ pub struct ComposerSnapshot {
     pub picker_pinned: bool,
     /// Highlighted item, while the picker grid has the focus.
     pub picker_selected: Option<usize>,
+    /// ... or the drawer's Close button has it.
+    pub picker_close_focused: bool,
     pub text: String,
     /// UTF-8 byte positions from the editor, including selection direction.
     pub anchor: usize,
@@ -1390,6 +1392,8 @@ impl NavigationSnapshot {
                 tree.focus = SEND;
             } else if let Some(item) = composer.picker_selected.filter(|_| composer.emoji_open) {
                 tree.focus = NodeId(EMOJI_ITEM + item as u64);
+            } else if composer.picker_close_focused && composer.picker_pinned {
+                tree.focus = EMOJI_CLOSE;
             } else if let Some(icon) = composer.icon_focused {
                 tree.focus = [EMOJI, ATTACH, RECORD][icon as usize];
             }
