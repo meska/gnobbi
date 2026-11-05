@@ -1287,10 +1287,12 @@ impl Render for ComposerView {
                     .child(
                         div()
                             .id("composer-editor")
+                            .child(probe("editor"))
                             .when(self.recorder.is_some(), |d| d.hidden())
                             .flex_1()
                             .min_w_0()
                             .min_h(px(36.))
+                            .px_2()
                             .py(px(8.))
                             .relative()
                             // Always 1px so focus never moves the text; the ring is painted only while the field holds focus.
@@ -1336,7 +1338,7 @@ impl Render for ComposerView {
                             .text_size(px(14.))
                             .line_height(px(20.))
                             .whitespace_normal()
-                            .text_color(rgb(if empty { t.secondary } else { t.text }))
+                            .text_color(rgb(if empty { t.placeholder } else { t.text }))
                             .child(body)
                             .child(
                                 canvas(
@@ -1371,6 +1373,10 @@ impl Render for ComposerView {
                                             && this.draft.selection().is_empty()
                                             && let Some(p) = layout.position_for_index(this.cursor)
                                         {
+                                            #[cfg(test)]
+                                            PROBE.with(|probe| {
+                                                probe.borrow_mut().insert("caret", Bounds::new(point(p.x, p.y), size(px(1.), px(20.))));
+                                            });
                                             window.paint_quad(fill(
                                                 Bounds::new(point(p.x, p.y), size(px(1.), px(20.))),
                                                 rgb(t.accent),
@@ -2569,6 +2575,9 @@ mod tests {
                                 v.theme = matrix_desktop::DARK;
                             }
                             v.draft.replace(None, text);
+                            if std::env::var("COMPOSER_TEST_ATTACHMENT").as_deref() == Ok("1") {
+                                v.attachment = Some(Pending { filename: "a.txt".into(), data: vec![1], voice: None });
+                            }
                             v.changed(cx);
                             v.focus.focus(window);
                             v
@@ -2601,6 +2610,42 @@ mod tests {
 
     fn probed(name: &str) -> Bounds<Pixels> {
         PROBE.with(|p| *p.borrow().get(name).unwrap_or_else(|| panic!("no painted element {name}")))
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_composer_padding_and_height() {
+        let state = std::env::var("COMPOSER_TEST_STATE").expect("composer test state");
+        let text = match state.as_str() {
+            "empty" | "attachment" => "",
+            "text" => "una riga",
+            "multiline" => "prima\nseconda",
+            _ => panic!("unknown composer test state: {state}"),
+        };
+        rendered_composer(text, move |v, window, _| {
+            let expected_scale: f32 = std::env::var("COMPOSER_TEST_SCALE").unwrap().parse().unwrap();
+            assert!((window.scale_factor() - expected_scale).abs() < 0.01, "actual scale {}", window.scale_factor());
+            assert!(v.focus.is_focused(window), "caret must be painted");
+            let editor = probed("editor");
+            let layout = v.layout.as_ref().expect("text laid out");
+            assert_eq!(v.attachment.is_some(), state == "attachment");
+            let caret = probed("caret");
+            assert!(f32::from(caret.left() - editor.left()) + 0.001 >= 8.0,
+                "{state} scale {expected_scale}: painted caret {caret:?}, editor {editor:?}");
+            let mut indices = vec![0];
+            if state == "multiline" { indices.push(6); }
+            for index in indices {
+                let caret = layout.position_for_index(index).expect("laid-out caret");
+                let inset = f32::from(caret.x - editor.left());
+                assert!(inset + 0.001 >= 8.0, "{state} scale {expected_scale}: inset {inset} editor {editor:?}");
+            }
+            if state == "empty" || state == "text" {
+                let bar = probed("bar");
+                assert!((f32::from(bar.size.height) + 1. - v.theme.bottom_bar).abs() <= 0.5,
+                    "{state}: bar {bar:?} vs token {}", v.theme.bottom_bar);
+            }
+            eprintln!("{state} scale {expected_scale}: editor {editor:?}, layout {:?}", layout.bounds());
+        });
     }
 
     #[test]

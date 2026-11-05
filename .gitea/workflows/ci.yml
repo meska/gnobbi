@@ -32,6 +32,8 @@ jobs:
         run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
       - name: Test desktop
         run: cargo test --locked -j4 -p matrix-desktop --features live
+      - name: Composer rendered geometry (Xvfb, xauth, D-Bus)
+        run: sh packaging/linux/test-composer-render.sh
       - name: AppImage
         if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
         run: |

@@ -20,6 +20,7 @@ object DesignTokens {
         const val SURFACE = 0xffffffL
         const val TEXT = 0x17231bL
         const val SECONDARY = 0x46604eL
+        const val PLACEHOLDER = 0x6b8071L
         const val ACCENT = 0x1264aaL
         const val TIMELINE = 0xe9f0ebL
         const val OUTGOING = 0xd9fdd3L
@@ -38,6 +39,7 @@ object DesignTokens {
         const val SURFACE = 0xffffffL
         const val TEXT = 0x111512L
         const val SECONDARY = 0x47514aL
+        const val PLACEHOLDER = 0x6c746eL
         const val ACCENT = 0x0b5cadL
         const val TIMELINE = 0xf4f6f5L
         const val OUTGOING = 0xd2f6ddL
@@ -56,6 +58,7 @@ object DesignTokens {
         const val SURFACE = 0x17231bL
         const val TEXT = 0xe5efe8L
         const val SECONDARY = 0xb4c9baL
+        const val PLACEHOLDER = 0x95a89aL
         const val ACCENT = 0x80c8ffL
         const val TIMELINE = 0x101b14L
         const val OUTGOING = 0x244436L
@@ -74,6 +77,7 @@ object DesignTokens {
         const val SURFACE = 0x0b0f0cL
         const val TEXT = 0xe8eeeaL
         const val SECONDARY = 0xa9b9aeL
+        const val PLACEHOLDER = 0x89978eL
         const val ACCENT = 0x7cc4ffL
         const val TIMELINE = 0x000000L
         const val OUTGOING = 0x16301fL

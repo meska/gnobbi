@@ -15,6 +15,27 @@ fn has(lines: &[&str], wanted: &str) {
 }
 
 #[test]
+fn placeholder_contrast_is_readable_and_softer_than_text() {
+    fn luminance(color: u32) -> f64 {
+        let channel = |shift| {
+            let value = f64::from((color >> shift) & 255u32) / 255.0;
+            if value <= 0.04045 { value / 12.92 } else { ((value + 0.055) / 1.055).powf(2.4) }
+        };
+        0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0)
+    }
+    fn contrast(a: u32, b: u32) -> f64 {
+        let (a, b) = (luminance(a), luminance(b));
+        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+    }
+    for theme in THEMES {
+        let p = theme.palette;
+        let placeholder = contrast(p.placeholder, p.surface);
+        assert!(placeholder >= 3.0, "{}: {placeholder}", theme.id);
+        assert!(placeholder < contrast(p.text, p.surface), "{}", theme.id);
+    }
+}
+
+#[test]
 fn swift_and_kotlin_match_the_rust_constants_for_all_themes() {
     for th in THEMES {
         let name = format!("{}{}", th.id[..1].to_uppercase(), &th.id[1..]);
@@ -27,7 +48,7 @@ fn swift_and_kotlin_match_the_rust_constants_for_all_themes() {
         let p = th.palette;
         for (swift_name, kotlin_name, v) in [
             ("surface", "SURFACE", p.surface), ("text", "TEXT", p.text),
-            ("secondary", "SECONDARY", p.secondary), ("accent", "ACCENT", p.accent),
+            ("secondary", "SECONDARY", p.secondary), ("placeholder", "PLACEHOLDER", p.placeholder), ("accent", "ACCENT", p.accent),
             ("timeline", "TIMELINE", p.timeline), ("outgoing", "OUTGOING", p.outgoing),
             ("selected", "SELECTED", p.selected), ("border", "BORDER", p.border),
             ("input", "INPUT", p.input), ("disabled", "DISABLED", p.disabled),

@@ -13,6 +13,14 @@ fn composer_placeholder_is_short_for_live_and_demo() {
 }
 
 #[test]
+fn composer_editor_has_field_padding_and_placeholder_color() {
+    let editor = COMPOSER.split(".id(\"composer-editor\")").nth(1).unwrap();
+    let editor = editor.split(".child(body)").next().unwrap();
+    assert!(editor.contains(".px_2()"), "editor must use the standard field padding");
+    assert!(editor.contains("t.placeholder"), "empty editor must use the placeholder token");
+}
+
+#[test]
 fn composer_has_no_shortcut_caption() {
     assert!(!COMPOSER.contains("draft in memoria"));
     assert!(!COMPOSER.contains("DEMO LOCALE · Invio"));
