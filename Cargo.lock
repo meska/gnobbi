@@ -4488,6 +4488,7 @@ dependencies = [
  "objc",
  "raw-window-handle",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "tracing-subscriber",
  "tray-icon",
