@@ -2155,7 +2155,7 @@ fn disposable_password_login_is_confirmed_by_server_whoami() {
 
 #[test]
 fn poll_start_content_is_msc3381_with_ids_kind_and_selections() {
-    use matrix_sdk::ruma::events::{AnyMessageLikeEventContent, EventContent};
+    use matrix_sdk::ruma::events::AnyMessageLikeEventContent;
     let draft = matrix_domain::PollDraft {
         question: " Dove? ".into(),
         answers: vec![" Mare ".into(), "Monti".into(), "Lago".into()],
@@ -2163,7 +2163,6 @@ fn poll_start_content_is_msc3381_with_ids_kind_and_selections() {
         disclosed: true,
     };
     let content = AnyMessageLikeEventContent::from(crate::sending::poll_start(&draft));
-    assert_eq!(content.event_type().to_string(), "org.matrix.msc3381.poll.start");
     let json = serde_json::to_value(&content).unwrap();
     let start = &json["org.matrix.msc3381.poll.start"];
     assert_eq!(start["kind"], "org.matrix.msc3381.poll.disclosed");

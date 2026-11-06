@@ -79,7 +79,7 @@ impl LiveOperations {
         let text = match &operation {
             Operation::Reply { body } | Operation::Edit { body } => Some(body),
             Operation::React { key } => Some(key),
-            Operation::Redact => None,
+            Operation::Redact | Operation::Vote { .. } | Operation::EndPoll => None,
         };
         if text.is_some_and(|text| text.trim().is_empty() || text.len() > 32768) {
             return false;
@@ -98,6 +98,9 @@ impl LiveOperations {
             Operation::Edit { .. } => details.permissions.edit,
             Operation::React { .. } => details.permissions.react,
             Operation::Redact => details.permissions.redact,
+            // shortcut: reuse react/redact rights; the poll UI card refines them.
+            Operation::Vote { .. } => details.permissions.react,
+            Operation::EndPoll => details.permissions.redact,
         };
         if !allowed {
             return false;
