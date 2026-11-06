@@ -113,6 +113,7 @@ impl LiveDelivery {
             transaction_id,
             body,
             attachment,
+            poll: None,
             mentions,
         });
         draft.enter(false);
@@ -237,6 +238,7 @@ impl LiveDelivery {
             transaction_id: transaction_id.clone(),
             body,
             attachment,
+            poll: None,
             mentions: self.mentions.get(&key).cloned().unwrap_or_default(),
         });
         true

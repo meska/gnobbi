@@ -104,7 +104,7 @@ fn app_mention_reaches_bob_with_metadata_and_notification() {
                 scope: scope.clone(),
                 transaction_id: fresh_transaction_id(),
                 body: body.clone(),
-                attachment: None,
+                attachment: None, poll: None,
                 mentions: vec![Mention {
                     user_id: bob.to_string(),
                     label: label.clone(),

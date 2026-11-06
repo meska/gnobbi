@@ -304,7 +304,7 @@ impl MobileSession {
             },
             transaction_id: transaction_id.clone(),
             body,
-            attachment: None,
+            attachment: None, poll: None,
             mentions: Vec::new(),
         };
         use matrix_engine::TrySendError::{Busy, Closed, Full};

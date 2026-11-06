@@ -3,7 +3,7 @@
 pub mod design;
 pub mod notifications;
 mod poll;
-pub use poll::{Poll, PollAnswer};
+pub use poll::{Poll, PollAnswer, PollDraft, PollDraftError};
 mod sender_label;
 mod timeline;
 pub use sender_label::{SENDER_LABEL_GAP_MS, shows_sender_label};

@@ -98,6 +98,74 @@ impl Poll {
     }
 }
 
+/// What the poll dialog sends. Private user data: never log.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct PollDraft {
+    pub question: String,
+    pub answers: Vec<String>,
+    pub multiple: bool,
+    pub disclosed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PollDraftError {
+    EmptyQuestion,
+    QuestionTooLong,
+    TooFewAnswers,
+    TooManyAnswers,
+    /// Index of the offending answer in `answers`.
+    EmptyAnswer(usize),
+    AnswerTooLong(usize),
+    /// Index of the later copy (case-insensitive after trimming).
+    DuplicateAnswer(usize),
+}
+
+impl PollDraft {
+    pub const MIN_ANSWERS: usize = 2;
+    pub const MAX_ANSWERS: usize = 20;
+    pub const MAX_CHARS: usize = 340;
+
+    /// Checks the trimmed texts; lengths are in characters, not bytes.
+    pub fn validate(&self) -> Result<(), PollDraftError> {
+        use PollDraftError::*;
+        let question = self.question.trim();
+        if question.is_empty() {
+            return Err(EmptyQuestion);
+        }
+        if question.chars().count() > Self::MAX_CHARS {
+            return Err(QuestionTooLong);
+        }
+        if self.answers.len() < Self::MIN_ANSWERS {
+            return Err(TooFewAnswers);
+        }
+        if self.answers.len() > Self::MAX_ANSWERS {
+            return Err(TooManyAnswers);
+        }
+        let mut seen = std::collections::HashSet::new();
+        for (ix, answer) in self.answers.iter().map(|a| a.trim()).enumerate() {
+            if answer.is_empty() {
+                return Err(EmptyAnswer(ix));
+            }
+            if answer.chars().count() > Self::MAX_CHARS {
+                return Err(AnswerTooLong(ix));
+            }
+            if !seen.insert(answer.to_lowercase()) {
+                return Err(DuplicateAnswer(ix));
+            }
+        }
+        Ok(())
+    }
+
+    /// Plain-text copy for clients without polls: «question\n1. A\n2. B».
+    pub fn fallback_text(&self) -> String {
+        let mut text = self.question.trim().to_owned();
+        for (ix, answer) in self.answers.iter().enumerate() {
+            text.push_str(&format!("\n{}. {}", ix + 1, answer.trim()));
+        }
+        text
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +246,36 @@ mod tests {
         assert_eq!(p.footer(), "Basato su 1 voto");
         p.voters = 0;
         assert_eq!(p.footer(), "Basato su 0 voti");
+    }
+
+    fn draft(answers: &[&str]) -> PollDraft {
+        PollDraft {
+            question: " Dove? ".into(),
+            answers: answers.iter().map(|a| a.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn draft_errors_one_per_variant() {
+        use PollDraftError::*;
+        let check = |d: PollDraft, e| assert_eq!(d.validate(), Err(e));
+        check(PollDraft { question: "  ".into(), ..draft(&["a", "b"]) }, EmptyQuestion);
+        check(PollDraft { question: "é".repeat(341), ..draft(&["a", "b"]) }, QuestionTooLong);
+        check(draft(&["a"]), TooFewAnswers);
+        check(draft(&["a", "  "]), EmptyAnswer(1));
+        check(draft(&["a", &"x".repeat(341)]), AnswerTooLong(1));
+        check(draft(&["Si", "no", " SI "]), DuplicateAnswer(2));
+        let many: Vec<String> = (0..21).map(|n| n.to_string()).collect();
+        check(PollDraft { answers: many, ..draft(&[]) }, TooManyAnswers);
+    }
+
+    #[test]
+    fn draft_valid_at_the_limits_and_fallback() {
+        let long = "é".repeat(340); // 680 bytes, 340 characters
+        let answers: Vec<String> = (0..20).map(|n| format!("{n}{}", &long[..long.len() - 2 * n.to_string().len()])).collect();
+        let d = PollDraft { question: long.clone(), answers, ..Default::default() };
+        assert_eq!(d.validate(), Ok(()));
+        assert_eq!(draft(&[" A ", "B"]).fallback_text(), "Dove?\n1. A\n2. B");
     }
 }

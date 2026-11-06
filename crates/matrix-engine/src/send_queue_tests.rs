@@ -9,7 +9,7 @@ fn queued(room: &str, id: &str, body: &str) -> crate::sending::SendRequest {
         },
         transaction_id: matrix_domain::TransactionId::new(id),
         body: body.into(),
-        attachment: None,
+        attachment: None, poll: None,
         mentions: Vec::new(),
     }
 }

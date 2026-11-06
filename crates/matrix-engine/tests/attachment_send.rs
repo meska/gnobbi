@@ -85,6 +85,7 @@ async fn send(
             data: data.to_vec(),
             voice,
         }),
+        poll: None,
         mentions: Vec::new(),
     };
     // An encrypted room may reject the first attempts until the Megolm session reaches B.
