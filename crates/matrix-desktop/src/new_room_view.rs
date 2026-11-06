@@ -2,6 +2,7 @@
 //! «Unisciti» (alias or room ID joins, any other text searches the public directory): a small
 //! dialog opened from the drawer. The engine does the work; the result closes it or shows one error line.
 use crate::*;
+use crate::switch_row::switch_row;
 use matrix_desktop::new_chat::{Picker, Status};
 use matrix_engine::operations::{DirectoryRoom, OperationCommand, OperationError, SearchState};
 
@@ -729,40 +730,11 @@ impl Shell {
                         })
                         .when(!room.dm && !room.join, |d| {
                             d.child(
-                                div()
-                                    .id("new-room-public")
+                                switch_row(
+                                    "new-room-public", "Pubblica", public, true,
+                                    room.public_focus.is_focused(window), t,
+                                )
                                     .track_focus(&room.public_focus)
-                                    .h(px(36.))
-                                    .px_2()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .cursor_pointer()
-                                    .border_1()
-                                    .border_color(rgb(if room.public_focus.is_focused(window) {
-                                        t.accent
-                                    } else {
-                                        t.surface
-                                    }))
-                                    .text_color(rgb(t.text))
-                                    .child("Pubblica")
-                                    .child(
-                                        div()
-                                            .w(px(36.))
-                                            .h(px(20.))
-                                            .rounded_full()
-                                            .flex()
-                                            .items_center()
-                                            .px(px(2.))
-                                            .bg(rgb(if public { t.accent } else { t.disabled }))
-                                            .when(public, |d| d.justify_end())
-                                            .child(
-                                                div()
-                                                    .size(px(16.))
-                                                    .rounded_full()
-                                                    .bg(rgb(t.on_accent)),
-                                            ),
-                                    )
                                     .on_click(cx.listener(|this, _, window, cx| {
                                         if let Some(room) = &mut this.new_room {
                                             room.public = !room.public;

@@ -1,5 +1,6 @@
 //! Settings inside the side drawer: switches (debug, theme, read receipts), saved to the preferences file.
 use crate::*;
+use crate::switch_row::switch_row;
 
 impl Shell {
     pub(crate) fn set_settings_open(
@@ -504,27 +505,6 @@ impl Shell {
                 })
                 .into_any_element();
         }
-        // The label takes the leftover width and wraps; the switch never shrinks (BUG-4).
-        let label = |text: &'static str| div().flex_1().min_w_0().child(text);
-        let switch = |on: bool| {
-            div()
-                .flex_shrink_0()
-                .w(px(36.))
-                .h(px(20.))
-                .rounded_full()
-                .flex()
-                .items_center()
-                .px(px(2.))
-                .bg(rgb(if on { t.accent } else { t.disabled }))
-                .when(on, |d| d.justify_end())
-                .child(
-                    div()
-                        .w(px(16.))
-                        .h(px(16.))
-                        .rounded_full()
-                        .bg(rgb(t.on_accent)),
-                )
-        };
         div()
             .child(
                 div()
@@ -536,19 +516,11 @@ impl Shell {
                     .child("Impostazioni"),
             )
             .child(
-                row("settings-debug")
+                switch_row(
+                    "settings-debug", "Modalità debug", self.prefs.debug, true,
+                    self.settings_row == 0 && self.settings_focus.is_focused(window), t,
+                )
                     .track_focus(&self.settings_focus)
-                    .text_color(rgb(t.text))
-                    .border_1()
-                    .border_color(rgb(
-                        if self.settings_row == 0 && self.settings_focus.is_focused(window) {
-                            t.accent
-                        } else {
-                            t.surface
-                        },
-                    ))
-                    .child(label("Modalità debug"))
-                    .child(switch(self.prefs.debug))
                     .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
                         // Enter/Space are handled in menu_key; GPUI's key-up click on this focused row would toggle twice.
                         if !event.is_keyboard() {
@@ -595,10 +567,10 @@ impl Shell {
                     })),
             )
             .child(
-                row("settings-accent-system")
-                    .text_color(rgb(t.text))
-                    .child("Colore principale di sistema")
-                    .child(switch(self.prefs.accent.is_none()))
+                switch_row(
+                    "settings-accent-system", "Colore principale di sistema",
+                    self.prefs.accent.is_none(), true, false, t,
+                )
                     .on_click(cx.listener(|this, _, _, cx| {
                         let next = this.prefs.accent.map_or(Some(matrix_desktop::Accent::Blue), |_| None);
                         this.choose_accent(next, cx)
@@ -635,48 +607,24 @@ impl Shell {
                     .child("Privacy e sicurezza"),
             )
             .child(
-                row("settings-read-receipts")
-                    .text_color(rgb(t.text))
-                    .border_1()
-                    .border_color(rgb(
-                        if self.settings_row == 1 && self.settings_focus.is_focused(window) {
-                            t.accent
-                        } else {
-                            t.surface
-                        },
-                    ))
-                    .child(label("Conferme di lettura"))
-                    .child(switch(self.prefs.read_receipts))
+                switch_row(
+                    "settings-read-receipts", "Conferme di lettura", self.prefs.read_receipts, true,
+                    self.settings_row == 1 && self.settings_focus.is_focused(window), t,
+                )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
             )
             .child(
-                row("settings-hide-redacted")
-                    .text_color(rgb(t.text))
-                    .border_1()
-                    .border_color(rgb(
-                        if self.settings_row == 2 && self.settings_focus.is_focused(window) {
-                            t.accent
-                        } else {
-                            t.surface
-                        },
-                    ))
-                    .child(label("Nascondi messaggi eliminati"))
-                    .child(switch(self.prefs.hide_redacted))
+                switch_row(
+                    "settings-hide-redacted", "Nascondi messaggi eliminati", self.prefs.hide_redacted, true,
+                    self.settings_row == 2 && self.settings_focus.is_focused(window), t,
+                )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_redacted(cx))),
             )
             .child(
-                row("settings-close-to-tray")
-                    .text_color(rgb(t.text))
-                    .border_1()
-                    .border_color(rgb(
-                        if self.settings_row == 3 && self.settings_focus.is_focused(window) {
-                            t.accent
-                        } else {
-                            t.surface
-                        },
-                    ))
-                    .child(label("Riduci nel tray alla chiusura"))
-                    .child(switch(self.prefs.close_to_tray))
+                switch_row(
+                    "settings-close-to-tray", "Riduci nel tray alla chiusura", self.prefs.close_to_tray, true,
+                    self.settings_row == 3 && self.settings_focus.is_focused(window), t,
+                )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_close_to_tray(cx))),
             )
             .into_any_element()

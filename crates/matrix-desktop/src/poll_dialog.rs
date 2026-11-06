@@ -1,5 +1,6 @@
 //! «Crea sondaggio»: modal dialog opened from the composer. Same container as `new_room_view.rs`.
 //! Only field labels and one-line errors: no help text.
+use crate::switch_row::switch_row;
 use crate::login_field::LoginField;
 use gpui::{
     Context, Entity, EventEmitter, FocusHandle, KeyDownEvent, Window, div, prelude::*, px, rgb,
@@ -276,31 +277,8 @@ impl Render for PollDialog {
             div().id(id).track_focus(focus).px_4().py_2().rounded_md().cursor_pointer().border_1().border_color(ring(focus)).text_color(rgb(color)).child(label)
         };
         let switch = |id: &'static str, label: &'static str, on: bool, focus: &FocusHandle, cx: &mut Context<Self>| {
-            div()
-                .id(id)
+            switch_row(id, label, on, true, focus.is_focused(window), t)
                 .track_focus(focus)
-                .h(px(36.))
-                .px_2()
-                .flex()
-                .items_center()
-                .justify_between()
-                .cursor_pointer()
-                .border_1()
-                .border_color(ring(focus))
-                .text_color(rgb(t.text))
-                .child(label)
-                .child(
-                    div()
-                        .w(px(36.))
-                        .h(px(20.))
-                        .rounded_full()
-                        .flex()
-                        .items_center()
-                        .px(px(2.))
-                        .bg(rgb(if on { t.accent } else { t.disabled }))
-                        .when(on, |d| d.justify_end())
-                        .child(div().size(px(16.)).rounded_full().bg(rgb(t.on_accent))),
-                )
                 .on_click(cx.listener(move |this, _, window, cx| {
                     let stop = if id == "poll-multiple" { Stop::Multiple } else { Stop::Disclosed };
                     this.activate(stop, window, cx);

@@ -35,6 +35,7 @@ mod room_menu_view;
 mod room_search_view;
 mod scrollbar_view;
 mod settings_view;
+mod switch_row;
 #[cfg(any(test, feature = "gui-fixture"))]
 mod rail_drag_test;
 #[cfg(test)]
