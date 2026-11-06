@@ -1845,6 +1845,21 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Common wrapper: sign-in, notifications and verification return early from `render_screen` and must update the input modality too.
+        div().size_full()
+            .capture_key_down(|_, _, cx| input_modality::set_keyboard(cx))
+            // Window-level listener: a click under an `.occlude()` overlay never reaches the root's own mouse handlers.
+            .child(gpui::canvas(|_, _, _| (), |_, _, window, _| {
+                window.on_mouse_event(|_: &gpui::MouseDownEvent, phase, _, cx| {
+                    if phase == gpui::DispatchPhase::Capture { input_modality::set_pointer(cx); }
+                });
+            }).absolute().size_0())
+            .child(self.render_screen(window, cx))
+    }
+}
+
+impl Shell {
+    fn render_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
         }
@@ -1994,7 +2009,6 @@ impl Render for Shell {
             .capture_key_down(cx.listener({
                 let opener_keys=self.opener_key_callback();
                 move |this,event,window,cx| {
-                    input_modality::set_keyboard(cx);
                     if this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
                     else {this.navigation_key(event,window,cx);}
                 }
@@ -2007,12 +2021,6 @@ impl Render for Shell {
             .text_color(rgb(t.text))
             .font_family(matrix_desktop::ui_font())
             .text_size(px(14.))
-            // Window-level listener: a click under an `.occlude()` overlay never reaches the root's own mouse handlers.
-            .child(gpui::canvas(|_, _, _| (), |_, _, window, _| {
-                window.on_mouse_event(|_: &gpui::MouseDownEvent, phase, _, cx| {
-                    if phase == gpui::DispatchPhase::Capture { input_modality::set_pointer(cx); }
-                });
-            }).absolute().size_0())
             // inner box: absolute overlays (top_0/inset_0) start below the titlebar inset, which stays draggable
             .child(div().relative().size_full().flex()
             .when(!compact, |d| d.child(self.render_rail(window, cx)))
