@@ -35,6 +35,7 @@ pub struct NotificationSnapshot {
     pub enabled: bool,
     pub preview: bool,
     pub selected: Option<(RoomScope, bool)>,
+    pub room_name: String,
     pub service_failed: bool,
 }
 impl NotificationSnapshot {
@@ -74,19 +75,20 @@ impl NotificationView {
         root.set_label("Notifiche locali");
         let mut nodes = vec![];
         for (index, (id, label, checked)) in [
-            (ENABLED, "Notifiche locali attive", panel.enabled),
+            (ENABLED, "Notifiche locali attive".to_owned(), panel.enabled),
             (
                 MUTE,
-                "Stanza selezionata silenziata",
-                panel.selected.as_ref().is_some_and(|(_, muted)| *muted),
+                format!("Notifiche della stanza {}", panel.room_name),
+                // On = notifications active, the opposite of the room's muted flag.
+                panel.selected.as_ref().is_some_and(|(_, muted)| !*muted),
             ),
-            (PREVIEW, "Anteprima del solo conteggio", panel.preview),
+            (PREVIEW, "Anteprima del solo conteggio".to_owned(), panel.preview),
         ]
         .into_iter()
         .enumerate()
         {
             let mut node = Node::new(Role::CheckBox);
-            node.set_label(label);
+            node.set_label(label.as_str());
             if let Some(bounds) = panel.bounds[index] {
                 node.set_bounds(bounds);
             }

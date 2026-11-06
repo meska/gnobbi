@@ -182,6 +182,7 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
         enabled: false,
         preview: false,
         selected: None,
+        room_name: String::new(),
         service_failed: false,
     }));
     assert!(!view.tree().nodes.iter().any(|(id, _)| *id == TOGGLE));

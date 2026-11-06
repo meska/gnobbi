@@ -970,14 +970,14 @@ impl Shell {
         }
         if self.notifications_open {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-            if key.key == "tab" {
+            if matches!(key.key.as_str(), "tab" | "up" | "down") {
                 use matrix_desktop::accessibility::notifications::{
                     NotificationAction, NotificationView,
                 };
                 let view = self.semantic_notifications(window);
                 if let NotificationView::Open(snapshot) = &view {
                     self.apply_semantic_notification(
-                        NotificationAction::Focus(snapshot.next_focus(key.modifiers.shift)),
+                        NotificationAction::Focus(snapshot.next_focus(key.modifiers.shift || key.key == "up")),
                         window,
                         cx,
                     );
