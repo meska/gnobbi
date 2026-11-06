@@ -27,6 +27,7 @@ pub enum Status {
     Searching,
     NoResults,
     Error,
+    Partial,
 }
 
 impl Status {
@@ -36,6 +37,7 @@ impl Status {
             Self::Searching => "Ricerca in corso",
             Self::NoResults => "Nessun risultato",
             Self::Error => "Ricerca non riuscita",
+            Self::Partial => "Risultati parziali",
         }
     }
 }

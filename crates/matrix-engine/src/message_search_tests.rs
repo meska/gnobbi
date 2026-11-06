@@ -82,3 +82,10 @@ fn server_hits_keep_server_order_skip_edits_and_dedupe() {
     assert_eq!(ids(&hits), ["$2", "$1"]);
     assert!(hits[0].matches.is_empty());
 }
+
+#[test]
+fn results_carry_the_partial_flag_of_the_cache() {
+    let p = Paging { term: "x".into(), source: Some(MessageSource::LocalCache), partial: true, ..Paging::default() };
+    assert!(matches!(results(&p), MessageSearchState::Results { partial: true, .. }));
+    assert!(matches!(results(&Paging::default()), MessageSearchState::Results { partial: false, .. }));
+}

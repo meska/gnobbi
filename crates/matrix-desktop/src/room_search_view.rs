@@ -71,6 +71,7 @@ impl RoomSearch {
             MessageSearchState::Searching { .. } => Some(Status::Searching),
             MessageSearchState::NoResults { .. } => Some(Status::NoResults),
             MessageSearchState::Error { .. } => Some(Status::Error),
+            MessageSearchState::Results { partial: true, .. } => Some(Status::Partial),
             _ => None,
         }
     }
@@ -529,6 +530,7 @@ pub(crate) fn exercise(this: &mut Shell, window: &mut Window, cx: &mut Context<S
         source: MessageSource::LocalCache,
         hits,
         more: MoreHits::None,
+        partial: false,
     };
     this.room_search_result(scope.clone(), results("altro", vec![hit(1)]), cx);
     assert!(this.room_search.as_ref().unwrap().hits().is_empty());

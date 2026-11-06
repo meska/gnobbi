@@ -92,7 +92,8 @@ pub enum MessageSearchState {
     /// Term shorter than the minimum, or search closed.
     Idle,
     Searching { term: String },
-    Results { term: String, source: MessageSource, hits: Vec<MessageHit>, more: MoreHits },
+    /// `partial`: encrypted room whose cache stops short of the room start (cap or no server).
+    Results { term: String, source: MessageSource, hits: Vec<MessageHit>, more: MoreHits, partial: bool },
     NoResults { term: String, source: MessageSource },
     /// One line in the UI, no detail.
     Error { term: String },

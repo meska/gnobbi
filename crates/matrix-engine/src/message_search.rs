@@ -20,6 +20,9 @@ pub const DEBOUNCE: Duration = Duration::from_millis(275);
 pub use crate::message_match::MIN_CHARS;
 pub const PAGE: usize = 20;
 pub const TIMEOUT: Duration = Duration::from_secs(20);
+/// Encrypted rooms: how long, and how many events, the cache is paged back before the search reads it.
+const FILL_TIMEOUT: Duration = Duration::from_secs(10);
+const FILL_EVENTS: u16 = 2000;
 const EXCERPT_CHARS: usize = 200;
 
 pub use crate::message_match::find_ranges;
@@ -130,6 +133,8 @@ struct Paging {
     /// Local cache: hits not yet served.
     queue: Vec<MessageHit>,
     shown: Vec<MessageHit>,
+    /// Local cache: the start of the room was not reached, older messages may be missing.
+    partial: bool,
 }
 
 pub struct MessageSearch {
@@ -185,6 +190,8 @@ impl MessageSearch {
             tokio::time::sleep(DEBOUNCE).await;
             // Decided on every query: a room can become encrypted. Unknown never reaches the server.
             let source = source_of(&client, &room_id).await;
+            // The cache is all an encrypted room has: page it back to the room start first (sync can leave a gap).
+            let partial = source == MessageSource::LocalCache && !fill_cache(&client, &room_id).await;
             let first = tokio::time::timeout(TIMEOUT, async {
                 match source {
                     MessageSource::Server => server_page(&client, &room_id, &term, None).await,
@@ -197,7 +204,7 @@ impl MessageSearch {
                 Err(()) => MessageSearchState::Error { term: term.clone() },
                 Ok((hits, _)) if hits.is_empty() => MessageSearchState::NoResults { term: term.clone(), source },
                 Ok((mut hits, next)) => {
-                    let mut p = Paging { term: term.clone(), source: Some(source), next, ..Paging::default() };
+                    let mut p = Paging { term: term.clone(), source: Some(source), next, partial, ..Paging::default() };
                     if source == MessageSource::LocalCache {
                         p.queue = hits.split_off(hits.len().min(PAGE));
                     }
@@ -222,7 +229,7 @@ impl MessageSearch {
         }
         let mut p = {
             let p = self.paging.lock().unwrap();
-            Paging { term: p.term.clone(), source: p.source, next: p.next.clone(), queue: p.queue.clone(), shown: p.shown.clone() }
+            Paging { term: p.term.clone(), source: p.source, next: p.next.clone(), queue: p.queue.clone(), shown: p.shown.clone(), partial: p.partial }
         };
         let gen_now = self.restart(|| {
             let mut loading = results(&p);
@@ -300,6 +307,7 @@ fn results(p: &Paging) -> MessageSearchState {
         source: p.source.unwrap_or(MessageSource::LocalCache),
         hits: p.shown.clone(),
         more,
+        partial: p.partial,
     }
 }
 
@@ -343,6 +351,16 @@ async fn server_page(client: &Client, room_id: &OwnedRoomId, term: &str, next: O
         .filter_map(|r| serde_json::from_str(r.result.as_ref()?.json().get()).ok())
         .collect();
     Ok((server_hits(&events, term), found.next_batch))
+}
+
+/// Pages the room's event cache back to the room start (at most `FILL_EVENTS` events, `FILL_TIMEOUT`).
+/// True only when the start was reached: the cache then holds the whole room. Offline or failing: false,
+/// and the search still reads what the cache has.
+async fn fill_cache(client: &Client, room_id: &OwnedRoomId) -> bool {
+    let Some(room) = client.get_room(room_id) else { return false };
+    let Ok((cache, _keep)) = room.event_cache().await else { return false };
+    let paging = tokio::time::timeout(FILL_TIMEOUT, cache.pagination().run_backwards_until(FILL_EVENTS)).await;
+    matches!(paging, Ok(Ok(outcome)) if outcome.reached_start)
 }
 
 async fn local_all(client: &Client, room_id: &OwnedRoomId, term: &str) -> Result<Page, ()> {

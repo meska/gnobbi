@@ -73,6 +73,7 @@ fn status_is_a_polite_live_line_and_empty_list_has_no_listbox() {
         (Status::Searching, "Ricerca in corso"),
         (Status::NoResults, "Nessun risultato"),
         (Status::Error, "Ricerca non riuscita"),
+        (Status::Partial, "Risultati parziali"),
     ] {
         let tree = open(vec![], Some(status), None).tree().unwrap();
         let line = &tree.nodes.iter().find(|(i, _)| *i == STATUS).unwrap().1;
