@@ -114,9 +114,11 @@ pub struct SemanticMessage {
     /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
     pub play: Option<NodeId>,
     pub play_bounds: Option<accesskit::Rect>,
-    /// «Scarica» on a received attachment (slot +7 of the message's block of 8).
+    /// «Scarica» on a received attachment (slot +7 of the message's block of 16).
     pub save: Option<NodeId>,
     pub save_bounds: Option<accesskit::Rect>,
+    /// Day label drawn above this message (slot +8): a node of its own for screen readers.
+    pub day: Option<(NodeId, String)>,
     pub bounds: Option<accesskit::Rect>,
     pub id: NodeId,
     pub event: matrix_domain::ScopedTimelineId,
@@ -292,7 +294,9 @@ impl HistoryNodes {
         let end = start.saturating_add(20).min(events.len());
         let messages = events[start..end]
             .iter()
-            .map(|event| {
+            .enumerate()
+            .map(|(offset, event)| {
+                let index = start + offset;
                 // The ACK changes protocol identity, not the focused message.
                 let pending =
                     event
@@ -308,7 +312,7 @@ impl HistoryNodes {
                         let id = NodeId(self.next_id);
                         self.next_id = self
                             .next_id
-                            .checked_add(8)
+                            .checked_add(16)
                             .expect("semantic history IDs exhausted");
                         id
                     })
@@ -340,6 +344,9 @@ impl HistoryNodes {
                     save: crate::offers_save(event, true)
                     .then_some(NodeId(id.0 + 7)),
                     save_bounds: None,
+                    day: history
+                        .day_separator(index)
+                        .map(|label| (NodeId(id.0 + 8), label)),
                     bounds: None,
                     id,
                     event: event.id.clone(),
@@ -1153,6 +1160,12 @@ impl NavigationSnapshot {
                     }
                     node.push_child(id);
                     tree.nodes.push((id, retry));
+                }
+                if let Some((id, label)) = &message.day {
+                    let mut day = Node::new(Role::Label);
+                    day.set_label(label.clone());
+                    list.push_child(*id);
+                    tree.nodes.push((*id, day));
                 }
                 list.push_child(message.id);
                 tree.nodes.push((message.id, node));

@@ -79,6 +79,21 @@ type VideoParts =
 const SENDER_AVATAR_PX: f32 = 32.;
 const STATUS_AVATAR_PX: f32 = 12.;
 
+/// Row decoration: the day label (text only) above the first row of a calendar day.
+trait DayRow {
+    fn pipe_day(self, label: Option<String>, t: matrix_desktop::DesignTokens, index: usize) -> gpui::AnyElement;
+}
+
+impl DayRow for gpui::AnyElement {
+    fn pipe_day(self, label: Option<String>, t: matrix_desktop::DesignTokens, index: usize) -> gpui::AnyElement {
+        let Some(label) = label else { return self };
+        div().w_full().flex().flex_col()
+            .child(div().id(gpui::SharedString::from(format!("day-{index}"))).w_full().py_2().flex().justify_center().text_size(px(11.)).text_color(rgb(t.secondary)).child(label))
+            .child(self)
+            .into_any_element()
+    }
+}
+
 /// Where a Tab press over the «Scarica» icons went.
 pub(crate) enum IconStep {
     Moved,
@@ -1490,6 +1505,7 @@ impl TimelineView {
                     let delivery_state = delivery_state.clone();
                     let history = history.borrow();
                     let event = &history.events()[index];
+                    let day = history.day_separator(index);
                     if event.status {
                         // Quiet centred line like Element: small round avatar + grey text, no bubble.
                         let avatar = event.sender.as_ref().map(|s| {
@@ -1502,7 +1518,7 @@ impl TimelineView {
                         return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py(px(1.)).flex().justify_center().items_center().gap_1p5().overflow_hidden()
                             .text_size(px(11.)).text_color(rgb(t.secondary))
                             // min_w_0 + text_center: long bridge texts wrap inside the column instead of overflowing it.
-                            .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::status_with_time(&event.text, &event.time))).into_any_element();
+                            .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::status_with_time(&event.text, &event.time))).into_any_element().pipe_day(day, t, index);
                     }
                     let sender_label = history.sender_label(index, members);
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
@@ -1960,7 +1976,7 @@ impl TimelineView {
                             #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                             { d }
                         })
-                        .into_any()
+                        .into_any().pipe_day(day, t, index)
                 })
                 .size_full(),
             )

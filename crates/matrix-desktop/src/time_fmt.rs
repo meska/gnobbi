@@ -121,6 +121,15 @@ fn weekday_or_date<Tz: TimeZone>(t: &DateTime<Tz>, days: i64, p: &Patterns) -> S
     }
 }
 
+/// True when `ms` falls on another calendar day than `prev_ms` in `tz` (the first message, `None`, always starts a day).
+pub fn starts_day_in<Tz: TimeZone>(prev_ms: Option<u64>, ms: u64, tz: &Tz) -> bool {
+    match (prev_ms.and_then(|p| local(p, tz)), local(ms, tz)) {
+        (Some(p), Some(t)) => p.date_naive() != t.date_naive(),
+        (None, Some(_)) => true,
+        _ => false,
+    }
+}
+
 /// Time of `ms` in `tz`; «--:--» when out of range.
 pub fn clock_time_in<Tz: TimeZone>(ms: u64, tz: &Tz, p: &Patterns) -> String {
     local(ms, tz).map_or_else(|| "--:--".to_owned(), |t| render(&p.time, &t, p))
@@ -156,6 +165,9 @@ fn now_ms() -> u64 {
 /// System zone and locale.
 pub fn clock_time(ms: u64) -> String {
     clock_time_in(ms, &Local, system())
+}
+pub fn starts_day(prev_ms: Option<u64>, ms: u64) -> bool {
+    starts_day_in(prev_ms, ms, &Local)
 }
 pub fn day_label(ms: u64) -> String {
     day_label_in(ms, now_ms(), &Local, system())
