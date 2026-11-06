@@ -342,7 +342,9 @@ mod tests {
     use matrix_engine::history::HistorySender;
 
     fn event(n: usize) -> HistoryEvent {
+        poll: None,
         HistoryEvent {
+            poll: None,
             event_id: EventId::new(format!("$r{n}")),
             body: format!("risposta {n}"),
             outgoing: false,

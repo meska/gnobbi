@@ -3,7 +3,9 @@ use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
 use matrix_engine::history::{HistoryEvent, HistorySender, ThreadInfo};
 
 fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
+    poll: None,
     HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$root"),
         body: "radice".into(),

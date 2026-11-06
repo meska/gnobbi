@@ -63,6 +63,7 @@ fn accessible_node_has_local_time() {
     let ts = Utc.with_ymd_and_hms(2026, 7, 15, 22, 30, 0).unwrap().timestamp_millis() as u64; // 00:30 CEST on the 16th
     let mut rows = DemoHistory::new(RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:fixture.invalid") }, 0);
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         event_id: matrix_domain::EventId::new("$a"), body: "ciao".into(), outgoing: false, redacted: false, timestamp_ms: ts,
         sender: HistorySender::new("@anna:test", None), video: None, attachment_name: None, attachment_size: None,
         styles: Vec::new(), thread: None, thread_root: None, status: false,

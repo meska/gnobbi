@@ -481,6 +481,7 @@ pub(crate) fn exercise(this: &mut Shell, window: &mut Window, cx: &mut Context<S
     use matrix_engine::history::{HistoryEvent, HistorySender};
     use matrix_engine::operations::MessageSource;
     let event = |n: usize| HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new(format!("$m{n}:t")),
         body: format!("riga {n} ciao"),

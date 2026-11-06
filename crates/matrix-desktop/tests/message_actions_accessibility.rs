@@ -49,6 +49,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         0,
     );
     history.prepend_server(vec![matrix_engine::history::HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$same:test"),
         body: "same text".into(),
@@ -260,6 +261,7 @@ fn an_attachment_has_a_scarica_button_a_text_row_has_none() {
         0,
     );
     let event = |id: &str, name: Option<&str>| matrix_engine::history::HistoryEvent {
+        poll: None,
         event_id: EventId::new(id),
         body: "x".into(),
         outgoing: false,

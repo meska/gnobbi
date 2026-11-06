@@ -5,7 +5,9 @@ use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
 use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn ev(id: &str, redacted: bool) -> HistoryEvent {
+    poll: None,
     HistoryEvent {
+        poll: None,
         redacted,
         event_id: EventId::new(id),
         body: if redacted { "[Messaggio eliminato]".into() } else { id.into() },

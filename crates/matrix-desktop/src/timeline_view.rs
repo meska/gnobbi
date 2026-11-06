@@ -2569,6 +2569,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
@@ -2710,6 +2711,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
@@ -2827,6 +2829,7 @@ mod tests {
                             false,
                         );
                         v.append_server(vec![HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: id.clone(),
                             body: "Video · 0:12 · 1.4 MB".into(),
@@ -2959,6 +2962,7 @@ mod tests {
             let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
             let ids = ["$img-in", "$file-in", "$img-out", "$file-out"].map(|id| EventId::new(format!("{id}:fixture.invalid")));
             let event = |id: &EventId, outgoing: bool, name: Option<&str>, image: bool, ms: u64| HistoryEvent {
+                poll: None,
                 redacted: false,
                 event_id: id.clone(),
                 body: if image { matrix_engine::history::IMAGE_BODY.into() } else { name.unwrap_or("solo testo").into() },

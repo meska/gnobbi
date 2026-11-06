@@ -1635,6 +1635,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             continue;
         };
         let (mut video, mut styles, mut attachment_name, mut attachment_size) = (None, Vec::new(), None, None);
+        let mut poll = None;
         let body = match &content.kind {
             MsgLikeKind::Message(message) => match message.msgtype() {
                 MessageType::Image(i) => {
@@ -1667,7 +1668,12 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
                 }
             },
             MsgLikeKind::Sticker(_) => "Sticker".into(),
-            MsgLikeKind::Poll(_) => "Sondaggio".into(),
+            MsgLikeKind::Poll(state) => {
+                let built = poll_from_results(state.results(), room.own_user_id().as_str(), event.is_own());
+                let question = built.question.clone();
+                poll = Some(built);
+                question
+            }
             MsgLikeKind::Redacted => "[Messaggio eliminato]".into(),
             // A UTD stays a real row with server identity, never ciphertext or silence.
             MsgLikeKind::UnableToDecrypt(_) => {
@@ -1699,9 +1705,46 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             status: false,
             attachment_name,
             attachment_size,
+            poll,
         });
     }
     out
+}
+
+/// The SDK result (already counted: last vote wins, votes after the end ignored) as a domain `Poll`.
+pub(crate) fn poll_from_results(
+    r: matrix_sdk_ui::timeline::PollResult,
+    own_user: &str,
+    is_own_event: bool,
+) -> matrix_domain::Poll {
+    let mut voters = std::collections::HashSet::new();
+    let answers: Vec<_> = r
+        .answers
+        .iter()
+        .map(|a| {
+            let who = r.votes.get(&a.id).map(Vec::as_slice).unwrap_or_default();
+            voters.extend(who.iter().map(String::as_str));
+            matrix_domain::PollAnswer {
+                id: a.id.clone(),
+                text: a.text.clone(),
+                votes: who.len() as u32,
+                own: who.iter().any(|u| u == own_user),
+            }
+        })
+        .collect();
+    // 0 on the wire would make the poll unvotable; the cap is at most the option count.
+    let max_selections = r.max_selections.clamp(1, u32::MAX.into()) as u32;
+    let ended = r.end_time.is_some();
+    matrix_domain::Poll {
+        question: r.question,
+        answers,
+        max_selections,
+        multiple: max_selections > 1,
+        disclosed: r.kind == matrix_sdk::ruma::events::poll::start::PollKind::Disclosed,
+        ended,
+        voters: voters.len() as u32,
+        can_end: is_own_event && !ended,
+    }
 }
 
 /// A status row from a membership, profile or room-state item; `None` for kinds we do not word
@@ -1760,6 +1803,7 @@ async fn status_row(
         _ => return None,
     };
     Some(crate::history::HistoryEvent {
+        poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
         body: status_text(&status, &label(&actor), &subject),
         outgoing: false,

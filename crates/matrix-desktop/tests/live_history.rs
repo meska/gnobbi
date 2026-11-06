@@ -8,7 +8,9 @@ fn scope(room: &str) -> RoomScope {
     }
 }
 fn event(id: &str) -> HistoryEvent {
+    poll: None,
     HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new(id),
         body: "same text".into(),

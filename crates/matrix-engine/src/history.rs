@@ -96,6 +96,8 @@ pub struct HistoryEvent {
     pub thread_root: Option<EventId>,
     /// A status row (join, invite, rename…): `body` is its wording and `sender` the person it shows.
     pub status: bool,
+    /// Set on a poll start: `body` is its question. Private user data: never log.
+    pub poll: Option<matrix_domain::Poll>,
 }
 
 /// The summary under a thread root, as the Timeline keeps it (live).

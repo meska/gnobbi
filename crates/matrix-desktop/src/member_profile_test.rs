@@ -337,6 +337,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
         timeline.set_member_count(3);
         timeline.append_server(vec![matrix_engine::history::HistoryEvent {
+            poll: None,
             redacted: false,
             event_id: matrix_domain::EventId::new("$bubble:test"),
             body: "ciao".into(),
