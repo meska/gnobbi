@@ -37,7 +37,7 @@ impl Shell {
                 window.minimize_window();
                 self.window_visible = false;
             }
-            TrayAction::ToggleWindow => self.show_window(window),
+            TrayAction::ToggleWindow | TrayAction::ShowWindow => self.show_window(window, cx),
             TrayAction::ToggleNotifications => {
                 self.notifications
                     .set_enabled(!self.notifications.enabled());
@@ -47,14 +47,15 @@ impl Shell {
             }
             TrayAction::Quit => cx.quit(),
             TrayAction::SwitchAccount(id) => {
-                self.show_window(window);
+                self.show_window(window, cx);
                 self.switch_account(id, window, cx);
             }
         }
         cx.notify();
     }
 
-    fn show_window(&mut self, window: &mut Window) {
+    fn show_window(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.activate(true); // macOS: the app itself, not only its window
         window.activate_window();
         self.window_visible = true;
     }
