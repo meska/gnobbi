@@ -793,7 +793,7 @@ pub async fn members(
             name: m
                 .display_name()
                 .map_or_else(|| m.user_id().to_string(), str::to_owned),
-            avatar: m.avatar_url().map(ToString::to_string),
+            avatar: m.avatar_url().map(ToString::to_string).filter(|u| !u.is_empty()),
         })
         .collect())
 }
@@ -826,7 +826,7 @@ pub async fn user_profile(
             .flatten()
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| id.to_string()),
-        avatar: profile.get_static::<AvatarUrl>().ok().flatten().map(|u| u.to_string()),
+        avatar: profile.get_static::<AvatarUrl>().ok().flatten().map(|u| u.to_string()).filter(|u| !u.is_empty()),
         verified: user_identity(client, &id).await.map(|i| i.is_verified()),
         ignored: is_ignored(client, &id).await,
     })
