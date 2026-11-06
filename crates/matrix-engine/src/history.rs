@@ -90,6 +90,10 @@ pub struct HistoryEvent {
     pub attachment_size: Option<u64>,
     /// Bold, italic, code… of a formatted body, as byte ranges of `body` (empty for plain text).
     pub styles: Vec<crate::rich_text::StyleSpan>,
+    /// User, «@room» and room mentions of a formatted body, as byte ranges of `body`.
+    pub mentions: Vec<crate::rich_text::MentionSpan>,
+    /// The push rules say this message is for us (Element's `tweaks.highlight`).
+    pub highlighted: bool,
     /// Set on the root of a thread.
     pub thread: Option<ThreadInfo>,
     /// Set on a reply inside a thread: the thread's root.

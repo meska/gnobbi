@@ -490,7 +490,7 @@ pub(crate) fn exercise(this: &mut Shell, window: &mut Window, cx: &mut Context<S
         timestamp_ms: 1_000 * n as u64,
         sender: HistorySender::new("@a:t", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,
         status: false,

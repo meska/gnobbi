@@ -27,6 +27,7 @@ enum DesignTokens {
         static let input: UInt32 = 0xf1f4f2
         static let disabled: UInt32 = 0xe9efeb
         static let selection: UInt32 = 0xd0ead8
+        static let mentionRow: UInt32 = 0xe2d5d1
         static let error: UInt32 = 0xb43030
         static let onAccent: UInt32 = 0xffffff
         static let avatarText: UInt32 = 0x101b14
@@ -46,6 +47,7 @@ enum DesignTokens {
         static let input: UInt32 = 0xf1f3f2
         static let disabled: UInt32 = 0xe6eae7
         static let selection: UInt32 = 0xcde9d6
+        static let mentionRow: UInt32 = 0xead4d7
         static let error: UInt32 = 0xb00020
         static let onAccent: UInt32 = 0xffffff
         static let avatarText: UInt32 = 0x101b14
@@ -65,6 +67,7 @@ enum DesignTokens {
         static let input: UInt32 = 0x203226
         static let disabled: UInt32 = 0x26372c
         static let selection: UInt32 = 0x254d34
+        static let mentionRow: UInt32 = 0x3b3631
         static let error: UInt32 = 0xffb3b3
         static let onAccent: UInt32 = 0x101922
         static let avatarText: UInt32 = 0x101b14
@@ -84,6 +87,7 @@ enum DesignTokens {
         static let input: UInt32 = 0x141c17
         static let disabled: UInt32 = 0x1a241d
         static let selection: UInt32 = 0x1b412a
+        static let mentionRow: UInt32 = 0x2e2020
         static let error: UInt32 = 0xffb3b3
         static let onAccent: UInt32 = 0x000000
         static let avatarText: UInt32 = 0x101b14

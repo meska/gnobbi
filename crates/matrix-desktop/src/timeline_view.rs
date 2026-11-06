@@ -14,6 +14,26 @@ use matrix_desktop::{
 };
 use matrix_domain::{RoomScope, ScopedTimelineId};
 
+/// The body's text layout seen through the avatar gaps of its mention pills: positions and
+/// indices are those of the message text, not of the drawn string.
+#[derive(Clone)]
+struct PillLayout {
+    layout: TextLayout,
+    gaps: Rc<matrix_desktop::mention_gaps::Gaps>,
+}
+
+impl PillLayout {
+    fn index_for_position(&self, position: gpui::Point<Pixels>) -> Result<usize, usize> {
+        self.layout.index_for_position(position).map(|i| self.gaps.text_index(i)).map_err(|i| self.gaps.text_index(i))
+    }
+    fn position_for_index(&self, index: usize) -> Option<gpui::Point<Pixels>> {
+        self.layout.position_for_index(self.gaps.start(index))
+    }
+    fn line_height(&self) -> Pixels {
+        self.layout.line_height()
+    }
+}
+
 type RowBounds = Rc<RefCell<Option<Bounds<Pixels>>>>;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 type ConfirmationBounds = Rc<RefCell<(u64, [Option<Bounds<Pixels>>; 3])>>;
@@ -1762,7 +1782,19 @@ impl TimelineView {
                         }
                         _ => (None, None),
                     };
-                    let mut body = StyledText::new(event.text.clone());
+                    let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions);
+                    let gaps = Rc::new(gaps);
+                    let mut body = StyledText::new(drawn);
+                    let pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions).collect();
+                    let pill_paint: Vec<_> = pills.iter().map(|m| {
+                        use matrix_engine::rich_text::MentionKind;
+                        let (bg, picture, user) = match &m.kind {
+                            MentionKind::User { sender, me } => (if *me { t.error } else { t.border }, sender.avatar.as_deref().and_then(|mxc| sender_pictures.borrow().get(mxc).cloned()), true),
+                            MentionKind::AtRoom => (t.error, None, false),
+                            MentionKind::Room => (t.border, None, false),
+                        };
+                        (m.range.clone(), bg, picture, user)
+                    }).collect();
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
                     let selected = selection.borrow().range(&event.id, &event.text);
@@ -1775,28 +1807,30 @@ impl TimelineView {
                     let styles: Vec<_> = event.styles.iter().filter(|s| s.range.start < s.range.end && s.range.end <= event.text.len() && event.text.is_char_boundary(s.range.start) && event.text.is_char_boundary(s.range.end)).collect();
                     for style in &styles { cuts.extend([style.range.start, style.range.end]); }
                     for link in &links { cuts.extend([link.range.start, link.range.end]); }
+                    for pill in &pills { cuts.extend([pill.range.start, pill.range.end]); }
                     if let Some(range) = &selected { cuts.extend([range.start, range.end]); }
                     cuts.sort_unstable();
                     cuts.dedup();
                     body = body.with_highlights(cuts.windows(2).map(|pair| {
                         let range = pair[0]..pair[1];
                         let is_link = links.iter().any(|link| link.range.contains(&range.start));
+                        let pill = pill_paint.iter().find(|(r, ..)| r.contains(&range.start));
                         use matrix_engine::rich_text::Style;
                         let has = |kind| styles.iter().any(|s| s.style == kind && s.range.contains(&range.start));
                         let style = HighlightStyle {
                             font_weight: has(Style::Bold).then_some(gpui::FontWeight::BOLD),
                             font_style: has(Style::Italic).then_some(gpui::FontStyle::Italic),
                             strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
-                            color: if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
+                            color: if let Some((_, bg, ..)) = pill { Some(rgb(if *bg == t.error { t.surface } else { t.text }).into()) } else if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
                             underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
                             background_color: if found.iter().any(|r| r.contains(&range.start)) || selected.as_ref().is_some_and(|r| r.contains(&range.start))
                                 || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { has(Style::Code).then(|| rgb(t.input).into()) },
                             ..Default::default()
                         };
-                        (range, style)
+                        (gaps.start(range.start)..gaps.end(range.end), style)
                     }));
-                    let down_layout = body.layout().clone();
-                    let move_layout = body.layout().clone();
+                    let down_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
+                    let move_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let down_generation = selection.borrow().generation();
                     let down_selection = selection.clone();
                     let move_selection = selection.clone();
@@ -1809,7 +1843,7 @@ impl TimelineView {
                     let down_focus = focus.clone();
                     let down_drag = dragging.clone();
                     let move_drag = dragging.clone();
-                    let up_layout = body.layout().clone();
+                    let up_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let up_selection = selection.clone();
                     let up_id = event.id.clone();
                     let up_text = event.text.clone();
@@ -1826,13 +1860,14 @@ impl TimelineView {
                     let (tip_surface, tip_border, tip_text) = (t.surface, t.border, t.text);
                     let down_cursor = link_cursor.clone();
                     let down_menu = link_menu.clone();
-                    let menu_layout = body.layout().clone();
+                    let menu_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let menu_targets = targets.clone();
                     let menu_state = link_menu.clone();
                     let menu_at = link_menu_at.clone();
                     let paint_targets = targets.clone();
-                    let paint_layout = body.layout().clone();
+                    let paint_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let paint_links = row_link_painted.clone();
+                    let pill_layout = paint_layout.clone();
                     let down_requested = requested_link.clone();
                     let up_requested = requested_link.clone();
                     let status = match event.send_state {
@@ -1873,7 +1908,8 @@ impl TimelineView {
                                 .py_3()
                                 .rounded_lg()
                                 .relative()
-                                .bg(rgb(if flashing { flash(if event.outgoing { t.outgoing } else { t.surface }, t.accent) } else if event.outgoing { t.outgoing } else { t.surface }))
+                                .bg(rgb(if flashing { flash(if event.outgoing { t.outgoing } else if event.highlighted { t.mention_row } else { t.surface }, t.accent) } else if event.outgoing { t.outgoing } else if event.highlighted { t.mention_row } else { t.surface }))
+                                .when(event.highlighted, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).rounded_l_lg().bg(rgb(t.error))))
                                 .when(event.menu_available(live), |d| {
                                     let id = event.id.clone();
                                     let operations = operations.clone();
@@ -1937,6 +1973,26 @@ impl TimelineView {
                                     })
                                     .relative()
                                     .child(canvas(|_, _, _| (), move |bounds, _, window, _| {
+                                        // Pills first, behind the text: a rounded fill per line and the avatar in the gap.
+                                        let lh = pill_layout.line_height();
+                                        for (range, bg, picture, user) in &pill_paint {
+                                            let from = if *user { pill_layout.layout.position_for_index(pill_layout.gaps.gap_start(range.start)) } else { pill_layout.position_for_index(range.start) };
+                                            let (Some(a), Some(b)) = (from, pill_layout.layout.position_for_index(pill_layout.gaps.end(range.end))) else { continue };
+                                            let left = a.x - if *user { px(2.) } else { px(3.) };
+                                            let lines = if b.y == a.y { vec![(a.y, left, b.x + px(3.))] } else { vec![(a.y, left, bounds.right()), (b.y, bounds.left(), b.x + px(3.))] };
+                                            for (y, l, r) in lines {
+                                                let mut quad = gpui::fill(Bounds::from_corners(gpui::point(l, y + px(1.)), gpui::point(r, y + lh - px(1.))), rgb(*bg));
+                                                quad.corner_radii = ((lh - px(2.)) / 2.).into();
+                                                window.paint_quad(quad);
+                                            }
+                                            if *user {
+                                                let icon = Bounds::new(gpui::point(a.x, a.y + (lh - px(16.)) / 2.), gpui::size(px(16.), px(16.)));
+                                                match picture {
+                                                    Some(image) => { let _ = window.paint_image(icon, gpui::Corners::all(px(8.)), image.clone(), 0, false); }
+                                                    None => { let mut quad = gpui::fill(icon, rgb(matrix_desktop::AVATAR_FALLBACK)); quad.corner_radii = px(8.).into(); window.paint_quad(quad); }
+                                                }
+                                            }
+                                        }
                                         // Accessible link bounds come from the text itself: first line only when a link wraps.
                                         for target in &paint_targets {
                                             let r = target.range();
@@ -2649,7 +2705,7 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -2791,7 +2847,7 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -2914,7 +2970,7 @@ mod tests {
                                 #[cfg(feature = "live")]
                                 thumbnail: None,
                             }),
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -3038,7 +3094,7 @@ mod tests {
                             timestamp_ms: 0,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -3145,7 +3201,7 @@ mod tests {
                             timestamp_ms: 0,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -3272,7 +3328,7 @@ mod tests {
                 timestamp_ms: ms,
                 sender: HistorySender::new(if outgoing { "@me:fixture.invalid" } else { "@a:fixture.invalid" }, None),
                 video: None,
-                styles: Vec::new(),
+                styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                 thread: None,
                 thread_root: None,
                 status: false,

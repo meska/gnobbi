@@ -22,7 +22,7 @@ fn server_message_exposes_its_event_id_and_unsent_one_does_not() {
         timestamp_ms: 0,
         sender: HistorySender::new("@a:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,

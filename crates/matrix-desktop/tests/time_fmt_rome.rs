@@ -66,7 +66,7 @@ fn accessible_node_has_local_time() {
         poll: None,
         event_id: matrix_domain::EventId::new("$a"), body: "ciao".into(), outgoing: false, redacted: false, timestamp_ms: ts,
         sender: HistorySender::new("@anna:test", None), video: None, attachment_name: None, attachment_size: None,
-        styles: Vec::new(), thread: None, thread_root: None, status: false,
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false, thread: None, thread_root: None, status: false,
     }]);
     let d = HistoryNodes::default().project(&rows, 0, true).messages[0].description.clone();
     assert!(d.starts_with("00:30") && !d.to_uppercase().contains("UTC"), "{d}");

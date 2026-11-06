@@ -1635,6 +1635,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             continue;
         };
         let (mut video, mut styles, mut attachment_name, mut attachment_size) = (None, Vec::new(), None, None);
+        let mut mentions = Vec::new();
         let mut poll = None;
         let body = match &content.kind {
             MsgLikeKind::Message(message) => match message.msgtype() {
@@ -1662,8 +1663,9 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
                         MessageType::Audio(a) => Some(audio_info(a)),
                         _ => None,
                     };
-                    let (body, spans) = message_rich(msgtype);
-                    styles = spans;
+                    let at_room = message.mentions().is_some_and(|m| m.room);
+                    let (body, spans, pills) = message_rich(room, msgtype, at_room).await;
+                    (styles, mentions) = (spans, pills);
                     body
                 }
             },
@@ -1700,6 +1702,8 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             sender: history_sender(room, event.sender()).await,
             video,
             styles,
+            mentions,
+            highlighted: event.is_highlighted(),
             thread: thread_info(room, content).await,
             thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
             status: false,
@@ -1830,6 +1834,8 @@ async fn status_row(
         sender: shown,
         video: None,
         styles: Vec::new(),
+        mentions: Vec::new(),
+        highlighted: false,
         thread: None,
         thread_root: None,
         status: true,
@@ -2098,8 +2104,36 @@ fn audio_info(
     }
 }
 
-/// Row text and styles of a message: its sanitized HTML body when the sender gave one, else `message_label`.
-fn message_rich(msgtype: &MessageType) -> (String, Vec<crate::rich_text::StyleSpan>) {
+/// Members (joined or invited) that the `matrix.to` user links of `html` point at, named as on their bubbles.
+async fn mention_senders(
+    room: &matrix_sdk::room::Room,
+    html: &str,
+) -> std::collections::HashMap<String, crate::history::HistorySender> {
+    use matrix_sdk::ruma::{MatrixToUri, events::room::member::MembershipState, matrix_uri::MatrixId};
+    let mut out = std::collections::HashMap::new();
+    // shortcut: at most 32 links per message are looked up, the rest stay plain text.
+    for part in html.split("https://matrix.to/#/").skip(1).take(32) {
+        let raw: String = part.chars().take_while(|c| !"\"'<> ".contains(*c)).collect();
+        let Ok(uri) = MatrixToUri::parse(&format!("https://matrix.to/#/{raw}")) else { continue };
+        let MatrixId::User(id) = uri.id() else { continue };
+        if out.contains_key(id.as_str()) {
+            continue;
+        }
+        let Some(member) = room.get_member_no_sync(id).await.ok().flatten() else { continue };
+        if matches!(member.membership(), MembershipState::Join | MembershipState::Invite) {
+            out.insert(id.to_string(), history_sender(room, id).await);
+        }
+    }
+    out
+}
+
+/// Row text, styles and mention pills of a message: its sanitized HTML body when the sender gave
+/// one, else `message_label`. `at_room` is the event's `m.mentions.room`.
+async fn message_rich(
+    room: &matrix_sdk::room::Room,
+    msgtype: &MessageType,
+    at_room: bool,
+) -> (String, Vec<crate::rich_text::StyleSpan>, Vec<crate::rich_text::MentionSpan>) {
     use matrix_sdk::ruma::events::room::message::MessageFormat;
     let formatted = match msgtype {
         MessageType::Text(t) => t.formatted.as_ref(),
@@ -2107,12 +2141,16 @@ fn message_rich(msgtype: &MessageType) -> (String, Vec<crate::rich_text::StyleSp
         _ => None,
     };
     if let Some(f) = formatted.filter(|f| f.format == MessageFormat::Html) {
-        let (text, styles) = crate::rich_text::from_html(&f.body);
+        let users = mention_senders(room, &f.body).await;
+        let ctx = crate::rich_text::MentionCtx { users: &users, me: room.own_user_id().as_str(), at_room };
+        let (text, styles, mentions) = crate::rich_text::from_html_mentions(&f.body, &ctx);
         if !text.is_empty() {
-            return (text, styles);
+            return (text, styles, mentions);
         }
     }
-    (message_label(msgtype), Vec::new())
+    let label = message_label(msgtype);
+    let pills = if at_room { crate::rich_text::at_room_spans(&label, &[], &[]) } else { Vec::new() };
+    (label, Vec::new(), pills)
 }
 
 /// Row text for a message type: its content when textual, otherwise a short real label.

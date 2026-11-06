@@ -52,7 +52,7 @@ fn swift_and_kotlin_match_the_rust_constants_for_all_themes() {
             ("timeline", "TIMELINE", p.timeline), ("outgoing", "OUTGOING", p.outgoing),
             ("selected", "SELECTED", p.selected), ("border", "BORDER", p.border),
             ("input", "INPUT", p.input), ("disabled", "DISABLED", p.disabled),
-            ("selection", "SELECTION", p.selection), ("error", "ERROR", p.error),
+            ("selection", "SELECTION", p.selection), ("mentionRow", "MENTION_ROW", p.mention_row), ("error", "ERROR", p.error),
             ("onAccent", "ON_ACCENT", p.on_accent), ("avatarText", "AVATAR_TEXT", p.avatar_text),
         ] {
             has(&swift, &format!("static let {swift_name}: UInt32 = {v:#08x}"));

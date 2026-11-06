@@ -84,6 +84,7 @@ pub use event_id_copy::{EventIdCopies, EventIdCopyTarget};
 mod link_requests;
 pub use link_requests::{LinkMenu, MessageLinkRequests, MessageLinkTarget, link_at};
 mod links;
+pub mod mention_gaps;
 pub use links::{
     LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links,
 };
@@ -132,6 +133,7 @@ pub struct DesignTokens {
     pub input: u32,
     pub disabled: u32,
     pub selection: u32,
+    pub mention_row: u32,
     pub error: u32,
     pub on_accent: u32,
     pub avatar_text: u32,
@@ -249,6 +251,7 @@ pub const LIGHT: DesignTokens = DesignTokens {
     input: 0xf1f4f2,
     disabled: 0xe9efeb,
     selection: 0xd0ead8,
+    mention_row: 0xe2d5d1,
     error: 0xb43030,
     on_accent: 0xffffff,
     avatar_text: 0x101b14,
@@ -267,6 +270,7 @@ pub const DARK: DesignTokens = DesignTokens {
     input: 0x203226,
     disabled: 0x26372c,
     selection: 0x254d34,
+    mention_row: 0x3b3631,
     error: 0xffb3b3,
     on_accent: 0x101922,
     ..LIGHT
@@ -285,6 +289,7 @@ pub const DAY: DesignTokens = DesignTokens {
     input: 0xf1f3f2,
     disabled: 0xe6eae7,
     selection: 0xcde9d6,
+    mention_row: 0xead4d7,
     error: 0xb00020,
     ..LIGHT
 };
@@ -303,6 +308,7 @@ pub const NIGHT: DesignTokens = DesignTokens {
     input: 0x141c17,
     disabled: 0x1a241d,
     selection: 0x1b412a,
+    mention_row: 0x2e2020,
     error: 0xffb3b3,
     on_accent: 0x000000,
     ..LIGHT

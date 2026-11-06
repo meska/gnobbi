@@ -21,7 +21,7 @@ fn live_server_message_stamp_has_no_event_id() {
         timestamp_ms: 0,
         sender: HistorySender::new("@a:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,

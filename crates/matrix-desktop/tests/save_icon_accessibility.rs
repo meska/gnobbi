@@ -59,7 +59,7 @@ fn event(id: &str, outgoing: bool, name: Option<&str>, image: bool, redacted: bo
         timestamp_ms: 1,
         sender: HistorySender::new(if outgoing { "@me:test" } else { "@peer:test" }, None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,
         status: false,
