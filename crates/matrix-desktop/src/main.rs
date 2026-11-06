@@ -211,6 +211,8 @@ struct Shell {
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
+    /// The pending confirmation closes the poll instead of deleting the message.
+    confirm_end: bool,
     connected: bool,
     status: RoomSyncStatus,
     sidebar: Sidebar,
@@ -1677,6 +1679,8 @@ impl Shell {
             self.confirm_redaction = None;
         }
         let confirming = self.confirm_redaction.is_some();
+        let ending = confirming && self.confirm_end;
+        let can_end = actions.selection().is_some_and(|id| self.can_end_poll(id, &actions));
         let notice = actions.notice(confirming);
         drop(actions);
         if !selected && !busy && error.is_none() {
@@ -1684,7 +1688,9 @@ impl Shell {
         }
         let t = self.theme.tokens();
         let probe = std::env::var("MATRIX_DESKTOP_TIMELINE_PROBE").as_deref() == Ok("1");
-        let controls = if confirming {
+        let controls = if ending {
+            vec![("confirm-redact", "Chiudi", can_end), ("cancel-redact", "Annulla", true)]
+        } else if confirming {
             vec![
                 (
                     "confirm-redact",
@@ -1699,12 +1705,14 @@ impl Shell {
                 ("thread", "Rispondi nel thread", permissions.reply && !busy),
                 ("edit", "Modifica", permissions.edit && !busy),
                 ("redact", "Elimina", permissions.redact && !busy),
+                ("end-poll", "Chiudi sondaggio", can_end),
                 ("react", "+1 / togli", permissions.react && !busy),
                 ("retry", "Riprova", error == Some(OperationError::Transport)),
                 ("close", "Chiudi", true),
             ]
         };
         div().flex_shrink_0().px_4().py_2().bg(rgb(t.surface)).border_t_1().border_color(rgb(t.selection))
+            .when(ending, |d| d.child(div().text_size(px(12.)).text_color(rgb(t.accent)).child("Chiudere il sondaggio?")))
             .when(notice != matrix_desktop::LiveOperations::IDLE_NOTICE, |d| d.child(div().text_size(px(11.)).text_color(rgb(t.secondary)).whitespace_normal().child(notice)))
             .child(div().flex().flex_wrap().gap_2().children(controls.into_iter().map(|(name,label,enabled)| {
                 let d = div().id(name).relative().px_2().h(px(28.)).flex().items_center().text_size(px(12.))
@@ -1722,7 +1730,8 @@ impl Shell {
                         let _ = event;
                         match name {
                             "close" => this.close_message_actions(_window),
-                            "redact" => {
+                            "redact" | "end-poll" => {
+                                this.confirm_end = name == "end-poll";
                                 let target = this.operations.borrow().selection().cloned();
                                 if let Some(target) = target {
                                     this.operations.borrow_mut().select(target.clone());
@@ -1731,7 +1740,7 @@ impl Shell {
                                     this.operation_ui.focus.focus(_window);
                                 }
                             },
-                            "cancel-redact" => this.confirm_redaction = None,
+                            "cancel-redact" => { this.confirm_redaction = None; this.confirm_end = false; },
                             "retry" => { this.operations.borrow_mut().retry(); },
                             "thread" => {
                                 let target = this.operations.borrow().selection().map(|s| s.id.clone());
@@ -1748,7 +1757,8 @@ impl Shell {
                                         "reply" | "edit" => this.composer.update(cx, |editor,cx| editor.accept_operation(&mut this.operations.borrow_mut(), name == "edit", transaction, cx)),
                                         "react" => { this.operations.borrow_mut().toggle_reaction("+1", transaction); },
                                         "confirm-redact" => {
-                                            if this.confirm_redaction.as_ref() == this.operations.borrow().selection() { this.operations.borrow_mut().submit(matrix_engine::operations::Operation::Redact, transaction); }
+                                            let ending = std::mem::take(&mut this.confirm_end);
+                                            if this.confirm_redaction.as_ref() == this.operations.borrow().selection() { this.operations.borrow_mut().submit(if ending { matrix_engine::operations::Operation::EndPoll } else { matrix_engine::operations::Operation::Redact }, transaction); }
                                             this.confirm_redaction = None;
                                         },
                                         _ => (),
@@ -1780,6 +1790,9 @@ impl Shell {
                     .when((name == "redact" || name == "confirm-redact") && enabled, |d| d.track_focus(&self.operation_ui.redact_focus)
                         .when(self.operation_ui.redact_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer(name, cx)))
+                    .when(name == "end-poll" && enabled, |d| d.track_focus(&self.operation_ui.end_focus)
+                        .when(self.operation_ui.end_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .children(self.operation_control_observer("end-poll", cx)))
                     .when(name == "retry" && enabled, |d| d.track_focus(&self.operation_ui.retry_focus)
                         .when(self.operation_ui.retry_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("retry", cx)));
@@ -3223,6 +3236,7 @@ fn main() {
                         members_requested: None,
                         read_dirty: false,
                         confirm_redaction: None,
+                        confirm_end: false,
                         connected,
                         status: RoomSyncStatus::Connecting,
                         sidebar,

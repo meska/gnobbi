@@ -435,10 +435,12 @@ pub(crate) async fn details(
     tokio::time::timeout(WAIT, async {
         let (room, _, item) = locate(client, timelines, account, scope, &target, true).await?;
         let item = item.ok_or(OperationError::Unavailable)?;
-        let message = item
-            .content()
-            .as_message()
-            .ok_or(OperationError::Unavailable)?;
+        // A poll start is acted on like a message (EndPoll needs its redact right).
+        let body = match (item.content().as_message(), item.content().as_poll()) {
+            (Some(message), _) => message.body().to_owned(),
+            (None, Some(poll)) => poll.results().question,
+            _ => return Err(OperationError::Unavailable),
+        };
         let user = client.user_id().ok_or(OperationError::Unavailable)?;
         // The SDK has no permission check: power levels stay ours.
         let levels = room
@@ -447,7 +449,7 @@ pub(crate) async fn details(
             .map_err(|_| OperationError::Unavailable)?;
         let send = levels.user_can_send_message(user, MessageLikeEventType::RoomMessage);
         Ok(MessageDetails {
-            body: message.body().to_owned(),
+            body,
             permissions: MessagePermissions {
                 reply: send && item.can_be_replied_to(),
                 edit: send && item.is_editable(),

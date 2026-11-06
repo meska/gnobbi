@@ -67,6 +67,10 @@ impl LiveOperations {
         self.inspection_error = None;
         true
     }
+    /// «Chiudi sondaggio» is offered for an own open poll, when the end event may be sent.
+    pub fn can_end_poll(&self, poll: Option<&Poll>) -> bool {
+        !self.is_pending() && self.details().is_some_and(|d| d.permissions.redact) && poll.is_some_and(|p| p.can_end)
+    }
     pub fn clear_selection(&mut self) {
         self.views.cancel();
         self.selection_tag = None;
