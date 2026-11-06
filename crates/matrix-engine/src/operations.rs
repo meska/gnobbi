@@ -321,7 +321,7 @@ pub struct Member {
     pub user_id: String,
     /// Display name, or the user id when the member has none.
     pub name: String,
-    /// `mxc://` avatar of the member in this room.
+    /// `mxc://` avatar of the member in this room (an empty string counts as none).
     pub avatar: Option<String>,
 }
 

@@ -2965,7 +2965,7 @@ fn main() {
                                             cx.notify();
                                         }
                                         this.drive_saves(cx);
-                                        if this.drive_avatars() {
+                                        if this.drive_avatars(cx) {
                                             cx.notify();
                                         }
                                         if let Some((sender, _)) = &mut this.routes.media {
