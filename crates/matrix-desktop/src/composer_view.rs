@@ -969,16 +969,29 @@ impl Render for ComposerView {
             .justify_center()
             .gap_1()
             .when(!options.is_empty(), |d| {
+                let list = div().flex().flex_col();
+                #[cfg(test)]
+                let list = list.on_children_prepainted(|b, _, _| tests::MENTION_ROWS.with(|r| *r.borrow_mut() = b));
                 d.child(
-                    div()
-                        .flex()
-                        .flex_col()
+                    list
                         .children(options.into_iter().enumerate().map(|(i, member)| {
-                            let avatar = match member.avatar.as_ref().and_then(|m| self.pictures.get(m)) {
-                                Some(image) => crate::avatar_view::round(image.clone(), 36.),
-                                None => div().flex().items_center().justify_center().size(px(36.)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(14.)).font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::initials(&member.name)).into_any_element(),
+                            let picture = member.avatar.as_ref().and_then(|m| self.pictures.get(m));
+                            let avatar = match picture {
+                                Some(image) => {
+                                    #[cfg(test)]
+                                    tests::MENTION_PICTURE.with(|p| { p.borrow_mut().insert(i, true); });
+                                    crate::avatar_view::round(image.clone(), 36.)
+                                }
+                                None => {
+                                    #[cfg(test)]
+                                    tests::MENTION_PICTURE.with(|p| { p.borrow_mut().insert(i, false); });
+                                    div().flex().items_center().justify_center().size(px(36.)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(14.)).font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::initials(&member.name)).into_any_element()
+                                }
                             };
-                            div()
+                            let row = div();
+                            #[cfg(test)]
+                            let row = row.on_children_prepainted(move |b, _, _| tests::MENTION_CELLS.with(|c| { c.borrow_mut().insert(i, b); }));
+                            row
                                 .id(("composer-mention", i))
                                 .cursor_pointer()
                                 .px_2()
@@ -1312,6 +1325,118 @@ impl Render for ComposerView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use matrix_engine::operations::Member;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    // Filled by the test-only hooks in the @ list render: row bounds, per-row cell bounds
+    // (avatar, name, id) and whether the row painted a picture rather than initials.
+    thread_local! {
+        pub(super) static MENTION_ROWS: RefCell<Vec<Bounds<Pixels>>> = const { RefCell::new(Vec::new()) };
+        pub(super) static MENTION_CELLS: RefCell<HashMap<usize, Vec<Bounds<Pixels>>>> = RefCell::new(HashMap::new());
+        pub(super) static MENTION_PICTURE: RefCell<HashMap<usize, bool>> = RefCell::new(HashMap::new());
+    }
+
+    fn member(id: &str, name: &str, avatar: Option<&str>) -> Member {
+        Member { user_id: id.into(), name: name.into(), avatar: avatar.map(Into::into) }
+    }
+
+    fn picture() -> std::sync::Arc<gpui::RenderImage> {
+        let buffer = image::RgbaImage::from_pixel(96, 96, image::Rgba([200, 30, 30, 255]));
+        std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]))
+    }
+
+    /// Painted @ list at the window scale given by GPUI_X11_SCALE_FACTOR (1, 1.5, 2):
+    /// image row, initials row, absent / empty / still-loading avatar, long names.
+    #[test]
+    #[ignore = "requires a private display"]
+    fn painted_mention_rows_with_avatar_at_scale() {
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        let want: f32 = std::env::var("GPUI_X11_SCALE_FACTOR").ok().and_then(|v| v.parse().ok()).unwrap_or(1.);
+        let long = "Bartolomeo Maria Fontana-Rossi";
+        let huge = "Massimiliano ".repeat(12);
+        let members = vec![
+            member("@anna:x", "Anna Rossi", Some("mxc://x/anna")),
+            member("@bruno:x", "Bruno Verdi", Some("mxc://x/bruno")),
+            member("@carla:x", "Carla", None),
+            member("@dario:x", "Dario", Some("")),
+            member("@long:x", long, None),
+            member("@huge:x", huge.trim(), None),
+        ];
+        let plain: Vec<_> = members.iter().map(|m| Member { avatar: None, ..m.clone() }).collect();
+        gpui::Application::new().run(move |cx| {
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    cx.new(|cx| {
+                        let mut v = ComposerView::new(
+                            RoomScope {
+                                account_id: matrix_domain::AccountId::new(1),
+                                room_id: matrix_domain::RoomId::new("!avatar:fixture.invalid"),
+                            },
+                            cx,
+                        );
+                        v.set_live(true);
+                        v.set_members(members.clone(), cx);
+                        v.set_picture("mxc://x/anna".into(), picture(), cx);
+                        v.replace_text_in_range(None, "@", window, cx);
+                        v
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(400)).await;
+                let order = view.update(cx, |v, window, _| {
+                    assert_eq!(window.scale_factor(), want, "window scale");
+                    v.mention_options().into_iter().map(|m| m.user_id).collect::<Vec<_>>()
+                }).unwrap();
+                // Same order as the avatar-less list (ranked by name only).
+                assert_eq!(order, ["@anna:x", "@long:x", "@bruno:x", "@carla:x", "@dario:x", "@huge:x"]);
+                let check = |loaded: &[&str]| {
+                    let rows = MENTION_ROWS.with(|r| r.borrow().clone());
+                    assert_eq!(rows.len(), order.len(), "one painted row per option");
+                    for (i, id) in order.iter().enumerate() {
+                        let cells = MENTION_CELLS.with(|c| c.borrow()[&i].clone());
+                        let (avatar, name) = (cells[0], cells[1]);
+                        // 36 logical px = 36 * scale device px, whatever the avatar kind.
+                        assert_eq!((f32::from(avatar.size.width), f32::from(avatar.size.height)), (36., 36.), "{id}");
+                        assert_eq!(f32::from(avatar.size.width) * want, 36. * want);
+                        assert!(avatar.left() <= name.left() && f32::from(name.size.width) > 0., "{id}: avatar left of name");
+                        let image = MENTION_PICTURE.with(|p| p.borrow()[&i]);
+                        assert_eq!(image, loaded.contains(&id.as_str()), "{id}: picture vs initials");
+                        if let Some(&idb) = cells.get(2) {
+                            assert!(idb.left() >= name.right() - px(0.5), "{id}: ID after the name");
+                            assert!(idb.right() <= rows[i].right() + px(0.5), "{id}: ID inside the row");
+                            assert!(f32::from(idb.size.width) > 0., "{id}: ID visible");
+                        }
+                        if id == "@long:x" {
+                            // fits in the row: name takes its full text width, not squeezed by the avatar
+                            assert!(f32::from(name.size.width) > 150., "long name not truncated: {:?}", name.size);
+                        }
+                    }
+                };
+                check(&["@anna:x"]);
+                // Loading, then the image arrives: Bruno flips to a picture, geometry unchanged.
+                let before = MENTION_CELLS.with(|c| c.borrow()[&2].clone());
+                view.update(cx, |v, _, cx| v.set_picture("mxc://x/bruno".into(), picture(), cx)).unwrap();
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                check(&["@anna:x", "@bruno:x"]);
+                assert_eq!(MENTION_CELLS.with(|c| c.borrow()[&2].clone()), before, "arriving image keeps the layout");
+                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                view.update(cx, |v, window, _| {
+                    let scope = RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!avatar:fixture.invalid") };
+                    let names = v.semantic_snapshot(scope.clone(), window).mentions;
+                    v.members = plain.clone();
+                    let without = v.semantic_snapshot(scope, window).mentions;
+                    assert_eq!(names, without, "a11y mention names unchanged by avatars");
+                    assert!(names.unwrap().0.iter().all(|n| !n.contains("mxc")));
+                }).unwrap();
+                let _ = &plain;
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
 
     #[test]
     #[ignore = "requires private display"]

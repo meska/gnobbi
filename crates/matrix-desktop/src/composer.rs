@@ -250,4 +250,31 @@ mod mention_tests {
             .collect();
         assert_eq!(mention_matches(&many, "").len(), 6);
     }
+
+    #[test]
+    fn matches_are_identical_with_and_without_avatars() {
+        let m = |id: &str, name: &str, avatar: Option<&str>| Member {
+            user_id: id.into(),
+            name: name.into(),
+            avatar: avatar.map(Into::into),
+        };
+        let with = vec![
+            m("@b:x", "Sabrina", Some("mxc://x/b")),
+            m("@a:x", "Bruno", Some("")),
+            m("@c:x", "@c:x", None),
+            m("@d:x", "Brunella", Some("mxc://x/d")),
+            m("@e:x", "anna", None),
+        ];
+        let without: Vec<_> = with.iter().map(|x| Member { avatar: None, ..x.clone() }).collect();
+        for query in ["", "br", "BR", "a", "c", "x", "@", "zzz", "sabri"] {
+            let ids = |list: &[Member]| -> Vec<String> {
+                mention_matches(list, query).iter().map(|x| x.user_id.clone()).collect()
+            };
+            assert_eq!(ids(&with), ids(&without), "query {query:?}");
+        }
+        let many: Vec<_> = (0..9).map(|i| m(&format!("@u{i}:x"), &format!("U{i}"), Some("mxc://x/u"))).collect();
+        assert_eq!(mention_matches(&many, "").len(), 6, "cap of six holds with avatars");
+        // The result still carries the avatar so the list can draw it.
+        assert_eq!(mention_matches(&with, "sabri")[0].avatar.as_deref(), Some("mxc://x/b"));
+    }
 }
