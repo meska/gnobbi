@@ -3,19 +3,19 @@ use crate::*;
 use matrix_desktop::panel_openers::{Control, Intent};
 
 pub(crate) struct OpenerUi {
-    sources: [Option<u64>; 3],
+    sources: [Option<u64>; 4],
     next: u64,
     context: Option<(AccountId, Option<RoomScope>)>,
-    focus: std::cell::RefCell<[Option<(u64, FocusHandle)>; 3]>,
-    bounds: [Option<(u64, Bounds<gpui::Pixels>, f32)>; 3],
+    focus: std::cell::RefCell<[Option<(u64, FocusHandle)>; 4]>,
+    bounds: [Option<(u64, Bounds<gpui::Pixels>, f32)>; 4],
 }
 impl OpenerUi {
     pub(crate) fn new() -> Self {
         Self {
-            sources: [None; 3],
+            sources: [None; 4],
             next: 1,
             context: None,
-            bounds: [None; 3],
+            bounds: [None; 4],
             focus: Default::default(),
         }
     }
@@ -100,7 +100,7 @@ impl Shell {
             self.sidebar.selected().map(|r| r.scope.clone()),
         );
         if self.opener_ui.context.as_ref() != Some(&context) {
-            self.opener_ui.sources = [None; 3];
+            self.opener_ui.sources = [None; 4];
             self.opener_ui.context = Some(context);
         }
         let available = self.connected
@@ -109,13 +109,11 @@ impl Shell {
             && !self.room_details_open;
         #[cfg(feature = "live")]
         let available = available && self.signin.is_none();
-        let visible = [
-            available
-                && (self.navigation_wide || self.compact_chat)
-                && self.sidebar.selected().is_some(),
-            false, // Devices and Notifications are drawer rows now
-            false,
-        ];
+        let info = available
+            && (self.navigation_wide || self.compact_chat)
+            && self.sidebar.selected().is_some();
+        // Order of the enum: Info, Devices, Notifications (drawer rows now), Search.
+        let visible = [info, false, false, info];
         for (i, visible) in visible.into_iter().enumerate() {
             if !visible {
                 self.opener_ui.sources[i] = None;
@@ -151,6 +149,10 @@ impl Shell {
                 }
                 Control::Notifications => self.open_notifications_panel(window),
                 Control::Devices => self.open_devices_panel(window),
+                Control::Search => {
+                    // Placeholder: the room-search task listens to this counter.
+                    self.room_search_requests += 1;
+                }
             }
         }
         cx.notify();
@@ -216,6 +218,7 @@ impl Shell {
         div()
             .id(match control {
                 Control::Info => "room-info",
+                Control::Search => "room-search-open",
                 Control::Devices => "open-devices",
                 Control::Notifications => "open-notifications",
             })
@@ -231,14 +234,15 @@ impl Shell {
             } else {
                 gpui::rgba(0)
             })
-            // Info is an icon like the list-header ⋮ (same 36x36 box as the hamburger, 20px glyph); accessible name unchanged.
-            .when(control == Control::Info, |d| {
+            // Info and Search are icons in the same 36x36 box as the hamburger, with the same hover; no visible text, no tooltip.
+            .when(matches!(control, Control::Info | Control::Search), |d| {
                 d.w(px(36.)).h(px(36.)).flex().items_center().justify_center().rounded_lg().text_size(px(20.)).hover(|s| s.bg(rgb(t.border)))
             })
             .child(match control {
-                Control::Info => "⋮",
-                Control::Devices => "Dispositivi",
-                Control::Notifications => "Notifiche",
+                Control::Info => "⋮".into_any_element(),
+                Control::Search => composer_icons::icon(composer_icons::Icon::Search, t.accent).into_any_element(),
+                Control::Devices => "Dispositivi".into_any_element(),
+                Control::Notifications => "Notifiche".into_any_element(),
             })
             .on_click(cx.listener(move |this, _, window, cx| callback(this, window, cx)))
             .into_any_element()
@@ -325,6 +329,12 @@ mod tests {
             executor.timer(std::time::Duration::from_millis(500)).await;
             this.update_in(cx,|this,window,cx| {
                 assert!(window.is_window_active(), "private runner must activate the ready test window before paint assertions");
+                {
+                    let (search,_)=this.opener_ui.painted_bounds(Control::Search).expect("magnifier must be painted");
+                    let (info,_)=this.opener_ui.painted_bounds(Control::Info).expect("info must be painted");
+                    assert!(search.size.width>=px(32.) && search.size.height>=px(32.),"magnifier hit area {search:?}");
+                    assert!(search.right()<=info.left() && search.top()==info.top(),"magnifier immediately left of the dots: {search:?} {info:?}");
+                }
                 for control in ROOT {
                     assert!(this.opener_ui.painted_bounds(control).is_some(),"current root button must have real painted bounds: {control:?}");
                     #[cfg(all(feature="linux-a11y",target_os="linux"))]
@@ -518,7 +528,7 @@ mod tests {
                     this.apply_opener(Intent {control,source,focus_only:true},window,cx);
                     let key=this.opener_key_callback();
                     assert!(key(this,&KeyDownEvent {keystroke:gpui::Keystroke::parse(name).unwrap(),is_held:false},window,cx));
-                    assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],Control::ALL.map(|c| c==control));
+                    assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],[Control::Info, Control::Devices, Control::Notifications].map(|c| c==control));
                     this.set_room_details_open(false);this.set_verification_open(false);this.set_notifications_open(false);
                 }
                 for control in ROOT {
@@ -579,7 +589,7 @@ mod tests {
                     let source = this.opener_ui.source(control).unwrap();
                     let click=this.opener_callback(Intent {control,source,focus_only:false});
                     click(this,window,cx);
-                    assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],Control::ALL.map(|c| c==control));
+                    assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],[Control::Info, Control::Devices, Control::Notifications].map(|c| c==control));
                     this.set_room_details_open(false);this.set_verification_open(false);this.set_notifications_open(false);
                     let outside=cx.focus_handle();outside.focus(window);
                     click(this,window,cx);
@@ -602,6 +612,28 @@ mod tests {
                     for action in semantic_actions(this,window).iter().step_by(2) {
                         assert!(this.dispatch_opener_action(action,window,cx));
                     }
+                }
+                {
+                    // Magnifier: >=32x32 painted, left of Info, Tab/Shift-Tab order, Enter/Space only count a request.
+                    let key=|this:&mut Shell,name:&str,window:&mut Window,cx:&mut Context<Shell>| this.opener_key_callback()(this,&KeyDownEvent{keystroke:gpui::Keystroke::parse(name).unwrap(),is_held:false},window,cx);
+                    let src=|this:&Shell,c| this.opener_ui.source(c).unwrap();
+                    assert!(this.focus_opener(Control::Search,window,cx));
+                    assert!(key(this,"tab",window,cx));
+                    assert!(this.opener_ui.focused(Control::Info,window),"Tab: Search -> Info");
+                    assert!(key(this,"tab",window,cx));
+                    assert!(!this.opener_ui.focused(Control::Info,window) && !this.opener_ui.focused(Control::Search,window),"Tab: Info -> chat entry");
+                    assert!(this.focus_opener(Control::Info,window,cx));
+                    assert!(key(this,"shift-tab",window,cx));
+                    assert!(this.opener_ui.focused(Control::Search,window),"Shift-Tab: Info -> Search");
+                    for name in ["enter","space"] {
+                        let before=this.room_search_requests;
+                        assert!(key(this,name,window,cx));
+                        assert_eq!(this.room_search_requests,before+1,"{name} activates the magnifier");
+                        assert!(!this.room_details_open && !this.notifications_open && !this.verification_open);
+                    }
+                    let before=this.room_search_requests;
+                    this.opener_callback(Intent{control:Control::Search,source:src(this,Control::Search),focus_only:false})(this,window,cx);
+                    assert_eq!(this.room_search_requests,before+1,"click activates the magnifier");
                 }
                 eprintln!("native factories plus real SemanticSession/production Shell dispatch passed");
                 cx.quit();
@@ -657,7 +689,7 @@ mod tests {
                         assert!(!this.room_details_open && !this.notifications_open && !this.verification_open);
                         assert!(this.opener_ui.focused(control,window));
                         assert!(key(this,&KeyDownEvent { keystroke: gpui::Keystroke::parse(name).unwrap(), is_held: false },window,cx));
-                        assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],Control::ALL.map(|c|c==control));
+                        assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],[Control::Info, Control::Devices, Control::Notifications].map(|c| c==control));
                         assert!(!key(this,&KeyDownEvent { keystroke: gpui::Keystroke::parse(name).unwrap(), is_held: false },window,cx));
                         this.set_room_details_open(false);this.set_verification_open(false);this.set_notifications_open(false);
                     }
@@ -670,7 +702,7 @@ mod tests {
                         assert!(this.opener_ui.focused(control,window));
                         let next = this.opener_ui.next;
                         assert!(this.dispatch_opener_action(matching[1],window,cx));
-                        assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],Control::ALL.map(|c|c==control));
+                        assert_eq!([this.room_details_open,this.verification_open,this.notifications_open],[Control::Info, Control::Devices, Control::Notifications].map(|c| c==control));
                         assert!(this.dispatch_opener_action(matching[1],window,cx));
                         assert_eq!(this.opener_ui.next,next,"duplicate semantic Click cannot reacquire/open another instance");
                         this.set_room_details_open(false);this.set_verification_open(false);this.set_notifications_open(false);

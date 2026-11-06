@@ -106,12 +106,13 @@ pub(crate) fn observe(label: String) -> Option<gpui::AnyElement> {
     })
 }
 
-const RING: [&str; 9] = [
+const RING: [&str; 10] = [
     "list",
     "search",
     "unread",
     "devices",
     "notifications",
+    "lens",
     "info",
     "entry",
     "back",
@@ -143,12 +144,13 @@ fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
             this.opener_ui.focused(Control::Notifications, window),
             "notifications",
         ),
+        (this.opener_ui.focused(Control::Search, window), "lens"),
         (this.opener_ui.focused(Control::Info, window), "info"),
         (entry, "entry"),
     ]
     .into_iter()
     .find_map(|(focused, name)| focused.then_some(name))
-    .unwrap_or(RING[8])
+    .unwrap_or(RING[9])
 }
 
 fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Context<Shell>) {
@@ -164,6 +166,7 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
         "unread" => return this.unread_focus.focus(window),
         "devices" => Control::Devices,
         "notifications" => Control::Notifications,
+        "lens" => Control::Search,
         "info" => Control::Info,
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         "entry" => return this.history_focus.focus(window),
@@ -195,7 +198,7 @@ fn ring_visible(label: &str, wide: bool, chat: bool) -> bool {
     match (wide, chat) {
         (true, _) => label != "back",
         (false, false) => ["list", "search", "unread"].contains(&label),
-        (false, true) => ["info", "entry", "back"].contains(&label),
+        (false, true) => ["lens", "info", "entry", "back"].contains(&label),
     }
 }
 
@@ -557,11 +560,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // List/chat seam: room list -> footer Devices, Notifications -> Info -> chat entry, and back.
             let chat = CHAT.load(Ordering::SeqCst);
             let steps: Vec<(&str, &str)> = if chat {
-                vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "back")]
+                vec![("tab", "lens"), ("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "lens"), ("shift-tab", "back")]
             } else if COMPACT.load(Ordering::SeqCst) {
                 vec![("tab", "menu"), ("shift-tab", "list")]
             } else {
-                vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "list")]
+                vec![("tab", "lens"), ("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "lens"), ("shift-tab", "list")]
             };
             this.update_in(cx, |this, window, cx| {
                 if chat {
@@ -583,6 +586,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "back" => this.back_focus_handle().is_focused(window),
                         "devices" => this.opener_ui.focused(Control::Devices, window),
                         "notifications" => this.opener_ui.focused(Control::Notifications, window),
+                        "lens" => this.opener_ui.focused(Control::Search, window),
                         "info" => this.opener_ui.focused(Control::Info, window),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         "entry" => this.history_focus.is_focused(window),
@@ -615,10 +619,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // Every ring control, focused before a real native Configure with paint suspended, lands on a visible one.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let cases: &[(bool, bool, &str)] = &[
-                (true, false, "info"), (true, false, "entry"),
+                (true, false, "lens"), (true, false, "info"), (true, false, "entry"),
                 (true, false, "unread"), (true, false, "search"), (true, false, "list"),
                 (true, true, "info"), (true, true, "entry"),
-                (false, true, "info"), (false, true, "entry"),
+                (false, true, "lens"), (false, true, "info"), (false, true, "entry"),
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 (false, true, "back"),
                 (false, false, "unread"), (false, false, "search"), (false, false, "list"),
@@ -699,13 +703,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // A light/dark change with focus on each ring control keeps the focus target, room, history and drafts.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let mut cases: Vec<(bool, bool, &str)> = vec![];
-            for label in ["list", "search", "unread", "info", "entry"] {
+            for label in ["list", "search", "unread", "lens", "info", "entry"] {
                 cases.push((true, false, label));
             }
             for label in ["list", "search", "unread"] {
                 cases.push((false, false, label));
             }
-            for label in ["info", "entry", #[cfg(all(feature = "linux-a11y", target_os = "linux"))] "back"] {
+            for label in ["lens", "info", "entry", #[cfg(all(feature = "linux-a11y", target_os = "linux"))] "back"] {
                 cases.push((false, true, label));
             }
             for (wide, chat, start) in cases {
@@ -825,8 +829,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 eprintln!("hidden-ring empty={empty}: retired unread callback inert");
             }).unwrap();
             let steps = [
-                ("tab", "info"), ("tab", "entry"),
-                ("shift-tab", "info"), ("shift-tab", "list"),
+                ("tab", "lens"), ("tab", "info"), ("tab", "entry"),
+                ("shift-tab", "info"), ("shift-tab", "lens"), ("shift-tab", "list"),
                 ("shift-tab", "search"), ("tab", "list"),
             ];
             for (key, expected) in steps {
@@ -838,6 +842,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "search" => this.search_focus.is_focused(window),
                         "devices" => this.opener_ui.focused(Control::Devices, window),
                         "notifications" => this.opener_ui.focused(Control::Notifications, window),
+                        "lens" => this.opener_ui.focused(Control::Search, window),
                         "info" => this.opener_ui.focused(Control::Info, window),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         "entry" => this.history_focus.is_focused(window),
@@ -887,7 +892,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 steps.push(("tab", "send"));
             }
             steps.push(("tab", first));
-            steps.push(("tab", if chat { "info" } else { "rail0" }));
+            steps.push(("tab", if chat { "lens" } else { "rail0" }));
             this.update_in(cx, |this, window, cx| {
                 if chat {
                     this.set_compact_chat(true);
@@ -916,6 +921,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     let focused = match expected {
                         "back" => this.back_focus_handle().is_focused(window),
                         "menu" => this.menu_focus.is_focused(window),
+                        "lens" => this.opener_ui.focused(Control::Search, window),
                         "info" => this.opener_ui.focused(Control::Info, window),
                         "send" => this.composer.read(cx).send_is_focused(window),
                         "composer" => this.composer.read(cx).is_focused(window),

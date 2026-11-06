@@ -4,6 +4,7 @@ use accesskit::{Action, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use matrix_domain::RoomScope;
 
 pub const OPEN: NodeId = NodeId(30);
+pub const SEARCH: NodeId = NodeId(33);
 #[derive(Clone, Default)]
 pub enum DetailsView {
     #[default]

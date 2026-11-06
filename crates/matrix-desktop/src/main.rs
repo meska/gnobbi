@@ -75,6 +75,8 @@ struct Shell {
     rail_ui: rail_view::RailUi,
     opener_ui: panel_opener_view::OpenerUi,
     room_menu: Option<(RoomScope, gpui::Point<gpui::Pixels>)>,
+    /// Clicks on the header magnifier («apri ricerca stanza»); read by the room-search task.
+    room_search_requests: u32,
     /// «Esci dalla stanza» was clicked once; the second click leaves.
     confirm_leave: Option<RoomScope>,
     menu_open: bool,
@@ -2227,7 +2229,7 @@ impl Render for Shell {
                                                 .child(DEMO_NOTICE),
                                         )),
                                 )
-                                .when(self.connected && self.sidebar.selected().is_some(), |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Info, window, cx))),
+                                .when(self.connected && self.sidebar.selected().is_some(), |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Search, window, cx)).child(self.render_root_opener(matrix_desktop::panel_openers::Control::Info, window, cx))),
                         )
                         // a11y: the strip is also the history Tab stop, so it must stay in the focus tree (a hairline when it has no text).
                         .when(self.connected && (cfg!(all(feature = "linux-a11y", target_os = "linux")) || matches!(self.history.status(), HistoryStatus::Loading | HistoryStatus::Failed)), |d| d.child(div().id("load-server-history").relative().h(px(if self.history.status().strip_label().is_some() { 24. } else { 0. })).flex_shrink_0().px_6().flex().items_center().bg(rgb(t.surface)).text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer()
@@ -2954,6 +2956,7 @@ fn main() {
                         rail_ui,
                         opener_ui: panel_opener_view::OpenerUi::new(),
                         room_menu: None,
+                        room_search_requests: 0,
                         confirm_leave: None,
                         menu_open: false,
                         menu_focus: cx.focus_handle(),

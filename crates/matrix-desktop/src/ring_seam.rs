@@ -117,7 +117,7 @@ impl Shell {
     /// Forward from the room list: Info on wide windows, else spaces or the menu button.
     fn after_list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if window.viewport_size().width >= px(800.) {
-            if !self.focus_opener(Control::Info, window, cx) {
+            if !self.focus_opener(Control::Search, window, cx) {
                 self.focus_chat_entry(window, cx);
             }
         } else if self.connected && self.sidebar.spaces().next().is_some() {
@@ -136,8 +136,17 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         match (control, shift) {
+            (Control::Search, false) => {
+                if !self.focus_opener(Control::Info, window, cx) {
+                    self.focus_chat_entry(window, cx);
+                }
+            }
+            (Control::Search, true) => self.focus_before_chat(true, window, cx),
             (Control::Info, false) => self.focus_chat_entry(window, cx),
-            (Control::Info, true) => self.focus_before_chat(true, window, cx),
+            // The guard moves focus to the magnifier; only without it Shift-Tab leaves the header.
+            (Control::Info, true) if !self.focus_opener(Control::Search, window, cx) => {
+                self.focus_before_chat(true, window, cx)
+            }
             // Devices and Notifications live in the drawer, not in the ring.
             _ => {}
         }
@@ -199,7 +208,7 @@ impl Shell {
         }
         if self.back_focus_handle().is_focused(window) && self.back_visible(window) {
             if !shift {
-                if !self.focus_opener(Control::Info, window, cx) {
+                if !self.focus_opener(Control::Search, window, cx) {
                     self.focus_chat_entry(window, cx);
                 }
                 return true;
