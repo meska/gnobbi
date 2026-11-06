@@ -409,9 +409,10 @@ impl Shell {
         }
         if !self.settings_open {
             let n = self.drawer_accounts().len();
+            let drawer_ring = input_modality::ring(&self.drawer_focus, window, cx);
             let ring = |i: usize| {
                 rgb(
-                    if self.drawer_keys && self.drawer_row == i && self.drawer_focus.is_focused(window) {
+                    if drawer_ring && self.drawer_row == i {
                         t.accent
                     } else {
                         t.surface

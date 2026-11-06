@@ -18,6 +18,7 @@ mod poll_dialog;
 mod poll_view;
 mod about_view;
 mod members_view;
+mod input_modality;
 mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
@@ -108,8 +109,6 @@ struct Shell {
     refocus_menu: bool,
     refocus_list: bool,
     drawer_row: usize,
-    /// True once the drawer is driven by keys: only then is the focus ring drawn.
-    drawer_keys: bool,
     settings_focus: FocusHandle,
     /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
     settings_row: usize,
@@ -247,6 +246,7 @@ impl Shell {
             let Some(action) = this.accessibility.take_action() else {
                 break;
             };
+            input_modality::set_keyboard(cx);
             #[cfg(feature = "live")]
             if this.dispatch_signin_action(&action, window, cx) {
                 continue;
@@ -1992,6 +1992,7 @@ impl Render for Shell {
             .capture_key_down(cx.listener({
                 let opener_keys=self.opener_key_callback();
                 move |this,event,window,cx| {
+                    input_modality::set_keyboard(cx);
                     if this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
                     else {this.navigation_key(event,window,cx);}
                 }
@@ -2004,6 +2005,12 @@ impl Render for Shell {
             .text_color(rgb(t.text))
             .font_family(matrix_desktop::ui_font())
             .text_size(px(14.))
+            // Window-level listener: a click under an `.occlude()` overlay never reaches the root's own mouse handlers.
+            .child(gpui::canvas(|_, _, _| (), |_, _, window, _| {
+                window.on_mouse_event(|_: &gpui::MouseDownEvent, phase, _, cx| {
+                    if phase == gpui::DispatchPhase::Capture { input_modality::set_pointer(cx); }
+                });
+            }).absolute().size_0())
             // inner box: absolute overlays (top_0/inset_0) start below the titlebar inset, which stays draggable
             .child(div().relative().size_full().flex()
             .when(!compact, |d| d.child(self.render_rail(window, cx)))
@@ -2157,7 +2164,7 @@ impl Render for Shell {
                                             .w_full()
                                             .border_2()
                                             .border_color(rgb(
-                                                if focused && this.list_focus.is_focused(window) {
+                                                if focused && input_modality::ring(&this.list_focus, window, cx) {
                                                     t.accent
                                                 } else {
                                                     background
@@ -2774,6 +2781,7 @@ fn main() {
                                             && let Some(account) = signin.update(cx, |view, cx| view.poll(cx)) {
                                             this.signin = None;
                                             this.refocus_list = true;
+                                            input_modality::set_pointer(cx); // signed in with Enter: no ring on the list
                                             this.sidebar = Sidebar::connected(account);
                                             this.active_scope.account_id = account;
                                             this.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
@@ -3137,7 +3145,6 @@ fn main() {
                         refocus_menu: false,
                         refocus_list: false,
                         drawer_row: 0,
-                        drawer_keys: false,
                         settings_focus: cx.focus_handle(),
                         settings_row: 0,
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),

@@ -1,5 +1,5 @@
-//! Real Shell, private display: the drawer's initial row, the key-only focus ring flag and what an account change does
-//! with the drawer open. Ring colour is computed inside render, so the test pins its inputs (`drawer_keys`, `drawer_row`,
+//! Real Shell, private display: the drawer's initial row, the shared keyboard/pointer ring state and what an account change does
+//! with the drawer open. Ring colour is computed inside render, so the test pins its inputs (`input_modality`, `drawer_row`,
 //! focus) and the accessible rows, not pixels.
 //!   the ct script 'the gui-test-x11 script "live,linux-a11y" drawer_active_row'
 use crate::*;
@@ -43,36 +43,43 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.set_menu_open(true, window, cx);
             check!(current(this) == ["bob"], "exactly the shown account is current: {:?}", current(this));
             check!(this.drawer_row == 1, "initial row is the shown account (bob, index 1), got {}", this.drawer_row);
-            check!(!this.drawer_keys, "no focus ring after a pointer open");
+            check!(!input_modality::is_keyboard(cx), "no focus ring after a pointer open");
             check!(this.drawer_focus.is_focused(window), "drawer holds focus after open");
         }).unwrap();
         // 2. First key: ring appears and the row moves from the shown account.
         key!("down");
-        this.update_in(cx, |this, _, _| {
-            check!(this.drawer_keys, "ring flag set by the first key");
+        this.update_in(cx, |this, _, cx| {
+            check!(input_modality::is_keyboard(cx), "Down switches to keyboard");
             check!(this.drawer_row == 2, "Down moves from the shown row, got {}", this.drawer_row);
         }).unwrap();
+        // 2b. A real click through the window listener hides the ring; the next key brings it back.
+        assert!(std::process::Command::new("xdotool").args(["mousemove", "960", "540", "click", "1"]).status().unwrap().success());
+        wait(300).await;
+        cx.update(|_, cx| check!(!input_modality::is_keyboard(cx), "click -> pointer, no ring")).unwrap();
+        key!("down");
+        cx.update(|_, cx| check!(input_modality::is_keyboard(cx), "key after the click -> ring back")).unwrap();
         // 3. Close, reopen with the pointer: ring gone again, row back on the shown account.
         this.update_in(cx, |this, window, cx| {
+            input_modality::set_pointer(cx); // the click on the menu button
             this.set_menu_open(false, window, cx);
             this.set_menu_open(true, window, cx);
-            check!(!this.drawer_keys && this.drawer_row == 1, "reopen resets ring ({}) and row ({})", this.drawer_keys, this.drawer_row);
+            check!(!input_modality::is_keyboard(cx) && this.drawer_row == 1, "pointer reopen: no ring, row {}", this.drawer_row);
         }).unwrap();
         // 4. Keyboard open (Ctrl+Shift+M): ring on from the start, still on the shown account.
         this.update_in(cx, |this, window, cx| { this.set_menu_open(false, window, cx); this.menu_focus.focus(window); }).unwrap();
         key!("ctrl-shift-m");
         wait(200).await;
-        this.update_in(cx, |this, window, _| {
+        this.update_in(cx, |this, window, cx| {
             check!(this.menu_open && this.drawer_focus.is_focused(window), "shortcut opens the drawer with focus");
-            check!(this.drawer_keys && this.drawer_row == 1, "keyboard open: ring {} row {}", this.drawer_keys, this.drawer_row);
+            check!(input_modality::is_keyboard(cx) && this.drawer_row == 1, "keyboard open: ring on, row {}", this.drawer_row);
         }).unwrap();
         // 4b. Enter on the focused Menu button is a keyboard open too: ring on from the start.
-        this.update_in(cx, |this, window, cx| { this.set_menu_open(false, window, cx); this.menu_focus.focus(window); }).unwrap();
+        this.update_in(cx, |this, window, cx| { input_modality::set_pointer(cx); this.set_menu_open(false, window, cx); this.menu_focus.focus(window); }).unwrap();
         key!("enter");
         wait(200).await;
-        this.update_in(cx, |this, window, _| {
+        this.update_in(cx, |this, window, cx| {
             check!(this.menu_open && this.drawer_focus.is_focused(window), "Enter on Menu opens the drawer with focus");
-            check!(this.drawer_keys && this.drawer_row == 1, "Enter open: ring {} row {}", this.drawer_keys, this.drawer_row);
+            check!(input_modality::is_keyboard(cx) && this.drawer_row == 1, "Enter open: ring on, row {}", this.drawer_row);
         }).unwrap();
         // 5. Account change with the drawer open: refused switch keeps the drawer, error on that row, same account shown.
         this.update_in(cx, |this, window, cx| {
@@ -85,12 +92,23 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             check!(!this.menu_open, "clicking the shown account closes the drawer");
             // What a successful switch leaves behind: anna shown. Reopen: marker and row follow, bob unmarked.
             this.active_id = Some(anna);
+            input_modality::set_pointer(cx);
             this.set_menu_open(true, window, cx);
             check!(current(this) == ["anna"], "marker follows the account: {:?}", current(this));
-            check!(this.drawer_row == 0 && !this.drawer_keys, "row {} keys {}", this.drawer_row, this.drawer_keys);
+            check!(this.drawer_row == 0 && !input_modality::is_keyboard(cx), "row {} after pointer reopen", this.drawer_row);
             // Account changes under an open drawer: the marker moves with it (rows are derived, not cached).
             this.active_id = Some(bob);
             check!(current(this) == ["bob"], "live marker move: {:?}", current(this));
+        }).unwrap();
+        // 5b. An assistive-technology action turns the ring on without any app key.
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        this.update_in(cx, |this, window, cx| {
+            input_modality::set_pointer(cx);
+            let intent = matrix_desktop::accessibility::compact::BackIntent { id: accesskit::NodeId(0), scope: this.active_scope.clone(), focus_only: true };
+            this.accessibility.queue_action(matrix_desktop::accessibility::NavigationAction::CompactBack(intent));
+            Shell::drain_navigation_actions(this, window, cx);
+            check!(input_modality::is_keyboard(cx), "AT action -> ring");
+            input_modality::set_pointer(cx);
         }).unwrap();
         // 6. Single account and no shown account.
         this.update_in(cx, |this, window, cx| {
