@@ -36,7 +36,7 @@ pub struct HistorySession {
     next: Option<String>,
     status: HistoryStatus,
     /// Body and thread reply count: a new reply must hand the root over again.
-    seen: HashMap<EventId, (String, Option<(u32, u32)>)>,
+    seen: HashMap<EventId, (String, Option<(u32, u32)>, Option<matrix_domain::Poll>)>,
     live_views: ViewRequests,
     live_pending: bool,
     dirty: bool,
@@ -121,7 +121,7 @@ impl HistorySession {
                             if self.seen.contains_key(&event.event_id) {
                                 return false;
                             }
-                            self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread))));
+                            self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread)), event.poll.clone()));
                             true
                         })
                         .collect(),
@@ -229,15 +229,15 @@ impl HistorySession {
         let published: Vec<_> = std::mem::take(&mut self.live_rows)
                 .into_iter()
                 .filter(|event| {
-                    if self.seen.get(&event.event_id).is_some_and(|(b, n)| *b == event.body && *n == event.thread.as_ref().map(|t| (t.num_replies, t.unread))) {
+                    if self.seen.get(&event.event_id).is_some_and(|(b, n, p)| *b == event.body && *n == event.thread.as_ref().map(|t| (t.num_replies, t.unread)) && *p == event.poll) {
                         return false;
                     }
-                    self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread))));
+                    self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread)), event.poll.clone()));
                     true
                 })
                 .collect();
         // Only rooms that have threads pay for the second look (shortcut: a fixed delay, no stream).
-        if !published.is_empty() && self.seen.values().any(|(_, n)| n.is_some()) {
+        if !published.is_empty() && self.seen.values().any(|(_, n, _)| n.is_some()) {
             self.settle = Some(std::time::Instant::now() + SETTLE);
         }
         Some(published)

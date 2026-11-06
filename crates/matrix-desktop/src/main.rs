@@ -1698,7 +1698,7 @@ impl Shell {
         let confirming = self.confirm_redaction.is_some();
         let ending = confirming && self.confirm_end;
         let can_end = actions.can_end_poll(actions.selection().and_then(|id| self.timeline.as_ref()?.poll_of(id)).as_ref());
-        let notice = actions.notice(confirming);
+        let notice = actions.notice(confirming && !ending);
         drop(actions);
         if !selected && !busy && error.is_none() {
             return div().into_any_element();

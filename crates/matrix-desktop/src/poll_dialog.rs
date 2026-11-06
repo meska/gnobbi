@@ -376,7 +376,7 @@ impl Render for PollDialog {
                             .gap_2()
                             .child(button("poll-cancel", "Annulla", t.accent, &self.cancel).on_click(cx.listener(|_, _, _, cx| cx.emit(PollDialogEvent::Cancel))))
                             .child(
-                                button("poll-create", "Crea", if valid { t.accent } else { t.disabled }, &self.create)
+                                button("poll-create", "Crea", if valid { t.accent } else { t.secondary }, &self.create)
                                     .on_click(cx.listener(|this, _, _, cx| this.create(cx))),
                             ),
                     ),

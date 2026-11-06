@@ -371,6 +371,15 @@ impl DemoHistory {
         events: Vec<matrix_engine::history::HistoryEvent>,
         append: bool,
     ) -> usize {
+        // A delivery echo row is born without the poll; the history copy would be dropped as duplicate.
+        for event in events.iter().filter(|e| e.poll.is_some()) {
+            if let Some(row) = self.events.iter_mut().find(|r| r.id.id == TimelineId::Server(event.event_id.clone()))
+                && row.poll != event.poll
+            {
+                row.poll.clone_from(&event.poll);
+                row.text.clone_from(&event.body);
+            }
+        }
         let mut seen: std::collections::HashSet<_> = self
             .events
             .iter()
