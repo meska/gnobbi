@@ -778,3 +778,32 @@ fn a_room_with_threads_is_read_once_more_after_new_rows() {
     std::thread::sleep(matrix_desktop::SETTLE);
     assert!(plain.refresh().is_none(), "the settle read does not re-arm itself");
 }
+
+#[test]
+fn live_refresh_publishes_a_poll_whose_votes_or_end_changed_with_the_same_body() {
+    let poll = |votes, ended| matrix_domain::Poll {
+        question: "same text".into(),
+        answers: vec![matrix_domain::PollAnswer { id: "a1".into(), text: "Si".into(), votes, own: votes > 0 }],
+        max_selections: 1,
+        multiple: false,
+        disclosed: true,
+        ended,
+        voters: votes,
+        can_end: !ended,
+    };
+    let mut view = HistorySession::new();
+    let room = scope("!poll:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    let mut first = page(&initial, &["$poll"], None);
+    first.page.as_mut().unwrap().events[0].poll = Some(poll(0, false));
+    view.apply(first);
+    for (votes, ended) in [(1, false), (1, true)] {
+        view.activity(&room);
+        let refresh = view.refresh().unwrap();
+        let mut update = page(&refresh, &["$poll"], None);
+        update.page.as_mut().unwrap().events[0].poll = Some(poll(votes, ended));
+        let rows = view.apply_live(update).unwrap();
+        assert_eq!(rows.len(), 1, "a poll with new votes or closed must be published");
+        assert_eq!(rows[0].poll, Some(poll(votes, ended)));
+    }
+}
