@@ -17,6 +17,7 @@ const OPTION_LABELS: [&str; PollDraft::MAX_ANSWERS] = [
     "Opzione 8", "Opzione 9", "Opzione 10", "Opzione 11", "Opzione 12", "Opzione 13", "Opzione 14",
     "Opzione 15", "Opzione 16", "Opzione 17", "Opzione 18", "Opzione 19", "Opzione 20",
 ];
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 const REMOVE_LABELS: [&str; PollDraft::MAX_ANSWERS] = [
     "Rimuovi opzione 1", "Rimuovi opzione 2", "Rimuovi opzione 3", "Rimuovi opzione 4",
     "Rimuovi opzione 5", "Rimuovi opzione 6", "Rimuovi opzione 7", "Rimuovi opzione 8",
