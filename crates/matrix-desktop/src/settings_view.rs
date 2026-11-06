@@ -519,7 +519,7 @@ impl Shell {
             .child(
                 switch_row(
                     "settings-debug", "Modalità debug", self.prefs.debug, true,
-                    self.settings_row == 0 && self.settings_focus.is_focused(window), t,
+                    input_modality::only_keys(self.settings_row == 0 && self.settings_focus.is_focused(window), cx), t,
                 )
                     .track_focus(&self.settings_focus)
                     .on_click(cx.listener(|this, event: &gpui::ClickEvent, _, cx| {
@@ -610,21 +610,21 @@ impl Shell {
             .child(
                 switch_row(
                     "settings-read-receipts", "Conferme di lettura", self.prefs.read_receipts, true,
-                    self.settings_row == 1 && self.settings_focus.is_focused(window), t,
+                    input_modality::only_keys(self.settings_row == 1 && self.settings_focus.is_focused(window), cx), t,
                 )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
             )
             .child(
                 switch_row(
                     "settings-hide-redacted", "Nascondi messaggi eliminati", self.prefs.hide_redacted, true,
-                    self.settings_row == 2 && self.settings_focus.is_focused(window), t,
+                    input_modality::only_keys(self.settings_row == 2 && self.settings_focus.is_focused(window), cx), t,
                 )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_redacted(cx))),
             )
             .child(
                 switch_row(
                     "settings-close-to-tray", "Riduci nel tray alla chiusura", self.prefs.close_to_tray, true,
-                    self.settings_row == 3 && self.settings_focus.is_focused(window), t,
+                    input_modality::only_keys(self.settings_row == 3 && self.settings_focus.is_focused(window), cx), t,
                 )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_close_to_tray(cx))),
             )

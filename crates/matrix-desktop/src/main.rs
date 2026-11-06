@@ -48,6 +48,8 @@ mod member_profile_test;
 #[cfg(test)]
 mod drawer_active_test;
 #[cfg(test)]
+mod rail_ring_test;
+#[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;
@@ -2092,7 +2094,7 @@ impl Render for Shell {
                                 })
                                 .track_focus(&self.search_focus)
                                 .border_1()
-                                .border_color(rgb(if self.search_focus.is_focused(window) {
+                                .border_color(rgb(if input_modality::only_keys(self.search_focus.is_focused(window), cx) {
                                     t.accent
                                 } else {
                                     t.border
@@ -2383,7 +2385,7 @@ impl Render for Shell {
                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                 {
                                     let entity = cx.entity();
-                                    d.track_focus(&self.history_focus).border_1().border_color(rgb(if self.history_focus.is_focused(window) { t.accent } else { t.surface })).child(gpui::canvas(|_,_,_| (), move |bounds,_,window,cx| {
+                                    d.track_focus(&self.history_focus).border_1().border_color(rgb(if input_modality::only_keys(self.history_focus.is_focused(window), cx) { t.accent } else { t.surface })).child(gpui::canvas(|_,_,_| (), move |bounds,_,window,cx| {
                                         let scale = f64::from(window.scale_factor());
                                         let rect = accesskit::Rect::new(f64::from(f32::from(bounds.left())) * scale, f64::from(f32::from(bounds.top())) * scale, f64::from(f32::from(bounds.right())) * scale, f64::from(f32::from(bounds.bottom())) * scale);
                                         if entity.read(cx).a11y_history_bounds != Some(rect) {
@@ -2511,6 +2513,7 @@ fn main() {
         || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || bar_alignment_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || drawer_active_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || rail_ring_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || switch_rows_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
     {
         vec![]
@@ -3112,6 +3115,8 @@ fn main() {
                     bar_alignment_test::install(window, cx);
                     #[cfg(test)]
                     drawer_active_test::install(window, cx);
+                    #[cfg(test)]
+                    rail_ring_test::install(window, cx);
                     #[cfg(test)]
                     switch_rows_test::install(window, cx);
                     #[cfg(any(test, feature = "gui-fixture"))]

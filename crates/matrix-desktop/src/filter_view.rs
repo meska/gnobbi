@@ -407,7 +407,7 @@ impl Shell {
             .cursor_pointer()
             .text_color(rgb(t.accent))
             .border_1()
-            .border_color(rgb(if focused { t.accent } else { t.surface }))
+            .border_color(rgb(if input_modality::only_keys(focused, cx) { t.accent } else { t.surface }))
             .child(if self.sidebar.unread_only() {
                 "Tutte"
             } else {

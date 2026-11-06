@@ -109,7 +109,7 @@ impl Shell {
                 .rounded_lg()
                 .cursor_pointer()
                 .border_1()
-                .border_color(rgb(if focused && self.about_row == index {
+                .border_color(rgb(if input_modality::only_keys(focused, cx) && self.about_row == index {
                     t.accent
                 } else {
                     t.surface

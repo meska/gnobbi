@@ -174,7 +174,7 @@ impl Shell {
                     (1, room_name.map_or_else(|| "Stanza".to_owned(), |n| format!("Stanza: {n}")), !muted, room_available),
                     (2, "Conteggio".to_owned(), preview, true),
                 ].into_iter().map(|(action, label, on, available)| {
-                    crate::switch_row::switch_row(("notification-setting", action as usize), label, on, available, focused_control == Some(action as usize), t)
+                    crate::switch_row::switch_row(("notification-setting", action as usize), label, on, available, input_modality::only_keys(focused_control == Some(action as usize), cx), t)
                         .relative().children(self.notification_observer(action as usize, cx))
                         .on_click(cx.listener(move |this, _, _, cx| { if available { this.change_notification_preference(action); cx.notify(); } }))
                 }))

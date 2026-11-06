@@ -1,6 +1,7 @@
 //! «Crea sondaggio»: modal dialog opened from the composer. Same container as `new_room_view.rs`.
 //! Only field labels and one-line errors: no help text.
 use crate::switch_row::switch_row;
+use crate::input_modality;
 use crate::login_field::LoginField;
 use gpui::{
     Context, Entity, EventEmitter, FocusHandle, KeyDownEvent, Window, div, prelude::*, px, rgb,
@@ -269,15 +270,16 @@ impl Render for PollDialog {
         self.last_field = now;
         let error = error_of(&self.draft(cx)).filter(|(f, _)| self.touched[*f]);
         let valid = self.valid(cx);
+        let kbd = input_modality::is_keyboard(cx);
         let ring = |focus: &FocusHandle| {
-            rgb(if focus.is_focused(window) { t.accent } else { t.surface })
+            rgb(if kbd && focus.is_focused(window) { t.accent } else { t.surface })
         };
         let line = |text: &'static str| div().text_size(px(13.)).text_color(rgb(t.error)).child(text);
         let button = |id: &'static str, label: &'static str, color: u32, focus: &FocusHandle| {
             div().id(id).track_focus(focus).px_4().py_2().rounded_md().cursor_pointer().border_1().border_color(ring(focus)).text_color(rgb(color)).child(label)
         };
         let switch = |id: &'static str, label: &'static str, on: bool, focus: &FocusHandle, cx: &mut Context<Self>| {
-            switch_row(id, label, on, true, focus.is_focused(window), t)
+            switch_row(id, label, on, true, input_modality::only_keys(focus.is_focused(window), cx), t)
                 .track_focus(focus)
                 .on_click(cx.listener(move |this, _, window, cx| {
                     let stop = if id == "poll-multiple" { Stop::Multiple } else { Stop::Disclosed };

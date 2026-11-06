@@ -36,3 +36,8 @@ fn set(m: Modality, cx: &mut App) {
 pub(crate) fn ring(handle: &FocusHandle, window: &Window, cx: &App) -> bool {
     is_keyboard(cx) && handle.is_focused(window)
 }
+
+/// Gate an already computed "has focus" for painting the ring.
+pub(crate) fn only_keys(focused: bool, cx: &App) -> bool {
+    focused && is_keyboard(cx)
+}

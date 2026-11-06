@@ -5,6 +5,7 @@ use gpui::{
     UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, rgb, size,
 };
 use crate::composer_icons::{Icon, icon};
+use crate::input_modality;
 use matrix_desktop::{Composer, DesignTokens, LIGHT, RoomDrafts};
 use matrix_domain::RoomScope;
 use std::ops::Range;
@@ -1339,7 +1340,7 @@ impl Render for ComposerView {
                             // Always 1px so focus never moves the text; the ring is painted only while the field holds focus.
                             .rounded_lg()
                             .border_1()
-                            .border_color(if self.focus.is_focused(window) {
+                            .border_color(if input_modality::only_keys(self.focus.is_focused(window), cx) {
                                 gpui::Hsla::from(rgb(t.accent))
                             } else {
                                 gpui::transparent_black()

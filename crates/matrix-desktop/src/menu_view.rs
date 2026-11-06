@@ -345,7 +345,7 @@ impl Shell {
             .rounded_lg()
             .cursor_pointer()
             .border_1()
-            .border_color(rgb(if self.menu_focus.is_focused(window) {
+            .border_color(rgb(if input_modality::only_keys(self.menu_focus.is_focused(window), cx) {
                 t.accent
             } else {
                 t.surface

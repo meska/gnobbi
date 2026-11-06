@@ -589,7 +589,7 @@ impl Shell {
                 .flex()
                 .gap_1()
                 .border_1()
-                .border_color(rgb(if room.switch_focus.is_focused(window) {
+                .border_color(rgb(if input_modality::only_keys(room.switch_focus.is_focused(window), cx) {
                     t.accent
                 } else {
                     t.surface
@@ -630,6 +630,7 @@ impl Shell {
         for field in &room.fields {
             field.update(cx, |f, _| f.theme = t);
         }
+        let kbd = input_modality::is_keyboard(cx);
         let button = |id: &'static str, label: &'static str, color: u32, focus: &FocusHandle| {
             div()
                 .id(id)
@@ -639,7 +640,7 @@ impl Shell {
                 .rounded_md()
                 .cursor_pointer()
                 .border_1()
-                .border_color(rgb(if focus.is_focused(window) {
+                .border_color(rgb(if kbd && focus.is_focused(window) {
                     t.accent
                 } else {
                     t.surface
@@ -704,7 +705,7 @@ impl Shell {
                                                     .gap_2()
                                                     .cursor_pointer()
                                                     .border_1()
-                                                    .border_color(rgb(if focus.is_focused(window) {
+                                                    .border_color(rgb(if input_modality::only_keys(focus.is_focused(window), cx) {
                                                         t.accent
                                                     } else {
                                                         t.surface
@@ -732,7 +733,7 @@ impl Shell {
                             d.child(
                                 switch_row(
                                     "new-room-public", "Pubblica", public, true,
-                                    room.public_focus.is_focused(window), t,
+                                    input_modality::only_keys(room.public_focus.is_focused(window), cx), t,
                                 )
                                     .track_focus(&room.public_focus)
                                     .on_click(cx.listener(|this, _, window, cx| {

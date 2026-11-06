@@ -189,7 +189,7 @@ impl Shell {
                 .rounded_md()
                 .cursor_pointer()
                 .border_1()
-                .border_color(rgb(if focus.is_focused(window) { t.accent } else { t.surface }))
+                .border_color(rgb(if input_modality::only_keys(focus.is_focused(window), cx) { t.accent } else { t.surface }))
                 .text_color(rgb(color))
                 .child(label)
         };
