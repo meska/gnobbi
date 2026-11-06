@@ -356,7 +356,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
             timestamp_ms: 0,
             sender: matrix_engine::history::HistorySender::new(ADA, Some("Ada")),
             video: None,
-            styles: Vec::new(),
+            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None,
             thread_root: None,
             status: false,

@@ -14,6 +14,26 @@ use matrix_desktop::{
 };
 use matrix_domain::{RoomScope, ScopedTimelineId};
 
+/// The body's text layout seen through the avatar gaps of its mention pills: positions and
+/// indices are those of the message text, not of the drawn string.
+#[derive(Clone)]
+struct PillLayout {
+    layout: TextLayout,
+    gaps: Rc<matrix_desktop::mention_gaps::Gaps>,
+}
+
+impl PillLayout {
+    fn index_for_position(&self, position: gpui::Point<Pixels>) -> Result<usize, usize> {
+        self.layout.index_for_position(position).map(|i| self.gaps.text_index(i)).map_err(|i| self.gaps.text_index(i))
+    }
+    fn position_for_index(&self, index: usize) -> Option<gpui::Point<Pixels>> {
+        self.layout.position_for_index(self.gaps.start(index))
+    }
+    fn line_height(&self) -> Pixels {
+        self.layout.line_height()
+    }
+}
+
 type RowBounds = Rc<RefCell<Option<Bounds<Pixels>>>>;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 type ConfirmationBounds = Rc<RefCell<(u64, [Option<Bounds<Pixels>>; 3])>>;
@@ -139,6 +159,9 @@ pub struct TimelineView {
     link_bounds: Rc<RefCell<std::collections::HashMap<u64, Bounds<Pixels>>>>,
     link_sources: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     link_cursor: Rc<Cell<Option<u64>>>,
+    /// Keyboard stop on a user mention pill: its message and the pill's start in the text.
+    pill_cursor: Rc<RefCell<Option<(ScopedTimelineId, usize)>>>,
+    pill_bounds: Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, usize), Bounds<Pixels>>>>,
     link_hover: Rc<Cell<Option<u64>>>,
     pub(crate) viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Full-resolution picture of the open large view (loading, ready or failed).
@@ -318,6 +341,8 @@ impl TimelineView {
             confirmation_focus: Rc::default(),
             link_sources: Rc::default(),
             link_cursor: Rc::default(),
+            pill_cursor: Rc::default(),
+            pill_bounds: Rc::default(),
             link_hover: Rc::default(),
             viewing: Rc::default(),
             original: Rc::default(),
@@ -582,6 +607,29 @@ impl TimelineView {
                         },
                     );
             }
+            if let Some(at) = at {
+                let event = &history.events()[at];
+                message.pills = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions)
+                    .filter_map(|m| match &m.kind {
+                        matrix_engine::rich_text::MentionKind::User { sender, .. } => Some((m.range.start, sender)),
+                        _ => None,
+                    })
+                    .take(matrix_desktop::accessibility::PILLS)
+                    .map(|(start, sender)| matrix_desktop::accessibility::PillLink {
+                        user_id: sender.id.clone(),
+                        name: sender.name.clone().unwrap_or_else(|| sender.id.clone()),
+                        start,
+                        bounds: self.pill_bounds.borrow().get(&(message.event.clone(), start)).map(|b| accesskit::Rect::new(
+                            f64::from(f32::from(b.left())) * scale,
+                            f64::from(f32::from(b.top())) * scale,
+                            f64::from(f32::from(b.right())) * scale,
+                            f64::from(f32::from(b.bottom())) * scale,
+                        )),
+                        focused: self.focus.is_focused(window)
+                            && self.pill_cursor.borrow().as_ref() == Some(&(message.event.clone(), start)),
+                    })
+                    .collect();
+            }
             message.links = self
                 .link_sources
                 .borrow_mut()
@@ -755,6 +803,7 @@ impl TimelineView {
         self.event_id_cursor.set(None);
         self.offline_cursor.set(None);
         self.link_cursor.set(None);
+        self.pill_cursor.replace(None);
         self.requested_link.replace(None);
         self.link.borrow_mut().cancel();
         self.selection_cursor.replace(None);
@@ -1019,6 +1068,15 @@ impl TimelineView {
                 window,
             );
         }
+        true
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn apply_pill(&self, id: &ScopedTimelineId, start: usize, window: &mut gpui::Window) -> bool {
+        if !self.focus_semantic_message(id, window) {
+            return false;
+        }
+        self.pill_cursor.replace(Some((id.clone(), start)));
         true
     }
 
@@ -1292,6 +1350,7 @@ impl TimelineView {
         self.retire_event_id_copies();
         self.link_sources.borrow_mut().clear();
         self.link_cursor.set(None);
+        self.pill_cursor.replace(None);
         self.requested_link.replace(None);
         self.link.borrow_mut().cancel();
         self.selection.borrow_mut().clear();
@@ -1560,6 +1619,8 @@ impl TimelineView {
         let menu_target = self.link_menu.borrow().target().cloned();
         let link_sources = self.link_sources.clone();
         let link_cursor = self.link_cursor.clone();
+        let pill_cursor = self.pill_cursor.clone();
+        let self_pill_bounds = self.pill_bounds.clone();
         let link_hover = self.link_hover.clone();
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
@@ -1762,7 +1823,20 @@ impl TimelineView {
                         }
                         _ => (None, None),
                     };
-                    let mut body = StyledText::new(event.text.clone());
+                    let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions);
+                    let gaps = Rc::new(gaps);
+                    let mut body = StyledText::new(drawn);
+                    let pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions).collect();
+                    let pill_paint: Vec<_> = pills.iter().map(|m| {
+                        use matrix_engine::rich_text::MentionKind;
+                        let (bg, picture, user, uid) = match &m.kind {
+                            MentionKind::User { sender, me } => (if *me { t.error } else { t.border }, sender.avatar.as_deref().and_then(|mxc| sender_pictures.borrow().get(mxc).cloned()), true, Some(sender.id.clone())),
+                            MentionKind::AtRoom => (t.error, None, false, None),
+                            MentionKind::Room => (t.border, None, false, None),
+                        };
+                        let ring = uid.is_some() && pill_cursor.borrow().as_ref() == Some(&(event.id.clone(), m.range.start));
+                        (m.range.clone(), bg, picture, user, uid, ring)
+                    }).collect();
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
                     let selected = selection.borrow().range(&event.id, &event.text);
@@ -1775,28 +1849,30 @@ impl TimelineView {
                     let styles: Vec<_> = event.styles.iter().filter(|s| s.range.start < s.range.end && s.range.end <= event.text.len() && event.text.is_char_boundary(s.range.start) && event.text.is_char_boundary(s.range.end)).collect();
                     for style in &styles { cuts.extend([style.range.start, style.range.end]); }
                     for link in &links { cuts.extend([link.range.start, link.range.end]); }
+                    for pill in &pills { cuts.extend([pill.range.start, pill.range.end]); }
                     if let Some(range) = &selected { cuts.extend([range.start, range.end]); }
                     cuts.sort_unstable();
                     cuts.dedup();
                     body = body.with_highlights(cuts.windows(2).map(|pair| {
                         let range = pair[0]..pair[1];
                         let is_link = links.iter().any(|link| link.range.contains(&range.start));
+                        let pill = pill_paint.iter().find(|(r, ..)| r.contains(&range.start));
                         use matrix_engine::rich_text::Style;
                         let has = |kind| styles.iter().any(|s| s.style == kind && s.range.contains(&range.start));
                         let style = HighlightStyle {
                             font_weight: has(Style::Bold).then_some(gpui::FontWeight::BOLD),
                             font_style: has(Style::Italic).then_some(gpui::FontStyle::Italic),
                             strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
-                            color: if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
+                            color: if let Some((_, bg, ..)) = pill { Some(rgb(if *bg == t.error { t.surface } else { t.text }).into()) } else if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
                             underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
                             background_color: if found.iter().any(|r| r.contains(&range.start)) || selected.as_ref().is_some_and(|r| r.contains(&range.start))
                                 || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { has(Style::Code).then(|| rgb(t.input).into()) },
                             ..Default::default()
                         };
-                        (range, style)
+                        (gaps.start(range.start)..gaps.end(range.end), style)
                     }));
-                    let down_layout = body.layout().clone();
-                    let move_layout = body.layout().clone();
+                    let down_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
+                    let move_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let down_generation = selection.borrow().generation();
                     let down_selection = selection.clone();
                     let move_selection = selection.clone();
@@ -1809,7 +1885,7 @@ impl TimelineView {
                     let down_focus = focus.clone();
                     let down_drag = dragging.clone();
                     let move_drag = dragging.clone();
-                    let up_layout = body.layout().clone();
+                    let up_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let up_selection = selection.clone();
                     let up_id = event.id.clone();
                     let up_text = event.text.clone();
@@ -1826,13 +1902,17 @@ impl TimelineView {
                     let (tip_surface, tip_border, tip_text) = (t.surface, t.border, t.text);
                     let down_cursor = link_cursor.clone();
                     let down_menu = link_menu.clone();
-                    let menu_layout = body.layout().clone();
+                    let menu_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let menu_targets = targets.clone();
                     let menu_state = link_menu.clone();
                     let menu_at = link_menu_at.clone();
                     let paint_targets = targets.clone();
-                    let paint_layout = body.layout().clone();
+                    let paint_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let paint_links = row_link_painted.clone();
+                    let pill_layout = paint_layout.clone();
+                    let (pill_bounds, pill_event, accent) = (self_pill_bounds.clone(), event.id.clone(), t.accent);
+                    let up_pills: Vec<_> = pill_paint.iter().filter_map(|(r, _, _, _, uid, _)| uid.clone().map(|u| (r.clone(), u))).collect();
+                    let up_want = want_profile.clone();
                     let down_requested = requested_link.clone();
                     let up_requested = requested_link.clone();
                     let status = match event.send_state {
@@ -1873,7 +1953,8 @@ impl TimelineView {
                                 .py_3()
                                 .rounded_lg()
                                 .relative()
-                                .bg(rgb(if flashing { flash(if event.outgoing { t.outgoing } else { t.surface }, t.accent) } else if event.outgoing { t.outgoing } else { t.surface }))
+                                .bg(rgb(if flashing { flash(if event.outgoing { t.outgoing } else if event.highlighted { t.mention_row } else { t.surface }, t.accent) } else if event.outgoing { t.outgoing } else if event.highlighted { t.mention_row } else { t.surface }))
+                                .when(event.highlighted, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).rounded_l_lg().bg(rgb(t.error))))
                                 .when(event.menu_available(live), |d| {
                                     let id = event.id.clone();
                                     let operations = operations.clone();
@@ -1928,15 +2009,45 @@ impl TimelineView {
                                         if up_selection.borrow().range(&up_id, &up_text).is_none()
                                             && let Some((id, start)) = origin
                                             && id == up_id
-                                            && up_layout.index_for_position(e.position) == Ok(start)
-                                            && let Some(target) = up_targets.iter().find(|target| target.range().contains(&start))
-                                            && up_sources.borrow_mut().request(target, &mut up_link.borrow_mut()) {
+                                            && up_layout.index_for_position(e.position) == Ok(start) {
+                                            // A user pill opens the profile drawer; a link asks for confirmation.
+                                            if let Some((_, user)) = up_pills.iter().find(|(r, _)| r.contains(&start)) {
+                                                *up_want.borrow_mut() = Some(user.clone());
+                                                window.refresh();
+                                            } else if let Some(target) = up_targets.iter().find(|target| target.range().contains(&start))
+                                                && up_sources.borrow_mut().request(target, &mut up_link.borrow_mut()) {
                                                 up_requested.replace(Some(target.clone()));
                                                 window.refresh();
+                                            }
                                         }
                                     })
                                     .relative()
                                     .child(canvas(|_, _, _| (), move |bounds, _, window, _| {
+                                        // Pills first, behind the text: a rounded fill per line and the avatar in the gap.
+                                        let lh = pill_layout.line_height();
+                                        for (range, bg, picture, user, uid, ring) in &pill_paint {
+                                            let from = if *user { pill_layout.layout.position_for_index(pill_layout.gaps.gap_start(range.start)) } else { pill_layout.position_for_index(range.start) };
+                                            let (Some(a), Some(b)) = (from, pill_layout.layout.position_for_index(pill_layout.gaps.end(range.end))) else { continue };
+                                            let left = a.x - if *user { px(2.) } else { px(3.) };
+                                            let lines = if b.y == a.y { vec![(a.y, left, b.x + px(3.))] } else { vec![(a.y, left, bounds.right()), (b.y, bounds.left(), b.x + px(3.))] };
+                                            for (y, l, r) in lines {
+                                                let mut quad = gpui::fill(Bounds::from_corners(gpui::point(l, y + px(1.)), gpui::point(r, y + lh - px(1.))), rgb(*bg));
+                                                quad.corner_radii = ((lh - px(2.)) / 2.).into();
+                                                if *ring { quad.border_widths = px(2.).into(); quad.border_color = rgb(accent).into(); }
+                                                window.paint_quad(quad);
+                                            }
+                                            if uid.is_some() {
+                                                let right = if b.y == a.y { b.x } else { bounds.right() };
+                                                pill_bounds.borrow_mut().insert((pill_event.clone(), range.start), Bounds::from_corners(a, gpui::point(right, a.y + lh)));
+                                            }
+                                            if *user {
+                                                let icon = Bounds::new(gpui::point(a.x, a.y + (lh - px(16.)) / 2.), gpui::size(px(16.), px(16.)));
+                                                match picture {
+                                                    Some(image) => { let _ = window.paint_image(icon, gpui::Corners::all(px(8.)), image.clone(), 0, false); }
+                                                    None => { let mut quad = gpui::fill(icon, rgb(matrix_desktop::AVATAR_FALLBACK)); quad.corner_radii = px(8.).into(); window.paint_quad(quad); }
+                                                }
+                                            }
+                                        }
                                         // Accessible link bounds come from the text itself: first line only when a link wraps.
                                         for target in &paint_targets {
                                             let r = target.range();
@@ -2649,7 +2760,7 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -2791,7 +2902,7 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -2914,7 +3025,7 @@ mod tests {
                                 #[cfg(feature = "live")]
                                 thumbnail: None,
                             }),
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -3008,6 +3119,74 @@ mod tests {
         video_bubble_shot(false);
     }
 
+    /// Paints a row with a pill for me, one for another person, «@room» and a room, then clicks them for real
+    /// (synthetic mouse events through the window): only the two user pills open a profile, each its own.
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_pills_click_opens_that_profile_and_text_around_does_not() {
+        use matrix_engine::{history::{HistoryEvent, HistorySender}, rich_text::{MentionKind, MentionSpan}};
+        gpui::Application::new().run(move |cx| {
+            let id = EventId::new("$pills:fixture.invalid");
+            let (me, bea) = ("@anna:fixture.invalid", "@bea:fixture.invalid");
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi pills");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!pills:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        let body = "Anna e Bea, @room in #qa fine";
+                        let at = |word: &str| { let i = body.find(word).unwrap(); i..i + word.len() };
+                        let user = |who: &str, name: &str, me| MentionKind::User { sender: HistorySender::new(who, Some(name)), me };
+                        v.append_server(vec![HistoryEvent {
+                            poll: None, redacted: false, event_id: id.clone(), body: body.into(), outgoing: false, timestamp_ms: 0,
+                            sender: HistorySender::new("@z:fixture.invalid", Some("Zeno")), video: None, styles: Vec::new(),
+                            mentions: vec![
+                                MentionSpan { range: at("Anna"), kind: user(me, "Anna", true) },
+                                MentionSpan { range: at("Bea"), kind: user(bea, "Bea", false) },
+                                MentionSpan { range: at("@room"), kind: MentionKind::AtRoom },
+                                MentionSpan { range: at("#qa"), kind: MentionKind::Room },
+                            ],
+                            highlighted: true, thread: None, thread_root: None, status: false, attachment_name: None, attachment_size: None,
+                        }]);
+                        ShotHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                let (anna, bea_box) = view
+                    .update(cx, |host, _, _| {
+                        let event = host.0.history.borrow().events()[0].id.clone();
+                        let mut painted: Vec<_> = host.0.pill_bounds.borrow().iter().filter(|((e, _), _)| *e == event).map(|((_, s), b)| (*s, *b)).collect();
+                        painted.sort_by_key(|(s, _)| *s);
+                        assert_eq!(painted.len(), 2, "only the two user pills are painted as targets: {painted:?}");
+                        (painted[0].1, painted[1].1)
+                    })
+                    .unwrap();
+                assert!(anna.size.width > px(10.) && anna.right() <= bea_box.left(), "left to right, apart: {anna:?} {bea_box:?}");
+                assert!((anna.center().y - bea_box.center().y).abs() < px(1.), "same line");
+                // Real X11 clicks (xdotool, window-relative), the same path a hand takes.
+                let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--name", "Gnobbi pills"]).output().unwrap().stdout).unwrap();
+                let win = win.lines().next().expect("window found").to_owned();
+                let mut click = async |at: gpui::Point<Pixels>| {
+                    view.update(cx, |host, _, _| { host.0.want_profile.replace(None); }).unwrap();
+                    let (x, y) = (f32::from(at.x).round().to_string(), f32::from(at.y).round().to_string());
+                    assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", &win, &x, &y, "click", "1"]).status().unwrap().success());
+                    executor.timer(std::time::Duration::from_millis(500)).await;
+                    view.update(cx, |host, _, _| host.0.want_profile.borrow().clone()).unwrap()
+                };
+                let on = |b: Bounds<Pixels>| gpui::point(b.right() - px(6.), b.center().y);
+                assert_eq!(click(on(anna)).await.as_deref(), Some(me), "my pill opens my profile");
+                assert_eq!(click(on(bea_box)).await.as_deref(), Some(bea), "the other's pill opens theirs");
+                assert_eq!(click(gpui::point(bea_box.right() + px(300.), bea_box.center().y)).await, None, "empty space after the text opens nothing");
+                assert_eq!(click(gpui::point(anna.right() + px(3.), anna.center().y)).await, None, "the plain text between pills opens nothing");
+                view.update(cx, |_, _, cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
     struct NarrowHost(TimelineView);
     impl Render for NarrowHost {
         fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
@@ -3038,7 +3217,7 @@ mod tests {
                             timestamp_ms: 0,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -3145,7 +3324,7 @@ mod tests {
                             timestamp_ms: 0,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
@@ -3272,7 +3451,7 @@ mod tests {
                 timestamp_ms: ms,
                 sender: HistorySender::new(if outgoing { "@me:fixture.invalid" } else { "@a:fixture.invalid" }, None),
                 video: None,
-                styles: Vec::new(),
+                styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                 thread: None,
                 thread_root: None,
                 status: false,

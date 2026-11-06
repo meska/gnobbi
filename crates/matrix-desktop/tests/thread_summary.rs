@@ -12,7 +12,7 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
         timestamp_ms: 0,
         sender: HistorySender::new("@anna:test", Some("Anna")),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: replies.map(|num_replies| ThreadInfo {
             num_replies,
             latest_sender: Some(HistorySender::new(latest, None)),

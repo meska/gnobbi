@@ -378,6 +378,16 @@ impl Shell {
                 }
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::FocusPill(id, start) = &action {
+                if id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && let Some(timeline) = &this.timeline
+                {
+                    timeline.apply_pill(id, *start, window);
+                    cx.notify();
+                }
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::SaveAttachment(id) = &action {
                 if id.scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
@@ -596,7 +606,8 @@ impl Shell {
                     unreachable!()
                 }
                 matrix_desktop::accessibility::NavigationAction::RetryMessage(_) => unreachable!(),
-                matrix_desktop::accessibility::NavigationAction::FocusPollOption(..)
+                matrix_desktop::accessibility::NavigationAction::FocusPill(..)
+                | matrix_desktop::accessibility::NavigationAction::FocusPollOption(..)
                 | matrix_desktop::accessibility::NavigationAction::VotePoll(..) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::FocusMessageActions(_)
                 | matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_) => {
@@ -1147,6 +1158,12 @@ impl Shell {
                 }
                 NavigationAction::MessageSelection(intent) => {
                     timeline.apply_selection(&intent, window, cx);
+                }
+                NavigationAction::FocusPill(id, start) => {
+                    timeline.apply_pill(&id, start, window);
+                }
+                NavigationAction::OpenProfile(user_id) => {
+                    self.pending_profile(user_id);
                 }
                 NavigationAction::FocusMessageActions(id) => {
                     timeline.focus_semantic_actions(&id, window);

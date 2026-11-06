@@ -29,6 +29,7 @@ object DesignTokens {
         const val INPUT = 0xf1f4f2L
         const val DISABLED = 0xe9efebL
         const val SELECTION = 0xd0ead8L
+        const val MENTION_ROW = 0xe2d5d1L
         const val ERROR = 0xb43030L
         const val ON_ACCENT = 0xffffffL
         const val AVATAR_TEXT = 0x101b14L
@@ -48,6 +49,7 @@ object DesignTokens {
         const val INPUT = 0xf1f3f2L
         const val DISABLED = 0xe6eae7L
         const val SELECTION = 0xcde9d6L
+        const val MENTION_ROW = 0xead4d7L
         const val ERROR = 0xb00020L
         const val ON_ACCENT = 0xffffffL
         const val AVATAR_TEXT = 0x101b14L
@@ -67,6 +69,7 @@ object DesignTokens {
         const val INPUT = 0x203226L
         const val DISABLED = 0x26372cL
         const val SELECTION = 0x254d34L
+        const val MENTION_ROW = 0x3b3631L
         const val ERROR = 0xffb3b3L
         const val ON_ACCENT = 0x101922L
         const val AVATAR_TEXT = 0x101b14L
@@ -86,6 +89,7 @@ object DesignTokens {
         const val INPUT = 0x141c17L
         const val DISABLED = 0x1a241dL
         const val SELECTION = 0x1b412aL
+        const val MENTION_ROW = 0x2e2020L
         const val ERROR = 0xffb3b3L
         const val ON_ACCENT = 0x000000L
         const val AVATAR_TEXT = 0x101b14L

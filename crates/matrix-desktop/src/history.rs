@@ -44,6 +44,10 @@ pub struct DemoEvent {
     pub text: String,
     /// Bold, italic, code… of `text` for a formatted message.
     pub styles: Vec<matrix_engine::rich_text::StyleSpan>,
+    /// Mention pills of `text` (users, «@room», rooms).
+    pub mentions: Vec<matrix_engine::rich_text::MentionSpan>,
+    /// The message is for the active user: the row is drawn highlighted.
+    pub highlighted: bool,
     pub annotation: String,
     pub outgoing: bool,
     pub time: String,
@@ -177,7 +181,7 @@ impl DemoHistory {
                     outgoing: index % 3 == 1,
                     send_state: None,
                     timestamp_ms: index as u64 * 60_000,
-                    styles: Vec::new(),
+                    styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
                     status: false,
@@ -258,7 +262,7 @@ impl DemoHistory {
             send_state: Some(DemoSendState::Pending),
             sender: None,
             timestamp_ms: 0,
-            styles: Vec::new(),
+            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None,
             thread_root: None,
             status: false,
@@ -327,6 +331,8 @@ impl DemoHistory {
                 .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
                 && (row.text != event.body
                     || row.styles != event.styles
+                    || row.mentions != event.mentions
+                    || row.highlighted != event.highlighted
                     || row.poll != event.poll
                     || row.redacted != event.redacted)
             {
@@ -334,6 +340,8 @@ impl DemoHistory {
                 row.redacted = event.redacted;
                 row.text.clone_from(&event.body);
                 row.styles.clone_from(&event.styles);
+                row.mentions.clone_from(&event.mentions);
+                row.highlighted = event.highlighted;
                 changed_body = true;
             }
             // The ACK row is born without attachment facts and the server copy is then dropped as a duplicate.
@@ -388,6 +396,8 @@ impl DemoHistory {
                 sender: (!event.outgoing).then_some(event.sender),
                 timestamp_ms: event.timestamp_ms,
                 styles: event.styles,
+                mentions: event.mentions,
+                highlighted: event.highlighted,
                 thread: event.thread,
                 thread_root: event.thread_root,
                 status: event.status,
@@ -488,6 +498,7 @@ impl DemoHistory {
             {
                 row.text = "[Messaggio eliminato]".into();
                 row.styles.clear();
+                row.mentions.clear();
                 row.redacted = true;
                 row.annotation.clear();
             }
@@ -530,7 +541,7 @@ impl DemoHistory {
                     send_state: None,
                     sender: None,
                     timestamp_ms: 0,
-                    styles: Vec::new(),
+                    styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
                     status: false,
@@ -549,6 +560,7 @@ impl DemoHistory {
             {
                 row.text = body.clone();
                 row.styles.clear();
+                row.mentions.clear();
                 row.time = format!(
                     "{} · modificato",
                     row.time.trim_end_matches(" · modificato")
@@ -589,6 +601,7 @@ impl DemoHistory {
                 if !row.server_confirmed {
                     row.text = item.body.clone();
                     row.styles.clear();
+                    row.mentions.clear();
                 }
                 row.send_state = state;
                 row.server_confirmed = state.is_none();
@@ -616,7 +629,7 @@ impl DemoHistory {
                     send_state: state,
                     sender: None,
                     timestamp_ms: 0,
-                    styles: Vec::new(),
+                    styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
                     status: false,
@@ -657,7 +670,11 @@ impl DemoHistory {
     pub fn sender_avatar_mxcs(&self) -> impl Iterator<Item = &str> {
         self.events.iter().rev().flat_map(|e| {
             let latest = e.thread.as_ref().and_then(|t| t.latest_sender.as_ref());
-            e.sender.iter().chain(latest).filter_map(|s| s.avatar.as_deref())
+            let pills = e.mentions.iter().filter_map(|m| match &m.kind {
+                matrix_engine::rich_text::MentionKind::User { sender, .. } => Some(sender),
+                _ => None,
+            });
+            e.sender.iter().chain(latest).chain(pills).filter_map(|s| s.avatar.as_deref())
         })
     }
 

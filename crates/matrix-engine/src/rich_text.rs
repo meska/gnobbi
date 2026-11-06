@@ -3,6 +3,7 @@
 //! compat rules, reply fallback removed, nesting capped).
 // shortcut: no inline images, tables are flattened to lines, a labelled link shows its address in
 // brackets after the label; upgrade when the timeline draws blocks instead of one styled text.
+use crate::history::HistorySender;
 use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -21,11 +22,52 @@ pub struct StyleSpan {
     pub style: Style,
 }
 
+/// What a mention pill stands for (the MATRIX_MENZIONI_UI notes D3).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MentionKind {
+    /// A room member, named as on their own bubbles; `me` is the active user.
+    User { sender: HistorySender, me: bool },
+    /// The literal «@room», only when the event's `m.mentions.room` is set.
+    AtRoom,
+    /// A `matrix.to` link to a room (`#alias` or `!id`).
+    Room,
+}
+
+/// A mention in the display text, as a byte range of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MentionSpan {
+    pub range: Range<usize>,
+    pub kind: MentionKind,
+}
+
+/// What the engine knows about the room while flattening a body.
+pub struct MentionCtx<'a> {
+    /// Members (joined or invited) the body's links point at, by user id.
+    pub users: &'a std::collections::HashMap<String, HistorySender>,
+    pub me: &'a str,
+    pub at_room: bool,
+}
+
+/// «@room» as a whole word outside code and outside the spans already taken.
+pub fn at_room_spans(text: &str, styles: &[StyleSpan], taken: &[MentionSpan]) -> Vec<MentionSpan> {
+    text.match_indices("@room")
+        .filter(|(i, w)| {
+            let end = i + w.len();
+            text[..*i].chars().next_back().is_none_or(|c| !c.is_alphanumeric() && c != '@')
+                && text[end..].chars().next().is_none_or(|c| !c.is_alphanumeric() && !"_:-".contains(c))
+                && !styles.iter().any(|s| s.style == Style::Code && s.range.start < end && *i < s.range.end)
+                && !taken.iter().any(|m| m.range.start < end && *i < m.range.end)
+        })
+        .map(|(i, w)| MentionSpan { range: i..i + w.len(), kind: MentionKind::AtRoom })
+        .collect()
+}
+
 #[cfg(feature = "sdk")]
 #[derive(Default)]
 struct Rich {
     text: String,
     spans: Vec<StyleSpan>,
+    mentions: Vec<MentionSpan>,
 }
 
 #[cfg(feature = "sdk")]
@@ -64,6 +106,11 @@ impl Rich {
                 range: s.range.start + base..s.range.end + base,
                 style: s.style,
             }));
+        self.mentions
+            .extend(other.mentions.into_iter().map(|m| MentionSpan {
+                range: m.range.start + base..m.range.end + base,
+                kind: m.kind,
+            }));
     }
 
     fn styled(&mut self, inner: Rich, style: Style) {
@@ -84,6 +131,10 @@ impl Rich {
         self.spans.retain_mut(|s| {
             s.range.end = s.range.end.min(end);
             s.range.start < s.range.end
+        });
+        self.mentions.retain_mut(|m| {
+            m.range.end = m.range.end.min(end);
+            m.range.start < m.range.end
         });
         self
     }
@@ -117,12 +168,20 @@ impl Rich {
                 style: s.style,
             })
             .collect();
+        out.mentions = self
+            .mentions
+            .into_iter()
+            .map(|m| MentionSpan {
+                range: shift(m.range.start)..shift(m.range.end.saturating_sub(1)) + 1,
+                kind: m.kind,
+            })
+            .collect();
         out
     }
 }
 
 #[cfg(feature = "sdk")]
-fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool) -> Rich {
+fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &MentionCtx) -> Rich {
     let mut out = Rich::default();
     for node in nodes {
         if let Some(text) = node.as_text() {
@@ -141,7 +200,7 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool) -> Rich {
                 .find(|a| &*a.name.local == wanted)
                 .map(|a| a.value.to_string())
         };
-        let inner = |verbatim| render(node.children(), verbatim);
+        let inner = |verbatim| render(node.children(), verbatim, ctx);
         match name {
             "strong" | "b" => out.styled(inner(verbatim), Style::Bold),
             "em" | "i" => out.styled(inner(verbatim), Style::Italic),
@@ -195,7 +254,7 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool) -> Rich {
                     };
                     let rest = " ".repeat(marker.chars().count());
                     out.append(
-                        render(item.children(), false)
+                        render(item.children(), false, ctx)
                             .trimmed()
                             .prefixed(&marker, &rest),
                     );
@@ -212,6 +271,17 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool) -> Rich {
                 out.text.push(' ');
             }
             "a" => {
+                if let Some((kind, name)) = attr("href").and_then(|h| mention_of(&h, ctx)) {
+                    let start = out.text.len();
+                    match name {
+                        Some(name) => out.text.push_str(&name),
+                        None => out.append(inner(verbatim)),
+                    }
+                    if out.text.len() > start {
+                        out.mentions.push(MentionSpan { range: start..out.text.len(), kind });
+                    }
+                    continue;
+                }
                 let label = inner(verbatim);
                 let shown = label.text.clone();
                 out.append(label);
@@ -240,9 +310,33 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool) -> Rich {
     out
 }
 
+/// A `matrix.to` link as a mention, with the text the pill shows instead of the sender's label
+/// (users: their bubble name). None = no pill: not parsable, an event, or not a member here.
+#[cfg(feature = "sdk")]
+fn mention_of(href: &str, ctx: &MentionCtx) -> Option<(MentionKind, Option<String>)> {
+    use matrix_sdk::ruma::{MatrixToUri, matrix_uri::MatrixId};
+    match MatrixToUri::parse(href).ok()?.id() {
+        MatrixId::User(id) => {
+            let sender = ctx.users.get(id.as_str())?;
+            let name = sender.name.clone().unwrap_or_else(|| sender.id.clone());
+            Some((MentionKind::User { sender: sender.clone(), me: id.as_str() == ctx.me }, Some(name)))
+        }
+        MatrixId::Room(_) | MatrixId::RoomAlias(_) => Some((MentionKind::Room, None)),
+        _ => None,
+    }
+}
+
 /// Display text and styles of an `org.matrix.custom.html` body.
 #[cfg(feature = "sdk")]
 pub fn from_html(html: &str) -> (String, Vec<StyleSpan>) {
+    let users = Default::default();
+    let (text, styles, _) = from_html_mentions(html, &MentionCtx { users: &users, me: "", at_room: false });
+    (text, styles)
+}
+
+/// Like `from_html`, plus the mention pills (user links resolved through `ctx`, «@room» if allowed).
+#[cfg(feature = "sdk")]
+pub fn from_html_mentions(html: &str, ctx: &MentionCtx) -> (String, Vec<StyleSpan>, Vec<MentionSpan>) {
     use matrix_sdk::ruma::html::{Html, SanitizerConfig};
     let html = Html::parse(html);
     html.sanitize_with(
@@ -251,13 +345,20 @@ pub fn from_html(html: &str) -> (String, Vec<StyleSpan>) {
             .remove_elements(["script", "style"])
             .max_depth(24),
     );
-    let rich = render(html.children(), false).trimmed();
-    (rich.text, rich.spans)
+    let mut rich = render(html.children(), false, ctx).trimmed();
+    if ctx.at_room {
+        let found = at_room_spans(&rich.text, &rich.spans, &rich.mentions);
+        rich.mentions.extend(found);
+        rich.mentions.sort_by_key(|m| m.range.start);
+    }
+    (rich.text, rich.spans, rich.mentions)
 }
 
 #[cfg(all(test, feature = "sdk"))]
 mod tests {
-    use super::{Style, from_html};
+    use super::{MentionCtx, MentionKind, Style, from_html, from_html_mentions};
+    use crate::history::HistorySender;
+    use std::collections::HashMap;
 
     fn styled<'a>(text: &'a str, spans: &[super::StyleSpan], style: Style) -> Vec<&'a str> {
         spans
@@ -369,5 +470,65 @@ mod tests {
         assert_eq!(text.len(), 8192);
         assert_eq!(spans.len(), 8192);
         spans_fit(&text, &spans);
+    }
+
+    fn pills(html: &str, at_room: bool) -> (String, Vec<(String, MentionKind)>) {
+        let mut users = HashMap::new();
+        // Two members share a name: the second one is already «Nome (@id)» on its bubbles.
+        for (id, name) in [("@anna:x", "Anna"), ("@me:x", "Io"), ("@bo:x", "Bo (@bo:x)")] {
+            users.insert(id.to_owned(), HistorySender::new(id, Some(name)));
+        }
+        let (text, _, mentions) = from_html_mentions(html, &MentionCtx { users: &users, me: "@me:x", at_room });
+        let shown = mentions.into_iter().map(|m| (text[m.range].to_owned(), m.kind)).collect();
+        (text, shown)
+    }
+
+    #[test]
+    fn user_links_become_pills_named_like_their_bubble_and_flag_me() {
+        let (text, shown) = pills(
+            "<a href=\"https://matrix.to/#/@anna:x\">@anna-label</a> e <a href=\"https://matrix.to/#/%40me%3Ax\">me</a> e <strong><a href=\"https://matrix.to/#/@bo:x\">@bo</a></strong>",
+            false,
+        );
+        assert_eq!(text, "Anna e Io e Bo (@bo:x)");
+        let user = |id: &str, name: &str, me| MentionKind::User { sender: HistorySender::new(id, Some(name)), me };
+        assert_eq!(
+            shown,
+            [
+                ("Anna".into(), user("@anna:x", "Anna", false)),
+                ("Io".into(), user("@me:x", "Io", true)),
+                ("Bo (@bo:x)".into(), user("@bo:x", "Bo (@bo:x)", false)),
+            ]
+        );
+    }
+
+    #[test]
+    fn rooms_are_pills_and_unknown_targets_fall_back_to_their_label() {
+        let (text, shown) = pills(
+            "<a href=\"https://matrix.to/#/#sala:x\">#sala:x</a> <a href=\"https://matrix.to/#/@ghost:x\">@Ghost</a> \
+             <a href=\"https://matrix.to/#/!r:x/$e:x\">msg</a> <a href=\"https://matrix.to/#/nonsense\">@Rotto</a>",
+            false,
+        );
+        assert_eq!(text, "#sala:x @Ghost msg @Rotto");
+        assert_eq!(shown, [("#sala:x".into(), MentionKind::Room)]);
+    }
+
+    #[test]
+    fn at_room_is_a_pill_only_when_allowed_and_outside_code() {
+        let html = "<p>@room ciao@roomx <code>@room</code> a @room.</p>";
+        let (text, shown) = pills(html, true);
+        assert_eq!(text, "@room ciao@roomx @room a @room.");
+        assert_eq!(shown.iter().map(|(t, k)| (t.as_str(), k)).collect::<Vec<_>>(), [("@room", &MentionKind::AtRoom), ("@room", &MentionKind::AtRoom)]);
+        assert_eq!(shown.len(), 2);
+        assert!(pills(html, false).1.is_empty());
+    }
+
+    #[test]
+    fn pills_survive_lists_quotes_and_malformed_markup() {
+        let (text, shown) = pills(
+            "<blockquote><ul><li>x <a href=\"https://matrix.to/#/@anna:x\">a</a></li></ul></blockquote><a href=\"https://matrix.to/#/@me:x\">m",
+            false,
+        );
+        assert_eq!(text, "▎ • x Anna\nIo");
+        assert_eq!(shown.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["Anna", "Io"]);
     }
 }

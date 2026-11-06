@@ -33,7 +33,7 @@ fn ev(id: &str, ts: u64, redacted: bool, status: bool) -> HistoryEvent {
         timestamp_ms: ts,
         sender: HistorySender::new("@a:test", Some("a")),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,
         status,
