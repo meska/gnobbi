@@ -343,6 +343,7 @@ mod tests {
 
     fn event(n: usize) -> HistoryEvent {
         HistoryEvent {
+            poll: None,
             event_id: EventId::new(format!("$r{n}")),
             body: format!("risposta {n}"),
             outgoing: false,

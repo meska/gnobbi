@@ -8,6 +8,8 @@ pub struct SendRequest {
     /// Text message body, or the caption when `attachment` is set.
     pub body: String,
     pub attachment: Option<Attachment>,
+    /// A poll to start; `body` is then ignored (the fallback text is built from the draft).
+    pub poll: Option<matrix_domain::PollDraft>,
     /// Users named in `body` by their `label`; ignored for attachments.
     pub mentions: Vec<Mention>,
 }
@@ -358,8 +360,10 @@ pub(crate) fn room_for(
     if request.scope.account_id != account {
         return Err(SendError::WrongScope);
     }
-    if (request.body.trim().is_empty() && request.attachment.is_none())
+    if (request.body.trim().is_empty() && request.attachment.is_none() && request.poll.is_none())
         || request.transaction_id.as_str().is_empty()
+        || (request.poll.is_some() && request.attachment.is_some())
+        || request.poll.as_ref().is_some_and(|p| p.validate().is_err())
     {
         return Err(SendError::InvalidInput);
     }
@@ -405,6 +409,33 @@ pub(crate) fn queued_text(content: matrix_sdk::store::SerializableEventContent) 
     Some((value["body"].as_str()?.to_owned(), plain))
 }
 
+#[cfg(feature = "sdk")]
+const POLL_START: &str = "org.matrix.msc3381.poll.start";
+
+/// MSC3381 start event of a validated draft: option ids "1".."N", one selection or all of them.
+#[cfg(feature = "sdk")]
+pub(crate) fn poll_start(draft: &matrix_domain::PollDraft) -> matrix_sdk::ruma::events::poll::unstable_start::UnstablePollStartEventContent {
+    use matrix_sdk::ruma::{
+        UInt,
+        events::poll::{
+            start::PollKind,
+            unstable_start::{NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollStartContentBlock},
+        },
+    };
+    let answers: Vec<_> = draft
+        .answers
+        .iter()
+        .enumerate()
+        .map(|(ix, text)| UnstablePollAnswer::new((ix + 1).to_string(), text.trim()))
+        .collect();
+    let count = answers.len();
+    // `validate` bounds the count to 2..=20, which is what `try_from` accepts.
+    let mut block = UnstablePollStartContentBlock::new(draft.question.trim(), answers.try_into().expect("2..=20 answers"));
+    block.kind = if draft.disclosed { PollKind::Disclosed } else { PollKind::Undisclosed };
+    block.max_selections = UInt::from(if draft.multiple { count as u32 } else { 1 });
+    NewUnstablePollStartEventContent::plain_text(draft.fallback_text(), block).into()
+}
+
 /// Put a text on the room's SDK send queue. The queue picks the transaction ID, keeps the message
 /// across restarts and resends it with the same ID. The handle has no accessor for that ID, so it
 /// is read from the local echo the queue announces before `send` returns.
@@ -417,15 +448,20 @@ pub(crate) async fn queue_text(
 ) -> Result<(matrix_sdk::ruma::OwnedTransactionId, matrix_sdk::send_queue::SendHandle), SendError> {
     use matrix_sdk::send_queue::{LocalEchoContent, RoomSendQueueUpdate::NewLocalEvent};
     let mut updates = client.send_queue().subscribe();
-    let handle = timeline
-        .send(markdown_content(&request.body, &request.mentions).into())
-        .await
-        .map_err(|_| SendError::Transport)?;
+    let content = match &request.poll {
+        Some(draft) => poll_start(draft).into(),
+        None => markdown_content(&request.body, &request.mentions).into(),
+    };
+    let handle = timeline.send(content).await.map_err(|_| SendError::Transport)?;
     while let Ok(update) = updates.try_recv() {
         if update.room_id == room.room_id()
             && let NewLocalEvent(echo) = update.update
             && let LocalEchoContent::Event { serialized_event, .. } = echo.content
-            && queued_text(serialized_event).is_some_and(|(body, plain)| plain && body == request.body)
+            && if request.poll.is_some() {
+                serialized_event.into_raw().1 == POLL_START
+            } else {
+                queued_text(serialized_event).is_some_and(|(body, plain)| plain && body == request.body)
+            }
         {
             return Ok((echo.transaction_id, handle));
         }

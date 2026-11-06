@@ -25,6 +25,7 @@ fn global(hide: bool) -> Preferences {
 
 fn ev(id: &str, ts: u64, redacted: bool, status: bool) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         redacted,
         event_id: EventId::new(id),
         body: if redacted { "[Messaggio eliminato]".into() } else { id.into() },

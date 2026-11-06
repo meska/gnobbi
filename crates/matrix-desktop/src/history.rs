@@ -53,6 +53,8 @@ pub struct DemoEvent {
     pub timestamp_ms: u64,
     /// Set for an `m.video` row: the bubble paints a picture with play symbol instead of `text`.
     pub video: Option<VideoFacts>,
+    /// Set on a poll start: the bubble paints the poll instead of `text`. Private user data: never log.
+    pub poll: Option<matrix_domain::Poll>,
     /// File name of a received attachment (any kind): the bubble offers «Scarica».
     pub attachment_name: Option<String>,
     pub attachment_size: Option<u64>,
@@ -180,6 +182,7 @@ impl DemoHistory {
                     thread_root: None,
                     status: false,
                     video: None,
+                    poll: None,
                     attachment_name: None,
                     attachment_size: None,
                     sender: (index % 3 != 1).then(|| {
@@ -260,6 +263,7 @@ impl DemoHistory {
             thread_root: None,
             status: false,
             video: None,
+            poll: None,
             attachment_name: None,
             attachment_size: None,
         });
@@ -323,8 +327,10 @@ impl DemoHistory {
                 .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
                 && (row.text != event.body
                     || row.styles != event.styles
+                    || row.poll != event.poll
                     || row.redacted != event.redacted)
             {
+                row.poll.clone_from(&event.poll);
                 row.redacted = event.redacted;
                 row.text.clone_from(&event.body);
                 row.styles.clone_from(&event.styles);
@@ -388,6 +394,7 @@ impl DemoHistory {
                 attachment_name: event.attachment_name,
                 attachment_size: event.attachment_size,
                 video: event.video.map(video_facts),
+                poll: event.poll,
             })
             .collect::<Vec<_>>();
         let count = rows
@@ -528,6 +535,7 @@ impl DemoHistory {
                     thread_root: None,
                     status: false,
                     video: None,
+                    poll: None,
                     attachment_name: None,
                     attachment_size: None,
                 });
@@ -613,6 +621,7 @@ impl DemoHistory {
                     thread_root: None,
                     status: false,
                     video: None,
+                    poll: None,
                     attachment_name: None,
                     attachment_size: None,
                 });

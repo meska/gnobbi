@@ -6,6 +6,7 @@ use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn ev(id: &str, redacted: bool) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         redacted,
         event_id: EventId::new(id),
         body: if redacted { "[Messaggio eliminato]".into() } else { id.into() },

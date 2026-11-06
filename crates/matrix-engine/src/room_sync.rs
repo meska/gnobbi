@@ -1635,6 +1635,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             continue;
         };
         let (mut video, mut styles, mut attachment_name, mut attachment_size) = (None, Vec::new(), None, None);
+        let mut poll = None;
         let body = match &content.kind {
             MsgLikeKind::Message(message) => match message.msgtype() {
                 MessageType::Image(i) => {
@@ -1667,7 +1668,12 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
                 }
             },
             MsgLikeKind::Sticker(_) => "Sticker".into(),
-            MsgLikeKind::Poll(_) => "Sondaggio".into(),
+            MsgLikeKind::Poll(state) => {
+                let built = poll_from_results(&state.results(), room.own_user_id().as_str(), event.is_own());
+                let question = built.question.clone();
+                poll = Some(built);
+                question
+            }
             MsgLikeKind::Redacted => "[Messaggio eliminato]".into(),
             // A UTD stays a real row with server identity, never ciphertext or silence.
             MsgLikeKind::UnableToDecrypt(_) => {
@@ -1699,9 +1705,64 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             status: false,
             attachment_name,
             attachment_size,
+            poll,
         });
     }
     out
+}
+
+/// The SDK result (already counted: last vote wins, votes after the end ignored) as a domain `Poll`.
+fn poll_from_results(r: &matrix_sdk_ui::timeline::PollResult, own_user: &str, is_own_event: bool) -> matrix_domain::Poll {
+    use matrix_sdk::ruma::events::poll::start::PollKind;
+    poll_from_parts(
+        &r.question,
+        r.kind == PollKind::Disclosed,
+        r.max_selections,
+        r.answers.iter().map(|a| (a.id.as_str(), a.text.as_str())),
+        &r.votes,
+        r.end_time.is_some(),
+        own_user,
+        is_own_event,
+    )
+}
+
+// Split from `poll_from_results` because the SDK's `PollResultAnswer` cannot be named in a test.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn poll_from_parts<'a>(
+    question: &str,
+    disclosed: bool,
+    max_selections: u64,
+    answers: impl Iterator<Item = (&'a str, &'a str)>,
+    votes: &std::collections::HashMap<String, Vec<String>>,
+    ended: bool,
+    own_user: &str,
+    is_own_event: bool,
+) -> matrix_domain::Poll {
+    let mut voters = std::collections::HashSet::new();
+    let answers: Vec<_> = answers
+        .map(|(id, text)| {
+            let who = votes.get(id).map(Vec::as_slice).unwrap_or_default();
+            voters.extend(who.iter().map(String::as_str));
+            matrix_domain::PollAnswer {
+                id: id.to_owned(),
+                text: text.to_owned(),
+                votes: who.len() as u32,
+                own: who.iter().any(|u| u == own_user),
+            }
+        })
+        .collect();
+    // 0 on the wire would make the poll unvotable.
+    let max_selections = max_selections.clamp(1, u32::MAX.into()) as u32;
+    matrix_domain::Poll {
+        question: question.to_owned(),
+        answers,
+        max_selections,
+        multiple: max_selections > 1,
+        disclosed,
+        ended,
+        voters: voters.len() as u32,
+        can_end: is_own_event && !ended,
+    }
 }
 
 /// A status row from a membership, profile or room-state item; `None` for kinds we do not word
@@ -1760,6 +1821,7 @@ async fn status_row(
         _ => return None,
     };
     Some(crate::history::HistoryEvent {
+        poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
         body: status_text(&status, &label(&actor), &subject),
         outgoing: false,

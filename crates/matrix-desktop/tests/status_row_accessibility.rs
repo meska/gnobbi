@@ -6,6 +6,7 @@ use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn row(id: &str, body: &str, status: bool) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         event_id: EventId::new(id),
         body: body.into(),
         outgoing: false,

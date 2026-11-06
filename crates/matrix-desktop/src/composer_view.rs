@@ -83,6 +83,11 @@ const DEFAULT_UPLOAD_LIMIT: u64 = 24 * 1024 * 1024;
 
 pub struct Submitted(pub String);
 
+/// The «Crea sondaggio» icon was activated: the shell opens the dialog.
+pub struct OpenPoll;
+
+impl gpui::EventEmitter<OpenPoll> for ComposerView {}
+
 impl gpui::EventEmitter<Submitted> for ComposerView {}
 
 pub struct ComposerView {
@@ -116,8 +121,8 @@ pub struct ComposerView {
     /// Last `send_visible()` seen by render, and when the fade towards it began (None: settled or reduced motion).
     send_shown: bool,
     fade_since: Option<Instant>,
-    /// Emoji, Attach, Voice: tab stops between the field and Send.
-    icon_focus: [FocusHandle; 3],
+    /// Emoji, Attach, Voice, Poll (Tab order Emoji, Poll, Attach, Voice | Send).
+    icon_focus: [FocusHandle; 4],
     layout: Option<TextLayout>,
     scroll: ScrollHandle,
     anchor: usize,
@@ -157,7 +162,7 @@ impl ComposerView {
             send_focus_source: 0,
             send_shown: false,
             fade_since: None,
-            icon_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
+            icon_focus: std::array::from_fn(|_| cx.focus_handle()),
             layout: None,
             scroll: ScrollHandle::new(),
             anchor: 0,
@@ -334,14 +339,14 @@ impl ComposerView {
     }
 
     pub fn icon_focused(&self, window: &Window) -> Option<u8> {
-        (0..3u8).find(|i| self.icon_focus[*i as usize].is_focused(window))
+        (0..4u8).find(|i| self.icon_focus[*i as usize].is_focused(window))
     }
 
-    /// Tab order: field, Emoji, Attach, then the one of Voice | Send that is showing.
+    /// Tab order: field, Emoji, Poll, Attach, then the one of Voice | Send that is showing.
     fn stops(&self) -> Vec<FocusHandle> {
         let mut stops = vec![self.focus.clone()];
         if self.icons_shown() {
-            stops.extend(self.icon_focus[..2].iter().cloned());
+            stops.extend([0, 3, 1].map(|i| self.icon_focus[i].clone()));
             if !self.send_visible() {
                 stops.push(self.icon_focus[2].clone());
             }
@@ -1427,6 +1432,7 @@ impl Render for ComposerView {
                             this.emoji_selected = 0;
                             cx.notify();
                         }))
+                        .child(icon_button("composer-poll", Icon::Poll, t, &self.icon_focus[3], icon_focus == Some(3), cx, |_, _, cx| cx.emit(OpenPoll)))
                         .child(icon_button("composer-attach", Icon::Attach, t, &self.icon_focus[1], icon_focus == Some(1), cx, |this, _, cx| this.pick_file(cx)))
                     })
                     // Voice and Send share this 32x32 slot and cross-fade (opacity only). The one that is fading out or hidden is inert: no click, no focus, no a11y node.
@@ -2555,9 +2561,13 @@ mod tests {
 
     /// Live composer in a 72 px bar (the real min height), text and one icon state checked after paint.
     fn rendered_composer(text: &'static str, check: impl FnOnce(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static) {
+        rendered_composer_at(800., text, check)
+    }
+
+    fn rendered_composer_at(width: f32, text: &'static str, check: impl FnOnce(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static) {
         assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
         gpui::Application::new().run(move |cx| {
-            let bounds = Bounds::centered(None, size(px(800.), px(72.)), cx);
+            let bounds = Bounds::centered(None, size(px(width), px(72.)), cx);
             let view = cx
                 .open_window(
                     gpui::WindowOptions { window_bounds: Some(gpui::WindowBounds::Windowed(bounds)), ..Default::default() },
@@ -2658,7 +2668,7 @@ mod tests {
             let mid = centre(bar);
             let text = v.layout.as_ref().expect("text laid out").bounds();
             assert!((centre(text) - mid).abs() <= 1., "text centre {:?} vs bar {mid}", text);
-            let names = ["composer-emoji-toggle", "composer-attach", "send"];
+            let names = ["composer-emoji-toggle", "composer-poll", "composer-attach", "send"];
             let mut left = text.right();
             for name in names {
                 let b = probed(name);
@@ -2671,16 +2681,16 @@ mod tests {
         });
     }
 
-    /// Emoji, Attach, Voice form one block and end exactly at the bar's right padding edge (no space reserved for Send), whatever the text.
+    /// Emoji, Poll, Attach, Voice form one block and end exactly at the bar's right padding edge (no space reserved for Send), whatever the text.
     fn assert_icons_flush_right(v: &mut ComposerView, last: &str) {
         let bar = probed("bar");
-        let (e, a, r) = (probed("composer-emoji-toggle"), probed("composer-attach"), probed(last));
+        let (e, p, a, r) = (probed("composer-emoji-toggle"), probed("composer-poll"), probed("composer-attach"), probed(last));
         assert!((f32::from(r.size.width) - 32.).abs() <= 0.5 && (f32::from(r.size.height) - 32.).abs() <= 0.5, "{last} is {:?}", r.size);
         let d = |x: Pixels, y: Pixels| (f32::from(x) - f32::from(y)).abs();
         // The probe spans the bar's padding box; px_6 leaves 24 px on the right.
         assert!(d(r.right(), bar.right() - px(24.)) <= 1., "Voice {r:?} vs bar {bar:?}");
-        // Same gap between the three, so they form one block ending at the edge.
-        assert!(d(a.left() - e.right(), r.left() - a.right()) <= 1., "uneven gaps: {e:?} {a:?} {r:?}");
+        // Same gap between the four, so they form one block ending at the edge.
+        assert!(d(p.left() - e.right(), r.left() - a.right()) <= 1. && d(a.left() - p.right(), r.left() - a.right()) <= 1., "uneven gaps: {e:?} {p:?} {a:?} {r:?}");
         let _ = v;
     }
 
@@ -2697,6 +2707,18 @@ mod tests {
             // Send takes Voice's slot: same 32x32 rectangle at the right edge, after Emoji and Attach.
             assert_icons_flush_right(v, "send");
             assert!(probed("send").left() >= probed("composer-attach").right());
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn narrow_window_keeps_the_field_at_least_120px_with_four_icons() {
+        rendered_composer_at(360., "", |v, _, _| {
+            let editor = probed("editor");
+            eprintln!("editor at 360: {editor:?}");
+            assert!(f32::from(editor.size.width) >= 120., "field is {:?}", editor.size);
+            assert_icons_flush_right(v, "composer-record");
+            assert_right_edge_at_scales("composer-record");
         });
     }
 
@@ -2746,18 +2768,18 @@ mod tests {
         let at = |v: &ComposerView, w: &Window| {
             [v.focus.is_focused(w)]
                 .into_iter()
-                .chain((0..3).map(|i| v.icon_focus[i].is_focused(w)))
+                .chain([0, 3, 1, 2].map(|i| v.icon_focus[i].is_focused(w)))
                 .chain([v.send_focus.is_focused(w)])
                 .position(|f| f)
         };
         rendered_composer("ciao", move |v, window, cx| {
             let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
-            for stop in [1, 2, 4] {
+            for stop in [1, 2, 3, 5] {
                 v.key_down(&key("tab"), window, cx);
-                assert_eq!(at(v, window), Some(stop), "text: field, Emoji, Attach, Send");
+                assert_eq!(at(v, window), Some(stop), "text: field, Emoji, Poll, Attach, Send");
             }
             assert!(v.at_last_stop(window));
-            for stop in [2, 1, 0] {
+            for stop in [3, 2, 1, 0] {
                 v.key_down(&key("shift-tab"), window, cx);
                 assert_eq!(at(v, window), Some(stop));
             }
@@ -2769,10 +2791,10 @@ mod tests {
     fn tab_reaches_voice_when_there_is_nothing_to_send() {
         rendered_composer("", |v, window, cx| {
             let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
-            for _ in 0..3 {
+            for _ in 0..4 {
                 v.key_down(&key("tab"), window, cx);
             }
-            assert_eq!(v.icon_focused(window), Some(2), "field, Emoji, Attach, Voice");
+            assert_eq!(v.icon_focused(window), Some(2), "field, Emoji, Poll, Attach, Voice");
             assert!(v.at_last_stop(window));
             v.key_down(&key("tab"), window, cx);
             assert_eq!(v.icon_focused(window), Some(2), "Send is not a stop");
@@ -2781,25 +2803,25 @@ mod tests {
 
     #[test]
     #[ignore = "requires private display"]
-    fn tab_walks_field_emoji_attach_voice_send_and_back() {
+    fn tab_walks_field_emoji_poll_attach_voice_send_and_back() {
         rendered_composer("ciao", |v, window, cx| {
             let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
             let at = |v: &ComposerView, w: &Window| {
                 [v.focus.is_focused(w)]
                     .into_iter()
-                    .chain((0..3).map(|i| v.icon_focus[i].is_focused(w)))
+                    .chain([0, 3, 1, 2].map(|i| v.icon_focus[i].is_focused(w)))
                     .chain([v.send_focus.is_focused(w)])
                     .position(|f| f)
             };
             assert_eq!(at(v, window), Some(0));
-            for stop in [1, 2, 4] {
+            for stop in [1, 2, 3, 5] {
                 v.key_down(&key("tab"), window, cx);
                 assert_eq!(at(v, window), Some(stop), "Tab {stop}");
             }
             assert!(v.at_last_stop(window), "Send is the last stop: the next Tab leaves the composer");
             v.key_down(&key("tab"), window, cx);
-            assert_eq!(at(v, window), Some(4), "the composer does not trap or wrap by itself");
-            for stop in [2, 1, 0] {
+            assert_eq!(at(v, window), Some(5), "the composer does not trap or wrap by itself");
+            for stop in [3, 2, 1, 0] {
                 v.key_down(&key("shift-tab"), window, cx);
                 assert_eq!(at(v, window), Some(stop), "Shift-Tab to {stop}");
             }
@@ -2841,10 +2863,10 @@ mod tests {
         for scale in [1.0_f32, 1.5, 2.0] {
             let snap = |x: Pixels| (f32::from(x) * scale).round();
             let want = snap(bar.right() - px(24.));
-            for name in ["composer-emoji-toggle", "composer-attach", last] {
+            for name in ["composer-emoji-toggle", "composer-poll", "composer-attach", last] {
                 let b = probed(name);
                 let right = snap(b.right());
-                let expected = want - snap(px(0.)) - (match name { "composer-emoji-toggle" => 2., "composer-attach" => 1., _ => 0. }) * (32. + GAP) * scale;
+                let expected = want - snap(px(0.)) - (match name { "composer-emoji-toggle" => 3., "composer-poll" => 2., "composer-attach" => 1., _ => 0. }) * (32. + GAP) * scale;
                 assert!((right - expected).abs() <= 1., "{name} at {scale}x: right {right} vs {expected}");
             }
         }
@@ -2857,7 +2879,7 @@ mod tests {
             let (e, a, r, h) = icon_layout("composer-record");
             eprintln!("VOICE e={e:?} a={a:?} r={r:?} bar_h={h}");
             assert_eq!(r[2..], [32., 32.]);
-            assert!((e[0] - (r[0] - 2. * (32. + GAP))).abs() <= 1. && (a[0] - (r[0] - (32. + GAP))).abs() <= 1., "gaps are {GAP}");
+            assert!((e[0] - (r[0] - 3. * (32. + GAP))).abs() <= 1. && (a[0] - (r[0] - (32. + GAP))).abs() <= 1., "gaps are {GAP}");
             assert!((e[1] - r[1]).abs() <= 1. && (a[1] - r[1]).abs() <= 1., "same top");
             assert!((h + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar height at rest {h}");
             assert_right_edge_at_scales("composer-record");
@@ -2872,7 +2894,7 @@ mod tests {
             let (e, a, s, h) = icon_layout("send");
             eprintln!("SEND  e={e:?} a={a:?} s={s:?} bar_h={h}");
             assert_eq!(s[2..], [32., 32.]);
-            assert!((e[0] - (s[0] - 2. * (32. + GAP))).abs() <= 1. && (a[0] - (s[0] - (32. + GAP))).abs() <= 1.);
+            assert!((e[0] - (s[0] - 3. * (32. + GAP))).abs() <= 1. && (a[0] - (s[0] - (32. + GAP))).abs() <= 1.);
             assert!((e[1] - s[1]).abs() <= 1. && (a[1] - s[1]).abs() <= 1.);
             assert!((h + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar height with text {h}");
             assert_right_edge_at_scales("send");

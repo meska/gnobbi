@@ -33,6 +33,7 @@ fn peer_receipt_marks_that_event_and_older_ones_with_the_double_check() {
         receipts::PublicReadReceipt,
     };
     let event = |id: &str, ts| HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new(id),
         body: id.into(),

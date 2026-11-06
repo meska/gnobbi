@@ -80,6 +80,7 @@ fn request(
             data,
             voice,
         }),
+        poll: None,
         mentions: Vec::new(),
     }
 }

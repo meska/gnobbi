@@ -51,6 +51,7 @@ fn scope() -> RoomScope {
 
 fn event(id: &str, outgoing: bool, name: Option<&str>, image: bool, redacted: bool) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         event_id: EventId::new(id),
         body: if image { IMAGE_BODY.into() } else { name.unwrap_or("solo testo").into() },
         outgoing,

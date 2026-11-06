@@ -1458,6 +1458,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(700).await;
             this.update_in(cx, |this, _, cx| {
                 let events = (1..=3).map(|n| matrix_engine::history::HistoryEvent {
+                    poll: None,
                     redacted: false,
                     event_id: matrix_domain::EventId::new(format!("$debugevent{n}:gnobbi.test")),
                     body: format!("Messaggio {n}"),

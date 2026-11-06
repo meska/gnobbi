@@ -341,6 +341,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let timeline =
                     TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
                 timeline.append_server(vec![matrix_engine::history::HistoryEvent {
+                    poll: None,
                     redacted: false,
                     event_id: matrix_domain::EventId::new("$visibility:test"),
                     body: "deterministic native visibility fixture".into(),

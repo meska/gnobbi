@@ -76,6 +76,8 @@ fn close_viewer(
 type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
+type PollParts = std::collections::HashMap<(matrix_domain::TimelineId, crate::poll_view::PollPart), Bounds<Pixels>>;
+
 const SENDER_AVATAR_PX: f32 = 32.;
 
 /// Avatar or name of a bubble: a click asks the shell to open that member's profile.
@@ -162,6 +164,8 @@ pub struct TimelineView {
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
     pub(crate) video_painted: Rc<RefCell<VideoParts>>,
+    /// Last painted bounds of each poll bubble part, by event.
+    pub(crate) poll_painted: Rc<RefCell<PollParts>>,
     pub(crate) images: Rc<
         RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>,
     >,
@@ -188,6 +192,8 @@ pub struct TimelineView {
     retry_bounds: SemanticBounds,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     retry_cursor: RefCell<Option<ScopedTimelineId>>,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    poll_cursor: RefCell<Option<(ScopedTimelineId, usize)>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     semantic_bounds: SemanticBounds,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -331,6 +337,7 @@ impl TimelineView {
             images: Rc::default(),
             sender_pictures: Rc::default(),
             video_painted: Rc::default(),
+            poll_painted: Rc::default(),
             requested_link: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             selection_cursor: Rc::default(),
@@ -344,6 +351,8 @@ impl TimelineView {
             retry_bounds: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             retry_cursor: RefCell::default(),
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            poll_cursor: RefCell::default(),
             history: Rc::new(RefCell::new(history)),
             // The offline fixture stands for a group chat.
             member_count: Cell::new(if live { 0 } else { 3 }),
@@ -656,6 +665,21 @@ impl TimelineView {
                     f64::from(f32::from(bounds.bottom())) * scale,
                 ));
             }
+            if message.poll.is_some() {
+                message.poll_focus = self.poll_cursor.borrow().as_ref().filter(|(e, _)| *e == message.event && self.focus.is_focused(window)).map(|(_, ix)| *ix);
+                let parts = self.poll_painted.borrow();
+                let rect = |b: &Bounds<Pixels>| accesskit::Rect::new(
+                    f64::from(f32::from(b.left())) * scale,
+                    f64::from(f32::from(b.top())) * scale,
+                    f64::from(f32::from(b.right())) * scale,
+                    f64::from(f32::from(b.bottom())) * scale,
+                );
+                let at = |part| parts.get(&(message.event.id.clone(), part)).map(rect);
+                message.poll_bounds = at(crate::poll_view::PollPart::Bubble);
+                message.poll_option_bounds = (0..message.poll.as_ref().map_or(0, |p| p.answers.len()))
+                    .map(|ix| at(crate::poll_view::PollPart::Option(ix)))
+                    .collect();
+            }
             if message.save.is_some()
                 && let matrix_domain::TimelineId::Server(id) = &message.event.id
                 && let Some(bounds) = self.save_painted.borrow().get(id)
@@ -735,6 +759,7 @@ impl TimelineView {
         self.link.borrow_mut().cancel();
         self.selection_cursor.replace(None);
         self.retry_cursor.replace(None);
+        self.poll_cursor.replace(None);
         self.actions_cursor.replace(None);
         let Some(index) = self
             .history
@@ -1045,6 +1070,22 @@ impl TimelineView {
     }
 
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn focus_semantic_poll(&self, id: &ScopedTimelineId, ix: usize, window: &mut gpui::Window) -> bool {
+        if !self.live
+            || !self.history.borrow().events().iter().any(|event| {
+                event.id == *id
+                    && matches!(id.id, matrix_domain::TimelineId::Server(_))
+                    && event.poll.as_ref().is_some_and(|p| !p.ended && ix < p.answers.len())
+            })
+            || !self.focus_semantic_message(id, window)
+        {
+            return false;
+        }
+        self.poll_cursor.replace(Some((id.clone(), ix)));
+        true
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub fn focus_semantic_actions(&self, id: &ScopedTimelineId, window: &mut gpui::Window) -> bool {
         if !self.live
             || !self.history.borrow().events().iter().any(|event| {
@@ -1060,6 +1101,10 @@ impl TimelineView {
         }
         self.actions_cursor.replace(Some(id.clone()));
         true
+    }
+
+    pub fn poll_of(&self, id: &ScopedTimelineId) -> Option<matrix_domain::Poll> {
+        self.history.borrow().events().iter().find(|e| e.id == *id)?.poll.clone()
     }
 
     pub fn keyboard_menu_target(&self) -> Option<ScopedTimelineId> {
@@ -1477,6 +1522,14 @@ impl TimelineView {
             .then(|| self.actions_cursor.borrow().clone())
             .flatten();
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let focused_poll = self
+            .focus
+            .is_focused(window)
+            .then(|| self.poll_cursor.borrow().clone())
+            .flatten();
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        let focused_poll: Option<(ScopedTimelineId, usize)> = None;
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let focused_retry = self
             .focus
             .is_focused(window)
@@ -1513,6 +1566,7 @@ impl TimelineView {
         let images = self.images.clone();
         let sender_pictures = self.sender_pictures.clone();
         let video_painted = self.video_painted.clone();
+        let poll_painted = self.poll_painted.clone();
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let want_video = self.want_video.clone();
@@ -1636,7 +1690,25 @@ impl TimelineView {
                             _ => picture,
                         }
                     });
-                    let picture = video_picture.or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
+                    let poll_bubble = event.poll.as_ref().map(|poll| {
+                        let (parts, id) = (poll_painted.clone(), event.id.id.clone());
+                        let target = match &event.id.id { matrix_domain::TimelineId::Server(e) => Some(e.clone()), _ => None };
+                        let failed = target.as_ref().zip(operations.as_ref()).is_some_and(|(e, o)| o.borrow().vote_failed(e));
+                        let focus_ix = focused_poll.as_ref().filter(|(m, _)| *m == event.id).map(|(_, ix)| *ix);
+                        let on_vote: crate::poll_view::PollVote = match (target, operations.clone()) {
+                            #[cfg(feature = "live")]
+                            (Some(target), Some(ops)) => {
+                                let (scope, poll) = (event.id.scope.clone(), poll.clone());
+                                Rc::new(move |ix, window, _| {
+                                    ops.borrow_mut().vote(scope.clone(), target.clone(), &poll, ix, matrix_engine::sending::fresh_transaction_id());
+                                    window.refresh();
+                                })
+                            }
+                            _ => Rc::new(|_, _, _| {}),
+                        };
+                        crate::poll_view::poll_bubble(poll, t, index, focus_ix, failed, on_vote, Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.clone(), part), bounds); }))
+                    });
+                    let picture = poll_bubble.or(video_picture).or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
                         let state = match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
@@ -2569,6 +2641,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
@@ -2710,6 +2783,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
@@ -2827,6 +2901,7 @@ mod tests {
                             false,
                         );
                         v.append_server(vec![HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: id.clone(),
                             body: "Video · 0:12 · 1.4 MB".into(),
@@ -2933,6 +3008,236 @@ mod tests {
         video_bubble_shot(false);
     }
 
+    struct NarrowHost(TimelineView);
+    impl Render for NarrowHost {
+        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, None))
+        }
+    }
+
+    /// Paints one poll row in a 360 px wide timeline and checks parts and containment.
+    fn poll_bubble_shot(poll: matrix_domain::Poll) {
+        use crate::poll_view::PollPart;
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let shown = poll.results_visible();
+            let options = poll.answers.len();
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi poll bubble");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!poll:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        v.append_server(vec![HistoryEvent {
+                            poll: Some(poll.clone()),
+                            redacted: false,
+                            event_id: EventId::new("$poll:fixture.invalid"),
+                            body: poll.question.clone(),
+                            outgoing: false,
+                            timestamp_ms: 0,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: None,
+                            styles: Vec::new(),
+                            thread: None,
+                            thread_root: None,
+                            status: false,
+                            attachment_name: None,
+                            attachment_size: None,
+                        }]);
+                        NarrowHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(500)).await;
+                view.update(cx, |host, _, cx| {
+                    let parts = host.0.poll_painted.borrow();
+                    let id = TimelineId::Server(EventId::new("$poll:fixture.invalid"));
+                    let get = |part| parts.get(&(id.clone(), part)).copied();
+                    let bubble = get(PollPart::Bubble).expect("bubble was not painted");
+                    assert!(bubble.left() >= px(0.) && bubble.right() <= px(361.), "no overflow at 360: {bubble:?}");
+                    for ix in 0..options {
+                        let option = get(PollPart::Option(ix)).expect("option was not painted");
+                        assert!(option.left() >= bubble.left() - px(1.) && option.right() <= bubble.right() + px(1.), "option inside the bubble");
+                        for part in [PollPart::Votes(ix), PollPart::Bar(ix)] {
+                            assert_eq!(get(part).is_some(), shown, "{part:?}: counts and bars only when results are visible");
+                            if let Some(inner) = get(part) {
+                                assert!(inner.right() <= bubble.right() + px(1.), "{part:?} inside the bubble");
+                            }
+                        }
+                    }
+                    cx.quit();
+                })
+                .unwrap();
+            })
+            .detach();
+        });
+    }
+
+    fn sample_poll(disclosed: bool, ended: bool) -> matrix_domain::Poll {
+        let a = |id: &str, text: &str, votes, own| matrix_domain::PollAnswer { id: id.into(), text: text.into(), votes, own };
+        matrix_domain::Poll {
+            question: "Dove ceniamo venerdì sera con tutti gli amici del corso di fotografia?".into(),
+            answers: vec![
+                a("y", "Pizzeria da Mario in centro, quella con il forno a legna e il tavolo lungo", 5, true),
+                a("n", "No", 1, false),
+            ],
+            max_selections: 1,
+            multiple: false,
+            disclosed,
+            ended,
+            voters: 6,
+            can_end: false,
+        }
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_open_disclosed() {
+        poll_bubble_shot(sample_poll(true, false));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_undisclosed_open_has_no_counts_or_bars() {
+        poll_bubble_shot(sample_poll(false, false));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_ended_with_own_vote() {
+        poll_bubble_shot(sample_poll(false, true));
+    }
+
+    #[cfg(feature = "live")]
+    struct VotingHost(TimelineView, Rc<RefCell<matrix_desktop::LiveOperations>>);
+    #[cfg(feature = "live")]
+    impl Render for VotingHost {
+        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, Some(self.1.clone())))
+        }
+    }
+
+    /// Clicks option `ix` with the mouse and checks the answers of the Vote that goes out (None = nothing sent).
+    #[cfg(feature = "live")]
+    fn poll_click_shot(poll: matrix_domain::Poll, ix: usize, expected: Option<Vec<&'static str>>) {
+        use crate::poll_view::PollPart;
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        use matrix_engine::operations::{Operation, OperationCommand};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let operations = Rc::new(RefCell::new(matrix_desktop::LiveOperations::default()));
+            let ops = operations.clone();
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi poll click");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!poll:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        v.append_server(vec![HistoryEvent {
+                            poll: Some(poll.clone()),
+                            redacted: false,
+                            event_id: EventId::new("$poll:fixture.invalid"),
+                            body: poll.question.clone(),
+                            outgoing: false,
+                            timestamp_ms: 0,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: None,
+                            styles: Vec::new(),
+                            thread: None,
+                            thread_root: None,
+                            status: false,
+                            attachment_name: None,
+                            attachment_size: None,
+                        }]);
+                        VotingHost(v, ops)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(500)).await;
+                let at = view
+                    .update(cx, |host, _, _| {
+                        let parts = host.0.poll_painted.borrow();
+                        let option = parts[&(TimelineId::Server(EventId::new("$poll:fixture.invalid")), PollPart::Option(ix))];
+                        option.center()
+                    })
+                    .unwrap();
+                // Real pointer through the Wayland test session (the window is the only one, at 0,0).
+                let helper = std::env::var("WL_INPUT").expect("run through the gui-test-wayland script");
+                let status = std::process::Command::new(helper).arg(format!("click:{},{}", f32::from(at.x) as i32, f32::from(at.y) as i32)).status().unwrap();
+                assert!(status.success());
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                let sent = match operations.borrow_mut().take_command() {
+                    Some(OperationCommand::Apply(request)) => {
+                        assert_eq!(request.target, EventId::new("$poll:fixture.invalid"));
+                        let Operation::Vote { answers } = request.operation else { panic!("not a vote") };
+                        Some(answers)
+                    }
+                    other => {
+                        assert!(other.is_none(), "unexpected command");
+                        None
+                    }
+                };
+                assert_eq!(sent, expected.map(|a| a.into_iter().map(String::from).collect::<Vec<_>>()));
+                let _ = cx.update(|cx| cx.quit());
+            })
+            .detach();
+        });
+    }
+
+    fn poll_with(multiple: bool, ended: bool, own: &[&str]) -> matrix_domain::Poll {
+        let a = |id: &str| matrix_domain::PollAnswer { id: id.into(), text: id.into(), votes: 1, own: own.contains(&id) };
+        matrix_domain::Poll {
+            question: "q".into(),
+            answers: vec![a("a"), a("b"), a("c")],
+            max_selections: if multiple { 2 } else { 1 },
+            multiple,
+            disclosed: true,
+            ended,
+            voters: 1,
+            can_end: false,
+        }
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_single_choice_replaces_the_vote() {
+        poll_click_shot(poll_with(false, false, &["a"]), 1, Some(vec!["b"]));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_multiple_choice_adds() {
+        poll_click_shot(poll_with(true, false, &["a"]), 2, Some(vec!["a", "c"]));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_multiple_choice_removes() {
+        poll_click_shot(poll_with(true, false, &["a", "b"]), 0, Some(vec!["b"]));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_over_the_cap_sends_nothing() {
+        poll_click_shot(poll_with(true, false, &["a", "b"]), 2, None);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_on_a_closed_poll_sends_nothing() {
+        poll_click_shot(poll_with(false, true, &["a"]), 1, None);
+    }
+
     fn ready_image() -> crate::media_view::InlineImage {
         let buffer = image::RgbaImage::from_raw(2, 2, vec![255; 16]).unwrap();
         crate::media_view::InlineImage::Ready(std::sync::Arc::new(gpui::RenderImage::new([
@@ -2959,6 +3264,7 @@ mod tests {
             let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
             let ids = ["$img-in", "$file-in", "$img-out", "$file-out"].map(|id| EventId::new(format!("{id}:fixture.invalid")));
             let event = |id: &EventId, outgoing: bool, name: Option<&str>, image: bool, ms: u64| HistoryEvent {
+                poll: None,
                 redacted: false,
                 event_id: id.clone(),
                 body: if image { matrix_engine::history::IMAGE_BODY.into() } else { name.unwrap_or("solo testo").into() },

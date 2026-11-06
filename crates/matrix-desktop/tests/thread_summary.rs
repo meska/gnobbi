@@ -4,6 +4,7 @@ use matrix_engine::history::{HistoryEvent, HistorySender, ThreadInfo};
 
 fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$root"),
         body: "radice".into(),

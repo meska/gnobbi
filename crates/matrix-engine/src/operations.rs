@@ -7,6 +7,10 @@ pub enum Operation {
     Edit { body: String },
     React { key: String },
     Redact,
+    /// Replace own votes with these option ids (empty = withdraw). `target` is the poll start.
+    Vote { answers: Vec<String> },
+    /// Close an own poll. `target` is the poll start.
+    EndPoll,
 }
 #[derive(Clone, PartialEq, Eq)]
 pub struct OperationRequest {
@@ -434,10 +438,12 @@ pub(crate) async fn details(
     tokio::time::timeout(WAIT, async {
         let (room, _, item) = locate(client, timelines, account, scope, &target, true).await?;
         let item = item.ok_or(OperationError::Unavailable)?;
-        let message = item
-            .content()
-            .as_message()
-            .ok_or(OperationError::Unavailable)?;
+        // A poll start is acted on like a message (EndPoll needs its redact right).
+        let body = match (item.content().as_message(), item.content().as_poll()) {
+            (Some(message), _) => message.body().to_owned(),
+            (None, Some(poll)) => poll.results().question,
+            _ => return Err(OperationError::Unavailable),
+        };
         let user = client.user_id().ok_or(OperationError::Unavailable)?;
         // The SDK has no permission check: power levels stay ours.
         let levels = room
@@ -446,7 +452,7 @@ pub(crate) async fn details(
             .map_err(|_| OperationError::Unavailable)?;
         let send = levels.user_can_send_message(user, MessageLikeEventType::RoomMessage);
         Ok(MessageDetails {
-            body: message.body().to_owned(),
+            body,
             permissions: MessagePermissions {
                 reply: send && item.can_be_replied_to(),
                 edit: send && item.is_editable(),
@@ -1149,8 +1155,11 @@ async fn perform_uncached(
     let text = match &request.operation {
         Operation::Reply { body } | Operation::Edit { body } => Some(body),
         Operation::React { key } => Some(key),
-        Operation::Redact => None,
+        Operation::Redact | Operation::EndPoll | Operation::Vote { .. } => None,
     };
+    if matches!(&request.operation, Operation::Vote { answers } if answers.len() > 20 || answers.iter().any(|a| a.chars().count() > 340)) {
+        return Err(OperationError::InvalidInput);
+    }
     if text.is_some_and(|text| text.trim().is_empty() || text.len() > 32768) {
         return Err(OperationError::InvalidInput);
     }
@@ -1281,6 +1290,33 @@ async fn perform_uncached(
             sent_event(&mut updates, &room, |e| {
                 let r = relation(e);
                 r["rel_type"] == "m.replace" && r["event_id"].as_str() == Some(target.as_str())
+            })
+            .await
+        }
+        Operation::Vote { .. } | Operation::EndPoll => {
+            use matrix_sdk::ruma::events::poll::{unstable_end::UnstablePollEndEventContent, unstable_response::UnstablePollResponseEventContent};
+            let item = item.ok_or(OperationError::Unavailable)?;
+            if item.content().as_poll().is_none() {
+                return Err(OperationError::Unavailable);
+            }
+            let ending = matches!(request.operation, Operation::EndPoll);
+            if ending && !item.is_own() {
+                return Err(OperationError::Forbidden);
+            }
+            let mut updates = client.send_queue().subscribe();
+            let kind = if let Operation::Vote { answers } = &request.operation {
+                timeline
+                    .send(UnstablePollResponseEventContent::new(answers.clone(), target.clone()).into())
+                    .await
+            } else {
+                timeline
+                    .send(UnstablePollEndEventContent::new("Sondaggio chiuso", target.clone()).into())
+                    .await
+            };
+            kind.map_err(|_| OperationError::Transport)?;
+            let wanted = if ending { "org.matrix.msc3381.poll.end" } else { "org.matrix.msc3381.poll.response" };
+            sent_event(&mut updates, &room, |e| {
+                e["type"] == wanted && relation(e)["event_id"].as_str() == Some(target.as_str())
             })
             .await
         }

@@ -14,6 +14,8 @@ mod groups_edit_view;
 mod invite_view;
 mod login_field;
 mod media_view;
+mod poll_dialog;
+mod poll_view;
 mod about_view;
 mod members_view;
 mod menu_view;
@@ -52,7 +54,7 @@ mod tray_view;
 mod verification_view;
 mod video_player;
 mod voice_recorder;
-use composer_view::{ComposerView, Submitted};
+use composer_view::{ComposerView, OpenPoll, Submitted};
 
 use gpui::{
     App, Application, Bounds, ClipboardItem, Context, FocusHandle, KeyDownEvent, ObjectFit, RenderImage,
@@ -92,6 +94,7 @@ struct Shell {
     about_system: String,
     about_icon: Option<std::sync::Arc<RenderImage>>,
     new_room: Option<new_room_view::NewRoom>,
+    poll_dialog: Option<gpui::Entity<poll_dialog::PollDialog>>,
     quick: Option<quick_search_view::QuickSearch>,
     recents: matrix_desktop::quick_search::RecentsStore,
     room_edit: Option<room_edit_view::RoomEdit>,
@@ -208,6 +211,8 @@ struct Shell {
     /// The open room may hold unread messages in view; cleared once the read marker is queued.
     read_dirty: bool,
     confirm_redaction: Option<matrix_domain::ScopedTimelineId>,
+    /// The pending confirmation closes the poll instead of deleting the message.
+    confirm_end: bool,
     connected: bool,
     status: RoomSyncStatus,
     sidebar: Sidebar,
@@ -496,6 +501,23 @@ impl Shell {
                 }
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::FocusPollOption(id, ix)
+            | matrix_desktop::accessibility::NavigationAction::VotePoll(id, ix) = &action
+            {
+                if this.connected
+                    && id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this.sidebar.selected().is_some_and(|room| room.scope == id.scope)
+                {
+                    if matches!(action, matrix_desktop::accessibility::NavigationAction::VotePoll(..)) {
+                        this.vote_poll(id, *ix);
+                    } else if let Some(timeline) = &this.timeline {
+                        timeline.focus_semantic_poll(id, *ix, window);
+                    }
+                    cx.notify();
+                }
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::FocusMessage(id) = &action {
                 if (window.viewport_size().width >= px(800.) || this.compact_chat)
                     && this
@@ -574,6 +596,8 @@ impl Shell {
                     unreachable!()
                 }
                 matrix_desktop::accessibility::NavigationAction::RetryMessage(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::FocusPollOption(..)
+                | matrix_desktop::accessibility::NavigationAction::VotePoll(..) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::FocusMessageActions(_)
                 | matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_) => {
                     unreachable!()
@@ -1096,6 +1120,7 @@ impl Shell {
                     .or_else(|| snapshot.selection_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.offline_delivery_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.video_key(&key.key, key.modifiers.shift))
+                    .or_else(|| snapshot.poll_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.retry_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.actions_key(&key.key, key.modifiers.shift))
             }
@@ -1138,6 +1163,16 @@ impl Shell {
                 }
                 NavigationAction::FocusMessageRetry(id) => {
                     timeline.focus_semantic_retry(&id, window);
+                }
+                NavigationAction::FocusPollOption(id, ix) => {
+                    timeline.focus_semantic_poll(&id, ix, window);
+                }
+                NavigationAction::VotePoll(id, ix) => {
+                    if id.scope == self.active_scope
+                        && self.sidebar.selected().is_some_and(|room| room.scope == id.scope)
+                    {
+                        self.vote_poll(&id, ix);
+                    }
                 }
                 NavigationAction::FocusMessage(id) => {
                     timeline.focus_semantic_message(&id, window);
@@ -1450,6 +1485,58 @@ impl Shell {
         }
     }
 
+    /// Vote on option `ix`: the state comes from the Timeline, we only send the new answers.
+    fn vote_poll(&mut self, id: &matrix_domain::ScopedTimelineId, ix: usize) {
+        #[cfg(feature = "live")]
+        if let matrix_domain::TimelineId::Server(target) = &id.id
+            && let Some(poll) = self.timeline.as_ref().and_then(|t| t.poll_of(id))
+        {
+            self.operations.borrow_mut().vote(id.scope.clone(), target.clone(), &poll, ix, matrix_engine::sending::fresh_transaction_id());
+        }
+        #[cfg(not(feature = "live"))]
+        let _ = (id, ix);
+    }
+    fn open_poll_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.connected || self.sidebar.selected().is_none() || self.poll_dialog.is_some() {
+            return;
+        }
+        let theme = self.theme.tokens();
+        let dialog = cx.new(|cx| poll_dialog::PollDialog::new(theme, cx));
+        cx.subscribe_in(&dialog, window, |this: &mut Shell, _, event: &poll_dialog::PollDialogEvent, window, cx| {
+            this.close_poll_dialog(window, cx);
+            #[cfg(feature = "live")]
+            if let poll_dialog::PollDialogEvent::Create(draft) = event
+                && this.routes.send.is_some()
+            {
+                let accepted = this.delivery.borrow_mut().submit_poll(
+                    this.active_scope.clone(),
+                    matrix_engine::sending::fresh_transaction_id(),
+                    draft.clone(),
+                );
+                if accepted {
+                    this.refresh_delivery(true);
+                }
+            }
+            #[cfg(not(feature = "live"))]
+            let _ = event;
+        })
+        .detach();
+        dialog.read(cx).focus_question(window, cx);
+        self.poll_dialog = Some(dialog);
+        cx.notify();
+    }
+
+    fn close_poll_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_dialog = None;
+        self.composer.update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
+        cx.notify();
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn semantic_poll(&self, window: &Window, cx: &gpui::App) -> Option<matrix_desktop::accessibility::new_room::Snapshot> {
+        self.poll_dialog.as_ref().map(|dialog| dialog.read(cx).semantic(window, cx))
+    }
+
     fn flush_operations(&mut self) {
         use matrix_engine::{
             TrySendError,
@@ -1592,6 +1679,8 @@ impl Shell {
             self.confirm_redaction = None;
         }
         let confirming = self.confirm_redaction.is_some();
+        let ending = confirming && self.confirm_end;
+        let can_end = actions.can_end_poll(actions.selection().and_then(|id| self.timeline.as_ref()?.poll_of(id)).as_ref());
         let notice = actions.notice(confirming);
         drop(actions);
         if !selected && !busy && error.is_none() {
@@ -1599,7 +1688,9 @@ impl Shell {
         }
         let t = self.theme.tokens();
         let probe = std::env::var("MATRIX_DESKTOP_TIMELINE_PROBE").as_deref() == Ok("1");
-        let controls = if confirming {
+        let controls = if ending {
+            vec![("confirm-redact", "Chiudi", can_end), ("cancel-redact", "Annulla", true)]
+        } else if confirming {
             vec![
                 (
                     "confirm-redact",
@@ -1614,12 +1705,14 @@ impl Shell {
                 ("thread", "Rispondi nel thread", permissions.reply && !busy),
                 ("edit", "Modifica", permissions.edit && !busy),
                 ("redact", "Elimina", permissions.redact && !busy),
+                ("end-poll", "Chiudi sondaggio", can_end),
                 ("react", "+1 / togli", permissions.react && !busy),
                 ("retry", "Riprova", error == Some(OperationError::Transport)),
                 ("close", "Chiudi", true),
             ]
         };
         div().flex_shrink_0().px_4().py_2().bg(rgb(t.surface)).border_t_1().border_color(rgb(t.selection))
+            .when(ending, |d| d.child(div().text_size(px(12.)).text_color(rgb(t.accent)).child("Chiudere il sondaggio?")))
             .when(notice != matrix_desktop::LiveOperations::IDLE_NOTICE, |d| d.child(div().text_size(px(11.)).text_color(rgb(t.secondary)).whitespace_normal().child(notice)))
             .child(div().flex().flex_wrap().gap_2().children(controls.into_iter().map(|(name,label,enabled)| {
                 let d = div().id(name).relative().px_2().h(px(28.)).flex().items_center().text_size(px(12.))
@@ -1637,7 +1730,8 @@ impl Shell {
                         let _ = event;
                         match name {
                             "close" => this.close_message_actions(_window),
-                            "redact" => {
+                            "redact" | "end-poll" => {
+                                this.confirm_end = name == "end-poll";
                                 let target = this.operations.borrow().selection().cloned();
                                 if let Some(target) = target {
                                     this.operations.borrow_mut().select(target.clone());
@@ -1646,7 +1740,7 @@ impl Shell {
                                     this.operation_ui.focus.focus(_window);
                                 }
                             },
-                            "cancel-redact" => this.confirm_redaction = None,
+                            "cancel-redact" => { this.confirm_redaction = None; this.confirm_end = false; },
                             "retry" => { this.operations.borrow_mut().retry(); },
                             "thread" => {
                                 let target = this.operations.borrow().selection().map(|s| s.id.clone());
@@ -1663,7 +1757,8 @@ impl Shell {
                                         "reply" | "edit" => this.composer.update(cx, |editor,cx| editor.accept_operation(&mut this.operations.borrow_mut(), name == "edit", transaction, cx)),
                                         "react" => { this.operations.borrow_mut().toggle_reaction("+1", transaction); },
                                         "confirm-redact" => {
-                                            if this.confirm_redaction.as_ref() == this.operations.borrow().selection() { this.operations.borrow_mut().submit(matrix_engine::operations::Operation::Redact, transaction); }
+                                            let ending = std::mem::take(&mut this.confirm_end);
+                                            if this.confirm_redaction.as_ref() == this.operations.borrow().selection() { this.operations.borrow_mut().submit(if ending { matrix_engine::operations::Operation::EndPoll } else { matrix_engine::operations::Operation::Redact }, transaction); }
                                             this.confirm_redaction = None;
                                         },
                                         _ => (),
@@ -1695,6 +1790,9 @@ impl Shell {
                     .when((name == "redact" || name == "confirm-redact") && enabled, |d| d.track_focus(&self.operation_ui.redact_focus)
                         .when(self.operation_ui.redact_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer(name, cx)))
+                    .when(name == "end-poll" && enabled, |d| d.track_focus(&self.operation_ui.end_focus)
+                        .when(self.operation_ui.end_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .children(self.operation_control_observer("end-poll", cx)))
                     .when(name == "retry" && enabled, |d| d.track_focus(&self.operation_ui.retry_focus)
                         .when(self.operation_ui.retry_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("retry", cx)));
@@ -1787,7 +1885,7 @@ impl Render for Shell {
                 navigation_revision: self.sidebar.navigation_revision(),
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
                 unread_filter: self.semantic_unread(window),
-                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_quick_search(window, cx)),
+                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
@@ -2286,6 +2384,10 @@ impl Render for Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
+            .children(self.poll_dialog.clone().map(|dialog| {
+                dialog.update(cx, |d, _| d.theme = t);
+                dialog
+            }))
             .children(self.render_quick_search(t, cx))
             .children(self.render_room_edit(t, window, cx))
             .children(self.render_groups_edit(t, window, cx)))
@@ -2617,6 +2719,10 @@ fn main() {
                             cx.notify();
                         },
                     )
+                    .detach();
+                    cx.subscribe_in(&composer, window, |this: &mut Shell, _, _: &OpenPoll, window, cx| {
+                        this.open_poll_dialog(window, cx)
+                    })
                     .detach();
                     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                     cx.observe(&composer, |_, _, cx| cx.notify()).detach();
@@ -2999,6 +3105,7 @@ fn main() {
                         about_system: String::new(),
                         about_icon: None,
                         new_room: None,
+                        poll_dialog: None,
                         quick: None,
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
@@ -3133,6 +3240,7 @@ fn main() {
                         members_requested: None,
                         read_dirty: false,
                         confirm_redaction: None,
+                        confirm_end: false,
                         connected,
                         status: RoomSyncStatus::Connecting,
                         sidebar,

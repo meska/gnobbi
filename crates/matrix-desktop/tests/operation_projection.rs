@@ -102,6 +102,7 @@ fn fixture() -> (DemoHistory, LiveOperations) {
     };
     let mut rows = DemoHistory::new(scope.clone(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$first"),
         body: "old".into(),
@@ -157,6 +158,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
     };
     let mut rows = DemoHistory::new(scope.clone(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$first"),
         body: "old".into(),
@@ -216,6 +218,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
     };
     let mut other = DemoHistory::new(other_scope, 0);
     other.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$first"),
         body: "other".into(),
@@ -240,6 +243,7 @@ fn refresh_server_keeps_edited_suffix_on_local_clock_time() {
     rows.project_operations(actions.confirmed());
     let ts = 1_784_158_200_000;
     rows.refresh_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$first"),
         body: "edited".into(),

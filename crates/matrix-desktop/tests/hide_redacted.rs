@@ -14,6 +14,7 @@ fn scope() -> RoomScope {
 
 fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         redacted,
         event_id: EventId::new(id),
         body: if redacted {

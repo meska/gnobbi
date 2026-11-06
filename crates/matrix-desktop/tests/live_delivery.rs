@@ -46,6 +46,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
     assert_eq!(rows.events().len(), 1);
     let event = EventId::new("$actual:fixture.invalid");
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: event.clone(),
         body: "own message".into(),
@@ -71,6 +72,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
     assert_eq!(rows.events()[0].send_state, None);
     assert_eq!(rows.events()[0].time, "ACK server");
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: event,
         body: "own message".into(),
@@ -109,6 +111,7 @@ fn repeated_ack_projection_preserves_server_content_after_edit_or_redaction() {
         });
         let mut rows = DemoHistory::new(scope(), 0);
         rows.prepend_server(vec![HistoryEvent {
+            poll: None,
             redacted: false,
             event_id: EventId::new("$confirmed"),
             body: body.into(),
@@ -142,6 +145,7 @@ fn appended_live_echo_merges_pending_row_in_both_ack_orders() {
         delivery.submit(scope(), tx.clone(), &mut draft);
         rows.project_delivery(delivery.items(&scope()));
         let echo = || HistoryEvent {
+            poll: None,
             redacted: false,
             event_id: EventId::new("$echo"),
             body: "same text città 🦀".into(),
@@ -576,6 +580,7 @@ fn refresh_server_gives_own_ack_row_the_local_clock_time() {
         assert_eq!(rows.events()[0].time, "ACK server");
         let expected = clock_time(ts);
         rows.refresh_server(vec![HistoryEvent {
+            poll: None,
             redacted: false,
             event_id: event,
             body: "own message".into(),
@@ -615,6 +620,7 @@ fn own_sent_file_offers_save_once_the_server_copy_arrives() {
     rows.project_delivery(delivery.items(&scope()));
     assert!(!offers_save(&rows.events()[0], true), "ACK row knows no file name yet");
     rows.refresh_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: event,
         body: "foto.png".into(),
@@ -630,4 +636,23 @@ fn own_sent_file_offers_save_once_the_server_copy_arrives() {
         attachment_size: Some(10),
     }]);
     assert!(offers_save(&rows.events()[0], true));
+}
+
+#[test]
+fn poll_from_the_dialog_is_sent_as_a_poll_and_retried_as_a_poll() {
+    use matrix_domain::PollDraft;
+    use matrix_engine::sending::{SendError, SendResult};
+    let mut delivery = LiveDelivery::new();
+    let draft = PollDraft { question: "Pranzo?".into(), answers: vec!["Pizza".into(), "Sushi".into()], multiple: true, disclosed: false };
+    let tx = TransactionId::new("poll");
+    assert!(!delivery.submit_poll(scope(), tx.clone(), PollDraft::default()), "invalid draft is refused");
+    assert!(delivery.submit_poll(scope(), tx.clone(), draft.clone()));
+    assert!(!delivery.submit_poll(scope(), tx.clone(), draft.clone()), "same transaction twice");
+    let sent = delivery.take_request().unwrap();
+    assert_eq!(sent.poll.as_ref(), Some(&draft));
+    assert_eq!(sent.body, draft.fallback_text());
+    assert!(sent.attachment.is_none());
+    delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Err(SendError::Transport) });
+    assert!(delivery.retry(&scope(), &tx));
+    assert_eq!(delivery.take_request().unwrap().poll, Some(draft));
 }

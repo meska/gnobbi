@@ -50,6 +50,7 @@ pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
 pub const MENTIONS: NodeId = NodeId((1 << 63) - 8);
 pub const EMOJI: NodeId = NodeId((1 << 63) - 9);
 pub const EMOJI_PICKER: NodeId = NodeId((1 << 63) - 10);
+pub const POLL_CREATE: NodeId = NodeId((1 << 63) - 11);
 /// First of the 32 consecutive ids of the picker's emoji buttons.
 pub const EMOJI_ITEM: u64 = (1 << 63) - 100;
 
@@ -59,7 +60,7 @@ pub struct ComposerSnapshot {
     pub scope: matrix_domain::RoomScope,
     pub composing: bool,
     pub send_focused: bool,
-    /// 0 Emoji, 1 Attach, 2 Voice.
+    /// 0 Emoji, 1 Attach, 2 Voice, 3 Poll.
     pub icon_focused: Option<u8>,
     /// False for the local demo, where Send goes nowhere.
     pub live: bool,
@@ -100,13 +101,16 @@ impl ComposerSnapshot {
     }
 }
 
-/// Avatar/name of a received group bubble: opens that member's profile. Slot +8 of the message's block of 16.
+/// Avatar/name of a received group bubble: opens that member's profile. Slot +8 of the message's block of 32.
 #[derive(Clone)]
 pub struct ProfileLink {
     pub user_id: String,
     pub name: String,
     pub bounds: Option<accesskit::Rect>,
 }
+
+/// Options of a poll that get a node: the slots after the group and footer in the message's block.
+pub const POLL_OPTIONS: usize = 20;
 
 #[derive(Clone)]
 pub struct SemanticMessage {
@@ -122,9 +126,15 @@ pub struct SemanticMessage {
     pub retry_focused: bool,
     pub retry: Option<NodeId>,
     /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
+    /// Poll bubble: group at slot +9, footer +10, option `ix` at +11+ix (at most `POLL_OPTIONS`).
+    pub poll: Option<matrix_domain::Poll>,
+    pub poll_bounds: Option<accesskit::Rect>,
+    /// Option holding the keyboard focus (a Tab stop of the selected message).
+    pub poll_focus: Option<usize>,
+    pub poll_option_bounds: Vec<Option<accesskit::Rect>>,
     pub play: Option<NodeId>,
     pub play_bounds: Option<accesskit::Rect>,
-    /// «Scarica» on a received attachment (slot +7 of the message's block of 16).
+    /// «Scarica» on a received attachment (slot +7 of the message's block of 32).
     pub save: Option<NodeId>,
     pub save_bounds: Option<accesskit::Rect>,
     pub bounds: Option<accesskit::Rect>,
@@ -184,6 +194,7 @@ impl HistorySnapshot {
                 .push_str(" · Demo offline · Nessuna consegna Matrix");
             message.retry = None;
             message.play = None;
+            message.poll_focus = None;
             message.save = None;
             message.profile = None;
             message.event_id_copy = None;
@@ -211,11 +222,51 @@ impl HistorySnapshot {
             ("tab", false, false) => {
                 Some(NavigationAction::FocusMessageActions(message.event.clone()))
             }
-            ("tab", true, true) => Some(NavigationAction::FocusMessage(message.event.clone())),
+            ("tab", true, true) => Some(
+                message
+                    .poll
+                    .as_ref()
+                    .and_then(|p| p.answers.len().min(POLL_OPTIONS).checked_sub(1).filter(|_| !p.ended))
+                    .map_or_else(
+                        || NavigationAction::FocusMessage(message.event.clone()),
+                        |last| NavigationAction::FocusPollOption(message.event.clone(), last),
+                    ),
+            ),
             ("tab", false, true) => Some(NavigationAction::FocusComposer),
             ("space" | "enter", false, true) => {
                 Some(NavigationAction::OpenMessageActions(message.event.clone()))
             }
+            _ => None,
+        }
+    }
+    /// Option of an open poll behind a node id (nodes sit at slot +11+ix of the message's block).
+    fn poll_option(&self, node: NodeId) -> Option<(matrix_domain::ScopedTimelineId, usize)> {
+        self.messages.iter().find_map(|m| {
+            let poll = m.poll.as_ref().filter(|p| !p.ended && m.actions.is_some())?;
+            let ix = usize::try_from(node.0.checked_sub(m.id.0 + 11)?).ok()?;
+            (ix < poll.answers.len().min(POLL_OPTIONS)).then(|| (m.event.clone(), ix))
+        })
+    }
+    /// Tab walks the options of an open poll in the focused message, Space/Enter vote; the last option hands on to the actions button.
+    pub fn poll_key(&self, key: &str, shift: bool) -> Option<NavigationAction> {
+        if !self.focused {
+            return None;
+        }
+        let message = self
+            .messages
+            .iter()
+            .find(|m| m.poll_focus.is_some())
+            .or_else(|| self.messages.first())?;
+        let poll = message.poll.as_ref().filter(|p| !p.ended && message.actions.is_some())?;
+        let last = poll.answers.len().min(POLL_OPTIONS).checked_sub(1)?;
+        let event = message.event.clone();
+        match (key, shift, message.poll_focus) {
+            ("tab", false, None) if !message.actions_focused => Some(NavigationAction::FocusPollOption(event, 0)),
+            ("tab", false, Some(ix)) if ix < last => Some(NavigationAction::FocusPollOption(event, ix + 1)),
+            ("tab", false, Some(_)) => Some(NavigationAction::FocusMessageActions(event)),
+            ("tab", true, Some(0)) => Some(NavigationAction::FocusMessage(event)),
+            ("tab", true, Some(ix)) => Some(NavigationAction::FocusPollOption(event, ix - 1)),
+            ("space" | "enter", false, Some(ix)) => Some(NavigationAction::VotePoll(event, ix)),
             _ => None,
         }
     }
@@ -319,7 +370,7 @@ impl HistoryNodes {
                         let id = NodeId(self.next_id);
                         self.next_id = self
                             .next_id
-                            .checked_add(16)
+                            .checked_add(32)
                             .expect("semantic history IDs exhausted");
                         id
                     })
@@ -345,6 +396,10 @@ impl HistoryNodes {
                     retry: (event.send_state == Some(crate::DemoSendState::Failed)
                         && matches!(event.id.id, matrix_domain::TimelineId::Pending(_)))
                     .then_some(NodeId(id.0 + 1)),
+                    poll: event.poll.clone(),
+                    poll_bounds: None,
+                    poll_focus: None,
+                    poll_option_bounds: Vec::new(),
                     play: (event.video.is_some()
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 6)),
@@ -813,6 +868,15 @@ impl NavigationSnapshot {
         {
             return Some(NavigationAction::FocusMessageRetry(message.event.clone()));
         }
+        if let Some(history) = &self.history
+            && let Some((event, ix)) = history.poll_option(request.target_node)
+        {
+            match request.action {
+                Action::Focus => return Some(NavigationAction::FocusPollOption(event, ix)),
+                Action::Click => return Some(NavigationAction::VotePoll(event, ix)),
+                _ => (),
+            }
+        }
         if request.action == Action::Click
             && let Some(history) = &self.history
         {
@@ -1145,6 +1209,38 @@ impl NavigationSnapshot {
                     node.push_child(id);
                     tree.nodes.push((id, button));
                 }
+                if let Some(poll) = &message.poll {
+                    let group_id = NodeId(message.id.0 + 9);
+                    let mut group = Node::new(Role::Group);
+                    group.set_label(format!("Sondaggio: {}{}", poll.question, if poll.ended { ", chiuso" } else { "" }));
+                    if let Some(bounds) = message.poll_bounds {
+                        group.set_bounds(bounds);
+                    }
+                    for (ix, _) in poll.answers.iter().enumerate().take(POLL_OPTIONS) {
+                        let id = NodeId(message.id.0 + 11 + ix as u64);
+                        let mut option = Node::new(if poll.multiple { Role::CheckBox } else { Role::RadioButton });
+                        option.set_label(poll.option_label(ix));
+                        option.set_toggled(if poll.answers[ix].own { Toggled::True } else { Toggled::False });
+                        if poll.ended {
+                            option.set_disabled();
+                        } else if message.actions.is_some() {
+                            option.add_action(Action::Click);
+                            option.add_action(Action::Focus);
+                        }
+                        if let Some(Some(bounds)) = message.poll_option_bounds.get(ix) {
+                            option.set_bounds(*bounds);
+                        }
+                        group.push_child(id);
+                        tree.nodes.push((id, option));
+                    }
+                    let footer_id = NodeId(message.id.0 + 10);
+                    let mut footer = Node::new(Role::Label);
+                    footer.set_label(poll.footer());
+                    group.push_child(footer_id);
+                    tree.nodes.push((footer_id, footer));
+                    node.push_child(group_id);
+                    tree.nodes.push((group_id, group));
+                }
                 if let Some(id) = message.play {
                     let mut play = Node::new(Role::Button);
                     play.set_label("Riproduci");
@@ -1206,6 +1302,13 @@ impl NavigationSnapshot {
                 && let Some(message) = history.messages.first()
             {
                 tree.focus = message.id;
+            }
+            if let Some(id) = history
+                .messages
+                .iter()
+                .find_map(|m| m.poll_focus.map(|ix| NodeId(m.id.0 + 11 + ix as u64)))
+            {
+                tree.focus = id;
             }
             if let Some(id) = history
                 .messages
@@ -1325,6 +1428,10 @@ impl NavigationSnapshot {
             attach.set_label("Allega file");
             tree.nodes[0].1.push_child(ATTACH);
             tree.nodes.push((ATTACH, attach));
+            let mut poll = Node::new(Role::Button);
+            poll.set_label("Crea sondaggio");
+            tree.nodes[0].1.push_child(POLL_CREATE);
+            tree.nodes.push((POLL_CREATE, poll));
             let mut emoji = Node::new(Role::Button);
             emoji.set_label(if composer.emoji_open {
                 "Chiudi selettore emoji"
@@ -1401,7 +1508,7 @@ impl NavigationSnapshot {
             } else if composer.send_focused && tree.nodes.iter().any(|(id, _)| *id == SEND) {
                 tree.focus = SEND;
             } else if let Some(icon) = composer.icon_focused {
-                tree.focus = [EMOJI, ATTACH, RECORD][icon as usize];
+                tree.focus = [EMOJI, ATTACH, RECORD, POLL_CREATE][icon as usize];
             }
         }
         for opener in &self.openers {
@@ -1520,6 +1627,8 @@ pub enum NavigationAction {
     FocusMessageActions(matrix_domain::ScopedTimelineId),
     OpenMessageActions(matrix_domain::ScopedTimelineId),
     FocusMessageRetry(matrix_domain::ScopedTimelineId),
+    FocusPollOption(matrix_domain::ScopedTimelineId, usize),
+    VotePoll(matrix_domain::ScopedTimelineId, usize),
     RetryMessage(matrix_domain::ScopedTimelineId),
     Spaces(spaces::SpacesAction),
     Filter(filters::FilterAction),

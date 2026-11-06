@@ -98,7 +98,7 @@ fn formatted_text_is_sent_and_rendered_by_the_receiver() {
                         scope,
                         transaction_id: fresh_transaction_id(),
                         body,
-                        attachment: None,
+                        attachment: None, poll: None,
                         mentions,
                     },
                 )
