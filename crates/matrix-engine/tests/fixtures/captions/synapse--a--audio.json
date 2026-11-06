@@ -1,0 +1,22 @@
+{
+ "age": 25,
+ "content": {
+  "body": "Didascalia di prova per audio, variante a",
+  "filename": "sent-audio.bin",
+  "format": "org.matrix.custom.html",
+  "formatted_body": "<p>Didascalia di prova per <b>audio</b>, variante a</p>",
+  "msgtype": "m.audio",
+  "url": "mxc://matrix-desktop.test/media000"
+ },
+ "event_id": "$OyANwJyOBIKL3CBGeOYNjpRgBgyx0K_7muDSWmhJ434",
+ "origin_server_ts": 1794005844066,
+ "room_id": "!Fc4FkswTyaB9tZXHs7M7JmsrHOOYtq7ZWHwel4XDlAo",
+ "sender": "@alice:matrix-desktop.test",
+ "type": "m.room.message",
+ "unsigned": {
+  "age": 25,
+  "membership": "join",
+  "transaction_id": "p0fg-a-audio"
+ },
+ "user_id": "@alice:matrix-desktop.test"
+}

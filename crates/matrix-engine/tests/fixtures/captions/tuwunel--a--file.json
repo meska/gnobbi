@@ -1,0 +1,19 @@
+{
+ "content": {
+  "body": "Didascalia di prova per file, variante a",
+  "filename": "sent-file.bin",
+  "format": "org.matrix.custom.html",
+  "formatted_body": "<p>Didascalia di prova per <b>file</b>, variante a</p>",
+  "msgtype": "m.file",
+  "url": "mxc://matrix-desktop.test/media000"
+ },
+ "event_id": "$V0MiVAdMZBV1qTUgrBtVJEoutqs_Zgl69LgsPfAqQUg",
+ "origin_server_ts": 1794005845555,
+ "room_id": "!j4dFc8c5_52wSqNF8LqjP5VwfwN1YksRUSbba_Jnmh4",
+ "sender": "@alice:matrix-desktop.test",
+ "type": "m.room.message",
+ "unsigned": {
+  "age": 2,
+  "transaction_id": "p0fg-a-file"
+ }
+}
