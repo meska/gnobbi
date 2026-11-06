@@ -5,7 +5,7 @@ use matrix_engine::operations::MemberRights;
 fn plain_user_gets_nothing_moderator_gets_what_the_rights_say_destructive_last() {
     assert_eq!(moderation_acts(&MemberRights::default()), vec![]);
     // Messages count only when there are some to delete.
-    let r = MemberRights { kick: true, ban: true, levels: vec![0, 50], recent: vec![] };
+    let r = MemberRights { kick: true, ban: true, levels: vec![0, 50], recent: vec![], read_receipt: None };
     assert_eq!(moderation_acts(&r), vec![A::Power(0), A::Power(50), A::Kick, A::Ban]);
     let r = MemberRights { recent: vec!["$a".into()], ..r };
     let acts = moderation_acts(&r);

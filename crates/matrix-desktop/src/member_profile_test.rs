@@ -26,7 +26,7 @@ fn load(this: &mut Shell, p: UserProfile, rights: Option<MemberRights>) {
 }
 
 fn mod_rights() -> MemberRights {
-    MemberRights { kick: true, ban: true, levels: vec![0, 100], recent: vec!["$e1".into(), "$e2".into()] }
+    MemberRights { kick: true, ban: true, levels: vec![0, 100], recent: vec!["$e1".into(), "$e2".into()], read_receipt: None }
 }
 
 fn composer_text(this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>) -> String {
@@ -97,6 +97,10 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         with(&[A::Verify, A::Power(0), A::Power(100), A::RemoveMessages, A::Kick, A::Ban, A::Ignore]),
         "moderator: moderation after the plain acts, destructive last, ignore after"
     );
+    shell!(|this, _, _| load(this, profile(ADA, "Ada", Some(true), false), Some(MemberRights { read_receipt: Some("$r1".into()), ..Default::default() })));
+    assert_eq!(acts!(), with(&[A::ReadReceipt, A::Ignore]), "receipt loaded: «Salta alla ricevuta di lettura» right after Cita");
+    shell!(|this, _, _| load(this, profile(ME, "Io", Some(true), false), Some(MemberRights { read_receipt: Some("$r1".into()), ..Default::default() })));
+    assert_eq!(acts!(), vec![A::CopyId, A::Link], "never for yourself");
     // Rights loaded for another user never leak into this profile.
     shell!(|this, _, _| {
         load(this, profile(ADA, "Ada", None, false), None);
@@ -253,6 +257,13 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(composer_text(this, window, cx).contains("@Ada"), "Cita puts the mention in the composer: {:?}", composer_text(this, window, cx));
         assert!(this.composer.read(cx).is_focused(window), "and the focus goes to the composer");
     });
+    shell!(|this, _, _| {
+        this.set_room_details_open(true);
+        load(this, profile(ADA, "Ada", Some(true), false), Some(MemberRights { read_receipt: Some("$r1".into()), ..Default::default() }));
+        this.profile_focus = to(A::ReadReceipt, this);
+    });
+    key!("enter");
+    shell!(|this, _, _| assert!(!this.room_details_open, "Salta alla ricevuta di lettura closes the sheet"));
 
     // 7. Outcomes: success updates the profile, failure flashes and changes nothing; kick/ban leave the list.
     shell!(|this, window, cx| {

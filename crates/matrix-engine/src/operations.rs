@@ -354,6 +354,8 @@ pub struct MemberRights {
     pub levels: Vec<i64>,
     /// Loaded, not yet deleted messages of the member the user may delete; the confirmation counts these.
     pub recent: Vec<String>,
+    /// Last event the member has read, only when that event is among the loaded ones.
+    pub read_receipt: Option<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -920,6 +922,7 @@ fn member_rights(
         ban: pl.user_can_ban_user(me, target),
         levels,
         recent: Vec::new(),
+        read_receipt: None,
     };
     (rights, pl.user_can_redact_event_of_other(me))
 }
@@ -963,17 +966,24 @@ pub(crate) async fn load_member_rights(
             .flatten()
             .is_some_and(|m| matches!(m.membership(), matrix_sdk::ruma::events::room::member::MembershipState::Join));
         let (mut rights, redact) = member_rights(&pl, me, &target, joined);
-        if redact {
-            // shortcut: only messages the timeline has loaded count as «recent»; upgrade by paginating if wanted.
+        if joined && me != target {
             let timeline = timelines.get(&room).await.map_err(|_| OperationError::Unavailable)?;
-            rights.recent = timeline
-                .items()
-                .await
-                .iter()
-                .filter_map(|i| i.as_event())
-                .filter(|e| e.sender() == target && matches!(e.content(), TimelineItemContent::MsgLike(m) if !matches!(m.kind, MsgLikeKind::Redacted))) // real messages only: membership/profile/state events must never be redacted
-                .filter_map(|e| e.event_id().map(ToString::to_string))
-                .collect();
+            if let Some((id, _)) = timeline.latest_user_read_receipt(&target).await
+                && timeline.item_by_event_id(&id).await.is_some()
+            {
+                rights.read_receipt = Some(id.to_string());
+            }
+            if redact {
+                // shortcut: only messages the timeline has loaded count as «recent»; upgrade by paginating if wanted.
+                rights.recent = timeline
+                    .items()
+                    .await
+                    .iter()
+                    .filter_map(|i| i.as_event())
+                    .filter(|e| e.sender() == target && matches!(e.content(), TimelineItemContent::MsgLike(m) if !matches!(m.kind, MsgLikeKind::Redacted))) // real messages only: membership/profile/state events must never be redacted
+                    .filter_map(|e| e.event_id().map(ToString::to_string))
+                    .collect();
+            }
         }
         Ok(rights)
     })

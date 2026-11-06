@@ -315,6 +315,8 @@ pub enum ProfileAct {
     Message,
     Link,
     Quote,
+    /// Only offered when the member's last read event is loaded.
+    ReadReceipt,
     Verify,
     /// Moderation, only offered when the room power levels allow it.
     Power(i64),
@@ -351,6 +353,7 @@ impl ProfileAct {
             Self::Message => "Invia messaggio",
             Self::Link => "Condividi link utente",
             Self::Quote => "Cita",
+            Self::ReadReceipt => "Salta alla ricevuta di lettura",
             Self::Verify => "Verifica utente",
             Self::Power(0) => "Rendi utente",
             Self::Power(50) => "Rendi moderatore",

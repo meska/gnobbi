@@ -56,6 +56,9 @@ impl Shell {
         acts.push(ProfileAct::Link);
         if !me {
             acts.push(ProfileAct::Quote);
+            if self.profile_rights.as_ref().is_some_and(|(id, r)| *id == p.user_id && r.read_receipt.is_some()) {
+                acts.push(ProfileAct::ReadReceipt);
+            }
         }
         if matrix_desktop::verify_mark(me, p.verified) == matrix_desktop::VerifyMark::Offer {
             acts.push(ProfileAct::Verify);
@@ -182,6 +185,17 @@ impl Shell {
             ProfileAct::Quote => {
                 self.set_room_details_open(false);
                 self.composer.update(cx, |editor, cx| editor.insert_mention(user_id, &name, window, cx));
+            }
+            ProfileAct::ReadReceipt => {
+                let event = self.profile_rights.as_ref().and_then(|(_, r)| r.read_receipt.clone());
+                self.set_room_details_open(false);
+                if let (Some(event), Some(timeline)) = (event, &self.timeline) {
+                    let event = matrix_domain::EventId::new(&event);
+                    if timeline.scroll_to_event(&event) {
+                        let flash_until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                        timeline.set_search_mark(Some(crate::timeline_view::SearchMark { event, term: String::new(), flash_until, ended: false }));
+                    }
+                }
             }
             ProfileAct::Power(level) => self.moderate(user_id, Moderation::SetPower(level)),
             ProfileAct::RemoveMessages | ProfileAct::Kick | ProfileAct::Ban | ProfileAct::Ignore => {
