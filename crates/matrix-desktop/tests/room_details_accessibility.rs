@@ -1,5 +1,5 @@
 #![cfg(all(feature = "linux-a11y", target_os = "linux"))]
-use accesskit::Role;
+use accesskit::{Role, Toggled};
 use matrix_desktop::Sidebar;
 use matrix_desktop::accessibility::details::{DetailsControl, DetailsSnapshot};
 use matrix_domain::AccountId;
@@ -264,17 +264,24 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
     let label = |panel: &DetailsSnapshot, c: DetailsControl| {
         let tree = panel.tree();
         let node = &tree.nodes.iter().find(|(id, _)| *id == c.id()).unwrap().1;
-        assert_eq!(node.role(), Role::Button);
         assert!(node.supports_action(Action::Focus) && node.supports_action(Action::Click));
         node.label().unwrap().to_owned()
     };
     assert_eq!(label(&panel, DetailsControl::HideStatus), "Nascondi messaggi di stato");
     assert_eq!(label(&panel, DetailsControl::HideRedacted), "Nascondi messaggi eliminati");
     assert_eq!(label(&panel, DetailsControl::Edit), "Modifica");
+    let toggled = |panel: &DetailsSnapshot, c: DetailsControl| {
+        let tree = panel.tree();
+        let node = &tree.nodes.iter().find(|(id, _)| *id == c.id()).unwrap().1;
+        assert_eq!(node.role(), Role::CheckBox);
+        node.toggled()
+    };
+    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::False));
     panel.hide_status = true;
     panel.hide_redacted = true;
-    assert_eq!(label(&panel, DetailsControl::HideStatus), "Mostra messaggi di stato");
-    assert_eq!(label(&panel, DetailsControl::HideRedacted), "Mostra messaggi eliminati");
+    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::True));
+    assert_eq!(toggled(&panel, DetailsControl::HideRedacted), Some(Toggled::True));
+    assert_eq!(label(&panel, DetailsControl::HideStatus), "Nascondi messaggi di stato");
     let view = DetailsView::Open(Box::new(panel));
     for (control, want) in [
         (DetailsControl::HideStatus, DetailsAction::HideStatus(scope.clone())),
