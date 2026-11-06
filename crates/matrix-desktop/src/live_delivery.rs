@@ -11,6 +11,8 @@ pub struct LiveDelivery {
     failures: HashMap<(RoomScope, TransactionId), matrix_engine::sending::SendError>,
     /// Attachment sends kept until confirmed so Retry can resend the file.
     attachments: HashMap<(RoomScope, TransactionId), (String, Attachment)>,
+    /// Poll sends kept until confirmed so Retry sends the poll again, not its fallback text.
+    polls: HashMap<(RoomScope, TransactionId), matrix_domain::PollDraft>,
     /// Mentions of a text send, kept until confirmed so Retry keeps the links.
     mentions: HashMap<(RoomScope, TransactionId), Vec<Mention>>,
     /// The worker's send queue: retry, cancel and edit of a text it holds. Empty until it is up.
@@ -52,6 +54,26 @@ impl LiveDelivery {
         attachment: &mut Option<Attachment>,
     ) -> bool {
         self.submit_mentioning(scope, transaction_id, draft, attachment, Vec::new())
+    }
+    /// A poll from the dialog: shown as its fallback text until the server echoes the poll.
+    pub fn submit_poll(&mut self, scope: RoomScope, transaction_id: TransactionId, draft: matrix_domain::PollDraft) -> bool {
+        let body = draft.fallback_text();
+        if self.staged.len() >= 8 || draft.validate().is_err() || transaction_id.as_str().is_empty() {
+            return false;
+        }
+        let timeline = self.rooms.entry(scope.clone()).or_insert_with(|| Timeline::new(scope.clone()));
+        if timeline.items().iter().any(|i| i.transaction_id.as_ref() == Some(&transaction_id)) {
+            return false;
+        }
+        if timeline
+            .apply(&scope, TimelineUpdate::LocalSend { transaction_id: transaction_id.clone(), body: body.clone() })
+            .is_err()
+        {
+            return false;
+        }
+        self.polls.insert((scope.clone(), transaction_id.clone()), draft.clone());
+        self.staged.push_back(SendRequest { scope, transaction_id, body, attachment: None, poll: Some(draft), mentions: Vec::new() });
+        true
     }
     /// Like `submit_with`; `mentions` name users in the draft text.
     pub fn submit_mentioning(
@@ -139,6 +161,7 @@ impl LiveDelivery {
         }
         if error.is_none() {
             self.attachments.remove(&key);
+            self.polls.remove(&key);
             self.mentions.remove(&key);
         }
         if let Some(error) = error
@@ -194,6 +217,7 @@ impl LiveDelivery {
         let key = (scope.clone(), transaction_id.clone());
         // A text the send queue holds is tried again there (same message, same transaction).
         if !self.attachments.contains_key(&key)
+            && !self.polls.contains_key(&key)
             && let Some(queue) = queue
             && queue.retry(transaction_id)
         {
@@ -238,7 +262,7 @@ impl LiveDelivery {
             transaction_id: transaction_id.clone(),
             body,
             attachment,
-            poll: None,
+            poll: self.polls.get(&key).cloned(),
             mentions: self.mentions.get(&key).cloned().unwrap_or_default(),
         });
         true
@@ -307,6 +331,7 @@ impl LiveDelivery {
         });
         if gone {
             self.attachments.remove(&key);
+            self.polls.remove(&key);
             self.mentions.remove(&key);
             self.failures.remove(&key);
         }

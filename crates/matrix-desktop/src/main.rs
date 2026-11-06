@@ -14,6 +14,7 @@ mod groups_edit_view;
 mod invite_view;
 mod login_field;
 mod media_view;
+mod poll_dialog;
 mod poll_view;
 mod about_view;
 mod members_view;
@@ -53,7 +54,7 @@ mod tray_view;
 mod verification_view;
 mod video_player;
 mod voice_recorder;
-use composer_view::{ComposerView, Submitted};
+use composer_view::{ComposerView, OpenPoll, Submitted};
 
 use gpui::{
     App, Application, Bounds, ClipboardItem, Context, FocusHandle, KeyDownEvent, ObjectFit, RenderImage,
@@ -93,6 +94,7 @@ struct Shell {
     about_system: String,
     about_icon: Option<std::sync::Arc<RenderImage>>,
     new_room: Option<new_room_view::NewRoom>,
+    poll_dialog: Option<gpui::Entity<poll_dialog::PollDialog>>,
     quick: Option<quick_search_view::QuickSearch>,
     recents: matrix_desktop::quick_search::RecentsStore,
     room_edit: Option<room_edit_view::RoomEdit>,
@@ -1492,6 +1494,47 @@ impl Shell {
         #[cfg(not(feature = "live"))]
         let _ = (id, ix);
     }
+    fn open_poll_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.connected || self.sidebar.selected().is_none() || self.poll_dialog.is_some() {
+            return;
+        }
+        let theme = self.theme.tokens();
+        let dialog = cx.new(|cx| poll_dialog::PollDialog::new(theme, cx));
+        cx.subscribe_in(&dialog, window, |this: &mut Shell, _, event: &poll_dialog::PollDialogEvent, window, cx| {
+            this.close_poll_dialog(window, cx);
+            #[cfg(feature = "live")]
+            if let poll_dialog::PollDialogEvent::Create(draft) = event
+                && this.routes.send.is_some()
+            {
+                let accepted = this.delivery.borrow_mut().submit_poll(
+                    this.active_scope.clone(),
+                    matrix_engine::sending::fresh_transaction_id(),
+                    draft.clone(),
+                );
+                if accepted {
+                    this.refresh_delivery(true);
+                }
+            }
+            #[cfg(not(feature = "live"))]
+            let _ = event;
+        })
+        .detach();
+        dialog.read(cx).focus_question(window, cx);
+        self.poll_dialog = Some(dialog);
+        cx.notify();
+    }
+
+    fn close_poll_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.poll_dialog = None;
+        self.composer.update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
+        cx.notify();
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn semantic_poll(&self, window: &Window, cx: &gpui::App) -> Option<matrix_desktop::accessibility::new_room::Snapshot> {
+        self.poll_dialog.as_ref().map(|dialog| dialog.read(cx).semantic(window, cx))
+    }
+
     fn flush_operations(&mut self) {
         use matrix_engine::{
             TrySendError,
@@ -1829,7 +1872,7 @@ impl Render for Shell {
                 navigation_revision: self.sidebar.navigation_revision(),
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
                 unread_filter: self.semantic_unread(window),
-                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_quick_search(window, cx)),
+                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
@@ -2328,6 +2371,10 @@ impl Render for Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
+            .children(self.poll_dialog.clone().map(|dialog| {
+                dialog.update(cx, |d, _| d.theme = t);
+                dialog
+            }))
             .children(self.render_quick_search(t, cx))
             .children(self.render_room_edit(t, window, cx))
             .children(self.render_groups_edit(t, window, cx)))
@@ -2659,6 +2706,10 @@ fn main() {
                             cx.notify();
                         },
                     )
+                    .detach();
+                    cx.subscribe_in(&composer, window, |this: &mut Shell, _, _: &OpenPoll, window, cx| {
+                        this.open_poll_dialog(window, cx)
+                    })
                     .detach();
                     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                     cx.observe(&composer, |_, _, cx| cx.notify()).detach();
@@ -3037,6 +3088,7 @@ fn main() {
                         about_system: String::new(),
                         about_icon: None,
                         new_room: None,
+                        poll_dialog: None,
                         quick: None,
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,

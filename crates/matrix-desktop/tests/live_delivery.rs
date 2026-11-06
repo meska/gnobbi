@@ -637,3 +637,22 @@ fn own_sent_file_offers_save_once_the_server_copy_arrives() {
     }]);
     assert!(offers_save(&rows.events()[0], true));
 }
+
+#[test]
+fn poll_from_the_dialog_is_sent_as_a_poll_and_retried_as_a_poll() {
+    use matrix_domain::PollDraft;
+    use matrix_engine::sending::{SendError, SendResult};
+    let mut delivery = LiveDelivery::new();
+    let draft = PollDraft { question: "Pranzo?".into(), answers: vec!["Pizza".into(), "Sushi".into()], multiple: true, disclosed: false };
+    let tx = TransactionId::new("poll");
+    assert!(!delivery.submit_poll(scope(), tx.clone(), PollDraft::default()), "invalid draft is refused");
+    assert!(delivery.submit_poll(scope(), tx.clone(), draft.clone()));
+    assert!(!delivery.submit_poll(scope(), tx.clone(), draft.clone()), "same transaction twice");
+    let sent = delivery.take_request().unwrap();
+    assert_eq!(sent.poll.as_ref(), Some(&draft));
+    assert_eq!(sent.body, draft.fallback_text());
+    assert!(sent.attachment.is_none());
+    delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Err(SendError::Transport) });
+    assert!(delivery.retry(&scope(), &tx));
+    assert_eq!(delivery.take_request().unwrap().poll, Some(draft));
+}

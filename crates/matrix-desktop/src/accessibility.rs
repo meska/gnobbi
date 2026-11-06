@@ -50,6 +50,7 @@ pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
 pub const MENTIONS: NodeId = NodeId((1 << 63) - 8);
 pub const EMOJI: NodeId = NodeId((1 << 63) - 9);
 pub const EMOJI_PICKER: NodeId = NodeId((1 << 63) - 10);
+pub const POLL_CREATE: NodeId = NodeId((1 << 63) - 11);
 /// First of the 32 consecutive ids of the picker's emoji buttons.
 pub const EMOJI_ITEM: u64 = (1 << 63) - 100;
 
@@ -59,7 +60,7 @@ pub struct ComposerSnapshot {
     pub scope: matrix_domain::RoomScope,
     pub composing: bool,
     pub send_focused: bool,
-    /// 0 Emoji, 1 Attach, 2 Voice.
+    /// 0 Emoji, 1 Attach, 2 Voice, 3 Poll.
     pub icon_focused: Option<u8>,
     /// False for the local demo, where Send goes nowhere.
     pub live: bool,
@@ -1427,6 +1428,10 @@ impl NavigationSnapshot {
             attach.set_label("Allega file");
             tree.nodes[0].1.push_child(ATTACH);
             tree.nodes.push((ATTACH, attach));
+            let mut poll = Node::new(Role::Button);
+            poll.set_label("Crea sondaggio");
+            tree.nodes[0].1.push_child(POLL_CREATE);
+            tree.nodes.push((POLL_CREATE, poll));
             let mut emoji = Node::new(Role::Button);
             emoji.set_label(if composer.emoji_open {
                 "Chiudi selettore emoji"
@@ -1503,7 +1508,7 @@ impl NavigationSnapshot {
             } else if composer.send_focused && tree.nodes.iter().any(|(id, _)| *id == SEND) {
                 tree.focus = SEND;
             } else if let Some(icon) = composer.icon_focused {
-                tree.focus = [EMOJI, ATTACH, RECORD][icon as usize];
+                tree.focus = [EMOJI, ATTACH, RECORD, POLL_CREATE][icon as usize];
             }
         }
         for opener in &self.openers {
