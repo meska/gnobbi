@@ -39,7 +39,7 @@ fn accounts_are_isolated() {
 #[test]
 fn invalid_ids_are_rejected_without_panic() {
     let mut p = RoomPrefs::default();
-    for bad in ["", "!", "a:srv", "!a", "!:srv", "!a:", "!a b:srv", "#alias:srv", "!a:srv\n"] {
+    for bad in ["", "!", "a:srv", "!a b:srv", "#alias:srv", "!a:srv\n"] {
         assert!(!p.set_last_open_room(&scope(1, bad)), "{bad:?}");
     }
     assert_eq!(p.last_open_room(AccountId::new(1)), None);

@@ -17,11 +17,9 @@ pub struct RoomPrefs {
     last_open_room: BTreeMap<u64, String>,
 }
 
-/// Matrix room id shape `!local:server`; a syntax check only, never logged.
+/// Matrix room id: `!` + non-empty rest, with or without `:server` (room v12 has none); never logged.
 fn valid_room_id(id: &str) -> bool {
-    id.strip_prefix('!')
-        .and_then(|r| r.split_once(':'))
-        .is_some_and(|(l, s)| !l.is_empty() && !s.is_empty())
+    id.strip_prefix('!').is_some_and(|r| !r.is_empty())
         && !id.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 

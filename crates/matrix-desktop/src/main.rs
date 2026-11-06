@@ -1210,10 +1210,11 @@ impl Shell {
             return;
         }
         let account = self.active_scope.account_id;
+        let saved = self.draft_scope().account_id;
         let (prefs, sidebar) = (&self.room_prefs, &mut self.sidebar);
         let opened = self.restore.poll(
-            account,
-            || prefs.last_open_room(account),
+            saved,
+            || prefs.last_open_room(saved),
             std::time::Instant::now(),
             |room| {
                 let scope = RoomScope { account_id: account, room_id: room.clone() };
@@ -1233,7 +1234,7 @@ impl Shell {
     /// Called only when the user changes room; writes the file only if the value changed.
     fn remember_last_room(&mut self) {
         if !self.restore.waiting()
-            && self.room_prefs.set_last_open_room(&self.active_scope)
+            && self.room_prefs.set_last_open_room(&self.draft_scope())
             && let Some(dirs) = &self.prefs_dirs
             && let Err(error) = self.room_prefs.save(dirs)
         {
