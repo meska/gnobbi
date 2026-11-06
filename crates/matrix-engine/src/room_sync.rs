@@ -1913,7 +1913,9 @@ pub(crate) async fn serve_history(
     emit(crate::history::HistoryResult { tag, page }).await
 }
 
-/// Matrix spec «Calculating the display name for a user»: an ambiguous name carries the user id.
+/// Name shown on a bubble. Single place for the policy: a unique display name stands alone; an
+/// SDK-ambiguous one keeps the user id (Matrix spec, open point with Marco); no name → `None`,
+/// the UI then falls back to the id.
 fn disambiguated_name(name: Option<&str>, ambiguous: bool, id: &str) -> Option<String> {
     name.map(|n| if ambiguous { format!("{n} ({id})") } else { n.to_owned() })
 }

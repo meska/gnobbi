@@ -367,7 +367,17 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
             assert_eq!((link.user_id.as_str(), link.name.as_str()), (ADA, "Ada"));
         }
     });
-    shell!(|this, _, _| this.set_room_details_open(false));
+    // Esc from the profile opened by a bubble: back to the list, then closed; the composer keeps the focus throughout.
+    key!("escape");
+    shell!(|this, window, cx| {
+        assert!(this.profile.is_none() && this.room_details_open, "Esc: back to the member list");
+        assert!(this.composer.read(cx).is_focused(window), "focus still on the composer after the first Esc");
+    });
+    key!("escape");
+    shell!(|this, window, cx| {
+        assert!(!this.room_details_open, "second Esc closes the sheet");
+        assert!(this.composer.read(cx).is_focused(window), "focus still on the composer after closing");
+    });
 
     println!("DEFECTS {known:?}");
     assert!(known.is_empty() || std::env::var_os("MEMBER_PROFILE_STRICT").is_none(), "known defects: {known:?}");

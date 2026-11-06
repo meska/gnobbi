@@ -393,7 +393,7 @@ fn nonempty_treats_missing_and_empty_avatar_as_absent() {
 }
 
 #[test]
-fn ambiguous_member_name_carries_user_id() {
+fn unique_name_alone_ambiguous_keeps_id_missing_name_none() {
     let id = |n: &str| format!("@{n}:example.org");
     assert_eq!(
         super::disambiguated_name(Some("Anna"), true, &id("anna1")).as_deref(),
