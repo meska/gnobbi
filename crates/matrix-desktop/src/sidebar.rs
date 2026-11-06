@@ -15,6 +15,12 @@ pub struct SidebarRoom {
 }
 
 impl SidebarRoom {
+    /// Right-hand stamp of the row: from the last event, else the offline fixture's; None shows nothing.
+    pub fn stamp(&self) -> Option<String> {
+        crate::time_fmt::last_message_stamp(self.info.last_event_ts)
+            .or_else(|| (!self.time.is_empty()).then(|| self.time.to_owned()))
+    }
+
     /// Only me in the room, nothing unread and no live message. Unknown member count (0) is never empty.
     fn is_empty(&self) -> bool {
         !self.info.invited
@@ -758,6 +764,23 @@ mod tests {
         // search keeps the unsorted match order
         sidebar.set_query("a");
         assert_eq!(names(&sidebar), ["zeta", "beta", "alfa", "Gamma"]);
+    }
+
+    #[test]
+    fn row_stamp_is_present_with_a_timestamp_and_absent_without() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        fill(&mut sidebar, &account, &[("no-ts", None)]);
+        assert_eq!(sidebar.rooms()[0].stamp(), None);
+        let now = chrono::Utc::now().timestamp_millis() as u64;
+        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            scope: scope(&account, "ts"),
+            name: "ts".into(),
+            unread: 0,
+            info: matrix_engine::RoomInfo { last_event_ts: Some(now), ..Default::default() },
+        }));
+        let room = sidebar.rooms().iter().find(|r| r.name == "ts").unwrap();
+        assert_eq!(room.stamp().map(|s| s.len()), Some(5)); // «HH:MM»
     }
 
     fn scope(account: &AccountId, name: &str) -> RoomScope {

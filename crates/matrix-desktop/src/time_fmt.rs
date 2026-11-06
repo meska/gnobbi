@@ -149,6 +149,39 @@ pub fn day_or_time_in<Tz: TimeZone>(ms: u64, now_ms: u64, tz: &Tz, p: &Patterns)
     }
 }
 
+/// Conversation-list stamp (Telegram): time today, abbreviated weekday from yesterday to 6 days back, short date before.
+pub fn list_stamp_in<Tz: TimeZone>(ms: u64, now_ms: u64, tz: &Tz, p: &Patterns) -> String {
+    let (Some(t), Some(now)) = (local(ms, tz), local(now_ms, tz)) else {
+        return clock_time_in(ms, tz, p);
+    };
+    match days_ago(&t, &now) {
+        ..=0 => render(&p.time, &t, p),
+        d => weekday_or_date(&t, d, p),
+    }
+}
+
+/// Screen-reader form of a list stamp («14:27» -> «ultimo messaggio alle 14:27»).
+pub fn last_message_spoken(stamp: &str) -> String {
+    let when = if stamp.contains(':') {
+        format!("alle {stamp}")
+    } else if stamp.chars().any(|c| c.is_ascii_digit()) {
+        format!("il {stamp}")
+    } else {
+        stamp.to_owned()
+    };
+    format!("ultimo messaggio {when}")
+}
+
+/// Epoch ms of the next local midnight after `now_ms` (when every stamp may change): the UI sleeps until then.
+/// Skipped-midnight zones fall back to the first valid local hour.
+pub fn next_local_midnight_ms_in<Tz: TimeZone>(now_ms: u64, tz: &Tz) -> Option<u64> {
+    let now = DateTime::from_timestamp_millis(i64::try_from(now_ms).ok()?)?.with_timezone(tz);
+    let day = now.date_naive().succ_opt()?;
+    (0..24)
+        .find_map(|h| tz.from_local_datetime(&day.and_hms_opt(h, 0, 0)?).earliest())
+        .and_then(|t| u64::try_from(t.timestamp_millis()).ok())
+}
+
 fn now_ms() -> u64 {
     u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0)
 }
@@ -162,6 +195,17 @@ pub fn day_label(ms: u64) -> String {
 }
 pub fn day_or_time(ms: u64) -> String {
     day_or_time_in(ms, now_ms(), &Local, system())
+}
+
+pub fn list_stamp(ms: u64) -> String {
+    list_stamp_in(ms, now_ms(), &Local, system())
+}
+/// `None` (no timestamp known) shows nothing.
+pub fn last_message_stamp(ms: Option<u64>) -> Option<String> {
+    ms.map(list_stamp)
+}
+pub fn next_local_midnight_ms() -> Option<u64> {
+    next_local_midnight_ms_in(now_ms(), &Local)
 }
 
 /// macOS: CFDateFormatter. `locale_id` None = the user's current locale (honours the 24-hour setting through the «jm» template).
@@ -356,6 +400,25 @@ fn native() -> Option<Patterns> {
 mod tests {
     use super::*;
     use chrono::{FixedOffset, Utc};
+
+    #[test]
+    fn list_stamp_is_time_weekday_or_date() {
+        let (p, z, now) = (Patterns::fallback(), utc(), ms(2026, 11, 4, 12, 0)); // Wednesday
+        let at = |t| list_stamp_in(t, now, &z, &p);
+        assert_eq!(at(ms(2026, 11, 4, 0, 5)), "00:05");
+        assert_eq!(at(ms(2026, 11, 3, 23, 59)), "Mar");
+        assert_eq!(at(ms(2026, 10, 29, 9, 0)), "Gio"); // 6 days
+        assert_eq!(at(ms(2026, 10, 28, 9, 0)), "28/10/26"); // 7 days
+        assert_eq!(last_message_stamp(None), None);
+        assert_eq!(last_message_spoken("14:27"), "ultimo messaggio alle 14:27");
+        assert_eq!(last_message_spoken("28/10/26"), "ultimo messaggio il 28/10/26");
+    }
+
+    #[test]
+    fn next_midnight_is_the_following_local_day() {
+        let z = FixedOffset::east_opt(3600).unwrap();
+        assert_eq!(next_local_midnight_ms_in(ms(2026, 11, 4, 12, 0), &z), Some(ms(2026, 11, 4, 23, 0)));
+    }
 
     fn utc() -> FixedOffset {
         FixedOffset::east_opt(0).unwrap()

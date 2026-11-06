@@ -1229,6 +1229,7 @@ impl RoomSync {
             } else {
                 Vec::new()
             };
+            let latest = matrix_sdk_ui::timeline::RoomExt::latest_event(&room).await;
             let children = children_of.remove(&id).unwrap_or_default();
             let tags = match room.tags().await {
                 Ok(Some(tags)) => crate::room_tags::group_names(&tags),
@@ -1245,7 +1246,8 @@ impl RoomSync {
                     unread: room.num_unread_notifications(),
                     info: crate::RoomInfo {
                         public_read_receipts: peer_receipts,
-                        preview: latest_event_text(&room).await,
+                        preview: latest_event_text(&latest),
+                        last_event_ts: latest_event_ts(&latest),
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
                         avatar: room_avatar(&room).await,
@@ -1327,10 +1329,9 @@ impl RoomSync {
 
 /// Preview text from the SDK latest event (`LatestEventValue`, kept by the SDK across edits,
 /// redactions and unsent local messages); None when it is not a message.
-async fn latest_event_text(room: &matrix_sdk::Room) -> Option<String> {
-    use matrix_sdk_ui::timeline::{LatestEventValue, RoomExt};
-    let (LatestEventValue::Remote { content, .. } | LatestEventValue::Local { content, .. }) =
-        room.latest_event().await
+fn latest_event_text(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Option<String> {
+    use matrix_sdk_ui::timeline::LatestEventValue;
+    let (LatestEventValue::Remote { content, .. } | LatestEventValue::Local { content, .. }) = latest
     else {
         return None;
     };
@@ -1339,6 +1340,18 @@ async fn latest_event_text(room: &matrix_sdk::Room) -> Option<String> {
         MessageType::Image(_) => "Immagine".to_owned(),
         _ => message.body().to_owned(),
     })
+}
+
+/// Timestamp (ms since epoch) of the latest *message*; None for no event, a non-message event (state, redaction)
+/// or an invite (its stamp is the local receipt time, not the event's), so the row never shows a time without a message.
+pub(crate) fn latest_event_ts(latest: &matrix_sdk_ui::timeline::LatestEventValue) -> Option<u64> {
+    use matrix_sdk_ui::timeline::LatestEventValue::{Local, Remote};
+    match latest {
+        Remote { timestamp, content, .. } | Local { timestamp, content, .. } if content.as_message().is_some() => {
+            Some(timestamp.0.into())
+        }
+        _ => None,
+    }
 }
 
 /// Name shown in the room list: the SDK-computed display name, the raw id only as a last resort.
