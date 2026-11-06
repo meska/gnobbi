@@ -329,6 +329,46 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         });
     }
 
+    // 10. A click on a bubble's avatar or name (modelled by its request) opens the right member in the same sheet,
+    // without taking the focus from the composer; the tree names the control «Apri profilo di …».
+    shell!(|this, window, cx| {
+        this.set_room_details_open(false);
+        this.pending_operation_command = None;
+        let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
+        timeline.set_member_count(3);
+        timeline.append_server(vec![matrix_engine::history::HistoryEvent {
+            redacted: false,
+            event_id: matrix_domain::EventId::new("$bubble:test"),
+            body: "ciao".into(),
+            outgoing: false,
+            timestamp_ms: 0,
+            sender: matrix_engine::history::HistorySender::new(ADA, Some("Ada")),
+            video: None,
+            styles: Vec::new(),
+            thread: None,
+            thread_root: None,
+            status: false,
+            attachment_name: None,
+            attachment_size: None,
+        }]);
+        this.timeline = Some(timeline);
+        this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx));
+        *this.timeline.as_ref().unwrap().want_profile.borrow_mut() = Some(ADA.into());
+        this.drive_profile(cx);
+        assert!(this.room_details_open, "bubble click opens the sheet");
+        assert!(matches!(&this.profile, Some(ProfileState::Loading(id)) if id == ADA), "and that member's profile");
+        assert!(matches!(&this.pending_operation_command, Some(OperationCommand::Profile { user_id }) if user_id == ADA));
+        assert!(this.composer.read(cx).is_focused(window), "focus stays on the composer");
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        {
+            let mut nodes = matrix_desktop::accessibility::HistoryNodes::default();
+            let snap = this.timeline.as_ref().unwrap().semantic_snapshot(&mut nodes, window);
+            let link = snap.messages[0].profile.as_ref().expect("group bubble has the control");
+            assert_eq!((link.user_id.as_str(), link.name.as_str()), (ADA, "Ada"));
+        }
+    });
+    shell!(|this, _, _| this.set_room_details_open(false));
+
     println!("DEFECTS {known:?}");
     assert!(known.is_empty() || std::env::var_os("MEMBER_PROFILE_STRICT").is_none(), "known defects: {known:?}");
     shell!(|_, _, cx| cx.quit());

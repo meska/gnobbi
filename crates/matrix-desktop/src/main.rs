@@ -357,6 +357,13 @@ impl Shell {
                 }
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::OpenProfile(user_id) = &action {
+                if (window.viewport_size().width >= px(800.) || this.compact_chat) && this.timeline.is_some() {
+                    this.pending_profile(user_id.clone());
+                    cx.notify();
+                }
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::SaveAttachment(id) = &action {
                 if id.scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
@@ -516,6 +523,7 @@ impl Shell {
                 matrix_desktop::accessibility::NavigationAction::CopyEventId(_)
                 | matrix_desktop::accessibility::NavigationAction::PlayVideo(_)
                 | matrix_desktop::accessibility::NavigationAction::SaveAttachment(_)
+                | matrix_desktop::accessibility::NavigationAction::OpenProfile(_)
                 | matrix_desktop::accessibility::NavigationAction::OfflineDelivery(_) => {
                     unreachable!()
                 }
@@ -2816,6 +2824,7 @@ fn main() {
                                         this.mark_open_room_read(cx);
                                         this.flush_operations();
                                         this.drive_thread(cx);
+                                        this.drive_profile(cx);
                                         if let Some((sender, _)) = &mut this.routes.verification {
                                             this.verification.flush(sender);
                                         }

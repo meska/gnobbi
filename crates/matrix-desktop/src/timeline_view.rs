@@ -77,6 +77,23 @@ type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
 const SENDER_AVATAR_PX: f32 = 32.;
+
+/// Avatar or name of a bubble: a click asks the shell to open that member's profile.
+fn profile_target(
+    base: gpui::Stateful<gpui::Div>,
+    user_id: String,
+    want: Rc<RefCell<Option<String>>>,
+    painted: impl Fn(Bounds<Pixels>) + 'static,
+    child: impl IntoElement,
+) -> gpui::Stateful<gpui::Div> {
+    base.relative().cursor_pointer()
+        .on_click(move |_, window, _| {
+            *want.borrow_mut() = Some(user_id.clone());
+            window.refresh();
+        })
+        .child(child)
+        .child(canvas(|_, _, _| (), move |bounds, _, _, _| painted(bounds)).absolute().inset_0())
+}
 const STATUS_AVATAR_PX: f32 = 12.;
 
 /// Where a Tab press over the «Scarica» icons went.
@@ -114,6 +131,10 @@ pub struct TimelineView {
     pub(crate) want_video: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Set by a click on a thread summary; the shell opens the panel.
     pub(crate) want_thread: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// Click on a bubble's avatar or name: the shell opens that member's profile in the room sheet.
+    pub(crate) want_profile: Rc<RefCell<Option<String>>>,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    profile_painted: Rc<RefCell<std::collections::HashMap<matrix_domain::ScopedTimelineId, Bounds<Pixels>>>>,
     /// «Scarica»: what each save is doing, the click waiting for the file picker, and a stop request.
     pub(crate) saves: Rc<RefCell<matrix_desktop::Saves>>,
     pub(crate) want_save: Rc<RefCell<Option<(matrix_domain::EventId, String)>>>,
@@ -280,6 +301,9 @@ impl TimelineView {
             want_original: Rc::default(),
             want_video: Rc::default(),
             want_thread: Rc::default(),
+            want_profile: Rc::default(),
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            profile_painted: Rc::default(),
             saves: Rc::default(),
             want_save: Rc::default(),
             stop_save: Rc::default(),
@@ -465,6 +489,22 @@ impl TimelineView {
                             target,
                         },
                     );
+            }
+            let at = history.events().iter().position(|e| e.id == message.event);
+            if let Some(at) = at
+                && let Some(name) = history.sender_label(at, self.member_count.get())
+                && let Some(sender) = &history.events()[at].sender
+            {
+                message.profile = Some(matrix_desktop::accessibility::ProfileLink {
+                    user_id: sender.id.clone(),
+                    name,
+                    bounds: self.profile_painted.borrow().get(&message.event).map(|b| accesskit::Rect::new(
+                        f64::from(f32::from(b.left())) * scale,
+                        f64::from(f32::from(b.top())) * scale,
+                        f64::from(f32::from(b.right())) * scale,
+                        f64::from(f32::from(b.bottom())) * scale,
+                    )),
+                });
             }
             if self.live {
                 message.event_id_copy = self
@@ -1432,6 +1472,9 @@ impl TimelineView {
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let want_video = self.want_video.clone();
         let want_thread = self.want_thread.clone();
+        let want_profile = self.want_profile.clone();
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let profile_painted = self.profile_painted.clone();
         let (saves, want_save, stop_save) = (self.saves.clone(), self.want_save.clone(), self.stop_save.clone());
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let save_painted = self.save_painted.clone();
@@ -1505,10 +1548,19 @@ impl TimelineView {
                             .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::status_with_time(&event.text, &event.time))).into_any_element();
                     }
                     let sender_label = history.sender_label(index, members);
+                    let sender_user = event.sender.as_ref().map(|s| s.id.clone());
+                    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                    let profile_bounds = { let (map, id) = (profile_painted.clone(), event.id.clone()); move |b: Bounds<Pixels>| { map.borrow_mut().insert(id.clone(), b); } };
+                    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                    let profile_bounds = |_: Bounds<Pixels>| ();
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
-                        match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
+                        let avatar = match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
                             Some(image) => crate::avatar_view::round(image, SENDER_AVATAR_PX),
                             None => div().flex().items_center().justify_center().size(px(SENDER_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(12.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
+                        };
+                        match &sender_user {
+                            Some(user) => profile_target(div().id(("sender-avatar", index)).flex_shrink_0(), user.clone(), want_profile.clone(), profile_bounds.clone(), avatar).into_any_element(),
+                            None => avatar,
                         }
                     });
                     // Groups only: the room header already shows the one other person of a chat.
@@ -1717,8 +1769,13 @@ impl TimelineView {
                                     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                                     { d }
                                 })
-                                .when_some(sender_label, |d, name| d.child(
-                                    div().id(("sender-name", index)).mb_1().text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(name)))
+                                .when_some(sender_label, |d, name| d.child(div().flex().mb_1().child({
+                                    let base = div().id(("sender-name", index)).text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent));
+                                    match &sender_user {
+                                        Some(user) => profile_target(base, user.clone(), want_profile.clone(), profile_bounds.clone(), name),
+                                        None => base.child(name),
+                                    }
+                                })))
                                 .child(div().id(("message-text", index))
                                     .cursor(if hovered_url.is_some() { gpui::CursorStyle::PointingHand } else { gpui::CursorStyle::IBeam })
                                     .when_some(hovered_url, |d, url| d.tooltip(move |_, cx| cx.new(|_| LinkTooltip { url: url.clone(), surface: tip_surface, border: tip_border, text: tip_text }).into()))

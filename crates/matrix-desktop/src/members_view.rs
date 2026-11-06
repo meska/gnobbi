@@ -281,6 +281,24 @@ impl Shell {
         cx.notify();
     }
 
+    /// Click on a bubble's avatar or name: the same sheet and profile as a members-list row. Focus stays where it was.
+    /// Waits (request kept) while another command is pending, so the click is not lost.
+    pub(crate) fn drive_profile(&mut self, cx: &mut Context<Self>) {
+        if self.pending_operation_command.is_some() {
+            return;
+        }
+        let Some(user_id) = self.timeline.as_ref().and_then(|t| t.want_profile.borrow_mut().take()) else { return };
+        self.set_room_details_open(true);
+        self.open_profile(user_id, cx);
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn pending_profile(&mut self, user_id: String) {
+        if let Some(t) = &self.timeline {
+            *t.want_profile.borrow_mut() = Some(user_id);
+        }
+    }
+
     /// Row click: ask the engine for the profile; a click while another command waits is ignored.
     pub(crate) fn open_profile(&mut self, user_id: String, cx: &mut Context<Self>) {
         if self.pending_operation_command.is_none() {

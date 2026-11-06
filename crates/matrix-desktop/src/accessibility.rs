@@ -99,8 +99,17 @@ impl ComposerSnapshot {
     }
 }
 
+/// Avatar/name of a received group bubble: opens that member's profile. Slot +8 of the message's block of 16.
+#[derive(Clone)]
+pub struct ProfileLink {
+    pub user_id: String,
+    pub name: String,
+    pub bounds: Option<accesskit::Rect>,
+}
+
 #[derive(Clone)]
 pub struct SemanticMessage {
+    pub profile: Option<ProfileLink>,
     pub offline_delivery: Option<offline_delivery::Snapshot>,
     pub event_id_copy: Option<event_id_copy::Snapshot>,
     pub links: Vec<links::Snapshot>,
@@ -114,7 +123,7 @@ pub struct SemanticMessage {
     /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
     pub play: Option<NodeId>,
     pub play_bounds: Option<accesskit::Rect>,
-    /// «Scarica» on a received attachment (slot +7 of the message's block of 8).
+    /// «Scarica» on a received attachment (slot +7 of the message's block of 16).
     pub save: Option<NodeId>,
     pub save_bounds: Option<accesskit::Rect>,
     pub bounds: Option<accesskit::Rect>,
@@ -175,6 +184,7 @@ impl HistorySnapshot {
             message.retry = None;
             message.play = None;
             message.save = None;
+            message.profile = None;
             message.event_id_copy = None;
             message.actions = None;
         }
@@ -308,7 +318,7 @@ impl HistoryNodes {
                         let id = NodeId(self.next_id);
                         self.next_id = self
                             .next_id
-                            .checked_add(8)
+                            .checked_add(16)
                             .expect("semantic history IDs exhausted");
                         id
                     })
@@ -318,6 +328,7 @@ impl HistoryNodes {
                     self.ids.insert(pending, id);
                 }
                 SemanticMessage {
+                    profile: None,
                     offline_delivery: None,
                     event_id_copy: None,
                     links: Vec::new(),
@@ -806,6 +817,11 @@ impl NavigationSnapshot {
             {
                 return Some(NavigationAction::PlayVideo(message.event.clone()));
             }
+            if let Some(link) = history.messages.iter().find_map(|m| {
+                m.profile.as_ref().filter(|_| NodeId(m.id.0 + 8) == request.target_node)
+            }) {
+                return Some(NavigationAction::OpenProfile(link.user_id.clone()));
+            }
             if let Some(message) = history
                 .messages
                 .iter()
@@ -1132,6 +1148,18 @@ impl NavigationSnapshot {
                     }
                     node.push_child(id);
                     tree.nodes.push((id, play));
+                }
+                if let Some(link) = &message.profile {
+                    let id = NodeId(message.id.0 + 8);
+                    let mut n = Node::new(Role::Button);
+                    n.set_label(format!("Apri profilo di {}", link.name));
+                    n.add_action(Action::Click);
+                    n.add_action(Action::Focus);
+                    if let Some(bounds) = link.bounds {
+                        n.set_bounds(bounds);
+                    }
+                    node.push_child(id);
+                    tree.nodes.push((id, n));
                 }
                 if let Some(id) = message.save {
                     let mut save = Node::new(Role::Button);
@@ -1481,6 +1509,7 @@ pub enum NavigationAction {
     OperationPanel(operation_panel::PanelAction),
     PlayVideo(matrix_domain::ScopedTimelineId),
     SaveAttachment(matrix_domain::ScopedTimelineId),
+    OpenProfile(String),
     FocusMessageActions(matrix_domain::ScopedTimelineId),
     OpenMessageActions(matrix_domain::ScopedTimelineId),
     FocusMessageRetry(matrix_domain::ScopedTimelineId),
