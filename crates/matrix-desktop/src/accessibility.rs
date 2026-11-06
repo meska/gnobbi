@@ -357,8 +357,9 @@ impl Default for HistoryNodes {
 }
 impl SemanticMessage {
     pub fn pill_id(&self, i: usize) -> NodeId {
-        // Messages sit at 1<<62 + 32k: half of the offset gives each its own run of PILLS ids above 1<<63.
-        NodeId((1_u64 << 63) + (self.id.0 - (1_u64 << 62)) / 2 + i as u64)
+        // Messages sit at 1<<62 + 32k: half of the offset gives each its own run of pill ids in the 3<<62 zone.
+        // Taken elsewhere: composer runs (1<<63)+n, fixed controls/EMOJI_ITEM below 1<<63, links 1<<60, confirms 1<<59, compact/devices 1<<58-59.
+        NodeId((1_u64 << 63) | (1_u64 << 62) | ((self.id.0 - (1_u64 << 62)) / 2 + i as u64))
     }
 }
 

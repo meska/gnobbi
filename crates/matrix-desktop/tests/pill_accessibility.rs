@@ -118,3 +118,29 @@ fn the_focused_pill_holds_the_tree_focus() {
     let message = &snapshot.history.as_ref().unwrap().messages[0];
     assert_eq!(snapshot.tree().focus, message.pill_id(1));
 }
+
+#[test]
+fn pill_ids_never_collide_with_the_composer_text_runs() {
+    let mut snapshot = with_pills(vec![pill("@a:hs", "A", 2, false)]);
+    snapshot.composer = Some(matrix_desktop::accessibility::ComposerSnapshot {
+        send_source: Some(1),
+        scope: RoomScope { account_id: AccountId::new(69), room_id: RoomId::new("!pills:test") },
+        composing: false,
+        send_focused: false,
+        icon_focused: None,
+        live: true,
+        send_bounds: None,
+        attachment: None,
+        mentions: None,
+        recording: None,
+        emoji_open: false,
+        text: "ciao".into(),
+        anchor: 0,
+        cursor: 0,
+        focused: false,
+        bounds: Some(accesskit::Rect::new(0., 600., 400., 640.)),
+    });
+    let ids: Vec<_> = snapshot.tree().nodes.iter().map(|(id, _)| *id).collect();
+    let unique: std::collections::HashSet<_> = ids.iter().collect();
+    assert_eq!(ids.len(), unique.len());
+}
