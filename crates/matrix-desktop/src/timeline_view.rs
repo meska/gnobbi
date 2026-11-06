@@ -3119,6 +3119,74 @@ mod tests {
         video_bubble_shot(false);
     }
 
+    /// Paints a row with a pill for me, one for another person, «@room» and a room, then clicks them for real
+    /// (synthetic mouse events through the window): only the two user pills open a profile, each its own.
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_pills_click_opens_that_profile_and_text_around_does_not() {
+        use matrix_engine::{history::{HistoryEvent, HistorySender}, rich_text::{MentionKind, MentionSpan}};
+        gpui::Application::new().run(move |cx| {
+            let id = EventId::new("$pills:fixture.invalid");
+            let (me, bea) = ("@anna:fixture.invalid", "@bea:fixture.invalid");
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi pills");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!pills:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        let body = "Anna e Bea, @room in #qa fine";
+                        let at = |word: &str| { let i = body.find(word).unwrap(); i..i + word.len() };
+                        let user = |who: &str, name: &str, me| MentionKind::User { sender: HistorySender::new(who, Some(name)), me };
+                        v.append_server(vec![HistoryEvent {
+                            poll: None, redacted: false, event_id: id.clone(), body: body.into(), outgoing: false, timestamp_ms: 0,
+                            sender: HistorySender::new("@z:fixture.invalid", Some("Zeno")), video: None, styles: Vec::new(),
+                            mentions: vec![
+                                MentionSpan { range: at("Anna"), kind: user(me, "Anna", true) },
+                                MentionSpan { range: at("Bea"), kind: user(bea, "Bea", false) },
+                                MentionSpan { range: at("@room"), kind: MentionKind::AtRoom },
+                                MentionSpan { range: at("#qa"), kind: MentionKind::Room },
+                            ],
+                            highlighted: true, thread: None, thread_root: None, status: false, attachment_name: None, attachment_size: None,
+                        }]);
+                        ShotHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                let (anna, bea_box) = view
+                    .update(cx, |host, _, _| {
+                        let event = host.0.history.borrow().events()[0].id.clone();
+                        let mut painted: Vec<_> = host.0.pill_bounds.borrow().iter().filter(|((e, _), _)| *e == event).map(|((_, s), b)| (*s, *b)).collect();
+                        painted.sort_by_key(|(s, _)| *s);
+                        assert_eq!(painted.len(), 2, "only the two user pills are painted as targets: {painted:?}");
+                        (painted[0].1, painted[1].1)
+                    })
+                    .unwrap();
+                assert!(anna.size.width > px(10.) && anna.right() <= bea_box.left(), "left to right, apart: {anna:?} {bea_box:?}");
+                assert!((anna.center().y - bea_box.center().y).abs() < px(1.), "same line");
+                // Real X11 clicks (xdotool, window-relative), the same path a hand takes.
+                let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--name", "Gnobbi pills"]).output().unwrap().stdout).unwrap();
+                let win = win.lines().next().expect("window found").to_owned();
+                let mut click = async |at: gpui::Point<Pixels>| {
+                    view.update(cx, |host, _, _| { host.0.want_profile.replace(None); }).unwrap();
+                    let (x, y) = (f32::from(at.x).round().to_string(), f32::from(at.y).round().to_string());
+                    assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", &win, &x, &y, "click", "1"]).status().unwrap().success());
+                    executor.timer(std::time::Duration::from_millis(500)).await;
+                    view.update(cx, |host, _, _| host.0.want_profile.borrow().clone()).unwrap()
+                };
+                let on = |b: Bounds<Pixels>| gpui::point(b.right() - px(6.), b.center().y);
+                assert_eq!(click(on(anna)).await.as_deref(), Some(me), "my pill opens my profile");
+                assert_eq!(click(on(bea_box)).await.as_deref(), Some(bea), "the other's pill opens theirs");
+                assert_eq!(click(gpui::point(bea_box.right() + px(300.), bea_box.center().y)).await, None, "empty space after the text opens nothing");
+                assert_eq!(click(gpui::point(anna.right() + px(3.), anna.center().y)).await, None, "the plain text between pills opens nothing");
+                view.update(cx, |_, _, cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
     struct NarrowHost(TimelineView);
     impl Render for NarrowHost {
         fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
