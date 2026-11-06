@@ -3541,6 +3541,97 @@ mod tests {
         save_icons_painted(true);
     }
 
+    /// Captions under attachments painted for real (rows as the engine delivers them: blank and
+    /// spaces-only captions arrive as empty text, a late-decrypted or edited caption is just the new
+    /// text): every shape paints without panicking and keeps its ↓. With SHOT=<path> a screenshot of
+    /// the window is written for a visual check (file names only as File labels, never under images).
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn captions_painted(dark: bool) {
+        use matrix_engine::history::{HistoryEvent, HistorySender, Media, MediaKind};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
+            let long = "Una didascalia molto lunga che deve andare a capo senza uscire dalla bolla. ".repeat(6);
+            // (id, kind, label, caption)
+            let cases: Vec<(&str, Option<MediaKind>, &str, String)> = vec![
+                ("$short", Some(MediaKind::Image), "Immagine", "Ecco i dati fiscali".into()),
+                ("$long", Some(MediaKind::Image), "Immagine", long),
+                ("$emoji", Some(MediaKind::Image), "Immagine", "Ciao 😀🎉 👨‍👩‍👧".into()),
+                ("$link", Some(MediaKind::Image), "Immagine", "vedi https://example.org/x".into()),
+                ("$mention", Some(MediaKind::Image), "Immagine", "ciao @Bob".into()),
+                ("$empty", Some(MediaKind::Image), "Immagine", String::new()),
+                ("$edited", Some(MediaKind::Image), "Immagine", "Didascalia modificata".into()),
+                ("$utd", None, "", "Cifrato · chiavi non disponibili".into()),
+                ("$file", Some(MediaKind::File), "File · contratto.pdf · 1 KB", "Il contratto".into()),
+                ("$filebare", Some(MediaKind::File), "File · nota.txt · 10 B", String::new()),
+            ];
+            let event = |(id, kind, label, caption): &(&str, Option<MediaKind>, &str, String), ms: u64| HistoryEvent {
+                poll: None,
+                redacted: false,
+                event_id: EventId::new(format!("{id}:fixture.invalid")),
+                body: caption.clone(),
+                outgoing: false,
+                timestamp_ms: ms,
+                sender: HistorySender::new("@a:fixture.invalid", None),
+                video: None,
+                styles: Vec::new(), mentions: Vec::new(), highlighted: false,
+                thread: None,
+                thread_root: None,
+                status: false,
+                attachment_name: kind.map(|_| if matches!(kind, Some(MediaKind::File)) { label.split(" · ").nth(1).unwrap().to_owned() } else { "foto.png".into() }),
+                attachment_size: kind.map(|_| 2048),
+                media: kind.map(|kind| Media { kind, label: (*label).into() }),
+            };
+            let rows: Vec<_> = cases.iter().enumerate().map(|(i, c)| event(c, i as u64 + 1)).collect();
+            let images: Vec<_> = rows.iter().filter(|r| r.media.as_ref().is_some_and(|m| m.kind == MediaKind::Image)).map(|r| r.event_id.clone()).collect();
+            let attachments = rows.iter().filter(|r| r.media.is_some()).count();
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi captions");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!cap:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), true);
+                        v.append_server(rows);
+                        for id in &images {
+                            v.images.borrow_mut().insert(id.clone(), ready_image());
+                        }
+                        ThemedHost(v, tokens)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                if let Ok(path) = std::env::var("SHOT") {
+                    let _ = if std::env::var("WAYLAND_DISPLAY").is_ok() { std::process::Command::new("grim").arg(&path).status() } else { std::process::Command::new("import").args(["-window", "root", &path]).status() };
+                }
+                view.update(cx, |host, _, _| {
+                    // The list paints the rows in view (anchored to the newest): a ↓ on each of them, never more than attachments.
+                    let painted = host.0.save_painted.borrow().len();
+                    println!("CAPTIONS dark={dark} attachments={attachments} painted_icons={painted}");
+                    assert!((1..=attachments).contains(&painted), "a ↓ on every painted attachment row, none on the others");
+                })
+                .unwrap();
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_captions_light() {
+        captions_painted(false);
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_captions_dark() {
+        captions_painted(true);
+    }
+
     #[test]
     #[ignore = "requires private display"]
     fn large_image_view_opens_and_escape_returns_focus_to_timeline() {
