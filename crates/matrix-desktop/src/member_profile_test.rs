@@ -361,7 +361,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
             thread_root: None,
             status: false,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
         }]);
         this.timeline = Some(timeline);
         this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx));

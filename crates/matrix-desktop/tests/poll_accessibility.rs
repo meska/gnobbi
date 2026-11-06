@@ -66,7 +66,7 @@ fn nodes(poll: Poll) -> Vec<(accesskit::NodeId, accesskit::Node)> {
         thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     snapshot(HistoryNodes::default().project(&history, 0, true)).tree().nodes
 }
@@ -117,7 +117,7 @@ fn history_snapshot(poll: Poll) -> matrix_desktop::accessibility::HistorySnapsho
         thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     HistoryNodes::default().project(&history, 0, true)
 }

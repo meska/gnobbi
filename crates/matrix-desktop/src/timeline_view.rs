@@ -1253,7 +1253,7 @@ impl TimelineView {
             .events()
             .iter()
             .rev()
-            .filter(|e| e.video.is_some() || matrix_engine::history::is_image_body(&e.text))
+            .filter(|e| e.video.is_some() || e.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image))
             .filter_map(|e| match &e.id.id {
                 matrix_domain::TimelineId::Server(id) => Some(id.clone()),
                 _ => None,
@@ -1772,7 +1772,7 @@ impl TimelineView {
                         };
                         crate::poll_view::poll_bubble(poll, t, index, focus_ix, failed, on_vote, Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.clone(), part), bounds); }))
                     });
-                    let picture = poll_bubble.or(video_picture).or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
+                    let picture = poll_bubble.or(video_picture).or_else(|| event.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image).then(|| {
                         let state = match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
@@ -2086,10 +2086,17 @@ impl TimelineView {
                                             }
                                         });
                                     }).absolute().inset_0())
-                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child(match picture {
-                                        // The mouse handlers read the text layout, which only exists once the text was painted: keep it painted, invisible.
-                                        Some(picture) => div().child(picture).child(div().size_0().overflow_hidden().child(body)).into_any_element(),
-                                        None => body.into_any_element(),
+                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child({
+                                        // On an attachment row the text is its caption; the file name is never text.
+                                        let caption = event.media.is_some() && !event.text.is_empty();
+                                        let file_label = event.media.as_ref().filter(|m| m.kind == matrix_engine::history::MediaKind::File).map(|m| div().child(m.label.clone()));
+                                        // The mouse handlers read the text layout, which only exists once the text was painted: keep it painted, invisible, when there is no caption to show.
+                                        let wrap = |body: StyledText| if caption { div().mt_1().child(body) } else { div().size_0().overflow_hidden().child(body) };
+                                        match picture {
+                                            Some(picture) => div().child(picture).child(wrap(body)).into_any_element(),
+                                            None if event.media.is_some() => div().children(file_label).child(wrap(body)).into_any_element(),
+                                            None => body.into_any_element(),
+                                        }
                                     }))
                                 .when_some(event.thread_label(), |d, (label, initials, mxc)| d.child(
                                     div().id(("thread-summary", index)).mt_2().flex().items_center().gap_2().cursor_pointer()
@@ -2768,7 +2775,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2910,7 +2917,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -3033,7 +3040,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         }]);
                         if thumbnail {
                             let buffer =
@@ -3149,7 +3156,7 @@ mod tests {
                                 MentionSpan { range: at("@room"), kind: MentionKind::AtRoom },
                                 MentionSpan { range: at("#qa"), kind: MentionKind::Room },
                             ],
-                            highlighted: true, thread: None, thread_root: None, status: false, attachment_name: None, attachment_size: None,
+                            highlighted: true, thread: None, thread_root: None, status: false, attachment_name: None, attachment_size: None, media: None,
                         }]);
                         ShotHost(v)
                     })
@@ -3225,7 +3232,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         }]);
                         NarrowHost(v)
                     })
@@ -3332,7 +3339,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         }]);
                         VotingHost(v, ops)
                     })
@@ -3449,7 +3456,7 @@ mod tests {
                 poll: None,
                 redacted: false,
                 event_id: id.clone(),
-                body: if image { matrix_engine::history::IMAGE_BODY.into() } else { name.unwrap_or("solo testo").into() },
+                body: if image { String::new() } else { name.unwrap_or("solo testo").into() },
                 outgoing,
                 timestamp_ms: ms,
                 sender: HistorySender::new(if outgoing { "@me:fixture.invalid" } else { "@a:fixture.invalid" }, None),
@@ -3459,7 +3466,7 @@ mod tests {
                 thread_root: None,
                 status: false,
                 attachment_name: name.map(Into::into),
-                attachment_size: name.map(|_| 2048),
+                attachment_size: name.map(|_| 2048), media: image.then(|| matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Image, label: "Immagine".into() }),
             };
             let view = cx
                 .open_window(gpui::WindowOptions::default(), |window, cx| {

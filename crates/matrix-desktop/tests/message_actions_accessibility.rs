@@ -61,7 +61,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     history
 }
@@ -274,7 +274,7 @@ fn an_attachment_has_a_scarica_button_a_text_row_has_none() {
         thread_root: None,
         status: false,
         attachment_name: name.map(Into::into),
-        attachment_size: None,
+        attachment_size: None, media: None,
     };
     history.prepend_server(vec![event("$text:test", None), event("$file:test", Some("a.pdf"))]);
     let file = history.events()[1].id.clone();

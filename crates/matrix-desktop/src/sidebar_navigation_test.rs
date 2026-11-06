@@ -1471,7 +1471,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     thread_root: None,
                     status: false,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                 }).collect();
                 // The harness timeline is an offline fixture; debug ids only show on live rows.
                 let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());

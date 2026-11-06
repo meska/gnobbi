@@ -114,7 +114,7 @@ fn fixture() -> (DemoHistory, LiveOperations) {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     let mut actions = LiveOperations::default();
     actions.select(ScopedTimelineId {
@@ -170,7 +170,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     let mut actions = LiveOperations::default();
     actions.select(ScopedTimelineId {
@@ -230,7 +230,7 @@ fn acknowledged_edit_replaces_bubble_without_duplication_or_cross_room_change() 
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     other.project_operations(actions.confirmed());
     assert_eq!(other.events()[0].text, "other");
@@ -256,7 +256,7 @@ fn refresh_server_keeps_edited_suffix_on_local_clock_time() {
         thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     let expected = format!("{} · modificato", matrix_desktop::time_fmt::clock_time(ts));
     assert_eq!(rows.events()[0].time, expected);

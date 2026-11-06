@@ -36,9 +36,21 @@ impl HistorySender {
     }
 }
 
-/// Body of an image message row; the UI draws the picture instead of text.
-// shortcut: a user typing exactly this text is shown a failed image, upgrade when rows carry a kind.
-pub const IMAGE_BODY: &str = "\u{fffc}Immagine";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaKind {
+    Image,
+    Video,
+    Audio,
+    File,
+}
+
+/// Attachment of an `m.image` / `m.video` / `m.audio` / `m.file` row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Media {
+    pub kind: MediaKind,
+    /// What the attachment is, never the caption: «Immagine», «Video · 0:12», «File · a.pdf · 2 MB».
+    pub label: String,
+}
 
 /// Name offered in the save dialog: the sender controls it, so keep one safe path component.
 pub fn proposed_name(raw: &str) -> String {
@@ -46,10 +58,6 @@ pub fn proposed_name(raw: &str) -> String {
     let clean: String = last.chars().filter(|c| !c.is_control()).collect();
     let clean: String = clean.trim_start_matches(['.', ' ']).chars().take(120).collect();
     if clean.is_empty() { "allegato".into() } else { clean }
-}
-
-pub fn is_image_body(body: &str) -> bool {
-    body == IMAGE_BODY
 }
 
 /// «m:ss» of a duration, as drawn on a video bubble.
@@ -84,6 +92,8 @@ pub struct HistoryEvent {
     pub timestamp_ms: u64,
     pub sender: HistorySender,
     pub video: Option<VideoInfo>,
+    /// Set on attachment rows: `body`, `styles` and `mentions` are then the caption, empty when there is none.
+    pub media: Option<Media>,
     /// File name of an image, video, audio or file message: the row can be saved.
     pub attachment_name: Option<String>,
     /// Size declared by the sender for that attachment, when it says one.
@@ -161,18 +171,6 @@ mod sender_avatar_tests {
         assert_eq!(HistorySender::new("@a:t", None).avatar, None);
         let s = HistorySender::new("@a:t", None).with_avatar(Some("mxc://t/a".into()));
         assert_eq!(s.avatar.as_deref(), Some("mxc://t/a"));
-    }
-}
-
-#[cfg(test)]
-mod image_body_tests {
-    use super::*;
-
-    #[test]
-    fn only_the_image_marker_is_an_image_body() {
-        assert!(is_image_body(IMAGE_BODY));
-        assert!(!is_image_body("ciao"));
-        assert!(!is_image_body(""));
     }
 }
 

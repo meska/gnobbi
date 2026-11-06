@@ -1640,38 +1640,40 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
         let (mut video, mut styles, mut attachment_name, mut attachment_size) = (None, Vec::new(), None, None);
         let mut mentions = Vec::new();
         let mut poll = None;
+        let mut media = None;
         let body = match &content.kind {
-            MsgLikeKind::Message(message) => match message.msgtype() {
-                MessageType::Image(i) => {
-                    attachment_name = Some(crate::history::proposed_name(i.filename()));
-                    attachment_size = i.info.as_deref().and_then(|i| i.size).map(u64::from);
-                    crate::history::IMAGE_BODY.into()
+            MsgLikeKind::Message(message) => {
+                let msgtype = message.msgtype();
+                attachment_name = match msgtype {
+                    MessageType::Image(m) => Some(crate::history::proposed_name(m.filename())),
+                    MessageType::Video(m) => Some(crate::history::proposed_name(m.filename())),
+                    MessageType::Audio(m) => Some(crate::history::proposed_name(m.filename())),
+                    MessageType::File(m) => Some(crate::history::proposed_name(m.filename())),
+                    _ => None,
+                };
+                attachment_size = match msgtype {
+                    MessageType::Image(m) => m.info.as_deref().and_then(|i| i.size),
+                    MessageType::Video(m) => m.info.as_deref().and_then(|i| i.size),
+                    MessageType::Audio(m) => m.info.as_deref().and_then(|i| i.size),
+                    MessageType::File(m) => m.info.as_deref().and_then(|i| i.size),
+                    _ => None,
                 }
-                msgtype => {
-                    attachment_name = match msgtype {
-                        MessageType::Video(v) => Some(crate::history::proposed_name(v.filename())),
-                        MessageType::Audio(a) => Some(crate::history::proposed_name(a.filename())),
-                        MessageType::File(f) => Some(crate::history::proposed_name(f.filename())),
-                        _ => None,
-                    };
-                    attachment_size = match msgtype {
-                        MessageType::Video(m) => m.info.as_deref().and_then(|i| i.size),
-                        MessageType::Audio(m) => m.info.as_deref().and_then(|i| i.size),
-                        MessageType::File(m) => m.info.as_deref().and_then(|i| i.size),
-                        _ => None,
-                    }
-                    .map(u64::from);
-                    video = match msgtype {
-                        MessageType::Video(v) => Some(video_info(v)),
-                        MessageType::Audio(a) => Some(audio_info(a)),
-                        _ => None,
-                    };
-                    let at_room = message.mentions().is_some_and(|m| m.room);
-                    let (body, spans, pills) = message_rich(room, msgtype, at_room).await;
-                    (styles, mentions) = (spans, pills);
-                    body
-                }
-            },
+                .map(u64::from);
+                video = match msgtype {
+                    MessageType::Video(v) => Some(video_info(v)),
+                    MessageType::Audio(a) => Some(audio_info(a)),
+                    _ => None,
+                };
+                let at_room = message.mentions().is_some_and(|m| m.room);
+                media = media_of(msgtype);
+                let (body, spans, pills) = if media.is_some() {
+                    caption_rich(room, msgtype, at_room).await
+                } else {
+                    message_rich(room, msgtype, at_room).await
+                };
+                (styles, mentions) = (spans, pills);
+                body
+            }
             MsgLikeKind::Sticker(_) => "Sticker".into(),
             MsgLikeKind::Poll(state) => {
                 let built = poll_from_results(&state.results(), room.own_user_id().as_str(), event.is_own());
@@ -1704,6 +1706,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             timestamp_ms: event.timestamp().0.into(),
             sender: history_sender(room, event.sender()).await,
             video,
+            media,
             styles,
             mentions,
             highlighted: event.is_highlighted(),
@@ -1836,6 +1839,7 @@ async fn status_row(
         timestamp_ms: event.timestamp().0.into(),
         sender: shown,
         video: None,
+        media: None,
         styles: Vec::new(),
         mentions: Vec::new(),
         highlighted: false,
@@ -2156,6 +2160,54 @@ async fn message_rich(
     (label, Vec::new(), pills)
 }
 
+/// Kind and label of an attachment message; None for every other msgtype.
+fn media_of(msgtype: &MessageType) -> Option<crate::history::Media> {
+    use crate::history::{Media, MediaKind};
+    let kind = match msgtype {
+        MessageType::Image(_) => MediaKind::Image,
+        MessageType::Video(_) => MediaKind::Video,
+        MessageType::Audio(_) => MediaKind::Audio,
+        MessageType::File(_) => MediaKind::File,
+        _ => return None,
+    };
+    Some(Media { kind, label: message_label(msgtype) })
+}
+
+/// Caption of an attachment, from the SDK only (`caption()` is None when the body is the file name):
+/// its sanitized HTML when it gives some text, else the plain text, else nothing (blank = none).
+async fn caption_rich(
+    room: &matrix_sdk::room::Room,
+    msgtype: &MessageType,
+    at_room: bool,
+) -> (String, Vec<crate::rich_text::StyleSpan>, Vec<crate::rich_text::MentionSpan>) {
+    use matrix_sdk::ruma::events::room::message::MessageFormat;
+    let (plain, formatted) = caption_sources(msgtype);
+    if let Some(f) = formatted.filter(|f| f.format == MessageFormat::Html) {
+        let users = mention_senders(room, &f.body).await;
+        let ctx = crate::rich_text::MentionCtx { users: &users, me: room.own_user_id().as_str(), at_room };
+        let (text, styles, mentions) = crate::rich_text::from_html_mentions(&f.body, &ctx);
+        if !text.trim().is_empty() {
+            return (text, styles, mentions);
+        }
+    }
+    match plain.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(c) => (c.to_owned(), Vec::new(), if at_room { crate::rich_text::at_room_spans(c, &[], &[]) } else { Vec::new() }),
+        None => (String::new(), Vec::new(), Vec::new()),
+    }
+}
+
+fn caption_sources(
+    msgtype: &MessageType,
+) -> (Option<&str>, Option<&matrix_sdk::ruma::events::room::message::FormattedBody>) {
+    match msgtype {
+        MessageType::Image(m) => (m.caption(), m.formatted_caption()),
+        MessageType::Video(m) => (m.caption(), m.formatted_caption()),
+        MessageType::Audio(m) => (m.caption(), m.formatted_caption()),
+        MessageType::File(m) => (m.caption(), m.formatted_caption()),
+        _ => (None, None),
+    }
+}
+
 /// Row text for a message type: its content when textual, otherwise a short real label.
 fn message_label(msgtype: &MessageType) -> String {
     let join = |name: &str, parts: Vec<String>| {
@@ -2213,7 +2265,7 @@ fn message_label(msgtype: &MessageType) -> String {
         }
         MessageType::Location(_) => "Posizione".into(),
         MessageType::VerificationRequest(_) => "Richiesta di verifica".into(),
-        MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
+        MessageType::Image(_) => "Immagine".into(),
         other => other.msgtype().to_owned(),
     }
 }

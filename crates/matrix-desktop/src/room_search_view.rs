@@ -495,7 +495,7 @@ pub(crate) fn exercise(this: &mut Shell, window: &mut Window, cx: &mut Context<S
         thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     };
     let hit = |n: usize| MessageHit {
         event_id: format!("$m{n}:t"),

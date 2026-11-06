@@ -10,7 +10,7 @@ use matrix_desktop::{
     accessibility::{HistoryNodes, NavigationAction, NavigationSnapshot},
 };
 use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
-use matrix_engine::history::{HistoryEvent, HistorySender, IMAGE_BODY};
+use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn snapshot(history: matrix_desktop::accessibility::HistorySnapshot) -> NavigationSnapshot {
     NavigationSnapshot {
@@ -53,7 +53,7 @@ fn event(id: &str, outgoing: bool, name: Option<&str>, image: bool, redacted: bo
     HistoryEvent {
         poll: None,
         event_id: EventId::new(id),
-        body: if image { IMAGE_BODY.into() } else { name.unwrap_or("solo testo").into() },
+        body: if image { String::new() } else { name.unwrap_or("solo testo").into() },
         outgoing,
         redacted,
         timestamp_ms: 1,
@@ -64,7 +64,7 @@ fn event(id: &str, outgoing: bool, name: Option<&str>, image: bool, redacted: bo
         thread_root: None,
         status: false,
         attachment_name: name.map(Into::into),
-        attachment_size: name.map(|_| 10),
+        attachment_size: name.map(|_| 10), media: image.then(|| matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Image, label: "Immagine".into() }),
     }
 }
 

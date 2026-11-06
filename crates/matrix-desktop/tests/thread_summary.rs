@@ -21,7 +21,7 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
         thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }
 }
 
