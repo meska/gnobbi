@@ -25,6 +25,7 @@ fn snapshot(rooms: Vec<matrix_desktop::accessibility::SemanticRoom>) -> Navigati
         new_room: None,
         devices: Default::default(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         settings: None,
         details: Default::default(),
         notifications: Default::default(),

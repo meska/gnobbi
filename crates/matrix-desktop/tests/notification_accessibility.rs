@@ -75,6 +75,7 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
     let mut snapshot = NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![matrix_desktop::panel_openers::Snapshot {

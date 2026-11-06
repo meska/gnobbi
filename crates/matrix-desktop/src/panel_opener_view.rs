@@ -150,8 +150,8 @@ impl Shell {
                 Control::Notifications => self.open_notifications_panel(window),
                 Control::Devices => self.open_devices_panel(window),
                 Control::Search => {
-                    // Placeholder: the room-search task listens to this counter.
                     self.room_search_requests += 1;
+                    self.open_room_search(window, cx);
                 }
             }
         }
@@ -446,6 +446,7 @@ mod tests {
         let navigation = NavigationSnapshot {
             title: matrix_desktop::window::TITLE.into(),
             new_chat: Default::default(),
+            room_search: Default::default(),
             #[cfg(feature = "live")]
             signin: None,
             openers: this.semantic_openers(window),
@@ -630,11 +631,16 @@ mod tests {
                         assert!(key(this,name,window,cx));
                         assert_eq!(this.room_search_requests,before+1,"{name} activates the magnifier");
                         assert!(!this.room_details_open && !this.notifications_open && !this.verification_open);
+                        // The activation opened the search field: close it and go back to the lens.
+                        this.close_room_search(false,None,cx);
+                        assert!(this.focus_opener(Control::Search,window,cx));
                     }
                     let before=this.room_search_requests;
                     this.opener_callback(Intent{control:Control::Search,source:src(this,Control::Search),focus_only:false})(this,window,cx);
                     assert_eq!(this.room_search_requests,before+1,"click activates the magnifier");
+                    this.close_room_search(false,None,cx);
                 }
+                crate::room_search_view::exercise(this,window,cx);
                 eprintln!("native factories plus real SemanticSession/production Shell dispatch passed");
                 cx.quit();
             }).unwrap();

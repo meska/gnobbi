@@ -4526,6 +4526,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "url",
  "windows 0.62.2",
  "zeroize",

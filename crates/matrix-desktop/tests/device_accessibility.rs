@@ -340,6 +340,7 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
     let mut snapshot = NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![matrix_desktop::panel_openers::Snapshot {

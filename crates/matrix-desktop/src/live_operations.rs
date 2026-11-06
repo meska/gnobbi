@@ -233,6 +233,7 @@ impl LiveOperations {
             | OperationResult::Thread { .. }
             | OperationResult::ThreadSent { .. }
             | OperationResult::Members { .. }
+            | OperationResult::MessageSearch { .. }
             | OperationResult::UserSearch { .. } => false,
             OperationResult::Inspected {
                 tag,

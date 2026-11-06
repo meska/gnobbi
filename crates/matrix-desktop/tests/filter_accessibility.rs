@@ -11,6 +11,7 @@ fn unread_control_is_absent_when_hidden_or_covered_by_a_sheet() {
     let mut snapshot = NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

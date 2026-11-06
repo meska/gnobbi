@@ -30,6 +30,7 @@ mod rail_view;
 mod ring_seam;
 mod room_details_view;
 mod room_menu_view;
+mod room_search_view;
 mod scrollbar_view;
 mod settings_view;
 #[cfg(any(test, feature = "gui-fixture"))]
@@ -77,6 +78,8 @@ struct Shell {
     room_menu: Option<(RoomScope, gpui::Point<gpui::Pixels>)>,
     /// Clicks on the header magnifier («apri ricerca stanza»); read by the room-search task.
     room_search_requests: u32,
+    /// The header field and results of the room message search, while open.
+    room_search: Option<room_search_view::RoomSearch>,
     /// «Esci dalla stanza» was clicked once; the second click leaves.
     confirm_leave: Option<RoomScope>,
     menu_open: bool,
@@ -267,6 +270,10 @@ impl Shell {
             }
             if let matrix_desktop::accessibility::NavigationAction::Details(action) = action {
                 this.apply_semantic_details(action, window, cx);
+                continue;
+            }
+            if let matrix_desktop::accessibility::NavigationAction::RoomSearch(action) = action {
+                this.apply_semantic_room_search(action, window, cx);
                 continue;
             }
             if let matrix_desktop::accessibility::NavigationAction::NewChat(action) = action {
@@ -552,6 +559,7 @@ impl Shell {
                     unreachable!()
                 }
                 matrix_desktop::accessibility::NavigationAction::NewChat(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::RoomSearch(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Notifications(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::ChooseIcon(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Settings(_) => unreachable!(),
@@ -775,7 +783,7 @@ impl Shell {
             }
             return;
         }
-        if self.quick.is_some() {
+        if self.quick.is_some() || self.room_search_typing(&key.modifiers, window, cx) {
             return;
         }
         if let Some(timeline) = &self.timeline
@@ -1280,6 +1288,9 @@ impl Shell {
             return;
         }
         let key = &event.keystroke;
+        if self.room_search_typing(&key.modifiers, window, cx) {
+            return;
+        }
         let searching = self.search_focus.is_focused(window);
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.list_focus.is_focused(window)
@@ -1456,6 +1467,7 @@ impl Shell {
             self.members_requested = Some(self.active_scope.clone());
         }
         self.flush_user_search();
+        self.flush_room_search();
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
@@ -1538,6 +1550,12 @@ impl Shell {
                         OperationCommand::EditTags(_) => OperationResult::TagsEdited {
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::SearchMessages { scope, term } => OperationResult::MessageSearch {
+                            scope,
+                            state: matrix_engine::operations::MessageSearchState::Error { term },
+                        },
+                        // Nothing is open on the engine side: there is no page to ask for.
+                        OperationCommand::MoreMessages => return,
                         OperationCommand::SearchUsers { .. } => OperationResult::UserSearch {
                             state: matrix_engine::operations::SearchState::Error,
                             all_available: false,
@@ -1775,6 +1793,7 @@ impl Render for Shell {
                 notifications: self.semantic_notifications(window),
                 settings: self.semantic_settings(),
                 new_chat: self.semantic_new_chat(cx),
+                room_search: self.semantic_room_search(window, cx),
                 dark: self.theme.is_dark(),
                 visible: !self.notifications_open
                     && !self.verification_open
@@ -2210,7 +2229,8 @@ impl Render for Shell {
                                         },
                                     )
                                 })
-                                .child(
+                                .children(self.render_room_search_field(t, cx))
+                                .when(self.room_search.is_none(), |d| d.child(
                                     div()
                                         .flex()
                                         .flex_col()
@@ -2228,9 +2248,10 @@ impl Render for Shell {
                                                 .text_color(rgb(t.secondary))
                                                 .child(DEMO_NOTICE),
                                         )),
-                                )
+                                ))
                                 .when(self.connected && self.sidebar.selected().is_some(), |d| d.child(self.render_root_opener(matrix_desktop::panel_openers::Control::Search, window, cx)).child(self.render_root_opener(matrix_desktop::panel_openers::Control::Info, window, cx))),
                         )
+                        .children(self.render_room_search_results(t, cx))
                         // a11y: the strip is also the history Tab stop, so it must stay in the focus tree (a hairline when it has no text).
                         .when(self.connected && (cfg!(all(feature = "linux-a11y", target_os = "linux")) || matches!(self.history.status(), HistoryStatus::Loading | HistoryStatus::Failed)), |d| d.child(div().id("load-server-history").relative().h(px(if self.history.status().strip_label().is_some() { 24. } else { 0. })).flex_shrink_0().px_6().flex().items_center().bg(rgb(t.surface)).text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer()
                             .map(|d| {
@@ -2705,6 +2726,10 @@ fn main() {
                                                 this.directory_found(result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::MessageSearch { scope, state } = result {
+                                                this.room_search_result(scope, state, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::UserSearch { state, all_available } = result {
                                                 this.user_search_result(state, all_available, cx);
                                                 continue;
@@ -2827,6 +2852,7 @@ fn main() {
                                         this.flush_operations();
                                         this.drive_thread(cx);
                                         this.drive_profile(cx);
+                                        this.drive_room_search(cx);
                                         if let Some((sender, _)) = &mut this.routes.verification {
                                             this.verification.flush(sender);
                                         }
@@ -2957,6 +2983,7 @@ fn main() {
                         opener_ui: panel_opener_view::OpenerUi::new(),
                         room_menu: None,
                         room_search_requests: 0,
+                        room_search: None,
                         confirm_leave: None,
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
@@ -2997,6 +3024,7 @@ fn main() {
                             matrix_desktop::accessibility::NavigationSnapshot {
                                 title: matrix_desktop::window::TITLE.into(),
                                 new_chat: Default::default(),
+                                room_search: Default::default(),
                                 #[cfg(feature = "live")]
                                 signin: signin.as_ref().map(|view| view.read(cx).semantic_snapshot(window, cx)),
                                 openers: vec![],

@@ -138,6 +138,7 @@ fn send_intents(
     let snapshot = NavigationSnapshot {
         title: matrix_desktop::window::TITLE.into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(feature = "live")]
         signin: None,
         openers: vec![],

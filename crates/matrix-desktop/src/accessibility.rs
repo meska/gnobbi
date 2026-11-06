@@ -13,6 +13,7 @@ pub mod filters;
 pub mod links;
 pub mod new_room;
 pub mod new_chat;
+pub mod room_search;
 pub mod notifications;
 pub mod settings;
 pub mod offline_delivery;
@@ -591,6 +592,8 @@ pub struct NavigationSnapshot {
     /// Some while the drawer's Settings page is open: it hides everything else.
     pub settings: Option<settings::SettingsSnapshot>,
     pub new_chat: new_chat::NewChatView,
+    /// Open while the chat header's message search is; added to the chat tree, not a dialog.
+    pub room_search: room_search::RoomSearchView,
     pub dark: bool,
     pub visible: bool,
     pub query: String,
@@ -616,6 +619,9 @@ impl NavigationSnapshot {
         }
         if matches!(self.new_chat, new_chat::NewChatView::Open(_)) {
             return self.new_chat.action(request).map(NavigationAction::NewChat);
+        }
+        if let Some(action) = self.room_search.action(request) {
+            return Some(NavigationAction::RoomSearch(action));
         }
         if request.target_tree == TreeId::ROOT
             && request.data.is_none()
@@ -1413,6 +1419,7 @@ impl NavigationSnapshot {
                 tree.focus = id;
             }
         }
+        self.room_search.append(&mut tree);
         for bar in &self.scrollbars {
             if match bar.pane {
                 scrollbars::Pane::Rooms(_) => self.visible,
@@ -1524,6 +1531,7 @@ pub enum NavigationAction {
     Notifications(notifications::NotificationAction),
     Settings(settings::SettingsAction),
     NewChat(new_chat::NewChatAction),
+    RoomSearch(room_search::RoomSearchAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
     ChooseIcon(crate::IconChoice),
     ToggleMenu,

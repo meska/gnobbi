@@ -104,7 +104,24 @@ pub(crate) enum IconStep {
     Ignored,
 }
 
+/// The message a room search jumped to: its bubble flashes until `flash_until`, the term stays
+/// marked in the text while the search is open.
+#[derive(Clone)]
+pub struct SearchMark {
+    pub event: matrix_domain::EventId,
+    pub term: String,
+    pub flash_until: std::time::Instant,
+    pub ended: bool,
+}
+
+/// The accent over the bubble colour, for the flash after a jump.
+fn flash(base: u32, accent: u32) -> u32 {
+    let mix = |shift: u32| (((base >> shift) & 0xff) * 7 + ((accent >> shift) & 0xff) * 3) / 10;
+    (mix(16) << 16) | (mix(8) << 8) | mix(0)
+}
+
 pub struct TimelineView {
+    search_mark: Rc<RefCell<Option<SearchMark>>>,
     offline_delivery: Rc<RefCell<matrix_desktop::OfflineDelivery>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     offline_cursor: Rc<Cell<Option<u64>>>,
@@ -346,6 +363,7 @@ impl TimelineView {
             ))),
             probe: std::env::var("MATRIX_DESKTOP_TIMELINE_PROBE").as_deref() == Ok("1"),
             selection: Rc::default(),
+            search_mark: Rc::default(),
             focus,
             dragging: Rc::default(),
             link: Rc::default(),
@@ -434,6 +452,32 @@ impl TimelineView {
             crate::scrollbar_view::ScrollTarget::History(self.state.clone(), self.extent.clone()),
             fraction,
         );
+    }
+
+    /// Scrolls the row of `event` to the top; false when it is not among the loaded rows.
+    pub fn scroll_to_event(&self, event: &matrix_domain::EventId) -> bool {
+        let Some(item_ix) = self.history.borrow().events().iter().position(|e| matches!(&e.id.id, matrix_domain::TimelineId::Server(id) if id == event)) else {
+            return false;
+        };
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        self.semantic_cursor.replace(None);
+        self.state.scroll_to(ListOffset { item_ix, offset_in_item: px(0.) });
+        true
+    }
+
+    pub fn set_search_mark(&self, mark: Option<SearchMark>) {
+        *self.search_mark.borrow_mut() = mark;
+    }
+
+    /// True once, when the flash of the mark has just run out (the shell repaints).
+    pub fn flash_ended(&self) -> bool {
+        match self.search_mark.borrow_mut().as_mut() {
+            Some(m) if !m.ended && m.flash_until <= std::time::Instant::now() => {
+                m.ended = true;
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn jump_to_boundary(&self, last: bool) {
@@ -1452,6 +1496,7 @@ impl TimelineView {
             .then(|| self.offline_cursor.get())
             .flatten();
         let selection = self.selection.clone();
+        let search_mark = self.search_mark.clone();
         let focus = self.focus.clone();
         let dragging = self.dragging.clone();
         let released = self.dragging.clone();
@@ -1649,7 +1694,11 @@ impl TimelineView {
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
                     let selected = selection.borrow().range(&event.id, &event.text);
+                    let mark = search_mark.borrow().as_ref().filter(|m| matches!(&event.id.id, matrix_domain::TimelineId::Server(id) if *id == m.event)).cloned();
+                    let found = mark.as_ref().map(|m| matrix_engine::message_match::find_ranges(&event.text, &m.term)).unwrap_or_default();
+                    let flashing = mark.as_ref().is_some_and(|m| m.flash_until > std::time::Instant::now());
                     let mut cuts = vec![0, event.text.len()];
+                    for r in &found { cuts.extend([r.start, r.end]); }
                     // Only spans that fit the text: a stale range must never slice inside a character.
                     let styles: Vec<_> = event.styles.iter().filter(|s| s.range.start < s.range.end && s.range.end <= event.text.len() && event.text.is_char_boundary(s.range.start) && event.text.is_char_boundary(s.range.end)).collect();
                     for style in &styles { cuts.extend([style.range.start, style.range.end]); }
@@ -1668,7 +1717,7 @@ impl TimelineView {
                             strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
                             color: if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
                             underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
-                            background_color: if selected.as_ref().is_some_and(|r| r.contains(&range.start))
+                            background_color: if found.iter().any(|r| r.contains(&range.start)) || selected.as_ref().is_some_and(|r| r.contains(&range.start))
                                 || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { has(Style::Code).then(|| rgb(t.input).into()) },
                             ..Default::default()
                         };
@@ -1752,7 +1801,7 @@ impl TimelineView {
                                 .py_3()
                                 .rounded_lg()
                                 .relative()
-                                .bg(rgb(if event.outgoing { t.outgoing } else { t.surface }))
+                                .bg(rgb(if flashing { flash(if event.outgoing { t.outgoing } else { t.surface }, t.accent) } else if event.outgoing { t.outgoing } else { t.surface }))
                                 .when(event.menu_available(live), |d| {
                                     let id = event.id.clone();
                                     let operations = operations.clone();

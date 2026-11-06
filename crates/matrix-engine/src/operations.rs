@@ -54,7 +54,59 @@ pub enum SearchState {
     Error,
 }
 
+/// Message search of one room («Cerca» in the chat header). Same rule as `SearchState`: the
+/// desktop reads these, so they live outside the `sdk` feature. Terms and excerpts are private:
+/// nothing logs them, and no `Debug` shows them in a trace.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MessageSource {
+    Server,
+    LocalCache,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct MessageHit {
+    pub event_id: String,
+    pub sender: String,
+    /// Display name of the sender in the room, else the user ID.
+    pub sender_name: String,
+    /// `origin_server_ts` in ms.
+    pub ts: u64,
+    /// Body on one line (newlines become spaces), at most ~200 characters.
+    pub excerpt: String,
+    /// Byte ranges of the term inside `excerpt`, on char boundaries.
+    pub matches: Vec<std::ops::Range<usize>>,
+    /// `Some(root)` for a reply inside a thread.
+    pub thread_root: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoreHits {
+    None,
+    Available,
+    Loading,
+    Failed,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum MessageSearchState {
+    /// Term shorter than the minimum, or search closed.
+    Idle,
+    Searching { term: String },
+    Results { term: String, source: MessageSource, hits: Vec<MessageHit>, more: MoreHits },
+    NoResults { term: String, source: MessageSource },
+    /// One line in the UI, no detail.
+    Error { term: String },
+}
+
 pub enum OperationCommand {
+    /// Search the messages of one room; an empty term closes the search. Answered with
+    /// `OperationResult::MessageSearch` as it progresses.
+    SearchMessages {
+        scope: RoomScope,
+        term: String,
+    },
+    /// Next page of the open message search.
+    MoreMessages,
     Inspect {
         tag: crate::RequestTag,
         target: EventId,
@@ -158,6 +210,10 @@ pub enum TagEdit {
     Delete { tag: String },
 }
 pub enum OperationResult {
+    MessageSearch {
+        scope: RoomScope,
+        state: MessageSearchState,
+    },
     /// The server accepted the text; `Ok` carries the new event's ID.
     ThreadSent {
         scope: RoomScope,

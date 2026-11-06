@@ -18,6 +18,7 @@ matrix-sdk-crypto = { version = "=0.19.1", optional = true, default-features = f
 mime_guess = { version = "=2.0.5", optional = true, default-features = false }
 image = { version = "=0.25.10", optional = true, default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 zeroize = "=1.9.1"
+unicode-normalization = "=0.1.25"
 matrix-domain = { path = "../matrix-domain" }
 matrix-sdk-store-encryption = { version = "=0.19.1", optional = true }
 matrix-sdk-ui = { version = "=0.19.1", optional = true, default-features = false }
@@ -95,4 +96,8 @@ required-features = ["sdk"]
 
 [[test]]
 name = "e2ee_device_matrix"
+required-features = ["sdk"]
+
+[[test]]
+name = "message_search_qa"
 required-features = ["sdk"]

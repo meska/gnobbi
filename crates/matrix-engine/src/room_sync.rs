@@ -376,6 +376,9 @@ impl RoomListWorker {
                         use crate::operations::{OperationCommand, OperationResult};
                         let mut search = crate::user_search::UserSearch::for_client(operation_client.clone());
                         let mut search_rx = search.as_ref().map(|s| s.subscribe());
+                        // Message search of the open room: one instance, replaced when the room changes.
+                        let mut messages: Option<(RoomScope, crate::message_search::MessageSearch)> = None;
+                        let mut messages_rx: Option<tokio::sync::watch::Receiver<crate::operations::MessageSearchState>> = None;
                         loop {
                             let command = tokio::select! {
                                 command = shutdown_receive(&operation_stop, &mut operations) => {
@@ -400,8 +403,45 @@ impl RoomListWorker {
                                     clean &= matches!(sent, Some(Ok(())) | None);
                                     continue;
                                 }
+                                Some(()) = async {
+                                    match &mut messages_rx {
+                                        Some(rx) => rx.changed().await.ok(),
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    let state = messages_rx.as_mut().unwrap().borrow_and_update().clone();
+                                    if let Some((scope, _)) = &messages {
+                                        let sent = until_stopped(
+                                            &operation_stop,
+                                            operation_results.send(OperationResult::MessageSearch { scope: scope.clone(), state }),
+                                        )
+                                        .await;
+                                        clean &= matches!(sent, Some(Ok(())) | None);
+                                    }
+                                    continue;
+                                }
                             };
                             let result = match command {
+                                OperationCommand::SearchMessages { scope, term } => {
+                                    if messages.as_ref().is_none_or(|(s, _)| *s != scope) {
+                                        // A scope of another account or an unparsable room closes the search.
+                                        messages = (scope.account_id == account)
+                                            .then(|| matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).ok())
+                                            .flatten()
+                                            .map(|id| (scope.clone(), crate::message_search::MessageSearch::for_room(operation_client.clone(), id)));
+                                        messages_rx = messages.as_ref().map(|(_, m)| m.subscribe());
+                                    }
+                                    if let Some((_, m)) = &mut messages {
+                                        m.set_query(&term);
+                                    }
+                                    continue;
+                                }
+                                OperationCommand::MoreMessages => {
+                                    if let Some((_, m)) = &mut messages {
+                                        m.more();
+                                    }
+                                    continue;
+                                }
                                 OperationCommand::SearchUsers { term, all } => {
                                     if let Some(search) = &mut search {
                                         search.set_filter(if all {

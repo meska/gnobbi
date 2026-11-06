@@ -23,6 +23,9 @@ pub mod recovery;
 mod outbox;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
+pub mod message_match;
+#[cfg(feature = "sdk")]
+pub mod message_search;
 #[cfg(feature = "sdk")]
 pub mod notify;
 #[cfg(feature = "sdk")]
