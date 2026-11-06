@@ -50,7 +50,6 @@ fn scope() -> RoomScope {
 }
 
 fn event(id: &str, outgoing: bool, name: Option<&str>, image: bool, redacted: bool) -> HistoryEvent {
-    poll: None,
     HistoryEvent {
         poll: None,
         event_id: EventId::new(id),

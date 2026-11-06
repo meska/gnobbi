@@ -1669,7 +1669,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             },
             MsgLikeKind::Sticker(_) => "Sticker".into(),
             MsgLikeKind::Poll(state) => {
-                let built = poll_from_results(state.results(), room.own_user_id().as_str(), event.is_own());
+                let built = poll_from_results(&state.results(), room.own_user_id().as_str(), event.is_own());
                 let question = built.question.clone();
                 poll = Some(built);
                 question
@@ -1712,35 +1712,53 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
 }
 
 /// The SDK result (already counted: last vote wins, votes after the end ignored) as a domain `Poll`.
-pub(crate) fn poll_from_results(
-    r: matrix_sdk_ui::timeline::PollResult,
+fn poll_from_results(r: &matrix_sdk_ui::timeline::PollResult, own_user: &str, is_own_event: bool) -> matrix_domain::Poll {
+    use matrix_sdk::ruma::events::poll::start::PollKind;
+    poll_from_parts(
+        &r.question,
+        r.kind == PollKind::Disclosed,
+        r.max_selections,
+        r.answers.iter().map(|a| (a.id.as_str(), a.text.as_str())),
+        &r.votes,
+        r.end_time.is_some(),
+        own_user,
+        is_own_event,
+    )
+}
+
+// Split from `poll_from_results` because the SDK's `PollResultAnswer` cannot be named in a test.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn poll_from_parts<'a>(
+    question: &str,
+    disclosed: bool,
+    max_selections: u64,
+    answers: impl Iterator<Item = (&'a str, &'a str)>,
+    votes: &std::collections::HashMap<String, Vec<String>>,
+    ended: bool,
     own_user: &str,
     is_own_event: bool,
 ) -> matrix_domain::Poll {
     let mut voters = std::collections::HashSet::new();
-    let answers: Vec<_> = r
-        .answers
-        .iter()
-        .map(|a| {
-            let who = r.votes.get(&a.id).map(Vec::as_slice).unwrap_or_default();
+    let answers: Vec<_> = answers
+        .map(|(id, text)| {
+            let who = votes.get(id).map(Vec::as_slice).unwrap_or_default();
             voters.extend(who.iter().map(String::as_str));
             matrix_domain::PollAnswer {
-                id: a.id.clone(),
-                text: a.text.clone(),
+                id: id.to_owned(),
+                text: text.to_owned(),
                 votes: who.len() as u32,
                 own: who.iter().any(|u| u == own_user),
             }
         })
         .collect();
-    // 0 on the wire would make the poll unvotable; the cap is at most the option count.
-    let max_selections = r.max_selections.clamp(1, u32::MAX.into()) as u32;
-    let ended = r.end_time.is_some();
+    // 0 on the wire would make the poll unvotable.
+    let max_selections = max_selections.clamp(1, u32::MAX.into()) as u32;
     matrix_domain::Poll {
-        question: r.question,
+        question: question.to_owned(),
         answers,
         max_selections,
         multiple: max_selections > 1,
-        disclosed: r.kind == matrix_sdk::ruma::events::poll::start::PollKind::Disclosed,
+        disclosed,
         ended,
         voters: voters.len() as u32,
         can_end: is_own_event && !ended,

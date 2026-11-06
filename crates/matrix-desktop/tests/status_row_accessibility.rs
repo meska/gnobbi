@@ -5,7 +5,6 @@ use matrix_domain::{AccountId, EventId, RoomId, RoomScope};
 use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn row(id: &str, body: &str, status: bool) -> HistoryEvent {
-    poll: None,
     HistoryEvent {
         poll: None,
         event_id: EventId::new(id),

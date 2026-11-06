@@ -24,7 +24,6 @@ fn global(hide: bool) -> Preferences {
 }
 
 fn ev(id: &str, ts: u64, redacted: bool, status: bool) -> HistoryEvent {
-    poll: None,
     HistoryEvent {
         poll: None,
         redacted,

@@ -13,7 +13,6 @@ fn scope() -> RoomScope {
 }
 
 fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
-    poll: None,
     HistoryEvent {
         poll: None,
         redacted,

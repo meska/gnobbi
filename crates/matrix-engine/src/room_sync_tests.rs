@@ -411,29 +411,20 @@ fn unique_name_alone_ambiguous_keeps_id_missing_name_none() {
 }
 
 mod poll_mapping {
-    use super::super::poll_from_results;
-    use matrix_sdk::ruma::{MilliSecondsSinceUnixEpoch, UInt, events::poll::start::PollKind};
-    use matrix_sdk_ui::timeline::{PollResult, PollResultAnswer};
+    use super::super::poll_from_parts;
+    use matrix_domain::Poll;
 
-    fn result(kind: PollKind, max: u64, ended: bool, votes: &[(&str, &[&str])]) -> PollResult {
-        PollResult {
-            question: "Q".into(),
-            kind,
-            max_selections: max,
-            answers: ["a", "b", "c"].map(|i| PollResultAnswer { id: i.into(), text: i.to_uppercase() }).into(),
-            votes: votes
-                .iter()
-                .map(|(a, u)| (a.to_string(), u.iter().map(|u| u.to_string()).collect()))
-                .collect(),
-            end_time: ended.then(|| MilliSecondsSinceUnixEpoch(UInt::from(1u32))),
-            has_been_edited: false,
-        }
+    fn poll(disclosed: bool, max: u64, ended: bool, own_event: bool, votes: &[(&str, &[&str])]) -> Poll {
+        let votes = votes
+            .iter()
+            .map(|(a, u)| (a.to_string(), u.iter().map(|u| u.to_string()).collect()))
+            .collect();
+        poll_from_parts("Q", disclosed, max, [("a", "A"), ("b", "B"), ("c", "C")].into_iter(), &votes, ended, "@me:x", own_event)
     }
 
     #[test]
     fn distinct_voters_and_own_vote() {
-        let r = result(PollKind::Disclosed, 2, false, &[("a", &["@me:x", "@u:x"]), ("b", &["@u:x"])]);
-        let p = poll_from_results(r, "@me:x", false);
+        let p = poll(true, 2, false, false, &[("a", &["@me:x", "@u:x"]), ("b", &["@u:x"])]);
         assert_eq!(p.voters, 2);
         assert_eq!(p.answers.iter().map(|a| (a.votes, a.own)).collect::<Vec<_>>(), [(2, true), (1, false), (0, false)]);
         assert_eq!((p.multiple, p.max_selections, p.disclosed, p.ended, p.can_end), (true, 2, true, false, false));
@@ -442,15 +433,15 @@ mod poll_mapping {
 
     #[test]
     fn undisclosed_closed_and_can_end() {
-        let open = poll_from_results(result(PollKind::Undisclosed, 1, false, &[]), "@me:x", true);
+        let open = poll(false, 1, false, true, &[]);
         assert!(!open.disclosed && !open.results_visible() && open.can_end);
-        let closed = poll_from_results(result(PollKind::Undisclosed, 1, true, &[]), "@me:x", true);
+        let closed = poll(false, 1, true, true, &[]);
         assert!(closed.ended && closed.results_visible() && !closed.can_end);
     }
 
     #[test]
     fn zero_max_selections_becomes_single() {
-        let p = poll_from_results(result(PollKind::Disclosed, 0, false, &[]), "@me:x", false);
+        let p = poll(true, 0, false, false, &[]);
         assert_eq!((p.max_selections, p.multiple), (1, false));
     }
 }

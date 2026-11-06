@@ -52,7 +52,6 @@ fn demo_incoming_events_have_sender_and_outgoing_do_not() {
 }
 
 fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> HistoryEvent {
-    poll: None,
     HistoryEvent {
         poll: None,
         redacted: false,
