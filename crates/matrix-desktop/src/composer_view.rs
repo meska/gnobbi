@@ -5,6 +5,7 @@ use gpui::{
     UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, rgb, size,
 };
 use crate::composer_icons::{Icon, icon};
+use crate::input_modality;
 use matrix_desktop::{Composer, DesignTokens, LIGHT, RoomDrafts};
 use matrix_domain::RoomScope;
 use std::ops::Range;
@@ -353,6 +354,11 @@ impl ComposerView {
 
     fn icons_shown(&self) -> bool {
         self.live && self.recorder.is_none()
+    }
+
+    /// Icon to draw the ring on: the keyboard focus, hidden while the pointer drives.
+    fn ring_icon(&self, window: &Window, cx: &gpui::App) -> Option<u8> {
+        self.icon_focused(window).filter(|_| input_modality::is_keyboard(cx))
     }
 
     pub fn icon_focused(&self, window: &Window) -> Option<u8> {
@@ -1132,7 +1138,7 @@ impl Render for ComposerView {
         if self.fade_since.is_some() {
             window.request_animation_frame();
         }
-        let icon_focus = self.icon_focused(window);
+        let icon_focus = self.ring_icon(window, cx);
         let options = self.mention_options();
         let mention_selected = self.mention_selected.min(options.len().saturating_sub(1));
         let attachment_name = self.attachment.as_ref().map(|p| p.filename.clone());
@@ -1339,7 +1345,7 @@ impl Render for ComposerView {
                             // Always 1px so focus never moves the text; the ring is painted only while the field holds focus.
                             .rounded_lg()
                             .border_1()
-                            .border_color(if self.focus.is_focused(window) {
+                            .border_color(if input_modality::only_keys(self.focus.is_focused(window), cx) {
                                 gpui::Hsla::from(rgb(t.accent))
                             } else {
                                 gpui::transparent_black()
@@ -1518,7 +1524,7 @@ impl Render for ComposerView {
                                             .when(send_visible, |d| {
                                                 let send = self.send_callback();
                                                 d.track_focus(&self.send_focus)
-                                                    .when(self.send_focus.is_focused(window), |d| {
+                                                    .when(input_modality::ring(&self.send_focus, window, cx), |d| {
                                                         d.border_1().border_color(rgb(t.text))
                                                     })
                                                     .cursor_pointer()
@@ -2947,6 +2953,10 @@ mod tests {
             assert!(v.at_last_stop(window));
             v.key_down(&key("tab"), window, cx);
             assert_eq!(v.icon_focused(window), Some(2), "Send is not a stop");
+            input_modality::set_pointer(cx);
+            assert_eq!(v.ring_icon(window, cx), None, "pointer: focused icon has no ring");
+            input_modality::set_keyboard(cx);
+            assert_eq!(v.ring_icon(window, cx), Some(2), "key: ring on the focused icon");
         });
     }
 

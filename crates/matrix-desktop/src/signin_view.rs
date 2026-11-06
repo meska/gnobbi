@@ -1,4 +1,5 @@
 //! Graphical projection only; authentication remains on RoomListWorker.
+use crate::input_modality;
 use gpui::{ClipboardItem, Context, FocusHandle, KeyDownEvent, Window, div, prelude::*, px, rgb};
 use matrix_desktop::{DesignTokens, FormStatus, LIGHT, LoginInput, SetupPhase, SignInForm, visible_fields};
 use matrix_engine::signin::{
@@ -590,7 +591,7 @@ impl Render for SignInView {
                             .items_center()
                             .justify_center()
                             .border_2()
-                            .border_color(rgb(if self.copy_focus.is_focused(window) {
+                            .border_color(rgb(if input_modality::only_keys(self.copy_focus.is_focused(window), cx) {
                                 t.text
                             } else {
                                 t.accent
@@ -634,7 +635,7 @@ impl Render for SignInView {
                             .items_center()
                             .justify_center()
                             .border_2()
-                            .border_color(rgb(if self.recover_focus.is_focused(window) {
+                            .border_color(rgb(if input_modality::only_keys(self.recover_focus.is_focused(window), cx) {
                                 t.text
                             } else {
                                 t.accent
@@ -675,7 +676,7 @@ impl Render for SignInView {
                         .items_center()
                         .justify_center()
                         .border_2()
-                        .border_color(rgb(if self.recover_focus.is_focused(window) {
+                        .border_color(rgb(if input_modality::only_keys(self.recover_focus.is_focused(window), cx) {
                             t.text
                         } else if offered {
                             t.accent
@@ -712,7 +713,7 @@ impl Render for SignInView {
                     .items_center()
                     .justify_center()
                     .border_2()
-                    .border_color(rgb(if self.submit_focus.is_focused(window) {
+                    .border_color(rgb(if input_modality::only_keys(self.submit_focus.is_focused(window), cx) {
                         t.text
                     } else {
                         t.accent

@@ -488,7 +488,7 @@ impl Shell {
                                         gpui::ScrollAnchor::for_handle(self.rail_ui.scroll.clone())
                                     })
                                     .clone();
-                                let focused = self.rail_ui.focus.is_focused(window)
+                                let focused = input_modality::only_keys(self.rail_ui.focus.is_focused(window), cx)
                                     && self.rail_ui.target == scope;
                                 let initials: String = if scope.is_none() {
                                     "▦".into()
@@ -530,6 +530,8 @@ impl Shell {
                                 #[cfg(test)]
                                 let pointer =
                                     sidebar_navigation_test::capture_rail(&scope_key, pointer);
+                                #[cfg(test)]
+                                crate::rail_ring_test::record(focused, entry.selected);
                                 let theme = self.theme;
                                 div()
                                     .id(("rail-entry", index))
@@ -624,7 +626,7 @@ impl Shell {
 
     fn render_edit_button(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = self.theme.tokens();
-        let focused = self.rail_ui.edit_focus.is_focused(window);
+        let focused = input_modality::only_keys(self.rail_ui.edit_focus.is_focused(window), cx);
         div()
             .id("rail-edit")
             .track_focus(&self.rail_ui.edit_focus)
@@ -743,7 +745,7 @@ impl Shell {
                     })
             .children(spaces.iter().enumerate().map(|(row, (entry, hidden))| {
                 let hidden = *hidden;
-                let on = focused && row == cursor;
+                let on = input_modality::is_keyboard(cx) && focused && row == cursor;
                 let color = if hidden { t.secondary } else { t.text };
                 let drag = RailDrag { row, name: entry.name.clone(), theme: self.theme };
                 // The wrapper's top border is the insertion line while a row hovers over it.

@@ -420,8 +420,9 @@ impl Shell {
         match &self.profile {
             Some(ProfileState::Loaded(p)) => {
                 let ctls = self.profile_ctls();
+                let keys = input_modality::is_keyboard(cx);
                 let ring = |ctl: ProfileCtl| {
-                    let on = ctls.get(self.profile_focus) == Some(&ctl);
+                    let on = keys && ctls.get(self.profile_focus) == Some(&ctl);
                     move |d: gpui::Stateful<gpui::Div>| d.border_1().border_color(rgb(if on { t.accent } else { t.surface }))
                 };
                 let icon_button = |id: &'static str, icon: composer_icons::Icon, ctl: ProfileCtl, color: u32, cx: &mut Context<Self>| {

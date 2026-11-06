@@ -18,6 +18,7 @@ mod poll_dialog;
 mod poll_view;
 mod about_view;
 mod members_view;
+mod input_modality;
 mod menu_view;
 #[cfg(test)]
 mod navigation_resize_test;
@@ -46,6 +47,8 @@ mod bar_alignment_test;
 mod member_profile_test;
 #[cfg(test)]
 mod drawer_active_test;
+#[cfg(test)]
+mod rail_ring_test;
 #[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
@@ -108,8 +111,6 @@ struct Shell {
     refocus_menu: bool,
     refocus_list: bool,
     drawer_row: usize,
-    /// True once the drawer is driven by keys: only then is the focus ring drawn.
-    drawer_keys: bool,
     settings_focus: FocusHandle,
     /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
     settings_row: usize,
@@ -247,6 +248,7 @@ impl Shell {
             let Some(action) = this.accessibility.take_action() else {
                 break;
             };
+            input_modality::set_keyboard(cx);
             #[cfg(feature = "live")]
             if this.dispatch_signin_action(&action, window, cx) {
                 continue;
@@ -1793,28 +1795,28 @@ impl Shell {
                     }, |_,_,_,_| {}).absolute().inset_0()));
                 #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                 let d = d.when(name == "close" || name == "cancel-redact", |d| d.track_focus(&self.actions_focus)
-                    .when(self.actions_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent))));
+                    .when(input_modality::ring(&self.actions_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent))));
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 let d = d.when(name == "close" || name == "cancel-redact", |d| d.track_focus(&self.operation_ui.focus)
-                    .when(self.operation_ui.focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                    .when(input_modality::ring(&self.operation_ui.focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                     .children(self.operation_control_observer("close", cx)))
                     .when(name == "reply" && enabled, |d| d.track_focus(&self.operation_ui.reply_focus)
-                        .when(self.operation_ui.reply_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.reply_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("reply", cx)))
                     .when(name == "edit" && enabled, |d| d.track_focus(&self.operation_ui.edit_focus)
-                        .when(self.operation_ui.edit_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.edit_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("edit", cx)))
                     .when(name == "react" && enabled, |d| d.track_focus(&self.operation_ui.react_focus)
-                        .when(self.operation_ui.react_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.react_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("react", cx)))
                     .when((name == "redact" || name == "confirm-redact") && enabled, |d| d.track_focus(&self.operation_ui.redact_focus)
-                        .when(self.operation_ui.redact_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.redact_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer(name, cx)))
                     .when(name == "end-poll" && enabled, |d| d.track_focus(&self.operation_ui.end_focus)
-                        .when(self.operation_ui.end_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.end_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("end-poll", cx)))
                     .when(name == "retry" && enabled, |d| d.track_focus(&self.operation_ui.retry_focus)
-                        .when(self.operation_ui.retry_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.retry_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("retry", cx)));
                 d
             }))).into_any_element()
@@ -1843,6 +1845,21 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Common wrapper: sign-in, notifications and verification return early from `render_screen` and must update the input modality too.
+        div().size_full()
+            .capture_key_down(|_, _, cx| input_modality::set_keyboard(cx))
+            // Window-level listener: a click under an `.occlude()` overlay never reaches the root's own mouse handlers.
+            .child(gpui::canvas(|_, _, _| (), |_, _, window, _| {
+                window.on_mouse_event(|_: &gpui::MouseDownEvent, phase, _, cx| {
+                    if phase == gpui::DispatchPhase::Capture { input_modality::set_pointer(cx); }
+                });
+            }).absolute().size_0())
+            .child(self.render_screen(window, cx))
+    }
+}
+
+impl Shell {
+    fn render_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
         }
@@ -2085,7 +2102,7 @@ impl Render for Shell {
                                 })
                                 .track_focus(&self.search_focus)
                                 .border_1()
-                                .border_color(rgb(if self.search_focus.is_focused(window) {
+                                .border_color(rgb(if input_modality::only_keys(self.search_focus.is_focused(window), cx) {
                                     t.accent
                                 } else {
                                     t.border
@@ -2157,7 +2174,7 @@ impl Render for Shell {
                                             .w_full()
                                             .border_2()
                                             .border_color(rgb(
-                                                if focused && this.list_focus.is_focused(window) {
+                                                if focused && input_modality::ring(&this.list_focus, window, cx) {
                                                     t.accent
                                                 } else {
                                                     background
@@ -2376,7 +2393,7 @@ impl Render for Shell {
                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                 {
                                     let entity = cx.entity();
-                                    d.track_focus(&self.history_focus).border_1().border_color(rgb(if self.history_focus.is_focused(window) { t.accent } else { t.surface })).child(gpui::canvas(|_,_,_| (), move |bounds,_,window,cx| {
+                                    d.track_focus(&self.history_focus).border_1().border_color(rgb(if input_modality::only_keys(self.history_focus.is_focused(window), cx) { t.accent } else { t.surface })).child(gpui::canvas(|_,_,_| (), move |bounds,_,window,cx| {
                                         let scale = f64::from(window.scale_factor());
                                         let rect = accesskit::Rect::new(f64::from(f32::from(bounds.left())) * scale, f64::from(f32::from(bounds.top())) * scale, f64::from(f32::from(bounds.right())) * scale, f64::from(f32::from(bounds.bottom())) * scale);
                                         if entity.read(cx).a11y_history_bounds != Some(rect) {
@@ -2392,7 +2409,7 @@ impl Render for Shell {
                         .when(self.prefs.debug && self.connected && self.sidebar.selected().is_some(), |d| d.child(
                             div().flex_shrink_0().px_4().py_1().text_size(px(11.)).text_color(rgb(t.secondary))
                                 .child(matrix_desktop::debug_room_line(&self.active_scope, connection_label))))
-                        .when_some(self.timeline.as_ref(), |d, timeline| { timeline.set_debug(self.prefs.debug); d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone())))})
+                        .when_some(self.timeline.as_ref(), |d, timeline| { timeline.set_debug(self.prefs.debug); d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone()), cx))})
                         .when(self.connected && self.timeline.is_none(), |d| d.child(div().flex_1().bg(rgb(t.timeline)).p_6().child("Nessuna stanza selezionata. Nessun messaggio demo.")))
                         .when(self.connected, |d| d.child(self.render_operations(window, cx)))
                         .when(!self.connected || self.sidebar.selected().is_some(), |d| d.child(self.composer.clone())),
@@ -2504,6 +2521,7 @@ fn main() {
         || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || bar_alignment_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || drawer_active_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || rail_ring_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || switch_rows_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
     {
         vec![]
@@ -3105,6 +3123,8 @@ fn main() {
                     #[cfg(test)]
                     drawer_active_test::install(window, cx);
                     #[cfg(test)]
+                    rail_ring_test::install(window, cx);
+                    #[cfg(test)]
                     switch_rows_test::install(window, cx);
                     #[cfg(any(test, feature = "gui-fixture"))]
                     rail_drag_test::install(window, cx);
@@ -3137,7 +3157,6 @@ fn main() {
                         refocus_menu: false,
                         refocus_list: false,
                         drawer_row: 0,
-                        drawer_keys: false,
                         settings_focus: cx.focus_handle(),
                         settings_row: 0,
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),

@@ -229,6 +229,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             key!("enter");
             this.update_in(cx, |this, _, _| check!(this.notifications.count_preview() || this.notifications.enabled() == before, "default build: Tab+Enter moved nothing")).unwrap();
         }
+        // Full-screen views return early from render (like sign-in): a key must still set keyboard modality (GPUI cannot inject a click here; the pointer listener is the same wrapper).
+        cx.update(|_, cx| input_modality::set_pointer(cx)).unwrap();
+        key!("down");
+        check!(cx.update(|_, cx| input_modality::is_keyboard(cx)).unwrap(), "key on a full-screen view did not set keyboard");
         // Esc closes.
         key!("escape");
         this.update_in(cx, |this, _, _| check!(!this.notifications_open, "Esc did not close the panel")).unwrap();

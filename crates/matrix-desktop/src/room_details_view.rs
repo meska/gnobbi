@@ -429,7 +429,7 @@ impl Shell {
                     )
                     .child(
                         switch_row(
-                            "room-hide-status", "Nascondi messaggi di stato", hide_status, true, focused_control == Some(2), t,
+                            "room-hide-status", "Nascondi messaggi di stato", hide_status, true, input_modality::only_keys(focused_control == Some(2), cx), t,
                         )
                         .relative()
                         .children(self.details_observer(2, cx))
@@ -437,7 +437,7 @@ impl Shell {
                     )
                     .child(
                         switch_row(
-                            "room-hide-redacted", "Nascondi messaggi eliminati", hide_redacted, true, focused_control == Some(3), t,
+                            "room-hide-redacted", "Nascondi messaggi eliminati", hide_redacted, true, input_modality::only_keys(focused_control == Some(3), cx), t,
                         )
                         .relative()
                         .children(self.details_observer(3, cx))

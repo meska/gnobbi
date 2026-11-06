@@ -163,7 +163,7 @@ impl Shell {
             .child(div().h(px(64.)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .border_b_1().border_color(rgb(t.border))
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Notifiche locali"))
-                .child(div().id("notifications-close").relative().children(self.notification_observer(3, cx)).when(focused_control == Some(3), |d| d.border_1().border_color(rgb(t.accent)))
+                .child(div().id("notifications-close").relative().children(self.notification_observer(3, cx)).when(input_modality::only_keys(focused_control == Some(3), cx), |d| d.border_1().border_color(rgb(t.accent)))
                     .w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
                     .hover(|s| s.bg(rgb(t.border)))
                     .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
@@ -174,7 +174,7 @@ impl Shell {
                     (1, room_name.map_or_else(|| "Stanza".to_owned(), |n| format!("Stanza: {n}")), !muted, room_available),
                     (2, "Conteggio".to_owned(), preview, true),
                 ].into_iter().map(|(action, label, on, available)| {
-                    crate::switch_row::switch_row(("notification-setting", action as usize), label, on, available, focused_control == Some(action as usize), t)
+                    crate::switch_row::switch_row(("notification-setting", action as usize), label, on, available, input_modality::only_keys(focused_control == Some(action as usize), cx), t)
                         .relative().children(self.notification_observer(action as usize, cx))
                         .on_click(cx.listener(move |this, _, _, cx| { if available { this.change_notification_preference(action); cx.notify(); } }))
                 }))

@@ -229,7 +229,7 @@ impl Shell {
             .cursor_pointer()
             .text_color(rgb(t.accent))
             .border_1()
-            .border_color(if self.opener_ui.focused(control, window) {
+            .border_color(if input_modality::only_keys(self.opener_ui.focused(control, window), cx) {
                 rgb(t.accent)
             } else {
                 gpui::rgba(0)
