@@ -1795,28 +1795,28 @@ impl Shell {
                     }, |_,_,_,_| {}).absolute().inset_0()));
                 #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                 let d = d.when(name == "close" || name == "cancel-redact", |d| d.track_focus(&self.actions_focus)
-                    .when(self.actions_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent))));
+                    .when(input_modality::ring(&self.actions_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent))));
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 let d = d.when(name == "close" || name == "cancel-redact", |d| d.track_focus(&self.operation_ui.focus)
-                    .when(self.operation_ui.focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                    .when(input_modality::ring(&self.operation_ui.focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                     .children(self.operation_control_observer("close", cx)))
                     .when(name == "reply" && enabled, |d| d.track_focus(&self.operation_ui.reply_focus)
-                        .when(self.operation_ui.reply_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.reply_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("reply", cx)))
                     .when(name == "edit" && enabled, |d| d.track_focus(&self.operation_ui.edit_focus)
-                        .when(self.operation_ui.edit_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.edit_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("edit", cx)))
                     .when(name == "react" && enabled, |d| d.track_focus(&self.operation_ui.react_focus)
-                        .when(self.operation_ui.react_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.react_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("react", cx)))
                     .when((name == "redact" || name == "confirm-redact") && enabled, |d| d.track_focus(&self.operation_ui.redact_focus)
-                        .when(self.operation_ui.redact_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.redact_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer(name, cx)))
                     .when(name == "end-poll" && enabled, |d| d.track_focus(&self.operation_ui.end_focus)
-                        .when(self.operation_ui.end_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.end_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("end-poll", cx)))
                     .when(name == "retry" && enabled, |d| d.track_focus(&self.operation_ui.retry_focus)
-                        .when(self.operation_ui.retry_focus.is_focused(_window), |d| d.border_1().border_color(rgb(t.accent)))
+                        .when(input_modality::ring(&self.operation_ui.retry_focus, _window, cx), |d| d.border_1().border_color(rgb(t.accent)))
                         .children(self.operation_control_observer("retry", cx)));
                 d
             }))).into_any_element()
@@ -2409,7 +2409,7 @@ impl Shell {
                         .when(self.prefs.debug && self.connected && self.sidebar.selected().is_some(), |d| d.child(
                             div().flex_shrink_0().px_4().py_1().text_size(px(11.)).text_color(rgb(t.secondary))
                                 .child(matrix_desktop::debug_room_line(&self.active_scope, connection_label))))
-                        .when_some(self.timeline.as_ref(), |d, timeline| { timeline.set_debug(self.prefs.debug); d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone())))})
+                        .when_some(self.timeline.as_ref(), |d, timeline| { timeline.set_debug(self.prefs.debug); d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone()), cx))})
                         .when(self.connected && self.timeline.is_none(), |d| d.child(div().flex_1().bg(rgb(t.timeline)).p_6().child("Nessuna stanza selezionata. Nessun messaggio demo.")))
                         .when(self.connected, |d| d.child(self.render_operations(window, cx)))
                         .when(!self.connected || self.sidebar.selected().is_some(), |d| d.child(self.composer.clone())),
@@ -2792,7 +2792,6 @@ fn main() {
                                             && let Some(account) = signin.update(cx, |view, cx| view.poll(cx)) {
                                             this.signin = None;
                                             this.refocus_list = true;
-                                            input_modality::set_pointer(cx); // signed in with Enter: no ring on the list
                                             this.sidebar = Sidebar::connected(account);
                                             this.active_scope.account_id = account;
                                             this.notifications = matrix_domain::notifications::NotificationPolicy::new(account);

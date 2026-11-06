@@ -13,6 +13,7 @@ use matrix_desktop::{
     DemoHistory, DemoSendState, DesignTokens, LinkConfirmation, TextSelection, message_links,
 };
 use matrix_domain::{RoomScope, ScopedTimelineId};
+use crate::input_modality;
 
 /// The body's text layout seen through the avatar gaps of its mention pills: positions and
 /// indices are those of the message text, not of the drawn string.
@@ -1539,7 +1540,9 @@ impl TimelineView {
         window: &gpui::Window,
         delivery: Option<Rc<RefCell<matrix_desktop::LiveDelivery>>>,
         operations: Option<Rc<RefCell<matrix_desktop::LiveOperations>>>,
+        cx: &gpui::App,
     ) -> impl IntoElement {
+        let keys = input_modality::is_keyboard(cx); // rings only after a key; the cursors below also feed the a11y tree
         let history = self.history.clone();
         let live = self.live;
         let probe = self.probe;
@@ -1755,7 +1758,7 @@ impl TimelineView {
                         let (parts, id) = (poll_painted.clone(), event.id.id.clone());
                         let target = match &event.id.id { matrix_domain::TimelineId::Server(e) => Some(e.clone()), _ => None };
                         let failed = target.as_ref().zip(operations.as_ref()).is_some_and(|(e, o)| o.borrow().vote_failed(e));
-                        let focus_ix = focused_poll.as_ref().filter(|(m, _)| *m == event.id).map(|(_, ix)| *ix);
+                        let focus_ix = focused_poll.as_ref().filter(|(m, _)| keys && *m == event.id).map(|(_, ix)| *ix);
                         let on_vote: crate::poll_view::PollVote = match (target, operations.clone()) {
                             #[cfg(feature = "live")]
                             (Some(target), Some(ops)) => {
@@ -1965,7 +1968,7 @@ impl TimelineView {
                                     {
                                         let painted = row_actions_painted.clone();
                                         let id = event.id.clone();
-                                        d.when(focused_actions.as_ref() == Some(&id), |d| d.border_2().border_color(rgb(t.accent)))
+                                        d.when(keys && focused_actions.as_ref() == Some(&id), |d| d.border_2().border_color(rgb(t.accent)))
                                             .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(id.clone(),bounds); }).absolute().inset_0())
                                     }
                                     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -2118,7 +2121,7 @@ impl TimelineView {
                                                 {
                                                     let painted = row_event_id_painted.clone();
                                                     let instance = target.instance();
-                                                    d.relative().border_1().border_color(rgb(if focused_event_id == Some(instance) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
+                                                    d.relative().border_1().border_color(rgb(if keys && focused_event_id == Some(instance) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
                                                         .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(instance,bounds); }).absolute().inset_0())
                                                 }
                                                 #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -2153,7 +2156,7 @@ impl TimelineView {
                                             let selected = selection.clone();
                                             let cursor = selection_cursor.clone();
                                             let focus = focus.clone();
-                                            let focused = focused_selection.as_ref() == Some(&(id.clone(),control));
+                                            let focused = keys && focused_selection.as_ref() == Some(&(id.clone(),control));
                                             controls = controls.child(div().id(("selection-control", index*3+control as usize))
                                                 .relative().border_1().border_color(rgb(if focused { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
                                                 .px_1().text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer()
@@ -2190,7 +2193,7 @@ impl TimelineView {
                                                 {
                                                     let painted = row_retry_painted.clone();
                                                     let id = event.id.clone();
-                                                    d.relative().border_1().border_color(rgb(if focused_retry.as_ref() == Some(&id) || offline_target.as_ref().is_some_and(|s| focused_offline == Some(s.instance())) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
+                                                    d.relative().border_1().border_color(rgb(if keys && (focused_retry.as_ref() == Some(&id) || offline_target.as_ref().is_some_and(|s| focused_offline == Some(s.instance()))) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
                                                         .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(id.clone(),bounds); }).absolute().inset_0())
                                                 }
                                                 #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -2500,11 +2503,11 @@ mod tests {
         fn render(
             &mut self,
             window: &mut gpui::Window,
-            _: &mut gpui::Context<Self>,
+            cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
             div()
                 .size_full()
-                .child(self.0.render(matrix_desktop::LIGHT, window, None, None))
+                .child(self.0.render(matrix_desktop::LIGHT, window, None, None, cx))
         }
     }
 
@@ -2513,13 +2516,13 @@ mod tests {
         fn render(
             &mut self,
             window: &mut gpui::Window,
-            _: &mut gpui::Context<Self>,
+            cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
             div().size_full().flex().flex_col().child(self.0.render(
                 matrix_desktop::LIGHT,
                 window,
                 None,
-                None,
+                None, cx
             ))
         }
     }
@@ -2805,7 +2808,7 @@ mod tests {
         fn render(
             &mut self,
             window: &mut gpui::Window,
-            _: &mut gpui::Context<Self>,
+            cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
             div()
                 .size_full()
@@ -2815,7 +2818,7 @@ mod tests {
                     matrix_desktop::LIGHT,
                     window,
                     None,
-                    None,
+                    None, cx
                 )))
                 .child(self.1.clone())
         }
@@ -3189,8 +3192,8 @@ mod tests {
 
     struct NarrowHost(TimelineView);
     impl Render for NarrowHost {
-        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, None))
+        fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, None, cx))
         }
     }
 
@@ -3294,8 +3297,8 @@ mod tests {
     struct VotingHost(TimelineView, Rc<RefCell<matrix_desktop::LiveOperations>>);
     #[cfg(feature = "live")]
     impl Render for VotingHost {
-        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, Some(self.1.clone())))
+        fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, Some(self.1.clone()), cx))
         }
     }
 
@@ -3428,8 +3431,8 @@ mod tests {
     struct ThemedHost(TimelineView, matrix_desktop::DesignTokens);
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     impl Render for ThemedHost {
-        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-            div().size_full().flex().flex_col().child(self.0.render(self.1, window, None, None))
+        fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().size_full().flex().flex_col().child(self.0.render(self.1, window, None, None, cx))
         }
     }
 
