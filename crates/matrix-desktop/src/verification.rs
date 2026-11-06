@@ -417,11 +417,12 @@ mod profile_tests {
         const DAY: u64 = 86_400_000;
         let cet = FixedOffset::east_opt(3600).unwrap();
         let d = dev(Some("N"), true, Some(THU_2330), None);
-        let at = |now| device_detail(&d, |t| crate::time_fmt::day_or_time_in(t, now, &cet));
+        let p = crate::time_fmt::Patterns::fallback();
+        let at = |now| device_detail(&d, |t| crate::time_fmt::day_or_time_in(t, now, &cet, &p));
         // 23:30 UTC is already Friday 16 Jan 00:30 in CET: the local day decides, not UTC.
         assert_eq!(at(THU_2330 + 60_000), "Verificato · Ultima attività 00:30 · ABCDEF");
-        assert_eq!(at(THU_2330 + 3 * DAY), "Verificato · Ultima attività venerdì · ABCDEF");
-        assert_eq!(at(THU_2330 + 30 * DAY), "Verificato · Ultima attività 16 gen · ABCDEF");
+        assert_eq!(at(THU_2330 + 3 * DAY), "Verificato · Ultima attività Ven 00:30 · ABCDEF");
+        assert_eq!(at(THU_2330 + 30 * DAY), "Verificato · Ultima attività 16/01/26 00:30 · ABCDEF");
     }
 
     #[test]
