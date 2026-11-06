@@ -35,6 +35,9 @@ mod room_menu_view;
 mod room_search_view;
 mod scrollbar_view;
 mod settings_view;
+mod switch_row;
+#[cfg(test)]
+mod switch_rows_test;
 #[cfg(any(test, feature = "gui-fixture"))]
 mod rail_drag_test;
 #[cfg(test)]
@@ -969,14 +972,14 @@ impl Shell {
         }
         if self.notifications_open {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-            if key.key == "tab" {
+            if matches!(key.key.as_str(), "tab" | "up" | "down") {
                 use matrix_desktop::accessibility::notifications::{
                     NotificationAction, NotificationView,
                 };
                 let view = self.semantic_notifications(window);
                 if let NotificationView::Open(snapshot) = &view {
                     self.apply_semantic_notification(
-                        NotificationAction::Focus(snapshot.next_focus(key.modifiers.shift)),
+                        NotificationAction::Focus(snapshot.next_focus(key.modifiers.shift || key.key == "up")),
                         window,
                         cx,
                     );
@@ -2501,6 +2504,7 @@ fn main() {
         || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || bar_alignment_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || drawer_active_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || switch_rows_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
     {
         vec![]
     } else {
@@ -3100,6 +3104,8 @@ fn main() {
                     bar_alignment_test::install(window, cx);
                     #[cfg(test)]
                     drawer_active_test::install(window, cx);
+                    #[cfg(test)]
+                    switch_rows_test::install(window, cx);
                     #[cfg(any(test, feature = "gui-fixture"))]
                     rail_drag_test::install(window, cx);
                     Shell {

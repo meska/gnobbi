@@ -48,6 +48,7 @@ fn notification_actions_reject_hidden_disabled_and_stale_room_targets() {
         enabled: false,
         preview: true,
         selected: None,
+        room_name: String::new(),
         service_failed: false,
     }));
     assert!(
@@ -177,6 +178,7 @@ fn panel() -> NotificationView {
             },
             false,
         )),
+        room_name: "Privacy".into(),
         service_failed: true,
     }))
 }
@@ -192,7 +194,7 @@ fn notification_dialog_exports_current_checkbox_states_and_privacy_text() {
     assert_eq!(tree.nodes[0].1.label(), Some("Notifiche locali"));
     for (id, label, state) in [
         (ENABLED, "Notifiche locali attive", Toggled::False),
-        (MUTE, "Stanza selezionata silenziata", Toggled::False),
+        (MUTE, "Notifiche della stanza Privacy", Toggled::True),
         (PREVIEW, "Anteprima del solo conteggio", Toggled::True),
     ] {
         let node = &tree.nodes.iter().find(|(n, _)| *n == id).unwrap().1;
