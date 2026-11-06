@@ -2851,6 +2851,10 @@ fn main() {
                                         this.mark_open_room_read(cx);
                                         this.flush_operations();
                                         this.drive_thread(cx);
+                                        // Repaint when a jump's flash runs out, with or without a search open.
+                                        if this.timeline.as_ref().is_some_and(|t| t.flash_ended()) {
+                                            cx.notify();
+                                        }
                                         this.drive_profile(cx);
                                         this.drive_room_search(cx);
                                         if let Some((sender, _)) = &mut this.routes.verification {
