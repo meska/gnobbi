@@ -101,6 +101,8 @@ pub struct Member {
     pub user_id: String,
     /// Display name, or the user id when the member has none.
     pub name: String,
+    /// mxc:// avatar; None when the member has none (an empty string counts as none).
+    pub avatar: Option<String>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -377,6 +379,10 @@ pub async fn members(
             name: m
                 .display_name()
                 .map_or_else(|| m.user_id().to_string(), str::to_owned),
+            avatar: m
+                .avatar_url()
+                .map(|u| u.to_string())
+                .filter(|u| !u.is_empty()),
         })
         .collect())
 }

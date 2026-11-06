@@ -236,6 +236,7 @@ mod mention_tests {
         let m = |id: &str, name: &str| Member {
             user_id: id.into(),
             name: name.into(),
+            avatar: None,
         };
         let members = vec![m("@b:x", "Sabrina"), m("@a:x", "Bruno"), m("@c:x", "@c:x")];
         let names: Vec<_> = mention_matches(&members, "br")

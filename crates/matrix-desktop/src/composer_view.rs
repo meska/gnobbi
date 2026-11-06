@@ -58,6 +58,8 @@ pub struct ComposerView {
     attachment: Option<Pending>,
     /// Joined members of the shown room, offered by the @ completion.
     members: Vec<matrix_engine::operations::Member>,
+    /// Decoded avatars of the listed members, filled by the shell's avatar tick.
+    pictures: std::collections::HashMap<String, std::sync::Arc<gpui::RenderImage>>,
     /// Users picked from the completion for the draft being written.
     mentions: Vec<matrix_engine::sending::Mention>,
     mention_selected: usize,
@@ -97,6 +99,7 @@ impl ComposerView {
             draft: Composer::default(),
             attachment: None,
             members: Vec::new(),
+            pictures: Default::default(),
             mentions: Vec::new(),
             mention_selected: 0,
             mention_closed: None,
@@ -149,6 +152,20 @@ impl ComposerView {
         cx: &mut Context<Self>,
     ) {
         self.members = members;
+        cx.notify();
+    }
+
+    /// Avatars of the members now listed, for the shell to fetch.
+    pub(crate) fn mention_avatars(&self) -> Vec<String> {
+        self.mention_options().into_iter().filter_map(|m| m.avatar).collect()
+    }
+
+    pub(crate) fn has_picture(&self, mxc: &str) -> bool {
+        self.pictures.contains_key(mxc)
+    }
+
+    pub(crate) fn set_picture(&mut self, mxc: String, image: std::sync::Arc<gpui::RenderImage>, cx: &mut Context<Self>) {
+        self.pictures.insert(mxc, image);
         cx.notify();
     }
 
@@ -957,6 +974,10 @@ impl Render for ComposerView {
                         .flex()
                         .flex_col()
                         .children(options.into_iter().enumerate().map(|(i, member)| {
+                            let avatar = match member.avatar.as_ref().and_then(|m| self.pictures.get(m)) {
+                                Some(image) => crate::avatar_view::round(image.clone(), 36.),
+                                None => div().flex().items_center().justify_center().size(px(36.)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(14.)).font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::initials(&member.name)).into_any_element(),
+                            };
                             div()
                                 .id(("composer-mention", i))
                                 .cursor_pointer()
@@ -968,7 +989,9 @@ impl Render for ComposerView {
                                 .overflow_hidden()
                                 .text_size(px(14.))
                                 .text_color(rgb(t.text))
+                                .items_center()
                                 .when(i == mention_selected, |d| d.bg(rgb(t.selection)))
+                                .child(avatar)
                                 .child(
                                     div()
                                         .min_w_0()
@@ -2164,6 +2187,7 @@ mod tests {
             let member = |id: &str, name: &str| matrix_engine::operations::Member {
                 user_id: id.into(),
                 name: name.into(),
+                avatar: None,
             };
             v.set_live(true);
             v.set_members(

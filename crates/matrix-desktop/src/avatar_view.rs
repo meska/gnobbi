@@ -86,7 +86,7 @@ pub(crate) fn round(image: Arc<RenderImage>, size: f32) -> AnyElement {
 
 impl crate::Shell {
     /// Visible rows first, then every other room and space; true when a picture arrived.
-    pub(crate) fn drive_avatars(&mut self) -> bool {
+    pub(crate) fn drive_avatars(&mut self, cx: &mut gpui::Context<Self>) -> bool {
         let rooms = self.sidebar.rooms();
         let visible = self.sidebar.visible_indices().iter().map(|&i| &rooms[i]);
         let senders = self.timeline.as_ref().map(|t| t.sender_avatar_mxcs()).unwrap_or_default();
@@ -96,8 +96,16 @@ impl crate::Shell {
             .chain(visible)
             .chain(rooms)
             .filter_map(|room| room.info.avatar.as_deref());
-        let wanted = senders.iter().map(String::as_str).chain(listed);
+        let mentions = self.composer.read(cx).mention_avatars();
+        let wanted = mentions.iter().map(String::as_str).chain(senders.iter().map(String::as_str)).chain(listed);
         let arrived = self.avatars.drive(&self.routes.avatars, wanted);
+        for mxc in mentions {
+            if let Some(image) = self.avatars.get(Some(&mxc))
+                && !self.composer.read(cx).has_picture(&mxc)
+            {
+                self.composer.update(cx, |c, cx| c.set_picture(mxc, image, cx));
+            }
+        }
         let mut changed = Vec::new();
         if let Some(timeline) = &self.timeline {
             let mut pictures = timeline.sender_pictures.borrow_mut();
