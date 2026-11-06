@@ -113,7 +113,10 @@ pub mod discovery;
 mod generation;
 pub mod history;
 pub mod status_line;
-#[cfg(all(feature = "mac-vault", target_os = "macos"))]
+#[cfg(any(
+    all(feature = "mac-vault", target_os = "macos"),
+    all(feature = "ios-vault", target_os = "ios")
+))]
 pub mod keychain;
 pub mod media;
 #[cfg(feature = "sdk")]

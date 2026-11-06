@@ -10,6 +10,7 @@ rust-version = "1.96"
 default = []
 linux-vault = ["sdk", "dep:secret-service", "dep:getrandom"]
 mac-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
+ios-vault = ["sdk", "dep:security-framework", "dep:getrandom"]
 windows-vault = ["sdk", "dep:windows", "dep:getrandom"]
 sdk = ["dep:tracing", "dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "dep:serde_json", "dep:matrix-sdk-store-encryption", "dep:image", "dep:mime_guess", "dep:matrix-sdk-crypto", "dep:matrix-sdk-ui", "dep:eyeball-im", "dep:futures-util"]
 
@@ -40,7 +41,7 @@ getrandom = { version = "=0.4.3", optional = true }
 windows = { version = "=0.62.2", optional = true, default-features = false, features = ["Win32_Foundation", "Win32_Security_Credentials"] }
 getrandom = { version = "=0.4.3", optional = true }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 security-framework = { version = "=3.7.0", optional = true, default-features = false }
 getrandom = { version = "=0.4.3", optional = true }
 

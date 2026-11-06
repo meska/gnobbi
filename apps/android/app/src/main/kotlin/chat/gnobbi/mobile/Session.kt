@@ -19,6 +19,7 @@ import uniffi.matrix_mobile.RoomItem
 import uniffi.matrix_mobile.SecretStore
 import uniffi.matrix_mobile.SyncListener
 import uniffi.matrix_mobile.SyncState
+import uniffi.matrix_mobile.listSavedAccounts
 import uniffi.matrix_mobile.restoreSession
 import uniffi.matrix_mobile.signIn
 
@@ -51,6 +52,10 @@ class KeystoreSecrets(context: Context) : SecretStore {
         String(cipher.doFinal(sealed, 12, sealed.size - 12))
     } catch (e: Exception) { throw MobileException.SecretStore() }
 
+    override fun delete(account: ULong) {
+        prefs.edit().remove(account.toString()).commit()
+    }
+
     private companion object {
         const val ALIAS = "gnobbi-store"
         const val TRANSFORM = "AES/GCM/NoPadding"
@@ -78,7 +83,11 @@ class Session(context: Context) : SyncListener {
     suspend fun signIn(homeserver: String, user: String, password: String, ca: String?) =
         open { signIn(dir, homeserver, user, password, secrets, this, ca) }
 
-    suspend fun restore(ca: String?) = open { restoreSession(dir, secrets, this, ca) }
+    suspend fun restore(ca: String?) = open {
+        // First saved account only: no account picker yet.
+        val account = listSavedAccounts(dir).firstOrNull() ?: throw MobileException.NoSession()
+        restoreSession(dir, account, secrets, this, ca)
+    }
 
     private suspend fun open(make: suspend () -> MobileSession) {
         error = ""

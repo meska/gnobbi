@@ -56,6 +56,38 @@ pub trait ProtectionSource {
     fn read(&self, store: &AccountStore) -> Result<Secret, VaultError>;
 }
 
+/// Per-account OS vault keyed by the stable account ID (mobile; also the macOS account items).
+/// Blocking: call from a backend worker. Errors are fixed categories, never item contents.
+pub trait AccountProtectionSource: ProtectionSource {
+    /// Generates a fresh secret, stores it for the account; `AlreadyExists` if one is there.
+    fn create_account(&self, id: AccountId) -> Result<Secret, VaultError>;
+    fn read_account(&self, id: AccountId) -> Result<Secret, VaultError>;
+    /// Removes only this account's item; an absent item is fine.
+    fn delete_account(&self, id: AccountId) -> Result<(), VaultError>;
+}
+
+/// The 32 random bytes as the 64-hex protection secret (same format as every desktop vault).
+// Only the Apple vaults call these; the tests run everywhere.
+#[allow(dead_code)]
+pub(crate) fn secret_from_random(random: &[u8; 32]) -> Result<Secret, VaultError> {
+    use std::fmt::Write;
+    let mut text = zeroize::Zeroizing::new(String::with_capacity(64));
+    for byte in random {
+        write!(&mut *text, "{byte:02x}").map_err(|_| VaultError::Unavailable)?;
+    }
+    Secret::new(std::mem::take(&mut *text)).map_err(|_| VaultError::Unavailable)
+}
+
+/// A stored item must be exactly 64 hex digits.
+#[allow(dead_code)]
+pub(crate) fn secret_from_item(value: &[u8]) -> Result<Secret, VaultError> {
+    if value.len() != 64 || !value.iter().all(u8::is_ascii_hexdigit) {
+        return Err(VaultError::InvalidItem);
+    }
+    let text = std::str::from_utf8(value).map_err(|_| VaultError::InvalidItem)?;
+    Secret::new(text.to_owned()).map_err(|_| VaultError::InvalidItem)
+}
+
 /// Fixed local categories only: never SDK bodies, paths, URLs or credentials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignInError {
@@ -364,6 +396,8 @@ pub fn platform_source() -> Option<Box<dyn ProtectionSource + Send + Sync>> {
     return Some(Box::new(crate::vault::SecretService));
     #[cfg(all(feature = "mac-vault", target_os = "macos"))]
     return Some(Box::new(crate::keychain::MacKeychain));
+    #[cfg(all(feature = "ios-vault", target_os = "ios"))]
+    return Some(Box::new(crate::keychain::IosKeychain));
     #[cfg(all(feature = "windows-vault", windows))]
     return Some(Box::new(crate::wincred::CredentialManager));
     #[allow(unreachable_code)]
@@ -379,7 +413,10 @@ pub fn forget_secrets(id: AccountId, stores: &[PathBuf]) -> Result<(), VaultErro
             .iter()
             .try_for_each(|s| crate::vault::delete_store_secret(s))
     }
-    #[cfg(all(feature = "mac-vault", target_os = "macos"))]
+    #[cfg(any(
+        all(feature = "mac-vault", target_os = "macos"),
+        all(feature = "ios-vault", target_os = "ios")
+    ))]
     {
         let keychain = crate::keychain::AccountKeychain::new();
         keychain.delete(id)?;
@@ -395,6 +432,7 @@ pub fn forget_secrets(id: AccountId, stores: &[PathBuf]) -> Result<(), VaultErro
     #[cfg(not(any(
         all(feature = "linux-vault", target_os = "linux"),
         all(feature = "mac-vault", target_os = "macos"),
+        all(feature = "ios-vault", target_os = "ios"),
         all(feature = "windows-vault", windows)
     )))]
     {
@@ -646,9 +684,22 @@ pub struct SignInProfile {
     root: PathBuf,
     active: Option<AccountId>,
     vault_mode: bool,
+    /// Mobile: the one account ID this profile root may hold (the ID is global, so the vault
+    /// item key never depends on the root). None = first free `account-N`.
+    fixed: Option<AccountId>,
     _lock: std::fs::File,
 }
 impl SignInProfile {
+    /// Like `open`, but a first sign-in creates `account-<account>` (1..=128) instead of the first free one.
+    pub fn open_as(root: PathBuf, account: AccountId) -> Result<Self, SignInError> {
+        if !(1..=128).contains(&account.as_u64()) {
+            return Err(SignInError::AttemptLimit);
+        }
+        let mut profile = Self::open(root)?;
+        profile.fixed = Some(account);
+        Ok(profile)
+    }
+
     /// Backend-only filesystem work. The explicitly selected parent must exist.
     pub fn open(root: PathBuf) -> Result<Self, SignInError> {
         if !root.is_absolute() {
@@ -718,6 +769,7 @@ impl SignInProfile {
             root,
             active,
             vault_mode,
+            fixed: None,
             _lock: lock,
         })
     }
@@ -773,7 +825,8 @@ impl SignInProfile {
         }
         ensure_no_sealed_attempt(&self.root)?;
         let mut available = None;
-        for id in 1..=128 {
+        let ids = self.fixed.map_or(1..=128, |a| a.as_u64()..=a.as_u64());
+        for id in ids {
             match std::fs::symlink_metadata(self.root.join(format!("account-{id}"))) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     available = Some(AccountId::new(id));
@@ -932,4 +985,28 @@ fn validate_store(
         return Err(SignInError::InvalidTrustRoot);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod vault_format_tests {
+    use super::*;
+
+    #[test]
+    fn random_bytes_become_64_lowercase_hex() {
+        let mut random = [0u8; 32];
+        random[0] = 0xab;
+        random[31] = 0x01;
+        let secret = secret_from_random(&random).unwrap();
+        assert_eq!(&*secret.0, &format!("ab{}01", "00".repeat(30)));
+    }
+
+    #[test]
+    fn stored_item_must_be_exactly_64_hex() {
+        let good = "0123456789abcdefABCDEF".repeat(3)[..64].to_owned();
+        assert!(secret_from_item(good.as_bytes()).is_ok());
+        for bad in [&good[..63], &format!("{good}0"), &format!("{}g", &good[..63]), ""] {
+            assert_eq!(secret_from_item(bad.as_bytes()).err(), Some(VaultError::InvalidItem));
+        }
+        assert_eq!(secret_from_item(&[0xff; 64]).err(), Some(VaultError::InvalidItem));
+    }
 }
