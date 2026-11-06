@@ -36,6 +36,61 @@ impl Snapshot {
     }
 }
 
+/// A Tab stop inside a bubble: a link or a mention pill.
+#[derive(Clone, Copy)]
+pub enum Stop<'a> {
+    Link(&'a Snapshot),
+    Pill(usize, &'a super::PillLink),
+}
+
+impl Stop<'_> {
+    pub fn focused(&self) -> bool {
+        match self {
+            Stop::Link(l) => l.focused,
+            Stop::Pill(_, p) => p.focused,
+        }
+    }
+
+    pub fn node(&self, message: &super::SemanticMessage) -> (NodeId, Node) {
+        match self {
+            Stop::Link(l) => (l.id(), l.node()),
+            Stop::Pill(i, p) => {
+                let mut node = Node::new(Role::Button);
+                node.set_label(p.name.clone());
+                node.add_action(Action::Click);
+                node.add_action(Action::Focus);
+                if let Some(bounds) = p.bounds {
+                    node.set_bounds(bounds);
+                }
+                (message.pill_id(*i), node)
+            }
+        }
+    }
+
+    fn go(&self, message: &super::SemanticMessage, focus_only: bool) -> super::NavigationAction {
+        use super::NavigationAction;
+        match self {
+            Stop::Link(l) => NavigationAction::MessageLink(Intent { target: l.target.clone(), focus_only }),
+            Stop::Pill(_, p) if focus_only => NavigationAction::FocusPill(message.event.clone(), p.start),
+            Stop::Pill(_, p) => NavigationAction::OpenProfile(p.user_id.clone()),
+        }
+    }
+}
+
+impl super::SemanticMessage {
+    /// Links and pills in text order.
+    pub fn stops(&self) -> Vec<Stop<'_>> {
+        let mut stops: Vec<(usize, Stop)> = self
+            .links
+            .iter()
+            .map(|l| (l.target.range().start, Stop::Link(l)))
+            .chain(self.pills.iter().take(super::PILLS).enumerate().map(|(i, p)| (p.start, Stop::Pill(i, p))))
+            .collect();
+        stops.sort_by_key(|(at, _)| *at);
+        stops.into_iter().map(|(_, s)| s).collect()
+    }
+}
+
 impl super::HistorySnapshot {
     pub fn link_key(&self, key: &str, shift: bool) -> Option<super::NavigationAction> {
         use super::NavigationAction;
@@ -45,36 +100,29 @@ impl super::HistorySnapshot {
         let focused = self
             .messages
             .iter()
-            .flat_map(|m| &m.links)
-            .find(|l| l.focused);
-        let (link, focus_only) = match (key, shift, focused) {
-            ("f9", false, _) => (self.messages.first()?.links.first()?, true),
-            ("enter" | "space", false, Some(link)) => (link, false),
-            ("escape", false, Some(link)) => {
-                return Some(NavigationAction::FocusMessage(link.target.event().clone()));
+            .find_map(|m| m.stops().into_iter().position(|s| s.focused()).map(|i| (m, i)));
+        let (message, stop, focus_only) = match (key, shift, focused) {
+            ("f9", false, _) => {
+                let m = self.messages.first()?;
+                (m, *m.stops().first()?, true)
             }
-            ("tab", shift, Some(link)) => {
-                let links = &self
-                    .messages
-                    .iter()
-                    .find(|m| m.event == *link.target.event())?
-                    .links;
-                let index = links.iter().position(|l| l.id() == link.id())?;
-                if shift && index == 0 {
-                    return Some(NavigationAction::FocusMessage(link.target.event().clone()));
+            ("enter" | "space", false, Some((m, i))) => (m, m.stops()[i], false),
+            ("escape", false, Some((m, _))) => {
+                return Some(NavigationAction::FocusMessage(m.event.clone()));
+            }
+            ("tab", shift, Some((m, i))) => {
+                if shift && i == 0 {
+                    return Some(NavigationAction::FocusMessage(m.event.clone()));
                 }
-                let next = if shift { index - 1 } else { index + 1 };
-                let Some(next) = links.get(next) else {
+                let next = if shift { i - 1 } else { i + 1 };
+                let Some(next) = m.stops().get(next).copied() else {
                     return Some(NavigationAction::FocusComposer);
                 };
-                (next, true)
+                (m, next, true)
             }
             _ => return None,
         };
-        Some(NavigationAction::MessageLink(Intent {
-            target: link.target.clone(),
-            focus_only,
-        }))
+        Some(stop.go(message, focus_only))
     }
 }
 

@@ -109,6 +109,20 @@ pub struct ProfileLink {
     pub bounds: Option<accesskit::Rect>,
 }
 
+/// A user mention pill in the bubble text: a button named after the person, in text order with the links.
+/// Node ids sit above the message blocks (see `SemanticMessage::pill_id`), at most `PILLS` per message.
+#[derive(Clone)]
+pub struct PillLink {
+    pub user_id: String,
+    pub name: String,
+    /// Byte index of the pill in the message text: its place among the links and the Tab order.
+    pub start: usize,
+    pub bounds: Option<accesskit::Rect>,
+    pub focused: bool,
+}
+
+pub const PILLS: usize = 16;
+
 /// Options of a poll that get a node: the slots after the group and footer in the message's block.
 pub const POLL_OPTIONS: usize = 20;
 
@@ -118,6 +132,7 @@ pub struct SemanticMessage {
     pub offline_delivery: Option<offline_delivery::Snapshot>,
     pub event_id_copy: Option<event_id_copy::Snapshot>,
     pub links: Vec<links::Snapshot>,
+    pub pills: Vec<PillLink>,
     pub selection: selection::Snapshot,
     pub actions_bounds: Option<accesskit::Rect>,
     pub actions_focused: bool,
@@ -197,6 +212,7 @@ impl HistorySnapshot {
             message.poll_focus = None;
             message.save = None;
             message.profile = None;
+            message.pills.clear();
             message.event_id_copy = None;
             message.actions = None;
         }
@@ -339,6 +355,13 @@ impl Default for HistoryNodes {
         }
     }
 }
+impl SemanticMessage {
+    pub fn pill_id(&self, i: usize) -> NodeId {
+        // Messages sit at 1<<62 + 32k: half of the offset gives each its own run of PILLS ids above 1<<63.
+        NodeId((1_u64 << 63) + (self.id.0 - (1_u64 << 62)) / 2 + i as u64)
+    }
+}
+
 impl HistoryNodes {
     pub fn project(
         &mut self,
@@ -384,6 +407,7 @@ impl HistoryNodes {
                     offline_delivery: None,
                     event_id_copy: None,
                     links: Vec::new(),
+                    pills: Vec::new(),
                     selection: Default::default(),
                     actions_bounds: None,
                     actions_focused: false,
@@ -717,6 +741,21 @@ impl NavigationSnapshot {
             .and_then(|c| c.action(request))
         {
             return Some(NavigationAction::LinkConfirmation(action));
+        }
+        if request.target_tree == TreeId::ROOT
+            && request.data.is_none()
+            && matches!(request.action, Action::Click | Action::Focus)
+            && let Some((m, pill)) = self.history.as_ref().and_then(|h| {
+                h.messages.iter().find_map(|m| {
+                    m.pills.iter().enumerate().find(|(i, _)| m.pill_id(*i) == request.target_node).map(|(_, p)| (m, p))
+                })
+            })
+        {
+            return Some(if request.action == Action::Click {
+                NavigationAction::OpenProfile(pill.user_id.clone())
+            } else {
+                NavigationAction::FocusPill(m.event.clone(), pill.start)
+            });
         }
         if request.target_tree == TreeId::ROOT
             && request.data.is_none()
@@ -1162,9 +1201,10 @@ impl NavigationSnapshot {
                 node.set_size_of_set(history.total);
                 node.add_action(Action::Focus);
                 node.set_selected(message.selection.selected);
-                for link in &message.links {
-                    node.push_child(link.id());
-                    tree.nodes.push((link.id(), link.node()));
+                for stop in message.stops() {
+                    let (id, child) = stop.node(message);
+                    node.push_child(id);
+                    tree.nodes.push((id, child));
                 }
                 if let Some(control) = &message.offline_delivery {
                     node.push_child(control.id());
@@ -1345,6 +1385,11 @@ impl NavigationSnapshot {
             .and_then(|h| h.messages.iter().flat_map(|m| &m.links).find(|l| l.focused))
         {
             tree.focus = link.id();
+        }
+        if let Some(id) = self.history.as_ref().filter(|h| h.focused).and_then(|h| {
+            h.messages.iter().find_map(|m| m.pills.iter().position(|p| p.focused).map(|i| m.pill_id(i)))
+        }) {
+            tree.focus = id;
         }
         if let Some(copy) = self.history.as_ref().filter(|h| h.focused).and_then(|h| {
             h.messages
@@ -1624,6 +1669,7 @@ pub enum NavigationAction {
     PlayVideo(matrix_domain::ScopedTimelineId),
     SaveAttachment(matrix_domain::ScopedTimelineId),
     OpenProfile(String),
+    FocusPill(matrix_domain::ScopedTimelineId, usize),
     FocusMessageActions(matrix_domain::ScopedTimelineId),
     OpenMessageActions(matrix_domain::ScopedTimelineId),
     FocusMessageRetry(matrix_domain::ScopedTimelineId),
