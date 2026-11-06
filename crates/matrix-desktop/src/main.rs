@@ -1145,6 +1145,10 @@ impl Shell {
     }
 
     fn sync_room(&mut self, cx: &mut Context<Self>) {
+        // Waiting for the saved room: opening the auto-selected first row would mark it read.
+        if self.restore.waiting() {
+            return;
+        }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if !self
             .sidebar
@@ -2629,7 +2633,6 @@ fn main() {
                                             this.composer.update(cx, |editor, cx| editor.switch_room(this.active_scope.clone(), cx));
                                             cx.notify();
                                         }
-                                        this.restore_last_room(cx);
                                         let failed = this
                                             .notification_handle
                                             .as_ref()
@@ -2785,6 +2788,8 @@ fn main() {
                                         {
                                             this.status = RoomSyncStatus::SyncFailed;
                                         }
+                                        // After the diffs: the saved room is picked before any other opens.
+                                        this.restore_last_room(cx);
                                         if changed {
                                             this.sync_room(cx);
                                             this.read_dirty |= !pages.is_empty();

@@ -254,6 +254,7 @@ impl Shell {
                 self.sidebar.select(&scope);
             }
         }
+        self.restore.cancel();
         self.sync_room(cx);
         self.set_compact_chat(true);
         self.list_focus.focus(window);

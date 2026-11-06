@@ -71,11 +71,6 @@ impl RoomPrefs {
         true
     }
 
-    /// Returns true when there was a value to clear.
-    pub fn clear_last_open_room(&mut self, account: AccountId) -> bool {
-        self.last_open_room.remove(&account.as_u64()).is_some()
-    }
-
     pub fn toggle_hide_status(&mut self, scope: &RoomScope) {
         let k = key(scope);
         if !self.hide_status.remove(&k) {

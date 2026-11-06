@@ -66,20 +66,6 @@ fn legacy_file_without_field_loads() {
     assert_eq!(l.last_open_room(AccountId::new(1)), None);
 }
 
-#[test]
-fn clear_removes_only_that_account() {
-    let d = dirs("clear");
-    let mut p = RoomPrefs::default();
-    p.set_last_open_room(&scope(1, "!a:srv"));
-    p.set_last_open_room(&scope(2, "!b:srv"));
-    assert!(p.clear_last_open_room(AccountId::new(1)));
-    assert!(!p.clear_last_open_room(AccountId::new(1)));
-    p.save(&d).unwrap();
-    let l = RoomPrefs::load(&d);
-    assert_eq!(l.last_open_room(AccountId::new(1)), None);
-    assert_eq!(l.last_open_room(AccountId::new(2)), Some(RoomId::new("!b:srv")));
-}
-
 /// Regression: room version 12 (default on Synapse 1.163 / Tuwunel 1.9.4) has ids `!<hash>` with no
 /// `:server` part. The store must keep them, or the last room is never saved on a current server.
 #[test]

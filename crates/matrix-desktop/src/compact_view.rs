@@ -61,6 +61,7 @@ impl Shell {
             if !self.sidebar.select(&intent.scope) {
                 return;
             }
+            self.restore.cancel();
             self.sync_room(cx);
             self.set_compact_chat(true);
         }

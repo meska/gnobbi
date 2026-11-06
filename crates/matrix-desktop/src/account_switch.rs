@@ -147,6 +147,7 @@ impl Shell {
         match id.filter(|id| Some(*id) != self.active_id) {
             None => {
                 if self.sidebar.select(&scope) {
+                    self.restore.cancel();
                     self.sync_room(cx);
                     cx.notify();
                 }
@@ -258,6 +259,7 @@ impl Shell {
         self.put_state(next);
         self.active_id = Some(id);
         self.clear_account_views(cx);
+        self.restore.cancel(); // re-armed for the new account by the next tick
         self.sync_room(cx);
         cx.notify();
     }
