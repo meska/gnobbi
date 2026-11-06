@@ -1381,6 +1381,9 @@ async fn latest_event_text(room: &matrix_sdk::Room) -> Option<String> {
     else {
         return None;
     };
+    if let Some(poll) = content.as_poll() {
+        return Some(poll.results().question);
+    }
     let message = content.as_message()?;
     Some(match message.msgtype() {
         MessageType::Image(_) => "Immagine".to_owned(),

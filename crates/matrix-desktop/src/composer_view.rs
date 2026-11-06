@@ -1343,6 +1343,7 @@ impl Render for ComposerView {
                             .text_size(px(14.))
                             .line_height(px(20.))
                             .whitespace_normal()
+                            .when(empty, |d| d.whitespace_nowrap().overflow_x_hidden())
                             .text_color(rgb(if empty { t.placeholder } else { t.text }))
                             .child(body)
                             .child(

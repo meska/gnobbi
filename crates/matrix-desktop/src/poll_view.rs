@@ -48,7 +48,8 @@ pub(crate) fn poll_bubble(poll: &Poll, t: DesignTokens, row_ix: usize, focused: 
             .flex_1()
             .min_w_0()
             .whitespace_normal()
-            .when(poll.ended && poll.is_leading(ix), |d| d.font_weight(FontWeight::BOLD))
+            // the accent colour keeps the leader visible where the font has no bold face (macOS)
+            .when(poll.ended && poll.is_leading(ix), |d| d.font_weight(FontWeight::BOLD).text_color(rgb(t.accent)))
             .child(a.text.clone());
         let row = div().relative().flex().items_center().gap_2().child(marker).child(label).when(shown, |d| {
             d.child(div().relative().flex_shrink_0().text_size(px(12.)).text_color(rgb(t.secondary))
@@ -61,7 +62,7 @@ pub(crate) fn poll_bubble(poll: &Poll, t: DesignTokens, row_ix: usize, focused: 
             .when(!poll.ended, |d| d.cursor_pointer().on_click(move |_, window, cx| on_vote(ix, window, cx)))
             .child(row)
             .when(shown, |d| d.child(
-                div().relative().ml(px(MARKER_PX + 8.)).h(px(4.)).rounded_full().bg(rgb(t.selected)).overflow_hidden()
+                div().relative().ml(px(MARKER_PX + 8.)).h(px(4.)).rounded_full().bg(gpui::Hsla::from(rgb(t.secondary)).opacity(0.5)).overflow_hidden()
                     .child(div().h_full().w(relative(poll.share(ix))).bg(rgb(t.accent)))
                     .child(probe(PollPart::Bar(ix)))))
             .child(probe(PollPart::Option(ix)))
