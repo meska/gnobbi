@@ -1,5 +1,5 @@
 //! View inspection is cancellable; accepted writes will remain room-scoped.
-use matrix_domain::{EventId, ScopedTimelineId, TimelineId, TransactionId};
+use matrix_domain::{EventId, Poll, RoomScope, ScopedTimelineId, TimelineId, TransactionId};
 use matrix_engine::{
     ViewRequests,
     operations::{
@@ -24,6 +24,8 @@ pub struct LiveOperations {
     error: Option<OperationError>,
     inspection_error: Option<OperationError>,
     pending: Option<OperationRequest>,
+    /// Poll whose last vote was refused; cleared by the next vote.
+    vote_failed: Option<EventId>,
     confirmed: Vec<ConfirmedOperation>,
 }
 impl LiveOperations {
@@ -115,6 +117,25 @@ impl LiveOperations {
         self.pending = Some(request);
         self.error = None;
         true
+    }
+    /// Vote on option `ix` of `poll`: the new answers come from `Poll::toggle`, the state from the Timeline.
+    /// Needs no message selection; the server decides whether the vote is allowed.
+    pub fn vote(&mut self, scope: RoomScope, target: EventId, poll: &Poll, ix: usize, transaction_id: TransactionId) -> bool {
+        if self.pending.is_some() || transaction_id.as_str().is_empty() {
+            return false;
+        }
+        let Some(answers) = poll.answers.get(ix).and_then(|a| poll.toggle(&a.id)) else {
+            return false;
+        };
+        let request = OperationRequest { scope, target, transaction_id, operation: Operation::Vote { answers } };
+        self.command = Some(OperationCommand::Apply(request.clone()));
+        self.pending = Some(request);
+        self.error = None;
+        self.vote_failed = None;
+        true
+    }
+    pub fn vote_failed(&self, target: &EventId) -> bool {
+        self.vote_failed.as_ref() == Some(target)
     }
     pub fn toggle_reaction(&mut self, key: &str, transaction_id: TransactionId) -> bool {
         if self.pending.is_some() || transaction_id.as_str().is_empty() {
@@ -274,7 +295,12 @@ impl LiveOperations {
                     }
                     Err(error) => {
                         self.error = Some(error);
-                        if error != OperationError::Transport {
+                        let vote = matches!(request.operation, Operation::Vote { .. });
+                        if vote {
+                            self.vote_failed = Some(request.target.clone());
+                        }
+                        // A vote is never retried by the panel: the next click is a new vote.
+                        if vote || error != OperationError::Transport {
                             self.pending = None;
                         }
                     }

@@ -497,6 +497,23 @@ impl Shell {
                 }
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::FocusPollOption(id, ix)
+            | matrix_desktop::accessibility::NavigationAction::VotePoll(id, ix) = &action
+            {
+                if this.connected
+                    && id.scope == this.active_scope
+                    && (window.viewport_size().width >= px(800.) || this.compact_chat)
+                    && this.sidebar.selected().is_some_and(|room| room.scope == id.scope)
+                {
+                    if matches!(action, matrix_desktop::accessibility::NavigationAction::VotePoll(..)) {
+                        this.vote_poll(id, *ix);
+                    } else if let Some(timeline) = &this.timeline {
+                        timeline.focus_semantic_poll(id, *ix, window);
+                    }
+                    cx.notify();
+                }
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::FocusMessage(id) = &action {
                 if (window.viewport_size().width >= px(800.) || this.compact_chat)
                     && this
@@ -575,6 +592,8 @@ impl Shell {
                     unreachable!()
                 }
                 matrix_desktop::accessibility::NavigationAction::RetryMessage(_) => unreachable!(),
+                matrix_desktop::accessibility::NavigationAction::FocusPollOption(..)
+                | matrix_desktop::accessibility::NavigationAction::VotePoll(..) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::FocusMessageActions(_)
                 | matrix_desktop::accessibility::NavigationAction::OpenMessageActions(_) => {
                     unreachable!()
@@ -1097,6 +1116,7 @@ impl Shell {
                     .or_else(|| snapshot.selection_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.offline_delivery_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.video_key(&key.key, key.modifiers.shift))
+                    .or_else(|| snapshot.poll_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.retry_key(&key.key, key.modifiers.shift))
                     .or_else(|| snapshot.actions_key(&key.key, key.modifiers.shift))
             }
@@ -1139,6 +1159,16 @@ impl Shell {
                 }
                 NavigationAction::FocusMessageRetry(id) => {
                     timeline.focus_semantic_retry(&id, window);
+                }
+                NavigationAction::FocusPollOption(id, ix) => {
+                    timeline.focus_semantic_poll(&id, ix, window);
+                }
+                NavigationAction::VotePoll(id, ix) => {
+                    if id.scope == self.active_scope
+                        && self.sidebar.selected().is_some_and(|room| room.scope == id.scope)
+                    {
+                        self.vote_poll(&id, ix);
+                    }
                 }
                 NavigationAction::FocusMessage(id) => {
                     timeline.focus_semantic_message(&id, window);
@@ -1451,6 +1481,17 @@ impl Shell {
         }
     }
 
+    /// Vote on option `ix`: the state comes from the Timeline, we only send the new answers.
+    fn vote_poll(&mut self, id: &matrix_domain::ScopedTimelineId, ix: usize) {
+        #[cfg(feature = "live")]
+        if let matrix_domain::TimelineId::Server(target) = &id.id
+            && let Some(poll) = self.timeline.as_ref().and_then(|t| t.poll_of(id))
+        {
+            self.operations.borrow_mut().vote(id.scope.clone(), target.clone(), &poll, ix, matrix_engine::sending::fresh_transaction_id());
+        }
+        #[cfg(not(feature = "live"))]
+        let _ = (id, ix);
+    }
     fn flush_operations(&mut self) {
         use matrix_engine::{
             TrySendError,

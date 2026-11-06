@@ -1,7 +1,7 @@
 //! Poll bubble (read-only): question, options with a marker, votes and bars when the results are
 //! visible, footer. Colours are the existing tokens. Meaning for screen readers lives in the a11y tree.
 use crate::composer_icons::{Icon, icon};
-use gpui::{AnyElement, Bounds, FontWeight, Pixels, canvas, div, prelude::*, px, relative, rgb};
+use gpui::{AnyElement, App, Window, Bounds, FontWeight, Pixels, canvas, div, prelude::*, px, relative, rgb};
 use matrix_desktop::DesignTokens;
 use matrix_domain::Poll;
 use std::rc::Rc;
@@ -19,7 +19,10 @@ pub(crate) type PollPainted = Rc<dyn Fn(PollPart, Bounds<Pixels>)>;
 
 const MARKER_PX: f32 = 18.;
 
-pub(crate) fn poll_bubble(poll: &Poll, t: DesignTokens, painted: PollPainted) -> AnyElement {
+pub(crate) type PollVote = Rc<dyn Fn(usize, &mut Window, &mut App)>;
+
+/// `row_ix` keeps element ids unique across timeline rows; `focused` is the keyboard option; `failed` shows the vote error.
+pub(crate) fn poll_bubble(poll: &Poll, t: DesignTokens, row_ix: usize, focused: Option<usize>, failed: bool, on_vote: PollVote, painted: PollPainted) -> AnyElement {
     let probe = {
         let painted = painted.clone();
         move |part: PollPart| {
@@ -52,7 +55,11 @@ pub(crate) fn poll_bubble(poll: &Poll, t: DesignTokens, painted: PollPainted) ->
                 .child(format!("{} {}", a.votes, if a.votes == 1 { "voto" } else { "voti" }))
                 .child(probe(PollPart::Votes(ix))))
         });
-        div().relative().flex().flex_col().gap_1().child(row)
+        let on_vote = on_vote.clone();
+        div().id(("poll-option", row_ix * 32 + ix)).relative().flex().flex_col().gap_1().rounded_md().border_1()
+            .border_color(if focused == Some(ix) { rgb(t.accent).into() } else { gpui::Hsla::transparent_black() })
+            .when(!poll.ended, |d| d.cursor_pointer().on_click(move |_, window, cx| on_vote(ix, window, cx)))
+            .child(row)
             .when(shown, |d| d.child(
                 div().relative().ml(px(MARKER_PX + 8.)).h(px(4.)).rounded_full().bg(rgb(t.selected)).overflow_hidden()
                     .child(div().h_full().w(relative(poll.share(ix))).bg(rgb(t.accent)))
@@ -66,7 +73,8 @@ pub(crate) fn poll_bubble(poll: &Poll, t: DesignTokens, painted: PollPainted) ->
         .children(options)
         .child(div().flex().justify_between().gap_2().text_size(px(12.)).text_color(rgb(t.secondary))
             .child(poll.footer())
-            .when(poll.ended, |d| d.child("Chiuso")))
+            .when(poll.ended, |d| d.child("Chiuso"))
+            .when(failed, |d| d.child(div().text_color(rgb(t.error)).child("Voto non inviato"))))
         .child(probe(PollPart::Bubble))
         .into_any_element()
 }

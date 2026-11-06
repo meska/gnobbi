@@ -128,6 +128,8 @@ pub struct SemanticMessage {
     /// Poll bubble: group at slot +9, footer +10, option `ix` at +11+ix (at most `POLL_OPTIONS`).
     pub poll: Option<matrix_domain::Poll>,
     pub poll_bounds: Option<accesskit::Rect>,
+    /// Option holding the keyboard focus (a Tab stop of the selected message).
+    pub poll_focus: Option<usize>,
     pub poll_option_bounds: Vec<Option<accesskit::Rect>>,
     pub play: Option<NodeId>,
     pub play_bounds: Option<accesskit::Rect>,
@@ -191,6 +193,7 @@ impl HistorySnapshot {
                 .push_str(" · Demo offline · Nessuna consegna Matrix");
             message.retry = None;
             message.play = None;
+            message.poll_focus = None;
             message.save = None;
             message.profile = None;
             message.event_id_copy = None;
@@ -218,11 +221,51 @@ impl HistorySnapshot {
             ("tab", false, false) => {
                 Some(NavigationAction::FocusMessageActions(message.event.clone()))
             }
-            ("tab", true, true) => Some(NavigationAction::FocusMessage(message.event.clone())),
+            ("tab", true, true) => Some(
+                message
+                    .poll
+                    .as_ref()
+                    .and_then(|p| p.answers.len().min(POLL_OPTIONS).checked_sub(1).filter(|_| !p.ended))
+                    .map_or_else(
+                        || NavigationAction::FocusMessage(message.event.clone()),
+                        |last| NavigationAction::FocusPollOption(message.event.clone(), last),
+                    ),
+            ),
             ("tab", false, true) => Some(NavigationAction::FocusComposer),
             ("space" | "enter", false, true) => {
                 Some(NavigationAction::OpenMessageActions(message.event.clone()))
             }
+            _ => None,
+        }
+    }
+    /// Option of an open poll behind a node id (nodes sit at slot +11+ix of the message's block).
+    fn poll_option(&self, node: NodeId) -> Option<(matrix_domain::ScopedTimelineId, usize)> {
+        self.messages.iter().find_map(|m| {
+            let poll = m.poll.as_ref().filter(|p| !p.ended && m.actions.is_some())?;
+            let ix = usize::try_from(node.0.checked_sub(m.id.0 + 11)?).ok()?;
+            (ix < poll.answers.len().min(POLL_OPTIONS)).then(|| (m.event.clone(), ix))
+        })
+    }
+    /// Tab walks the options of an open poll in the focused message, Space/Enter vote; the last option hands on to the actions button.
+    pub fn poll_key(&self, key: &str, shift: bool) -> Option<NavigationAction> {
+        if !self.focused {
+            return None;
+        }
+        let message = self
+            .messages
+            .iter()
+            .find(|m| m.poll_focus.is_some())
+            .or_else(|| self.messages.first())?;
+        let poll = message.poll.as_ref().filter(|p| !p.ended && message.actions.is_some())?;
+        let last = poll.answers.len().min(POLL_OPTIONS).checked_sub(1)?;
+        let event = message.event.clone();
+        match (key, shift, message.poll_focus) {
+            ("tab", false, None) if !message.actions_focused => Some(NavigationAction::FocusPollOption(event, 0)),
+            ("tab", false, Some(ix)) if ix < last => Some(NavigationAction::FocusPollOption(event, ix + 1)),
+            ("tab", false, Some(_)) => Some(NavigationAction::FocusMessageActions(event)),
+            ("tab", true, Some(0)) => Some(NavigationAction::FocusMessage(event)),
+            ("tab", true, Some(ix)) => Some(NavigationAction::FocusPollOption(event, ix - 1)),
+            ("space" | "enter", false, Some(ix)) => Some(NavigationAction::VotePoll(event, ix)),
             _ => None,
         }
     }
@@ -354,6 +397,7 @@ impl HistoryNodes {
                     .then_some(NodeId(id.0 + 1)),
                     poll: event.poll.clone(),
                     poll_bounds: None,
+                    poll_focus: None,
                     poll_option_bounds: Vec::new(),
                     play: (event.video.is_some()
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
@@ -823,6 +867,15 @@ impl NavigationSnapshot {
         {
             return Some(NavigationAction::FocusMessageRetry(message.event.clone()));
         }
+        if let Some(history) = &self.history
+            && let Some((event, ix)) = history.poll_option(request.target_node)
+        {
+            match request.action {
+                Action::Focus => return Some(NavigationAction::FocusPollOption(event, ix)),
+                Action::Click => return Some(NavigationAction::VotePoll(event, ix)),
+                _ => (),
+            }
+        }
         if request.action == Action::Click
             && let Some(history) = &self.history
         {
@@ -1169,6 +1222,9 @@ impl NavigationSnapshot {
                         option.set_toggled(if poll.answers[ix].own { Toggled::True } else { Toggled::False });
                         if poll.ended {
                             option.set_disabled();
+                        } else if message.actions.is_some() {
+                            option.add_action(Action::Click);
+                            option.add_action(Action::Focus);
                         }
                         if let Some(Some(bounds)) = message.poll_option_bounds.get(ix) {
                             option.set_bounds(*bounds);
@@ -1245,6 +1301,13 @@ impl NavigationSnapshot {
                 && let Some(message) = history.messages.first()
             {
                 tree.focus = message.id;
+            }
+            if let Some(id) = history
+                .messages
+                .iter()
+                .find_map(|m| m.poll_focus.map(|ix| NodeId(m.id.0 + 11 + ix as u64)))
+            {
+                tree.focus = id;
             }
             if let Some(id) = history
                 .messages
@@ -1559,6 +1622,8 @@ pub enum NavigationAction {
     FocusMessageActions(matrix_domain::ScopedTimelineId),
     OpenMessageActions(matrix_domain::ScopedTimelineId),
     FocusMessageRetry(matrix_domain::ScopedTimelineId),
+    FocusPollOption(matrix_domain::ScopedTimelineId, usize),
+    VotePoll(matrix_domain::ScopedTimelineId, usize),
     RetryMessage(matrix_domain::ScopedTimelineId),
     Spaces(spaces::SpacesAction),
     Filter(filters::FilterAction),
