@@ -76,6 +76,8 @@ fn close_viewer(
 type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
+type PollParts = std::collections::HashMap<(matrix_domain::TimelineId, crate::poll_view::PollPart), Bounds<Pixels>>;
+
 const SENDER_AVATAR_PX: f32 = 32.;
 
 /// Avatar or name of a bubble: a click asks the shell to open that member's profile.
@@ -162,6 +164,8 @@ pub struct TimelineView {
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
     pub(crate) video_painted: Rc<RefCell<VideoParts>>,
+    /// Last painted bounds of each poll bubble part, by event.
+    pub(crate) poll_painted: Rc<RefCell<PollParts>>,
     pub(crate) images: Rc<
         RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>,
     >,
@@ -331,6 +335,7 @@ impl TimelineView {
             images: Rc::default(),
             sender_pictures: Rc::default(),
             video_painted: Rc::default(),
+            poll_painted: Rc::default(),
             requested_link: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             selection_cursor: Rc::default(),
@@ -655,6 +660,20 @@ impl TimelineView {
                     f64::from(f32::from(bounds.right())) * scale,
                     f64::from(f32::from(bounds.bottom())) * scale,
                 ));
+            }
+            if message.poll.is_some() {
+                let parts = self.poll_painted.borrow();
+                let rect = |b: &Bounds<Pixels>| accesskit::Rect::new(
+                    f64::from(f32::from(b.left())) * scale,
+                    f64::from(f32::from(b.top())) * scale,
+                    f64::from(f32::from(b.right())) * scale,
+                    f64::from(f32::from(b.bottom())) * scale,
+                );
+                let at = |part| parts.get(&(message.event.id.clone(), part)).map(rect);
+                message.poll_bounds = at(crate::poll_view::PollPart::Bubble);
+                message.poll_option_bounds = (0..message.poll.as_ref().map_or(0, |p| p.answers.len()))
+                    .map(|ix| at(crate::poll_view::PollPart::Option(ix)))
+                    .collect();
             }
             if message.save.is_some()
                 && let matrix_domain::TimelineId::Server(id) = &message.event.id
@@ -1513,6 +1532,7 @@ impl TimelineView {
         let images = self.images.clone();
         let sender_pictures = self.sender_pictures.clone();
         let video_painted = self.video_painted.clone();
+        let poll_painted = self.poll_painted.clone();
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let want_video = self.want_video.clone();
@@ -1636,7 +1656,11 @@ impl TimelineView {
                             _ => picture,
                         }
                     });
-                    let picture = video_picture.or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
+                    let poll_bubble = event.poll.as_ref().map(|poll| {
+                        let (parts, id) = (poll_painted.clone(), event.id.id.clone());
+                        crate::poll_view::poll_bubble(poll, t, Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.clone(), part), bounds); }))
+                    });
+                    let picture = poll_bubble.or(video_picture).or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
                         let state = match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
@@ -2934,6 +2958,109 @@ mod tests {
     #[ignore = "requires private display"]
     fn painted_video_bubble_without_thumbnail_is_a_neutral_box() {
         video_bubble_shot(false);
+    }
+
+    struct NarrowHost(TimelineView);
+    impl Render for NarrowHost {
+        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, None))
+        }
+    }
+
+    /// Paints one poll row in a 360 px wide timeline and checks parts and containment.
+    fn poll_bubble_shot(poll: matrix_domain::Poll) {
+        use crate::poll_view::PollPart;
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let shown = poll.results_visible();
+            let options = poll.answers.len();
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi poll bubble");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!poll:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        v.append_server(vec![HistoryEvent {
+                            poll: Some(poll.clone()),
+                            redacted: false,
+                            event_id: EventId::new("$poll:fixture.invalid"),
+                            body: poll.question.clone(),
+                            outgoing: false,
+                            timestamp_ms: 0,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: None,
+                            styles: Vec::new(),
+                            thread: None,
+                            thread_root: None,
+                            status: false,
+                            attachment_name: None,
+                            attachment_size: None,
+                        }]);
+                        NarrowHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(500)).await;
+                view.update(cx, |host, _, cx| {
+                    let parts = host.0.poll_painted.borrow();
+                    let id = TimelineId::Server(EventId::new("$poll:fixture.invalid"));
+                    let get = |part| parts.get(&(id.clone(), part)).copied();
+                    let bubble = get(PollPart::Bubble).expect("bubble was not painted");
+                    assert!(bubble.left() >= px(0.) && bubble.right() <= px(361.), "no overflow at 360: {bubble:?}");
+                    for ix in 0..options {
+                        let option = get(PollPart::Option(ix)).expect("option was not painted");
+                        assert!(option.left() >= bubble.left() - px(1.) && option.right() <= bubble.right() + px(1.), "option inside the bubble");
+                        for part in [PollPart::Votes(ix), PollPart::Bar(ix)] {
+                            assert_eq!(get(part).is_some(), shown, "{part:?}: counts and bars only when results are visible");
+                            if let Some(inner) = get(part) {
+                                assert!(inner.right() <= bubble.right() + px(1.), "{part:?} inside the bubble");
+                            }
+                        }
+                    }
+                    cx.quit();
+                })
+                .unwrap();
+            })
+            .detach();
+        });
+    }
+
+    fn sample_poll(disclosed: bool, ended: bool) -> matrix_domain::Poll {
+        let a = |id: &str, text: &str, votes, own| matrix_domain::PollAnswer { id: id.into(), text: text.into(), votes, own };
+        matrix_domain::Poll {
+            question: "Dove ceniamo venerdì sera con tutti gli amici del corso di fotografia?".into(),
+            answers: vec![
+                a("y", "Pizzeria da Mario in centro, quella con il forno a legna e il tavolo lungo", 5, true),
+                a("n", "No", 1, false),
+            ],
+            max_selections: 1,
+            multiple: false,
+            disclosed,
+            ended,
+            voters: 6,
+            can_end: false,
+        }
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_open_disclosed() {
+        poll_bubble_shot(sample_poll(true, false));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_undisclosed_open_has_no_counts_or_bars() {
+        poll_bubble_shot(sample_poll(false, false));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_ended_with_own_vote() {
+        poll_bubble_shot(sample_poll(false, true));
     }
 
     fn ready_image() -> crate::media_view::InlineImage {

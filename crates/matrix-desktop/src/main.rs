@@ -14,6 +14,7 @@ mod groups_edit_view;
 mod invite_view;
 mod login_field;
 mod media_view;
+mod poll_view;
 mod about_view;
 mod members_view;
 mod menu_view;

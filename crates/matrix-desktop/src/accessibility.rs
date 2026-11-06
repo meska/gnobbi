@@ -100,13 +100,16 @@ impl ComposerSnapshot {
     }
 }
 
-/// Avatar/name of a received group bubble: opens that member's profile. Slot +8 of the message's block of 16.
+/// Avatar/name of a received group bubble: opens that member's profile. Slot +8 of the message's block of 32.
 #[derive(Clone)]
 pub struct ProfileLink {
     pub user_id: String,
     pub name: String,
     pub bounds: Option<accesskit::Rect>,
 }
+
+/// Options of a poll that get a node: the slots after the group and footer in the message's block.
+pub const POLL_OPTIONS: usize = 20;
 
 #[derive(Clone)]
 pub struct SemanticMessage {
@@ -122,9 +125,13 @@ pub struct SemanticMessage {
     pub retry_focused: bool,
     pub retry: Option<NodeId>,
     /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
+    /// Poll bubble: group at slot +9, footer +10, option `ix` at +11+ix (at most `POLL_OPTIONS`).
+    pub poll: Option<matrix_domain::Poll>,
+    pub poll_bounds: Option<accesskit::Rect>,
+    pub poll_option_bounds: Vec<Option<accesskit::Rect>>,
     pub play: Option<NodeId>,
     pub play_bounds: Option<accesskit::Rect>,
-    /// «Scarica» on a received attachment (slot +7 of the message's block of 16).
+    /// «Scarica» on a received attachment (slot +7 of the message's block of 32).
     pub save: Option<NodeId>,
     pub save_bounds: Option<accesskit::Rect>,
     pub bounds: Option<accesskit::Rect>,
@@ -319,7 +326,7 @@ impl HistoryNodes {
                         let id = NodeId(self.next_id);
                         self.next_id = self
                             .next_id
-                            .checked_add(16)
+                            .checked_add(32)
                             .expect("semantic history IDs exhausted");
                         id
                     })
@@ -345,6 +352,9 @@ impl HistoryNodes {
                     retry: (event.send_state == Some(crate::DemoSendState::Failed)
                         && matches!(event.id.id, matrix_domain::TimelineId::Pending(_)))
                     .then_some(NodeId(id.0 + 1)),
+                    poll: event.poll.clone(),
+                    poll_bounds: None,
+                    poll_option_bounds: Vec::new(),
                     play: (event.video.is_some()
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 6)),
@@ -1144,6 +1154,35 @@ impl NavigationSnapshot {
                     }
                     node.push_child(id);
                     tree.nodes.push((id, button));
+                }
+                if let Some(poll) = &message.poll {
+                    let group_id = NodeId(message.id.0 + 9);
+                    let mut group = Node::new(Role::Group);
+                    group.set_label(format!("Sondaggio: {}{}", poll.question, if poll.ended { ", chiuso" } else { "" }));
+                    if let Some(bounds) = message.poll_bounds {
+                        group.set_bounds(bounds);
+                    }
+                    for (ix, _) in poll.answers.iter().enumerate().take(POLL_OPTIONS) {
+                        let id = NodeId(message.id.0 + 11 + ix as u64);
+                        let mut option = Node::new(if poll.multiple { Role::CheckBox } else { Role::RadioButton });
+                        option.set_label(poll.option_label(ix));
+                        option.set_toggled(if poll.answers[ix].own { Toggled::True } else { Toggled::False });
+                        if poll.ended {
+                            option.set_disabled();
+                        }
+                        if let Some(Some(bounds)) = message.poll_option_bounds.get(ix) {
+                            option.set_bounds(*bounds);
+                        }
+                        group.push_child(id);
+                        tree.nodes.push((id, option));
+                    }
+                    let footer_id = NodeId(message.id.0 + 10);
+                    let mut footer = Node::new(Role::Label);
+                    footer.set_label(poll.footer());
+                    group.push_child(footer_id);
+                    tree.nodes.push((footer_id, footer));
+                    node.push_child(group_id);
+                    tree.nodes.push((group_id, group));
                 }
                 if let Some(id) = message.play {
                     let mut play = Node::new(Role::Button);
