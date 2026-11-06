@@ -635,6 +635,17 @@ impl DemoHistory {
         &self.events
     }
 
+    /// Day label to draw above row `index` when it is the first of its calendar day (system zone and locale).
+    pub fn day_separator(&self, index: usize) -> Option<String> {
+        self.day_separator_in(index, &chrono::Local, crate::time_fmt::system(), now_ms())
+    }
+
+    pub fn day_separator_in<Tz: chrono::TimeZone>(&self, index: usize, tz: &Tz, p: &crate::time_fmt::Patterns, now_ms: u64) -> Option<String> {
+        let ms = self.events.get(index)?.timestamp_ms;
+        let prev = index.checked_sub(1).map(|i| self.events[i].timestamp_ms);
+        crate::time_fmt::starts_day_in(prev, ms, tz).then(|| crate::time_fmt::day_label_in(ms, now_ms, tz, p))
+    }
+
     /// Avatar beside bubble `index`, drawn where the sender name would be: the picture's mxc
     /// (None = no picture, show the initials) and the initials. Same rule as the name.
     pub fn sender_avatar(&self, index: usize, member_count: u64) -> Option<(Option<&str>, String)> {
@@ -668,6 +679,10 @@ impl DemoHistory {
         )
         .then(|| sender.name.clone().unwrap_or_else(|| sender.id.clone()))
     }
+}
+
+fn now_ms() -> u64 {
+    u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0)
 }
 
 /// Bubble footer: the time plus one glyph for the delivery state (no state words).
@@ -707,5 +722,53 @@ mod sender_avatar_tests {
             history.sender_avatar_mxcs().collect::<Vec<_>>(),
             ["mxc://fixture.invalid/b"]
         );
+    }
+}
+
+#[cfg(test)]
+mod day_separator_tests {
+    use super::*;
+    use chrono::FixedOffset;
+
+    const HOUR: u64 = 3_600_000;
+    // 2026-11-06 00:00 UTC.
+    const DAY: u64 = 1_793_923_200_000;
+
+    fn history(times: &[u64]) -> DemoHistory {
+        let scope = RoomScope { account_id: matrix_domain::AccountId::new(0), room_id: matrix_domain::RoomId::new("!r:fixture.invalid") };
+        let mut h = DemoHistory::new(scope, times.len());
+        for (e, t) in h.events.iter_mut().zip(times) {
+            e.timestamp_ms = *t;
+        }
+        h
+    }
+
+    fn marks(h: &DemoHistory, tz: &FixedOffset, now: u64) -> Vec<Option<String>> {
+        let p = crate::time_fmt::Patterns::fallback();
+        (0..h.events.len()).map(|i| h.day_separator_in(i, tz, &p, now)).collect()
+    }
+
+    #[test]
+    fn label_only_where_the_day_changes_with_today_yesterday_and_older_names() {
+        let utc = FixedOffset::east_opt(0).unwrap();
+        let h = history(&[DAY - 30 * 3 * 24 * HOUR, DAY + HOUR, DAY + 2 * HOUR, DAY + 25 * HOUR]);
+        let m = marks(&h, &utc, DAY + 26 * HOUR);
+        assert!(m[0].is_some(), "first row opens its day");
+        assert_eq!(&m[1..], [Some("Ieri".to_owned()), None, Some("Oggi".to_owned())]);
+    }
+
+    #[test]
+    fn midnight_belongs_to_the_new_day_and_the_zone_decides_the_day() {
+        let utc = FixedOffset::east_opt(0).unwrap();
+        let h = history(&[DAY - 1, DAY]);
+        assert_eq!(marks(&h, &utc, DAY)[1].as_deref(), Some("Oggi"));
+        // UTC+2: 23:59:59.999 UTC is 01:59 and midnight UTC is 02:00 — the same local day, no separator.
+        let rome = FixedOffset::east_opt(2 * 3600).unwrap();
+        assert_eq!(marks(&h, &rome, DAY)[1], None);
+        // UTC-5 (UTC midnight is 19:00 the day before): the break falls at 05:00 UTC.
+        let west = FixedOffset::west_opt(5 * 3600).unwrap();
+        let h = history(&[DAY + 4 * HOUR, DAY + 5 * HOUR]);
+        assert_eq!(marks(&h, &west, DAY + 6 * HOUR)[1].as_deref(), Some("Oggi"));
+        assert_eq!(marks(&h, &utc, DAY + 6 * HOUR)[1], None);
     }
 }
