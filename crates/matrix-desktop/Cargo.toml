@@ -35,19 +35,23 @@ gpui = { version = "=0.2.2", default-features = false, features = ["runtime_shad
 # Runtime app icon (both already in the tree through gpui).
 cocoa = "=0.26.0"
 objc = "=0.2.7"
+# Native date/time formatter (CFDateFormatter) for time_fmt; already in the tree through gpui.
+objc2-core-foundation = "=0.3.2"
 
 # Windows: the comctl32 v6 manifest gpui ships; without it the exe dies at load (TaskDialogIndirect not found).
 [target.'cfg(target_os = "windows")'.dependencies]
 tray-icon = { version = "=0.26.1", default-features = false, optional = true }
 gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"], optional = true }
 raw-window-handle = "=0.6.2"
-windows = { version = "=0.61.3", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "=0.61.3", features = ["Win32_Foundation", "Win32_Globalization", "Win32_UI_WindowsAndMessaging"] }
 
 # Exe icon (packaging/windows/gnobbi.ico); gpui already embeds its manifest the same way.
 [target.'cfg(target_os = "windows")'.build-dependencies]
 embed-resource = "=3.0.11"
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# nl_langinfo_l for time_fmt (already in the tree).
+libc = "=0.2.183"
 # StatusNotifierItem over D-Bus (ksni); the libappindicator default would need GTK.
 tray-icon = { version = "=0.26.1", default-features = false, features = ["ksni"], optional = true }
 accesskit = { version = "=0.24.1", optional = true }

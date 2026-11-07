@@ -21,6 +21,14 @@ impl SidebarRoom {
             .or_else(|| (!self.time.is_empty()).then(|| self.time.to_owned()))
     }
 
+    /// Screen-reader form of `stamp()`.
+    pub fn stamp_spoken(&self) -> Option<String> {
+        match self.info.last_event_ts {
+            Some(ms) => Some(crate::time_fmt::last_message_spoken_ms(ms)),
+            None => self.stamp().map(|s| crate::time_fmt::last_message_spoken(&s)),
+        }
+    }
+
     /// Only me in the room, nothing unread and no live message. Unknown member count (0) is never empty.
     fn is_empty(&self) -> bool {
         !self.info.invited

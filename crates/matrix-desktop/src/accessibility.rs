@@ -160,6 +160,8 @@ pub struct SemanticMessage {
     /// «Scarica» on a received attachment (slot +7 of the message's block of 32).
     pub save: Option<NodeId>,
     pub save_bounds: Option<accesskit::Rect>,
+    /// Day label drawn above this message (slot +31): a node of its own for screen readers.
+    pub day: Option<(NodeId, String)>,
     pub bounds: Option<accesskit::Rect>,
     pub id: NodeId,
     pub event: matrix_domain::ScopedTimelineId,
@@ -434,7 +436,9 @@ impl HistoryNodes {
         let end = start.saturating_add(20).min(events.len());
         let messages = events[start..end]
             .iter()
-            .map(|event| {
+            .enumerate()
+            .map(|(offset, event)| {
+                let index = start + offset;
                 // The ACK changes protocol identity, not the focused message.
                 let pending =
                     event
@@ -489,6 +493,9 @@ impl HistoryNodes {
                     play_bounds: None,
                     save: crate::offers_save(event, true).then_some(NodeId(id.0 + 7)),
                     save_bounds: None,
+                    day: history
+                        .day_separator(index)
+                        .map(|label| (NodeId(id.0 + 31), label)),
                     bounds: None,
                     id,
                     event: event.id.clone(),
@@ -556,7 +563,7 @@ pub struct SemanticRoom {
     pub scope: matrix_domain::RoomScope,
     pub name: String,
     pub unread: u64,
-    /// Conversation-list stamp of the last message; None when unknown.
+    /// Spoken conversation-list stamp of the last message («ultimo messaggio alle …»); None when unknown.
     pub stamp: Option<String>,
     pub selected: bool,
     /// Set for an invitation row: it carries «Accetta» / «Rifiuta» child buttons.
@@ -642,7 +649,7 @@ impl RoomNodes {
                     scope: room.scope.clone(),
                     name: room.name.clone(),
                     unread: room.unread,
-                    stamp: room.stamp(),
+                    stamp: room.stamp_spoken(),
                     selected: sidebar.selected().is_some_and(|r| r.scope == room.scope),
                     invite: room.info.invited.then(|| sidebar.invite_state(&room.scope)),
                     leave: None,
@@ -1207,7 +1214,7 @@ impl NavigationSnapshot {
                 node.set_label(match room.invite {
                     Some(state) => format!("{}, {}", room.name, invite_state_label(state)),
                     None => match &room.stamp {
-                        Some(stamp) => format!("{}, {}", room.name, crate::time_fmt::last_message_spoken(stamp)),
+                        Some(spoken) => format!("{}, {spoken}", room.name),
                         None => room.name.clone(),
                     },
                 });
@@ -1440,6 +1447,12 @@ impl NavigationSnapshot {
                         node.push_child(message.recover_status());
                         tree.nodes.push((message.recover_status(), status));
                     }
+                }
+                if let Some((id, label)) = &message.day {
+                    let mut day = Node::new(Role::Label);
+                    day.set_label(label.clone());
+                    list.push_child(*id);
+                    tree.nodes.push((*id, day));
                 }
                 list.push_child(message.id);
                 tree.nodes.push((message.id, node));

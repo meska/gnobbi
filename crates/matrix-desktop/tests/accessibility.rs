@@ -392,7 +392,8 @@ fn selected_room_is_the_semantic_focus_when_the_room_list_owns_keyboard_focus() 
     let row = &tree.nodes.iter().find(|(id, _)| *id == selected).unwrap().1;
     assert_eq!(row.role(), accesskit::Role::ListBoxOption);
     assert_eq!(row.is_selected(), Some(true));
-    assert_eq!(row.label(), Some("Laboratorio UI"));
+    // The fixture row has a last-message time, which depends on the machine clock and locale.
+    assert!(row.label().is_some_and(|l| l.starts_with("Laboratorio UI, ultimo messaggio ")), "{:?}", row.label());
     assert!(row.supports_action(accesskit::Action::Click));
 }
 
