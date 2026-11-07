@@ -116,6 +116,7 @@ mod tests {
             name: name.into(),
             user_id: format!("@{name}:x"),
             initials: crate::initials(name),
+            avatar: None,
             current,
             unread: 0,
             mentions: 0,

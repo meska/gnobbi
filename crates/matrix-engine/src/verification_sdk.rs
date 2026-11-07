@@ -408,11 +408,9 @@ async fn own_profile(client: &Client) -> Option<(String, Option<String>, Option<
     let user_id = client.user_id()?.to_string();
     let account = client.account();
     let display_name = account.get_display_name().await.ok()?;
-    let avatar = account
-        .get_avatar_url()
-        .await
-        .ok()?
-        .map(|uri| uri.to_string());
+    let avatar = crate::avatar::normalize_avatar(
+        account.get_avatar_url().await.ok()?.map(|uri| uri.to_string()),
+    );
     Some((user_id, display_name, avatar))
 }
 

@@ -151,6 +151,12 @@ impl Shell {
         self.active_id = catalog
             .id_for_root(dirs, root)
             .or_else(|| catalog.id_for_user(user_id));
+        if let Some(id) = self.active_id
+            && catalog.record_avatar(id, self.verification.profile_avatar())
+            && catalog.save(dirs).is_ok()
+        {
+            self.accounts = catalog;
+        }
     }
 
     /// Starts the sign-in for a new account in its own window and profile folder; this window

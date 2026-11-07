@@ -128,7 +128,12 @@ impl crate::Shell {
             .chain(found.iter().map(String::as_str))
             .chain(senders.iter().map(String::as_str))
             .chain(listed);
-        let arrived = self.avatars.drive(&self.routes.avatars, wanted);
+        let mut arrived = self.avatars.drive(&self.routes.avatars, wanted);
+        // Drawer rows: each parked account asks its own session for its own picture.
+        for state in self.parked.values() {
+            let own = state.verification.profile_avatar();
+            arrived |= self.avatars.drive(&state.routes.avatars, own.into_iter());
+        }
         for mxc in mentions {
             if let Some(image) = self.avatars.get(Some(&mxc))
                 && !self.composer.read(cx).has_picture(&mxc)

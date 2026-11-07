@@ -16,3 +16,21 @@ pub trait AvatarSource: Send + Sync {
 }
 
 pub type AvatarSlot = Arc<Mutex<Option<Box<dyn AvatarSource>>>>;
+
+/// Servers (Tuwunel) send `Some("")` for "no avatar": that is no picture, same as `None`.
+pub fn normalize_avatar(mxc: Option<String>) -> Option<String> {
+    mxc.filter(|m| !m.trim().is_empty())
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::normalize_avatar;
+
+    #[test]
+    fn empty_or_blank_avatar_is_absent() {
+        assert_eq!(normalize_avatar(Some(String::new())), None);
+        assert_eq!(normalize_avatar(Some("  ".into())), None);
+        assert_eq!(normalize_avatar(None), None);
+        assert_eq!(normalize_avatar(Some("mxc://s/a".into())).as_deref(), Some("mxc://s/a"));
+    }
+}
