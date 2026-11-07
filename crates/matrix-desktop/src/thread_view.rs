@@ -108,6 +108,22 @@ impl ThreadPanel {
         }
     }
 
+    /// A closed panel back on screen: keeps the rows, drops what belonged to the old visit.
+    fn reopened(mut self) -> Self {
+        self.composer = None;
+        self.reply_to = None;
+        self.outgoing.clear();
+        self.pending = false;
+        self.dirty = true;
+        self.read_done = false;
+        self.read_sent = false;
+        self.growing = None;
+        self.anchor = None;
+        self.stick_bottom = true;
+        self.scroll = ScrollHandle::new();
+        self
+    }
+
     pub(crate) fn activity(&mut self, scope: &RoomScope) {
         self.dirty |= self.scope == *scope;
         self.read_done &= self.scope != *scope;
@@ -170,7 +186,7 @@ impl Shell {
     }
 
     pub(crate) fn close_thread(&mut self) {
-        self.thread = None;
+        self.thread_last = self.thread.take();
     }
 
     /// Open the panel on the thread `id` belongs to; the composer is ready for the first text.
@@ -196,7 +212,11 @@ impl Shell {
         if let Some(window) = window {
             composer.update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
         }
-        let mut panel = ThreadPanel::new(scope, root, row, total);
+        // Same thread as the last one closed: its replies are shown now and the read below only refreshes them.
+        let mut panel = match self.thread_last.take() {
+            Some(old) if old.scope == scope && old.root == root => old.reopened(),
+            _ => ThreadPanel::new(scope, root, row, total),
+        };
         panel.composer = Some(composer);
         self.thread = Some(panel);
         cx.notify();
@@ -229,6 +249,7 @@ impl Shell {
         p.dirty |= focused && !p.read_done;
         if p.scope != self.active_scope {
             self.thread = None;
+            self.thread_last = None;
             cx.notify();
             return;
         }
@@ -397,6 +418,16 @@ mod tests {
         p.growing = Some(26);
         p.apply(Ok(page(26)));
         assert!(p.stalled && !p.more(), "a server hole must not make the panel ask forever");
+    }
+
+    #[test]
+    fn a_reopened_panel_keeps_its_rows_and_asks_for_a_refresh() {
+        let mut p = panel(3);
+        p.apply(Ok(page(2)));
+        p.outgoing.push(Outgoing { body: "x".into(), reply_to: None, delivery: Delivery::Queued });
+        let p = p.reopened();
+        assert_eq!(p.replies.len(), 2, "shown at once, before any read");
+        assert!(p.dirty && !p.pending && p.outgoing.is_empty());
     }
 
     #[test]

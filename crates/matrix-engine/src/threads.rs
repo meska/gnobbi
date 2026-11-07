@@ -30,9 +30,8 @@ pub(crate) async fn open(
     if now.rows.is_empty() && let Err(e) = status {
         return Err(e);
     }
-    let mut main_rows = main.rows;
-    annotate_unread(timelines, room, &mut main_rows).await;
-    let mut root_row = main_rows.into_iter().find(|r| r.event_id == *root);
+    // No `annotate_unread` here: it paginates every thread in view (network) and the read below zeroes this one.
+    let mut root_row = main.rows.into_iter().find(|r| r.event_id == *root);
     // The room's own timeline keeps the root's summary current; the thread's copy goes stale.
     if let Some(i) = now.rows.iter().position(|r| r.event_id == *root) {
         let own = now.rows.remove(i);

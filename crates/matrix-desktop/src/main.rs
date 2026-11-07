@@ -241,6 +241,8 @@ struct Shell {
     composer_visit: std::rc::Rc<composer_view::SendVisit>,
     timeline: Option<TimelineView>,
     thread: Option<thread_view::ThreadPanel>,
+    /// The panel closed last: reopening that thread shows its replies at once, then refreshes.
+    thread_last: Option<thread_view::ThreadPanel>,
     saved_timelines: HashMap<RoomScope, TimelineView>,
     history: HistorySession,
     pending_history: Option<matrix_engine::history::HistoryRequest>,
@@ -3402,6 +3404,7 @@ fn main() {
                             .then(|| TimelineView::new(active_scope.clone(), cx.focus_handle())),
                         active_scope,
                         thread: None,
+                        thread_last: None,
                         saved_timelines: HashMap::new(),
                         history: HistorySession::new(),
                         pending_history: None,
