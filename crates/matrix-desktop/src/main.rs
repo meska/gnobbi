@@ -58,6 +58,8 @@ mod rail_ring_test;
 #[cfg(test)]
 mod details_panel_test;
 #[cfg(test)]
+mod dialog_typing_test;
+#[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;

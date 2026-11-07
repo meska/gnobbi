@@ -250,7 +250,7 @@ impl Shell {
     }
 
     /// «Rinomina» reuses the Disconnetti dialog and its field, as a plain (not password) text field.
-    fn open_device_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_device_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.verification.open_rename() {
             return;
         }

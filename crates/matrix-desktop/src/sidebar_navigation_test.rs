@@ -1768,6 +1768,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             crate::details_panel_test::scenario(this, cx, executor).await;
             return;
         }
+        if let n @ 92..=95 = DYNAMIC.load(Ordering::SeqCst) {
+            crate::dialog_typing_test::scenario(n, this, cx, executor).await;
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 91 {
             crate::member_profile_test::scenario(this, cx, executor).await;
             return;
@@ -3496,3 +3500,21 @@ fn member_detail_profile_actions_and_keyboard() {
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
+
+macro_rules! dialog_typing_test {
+    ($name:ident, $n:expr) => {
+        #[test]
+        #[ignore = "requires private display"]
+        fn $name() {
+            assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+            DYNAMIC.store($n, Ordering::SeqCst);
+            CONNECTED.store(true, Ordering::SeqCst);
+            ACTIVE.store(true, Ordering::SeqCst);
+            crate::main();
+        }
+    };
+}
+dialog_typing_test!(dialog_typing_modifica_stanza, 92);
+dialog_typing_test!(dialog_typing_nuova_stanza, 93);
+dialog_typing_test!(dialog_typing_rinomina_dispositivo, 94);
+dialog_typing_test!(dialog_typing_crea_sondaggio, 95);

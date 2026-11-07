@@ -23,7 +23,7 @@ pub(crate) struct NewRoom {
     rooms_sent: Option<(String, Option<String>)>,
     public: bool,
     /// DM: user ID. Room: name, then topic.
-    fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
+    pub(crate) fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
     public_focus: FocusHandle,
     cancel_focus: FocusHandle,
     submit_focus: FocusHandle,

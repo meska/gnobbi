@@ -44,7 +44,7 @@ pub(crate) enum Stop {
 pub(crate) struct PollDialog {
     pub(crate) theme: DesignTokens,
     /// Field 0 is the question, then one per option.
-    fields: Vec<Entity<LoginField>>,
+    pub(crate) fields: Vec<Entity<LoginField>>,
     /// Remove icons, parallel to the options (the first two have none).
     removes: Vec<FocusHandle>,
     add: FocusHandle,
