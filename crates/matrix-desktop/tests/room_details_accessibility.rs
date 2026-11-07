@@ -76,7 +76,7 @@ fn panel() -> DetailsSnapshot {
         acts: vec![],
         focus: DetailsControl::Close,
         profile_focus: 0,
-        bounds: [None; 5],
+        bounds: [None; 6],
         hide_status: false,
         hide_redacted: false,
     }
@@ -89,7 +89,7 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
     panel.info.topic = Some("Argomento visibile".into());
     panel.info.joined_members = 2;
     panel.info.encrypted = None;
-    panel.bounds[1] = Some(accesskit::Rect::new(800., 400., 900., 430.));
+    panel.bounds[2] = Some(accesskit::Rect::new(800., 400., 900., 430.));
     panel.people = vec![("Membro: Bruno, @bruno:x".into(), None)];
     let tree = panel.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Informazioni stanza"));
@@ -117,8 +117,8 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
         .1;
     assert_eq!(copy.role(), Role::Button);
     assert_eq!(copy.label(), Some("Copia ID stanza"));
-    assert_eq!(copy.bounds(), panel.bounds[1]);
-    assert_eq!(panel.next_focus(), DetailsControl::Copy);
+    assert_eq!(copy.bounds(), panel.bounds[2]);
+    assert_eq!(panel.next_focus(), DetailsControl::Topic);
 }
 
 #[test]
@@ -290,10 +290,10 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
         panel.focus = panel.next_focus();
         order.push(panel.focus);
     }
-    assert_eq!(order[..5], DetailsControl::ALL);
-    assert_eq!(order[5], DetailsControl::Close);
+    assert_eq!(order[..6], DetailsControl::ALL);
+    assert_eq!(order[6], DetailsControl::Close);
     let ids: std::collections::HashSet<_> = DetailsControl::ALL.iter().map(|c| c.id()).collect();
-    assert_eq!(ids.len(), 5);
+    assert_eq!(ids.len(), 6);
     panel.people = vec![("Membro: Ada, @ada:x".into(), Some("@ada:x".into()))];
     let label = |panel: &DetailsSnapshot, c: DetailsControl| {
         let tree = panel.tree();
@@ -365,4 +365,24 @@ fn open_panel_does_not_hide_the_rest_of_the_app_from_the_screen_reader() {
     assert!(tree.nodes.iter().any(|(_, n)| n.label() == Some("Informazioni stanza") && n.role() == Role::Complementary), "panel must stay in the tree");
     let request = ActionRequest { action: Action::Click, target_tree: TreeId::ROOT, target_node: SEARCH, data: None };
     assert!(open.action(&request).is_some(), "search stays actionable");
+}
+
+#[test]
+fn topic_is_a_labelled_focusable_scroll_area_without_help_text_or_click() {
+    use accesskit::{Action, ActionRequest, TreeId};
+    use matrix_desktop::accessibility::details::DetailsView;
+    let panel = panel();
+    let scope = panel.scope.clone();
+    let tree = panel.tree();
+    let node = &tree.nodes.iter().find(|(id, _)| *id == DetailsControl::Topic.id()).unwrap().1;
+    assert_eq!((node.role(), node.label()), (Role::ScrollView, Some("Argomento")));
+    assert!(node.supports_action(Action::Focus) && !node.supports_action(Action::Click));
+    assert_eq!(node.description(), None);
+    let view = DetailsView::Open(Box::new(panel));
+    let request = |action| ActionRequest { action, target_tree: TreeId::ROOT, target_node: DetailsControl::Topic.id(), data: None };
+    assert_eq!(
+        view.action(&request(Action::Focus)),
+        Some(DetailsAction::Focus { scope, control: DetailsControl::Topic })
+    );
+    assert_eq!(view.action(&request(Action::Click)), None);
 }

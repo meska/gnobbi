@@ -54,7 +54,7 @@ impl Shell {
             DetailsAction::Open(_) => {
                 self.set_room_details_open(true);
                 self.details_focus = Default::default();
-                self.a11y_details_bounds = [None; 5];
+                self.a11y_details_bounds = [None; 6];
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
@@ -113,6 +113,24 @@ impl Shell {
             eprintln!("Gnobbi: cannot save room preferences: {error}");
         }
         cx.notify();
+    }
+
+    /// Up/Down/PageUp/PageDown scroll the focused «Argomento» area.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn topic_scroll_key(&self, key: &str) -> bool {
+        let handle = self.topic_scroll.0.borrow().base_handle.clone();
+        let page = f32::from(handle.bounds().size.height);
+        let delta = match key {
+            "up" => 20.,
+            "down" => -20.,
+            "pageup" => page,
+            "pagedown" => -page,
+            _ => return false,
+        };
+        let max = f32::from(handle.max_offset().height);
+        let y = (f32::from(handle.offset().y) + delta).clamp(-max, 0.);
+        handle.set_offset(point(px(0.), px(y)));
+        true
     }
 
     fn details_observer(&self, _index: usize, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
@@ -412,12 +430,32 @@ impl Shell {
                     ))
                     .child(
                         div().child("Argomento").child(
-                            div().mt_2().child(
-                                room.info
-                                    .topic
-                                    .clone()
-                                    .unwrap_or_else(|| "Nessun argomento".into()),
-                            ),
+                            // At most a third of the sheet below the header, then it scrolls (short text: natural height, no thumb).
+                            div()
+                                .relative()
+                                .mt_2()
+                                .children(self.details_observer(1, cx))
+                                .when(focused_control == Some(1), |d| {
+                                    d.border_1().border_color(rgb(t.accent))
+                                })
+                                .child(
+                                    div()
+                                        .id("room-topic")
+                                        .max_h((window.viewport_size().height - px(t.header)) / 3.)
+                                        .overflow_y_scroll()
+                                        .track_scroll(&self.topic_scroll.0.borrow().base_handle)
+                                        .child(
+                                            room.info
+                                                .topic
+                                                .clone()
+                                                .unwrap_or_else(|| "Nessun argomento".into()),
+                                        ),
+                                )
+                                .child(self.topic_scrollbar.render(
+                                    "room-topic-scrollbar",
+                                    scrollbar_view::ScrollTarget::Rooms(self.topic_scroll.clone()),
+                                    t,
+                                )),
                         ),
                     )
                     .child(encryption)
@@ -436,8 +474,8 @@ impl Shell {
                         div()
                             .id("copy-room-id")
                             .relative()
-                            .children(self.details_observer(1, cx))
-                            .when(focused_control == Some(1), |d| {
+                            .children(self.details_observer(2, cx))
+                            .when(focused_control == Some(2), |d| {
                                 d.border_1().border_color(rgb(t.accent))
                             })
                             .cursor_pointer()
@@ -453,26 +491,26 @@ impl Shell {
                     )
                     .child(
                         switch_row(
-                            "room-hide-status", "Nascondi messaggi di stato", hide_status, true, input_modality::only_keys(focused_control == Some(2), cx), t,
+                            "room-hide-status", "Nascondi messaggi di stato", hide_status, true, input_modality::only_keys(focused_control == Some(3), cx), t,
                         )
                         .relative()
-                        .children(self.details_observer(2, cx))
+                        .children(self.details_observer(3, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
                     )
                     .child(
                         switch_row(
-                            "room-hide-redacted", "Nascondi messaggi eliminati", hide_redacted, true, input_modality::only_keys(focused_control == Some(3), cx), t,
+                            "room-hide-redacted", "Nascondi messaggi eliminati", hide_redacted, true, input_modality::only_keys(focused_control == Some(4), cx), t,
                         )
                         .relative()
-                        .children(self.details_observer(3, cx))
+                        .children(self.details_observer(4, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
                     )
                     .child(
                         div()
                             .id("room-edit-open")
                             .relative()
-                            .children(self.details_observer(4, cx))
-                            .when(focused_control == Some(4), |d| d.border_1().border_color(rgb(t.accent)))
+                            .children(self.details_observer(5, cx))
+                            .when(focused_control == Some(5), |d| d.border_1().border_color(rgb(t.accent)))
                             .cursor_pointer()
                             .text_color(rgb(t.accent))
                             .child("Modifica")

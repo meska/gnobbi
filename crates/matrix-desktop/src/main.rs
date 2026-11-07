@@ -171,7 +171,7 @@ struct Shell {
     /// Focus zone of the non-modal «Informazioni stanza» panel; the composer keeps the keyboard until F6 or a click moves it here.
     details_zone: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_details_bounds: [Option<accesskit::Rect>; 5],
+    a11y_details_bounds: [Option<accesskit::Rect>; 6],
     spaces_ui: spaces_view::SpacesUi,
     spaces_open: bool,
     navigation_wide: bool,
@@ -257,6 +257,8 @@ struct Shell {
     members_scrollbar: scrollbar_view::Scrollbar,
     info_scroll: UniformListScrollHandle, // only its base ScrollHandle is used, to share the scrollbar
     info_scrollbar: scrollbar_view::Scrollbar,
+    topic_scroll: UniformListScrollHandle, // same trick as info_scroll: only its base ScrollHandle
+    topic_scrollbar: scrollbar_view::Scrollbar,
 }
 
 impl Shell {
@@ -990,6 +992,15 @@ impl Shell {
             && (self.details_zone.contains_focused(window, cx) || self.profile.is_some())
         {
             if self.profile.is_some() && self.profile_key(key.key.as_str(), key.modifiers.shift, window, cx) {
+                cx.stop_propagation();
+                return;
+            }
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            if self.profile.is_none()
+                && self.details_focus == matrix_desktop::accessibility::details::DetailsControl::Topic
+                && self.topic_scroll_key(&key.key)
+            {
+                cx.notify();
                 cx.stop_propagation();
                 return;
             }
@@ -3361,7 +3372,7 @@ fn main() {
                         details_focus: Default::default(),
                         details_zone: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_details_bounds: [None; 5],
+                        a11y_details_bounds: [None; 6],
                         spaces_ui,
                         spaces_open: false,
                         navigation_wide: true,
@@ -3420,6 +3431,8 @@ fn main() {
                         members_scrollbar: Default::default(),
                         info_scroll: UniformListScrollHandle::new(),
                         info_scrollbar: Default::default(),
+                        topic_scroll: UniformListScrollHandle::new(),
+                        topic_scrollbar: Default::default(),
                     }
                 });
                 let weak = shell.downgrade();
