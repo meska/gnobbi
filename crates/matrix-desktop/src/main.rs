@@ -2508,6 +2508,7 @@ impl Shell {
 }
 
 fn main() {
+    matrix_desktop::update::startup::run_at_start();
     #[cfg(all(feature = "perf-probe", feature = "live", target_os = "macos"))]
     if std::env::var_os("P115B_NATIVE").is_some() {
         return login_field::mac_clipboard_probe::run();
