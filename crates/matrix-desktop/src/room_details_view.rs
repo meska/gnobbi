@@ -466,28 +466,46 @@ impl Shell {
                             .child("ID stanza")
                             .child(
                                 div()
-                                    .truncate()
-                                    .child(room.scope.room_id.as_str().to_owned()),
+                                    .flex()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .min_w_0()
+                                            .flex_1()
+                                            .truncate()
+                                            .child(room.scope.room_id.as_str().to_owned()),
+                                    )
+                                    // Icon only, same 36x36 box and focus ring as the panel opener; label for screen readers lives in the a11y tree.
+                                    .child(
+                                        div()
+                                            .id("copy-room-id")
+                                            .relative()
+                                            .children(self.details_observer(2, cx))
+                                            .flex_shrink_0()
+                                            .w(px(36.))
+                                            .h(px(36.))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_lg()
+                                            .border_1()
+                                            .border_color(if input_modality::only_keys(focused_control == Some(2), cx) {
+                                                rgb(t.accent)
+                                            } else {
+                                                gpui::rgba(0)
+                                            })
+                                            .hover(|s| s.bg(rgb(t.border)))
+                                            .cursor_pointer()
+                                            .child(composer_icons::icon(composer_icons::Icon::Copy, t.accent))
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                if let Some(room) = this.sidebar.selected() {
+                                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                                        room.scope.room_id.as_str().to_owned(),
+                                                    ));
+                                                }
+                                            })),
+                                    ),
                             ),
-                    )
-                    .child(
-                        div()
-                            .id("copy-room-id")
-                            .relative()
-                            .children(self.details_observer(2, cx))
-                            .when(focused_control == Some(2), |d| {
-                                d.border_1().border_color(rgb(t.accent))
-                            })
-                            .cursor_pointer()
-                            .text_color(rgb(t.accent))
-                            .child("Copia ID")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                if let Some(room) = this.sidebar.selected() {
-                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                        room.scope.room_id.as_str().to_owned(),
-                                    ));
-                                }
-                            })),
                     )
                     .child(
                         switch_row(
