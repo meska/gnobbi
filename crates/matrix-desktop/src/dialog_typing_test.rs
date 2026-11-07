@@ -177,6 +177,8 @@ pub(crate) async fn scenario(n: usize, this: WeakEntity<Shell>, cx: &mut AsyncWi
                     fails.push(format!("{tag} Esc non chiude il dialogo"));
                     shell!(|this, window, cx| { this.room_edit = None; this.new_room = None; this.poll_dialog = None; this.verification.cancel_rename(); this.delete_field = None; this.list_focus.focus(window); cx.notify(); });
                 }
+                // The panel opened for this path must not leak into the next "pannello chiuso" run.
+                shell!(|this, _, _| { this.set_room_details_open(false); this.set_verification_open(false); });
                 continue;
             }
 
@@ -282,6 +284,7 @@ pub(crate) async fn scenario(n: usize, this: WeakEntity<Shell>, cx: &mut AsyncWi
         println!("DIALOG-TYPING FAIL {f}");
     }
     println!("DIALOG-TYPING {}: {} problemi", c.name, fails.len());
-    assert!(fails.is_empty(), "{}: {} problemi:\n{}", c.name, fails.len(), fails.join("\n"));
+    // Quit before asserting, so a failure does not leave this window to the next test in the batch.
     shell!(|_, _, cx| cx.quit());
+    assert!(fails.is_empty(), "{}: {} problemi:\n{}", c.name, fails.len(), fails.join("\n"));
 }
