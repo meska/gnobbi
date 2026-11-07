@@ -312,6 +312,7 @@ impl Shell {
         let line = || div().w(px(16.)).h(px(2.)).rounded_sm().bg(rgb(t.text));
         div()
             .id("menu-button")
+            .track_focus(&self.menu_focus)
             .relative()
             .children({
                 #[cfg(test)]
@@ -403,6 +404,7 @@ impl Shell {
             && self.drawer_row == self.drawer_accounts().len() + 8;
         div()
             .id("menu-about")
+            .flex_shrink_0()
             .mx_2()
             .my_1()
             .px_2()
@@ -425,6 +427,7 @@ impl Shell {
         Some(
             div()
                 .id("menu-profile")
+                .flex_shrink_0()
                 .p_4()
                 .flex()
                 .flex_col()

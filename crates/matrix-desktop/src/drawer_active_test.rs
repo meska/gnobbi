@@ -81,6 +81,27 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             check!(this.menu_open && this.drawer_focus.is_focused(window), "Enter on Menu opens the drawer with focus");
             check!(input_modality::is_keyboard(cx) && this.drawer_row == 1, "Enter open: ring on, row {}", this.drawer_row);
         }).unwrap();
+        // 4c. Tab order: the Menu button is on the focus ring, in both directions, starting from the list (no mouse).
+        let full = this.update_in(cx, |_, window, _| window.viewport_size()).unwrap();
+        for (back, width, label) in [(false, 1000., "Tab wide"), (true, 1000., "Shift+Tab wide"), (false, 700., "Tab compact"), (true, 700., "Shift+Tab compact")] {
+            this.update_in(cx, |this, window, cx| { window.resize(gpui::size(px(width), full.height)); this.set_menu_open(false, window, cx); this.list_focus.focus(window); }).unwrap();
+            wait(400).await;
+            let mut seen = false;
+            for _ in 0..40 {
+                key!(if back { "shift-tab" } else { "tab" });
+                wait(30).await;
+                if this.update_in(cx, |this, window, _| this.menu_focus.is_focused(window)).unwrap() { seen = true; break; }
+            }
+            check!(seen, "{label} from the list reaches the Menu button within 40 stops");
+        }
+        this.update_in(cx, |this, window, cx| { check!(input_modality::only_keys(this.menu_focus.is_focused(window), cx), "ring on the Menu button after Shift+Tab"); window.resize(full); this.set_menu_open(true, window, cx); }).unwrap();
+        // 4d. Fresh window, nothing focused: the next frame puts focus on the Menu button, so keys work without a click.
+        this.update_in(cx, |this, window, cx| { this.set_menu_open(false, window, cx); window.blur(); }).unwrap();
+        wait(300).await;
+        this.update_in(cx, |this, window, cx| {
+            check!(this.menu_focus.is_focused(window), "nothing focused -> the Menu button takes focus");
+            this.set_menu_open(true, window, cx);
+        }).unwrap();
         // 5. Account change with the drawer open: refused switch keeps the drawer, error on that row, same account shown.
         this.update_in(cx, |this, window, cx| {
             this.switch_account(anna, window, cx); // anna is not parked: refused

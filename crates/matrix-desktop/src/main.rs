@@ -1863,6 +1863,11 @@ impl Shell {
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
         }
+        // Nothing focused (fresh window): keys never reach the elements, so Tab, Enter and Ctrl+Shift+M would all be dead
+        // without a mouse click. The Menu button is the first stop and opens the drawer.
+        if self.connected && window.focused(cx).is_none() {
+            self.menu_focus.focus(window);
+        }
         // The sign-in inputs are gone after login: without this nothing has focus and shortcuts stay dead.
         if std::mem::take(&mut self.refocus_list) {
             self.list_focus.focus(window);
