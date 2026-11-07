@@ -3,7 +3,7 @@
 //! (with the active result as `active_descendant`), a close button, the results list and one status
 //! line. Labels only; nothing explains the search.
 use super::ROOT;
-use crate::new_chat::Status;
+use crate::search_list::Status;
 use accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, TreeId, TreeUpdate};
 
 /// Far from the room list (from 100 up) and from the history (from 2^62).

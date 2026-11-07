@@ -4,7 +4,7 @@
 //! work (server `/search` for unencrypted rooms, the decrypted local cache for encrypted ones).
 use crate::*;
 use gpui::{HighlightStyle, StyledText};
-use matrix_desktop::new_chat::Status;
+use matrix_desktop::search_list::Status;
 use matrix_domain::EventId;
 use matrix_engine::operations::{MessageHit, MessageSearchState, MoreHits, OperationCommand};
 
@@ -70,7 +70,7 @@ impl RoomSearch {
         match self.state {
             MessageSearchState::Searching { .. } => Some(Status::Searching),
             MessageSearchState::NoResults { .. } => Some(Status::NoResults),
-            MessageSearchState::Error { .. } => Some(Status::Error),
+            MessageSearchState::Error { .. } => Some(Status::Failed),
             MessageSearchState::Results { partial: true, .. } => Some(Status::Partial),
             _ => None,
         }
@@ -422,7 +422,7 @@ impl Shell {
                         .px_6()
                         .py_2()
                         .text_size(px(13.))
-                        .text_color(rgb(if status == Status::Error { t.error } else { t.disabled }))
+                        .text_color(rgb(if status == Status::Failed { t.error } else { t.disabled }))
                         .child(status.text())
                 }))
                 .into_any_element(),

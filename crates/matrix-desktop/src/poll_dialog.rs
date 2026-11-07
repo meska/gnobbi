@@ -255,7 +255,7 @@ impl PollDialog {
             let _ = field;
             items.push(Item { role: Role::Label, label: text.to_owned(), checked: None, focused: false, bounds: None });
         }
-        Snapshot { items }
+        Snapshot { items, join: None }
     }
 }
 

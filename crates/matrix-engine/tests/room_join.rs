@@ -6,7 +6,7 @@
 use matrix_domain::{AccountId, RoomId, RoomScope};
 use matrix_engine::{
     RoomListDiff, RoomListEvent, bounded,
-    operations::{OperationError, join_room, leave_room, search_directory},
+    operations::{OperationError, join_room, leave_room, public_rooms},
     room_sync::RoomSync,
     sdk::{
         Client,
@@ -82,15 +82,15 @@ fn b_joins_by_alias_and_from_the_directory_then_leaves() {
         let steps = async {
             let account = AccountId::new(2);
             // Bad input and a missing alias stop before any room is touched.
-            assert_eq!(join_room(&b, account, "not an alias").await, Err(OperationError::InvalidInput));
-            assert_eq!(join_room(&b, account, &format!("#gnobbi-test-missing-{nanos}:{server}")).await, Err(OperationError::Unavailable));
+            assert_eq!(join_room(&b, account, "not an alias", &[]).await, Err(OperationError::InvalidInput));
+            assert_eq!(join_room(&b, account, &format!("#gnobbi-test-missing-{nanos}:{server}"), &[]).await, Err(OperationError::Unavailable));
 
             // Join by alias: the room appears in the list as joined.
-            assert_eq!(join_room(&b, account, &format!("#{alias_name}:{server}")).await.unwrap(), alias_scope);
+            assert_eq!(join_room(&b, account, &format!("#{alias_name}:{server}"), &[]).await.unwrap(), alias_scope);
             // Join from the directory: the hit has no alias, so the room ID is the target.
             let mut hit = None;
             for _ in 0..20 {
-                hit = search_directory(&b, &listed_name).await.unwrap().into_iter().find(|d| d.room_id == listed_scope.room_id.as_str());
+                hit = public_rooms(&b, &listed_name, None, None, 20).await.unwrap().hits.into_iter().find(|d| d.room_id == listed_scope.room_id.as_str());
                 if hit.is_some() {
                     break;
                 }
@@ -98,7 +98,7 @@ fn b_joins_by_alias_and_from_the_directory_then_leaves() {
             }
             let hit = hit.expect("public room not in directory");
             assert_eq!((hit.name.as_str(), hit.alias.as_deref()), (listed_name.as_str(), None));
-            assert_eq!(join_room(&b, account, hit.target()).await.unwrap(), listed_scope);
+            assert_eq!(join_room(&b, account, hit.target(), &[]).await.unwrap(), listed_scope);
 
             let (mut joined_alias, mut joined_listed) = (false, false);
             while !(joined_alias && joined_listed) {

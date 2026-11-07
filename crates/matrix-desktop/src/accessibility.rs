@@ -8,17 +8,19 @@ pub mod compact;
 pub mod details;
 pub mod drawer;
 pub mod devices;
+pub mod directory_servers;
 pub mod event_id_copy;
 pub mod filters;
 pub mod links;
-pub mod new_room;
 pub mod new_chat;
 pub mod room_search;
+pub mod new_room;
 pub mod notifications;
-pub mod settings;
 pub mod offline_delivery;
 pub mod operation_panel;
 pub mod pagination;
+pub mod search_list;
+pub mod settings;
 pub use crate::panel_openers;
 pub mod scrollbars;
 pub mod selection;
@@ -431,8 +433,7 @@ impl HistoryNodes {
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 6)),
                     play_bounds: None,
-                    save: crate::offers_save(event, true)
-                    .then_some(NodeId(id.0 + 7)),
+                    save: crate::offers_save(event, true).then_some(NodeId(id.0 + 7)),
                     save_bounds: None,
                     bounds: None,
                     id,
@@ -524,7 +525,10 @@ const LEAVE: u64 = 1 << 42;
 
 impl SemanticRoom {
     fn invite_buttons(&self) -> [(NodeId, bool); 2] {
-        [(NodeId(self.id.0 + INVITE_ACCEPT), true), (NodeId(self.id.0 + INVITE_REJECT), false)]
+        [
+            (NodeId(self.id.0 + INVITE_ACCEPT), true),
+            (NodeId(self.id.0 + INVITE_REJECT), false),
+        ]
     }
 }
 
@@ -703,6 +707,9 @@ impl NavigationSnapshot {
         }
         if let Some(drawer) = &self.drawer {
             return drawer.action(request).map(NavigationAction::Drawer);
+        }
+        if let Some(dialog) = &self.new_room {
+            return dialog.action(request).map(NavigationAction::NewRoom);
         }
         if matches!(self.new_chat, new_chat::NewChatView::Open(_)) {
             return self.new_chat.action(request).map(NavigationAction::NewChat);
@@ -1022,7 +1029,10 @@ impl NavigationSnapshot {
                             .then_some((room, button.1))
                     }) =>
             {
-                Some(NavigationAction::AnswerInvite { scope: room.scope.clone(), accept })
+                Some(NavigationAction::AnswerInvite {
+                    scope: room.scope.clone(),
+                    accept,
+                })
             }
             (id, Action::Click)
                 if self.visible
@@ -1623,7 +1633,11 @@ impl NavigationSnapshot {
             for icon in crate::IconChoice::ALL {
                 let mut node = Node::new(Role::RadioButton);
                 node.set_label(icon.label());
-                node.set_toggled(if icon == current { Toggled::True } else { Toggled::False });
+                node.set_toggled(if icon == current {
+                    Toggled::True
+                } else {
+                    Toggled::False
+                });
                 node.add_action(Action::Click);
                 node.add_action(Action::Focus);
                 tree.nodes[0].1.push_child(icon_node(icon));
@@ -1695,6 +1709,7 @@ pub enum NavigationAction {
     Settings(settings::SettingsAction),
     NewChat(new_chat::NewChatAction),
     RoomSearch(room_search::RoomSearchAction),
+    NewRoom(new_room::NewRoomAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
     ChooseIcon(crate::IconChoice),
     ToggleMenu,
@@ -1712,7 +1727,10 @@ pub enum NavigationAction {
         text: String,
     },
     ActivateRoom(RoomIntent),
-    AnswerInvite { scope: matrix_domain::RoomScope, accept: bool },
+    AnswerInvite {
+        scope: matrix_domain::RoomScope,
+        accept: bool,
+    },
     LeaveRoom(matrix_domain::RoomScope),
     FocusRoom(RoomIntent),
 }
