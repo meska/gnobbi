@@ -137,6 +137,7 @@ fn system_entry_and_missing_display_never_propose_and_write_nothing() {
     assert!(tree(&root.join("home")).is_empty());
 }
 
+#[cfg(feature = "linux-a11y")]
 #[test]
 fn dialog_tree_has_three_labelled_buttons_and_no_help_text() {
     use accesskit::Role;

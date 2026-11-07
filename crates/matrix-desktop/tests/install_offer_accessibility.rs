@@ -1,3 +1,5 @@
+#![cfg(all(feature = "linux-a11y", target_os = "linux"))]
+
 use accesskit::{Action, ActionRequest, Role, TreeId};
 use matrix_desktop::accessibility::install_offer::Snapshot;
 use matrix_desktop::install_offer::Choice;
