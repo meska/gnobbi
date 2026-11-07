@@ -144,6 +144,9 @@ pub struct SemanticMessage {
     pub retry_bounds: Option<accesskit::Rect>,
     pub retry_focused: bool,
     pub retry: Option<NodeId>,
+    /// Could not be decrypted: may carry «Recupera chiavi» (see `HistorySnapshot::offer_recover_keys`).
+    pub utd: bool,
+    pub recover: Option<RecoverSnapshot>,
     /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
     /// Poll bubble: group at slot +9, footer +10, option `ix` at +11+ix (at most `POLL_OPTIONS`).
     pub poll: Option<matrix_domain::Poll>,
@@ -161,6 +164,30 @@ pub struct SemanticMessage {
     pub event: matrix_domain::ScopedTimelineId,
     pub text: String,
     pub description: String,
+}
+
+/// «Recupera chiavi» on an undecryptable message: control (+8), key field while open (+9), status line (+10).
+#[derive(Clone, Default)]
+pub struct RecoverSnapshot {
+    pub control_bounds: Option<accesskit::Rect>,
+    pub control_focused: bool,
+    pub field: bool,
+    pub field_bounds: Option<accesskit::Rect>,
+    pub field_focused: bool,
+    pub status: Option<&'static str>,
+}
+
+impl SemanticMessage {
+    pub fn recover_control(&self) -> NodeId {
+        // shortcut: slot +4 because main gave +8 to the profile link, which also sits on utd rows
+        NodeId(self.id.0 + 4)
+    }
+    pub fn recover_field(&self) -> NodeId {
+        NodeId(self.id.0 + 9)
+    }
+    pub fn recover_status(&self) -> NodeId {
+        NodeId(self.id.0 + 10)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -212,6 +239,7 @@ impl HistorySnapshot {
                 .description
                 .push_str(" · Demo offline · Nessuna consegna Matrix");
             message.retry = None;
+            message.recover = None;
             message.play = None;
             message.poll_focus = None;
             message.save = None;
@@ -220,6 +248,29 @@ impl HistorySnapshot {
             message.event_id_copy = None;
             message.actions = None;
         }
+    }
+
+    /// Every undecryptable message carries the control while the recovery is incomplete; only `open` shows the field.
+    pub fn offer_recover_keys(
+        &mut self,
+        offered: bool,
+        open: Option<&matrix_domain::ScopedTimelineId>,
+        status: Option<&'static str>,
+    ) {
+        for message in self.messages.iter_mut().filter(|m| m.utd) {
+            let field = offered && open == Some(&message.event);
+            message.recover = offered.then(|| RecoverSnapshot {
+                field,
+                status: status.filter(|_| field),
+                ..Default::default()
+            });
+        }
+    }
+
+    pub fn allows_recover_keys(&self, target: &matrix_domain::ScopedTimelineId) -> bool {
+        self.messages
+            .iter()
+            .any(|message| message.event == *target && message.recover.is_some())
     }
 
     pub fn allows_actions(&self, target: &matrix_domain::ScopedTimelineId) -> bool {
@@ -420,6 +471,8 @@ impl HistoryNodes {
                         && event.send_state.is_none()
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 2)),
+                    utd: event.utd,
+                    recover: None,
                     retry_bounds: None,
                     retry_focused: false,
                     retry: (event.send_state == Some(crate::DemoSendState::Failed)
@@ -912,6 +965,18 @@ impl NavigationSnapshot {
         {
             return Some(NavigationAction::FocusMessageActions(message.event.clone()));
         }
+        if matches!(request.action, Action::Click | Action::Focus)
+            && let Some(message) = self.history.as_ref().and_then(|history| {
+                history.messages.iter().find(|m| {
+                    m.recover.as_ref().is_some_and(|r| {
+                        (request.action == Action::Click && request.target_node == m.recover_control())
+                            || (r.field && request.action == Action::Focus && request.target_node == m.recover_field())
+                    })
+                })
+            })
+        {
+            return Some(NavigationAction::RecoverKeys(message.event.clone()));
+        }
         if request.action == Action::Focus
             && let Some(message) = self.history.as_ref().and_then(|history| {
                 history
@@ -1342,6 +1407,33 @@ impl NavigationSnapshot {
                     node.push_child(id);
                     tree.nodes.push((id, retry));
                 }
+                if let Some(recover) = &message.recover {
+                    let mut control = Node::new(Role::Button);
+                    control.set_label(crate::recover_keys::RECOVER_KEYS_LABEL);
+                    control.add_action(Action::Click);
+                    if let Some(bounds) = recover.control_bounds {
+                        control.set_bounds(bounds);
+                    }
+                    node.push_child(message.recover_control());
+                    tree.nodes.push((message.recover_control(), control));
+                    if recover.field {
+                        let mut field = Node::new(Role::PasswordInput);
+                        field.set_label(crate::recover_keys::RECOVERY_KEY_LABEL);
+                        field.add_action(Action::Focus);
+                        if let Some(bounds) = recover.field_bounds {
+                            field.set_bounds(bounds);
+                        }
+                        node.push_child(message.recover_field());
+                        tree.nodes.push((message.recover_field(), field));
+                    }
+                    if let Some(text) = recover.status {
+                        let mut status = Node::new(Role::Label);
+                        status.set_label(text);
+                        status.set_live(accesskit::Live::Polite);
+                        node.push_child(message.recover_status());
+                        tree.nodes.push((message.recover_status(), status));
+                    }
+                }
                 list.push_child(message.id);
                 tree.nodes.push((message.id, node));
             }
@@ -1374,6 +1466,16 @@ impl NavigationSnapshot {
                 .find(|message| message.retry_focused)
                 .and_then(|message| message.retry)
             {
+                tree.focus = id;
+            }
+            if let Some(id) = history.messages.iter().find_map(|m| {
+                let r = m.recover.as_ref()?;
+                if r.field_focused {
+                    Some(m.recover_field())
+                } else {
+                    r.control_focused.then(|| m.recover_control())
+                }
+            }) {
                 tree.focus = id;
             }
         }
@@ -1698,6 +1800,8 @@ pub enum NavigationAction {
     FocusPollOption(matrix_domain::ScopedTimelineId, usize),
     VotePoll(matrix_domain::ScopedTimelineId, usize),
     RetryMessage(matrix_domain::ScopedTimelineId),
+    /// Opens (or refocuses) the «Chiave di recupero Matrix» field under that message.
+    RecoverKeys(matrix_domain::ScopedTimelineId),
     Spaces(spaces::SpacesAction),
     Filter(filters::FilterAction),
     FocusServerHistory(matrix_engine::RequestTag),

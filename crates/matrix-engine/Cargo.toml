@@ -110,3 +110,7 @@ required-features = ["sdk"]
 [[test]]
 name = "message_search_qa"
 required-features = ["sdk"]
+
+[[test]]
+name = "recovery_later"
+required-features = ["sdk"]

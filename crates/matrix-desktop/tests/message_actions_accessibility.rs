@@ -60,6 +60,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);
@@ -273,6 +274,7 @@ fn an_attachment_has_a_scarica_button_a_text_row_has_none() {
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: name.map(Into::into),
         attachment_size: None, media: None,
     };

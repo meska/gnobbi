@@ -484,6 +484,7 @@ pub(crate) fn exercise(this: &mut Shell, window: &mut Window, cx: &mut Context<S
     let event = |n: usize| HistoryEvent {
         poll: None,
         redacted: false,
+        utd: false,
         event_id: EventId::new(format!("$m{n}:t")),
         body: format!("riga {n} ciao"),
         outgoing: false,

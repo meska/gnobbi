@@ -37,6 +37,7 @@ fn ev(id: &str, ts: u64, redacted: bool, status: bool) -> HistoryEvent {
         thread: None,
         thread_root: None,
         status,
+        utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }

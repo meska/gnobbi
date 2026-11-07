@@ -350,6 +350,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         timeline.append_server(vec![matrix_engine::history::HistoryEvent {
             poll: None,
             redacted: false,
+            utd: false,
             event_id: matrix_domain::EventId::new("$bubble:test"),
             body: "ciao".into(),
             outgoing: false,

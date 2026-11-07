@@ -70,6 +70,8 @@ pub struct DemoEvent {
     pub thread_root: Option<matrix_domain::EventId>,
     /// A status row (join, invite, rename…): drawn as a quiet centred line, not a bubble.
     pub status: bool,
+    /// Could not be decrypted: the row offers «Recupera chiavi» while the recovery is incomplete.
+    pub utd: bool,
 }
 
 impl DemoEvent {
@@ -187,6 +189,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
                     poll: None,
                     attachment_name: None,
@@ -268,6 +271,7 @@ impl DemoHistory {
             thread: None,
             thread_root: None,
             status: false,
+            utd: false,
             video: None,
             poll: None,
             attachment_name: None,
@@ -332,6 +336,7 @@ impl DemoHistory {
                 .iter_mut()
                 .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
                 && (row.text != event.body
+                    || row.utd != event.utd
                     || row.styles != event.styles
                     || row.mentions != event.mentions
                     || row.highlighted != event.highlighted
@@ -342,6 +347,7 @@ impl DemoHistory {
                 row.media.clone_from(&event.media);
                 row.poll.clone_from(&event.poll);
                 row.redacted = event.redacted;
+                row.utd = event.utd;
                 row.text.clone_from(&event.body);
                 row.styles.clone_from(&event.styles);
                 row.mentions.clone_from(&event.mentions);
@@ -414,6 +420,7 @@ impl DemoHistory {
                 thread: event.thread,
                 thread_root: event.thread_root,
                 status: event.status,
+                utd: event.utd,
                 attachment_name: event.attachment_name,
                 attachment_size: event.attachment_size,
                 media: event.media,
@@ -559,6 +566,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
                     poll: None,
                     attachment_name: None,
@@ -647,6 +655,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
                     poll: None,
                     attachment_name: None,

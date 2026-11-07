@@ -57,6 +57,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);
@@ -83,6 +84,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }]);
@@ -122,6 +124,7 @@ fn repeated_ack_projection_preserves_server_content_after_edit_or_redaction() {
             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None, thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
             attachment_size: None, media: None,
         }]);
@@ -156,6 +159,7 @@ fn appended_live_echo_merges_pending_row_in_both_ack_orders() {
             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None, thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
             attachment_size: None, media: None,
         };
@@ -592,6 +596,7 @@ fn refresh_server_gives_own_ack_row_the_local_clock_time() {
             thread: None,
             thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
             attachment_size: None, media: None,
         }]);
@@ -632,6 +637,7 @@ fn own_sent_file_offers_save_once_the_server_copy_arrives() {
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: Some("foto.png".into()),
         attachment_size: Some(10), media: None,
     }]);

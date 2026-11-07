@@ -101,6 +101,68 @@ impl RecoverySecret {
     }
 }
 
+/// `recover_all_room_keys` on a client that may already be syncing: `first_sync` is for the
+/// sign-in path, where no sync has run yet; a running session already knows its rooms.
+pub async fn recover_all_with(
+    client: matrix_sdk::Client,
+    key: zeroize::Zeroizing<String>,
+    first_sync: bool,
+) -> Result<(), RecoveryError> {
+    use futures_util::StreamExt;
+    if key.is_empty() || key.len() > 1024 {
+        return Err(RecoveryError::InvalidSecret);
+    }
+    tokio::time::timeout(Duration::from_secs(40), async {
+        client
+            .encryption()
+            .recovery()
+            .recover(&key)
+            .await
+            .map_err(|e| classify(&e))?;
+        if !client.encryption().backups().are_enabled().await {
+            return Err(RecoveryError::BackupUnavailable);
+        }
+        // The room list is only known after a sync; a fresh vault sign-in has not run one.
+        // The secrets are imported already: a failed sync only skips the prefetch below, the
+        // keys are then fetched one by one on first decryption failure.
+        if first_sync {
+            let _ = crate::sliding::first_sync(&client).await;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| RecoveryError::Deadline)??;
+    let rooms: Vec<matrix_sdk::ruma::OwnedRoomId> = client.rooms().iter().map(|r| r.room_id().to_owned()).collect();
+    let backups = client.encryption().backups();
+    let failed = futures_util::stream::iter(rooms.iter().cloned())
+        .map(|id| download_one(&backups, id))
+        .buffer_unordered(8)
+        .filter(|ok| std::future::ready(!ok))
+        .count()
+        .await;
+    // Every room failing is a network problem the user can retry; some failing is not.
+    if failed > 0 && failed == rooms.len() {
+        return Err(RecoveryError::Transport);
+    }
+    Ok(())
+}
+
+// shortcut: 10 s per room, 8 rooms at once; a failed room is retried by AfterDecryptionFailure.
+// A named fn (not a closure) keeps the future `Send` for the service task.
+async fn download_one(backups: &matrix_sdk::encryption::backups::Backups, id: matrix_sdk::ruma::OwnedRoomId) -> bool {
+    tokio::time::timeout(Duration::from_secs(10), backups.download_room_keys_for_room(&id))
+        .await
+        .is_ok_and(|r| r.is_ok())
+}
+
+/// «Recupero completo»: backup active and the account's cross-signing private keys held here
+/// (which also means this device is signed by its owner). Only then «Recupera chiavi» goes away.
+pub async fn keys_recovered(client: &matrix_sdk::Client) -> bool {
+    let encryption = client.encryption();
+    encryption.backups().are_enabled().await
+        && encryption.cross_signing_status().await.is_some_and(|s| s.is_complete())
+}
+
 impl AccountSession {
     /// Import SDK secrets and download the requested room's encrypted key backup.
     /// This never resets identity, rotates recovery or deletes a backup on error.
@@ -144,47 +206,8 @@ impl AccountSession {
     /// per-room downloads have no overall cap, a slow or failed room never fails the others and
     /// is left to BackupDownloadStrategy::AfterDecryptionFailure (fetched on first use).
     pub async fn recover_all_room_keys(&mut self, key: &str) -> Result<(), RecoveryError> {
-        use futures_util::StreamExt;
-        let client = self.client.as_ref().ok_or(RecoveryError::LoggedOut)?;
-        if key.is_empty() || key.len() > 1024 {
-            return Err(RecoveryError::InvalidSecret);
-        }
-        tokio::time::timeout(Duration::from_secs(40), async {
-            client
-                .encryption()
-                .recovery()
-                .recover(key)
-                .await
-                .map_err(|e| classify(&e))?;
-            if !client.encryption().backups().are_enabled().await {
-                return Err(RecoveryError::BackupUnavailable);
-            }
-            // The room list is only known after a sync; a fresh vault sign-in has not run one.
-            // The secrets are imported already: a failed sync only skips the prefetch below, the
-            // keys are then fetched one by one on first decryption failure.
-            let _ = crate::sliding::first_sync(client).await;
-            Ok(())
-        })
-        .await
-        .map_err(|_| RecoveryError::Deadline)??;
-        let rooms = client.rooms();
-        let backups = client.encryption().backups();
-        let failed = futures_util::stream::iter(&rooms)
-            .map(|room| async {
-                // shortcut: 10 s per room, 8 rooms at once; a failed room is retried by AfterDecryptionFailure.
-                tokio::time::timeout(Duration::from_secs(10), backups.download_room_keys_for_room(room.room_id()))
-                    .await
-                    .is_ok_and(|r| r.is_ok())
-            })
-            .buffer_unordered(8)
-            .filter(|ok| std::future::ready(!ok))
-            .count()
-            .await;
-        // Every room failing is a network problem the user can retry; some failing is not.
-        if failed > 0 && failed == rooms.len() {
-            return Err(RecoveryError::Transport);
-        }
-        Ok(())
+        let client = self.client.clone().ok_or(RecoveryError::LoggedOut)?;
+        recover_all_with(client, zeroize::Zeroizing::new(key.to_owned()), true).await
     }
     /// Return success only when the SDK confirms all currently known keys uploaded.
     pub async fn upload_key_backup(&mut self) -> Result<(), RecoveryError> {

@@ -1470,6 +1470,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     attachment_name: None,
                     attachment_size: None, media: None,
                 }).collect();

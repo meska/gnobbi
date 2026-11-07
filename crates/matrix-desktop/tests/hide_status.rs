@@ -20,6 +20,7 @@ fn ev(id: &str, ts: u64, status: bool, redacted: bool) -> HistoryEvent {
         thread: None,
         thread_root: None,
         status,
+        utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
     }

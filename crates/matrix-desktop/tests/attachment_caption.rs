@@ -16,6 +16,7 @@ fn row(id: &str, kind: Option<MediaKind>, label: &str, caption: &str) -> History
         body: caption.into(),
         outgoing: false,
         redacted: false,
+        utd: false,
         timestamp_ms: 1,
         sender: HistorySender::new("@peer:test", None),
         video: None,

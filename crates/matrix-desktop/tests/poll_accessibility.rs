@@ -55,6 +55,7 @@ fn nodes(poll: Poll) -> Vec<(accesskit::NodeId, accesskit::Node)> {
     history.prepend_server(vec![matrix_engine::history::HistoryEvent {
         poll: Some(poll),
         redacted: false,
+        utd: false,
         event_id: EventId::new("$poll:test"),
         body: "Pizza?".into(),
         outgoing: false,
@@ -106,6 +107,7 @@ fn history_snapshot(poll: Poll) -> matrix_desktop::accessibility::HistorySnapsho
     history.prepend_server(vec![matrix_engine::history::HistoryEvent {
         poll: Some(poll),
         redacted: false,
+        utd: false,
         event_id: EventId::new("$poll:test"),
         body: "Pizza?".into(),
         outgoing: false,

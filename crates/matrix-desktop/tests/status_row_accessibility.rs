@@ -20,6 +20,7 @@ fn row(id: &str, body: &str, status: bool) -> HistoryEvent {
         thread: None,
         thread_root: None,
         status,
+        utd: false,
     }
 }
 

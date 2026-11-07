@@ -309,6 +309,22 @@ pub enum RecoveryState {
     /// The account has no secret storage: the recovery key route does not exist for it.
     Unsupported,
 }
+impl RecoveryState {
+    /// The state a finished recovery attempt ends in; shared by sign-in and the later «Recupera chiavi».
+    pub fn of_outcome(outcome: Result<(), RecoveryError>) -> Self {
+        match outcome {
+            Ok(()) => Self::Recovered,
+            Err(RecoveryError::NoSecretStorage) => Self::Unsupported,
+            Err(RecoveryError::WrongKey | RecoveryError::InvalidSecret) => {
+                Self::Failed(RecoveryFailure::InvalidKey)
+            }
+            Err(RecoveryError::Transport) => Self::Failed(RecoveryFailure::Network),
+            Err(RecoveryError::Deadline) => Self::Failed(RecoveryFailure::Timeout),
+            Err(RecoveryError::BackupUnavailable) => Self::Failed(RecoveryFailure::BackupUnavailable),
+            Err(_) => Self::Failed(RecoveryFailure::Other),
+        }
+    }
+}
 /// Fixed failure categories of one recovery attempt; retry or defer stay possible.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryFailure {
@@ -505,23 +521,7 @@ impl PendingSignIn {
                     // The key lives only in this call; dropping the future zeroizes it.
                     let outcome = session.recover_all_room_keys(&key.0).await;
                     drop(key);
-                    let state = match outcome {
-                        Ok(()) => RecoveryState::Recovered,
-                        Err(RecoveryError::NoSecretStorage) => RecoveryState::Unsupported,
-                        Err(RecoveryError::WrongKey | RecoveryError::InvalidSecret) => {
-                            RecoveryState::Failed(RecoveryFailure::InvalidKey)
-                        }
-                        Err(RecoveryError::Transport) => {
-                            RecoveryState::Failed(RecoveryFailure::Network)
-                        }
-                        Err(RecoveryError::Deadline) => {
-                            RecoveryState::Failed(RecoveryFailure::Timeout)
-                        }
-                        Err(RecoveryError::BackupUnavailable) => {
-                            RecoveryState::Failed(RecoveryFailure::BackupUnavailable)
-                        }
-                        Err(_) => RecoveryState::Failed(RecoveryFailure::Other),
-                    };
+                    let state = RecoveryState::of_outcome(outcome);
                     self.events
                         .send(SignInEvent::Recovery(state))
                         .await

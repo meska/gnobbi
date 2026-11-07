@@ -112,6 +112,8 @@ pub struct HistoryEvent {
     pub status: bool,
     /// Set on a poll start: `body` is its question. Private user data: never log.
     pub poll: Option<matrix_domain::Poll>,
+    /// The event could not be decrypted (no keys): the only rows a key recovery can fix.
+    pub utd: bool,
 }
 
 /// The summary under a thread root, as the Timeline keeps it (live).

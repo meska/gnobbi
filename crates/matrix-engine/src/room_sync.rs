@@ -1638,6 +1638,12 @@ async fn thread_info(
     Some(crate::history::ThreadInfo { num_replies: summary.num_replies, latest_sender, unread: 0 })
 }
 
+/// The rows of `loaded`, for the disposable-server tests in `tests/`.
+#[doc(hidden)]
+pub async fn rows_for_test(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Vec<crate::history::HistoryEvent> {
+    loaded(room, timeline).await.rows
+}
+
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
 pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Loaded {
     use crate::history::{HistoryEvent, ReactionCount};
@@ -1741,6 +1747,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             thread: thread_info(room, content).await,
             thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
             status: false,
+            utd: matches!(content.kind, MsgLikeKind::UnableToDecrypt(_)),
             attachment_name,
             attachment_size,
             poll,
@@ -1874,6 +1881,7 @@ async fn status_row(
         thread: None,
         thread_root: None,
         status: true,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     })
