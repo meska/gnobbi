@@ -1,4 +1,6 @@
 //! In-app update (Linux AppImage, Windows portable). One file per card; no GUI here.
+#[cfg(feature = "live")]
+pub mod check;
 pub mod verify;
 
 use crate::Preferences;
