@@ -77,31 +77,6 @@ jobs:
         run: |
           mkdir -p "$HOME/ci/out"
           printf '%s %s linux\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci/out/${{ gitea.sha }}.linux.status"
-  macos:
-    needs: [debounce, linux]
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
-    runs-on: macos-arm64
-    steps:
-      - name: Checkout
-        run: |
-          git init -q .
-          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
-          git checkout -q "${{ gitea.sha }}"
-          echo "CARGO_TARGET_DIR=$HOME/ci-runners/gitea/cargo-target" >> "$GITHUB_ENV"
-      - name: Build
-        run: cargo build --locked -j4 -p matrix-desktop --features live,mac-vault --profile dist
-      - name: Package for TestFlight
-        run: packaging/macos/build-testflight.sh "$HOME/ci-runners/gitea/out/${{ gitea.sha }}"
-      - name: Upload to TestFlight (internal)
-        run: |
-          rc=0
-          packaging/macos/upload-testflight.sh "$HOME/ci-runners/gitea/out/${{ gitea.sha }}/Gnobbi.pkg" upload || rc=$?
-          [ "$rc" = 0 ] || [ "$rc" = 3 ]
-      - name: Status
-        if: always()
-        run: |
-          mkdir -p "$HOME/ci-runners/gitea/out"
-          printf '%s %s macos\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.macos.status"
   windows:
     needs: [debounce, linux]
     if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
@@ -159,7 +134,7 @@ jobs:
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s ios-mobile\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.ios-mobile.status"
   publish:
-    needs: [debounce, linux, macos]
+    needs: [debounce, linux]
     if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: linux-x86_64
     concurrency:

@@ -1,0 +1,32 @@
+name: testflight
+# Manuale: Actions > testflight > Run workflow (o packaging/testflight-dispatch.sh). Mai automatico.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "branch, tag o SHA da caricare"
+        default: main
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+jobs:
+  macos:
+    runs-on: macos-arm64
+    steps:
+      - name: Checkout
+        run: |
+          ref="${{ inputs.ref }}"; ref="${ref:-main}"
+          git init -q .
+          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+          git checkout -q "origin/$ref" 2>/dev/null || git checkout -q "$ref"
+          sha=$(git rev-parse HEAD); echo "SHA=$sha" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$HOME/ci-runners/gitea/cargo-target" >> "$GITHUB_ENV"
+      - name: Build
+        run: cargo build --locked -j4 -p matrix-desktop --features live,mac-vault --profile dist
+      - name: Package for TestFlight
+        run: packaging/macos/build-testflight.sh "$HOME/ci-runners/gitea/out/$SHA"
+      - name: Upload to TestFlight (internal group, stop at VALID)
+        run: |
+          rc=0
+          packaging/macos/upload-testflight.sh "$HOME/ci-runners/gitea/out/$SHA/Gnobbi.pkg" upload || rc=$?
+          [ "$rc" = 0 ] || [ "$rc" = 3 ]
