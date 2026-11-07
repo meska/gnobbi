@@ -297,7 +297,6 @@ impl crate::Shell {
         use matrix_desktop::accessibility::scrollbars::Pane;
         if self.notifications_open
             || self.verification_open
-            || self.room_details_open
             || self.operations.borrow().selection().is_some()
         {
             return vec![];

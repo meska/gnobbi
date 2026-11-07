@@ -318,7 +318,6 @@ impl Shell {
         if window.viewport_size().width < px(800.)
             || self.notifications_open
             || self.verification_open
-            || self.room_details_open
         {
             return false;
         }

@@ -314,6 +314,17 @@ impl Shell {
         let hide_redacted = self.room_prefs.hide_redacted(&room.scope).unwrap_or(self.prefs.hide_redacted);
         div()
             .id("room-details")
+            .children({
+                #[cfg(test)]
+                {
+                    crate::sidebar_navigation_test::observe("details-panel".into())
+                }
+                #[cfg(not(test))]
+                {
+                    None::<gpui::AnyElement>
+                }
+            })
+            .track_focus(&self.details_zone)
             // Own the wheel: without it the hit-test lets events through to the timeline list.
             .occlude()
             .absolute()
@@ -344,14 +355,27 @@ impl Shell {
                             .id("room-details-close")
                             .relative()
                             .children(self.details_observer(0, cx))
+                            .children({
+                                #[cfg(test)]
+                                {
+                                    crate::sidebar_navigation_test::observe("details-close".into())
+                                }
+                                #[cfg(not(test))]
+                                {
+                                    None::<gpui::AnyElement>
+                                }
+                            })
                             .when(focused_control == Some(0), |d| {
                                 d.border_1().border_color(rgb(t.accent))
                             })
                             .cursor_pointer()
                             .text_color(rgb(t.accent))
                             .child("Chiudi")
-                            .on_click(cx.listener(|this, _, _, cx| {
+                            .on_click(cx.listener(|this, _, window, cx| {
                                 this.set_room_details_open(false);
+                                if this.details_zone.contains_focused(window, cx) {
+                                    this.list_focus.focus(window);
+                                }
                                 cx.notify();
                             })),
                     ),

@@ -145,7 +145,6 @@ impl Shell {
             match intent.control {
                 Control::Info => {
                     self.set_room_details_open(true);
-                    self.list_focus.focus(window);
                 }
                 Control::Notifications => self.open_notifications_panel(window),
                 Control::Devices => self.open_devices_panel(window),

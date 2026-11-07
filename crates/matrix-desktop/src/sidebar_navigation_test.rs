@@ -83,7 +83,7 @@ fn painted_pointer() -> PointerCallback {
     POINTER.with_borrow(|painted| painted.as_ref().unwrap().clone())
 }
 
-static PAINTED: std::sync::LazyLock<
+pub(crate) static PAINTED: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<String, gpui::Bounds<gpui::Pixels>>>,
 > = std::sync::LazyLock::new(Default::default);
 
@@ -1762,6 +1762,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 this.update_in(cx, |this, window, _| assert!(!this.menu_open && this.menu_focus.is_focused(window), "{close} returns focus to the menu button")).unwrap();
             }
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 90 {
+            crate::details_panel_test::scenario(this, cx, executor).await;
             return;
         }
         if DYNAMIC.load(Ordering::SeqCst) == 91 {
@@ -3469,6 +3473,16 @@ fn tab_ring_compact_from_the_menu_button() {
     COMPACT.store(true, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn non_modal_room_details_panel_keeps_list_composer_and_timeline_live() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(90, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }

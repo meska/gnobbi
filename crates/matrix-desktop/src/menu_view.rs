@@ -305,7 +305,7 @@ impl Shell {
             && !m.alt
             && !m.platform
             && self.menu_focus.is_focused(window)
-            && !(self.notifications_open || self.verification_open || self.room_details_open)
+            && !(self.notifications_open || self.verification_open)
         {
             self.menu_tab(m.shift, window, cx);
             return true;
