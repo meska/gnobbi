@@ -574,7 +574,7 @@ impl Shell {
         if !room.dm && !room.join {
             let focus = &room.public_focus;
             items.push(item(
-                Role::CheckBox,
+                Role::Switch,
                 "Pubblica",
                 Some(room.public),
                 focus,

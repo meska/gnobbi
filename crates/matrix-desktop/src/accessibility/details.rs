@@ -260,7 +260,7 @@ impl DetailsSnapshot {
             };
             let topic = control == DetailsControl::Topic;
             let mut node = Node::new(if on.is_some() {
-                Role::CheckBox
+                Role::Switch
             } else if topic {
                 Role::ScrollView
             } else {

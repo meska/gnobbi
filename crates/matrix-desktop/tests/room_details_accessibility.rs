@@ -307,7 +307,7 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
     let toggled = |panel: &DetailsSnapshot, c: DetailsControl| {
         let tree = panel.tree();
         let node = &tree.nodes.iter().find(|(id, _)| *id == c.id()).unwrap().1;
-        assert_eq!(node.role(), Role::CheckBox);
+        assert_eq!(node.role(), Role::Switch);
         node.toggled()
     };
     assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::False));

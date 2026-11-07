@@ -160,7 +160,7 @@ mod tests {
             items: vec![
                 item(Role::TextInput, "Nome", None, false),
                 item(Role::TextInput, "Argomento", None, false),
-                item(Role::CheckBox, "Pubblica", Some(true), true),
+                item(Role::Switch, "Pubblica", Some(true), true),
                 item(Role::Button, "Annulla", None, false),
                 item(Role::Button, "Crea", None, false),
                 item(Role::Label, "Nome mancante", None, false),
@@ -177,7 +177,7 @@ mod tests {
             [
                 (Role::TextInput, "Nome".into(), None),
                 (Role::TextInput, "Argomento".into(), None),
-                (Role::CheckBox, "Pubblica".into(), Some(Toggled::True)),
+                (Role::Switch, "Pubblica".into(), Some(Toggled::True)),
                 (Role::Button, "Annulla".into(), None),
                 (Role::Button, "Crea".into(), None),
                 (Role::Label, "Nome mancante".into(), None),

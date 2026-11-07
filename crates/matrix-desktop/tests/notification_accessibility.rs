@@ -198,7 +198,7 @@ fn notification_dialog_exports_current_checkbox_states_and_privacy_text() {
         (PREVIEW, "Anteprima del solo conteggio", Toggled::True),
     ] {
         let node = &tree.nodes.iter().find(|(n, _)| *n == id).unwrap().1;
-        assert_eq!(node.role(), Role::CheckBox);
+        assert_eq!(node.role(), Role::Switch);
         assert_eq!(node.label(), Some(label));
         assert_eq!(node.toggled(), Some(state));
         assert_eq!(

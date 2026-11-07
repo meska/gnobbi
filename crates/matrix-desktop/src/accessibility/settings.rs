@@ -32,7 +32,7 @@ impl SettingsSnapshot {
         root.set_label("Impostazioni");
         let mut nodes = vec![];
         for (row, label) in LABELS.into_iter().enumerate() {
-            let mut node = Node::new(Role::CheckBox);
+            let mut node = Node::new(Role::Switch);
             node.set_label(label);
             node.set_toggled(if self.on[row] {
                 Toggled::True

@@ -243,8 +243,8 @@ impl PollDialog {
                     Stop::Option(i) => (Role::TextInput, OPTION_LABELS[i], None),
                     Stop::Remove(i) => (Role::Button, REMOVE_LABELS[i], None),
                     Stop::Add => (Role::Button, "Aggiungi opzione", None),
-                    Stop::Multiple => (Role::CheckBox, "Scelta multipla", Some(self.multiple)),
-                    Stop::Disclosed => (Role::CheckBox, "Risultati visibili", Some(self.disclosed)),
+                    Stop::Multiple => (Role::Switch, "Scelta multipla", Some(self.multiple)),
+                    Stop::Disclosed => (Role::Switch, "Risultati visibili", Some(self.disclosed)),
                     Stop::Cancel => (Role::Button, "Annulla", None),
                     Stop::Create => (Role::Button, "Crea", None),
                 };

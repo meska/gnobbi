@@ -135,7 +135,7 @@ fn unread_filter_projects_checkbox_state_focus_and_observed_bounds() {
         };
         let (id, node) = filter.node();
         assert_eq!(id, UNREAD);
-        assert_eq!(node.role(), Role::CheckBox);
+        assert_eq!(node.role(), Role::Switch);
         assert_eq!(node.label(), Some("Solo stanze non lette"));
         assert_eq!(
             node.toggled(),

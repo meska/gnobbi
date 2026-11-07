@@ -87,7 +87,7 @@ impl NotificationView {
         .into_iter()
         .enumerate()
         {
-            let mut node = Node::new(Role::CheckBox);
+            let mut node = Node::new(Role::Switch);
             node.set_label(label.as_str());
             if let Some(bounds) = panel.bounds[index] {
                 node.set_bounds(bounds);
