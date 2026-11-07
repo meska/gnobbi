@@ -130,7 +130,7 @@ impl Shell {
                 .id("install-offer-layer")
                 .absolute()
                 .bottom_4()
-                .right_4()
+                .left_4()
                 .child(
                     div()
                         .id("install-offer")
