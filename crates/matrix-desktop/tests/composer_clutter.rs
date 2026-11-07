@@ -46,3 +46,9 @@ fn composer_buttons_are_32px_icons_without_words() {
         assert!(COMPOSER.contains(&format!("icon_button(\"{id}\"")));
     }
 }
+
+#[test]
+fn demo_send_arrow_is_muted_in_every_theme() {
+    // t.secondary is a theme token, so light and dark both get the muted demo arrow.
+    assert!(COMPOSER.contains("icon(Icon::Send, if self.live { t.accent } else { t.secondary })"));
+}

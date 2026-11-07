@@ -691,8 +691,14 @@ fn send_control_is_actionable_only_for_a_committed_nonblank_draft() {
     assert_eq!(send.role(), accesskit::Role::Button);
     assert_eq!(send.label(), Some("Invia messaggio"));
     assert!(!send.is_disabled());
+    assert_eq!(send.description(), None, "live Send is unchanged");
     assert!(send.supports_action(accesskit::Action::Click));
     assert!(!voice(&snapshot));
+    snapshot.composer.as_mut().unwrap().live = false;
+    let demo = button(&snapshot).unwrap();
+    assert_eq!(demo.label(), Some("Invia messaggio"));
+    assert_eq!(demo.description(), Some("demo"), "demo Send says «demo» without visible help text");
+    snapshot.composer.as_mut().unwrap().live = true;
     snapshot.composer.as_mut().unwrap().composing = true;
     assert!(button(&snapshot).is_none() && voice(&snapshot));
     snapshot.composer.as_mut().unwrap().composing = false;
