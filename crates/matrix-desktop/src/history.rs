@@ -326,10 +326,12 @@ impl DemoHistory {
                 .iter_mut()
                 .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
                 && (row.text != event.body
+                    || row.utd != event.utd
                     || row.styles != event.styles
                     || row.redacted != event.redacted)
             {
                 row.redacted = event.redacted;
+                row.utd = event.utd;
                 row.text.clone_from(&event.body);
                 row.styles.clone_from(&event.styles);
                 changed_body = true;

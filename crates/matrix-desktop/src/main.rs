@@ -2739,6 +2739,12 @@ fn main() {
                                             }
                                         }
                                         for event in verifications {
+                                            // Recovery imports the keys; the SDK re-decrypts the open room without any new event: read it again.
+                                            if matches!(event, matrix_engine::verification::VerificationEvent::KeysComplete { .. })
+                                                && let Some(scope) = this.sidebar.selected().map(|r| r.scope.clone())
+                                            {
+                                                this.history.activity(&scope);
+                                            }
                                             this.verification.apply(event);
                                             this.record_profile();
                                         }
