@@ -370,7 +370,7 @@ fn open_panel_does_not_hide_the_rest_of_the_app_from_the_screen_reader() {
 #[test]
 fn topic_is_a_labelled_focusable_scroll_area_without_help_text_or_click() {
     use accesskit::{Action, ActionRequest, TreeId};
-    use matrix_desktop::accessibility::details::DetailsView;
+    use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
     let panel = panel();
     let scope = panel.scope.clone();
     let tree = panel.tree();
