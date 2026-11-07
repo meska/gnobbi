@@ -354,7 +354,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     thread_root: None,
                     status: false,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                 }]);
                 this.timeline = Some(timeline);
                 this.navigation_wide = false;

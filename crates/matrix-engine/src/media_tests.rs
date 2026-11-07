@@ -507,7 +507,7 @@ fn disposable_media_download_png_returns_exact_bytes_and_preview() {
         assert!(
             page.events
                 .iter()
-                .any(|e| e.event_id == event && crate::history::is_image_body(&e.body))
+                .any(|e| e.event_id == event && e.media.as_ref().is_some_and(|m| m.kind == crate::history::MediaKind::Image))
         );
     });
 }

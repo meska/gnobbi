@@ -57,6 +57,8 @@ pub struct DemoEvent {
     pub timestamp_ms: u64,
     /// Set for an `m.video` row: the bubble paints a picture with play symbol instead of `text`.
     pub video: Option<VideoFacts>,
+    /// Set on an image, video, audio or file row: `text` (with `styles`, `mentions`) is then its caption, empty when none.
+    pub media: Option<matrix_engine::history::Media>,
     /// Set on a poll start: the bubble paints the poll instead of `text`. Private user data: never log.
     pub poll: Option<matrix_domain::Poll>,
     /// File name of a received attachment (any kind): the bubble offers «Scarica».
@@ -188,7 +190,7 @@ impl DemoHistory {
                     video: None,
                     poll: None,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
@@ -269,7 +271,7 @@ impl DemoHistory {
             video: None,
             poll: None,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
         });
     }
 
@@ -334,8 +336,10 @@ impl DemoHistory {
                     || row.mentions != event.mentions
                     || row.highlighted != event.highlighted
                     || row.poll != event.poll
+                    || row.media != event.media
                     || row.redacted != event.redacted)
             {
+                row.media.clone_from(&event.media);
                 row.poll.clone_from(&event.poll);
                 row.redacted = event.redacted;
                 row.text.clone_from(&event.body);
@@ -412,6 +416,7 @@ impl DemoHistory {
                 status: event.status,
                 attachment_name: event.attachment_name,
                 attachment_size: event.attachment_size,
+                media: event.media,
                 video: event.video.map(video_facts),
                 poll: event.poll,
             })
@@ -557,7 +562,7 @@ impl DemoHistory {
                     video: None,
                     poll: None,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -645,7 +650,7 @@ impl DemoHistory {
                     video: None,
                     poll: None,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                 });
             }
         }

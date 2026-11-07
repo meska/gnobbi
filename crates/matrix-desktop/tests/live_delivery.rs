@@ -58,7 +58,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     delivery.apply(SendResult {
         scope: scope(),
@@ -84,7 +84,7 @@ fn rendered_ack_merges_history_echo_without_duplicate_bubble() {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     assert_eq!(
         rows.events().len(),
@@ -123,7 +123,7 @@ fn repeated_ack_projection_preserves_server_content_after_edit_or_redaction() {
             thread: None, thread_root: None,
             status: false,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
         }]);
         rows.project_delivery(delivery.items(&scope()));
         rows.project_delivery(delivery.items(&scope()));
@@ -157,7 +157,7 @@ fn appended_live_echo_merges_pending_row_in_both_ack_orders() {
             thread: None, thread_root: None,
             status: false,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
         };
         if echo_first {
             rows.append_server(vec![echo()]);
@@ -593,7 +593,7 @@ fn refresh_server_gives_own_ack_row_the_local_clock_time() {
             thread_root: None,
             status: false,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
         }]);
         assert_eq!(rows.events()[0].time, expected);
         // A later delivery projection must not put the placeholder back.
@@ -633,7 +633,7 @@ fn own_sent_file_offers_save_once_the_server_copy_arrives() {
         thread_root: None,
         status: false,
         attachment_name: Some("foto.png".into()),
-        attachment_size: Some(10),
+        attachment_size: Some(10), media: None,
     }]);
     assert!(offers_save(&rows.events()[0], true));
 }

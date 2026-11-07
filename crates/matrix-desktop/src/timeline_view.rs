@@ -1253,7 +1253,7 @@ impl TimelineView {
             .events()
             .iter()
             .rev()
-            .filter(|e| e.video.is_some() || matrix_engine::history::is_image_body(&e.text))
+            .filter(|e| e.video.is_some() || e.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image))
             .filter_map(|e| match &e.id.id {
                 matrix_domain::TimelineId::Server(id) => Some(id.clone()),
                 _ => None,
@@ -1772,7 +1772,7 @@ impl TimelineView {
                         };
                         crate::poll_view::poll_bubble(poll, t, index, focus_ix, failed, on_vote, Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.clone(), part), bounds); }))
                     });
-                    let picture = poll_bubble.or(video_picture).or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
+                    let picture = poll_bubble.or(video_picture).or_else(|| event.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image).then(|| {
                         let state = match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
@@ -2086,10 +2086,17 @@ impl TimelineView {
                                             }
                                         });
                                     }).absolute().inset_0())
-                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child(match picture {
-                                        // The mouse handlers read the text layout, which only exists once the text was painted: keep it painted, invisible.
-                                        Some(picture) => div().child(picture).child(div().size_0().overflow_hidden().child(body)).into_any_element(),
-                                        None => body.into_any_element(),
+                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child({
+                                        // On an attachment row the text is its caption; the file name is never text.
+                                        let caption = event.media.is_some() && !event.text.is_empty();
+                                        let file_label = event.media.as_ref().filter(|m| m.kind == matrix_engine::history::MediaKind::File).map(|m| div().child(m.label.clone()));
+                                        // The mouse handlers read the text layout, which only exists once the text was painted: keep it painted, invisible, when there is no caption to show.
+                                        let wrap = |body: StyledText| if caption { div().mt_1().child(body) } else { div().size_0().overflow_hidden().child(body) };
+                                        match picture {
+                                            Some(picture) => div().child(picture).child(wrap(body)).into_any_element(),
+                                            None if event.media.is_some() => div().children(file_label).child(wrap(body)).into_any_element(),
+                                            None => body.into_any_element(),
+                                        }
                                     }))
                                 .when_some(event.thread_label(), |d, (label, initials, mxc)| d.child(
                                     div().id(("thread-summary", index)).mt_2().flex().items_center().gap_2().cursor_pointer()
@@ -2768,7 +2775,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2910,7 +2917,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -3033,7 +3040,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         }]);
                         if thumbnail {
                             let buffer =
@@ -3149,7 +3156,7 @@ mod tests {
                                 MentionSpan { range: at("@room"), kind: MentionKind::AtRoom },
                                 MentionSpan { range: at("#qa"), kind: MentionKind::Room },
                             ],
-                            highlighted: true, thread: None, thread_root: None, status: false, attachment_name: None, attachment_size: None,
+                            highlighted: true, thread: None, thread_root: None, status: false, attachment_name: None, attachment_size: None, media: None,
                         }]);
                         ShotHost(v)
                     })
@@ -3225,7 +3232,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         }]);
                         NarrowHost(v)
                     })
@@ -3332,7 +3339,7 @@ mod tests {
                             thread_root: None,
                             status: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         }]);
                         VotingHost(v, ops)
                     })
@@ -3449,7 +3456,7 @@ mod tests {
                 poll: None,
                 redacted: false,
                 event_id: id.clone(),
-                body: if image { matrix_engine::history::IMAGE_BODY.into() } else { name.unwrap_or("solo testo").into() },
+                body: if image { String::new() } else { name.unwrap_or("solo testo").into() },
                 outgoing,
                 timestamp_ms: ms,
                 sender: HistorySender::new(if outgoing { "@me:fixture.invalid" } else { "@a:fixture.invalid" }, None),
@@ -3459,7 +3466,7 @@ mod tests {
                 thread_root: None,
                 status: false,
                 attachment_name: name.map(Into::into),
-                attachment_size: name.map(|_| 2048),
+                attachment_size: name.map(|_| 2048), media: image.then(|| matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Image, label: "Immagine".into() }),
             };
             let view = cx
                 .open_window(gpui::WindowOptions::default(), |window, cx| {
@@ -3532,6 +3539,97 @@ mod tests {
     #[ignore = "requires private display"]
     fn painted_save_icons_dark() {
         save_icons_painted(true);
+    }
+
+    /// Captions under attachments painted for real (rows as the engine delivers them: blank and
+    /// spaces-only captions arrive as empty text, a late-decrypted or edited caption is just the new
+    /// text): every shape paints without panicking and keeps its ↓. With SHOT=<path> a screenshot of
+    /// the window is written for a visual check (file names only as File labels, never under images).
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn captions_painted(dark: bool) {
+        use matrix_engine::history::{HistoryEvent, HistorySender, Media, MediaKind};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
+            let long = "Una didascalia molto lunga che deve andare a capo senza uscire dalla bolla. ".repeat(6);
+            // (id, kind, label, caption)
+            let cases: Vec<(&str, Option<MediaKind>, &str, String)> = vec![
+                ("$short", Some(MediaKind::Image), "Immagine", "Ecco i dati fiscali".into()),
+                ("$long", Some(MediaKind::Image), "Immagine", long),
+                ("$emoji", Some(MediaKind::Image), "Immagine", "Ciao 😀🎉 👨‍👩‍👧".into()),
+                ("$link", Some(MediaKind::Image), "Immagine", "vedi https://example.org/x".into()),
+                ("$mention", Some(MediaKind::Image), "Immagine", "ciao @Bob".into()),
+                ("$empty", Some(MediaKind::Image), "Immagine", String::new()),
+                ("$edited", Some(MediaKind::Image), "Immagine", "Didascalia modificata".into()),
+                ("$utd", None, "", "Cifrato · chiavi non disponibili".into()),
+                ("$file", Some(MediaKind::File), "File · contratto.pdf · 1 KB", "Il contratto".into()),
+                ("$filebare", Some(MediaKind::File), "File · nota.txt · 10 B", String::new()),
+            ];
+            let event = |(id, kind, label, caption): &(&str, Option<MediaKind>, &str, String), ms: u64| HistoryEvent {
+                poll: None,
+                redacted: false,
+                event_id: EventId::new(format!("{id}:fixture.invalid")),
+                body: caption.clone(),
+                outgoing: false,
+                timestamp_ms: ms,
+                sender: HistorySender::new("@a:fixture.invalid", None),
+                video: None,
+                styles: Vec::new(), mentions: Vec::new(), highlighted: false,
+                thread: None,
+                thread_root: None,
+                status: false,
+                attachment_name: kind.map(|_| if matches!(kind, Some(MediaKind::File)) { label.split(" · ").nth(1).unwrap().to_owned() } else { "foto.png".into() }),
+                attachment_size: kind.map(|_| 2048),
+                media: kind.map(|kind| Media { kind, label: (*label).into() }),
+            };
+            let rows: Vec<_> = cases.iter().enumerate().map(|(i, c)| event(c, i as u64 + 1)).collect();
+            let images: Vec<_> = rows.iter().filter(|r| r.media.as_ref().is_some_and(|m| m.kind == MediaKind::Image)).map(|r| r.event_id.clone()).collect();
+            let attachments = rows.iter().filter(|r| r.media.is_some()).count();
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi captions");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!cap:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), true);
+                        v.append_server(rows);
+                        for id in &images {
+                            v.images.borrow_mut().insert(id.clone(), ready_image());
+                        }
+                        ThemedHost(v, tokens)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                if let Ok(path) = std::env::var("SHOT") {
+                    let _ = if std::env::var("WAYLAND_DISPLAY").is_ok() { std::process::Command::new("grim").arg(&path).status() } else { std::process::Command::new("import").args(["-window", "root", &path]).status() };
+                }
+                view.update(cx, |host, _, _| {
+                    // The list paints the rows in view (anchored to the newest): a ↓ on each of them, never more than attachments.
+                    let painted = host.0.save_painted.borrow().len();
+                    println!("CAPTIONS dark={dark} attachments={attachments} painted_icons={painted}");
+                    assert!((1..=attachments).contains(&painted), "a ↓ on every painted attachment row, none on the others");
+                })
+                .unwrap();
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_captions_light() {
+        captions_painted(false);
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_captions_dark() {
+        captions_painted(true);
     }
 
     #[test]

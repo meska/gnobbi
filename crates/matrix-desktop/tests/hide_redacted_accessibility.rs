@@ -19,7 +19,7 @@ fn ev(id: &str, redacted: bool) -> HistoryEvent {
         thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }
 }
 

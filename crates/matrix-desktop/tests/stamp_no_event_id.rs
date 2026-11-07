@@ -25,7 +25,7 @@ fn live_server_message_stamp_has_no_event_id() {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     let stamp = rows.events()[0].stamp();
     assert!(!stamp.contains("secretid"), "event id leaked in {stamp:?}");

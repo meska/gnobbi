@@ -15,7 +15,7 @@ fn row(id: &str, body: &str, status: bool) -> HistoryEvent {
         sender: HistorySender::new("@anna:test", None),
         video: None,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,

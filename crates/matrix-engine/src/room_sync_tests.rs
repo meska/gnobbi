@@ -445,3 +445,32 @@ mod poll_mapping {
         assert_eq!((p.max_selections, p.multiple), (1, false));
     }
 }
+
+fn msgtype_of(json: serde_json::Value) -> MessageType {
+    serde_json::from_value(json).unwrap()
+}
+
+#[test]
+fn attachment_caption_comes_from_the_sdk_not_from_the_file_name() {
+    for kind in ["m.image", "m.video", "m.audio", "m.file"] {
+        let with = |extra: serde_json::Value| {
+            let mut j = serde_json::json!({"msgtype":kind,"url":"mxc://t/x"});
+            j.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            msgtype_of(j)
+        };
+        let t = with(serde_json::json!({"body":"Ecco i dati 😀","filename":"a.png"}));
+        assert_eq!(caption_sources(&t).0, Some("Ecco i dati 😀"), "{kind}");
+        let t = with(serde_json::json!({"body":"a.png","filename":"a.png"}));
+        assert!(caption_sources(&t).0.is_none() && caption_sources(&t).1.is_none(), "{kind}: body = file name");
+        let t = with(serde_json::json!({"body":"a.png"}));
+        assert!(caption_sources(&t).0.is_none() && caption_sources(&t).1.is_none(), "{kind}: old style");
+        let t = with(serde_json::json!({"body":"*x*","filename":"a.png","format":"org.matrix.custom.html","formatted_body":"<em>x</em>"}));
+        assert_eq!(caption_sources(&t).1.map(|f| f.body.as_str()), Some("<em>x</em>"), "{kind}");
+        let m = media_of(&t).unwrap();
+        assert!(!m.label.contains("Ecco") && !m.label.is_empty(), "{kind}");
+    }
+    assert!(media_of(&msgtype_of(serde_json::json!({"msgtype":"m.text","body":"ciao"}))).is_none());
+    assert!(caption_sources(&msgtype_of(serde_json::json!({"msgtype":"m.text","body":"ciao"}))).0.is_none());
+    let image = media_of(&msgtype_of(serde_json::json!({"msgtype":"m.image","body":"x","filename":"a.png","url":"mxc://t/x"}))).unwrap();
+    assert_eq!((image.kind, image.label.as_str()), (crate::history::MediaKind::Image, "Immagine"));
+}

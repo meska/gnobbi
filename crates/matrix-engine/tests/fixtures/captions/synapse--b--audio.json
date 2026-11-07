@@ -1,0 +1,19 @@
+{
+ "age": 24,
+ "content": {
+  "body": "sent-audio.bin",
+  "msgtype": "m.audio",
+  "url": "mxc://matrix-desktop.test/media000"
+ },
+ "event_id": "$8Mt87eJqbTmLEnTlz0mX1VeDf9np3Pa1aAWCHjScZEw",
+ "origin_server_ts": 1794005844191,
+ "room_id": "!Fc4FkswTyaB9tZXHs7M7JmsrHOOYtq7ZWHwel4XDlAo",
+ "sender": "@alice:matrix-desktop.test",
+ "type": "m.room.message",
+ "unsigned": {
+  "age": 24,
+  "membership": "join",
+  "transaction_id": "p0fg-b-audio"
+ },
+ "user_id": "@alice:matrix-desktop.test"
+}

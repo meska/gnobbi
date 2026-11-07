@@ -56,6 +56,10 @@ futures-util = { version = "=0.3.34", default-features = false }
 tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time", "macros", "sync", "net", "io-util", "test-util"] }
 
 [[test]]
+name = "caption_variants"
+required-features = ["sdk"]
+
+[[test]]
 name = "sliding_sync_probe"
 required-features = ["sdk"]
 

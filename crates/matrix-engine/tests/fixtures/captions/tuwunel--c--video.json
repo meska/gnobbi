@@ -1,0 +1,18 @@
+{
+ "content": {
+  "body": "$0FGh_dsG1uK8M9sqaEGIMiTdbN4OsP0j5mSZvwR8wcU",
+  "format": "org.matrix.custom.html",
+  "formatted_body": "<p>Didascalia di prova per <b>video</b>, variante c</p>",
+  "msgtype": "m.video",
+  "url": "mxc://matrix-desktop.test/media000"
+ },
+ "event_id": "$iZPfwT3LYD5ao1ci3Yb8aWVq4Ds6mlZAq5FH-lzt1E4",
+ "origin_server_ts": 1794005845601,
+ "room_id": "!j4dFc8c5_52wSqNF8LqjP5VwfwN1YksRUSbba_Jnmh4",
+ "sender": "@alice:matrix-desktop.test",
+ "type": "m.room.message",
+ "unsigned": {
+  "age": 2,
+  "transaction_id": "p0fg-c-video"
+ }
+}

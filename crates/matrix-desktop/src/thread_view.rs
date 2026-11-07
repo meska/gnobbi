@@ -21,10 +21,18 @@ pub(crate) struct ThreadRow {
     time: String,
 }
 
+/// An attachment without caption is shown by its label.
+fn caption_or_label(text: &str, media: Option<&matrix_engine::history::Media>) -> String {
+    match media {
+        Some(m) if text.is_empty() => m.label.clone(),
+        _ => text.to_owned(),
+    }
+}
+
 impl ThreadRow {
     fn from_event(e: &HistoryEvent) -> Self {
         let who = if e.outgoing { "Tu".to_owned() } else { e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone()) };
-        let text = if matrix_engine::history::is_image_body(&e.body) { "Immagine".to_owned() } else { e.body.clone() };
+        let text = caption_or_label(&e.body, e.media.as_ref());
         Self { id: Some(e.event_id.clone()), who, text, time: matrix_desktop::time_fmt::clock_time(e.timestamp_ms) }
     }
 
@@ -33,7 +41,7 @@ impl ThreadRow {
             (Some(s), false) => s.name.clone().unwrap_or_else(|| s.id.clone()),
             _ => "Tu".to_owned(),
         };
-        let text = if matrix_engine::history::is_image_body(&row.text) { "Immagine".to_owned() } else { row.text.clone() };
+        let text = caption_or_label(&row.text, row.media.as_ref());
         let id = match &row.id.id {
             matrix_domain::TimelineId::Server(id) => Some(id.clone()),
             _ => None,
@@ -352,7 +360,7 @@ mod tests {
             sender: HistorySender::new("@a:t", None),
             video: None,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None,
             thread_root: None,

@@ -128,6 +128,8 @@ pub const POLL_OPTIONS: usize = 20;
 
 #[derive(Clone)]
 pub struct SemanticMessage {
+    /// Accessible name: «{etichetta}, {didascalia}» for an attachment, else the text.
+    pub name: String,
     pub profile: Option<ProfileLink>,
     pub offline_delivery: Option<offline_delivery::Snapshot>,
     pub event_id_copy: Option<event_id_copy::Snapshot>,
@@ -436,6 +438,11 @@ impl HistoryNodes {
                     id,
                     event: event.id.clone(),
                     text: event.text.clone(),
+                    name: match &event.media {
+                        Some(m) if event.text.is_empty() => m.label.clone(),
+                        Some(m) => format!("{}, {}", m.label, event.text),
+                        None => event.text.clone(),
+                    },
                     description: format!(
                         "{} · {}{}{}{}{}",
                         event.time,
@@ -1193,7 +1200,7 @@ impl NavigationSnapshot {
             list.set_label("Storico messaggi");
             for (offset, message) in history.messages.iter().enumerate() {
                 let mut node = Node::new(Role::ListItem);
-                node.set_label(message.text.clone());
+                node.set_label(message.name.clone());
                 node.set_description(message.description.clone());
                 if let Some(bounds) = message.bounds {
                     node.set_bounds(bounds);

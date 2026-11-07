@@ -21,7 +21,7 @@ fn event(id: &str) -> HistoryEvent {
         thread: None, thread_root: None,
         status: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }
 }
 fn page(
