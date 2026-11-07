@@ -9,12 +9,12 @@ fn scope(id: &str) -> RoomScope {
     }
 }
 fn upsert(id: &str, name: &str, unread: u64) -> RoomListDiff {
-    RoomListDiff::Upsert(RoomSummary {
+    RoomListDiff::Upsert(Box::new(RoomSummary {
         scope: scope(id),
         name: name.to_owned(),
         unread,
         info: Default::default(),
-    })
+    }))
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn connected_sidebar_projects_server_room_without_demo_rows() {
 }
 
 fn upsert_info(id: &str, unread: u64, members: u64, preview: Option<&str>) -> RoomListDiff {
-    RoomListDiff::Upsert(RoomSummary {
+    RoomListDiff::Upsert(Box::new(RoomSummary {
         scope: scope(id),
         name: id.to_owned(),
         unread,
@@ -224,7 +224,7 @@ fn upsert_info(id: &str, unread: u64, members: u64, preview: Option<&str>) -> Ro
             preview: preview.map(str::to_owned),
             ..Default::default()
         },
-    })
+    }))
 }
 
 #[test]

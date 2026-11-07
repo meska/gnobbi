@@ -109,7 +109,7 @@ impl Shell {
                 .rounded_lg()
                 .cursor_pointer()
                 .border_1()
-                .border_color(rgb(if focused && self.about_row == index {
+                .border_color(rgb(if input_modality::only_keys(focused, cx) && self.about_row == index {
                     t.accent
                 } else {
                     t.surface
@@ -124,15 +124,16 @@ impl Shell {
         let info = |label: &'static str, value: String| {
             div()
                 .id(label)
-                .h(px(32.))
+                .min_h(px(32.))
+                .py_1()
                 .mx_2()
                 .px_3()
                 .flex()
                 .items_center()
                 .justify_between()
                 .gap_3()
-                .child(div().text_color(rgb(t.secondary)).child(label))
-                .child(div().truncate().text_color(rgb(t.text)).child(value))
+                .child(div().flex_shrink_0().text_color(rgb(t.secondary)).child(label))
+                .child(div().flex_1().min_w_0().text_right().text_color(rgb(t.text)).child(value))
         };
         div()
             .id("about-page")

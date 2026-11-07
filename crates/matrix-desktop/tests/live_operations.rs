@@ -278,3 +278,61 @@ fn selecting_another_message_preserves_queued_write() {
         Some(OperationCommand::Apply(_))
     ));
 }
+
+fn poll(multiple: bool, ended: bool, own: &[&str]) -> matrix_domain::Poll {
+    let a = |id: &str| matrix_domain::PollAnswer { id: id.into(), text: id.into(), votes: 1, own: own.contains(&id) };
+    matrix_domain::Poll {
+        question: "q".into(),
+        answers: vec![a("a"), a("b"), a("c")],
+        max_selections: if multiple { 2 } else { 1 },
+        multiple,
+        disclosed: true,
+        ended,
+        voters: 1,
+        can_end: false,
+    }
+}
+
+/// Answers of the vote sent by clicking option `ix`, None when nothing is sent.
+fn clicked(poll: &matrix_domain::Poll, ix: usize) -> Option<Vec<String>> {
+    let mut actions = LiveOperations::default();
+    let scope = id("!room:test", "$poll").scope;
+    if !actions.vote(scope, EventId::new("$poll"), poll, ix, TransactionId::new("tx")) {
+        assert!(actions.take_command().is_none());
+        return None;
+    }
+    let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("apply") };
+    assert_eq!(request.target, EventId::new("$poll"));
+    let Operation::Vote { answers } = request.operation else { panic!("vote") };
+    Some(answers)
+}
+
+#[test]
+fn voting_sends_the_answers_the_poll_expects() {
+    // single choice replaces; the voted option again sends nothing
+    assert_eq!(clicked(&poll(false, false, &["a"]), 1), Some(vec!["b".into()]));
+    assert_eq!(clicked(&poll(false, false, &["a"]), 0), None);
+    // multiple choice adds, removes, and may end empty
+    assert_eq!(clicked(&poll(true, false, &["a"]), 1), Some(vec!["a".into(), "b".into()]));
+    assert_eq!(clicked(&poll(true, false, &["a", "b"]), 0), Some(vec!["b".into()]));
+    assert_eq!(clicked(&poll(true, false, &["a"]), 0), Some(vec![]));
+    // cap reached: adding is ignored; closed: nothing at all; unknown option: nothing
+    assert_eq!(clicked(&poll(true, false, &["a", "b"]), 2), None);
+    assert_eq!(clicked(&poll(false, true, &["a"]), 1), None);
+    assert_eq!(clicked(&poll(false, false, &[]), 9), None);
+}
+
+#[test]
+fn refused_vote_is_flagged_until_the_next_vote() {
+    let mut actions = LiveOperations::default();
+    let scope = id("!room:test", "$poll").scope;
+    let target = EventId::new("$poll");
+    let p = poll(false, false, &[]);
+    assert!(actions.vote(scope.clone(), target.clone(), &p, 0, TransactionId::new("t1")));
+    assert!(!actions.vote(scope.clone(), target.clone(), &p, 1, TransactionId::new("t2")), "one vote in flight");
+    let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("apply") };
+    assert!(actions.apply(OperationResult::Applied { request, result: Err(OperationError::Transport) }));
+    assert!(actions.vote_failed(&target));
+    assert!(actions.vote(scope, target.clone(), &p, 1, TransactionId::new("t3")), "a transport error does not block the next vote");
+    assert!(!actions.vote_failed(&target));
+}

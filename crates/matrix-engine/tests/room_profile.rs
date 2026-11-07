@@ -56,7 +56,7 @@ fn b_lists_members_and_reads_the_profile_of_a() {
         request.visibility = matrix_engine::sdk::ruma::api::client::room::Visibility::Public;
         let room = a.create_room(request).await.unwrap();
         let scope = RoomScope { account_id: account, room_id: RoomId::new(room.room_id().as_str()) };
-        join_room(&b, account, room.room_id().as_str()).await.unwrap();
+        join_room(&b, account, room.room_id().as_str(), &[]).await.unwrap();
 
         // Both members, with the id and the name of each.
         let mut list = Vec::new();

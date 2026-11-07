@@ -6,6 +6,7 @@ use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn ev(id: &str, redacted: bool) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         redacted,
         event_id: EventId::new(id),
         body: if redacted { "[Messaggio eliminato]".into() } else { id.into() },
@@ -13,12 +14,13 @@ fn ev(id: &str, redacted: bool) -> HistoryEvent {
         timestamp_ms: 0,
         sender: HistorySender::new("@a:test", Some("a")),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }
 }
 

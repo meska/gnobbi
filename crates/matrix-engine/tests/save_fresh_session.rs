@@ -90,6 +90,7 @@ fn request(room: &Room, tx: &str, name: &str, data: &[u8]) -> SendRequest {
         transaction_id: TransactionId::new(tx),
         body: String::new(),
         attachment: Some(Attachment { filename: name.into(), data: data.to_vec(), voice: None }),
+        poll: None,
         mentions: Vec::new(),
     }
 }

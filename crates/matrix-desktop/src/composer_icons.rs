@@ -12,6 +12,8 @@ pub enum Icon {
     Close,
     Copy,
     Check,
+    Search,
+    Poll,
 }
 
 fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
@@ -51,6 +53,12 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
         Icon::Copy => vec![
             vec![(8., 8.), (15., 8.), (15., 16.), (8., 16.), (8., 8.)],
             vec![(5., 12.), (5., 4.), (12., 4.)],
+        ],
+        Icon::Search => vec![arc((8.5, 8.5), 5.5, 0., 2. * PI), vec![(12.5, 12.5), (17., 17.)]],
+        Icon::Poll => vec![
+            vec![(4., 5.), (14., 5.)],
+            vec![(4., 10.), (16., 10.)],
+            vec![(4., 15.), (10., 15.)],
         ],
         Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![

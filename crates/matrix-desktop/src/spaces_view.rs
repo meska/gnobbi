@@ -434,7 +434,7 @@ impl Shell {
             .flex()
             .items_center()
             .border_1()
-            .border_color(rgb(if focused == Some(TOGGLE) {
+            .border_color(rgb(if input_modality::only_keys(focused == Some(TOGGLE), cx) {
                 t.accent
             } else {
                 t.surface
@@ -510,7 +510,7 @@ impl Shell {
                                     t.input
                                 }))
                                 .border_1()
-                                .border_color(rgb(if focused == Some(id) {
+                                .border_color(rgb(if input_modality::only_keys(focused == Some(id), cx) {
                                     t.accent
                                 } else {
                                     t.border

@@ -14,6 +14,7 @@ fn navigation_routes_scrollbar_value_before_rejecting_other_action_data() {
     let snapshot = NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

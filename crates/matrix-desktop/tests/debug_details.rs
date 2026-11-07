@@ -14,6 +14,7 @@ fn scope() -> RoomScope {
 fn server_message_exposes_its_event_id_and_unsent_one_does_not() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$abc:test"),
         body: "ciao".into(),
@@ -21,11 +22,12 @@ fn server_message_exposes_its_event_id_and_unsent_one_does_not() {
         timestamp_ms: 0,
         sender: HistorySender::new("@a:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     assert_eq!(rows.events()[0].debug_id(), Some("$abc:test"));
     let mut local = DemoHistory::new(scope(), 0);

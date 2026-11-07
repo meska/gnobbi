@@ -138,6 +138,7 @@ fn send_intents(
     let snapshot = NavigationSnapshot {
         title: matrix_desktop::window::TITLE.into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(feature = "live")]
         signin: None,
         openers: vec![],
@@ -340,6 +341,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let timeline =
                     TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
                 timeline.append_server(vec![matrix_engine::history::HistoryEvent {
+                    poll: None,
                     redacted: false,
                     event_id: matrix_domain::EventId::new("$visibility:test"),
                     body: "deterministic native visibility fixture".into(),
@@ -347,12 +349,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     timestamp_ms: 0,
                     sender: matrix_engine::history::HistorySender::new("@peer:test", None),
                     video: None,
-                    styles: Vec::new(),
+                    styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                 }]);
                 this.timeline = Some(timeline);
                 this.navigation_wide = false;

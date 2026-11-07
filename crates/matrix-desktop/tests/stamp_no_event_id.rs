@@ -13,6 +13,7 @@ fn live_server_message_stamp_has_no_event_id() {
         0,
     );
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$secretid"),
         body: "ciao".into(),
@@ -20,11 +21,12 @@ fn live_server_message_stamp_has_no_event_id() {
         timestamp_ms: 0,
         sender: HistorySender::new("@a:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     let stamp = rows.events()[0].stamp();
     assert!(!stamp.contains("secretid"), "event id leaked in {stamp:?}");

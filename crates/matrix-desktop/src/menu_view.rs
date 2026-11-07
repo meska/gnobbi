@@ -54,7 +54,6 @@ impl Shell {
         self.switch_error = None;
         // Initial focus goes to the shown account, not to the first catalog row.
         self.drawer_row = self.drawer_accounts().iter().position(|a| a.current).unwrap_or(0);
-        self.drawer_keys = false;
         if open {
             self.drawer_focus.focus(window)
         } else {
@@ -152,6 +151,12 @@ impl Shell {
         self.active_id = catalog
             .id_for_root(dirs, root)
             .or_else(|| catalog.id_for_user(user_id));
+        if let Some(id) = self.active_id
+            && catalog.record_avatar(id, self.verification.profile_avatar())
+            && catalog.save(dirs).is_ok()
+        {
+            self.accounts = catalog;
+        }
     }
 
     /// Starts the sign-in for a new account in its own window and profile folder; this window
@@ -201,7 +206,6 @@ impl Shell {
         }
         if self.connected && m.control && m.shift && key.key == "m" {
             self.set_menu_open(!self.menu_open, window, cx);
-            self.drawer_keys = true;
             return true;
         }
         if self.connected
@@ -237,7 +241,6 @@ impl Shell {
             return self.about_key(event, window, cx);
         }
         if self.menu_open {
-            self.drawer_keys = true;
             let accounts = self.drawer_accounts();
             let activate = !m.modified() && matches!(key.key.as_str(), "enter" | "space");
             match key.key.as_str() {
@@ -295,7 +298,6 @@ impl Shell {
             && self.menu_focus.is_focused(window)
         {
             self.set_menu_open(true, window, cx);
-            self.drawer_keys = true;
             return true;
         }
         if key.key == "tab"
@@ -320,6 +322,7 @@ impl Shell {
         let line = || div().w(px(16.)).h(px(2.)).rounded_sm().bg(rgb(t.text));
         div()
             .id("menu-button")
+            .track_focus(&self.menu_focus)
             .relative()
             .children({
                 #[cfg(test)]
@@ -353,7 +356,7 @@ impl Shell {
             .rounded_lg()
             .cursor_pointer()
             .border_1()
-            .border_color(rgb(if self.menu_focus.is_focused(window) {
+            .border_color(rgb(if input_modality::only_keys(self.menu_focus.is_focused(window), cx) {
                 t.accent
             } else {
                 t.surface
@@ -407,10 +410,11 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let focused = self.drawer_focus.is_focused(window)
+        let focused = input_modality::ring(&self.drawer_focus, window, cx)
             && self.drawer_row == self.drawer_accounts().len() + 8;
         div()
             .id("menu-about")
+            .flex_shrink_0()
             .mx_2()
             .my_1()
             .px_2()
@@ -433,6 +437,7 @@ impl Shell {
         Some(
             div()
                 .id("menu-profile")
+                .flex_shrink_0()
                 .p_4()
                 .flex()
                 .flex_col()

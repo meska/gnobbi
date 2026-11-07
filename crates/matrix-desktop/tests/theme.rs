@@ -178,3 +178,10 @@ fn received_vs_timeline_has_a_floor() {
         assert!(d >= 2.5, "{} ricevuta {:06x} / timeline {:06x}: ΔE {d:.1} < 2.5", theme.label(), t.surface, t.timeline);
     }
 }
+
+/// ID e stato delle liste di ricerca (Nuova chat, Unisciti) sono testo informativo: mai `disabled` (contrasto 1,06-1,17).
+#[test]
+fn search_list_informative_text_never_uses_disabled() {
+    let src = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/search_list_view.rs")).unwrap();
+    assert!(!src.contains("t.disabled"), "ID/stato della ricerca devono usare `secondary`");
+}

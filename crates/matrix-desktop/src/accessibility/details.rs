@@ -1,9 +1,10 @@
 //! Read-only room sheet. Semantic actions never mutate homeserver state.
 use super::ROOT;
-use accesskit::{Action, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
+use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 use matrix_domain::RoomScope;
 
 pub const OPEN: NodeId = NodeId(30);
+pub const SEARCH: NodeId = NodeId(33);
 #[derive(Clone, Default)]
 pub enum DetailsView {
     #[default]
@@ -240,21 +241,23 @@ impl DetailsSnapshot {
         for (index, (control, label)) in [
             (DetailsControl::Close, "Chiudi informazioni stanza"),
             (DetailsControl::Copy, "Copia ID stanza"),
-            (
-                DetailsControl::HideStatus,
-                if self.hide_status { "Mostra messaggi di stato" } else { "Nascondi messaggi di stato" },
-            ),
-            (
-                DetailsControl::HideRedacted,
-                if self.hide_redacted { "Mostra messaggi eliminati" } else { "Nascondi messaggi eliminati" },
-            ),
+            (DetailsControl::HideStatus, "Nascondi messaggi di stato"),
+            (DetailsControl::HideRedacted, "Nascondi messaggi eliminati"),
             (DetailsControl::Edit, "Modifica"),
         ]
         .into_iter()
         .enumerate()
         {
-            let mut node = Node::new(Role::Button);
+            let on = match control {
+                DetailsControl::HideStatus => Some(self.hide_status),
+                DetailsControl::HideRedacted => Some(self.hide_redacted),
+                _ => None,
+            };
+            let mut node = Node::new(if on.is_some() { Role::CheckBox } else { Role::Button });
             node.set_label(label);
+            if let Some(on) = on {
+                node.set_toggled(if on { Toggled::True } else { Toggled::False });
+            }
             node.add_action(Action::Click);
             node.add_action(Action::Focus);
             if let Some(bounds) = self.bounds[index] {

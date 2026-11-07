@@ -64,6 +64,7 @@ impl Shell {
                     .sidebar
                     .selected()
                     .map(|room| (room.scope.clone(), room.info.muted)),
+                room_name: self.sidebar.selected().map(|room| room.name.clone()).unwrap_or_default(),
                 service_failed: self.notification_failed,
             }))
         } else if window.viewport_size().width >= px(800.) || !self.compact_chat {
@@ -151,6 +152,7 @@ impl Shell {
         let selected = self.sidebar.selected();
         let muted = selected.is_some_and(|room| room.info.muted);
         let room_available = selected.is_some();
+        let room_name = selected.map(|room| room.name.clone());
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let focused_control = Some(self.notification_focus as usize);
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -161,17 +163,19 @@ impl Shell {
             .child(div().h(px(64.)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .border_b_1().border_color(rgb(t.border))
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Notifiche locali"))
-                .child(div().id("notifications-close").relative().children(self.notification_observer(3, cx)).when(focused_control == Some(3), |d| d.border_1().border_color(rgb(t.accent))).cursor_pointer().text_color(rgb(t.accent)).child("Chiudi · Esc")
+                .child(div().id("notifications-close").relative().children(self.notification_observer(3, cx)).when(input_modality::only_keys(focused_control == Some(3), cx), |d| d.border_1().border_color(rgb(t.accent)))
+                    .w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
+                    .hover(|s| s.bg(rgb(t.border)))
+                    .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
                     .on_click(cx.listener(|this, _, _, cx| { this.set_notifications_open(false); cx.notify(); }))))
             .child(div().id("notifications-content").flex_1().min_h_0().overflow_y_scroll().p_4().flex().flex_col().gap_3()
                 .children([
-                    (0u8, format!("Notifiche: {} · N", if enabled { "ON" } else { "OFF" }), true),
-                    (1, format!("Stanza: {} · M", if !room_available { "nessuna selezione" } else if muted { "silenziata" } else { "attiva" }), room_available),
-                    (2, format!("Conteggio: {} · P", if preview { "ON" } else { "OFF" }), true),
-                ].into_iter().map(|(action, label, available)| {
-                    div().id(("notification-setting", action as usize)).relative().children(self.notification_observer(action as usize, cx)).when(focused_control == Some(action as usize), |d| d.border_1().border_color(rgb(t.accent))).px_3().py_3().rounded_lg().bg(rgb(t.input))
-                        .text_color(rgb(if available { t.accent } else { t.secondary }))
-                        .when(available, |d| d.cursor_pointer()).child(label)
+                    (0u8, "Notifiche".to_owned(), enabled, true),
+                    (1, room_name.map_or_else(|| "Stanza".to_owned(), |n| format!("Stanza: {n}")), !muted, room_available),
+                    (2, "Conteggio".to_owned(), preview, true),
+                ].into_iter().map(|(action, label, on, available)| {
+                    crate::switch_row::switch_row(("notification-setting", action as usize), label, on, available, input_modality::only_keys(focused_control == Some(action as usize), cx), t)
+                        .relative().children(self.notification_observer(action as usize, cx))
                         .on_click(cx.listener(move |this, _, _, cx| { if available { this.change_notification_preference(action); cx.notify(); } }))
                 }))
                 .when(self.notification_failed, |d| d.child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child("Servizio OS non disponibile o richiesta scaduta. Gli avvisi sono best effort.")))

@@ -282,6 +282,7 @@ pub(crate) async fn run_service(
     let mut ticks = tokio::time::interval(std::time::Duration::from_millis(200));
     // Profile name and picture are re-read every minute: a change made elsewhere shows up without restart.
     let mut shown = None;
+    let mut shown_complete = None;
     let mut profile_ticks = tokio::time::interval(PROFILE_REFRESH);
     loop {
         let result = tokio::select! {
@@ -331,6 +332,18 @@ pub(crate) async fn run_service(
                             Err(error) => Err(error),
                         }
                     }
+                    VerificationCommand::RecoverKeys { account_id: requested, key } if requested == account_id => {
+                        if events.send(VerificationEvent::KeysRecovery { account_id, state: crate::signin::RecoveryState::Pending }).await.is_err() { break; }
+                        // The key lives only in this call; dropping it zeroizes it.
+                        let outcome = crate::recovery::recover_all_with(client.clone(), zeroize::Zeroizing::new(key.0.to_string()), false).await;
+                        drop(key);
+                        let state = crate::signin::RecoveryState::of_outcome(outcome);
+                        if events.send(VerificationEvent::KeysRecovery { account_id, state }).await.is_err() { break; }
+                        let complete = crate::recovery::keys_recovered(&client).await;
+                        shown_complete = Some(complete);
+                        if events.send(VerificationEvent::KeysComplete { account_id, complete }).await.is_err() { break; }
+                        Ok(())
+                    }
                     VerificationCommand::DeleteDevice { account_id: requested, device_id, password } if requested == account_id => {
                         match session.delete_device(&device_id, password).await {
                             Ok(()) => match device_list(&client).await {
@@ -354,6 +367,11 @@ pub(crate) async fn run_service(
                 }
             }
             _ = profile_ticks.tick() => {
+                let complete = crate::recovery::keys_recovered(&client).await;
+                if shown_complete != Some(complete) {
+                    shown_complete = Some(complete);
+                    if events.send(VerificationEvent::KeysComplete { account_id, complete }).await.is_err() { break; }
+                }
                 match own_profile(&client).await {
                     Some(profile) if shown.as_ref() != Some(&profile) => {
                         shown = Some(profile.clone());
@@ -408,11 +426,9 @@ async fn own_profile(client: &Client) -> Option<(String, Option<String>, Option<
     let user_id = client.user_id()?.to_string();
     let account = client.account();
     let display_name = account.get_display_name().await.ok()?;
-    let avatar = account
-        .get_avatar_url()
-        .await
-        .ok()?
-        .map(|uri| uri.to_string());
+    let avatar = crate::avatar::normalize_avatar(
+        account.get_avatar_url().await.ok()?.map(|uri| uri.to_string()),
+    );
     Some((user_id, display_name, avatar))
 }
 

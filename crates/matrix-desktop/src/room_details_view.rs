@@ -1,4 +1,5 @@
 //! Optional read-only sheet over the chat; the default remains two columns.
+use crate::switch_row::switch_row;
 use crate::*;
 
 impl Shell {
@@ -427,26 +428,20 @@ impl Shell {
                             })),
                     )
                     .child(
-                        div()
-                            .id("room-hide-status")
-                            .relative()
-                            .children(self.details_observer(2, cx))
-                            .when(focused_control == Some(2), |d| d.border_1().border_color(rgb(t.accent)))
-                            .cursor_pointer()
-                            .text_color(rgb(t.accent))
-                            .child(if hide_status { "Mostra messaggi di stato" } else { "Nascondi messaggi di stato" })
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
+                        switch_row(
+                            "room-hide-status", "Nascondi messaggi di stato", hide_status, true, input_modality::only_keys(focused_control == Some(2), cx), t,
+                        )
+                        .relative()
+                        .children(self.details_observer(2, cx))
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
                     )
                     .child(
-                        div()
-                            .id("room-hide-redacted")
-                            .relative()
-                            .children(self.details_observer(3, cx))
-                            .when(focused_control == Some(3), |d| d.border_1().border_color(rgb(t.accent)))
-                            .cursor_pointer()
-                            .text_color(rgb(t.accent))
-                            .child(if hide_redacted { "Mostra messaggi eliminati" } else { "Nascondi messaggi eliminati" })
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
+                        switch_row(
+                            "room-hide-redacted", "Nascondi messaggi eliminati", hide_redacted, true, input_modality::only_keys(focused_control == Some(3), cx), t,
+                        )
+                        .relative()
+                        .children(self.details_observer(3, cx))
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
                     )
                     .child(
                         div()

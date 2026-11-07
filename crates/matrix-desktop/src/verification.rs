@@ -57,6 +57,10 @@ pub struct DeviceVerification {
     own_device: Option<String>,
     own: Option<matrix_engine::verification::VerificationDevice>,
     profile_avatar: Option<String>,
+    /// Key recovery complete (backup on, cross-signing keys held); None until the engine says.
+    keys_complete: Option<bool>,
+    #[cfg(feature = "live")]
+    key_recovery: Option<matrix_engine::signin::RecoveryState>,
 }
 impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
@@ -73,6 +77,9 @@ impl DeviceVerification {
             own_device: None,
             own: None,
             profile_avatar: None,
+            keys_complete: None,
+            #[cfg(feature = "live")]
+            key_recovery: None,
         }
     }
     /// (user id, display name) from the SDK; None until the first sync starts.
@@ -155,6 +162,35 @@ impl DeviceVerification {
             device_id: dialog.device_id.clone(),
             password: matrix_engine::verification::DevicePassword::new(std::mem::take(&mut *password)),
         });
+        true
+    }
+    /// «Recupera chiavi» is offered on an undecryptable row only while the recovery is known to be incomplete.
+    pub fn offers_recover_keys(&self, utd: bool) -> bool {
+        utd && self.keys_complete == Some(false)
+    }
+    #[cfg(feature = "live")]
+    /// State of the last «Recupera chiavi» attempt, for the key field.
+    pub fn key_recovery(&self) -> Option<matrix_engine::signin::RecoveryState> {
+        self.key_recovery
+    }
+    #[cfg(feature = "live")]
+    /// One-line failure shown by the key field: the same wording as the sign-in step.
+    pub fn key_recovery_message(&self) -> Option<&'static str> {
+        self.key_recovery.and_then(crate::signin_form::recovery_message)
+    }
+    #[cfg(feature = "live")]
+    /// Queues the recovery with the key typed now; the key lives only in the command (same checks as sign-in).
+    pub fn recover_keys(&mut self, mut key: zeroize::Zeroizing<String>) -> bool {
+        use matrix_engine::signin::{RecoveryFailure, RecoveryState, Secret};
+        if self.pending.is_some() || self.key_recovery == Some(RecoveryState::Pending) {
+            return false;
+        }
+        let Ok(key) = Secret::new(std::mem::take(&mut *key)) else {
+            self.key_recovery = Some(RecoveryState::Failed(RecoveryFailure::InvalidKey));
+            return false;
+        };
+        self.key_recovery = Some(RecoveryState::Pending);
+        self.pending = Some(VerificationCommand::RecoverKeys { account_id: self.account, key });
         true
     }
     pub fn can_begin(&self) -> bool {
@@ -251,6 +287,17 @@ impl DeviceVerification {
                     matrix_engine::verification::VerificationError::InvalidName => "Nome non valido",
                     _ => "Non riuscito. Riprova.",
                 });
+            }
+            #[cfg(feature = "live")]
+            VerificationEvent::KeysRecovery { account_id, state } if account_id == self.account => {
+                self.key_recovery = Some(state);
+            }
+            VerificationEvent::KeysComplete { account_id, complete } if account_id == self.account => {
+                self.keys_complete = Some(complete);
+                #[cfg(feature = "live")]
+                if complete {
+                    self.key_recovery = None;
+                }
             }
             VerificationEvent::Error { account_id, .. } if account_id == self.account => {
                 self.failed = true;
@@ -563,5 +610,48 @@ mod profile_tests {
         v.apply(ev(1));
         assert!(v.own().is_some_and(|d| d.verified));
         assert!(v.devices().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod key_recovery_tests {
+    use super::*;
+    #[cfg(feature = "live")]
+    use matrix_engine::signin::{RecoveryFailure, RecoveryState};
+
+    fn complete(account: u64, complete: bool) -> VerificationEvent {
+        VerificationEvent::KeysComplete { account_id: AccountId::new(account), complete }
+    }
+
+    #[test]
+    fn action_only_on_undecryptable_rows_and_only_while_incomplete() {
+        let mut v = DeviceVerification::new(AccountId::new(1));
+        assert!(!v.offers_recover_keys(true), "unknown state offers nothing");
+        v.apply(complete(2, false));
+        assert!(!v.offers_recover_keys(true), "another account's state is ignored");
+        v.apply(complete(1, false));
+        assert!(v.offers_recover_keys(true));
+        assert!(!v.offers_recover_keys(false), "readable rows never offer it");
+        v.apply(complete(1, true));
+        assert!(!v.offers_recover_keys(true), "gone everywhere once complete");
+    }
+
+    #[cfg(feature = "live")]
+    #[test]
+    fn key_goes_into_one_command_and_failures_use_the_sign_in_wording() {
+        let mut v = DeviceVerification::new(AccountId::new(1));
+        assert!(!v.recover_keys(zeroize::Zeroizing::new(String::new())));
+        assert_eq!(v.key_recovery(), Some(RecoveryState::Failed(RecoveryFailure::InvalidKey)));
+        assert_eq!(v.key_recovery_message(), Some("Chiave di recupero Matrix non valida. Controlla e riprova."));
+        assert!(v.recover_keys(zeroize::Zeroizing::new("EsTu key".into())));
+        assert!(matches!(v.pending, Some(VerificationCommand::RecoverKeys { .. })));
+        assert!(!v.recover_keys(zeroize::Zeroizing::new("again".into())), "one attempt at a time");
+        v.apply(VerificationEvent::KeysRecovery {
+            account_id: AccountId::new(1),
+            state: RecoveryState::Failed(RecoveryFailure::Network),
+        });
+        assert!(v.key_recovery_message().is_some_and(|m| m.starts_with("Server non raggiungibile")));
+        v.apply(complete(1, true));
+        assert_eq!(v.key_recovery(), None);
     }
 }

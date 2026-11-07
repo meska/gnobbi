@@ -11,6 +11,8 @@ Mobile apps must use the generated files and never define colours or measures by
 Tests: `matrix-desktop/tests/design_tokens.rs` (generated values == desktop `Theme::tokens()` for all 4 themes),
 `matrix-domain/tests/design_outputs.rs` (Swift/Kotlin carry the same values as the Rust constants).
 
+The `placeholder` palette colour is secondary text blended at 80% over the theme surface; it is used for the composer on that surface.
+
 ## Still inside matrix-desktop, to move into the domain for mobile
 
 - `DesignTokens`, `LIGHT/DARK/DAY/NIGHT`, `SCRIM`, `AVATAR_FALLBACK`, `DEMO_NOTICE` (lib.rs) and `Theme::label/is_dark` (preferences.rs): values now generated here; desktop keeps its own copies until a follow-up switches it to `matrix_domain::design` (the identity test guards the drift).

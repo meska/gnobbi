@@ -1,0 +1,21 @@
+{
+ "age": 27,
+ "content": {
+  "body": "$0FGh_dsG1uK8M9sqaEGIMiTdbN4OsP0j5mSZvwR8wcU",
+  "format": "org.matrix.custom.html",
+  "formatted_body": "<p>Didascalia di prova per <b>file</b>, variante c</p>",
+  "msgtype": "m.file",
+  "url": "mxc://matrix-desktop.test/media000"
+ },
+ "event_id": "$YaR8DNbWE-MG7d8EFLljRQwbn14p86XFPnKtqEZYC54",
+ "origin_server_ts": 1794005844250,
+ "room_id": "!Fc4FkswTyaB9tZXHs7M7JmsrHOOYtq7ZWHwel4XDlAo",
+ "sender": "@alice:matrix-desktop.test",
+ "type": "m.room.message",
+ "unsigned": {
+  "age": 27,
+  "membership": "join",
+  "transaction_id": "p0fg-c-file"
+ },
+ "user_id": "@alice:matrix-desktop.test"
+}

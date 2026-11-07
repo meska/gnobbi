@@ -115,7 +115,7 @@ fn disposable_lifecycle_full_result_queue_does_not_deadlock_shutdown() {
                             },
                             transaction_id: TransactionId::new(format!("p022-drain-{index}")),
                             body: format!("queued {index}"),
- attachment: None, mentions: Vec::new(),
+ attachment: None, poll: None, mentions: Vec::new(),
  })
                         .await
                         .is_ok()
@@ -362,7 +362,7 @@ fn disposable_lifecycle_shutdown_reports_unconfirmed_writes() {
                     },
                     transaction_id: TransactionId::new("p022-offline-shutdown"),
                     body: "Unconfirmed shutdown".into(),
- attachment: None, mentions: Vec::new(),
+ attachment: None, poll: None, mentions: Vec::new(),
  })
                 .await
                 .is_ok()
@@ -392,7 +392,7 @@ fn disposable_lifecycle_dropped_results_cannot_hide_unconfirmed_send() {
             scope: RoomScope { account_id: AccountId::new(22), room_id: RoomId::new(room) },
             transaction_id: TransactionId::new("p022-dropped-results"),
             body: "Unconfirmed after UI drop".into(),
- attachment: None, mentions: Vec::new(),
+ attachment: None, poll: None, mentions: Vec::new(),
  }).await.is_ok());
     });
     // Let the failed send hit the closed result route before requesting stop.
@@ -413,7 +413,7 @@ fn disposable_lifecycle_reconnect_restores_ready_without_duplicate_send() {
         },
         transaction_id: TransactionId::new("p022-reconnect-identity"),
         body: "survives reconnect".into(),
- attachment: None, mentions: Vec::new(),
+ attachment: None, poll: None, mentions: Vec::new(),
  };
     runtime().block_on(async {
         assert!(sends.send(request.clone()).await.is_ok());
@@ -488,7 +488,7 @@ fn disposable_lifecycle_shutdown_deadline_is_explicit() {
                         },
                         transaction_id: TransactionId::new(format!("p022-deadline-{index}")),
                         body: "Unconfirmed".into(),
- attachment: None, mentions: Vec::new(),
+ attachment: None, poll: None, mentions: Vec::new(),
  })
                     .await
                     .is_ok()

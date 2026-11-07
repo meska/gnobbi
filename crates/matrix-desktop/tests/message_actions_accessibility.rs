@@ -11,6 +11,7 @@ fn snapshot(history: matrix_desktop::accessibility::HistorySnapshot) -> Navigati
     NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -48,6 +49,7 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         0,
     );
     history.prepend_server(vec![matrix_engine::history::HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$same:test"),
         body: "same text".into(),
@@ -55,11 +57,12 @@ fn server_history(account: u64, room: &str) -> DemoHistory {
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     history
 }
@@ -259,6 +262,7 @@ fn an_attachment_has_a_scarica_button_a_text_row_has_none() {
         0,
     );
     let event = |id: &str, name: Option<&str>| matrix_engine::history::HistoryEvent {
+        poll: None,
         event_id: EventId::new(id),
         body: "x".into(),
         outgoing: false,
@@ -266,12 +270,13 @@ fn an_attachment_has_a_scarica_button_a_text_row_has_none() {
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: name.map(Into::into),
-        attachment_size: None,
+        attachment_size: None, media: None,
     };
     history.prepend_server(vec![event("$text:test", None), event("$file:test", Some("a.pdf"))]);
     let file = history.events()[1].id.clone();

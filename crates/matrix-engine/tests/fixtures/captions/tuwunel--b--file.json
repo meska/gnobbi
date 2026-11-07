@@ -1,0 +1,16 @@
+{
+ "content": {
+  "body": "sent-file.bin",
+  "msgtype": "m.file",
+  "url": "mxc://matrix-desktop.test/media000"
+ },
+ "event_id": "$mYE5fd6hC7CO5NFKY2cd49ekPVXDa8VWW2HCoF7lPlA",
+ "origin_server_ts": 1794005845569,
+ "room_id": "!j4dFc8c5_52wSqNF8LqjP5VwfwN1YksRUSbba_Jnmh4",
+ "sender": "@alice:matrix-desktop.test",
+ "type": "m.room.message",
+ "unsigned": {
+  "age": 6,
+  "transaction_id": "p0fg-b-file"
+ }
+}

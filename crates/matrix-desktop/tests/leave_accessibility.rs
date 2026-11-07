@@ -25,6 +25,7 @@ fn snapshot(rooms: Vec<matrix_desktop::accessibility::SemanticRoom>) -> Navigati
         new_room: None,
         devices: Default::default(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         settings: None,
         details: Default::default(),
         notifications: Default::default(),
@@ -45,12 +46,12 @@ fn an_open_room_menu_exposes_an_exit_button_that_asks_to_leave() {
     let account = AccountId::new(22);
     let scope = RoomScope { account_id: account, room_id: RoomId::new("!room:fixture.invalid") };
     let mut sidebar = Sidebar::connected(account);
-    sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
         scope: scope.clone(),
         name: "Stanza".into(),
         unread: 0,
         info: RoomInfo::default(),
-    }));
+    })));
     let mut rooms = RoomNodes::default().project(&sidebar);
     let button_of = |snap: &NavigationSnapshot| {
         let tree = snap.tree();

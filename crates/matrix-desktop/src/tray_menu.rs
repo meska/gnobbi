@@ -16,6 +16,8 @@ pub const QUIT: &str = "Chiudi Gnobbi";
 pub enum TrayAction {
     /// Minimize when the window is visible, show it when hidden.
     ToggleWindow,
+    /// Primary click on the icon: show, restore and focus, never minimize.
+    ShowWindow,
     /// Same switch as Settings: flips `NotificationPolicy::enabled` of the shown account.
     ToggleNotifications,
     Quit,
@@ -114,6 +116,7 @@ mod tests {
             name: name.into(),
             user_id: format!("@{name}:x"),
             initials: crate::initials(name),
+            avatar: None,
             current,
             unread: 0,
             mentions: 0,

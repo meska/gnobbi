@@ -13,6 +13,7 @@ fn scope() -> RoomScope {
 fn live_history() -> DemoHistory {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$e"),
         body: "ciao".into(),
@@ -20,11 +21,12 @@ fn live_history() -> DemoHistory {
         timestamp_ms: 0,
         sender: HistorySender::new("@a:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     rows
 }
@@ -58,6 +60,7 @@ fn id(event: &str) -> matrix_domain::ScopedTimelineId {
 fn two_live() -> DemoHistory {
     let mut rows = DemoHistory::new(scope(), 0);
     let event = |id: &str| HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new(id),
         body: "ciao".into(),
@@ -65,11 +68,12 @@ fn two_live() -> DemoHistory {
         timestamp_ms: 0,
         sender: HistorySender::new("@a:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     };
     rows.prepend_server(vec![event("$old"), event("$new")]);
     rows

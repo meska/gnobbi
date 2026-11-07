@@ -22,6 +22,7 @@ fn confirmed_redaction_has_semantics_not_inferred_from_message_body() {
     let event = EventId::new("$original:fixture.invalid");
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: event.clone(),
         body: "[Messaggio eliminato]".into(),
@@ -29,11 +30,12 @@ fn confirmed_redaction_has_semantics_not_inferred_from_message_body() {
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     let mut nodes = HistoryNodes::default();
     let original = nodes.project(&rows, 0, true).messages.remove(0);
@@ -89,6 +91,7 @@ fn own_reaction_is_named_separately_from_edit_and_delivery() {
     };
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$react-target"),
         body: "original".into(),
@@ -96,11 +99,12 @@ fn own_reaction_is_named_separately_from_edit_and_delivery() {
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     let mut nodes = HistoryNodes::default();
     let original = nodes.project(&rows, 0, true).messages.remove(0);
@@ -190,6 +194,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![
         HistoryEvent {
+            poll: None,
             redacted: false,
             event_id: EventId::new("$read"),
             body: "original".into(),
@@ -197,13 +202,15 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
             timestamp_ms: 0,
             sender: matrix_engine::history::HistorySender::new("@peer:test", None),
             video: None,
-            styles: Vec::new(),
+            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None, thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
         },
         HistoryEvent {
+            poll: None,
             redacted: false,
             event_id: EventId::new("$later"),
             body: "later".into(),
@@ -211,11 +218,12 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
             timestamp_ms: 1,
             sender: matrix_engine::history::HistorySender::new("@peer:test", None),
             video: None,
-            styles: Vec::new(),
+            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None, thread_root: None,
             status: false,
+            utd: false,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
         },
     ]);
     let mut nodes = HistoryNodes::default();

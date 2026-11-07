@@ -18,6 +18,7 @@ enum DesignTokens {
         static let surface: UInt32 = 0xffffff
         static let text: UInt32 = 0x17231b
         static let secondary: UInt32 = 0x46604e
+        static let placeholder: UInt32 = 0x6b8071
         static let accent: UInt32 = 0x1264aa
         static let timeline: UInt32 = 0xe9f0eb
         static let outgoing: UInt32 = 0xd9fdd3
@@ -26,6 +27,7 @@ enum DesignTokens {
         static let input: UInt32 = 0xf1f4f2
         static let disabled: UInt32 = 0xe9efeb
         static let selection: UInt32 = 0xd0ead8
+        static let mentionRow: UInt32 = 0xe2d5d1
         static let error: UInt32 = 0xb43030
         static let onAccent: UInt32 = 0xffffff
         static let avatarText: UInt32 = 0x101b14
@@ -36,6 +38,7 @@ enum DesignTokens {
         static let surface: UInt32 = 0xffffff
         static let text: UInt32 = 0x111512
         static let secondary: UInt32 = 0x47514a
+        static let placeholder: UInt32 = 0x6c746e
         static let accent: UInt32 = 0x0b5cad
         static let timeline: UInt32 = 0xf4f6f5
         static let outgoing: UInt32 = 0xd2f6dd
@@ -44,6 +47,7 @@ enum DesignTokens {
         static let input: UInt32 = 0xf1f3f2
         static let disabled: UInt32 = 0xe6eae7
         static let selection: UInt32 = 0xcde9d6
+        static let mentionRow: UInt32 = 0xead4d7
         static let error: UInt32 = 0xb00020
         static let onAccent: UInt32 = 0xffffff
         static let avatarText: UInt32 = 0x101b14
@@ -54,6 +58,7 @@ enum DesignTokens {
         static let surface: UInt32 = 0x17231b
         static let text: UInt32 = 0xe5efe8
         static let secondary: UInt32 = 0xb4c9ba
+        static let placeholder: UInt32 = 0x95a89a
         static let accent: UInt32 = 0x80c8ff
         static let timeline: UInt32 = 0x101b14
         static let outgoing: UInt32 = 0x244436
@@ -62,6 +67,7 @@ enum DesignTokens {
         static let input: UInt32 = 0x203226
         static let disabled: UInt32 = 0x26372c
         static let selection: UInt32 = 0x254d34
+        static let mentionRow: UInt32 = 0x3b3631
         static let error: UInt32 = 0xffb3b3
         static let onAccent: UInt32 = 0x101922
         static let avatarText: UInt32 = 0x101b14
@@ -72,6 +78,7 @@ enum DesignTokens {
         static let surface: UInt32 = 0x0b0f0c
         static let text: UInt32 = 0xe8eeea
         static let secondary: UInt32 = 0xa9b9ae
+        static let placeholder: UInt32 = 0x89978e
         static let accent: UInt32 = 0x7cc4ff
         static let timeline: UInt32 = 0x000000
         static let outgoing: UInt32 = 0x16301f
@@ -80,6 +87,7 @@ enum DesignTokens {
         static let input: UInt32 = 0x141c17
         static let disabled: UInt32 = 0x1a241d
         static let selection: UInt32 = 0x1b412a
+        static let mentionRow: UInt32 = 0x2e2020
         static let error: UInt32 = 0xffb3b3
         static let onAccent: UInt32 = 0x000000
         static let avatarText: UInt32 = 0x101b14

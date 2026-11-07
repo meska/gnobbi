@@ -78,6 +78,7 @@ fn navigation() -> matrix_desktop::accessibility::NavigationSnapshot {
     matrix_desktop::accessibility::NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

@@ -13,6 +13,7 @@ fn scope() -> RoomScope {
 fn live_mapping_carries_sender_id_and_name() {
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$a"),
         body: "ciao".into(),
@@ -20,11 +21,12 @@ fn live_mapping_carries_sender_id_and_name() {
         timestamp_ms: 0,
         sender: HistorySender::new("@anna:test", Some("Anna")),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }]);
     let sender = rows.events()[0].sender.as_ref().expect("sender");
     assert_eq!(sender.id, "@anna:test");
@@ -52,6 +54,7 @@ fn demo_incoming_events_have_sender_and_outgoing_do_not() {
 
 fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new(id),
         body: "x".into(),
@@ -59,11 +62,12 @@ fn incoming(id: &str, sender: &str, name: Option<&str>, timestamp_ms: u64) -> Hi
         timestamp_ms,
         sender: HistorySender::new(sender, name),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }
 }
 
@@ -92,6 +96,7 @@ fn sender_label_follows_the_rule_in_a_group() {
 #[test]
 fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
     let row = |id: &str, status: bool| HistoryEvent {
+        poll: None,
         event_id: EventId::new(id),
         body: "meska ha invitato Marco".into(),
         outgoing: false,
@@ -99,12 +104,13 @@ fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
         timestamp_ms: 0,
         sender: HistorySender::new("@anna:test", Some("Anna")),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,
         status,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     };
     let mut rows = DemoHistory::new(scope(), 0);
     rows.prepend_server(vec![row("$s", true), row("$m", false)]);

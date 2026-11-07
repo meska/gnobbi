@@ -376,6 +376,20 @@ impl RoomListWorker {
                         use crate::operations::{OperationCommand, OperationResult};
                         let mut search = crate::user_search::UserSearch::for_client(operation_client.clone());
                         let mut search_rx = search.as_ref().map(|s| s.subscribe());
+                        // Message search of the open room: one instance, replaced when the room changes.
+                        let mut messages: Option<(RoomScope, crate::message_search::MessageSearch)> = None;
+                        let mut messages_rx: Option<tokio::sync::watch::Receiver<crate::operations::MessageSearchState>> = None;
+                        let rooms_client = operation_client.clone();
+                        let mut rooms = crate::search::Search::<Option<String>, crate::operations::DirectoryRoom>::new(
+                            None,
+                            move |term, server, since| {
+                                let client = rooms_client.clone();
+                                async move {
+                                    crate::operations::public_rooms(&client, &term, server.as_deref(), since, crate::search::PAGE).await
+                                }
+                            },
+                        );
+                        let mut rooms_rx = rooms.subscribe();
                         loop {
                             let command = tokio::select! {
                                 command = shutdown_receive(&operation_stop, &mut operations) => {
@@ -400,8 +414,51 @@ impl RoomListWorker {
                                     clean &= matches!(sent, Some(Ok(())) | None);
                                     continue;
                                 }
+                                Some(()) = async {
+                                    match &mut messages_rx {
+                                        Some(rx) => rx.changed().await.ok(),
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    let state = messages_rx.as_mut().unwrap().borrow_and_update().clone();
+                                    if let Some((scope, _)) = &messages {
+                                        let sent = until_stopped(
+                                            &operation_stop,
+                                            operation_results.send(OperationResult::MessageSearch { scope: scope.clone(), state }),
+                                        )
+                                        .await;
+                                        clean &= matches!(sent, Some(Ok(())) | None);
+                                    }
+                                    continue;
+                                }
+                                Ok(()) = rooms_rx.changed() => {
+                                    let state = rooms_rx.borrow_and_update().clone();
+                                    let sent = until_stopped(&operation_stop, operation_results.send(OperationResult::RoomSearch { state })).await;
+                                    clean &= matches!(sent, Some(Ok(())) | None);
+                                    continue;
+                                }
                             };
                             let result = match command {
+                                OperationCommand::SearchMessages { scope, term } => {
+                                    if messages.as_ref().is_none_or(|(s, _)| *s != scope) {
+                                        // A scope of another account or an unparsable room closes the search.
+                                        messages = (scope.account_id == account)
+                                            .then(|| matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).ok())
+                                            .flatten()
+                                            .map(|id| (scope.clone(), crate::message_search::MessageSearch::for_room(operation_client.clone(), id)));
+                                        messages_rx = messages.as_ref().map(|(_, m)| m.subscribe());
+                                    }
+                                    if let Some((_, m)) = &mut messages {
+                                        m.set_query(&term);
+                                    }
+                                    continue;
+                                }
+                                OperationCommand::MoreMessages => {
+                                    if let Some((_, m)) = &mut messages {
+                                        m.more();
+                                    }
+                                    continue;
+                                }
                                 OperationCommand::SearchUsers { term, all } => {
                                     if let Some(search) = &mut search {
                                         search.set_filter(if all {
@@ -551,22 +608,33 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
-                                OperationCommand::JoinRoom { target } => {
+                                OperationCommand::JoinRoom { target, via } => {
                                     let result = crate::operations::join_room(
                                         &operation_client,
                                         account,
                                         &target,
+                                        &via,
                                     )
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
-                                OperationCommand::SearchDirectory { term } => {
-                                    let result = crate::operations::search_directory(
-                                        &operation_client,
-                                        &term,
+                                OperationCommand::SearchRooms { term, server } => {
+                                    rooms.set_query(&term, server);
+                                    continue;
+                                }
+                                OperationCommand::MoreRooms => {
+                                    rooms.more();
+                                    continue;
+                                }
+                                OperationCommand::ProbeServer { server } => {
+                                    let result = tokio::time::timeout(
+                                        crate::search::TIMEOUT,
+                                        crate::operations::public_rooms(&operation_client, "", Some(&server), None, 1),
                                     )
-                                    .await;
-                                    OperationResult::DirectoryFound { result }
+                                    .await
+                                    .unwrap_or(Err(crate::search::SearchError::Timeout))
+                                    .map(|_| ());
+                                    OperationResult::ServerProbed { server, result }
                                 }
                                 OperationCommand::LeaveRoom { scope } => {
                                     let result = crate::operations::leave_room(
@@ -1138,7 +1206,7 @@ impl RoomSync {
             .previous
             .iter()
             .filter(|(id, room)| before.get(*id) != Some(*room))
-            .map(|(_, room)| RoomListDiff::Upsert(room.clone()))
+            .map(|(_, room)| RoomListDiff::Upsert(Box::new(room.clone())))
             .collect();
         diffs.extend(
             before
@@ -1273,7 +1341,7 @@ impl RoomSync {
         let mut changes: Vec<_> = current
             .iter()
             .filter(|(id, room)| self.previous.get(*id) != Some(*room))
-            .map(|(_, room)| RoomListDiff::Upsert(room.clone()))
+            .map(|(_, room)| RoomListDiff::Upsert(Box::new(room.clone())))
             .collect();
         changes.extend(
             self.previous
@@ -1341,6 +1409,9 @@ async fn latest_event_text(room: &matrix_sdk::Room) -> Option<String> {
     else {
         return None;
     };
+    if let Some(poll) = content.as_poll() {
+        return Some(poll.results().question);
+    }
     let message = content.as_message()?;
     Some(match message.msgtype() {
         MessageType::Image(_) => "Immagine".to_owned(),
@@ -1567,6 +1638,12 @@ async fn thread_info(
     Some(crate::history::ThreadInfo { num_replies: summary.num_replies, latest_sender, unread: 0 })
 }
 
+/// The rows of `loaded`, for the disposable-server tests in `tests/`.
+#[doc(hidden)]
+pub async fn rows_for_test(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Vec<crate::history::HistoryEvent> {
+    loaded(room, timeline).await.rows
+}
+
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
 pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Loaded {
     use crate::history::{HistoryEvent, ReactionCount};
@@ -1595,39 +1672,49 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             continue;
         };
         let (mut video, mut styles, mut attachment_name, mut attachment_size) = (None, Vec::new(), None, None);
+        let mut mentions = Vec::new();
+        let mut poll = None;
+        let mut media = None;
         let body = match &content.kind {
-            MsgLikeKind::Message(message) => match message.msgtype() {
-                MessageType::Image(i) => {
-                    attachment_name = Some(crate::history::proposed_name(i.filename()));
-                    attachment_size = i.info.as_deref().and_then(|i| i.size).map(u64::from);
-                    crate::history::IMAGE_BODY.into()
+            MsgLikeKind::Message(message) => {
+                let msgtype = message.msgtype();
+                attachment_name = match msgtype {
+                    MessageType::Image(m) => Some(crate::history::proposed_name(m.filename())),
+                    MessageType::Video(m) => Some(crate::history::proposed_name(m.filename())),
+                    MessageType::Audio(m) => Some(crate::history::proposed_name(m.filename())),
+                    MessageType::File(m) => Some(crate::history::proposed_name(m.filename())),
+                    _ => None,
+                };
+                attachment_size = match msgtype {
+                    MessageType::Image(m) => m.info.as_deref().and_then(|i| i.size),
+                    MessageType::Video(m) => m.info.as_deref().and_then(|i| i.size),
+                    MessageType::Audio(m) => m.info.as_deref().and_then(|i| i.size),
+                    MessageType::File(m) => m.info.as_deref().and_then(|i| i.size),
+                    _ => None,
                 }
-                msgtype => {
-                    attachment_name = match msgtype {
-                        MessageType::Video(v) => Some(crate::history::proposed_name(v.filename())),
-                        MessageType::Audio(a) => Some(crate::history::proposed_name(a.filename())),
-                        MessageType::File(f) => Some(crate::history::proposed_name(f.filename())),
-                        _ => None,
-                    };
-                    attachment_size = match msgtype {
-                        MessageType::Video(m) => m.info.as_deref().and_then(|i| i.size),
-                        MessageType::Audio(m) => m.info.as_deref().and_then(|i| i.size),
-                        MessageType::File(m) => m.info.as_deref().and_then(|i| i.size),
-                        _ => None,
-                    }
-                    .map(u64::from);
-                    video = match msgtype {
-                        MessageType::Video(v) => Some(video_info(v)),
-                        MessageType::Audio(a) => Some(audio_info(a)),
-                        _ => None,
-                    };
-                    let (body, spans) = message_rich(msgtype);
-                    styles = spans;
-                    body
-                }
-            },
+                .map(u64::from);
+                video = match msgtype {
+                    MessageType::Video(v) => Some(video_info(v)),
+                    MessageType::Audio(a) => Some(audio_info(a)),
+                    _ => None,
+                };
+                let at_room = message.mentions().is_some_and(|m| m.room);
+                media = media_of(msgtype);
+                let (body, spans, pills) = if media.is_some() {
+                    caption_rich(room, msgtype, at_room).await
+                } else {
+                    message_rich(room, msgtype, at_room).await
+                };
+                (styles, mentions) = (spans, pills);
+                body
+            }
             MsgLikeKind::Sticker(_) => "Sticker".into(),
-            MsgLikeKind::Poll(_) => "Sondaggio".into(),
+            MsgLikeKind::Poll(state) => {
+                let built = poll_from_results(&state.results(), room.own_user_id().as_str(), event.is_own());
+                let question = built.question.clone();
+                poll = Some(built);
+                question
+            }
             MsgLikeKind::Redacted => "[Messaggio eliminato]".into(),
             // A UTD stays a real row with server identity, never ciphertext or silence.
             MsgLikeKind::UnableToDecrypt(_) => {
@@ -1653,15 +1740,74 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             timestamp_ms: event.timestamp().0.into(),
             sender: history_sender(room, event.sender()).await,
             video,
+            media,
             styles,
+            mentions,
+            highlighted: event.is_highlighted(),
             thread: thread_info(room, content).await,
             thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
             status: false,
+            utd: matches!(content.kind, MsgLikeKind::UnableToDecrypt(_)),
             attachment_name,
             attachment_size,
+            poll,
         });
     }
     out
+}
+
+/// The SDK result (already counted: last vote wins, votes after the end ignored) as a domain `Poll`.
+fn poll_from_results(r: &matrix_sdk_ui::timeline::PollResult, own_user: &str, is_own_event: bool) -> matrix_domain::Poll {
+    use matrix_sdk::ruma::events::poll::start::PollKind;
+    poll_from_parts(
+        &r.question,
+        r.kind == PollKind::Disclosed,
+        r.max_selections,
+        r.answers.iter().map(|a| (a.id.as_str(), a.text.as_str())),
+        &r.votes,
+        r.end_time.is_some(),
+        own_user,
+        is_own_event,
+    )
+}
+
+// Split from `poll_from_results` because the SDK's `PollResultAnswer` cannot be named in a test.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn poll_from_parts<'a>(
+    question: &str,
+    disclosed: bool,
+    max_selections: u64,
+    answers: impl Iterator<Item = (&'a str, &'a str)>,
+    votes: &std::collections::HashMap<String, Vec<String>>,
+    ended: bool,
+    own_user: &str,
+    is_own_event: bool,
+) -> matrix_domain::Poll {
+    let mut voters = std::collections::HashSet::new();
+    let answers: Vec<_> = answers
+        .map(|(id, text)| {
+            let who = votes.get(id).map(Vec::as_slice).unwrap_or_default();
+            voters.extend(who.iter().map(String::as_str));
+            matrix_domain::PollAnswer {
+                id: id.to_owned(),
+                text: text.to_owned(),
+                votes: who.len() as u32,
+                own: who.iter().any(|u| u == own_user),
+            }
+        })
+        .collect();
+    // 0 on the wire would make the poll unvotable.
+    let max_selections = max_selections.clamp(1, u32::MAX.into()) as u32;
+    matrix_domain::Poll {
+        question: question.to_owned(),
+        answers,
+        max_selections,
+        multiple: max_selections > 1,
+        disclosed,
+        ended,
+        voters: voters.len() as u32,
+        can_end: is_own_event && !ended,
+    }
 }
 
 /// A status row from a membership, profile or room-state item; `None` for kinds we do not word
@@ -1720,6 +1866,7 @@ async fn status_row(
         _ => return None,
     };
     Some(crate::history::HistoryEvent {
+        poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
         body: status_text(&status, &label(&actor), &subject),
         outgoing: false,
@@ -1727,10 +1874,14 @@ async fn status_row(
         timestamp_ms: event.timestamp().0.into(),
         sender: shown,
         video: None,
+        media: None,
         styles: Vec::new(),
+        mentions: Vec::new(),
+        highlighted: false,
         thread: None,
         thread_root: None,
         status: true,
+        utd: false,
         attachment_name: None,
         attachment_size: None,
     })
@@ -1913,7 +2064,9 @@ pub(crate) async fn serve_history(
     emit(crate::history::HistoryResult { tag, page }).await
 }
 
-/// Matrix spec «Calculating the display name for a user»: an ambiguous name carries the user id.
+/// Name shown on a bubble. Single place for the policy: a unique display name stands alone; an
+/// SDK-ambiguous one keeps the user id (Matrix spec, open point with Marco); no name → `None`,
+/// the UI then falls back to the id.
 fn disambiguated_name(name: Option<&str>, ambiguous: bool, id: &str) -> Option<String> {
     name.map(|n| if ambiguous { format!("{n} ({id})") } else { n.to_owned() })
 }
@@ -1994,8 +2147,36 @@ fn audio_info(
     }
 }
 
-/// Row text and styles of a message: its sanitized HTML body when the sender gave one, else `message_label`.
-fn message_rich(msgtype: &MessageType) -> (String, Vec<crate::rich_text::StyleSpan>) {
+/// Members (joined or invited) that the `matrix.to` user links of `html` point at, named as on their bubbles.
+async fn mention_senders(
+    room: &matrix_sdk::room::Room,
+    html: &str,
+) -> std::collections::HashMap<String, crate::history::HistorySender> {
+    use matrix_sdk::ruma::{MatrixToUri, events::room::member::MembershipState, matrix_uri::MatrixId};
+    let mut out = std::collections::HashMap::new();
+    // shortcut: at most 32 links per message are looked up, the rest stay plain text.
+    for part in html.split("https://matrix.to/#/").skip(1).take(32) {
+        let raw: String = part.chars().take_while(|c| !"\"'<> ".contains(*c)).collect();
+        let Ok(uri) = MatrixToUri::parse(&format!("https://matrix.to/#/{raw}")) else { continue };
+        let MatrixId::User(id) = uri.id() else { continue };
+        if out.contains_key(id.as_str()) {
+            continue;
+        }
+        let Some(member) = room.get_member_no_sync(id).await.ok().flatten() else { continue };
+        if matches!(member.membership(), MembershipState::Join | MembershipState::Invite) {
+            out.insert(id.to_string(), history_sender(room, id).await);
+        }
+    }
+    out
+}
+
+/// Row text, styles and mention pills of a message: its sanitized HTML body when the sender gave
+/// one, else `message_label`. `at_room` is the event's `m.mentions.room`.
+async fn message_rich(
+    room: &matrix_sdk::room::Room,
+    msgtype: &MessageType,
+    at_room: bool,
+) -> (String, Vec<crate::rich_text::StyleSpan>, Vec<crate::rich_text::MentionSpan>) {
     use matrix_sdk::ruma::events::room::message::MessageFormat;
     let formatted = match msgtype {
         MessageType::Text(t) => t.formatted.as_ref(),
@@ -2003,12 +2184,64 @@ fn message_rich(msgtype: &MessageType) -> (String, Vec<crate::rich_text::StyleSp
         _ => None,
     };
     if let Some(f) = formatted.filter(|f| f.format == MessageFormat::Html) {
-        let (text, styles) = crate::rich_text::from_html(&f.body);
+        let users = mention_senders(room, &f.body).await;
+        let ctx = crate::rich_text::MentionCtx { users: &users, me: room.own_user_id().as_str(), at_room };
+        let (text, styles, mentions) = crate::rich_text::from_html_mentions(&f.body, &ctx);
         if !text.is_empty() {
-            return (text, styles);
+            return (text, styles, mentions);
         }
     }
-    (message_label(msgtype), Vec::new())
+    let label = message_label(msgtype);
+    let pills = if at_room { crate::rich_text::at_room_spans(&label, &[], &[]) } else { Vec::new() };
+    (label, Vec::new(), pills)
+}
+
+/// Kind and label of an attachment message; None for every other msgtype.
+fn media_of(msgtype: &MessageType) -> Option<crate::history::Media> {
+    use crate::history::{Media, MediaKind};
+    let kind = match msgtype {
+        MessageType::Image(_) => MediaKind::Image,
+        MessageType::Video(_) => MediaKind::Video,
+        MessageType::Audio(_) => MediaKind::Audio,
+        MessageType::File(_) => MediaKind::File,
+        _ => return None,
+    };
+    Some(Media { kind, label: message_label(msgtype) })
+}
+
+/// Caption of an attachment, from the SDK only (`caption()` is None when the body is the file name):
+/// its sanitized HTML when it gives some text, else the plain text, else nothing (blank = none).
+async fn caption_rich(
+    room: &matrix_sdk::room::Room,
+    msgtype: &MessageType,
+    at_room: bool,
+) -> (String, Vec<crate::rich_text::StyleSpan>, Vec<crate::rich_text::MentionSpan>) {
+    use matrix_sdk::ruma::events::room::message::MessageFormat;
+    let (plain, formatted) = caption_sources(msgtype);
+    if let Some(f) = formatted.filter(|f| f.format == MessageFormat::Html) {
+        let users = mention_senders(room, &f.body).await;
+        let ctx = crate::rich_text::MentionCtx { users: &users, me: room.own_user_id().as_str(), at_room };
+        let (text, styles, mentions) = crate::rich_text::from_html_mentions(&f.body, &ctx);
+        if !text.trim().is_empty() {
+            return (text, styles, mentions);
+        }
+    }
+    match plain.map(str::trim).filter(|c| !c.is_empty()) {
+        Some(c) => (c.to_owned(), Vec::new(), if at_room { crate::rich_text::at_room_spans(c, &[], &[]) } else { Vec::new() }),
+        None => (String::new(), Vec::new(), Vec::new()),
+    }
+}
+
+fn caption_sources(
+    msgtype: &MessageType,
+) -> (Option<&str>, Option<&matrix_sdk::ruma::events::room::message::FormattedBody>) {
+    match msgtype {
+        MessageType::Image(m) => (m.caption(), m.formatted_caption()),
+        MessageType::Video(m) => (m.caption(), m.formatted_caption()),
+        MessageType::Audio(m) => (m.caption(), m.formatted_caption()),
+        MessageType::File(m) => (m.caption(), m.formatted_caption()),
+        _ => (None, None),
+    }
 }
 
 /// Row text for a message type: its content when textual, otherwise a short real label.
@@ -2068,7 +2301,7 @@ fn message_label(msgtype: &MessageType) -> String {
         }
         MessageType::Location(_) => "Posizione".into(),
         MessageType::VerificationRequest(_) => "Richiesta di verifica".into(),
-        MessageType::Image(_) => crate::history::IMAGE_BODY.into(),
+        MessageType::Image(_) => "Immagine".into(),
         other => other.msgtype().to_owned(),
     }
 }

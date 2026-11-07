@@ -691,7 +691,7 @@ mod tests {
                 a.retain(|(n, _)| n != name);
                 a.push(((*name).into(), *last_activity));
             });
-            sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
                 scope: RoomScope {
                     account_id: *account,
                     room_id: RoomId::new(format!("!{name}:t.invalid")),
@@ -702,7 +702,7 @@ mod tests {
                     preview: Some("x".into()),
                     ..Default::default()
                 },
-            }));
+            })));
         }
         let mut all = ACTIVITY.with(|a| a.borrow().clone());
         all.sort_by_key(|(n, at)| (std::cmp::Reverse(*at), n.to_lowercase()));
@@ -721,12 +721,12 @@ mod tests {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         for (id, unread, muted) in [("a", 2, false), ("b", 5, true)] {
-            sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
                 scope: RoomScope { account_id: account, room_id: RoomId::new(format!("!{id}:t.invalid")) },
                 name: id.into(),
                 unread,
                 info: RoomInfo { muted, mentions: unread, ..Default::default() },
-            }));
+            })));
         }
         let all = &sidebar.navigation_entries()[0];
         assert_eq!((all.unread, all.mentions), (2, 2));
@@ -801,7 +801,7 @@ mod tests {
             &account,
             &[("x", Some(1)), ("y", Some(2)), ("z", Some(3))],
         );
-        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: scope(&account, "space"),
             name: "space".into(),
             unread: 0,
@@ -810,7 +810,7 @@ mod tests {
                 children: vec![RoomId::new("!x:t.invalid"), RoomId::new("!y:t.invalid")],
                 ..Default::default()
             },
-        }));
+        })));
         assert!(sidebar.set_space(Some(scope(&account, "space"))));
         assert!(sidebar.select(&scope(&account, "x")));
         fill(&mut sidebar, &account, &[("x", Some(9))]);
@@ -820,7 +820,7 @@ mod tests {
         );
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
         sidebar.set_unread_only(true);
-        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: scope(&account, "y"),
             name: "y".into(),
             unread: 2,
@@ -828,7 +828,7 @@ mod tests {
                 preview: Some("x".into()),
                 ..Default::default()
             },
-        }));
+        })));
         assert_eq!(names(&sidebar), ["y"]);
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
     }
@@ -839,7 +839,7 @@ mod tests {
         let mut sidebar = Sidebar::connected(account);
         assert_eq!(sidebar.list_header(), ("Tutte".into(), "▦".into(), None));
         assert_eq!(sidebar.list_header_avatar(), None);
-        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: scope(&account, "bots"),
             name: "Bots".into(),
             unread: 0,
@@ -848,7 +848,7 @@ mod tests {
                 avatar: Some("mxc://s/bots".into()),
                 ..Default::default()
             },
-        }));
+        })));
         assert!(sidebar.set_space(Some(scope(&account, "bots"))));
         let (name, initials, color) = sidebar.list_header();
         assert_eq!((name.as_str(), initials.as_str()), ("Bots", "Bo"));
@@ -861,12 +861,12 @@ mod tests {
         let header = || {
             let account = AccountId::new(1);
             let mut sidebar = Sidebar::connected(account);
-            sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
                 scope: scope(&account, "bots"),
                 name: "Bots".into(),
                 unread: 0,
                 info: RoomInfo { is_space: true, ..Default::default() },
-            }));
+            })));
             assert!(sidebar.set_space(Some(scope(&account, "bots"))));
             assert_eq!(sidebar.list_header_avatar(), None);
             sidebar.list_header()
@@ -906,7 +906,7 @@ mod tests {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         let upsert = |sidebar: &mut Sidebar, id: &str, unread, mentions, children: &[&str]| {
-            sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+            sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
                 scope: scope(&account, id),
                 name: id.into(),
                 unread,
@@ -919,7 +919,7 @@ mod tests {
                         .collect(),
                     ..Default::default()
                 },
-            }));
+            })));
         };
         upsert(&mut sidebar, "a", 3, 2, &[]);
         upsert(&mut sidebar, "b", 4, 1, &[]);
@@ -949,7 +949,7 @@ mod tests {
     }
 
     fn tagged(sidebar: &mut Sidebar, account: &AccountId, name: &str, unread: u64, tags: &[&str]) {
-        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: scope(account, name),
             name: name.into(),
             unread,
@@ -958,7 +958,7 @@ mod tests {
                 tags: tags.iter().map(|t| (*t).into()).collect(),
                 ..Default::default()
             },
-        }));
+        })));
     }
 
     #[test]
@@ -1017,12 +1017,12 @@ mod invite_tests {
     }
 
     fn upsert(sidebar: &mut Sidebar, account: AccountId, id: &str, name: &str, info: RoomInfo) {
-        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: scope(account, id),
             name: name.into(),
             unread: 0,
             info,
-        }));
+        })));
     }
 
     fn invite() -> RoomInfo {

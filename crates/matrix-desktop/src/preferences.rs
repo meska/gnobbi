@@ -303,19 +303,42 @@ impl Preferences {
         }
     }
 
-    /// Atomic write (temp file then rename), owner-only.
+    /// Atomic write (temp file then rename), owner-only. Keys it does not own stay as they are.
     pub fn save(&self, dirs: &AppDirs) -> std::io::Result<()> {
-        #[cfg(unix)]
-        crate::create_private_dir(&dirs.config)?;
-        #[cfg(not(unix))]
-        std::fs::create_dir_all(&dirs.config)?;
-        let tmp = dirs.config.join(format!("{FILE}.tmp"));
-        let mut opts = std::fs::OpenOptions::new();
-        opts.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "desktop_entry_dont_ask": self.desktop_entry_dont_ask });
-        opts.open(&tmp)?.write_all(body.to_string().as_bytes())?;
-        std::fs::rename(tmp, dirs.config.join(FILE))
+        update_settings(dirs, |map| {
+            let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "desktop_entry_dont_ask": self.desktop_entry_dont_ask });
+            if let Value::Object(own) = body {
+                map.extend(own);
+            }
+        })
     }
+}
+
+/// Reads `settings.json` as an object (empty when missing or corrupt).
+pub(crate) fn read_settings(dirs: &AppDirs) -> serde_json::Map<String, Value> {
+    match std::fs::read(dirs.config.join(FILE)).map(|b| serde_json::from_slice::<Value>(&b)) {
+        Ok(Ok(Value::Object(map))) => map,
+        _ => Default::default(),
+    }
+}
+
+/// Read-modify-write of `settings.json`, atomic and owner-only; several stores share the file.
+pub(crate) fn update_settings(
+    dirs: &AppDirs,
+    change: impl FnOnce(&mut serde_json::Map<String, Value>),
+) -> std::io::Result<()> {
+    #[cfg(unix)]
+    crate::create_private_dir(&dirs.config)?;
+    #[cfg(not(unix))]
+    std::fs::create_dir_all(&dirs.config)?;
+    let mut map = read_settings(dirs);
+    change(&mut map);
+    let tmp = dirs.config.join(format!("{FILE}.tmp"));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    opts.open(&tmp)?
+        .write_all(Value::Object(map).to_string().as_bytes())?;
+    std::fs::rename(tmp, dirs.config.join(FILE))
 }

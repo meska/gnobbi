@@ -24,3 +24,7 @@ uniffi = { version = "=0.32.2", features = ["tokio"] }
 name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
 required-features = ["bindgen"]
+
+# iOS: the engine's own Keychain vault (sign-in/restore with `secrets: None`).
+[target.'cfg(target_os = "ios")'.dependencies]
+matrix-engine = { path = "../matrix-engine", features = ["sdk", "ios-vault"] }

@@ -18,7 +18,7 @@ fn unread_description_updates_without_renaming_or_reidentifying_room() {
         (42, "42 messaggi non letti"),
         (0, "Nessun messaggio non letto"),
     ] {
-        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: RoomScope {
                 account_id: AccountId::new(18),
                 room_id: RoomId::new("!unread:fixture.invalid"),
@@ -26,13 +26,14 @@ fn unread_description_updates_without_renaming_or_reidentifying_room() {
             name: "Stanza esatta".into(),
             unread: count,
             info: Default::default(),
-        }));
+        })));
         let rooms = nodes.project(&sidebar);
         let id = rooms[0].id;
         assert_eq!(*stable.get_or_insert(id), id);
         let tree = NavigationSnapshot {
             title: "Gnobbi".into(),
             new_chat: Default::default(),
+            room_search: Default::default(),
             #[cfg(all(feature = "live", unix))]
             signin: None,
             openers: vec![],

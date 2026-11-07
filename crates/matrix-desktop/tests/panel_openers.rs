@@ -47,6 +47,7 @@ fn navigation() -> NavigationSnapshot {
     NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -124,4 +125,18 @@ fn same_button_paths_retire_when_the_captured_source_changes_without_hidden_proj
             );
         }
     }
+}
+
+#[test]
+fn magnifier_button_is_named_and_comes_before_info_in_the_tree() {
+    let mut navigation = navigation();
+    navigation.openers = Control::ALL
+        .into_iter()
+        .filter(|c| matches!(c, Control::Info | Control::Search))
+        .map(|control| Snapshot { control, source: 1, bounds: None, focused: false })
+        .collect();
+    let tree = SemanticSession::new(navigation).tree();
+    let pos = |label: &str| tree.nodes[0].1.children().iter().position(|id| tree.nodes.iter().any(|(n, node)| n == id && node.label() == Some(label))).unwrap();
+    assert_eq!(Control::Search.label(), "Cerca nei messaggi");
+    assert!(pos("Cerca nei messaggi") < pos(Control::Info.label()));
 }

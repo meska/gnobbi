@@ -4,7 +4,7 @@ use crate::tray_menu::{TrayAction, TrayItem};
 use matrix_domain::AccountId;
 use std::sync::mpsc::{Receiver, Sender};
 use tray_icon::menu::{IconMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 #[cfg(target_os = "macos")]
 const GLYPH_MAC: &[u8] = include_bytes!("../../../packaging/macos/trayTemplate@2x.png");
@@ -17,6 +17,7 @@ const GLYPH_DARK: &[u8] = include_bytes!("../../../packaging/linux/tray-dark@2x.
 fn encode(action: TrayAction) -> String {
     match action {
         TrayAction::ToggleWindow => "window".into(),
+        TrayAction::ShowWindow => "show".into(),
         TrayAction::ToggleNotifications => "notifications".into(),
         TrayAction::Quit => "quit".into(),
         TrayAction::SwitchAccount(id) => format!("account:{}", id.as_u64()),
@@ -26,10 +27,23 @@ fn encode(action: TrayAction) -> String {
 fn decode(id: &str) -> Option<TrayAction> {
     Some(match id {
         "window" => TrayAction::ToggleWindow,
+        "show" => TrayAction::ShowWindow,
         "notifications" => TrayAction::ToggleNotifications,
         "quit" => TrayAction::Quit,
         _ => TrayAction::SwitchAccount(AccountId::new(id.strip_prefix("account:")?.parse().ok()?)),
     })
+}
+
+/// Primary click (button released) brings the window to the front; the menu is the secondary one.
+fn click_action(event: &TrayIconEvent) -> Option<TrayAction> {
+    match event {
+        TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        } => Some(TrayAction::ShowWindow),
+        _ => None,
+    }
 }
 
 /// Digits 3x5, one row per u8 (bit 2 = left column).
@@ -170,12 +184,21 @@ impl Tray {
     /// keeps closing its window normally.
     pub fn start() -> Option<Self> {
         let (tx, rx): (Sender<TrayAction>, _) = crate::tray_menu::channel_pair();
+        let click_tx = tx.clone();
         MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
             if let Some(action) = decode(event.id.as_ref()) {
                 let _ = tx.send(action);
             }
         }));
-        let builder = TrayIconBuilder::new().with_tooltip("Gnobbi");
+        TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
+            if let Some(action) = click_action(&event) {
+                let _ = click_tx.send(action);
+            }
+        }));
+        // Linux SNI hosts already show the menu only on the secondary click.
+        let builder = TrayIconBuilder::new()
+            .with_tooltip("Gnobbi")
+            .with_menu_on_left_click(false);
         let icon = Self::icon(0, false)?;
         // Template images exist on macOS only (they follow the menu bar's light/dark by themselves).
         #[cfg(target_os = "macos")]
@@ -251,6 +274,7 @@ mod tests {
     fn menu_ids_round_trip() {
         for a in [
             TrayAction::ToggleWindow,
+            TrayAction::ShowWindow,
             TrayAction::ToggleNotifications,
             TrayAction::Quit,
             TrayAction::SwitchAccount(AccountId::new(7)),
@@ -259,6 +283,24 @@ mod tests {
         }
         assert_eq!(decode("account:x"), None);
         assert_eq!(decode("other"), None);
+    }
+
+    #[test]
+    fn only_primary_release_shows_the_window() {
+        let click = |button, button_state| TrayIconEvent::Click {
+            id: Default::default(),
+            position: Default::default(),
+            rect: Default::default(),
+            button,
+            button_state,
+        };
+        assert_eq!(
+            click_action(&click(MouseButton::Left, MouseButtonState::Up)),
+            Some(TrayAction::ShowWindow)
+        );
+        assert_eq!(click_action(&click(MouseButton::Left, MouseButtonState::Down)), None);
+        assert_eq!(click_action(&click(MouseButton::Right, MouseButtonState::Up)), None);
+        assert_eq!(click_action(&click(MouseButton::Middle, MouseButtonState::Up)), None);
     }
 
     #[test]

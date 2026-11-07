@@ -4,14 +4,18 @@ pub enum Control {
     Info,
     Devices,
     Notifications,
+    /// Magnifier left of Info: asks to open the room search (placeholder until the search task).
+    Search,
 }
 impl Control {
-    pub const ALL: [Self; 3] = [Self::Info, Self::Devices, Self::Notifications];
+    // Search first: it sits left of Info in the header and in the accessibility tree.
+    pub const ALL: [Self; 4] = [Self::Search, Self::Info, Self::Devices, Self::Notifications];
     pub fn label(self) -> &'static str {
         match self {
             Self::Info => "Apri informazioni stanza",
             Self::Devices => "Apri verifica dispositivi",
             Self::Notifications => "Apri notifiche locali",
+            Self::Search => "Cerca nei messaggi",
         }
     }
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -21,6 +25,7 @@ impl Control {
             Self::Info => details::OPEN,
             Self::Devices => devices::OPEN,
             Self::Notifications => notifications::OPEN,
+            Self::Search => details::SEARCH,
         }
     }
 }

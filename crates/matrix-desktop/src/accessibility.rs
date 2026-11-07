@@ -8,17 +8,20 @@ pub mod compact;
 pub mod details;
 pub mod drawer;
 pub mod devices;
+pub mod directory_servers;
 pub mod event_id_copy;
 pub mod filters;
 pub mod install_offer;
 pub mod links;
-pub mod new_room;
 pub mod new_chat;
+pub mod room_search;
+pub mod new_room;
 pub mod notifications;
-pub mod settings;
 pub mod offline_delivery;
 pub mod operation_panel;
 pub mod pagination;
+pub mod search_list;
+pub mod settings;
 pub use crate::panel_openers;
 pub mod scrollbars;
 pub mod selection;
@@ -50,6 +53,7 @@ pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
 pub const MENTIONS: NodeId = NodeId((1 << 63) - 8);
 pub const EMOJI: NodeId = NodeId((1 << 63) - 9);
 pub const EMOJI_PICKER: NodeId = NodeId((1 << 63) - 10);
+pub const POLL_CREATE: NodeId = NodeId((1 << 63) - 11);
 /// First of the 32 consecutive ids of the picker's emoji buttons.
 pub const EMOJI_ITEM: u64 = (1 << 63) - 100;
 
@@ -59,7 +63,7 @@ pub struct ComposerSnapshot {
     pub scope: matrix_domain::RoomScope,
     pub composing: bool,
     pub send_focused: bool,
-    /// 0 Emoji, 1 Attach, 2 Voice.
+    /// 0 Emoji, 1 Attach, 2 Voice, 3 Poll.
     pub icon_focused: Option<u8>,
     /// False for the local demo, where Send goes nowhere.
     pub live: bool,
@@ -100,11 +104,40 @@ impl ComposerSnapshot {
     }
 }
 
+/// Avatar/name of a received group bubble: opens that member's profile. Slot +8 of the message's block of 32.
+#[derive(Clone)]
+pub struct ProfileLink {
+    pub user_id: String,
+    pub name: String,
+    pub bounds: Option<accesskit::Rect>,
+}
+
+/// A user mention pill in the bubble text: a button named after the person, in text order with the links.
+/// Node ids sit above the message blocks (see `SemanticMessage::pill_id`), at most `PILLS` per message.
+#[derive(Clone)]
+pub struct PillLink {
+    pub user_id: String,
+    pub name: String,
+    /// Byte index of the pill in the message text: its place among the links and the Tab order.
+    pub start: usize,
+    pub bounds: Option<accesskit::Rect>,
+    pub focused: bool,
+}
+
+pub const PILLS: usize = 16;
+
+/// Options of a poll that get a node: the slots after the group and footer in the message's block.
+pub const POLL_OPTIONS: usize = 20;
+
 #[derive(Clone)]
 pub struct SemanticMessage {
+    /// Accessible name: «{etichetta}, {didascalia}» for an attachment, else the text.
+    pub name: String,
+    pub profile: Option<ProfileLink>,
     pub offline_delivery: Option<offline_delivery::Snapshot>,
     pub event_id_copy: Option<event_id_copy::Snapshot>,
     pub links: Vec<links::Snapshot>,
+    pub pills: Vec<PillLink>,
     pub selection: selection::Snapshot,
     pub actions_bounds: Option<accesskit::Rect>,
     pub actions_focused: bool,
@@ -112,10 +145,19 @@ pub struct SemanticMessage {
     pub retry_bounds: Option<accesskit::Rect>,
     pub retry_focused: bool,
     pub retry: Option<NodeId>,
+    /// Could not be decrypted: may carry «Recupera chiavi» (see `HistorySnapshot::offer_recover_keys`).
+    pub utd: bool,
+    pub recover: Option<RecoverSnapshot>,
     /// Plays an `m.video` in the system player; keyboard: Enter on the focused message.
+    /// Poll bubble: group at slot +9, footer +10, option `ix` at +11+ix (at most `POLL_OPTIONS`).
+    pub poll: Option<matrix_domain::Poll>,
+    pub poll_bounds: Option<accesskit::Rect>,
+    /// Option holding the keyboard focus (a Tab stop of the selected message).
+    pub poll_focus: Option<usize>,
+    pub poll_option_bounds: Vec<Option<accesskit::Rect>>,
     pub play: Option<NodeId>,
     pub play_bounds: Option<accesskit::Rect>,
-    /// «Scarica» on a received attachment (slot +7 of the message's block of 8).
+    /// «Scarica» on a received attachment (slot +7 of the message's block of 32).
     pub save: Option<NodeId>,
     pub save_bounds: Option<accesskit::Rect>,
     pub bounds: Option<accesskit::Rect>,
@@ -123,6 +165,30 @@ pub struct SemanticMessage {
     pub event: matrix_domain::ScopedTimelineId,
     pub text: String,
     pub description: String,
+}
+
+/// «Recupera chiavi» on an undecryptable message: control (+8), key field while open (+9), status line (+10).
+#[derive(Clone, Default)]
+pub struct RecoverSnapshot {
+    pub control_bounds: Option<accesskit::Rect>,
+    pub control_focused: bool,
+    pub field: bool,
+    pub field_bounds: Option<accesskit::Rect>,
+    pub field_focused: bool,
+    pub status: Option<&'static str>,
+}
+
+impl SemanticMessage {
+    pub fn recover_control(&self) -> NodeId {
+        // shortcut: slot +4 because main gave +8 to the profile link, which also sits on utd rows
+        NodeId(self.id.0 + 4)
+    }
+    pub fn recover_field(&self) -> NodeId {
+        NodeId(self.id.0 + 9)
+    }
+    pub fn recover_status(&self) -> NodeId {
+        NodeId(self.id.0 + 10)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -174,11 +240,38 @@ impl HistorySnapshot {
                 .description
                 .push_str(" · Demo offline · Nessuna consegna Matrix");
             message.retry = None;
+            message.recover = None;
             message.play = None;
+            message.poll_focus = None;
             message.save = None;
+            message.profile = None;
+            message.pills.clear();
             message.event_id_copy = None;
             message.actions = None;
         }
+    }
+
+    /// Every undecryptable message carries the control while the recovery is incomplete; only `open` shows the field.
+    pub fn offer_recover_keys(
+        &mut self,
+        offered: bool,
+        open: Option<&matrix_domain::ScopedTimelineId>,
+        status: Option<&'static str>,
+    ) {
+        for message in self.messages.iter_mut().filter(|m| m.utd) {
+            let field = offered && open == Some(&message.event);
+            message.recover = offered.then(|| RecoverSnapshot {
+                field,
+                status: status.filter(|_| field),
+                ..Default::default()
+            });
+        }
+    }
+
+    pub fn allows_recover_keys(&self, target: &matrix_domain::ScopedTimelineId) -> bool {
+        self.messages
+            .iter()
+            .any(|message| message.event == *target && message.recover.is_some())
     }
 
     pub fn allows_actions(&self, target: &matrix_domain::ScopedTimelineId) -> bool {
@@ -201,11 +294,51 @@ impl HistorySnapshot {
             ("tab", false, false) => {
                 Some(NavigationAction::FocusMessageActions(message.event.clone()))
             }
-            ("tab", true, true) => Some(NavigationAction::FocusMessage(message.event.clone())),
+            ("tab", true, true) => Some(
+                message
+                    .poll
+                    .as_ref()
+                    .and_then(|p| p.answers.len().min(POLL_OPTIONS).checked_sub(1).filter(|_| !p.ended))
+                    .map_or_else(
+                        || NavigationAction::FocusMessage(message.event.clone()),
+                        |last| NavigationAction::FocusPollOption(message.event.clone(), last),
+                    ),
+            ),
             ("tab", false, true) => Some(NavigationAction::FocusComposer),
             ("space" | "enter", false, true) => {
                 Some(NavigationAction::OpenMessageActions(message.event.clone()))
             }
+            _ => None,
+        }
+    }
+    /// Option of an open poll behind a node id (nodes sit at slot +11+ix of the message's block).
+    fn poll_option(&self, node: NodeId) -> Option<(matrix_domain::ScopedTimelineId, usize)> {
+        self.messages.iter().find_map(|m| {
+            let poll = m.poll.as_ref().filter(|p| !p.ended && m.actions.is_some())?;
+            let ix = usize::try_from(node.0.checked_sub(m.id.0 + 11)?).ok()?;
+            (ix < poll.answers.len().min(POLL_OPTIONS)).then(|| (m.event.clone(), ix))
+        })
+    }
+    /// Tab walks the options of an open poll in the focused message, Space/Enter vote; the last option hands on to the actions button.
+    pub fn poll_key(&self, key: &str, shift: bool) -> Option<NavigationAction> {
+        if !self.focused {
+            return None;
+        }
+        let message = self
+            .messages
+            .iter()
+            .find(|m| m.poll_focus.is_some())
+            .or_else(|| self.messages.first())?;
+        let poll = message.poll.as_ref().filter(|p| !p.ended && message.actions.is_some())?;
+        let last = poll.answers.len().min(POLL_OPTIONS).checked_sub(1)?;
+        let event = message.event.clone();
+        match (key, shift, message.poll_focus) {
+            ("tab", false, None) if !message.actions_focused => Some(NavigationAction::FocusPollOption(event, 0)),
+            ("tab", false, Some(ix)) if ix < last => Some(NavigationAction::FocusPollOption(event, ix + 1)),
+            ("tab", false, Some(_)) => Some(NavigationAction::FocusMessageActions(event)),
+            ("tab", true, Some(0)) => Some(NavigationAction::FocusMessage(event)),
+            ("tab", true, Some(ix)) => Some(NavigationAction::FocusPollOption(event, ix - 1)),
+            ("space" | "enter", false, Some(ix)) => Some(NavigationAction::VotePoll(event, ix)),
             _ => None,
         }
     }
@@ -278,6 +411,14 @@ impl Default for HistoryNodes {
         }
     }
 }
+impl SemanticMessage {
+    pub fn pill_id(&self, i: usize) -> NodeId {
+        // Messages sit at 1<<62 + 32k: half of the offset gives each its own run of pill ids in the 3<<62 zone.
+        // Taken elsewhere: composer runs (1<<63)+n, fixed controls/EMOJI_ITEM below 1<<63, links 1<<60, confirms 1<<59, compact/devices 1<<58-59.
+        NodeId((1_u64 << 63) | (1_u64 << 62) | ((self.id.0 - (1_u64 << 62)) / 2 + i as u64))
+    }
+}
+
 impl HistoryNodes {
     pub fn project(
         &mut self,
@@ -309,7 +450,7 @@ impl HistoryNodes {
                         let id = NodeId(self.next_id);
                         self.next_id = self
                             .next_id
-                            .checked_add(8)
+                            .checked_add(32)
                             .expect("semantic history IDs exhausted");
                         id
                     })
@@ -319,9 +460,11 @@ impl HistoryNodes {
                     self.ids.insert(pending, id);
                 }
                 SemanticMessage {
+                    profile: None,
                     offline_delivery: None,
                     event_id_copy: None,
                     links: Vec::new(),
+                    pills: Vec::new(),
                     selection: Default::default(),
                     actions_bounds: None,
                     actions_focused: false,
@@ -329,22 +472,32 @@ impl HistoryNodes {
                         && event.send_state.is_none()
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 2)),
+                    utd: event.utd,
+                    recover: None,
                     retry_bounds: None,
                     retry_focused: false,
                     retry: (event.send_state == Some(crate::DemoSendState::Failed)
                         && matches!(event.id.id, matrix_domain::TimelineId::Pending(_)))
                     .then_some(NodeId(id.0 + 1)),
+                    poll: event.poll.clone(),
+                    poll_bounds: None,
+                    poll_focus: None,
+                    poll_option_bounds: Vec::new(),
                     play: (event.video.is_some()
                         && matches!(event.id.id, matrix_domain::TimelineId::Server(_)))
                     .then_some(NodeId(id.0 + 6)),
                     play_bounds: None,
-                    save: crate::offers_save(event, true)
-                    .then_some(NodeId(id.0 + 7)),
+                    save: crate::offers_save(event, true).then_some(NodeId(id.0 + 7)),
                     save_bounds: None,
                     bounds: None,
                     id,
                     event: event.id.clone(),
                     text: event.text.clone(),
+                    name: match &event.media {
+                        Some(m) if event.text.is_empty() => m.label.clone(),
+                        Some(m) => format!("{}, {}", m.label, event.text),
+                        None => event.text.clone(),
+                    },
                     description: format!(
                         "{} · {}{}{}{}{}",
                         event.time,
@@ -426,7 +579,10 @@ const LEAVE: u64 = 1 << 42;
 
 impl SemanticRoom {
     fn invite_buttons(&self) -> [(NodeId, bool); 2] {
-        [(NodeId(self.id.0 + INVITE_ACCEPT), true), (NodeId(self.id.0 + INVITE_REJECT), false)]
+        [
+            (NodeId(self.id.0 + INVITE_ACCEPT), true),
+            (NodeId(self.id.0 + INVITE_REJECT), false),
+        ]
     }
 }
 
@@ -581,6 +737,8 @@ pub struct NavigationSnapshot {
     /// Some while the drawer's Settings page is open: it hides everything else.
     pub settings: Option<settings::SettingsSnapshot>,
     pub new_chat: new_chat::NewChatView,
+    /// Open while the chat header's message search is; added to the chat tree, not a dialog.
+    pub room_search: room_search::RoomSearchView,
     pub dark: bool,
     pub visible: bool,
     pub query: String,
@@ -604,8 +762,14 @@ impl NavigationSnapshot {
         if let Some(drawer) = &self.drawer {
             return drawer.action(request).map(NavigationAction::Drawer);
         }
+        if let Some(dialog) = &self.new_room {
+            return dialog.action(request).map(NavigationAction::NewRoom);
+        }
         if matches!(self.new_chat, new_chat::NewChatView::Open(_)) {
             return self.new_chat.action(request).map(NavigationAction::NewChat);
+        }
+        if let Some(action) = self.room_search.action(request) {
+            return Some(NavigationAction::RoomSearch(action));
         }
         if request.target_tree == TreeId::ROOT
             && request.data.is_none()
@@ -646,6 +810,21 @@ impl NavigationSnapshot {
             .and_then(|c| c.action(request))
         {
             return Some(NavigationAction::LinkConfirmation(action));
+        }
+        if request.target_tree == TreeId::ROOT
+            && request.data.is_none()
+            && matches!(request.action, Action::Click | Action::Focus)
+            && let Some((m, pill)) = self.history.as_ref().and_then(|h| {
+                h.messages.iter().find_map(|m| {
+                    m.pills.iter().enumerate().find(|(i, _)| m.pill_id(*i) == request.target_node).map(|(_, p)| (m, p))
+                })
+            })
+        {
+            return Some(if request.action == Action::Click {
+                NavigationAction::OpenProfile(pill.user_id.clone())
+            } else {
+                NavigationAction::FocusPill(m.event.clone(), pill.start)
+            });
         }
         if request.target_tree == TreeId::ROOT
             && request.data.is_none()
@@ -787,6 +966,18 @@ impl NavigationSnapshot {
         {
             return Some(NavigationAction::FocusMessageActions(message.event.clone()));
         }
+        if matches!(request.action, Action::Click | Action::Focus)
+            && let Some(message) = self.history.as_ref().and_then(|history| {
+                history.messages.iter().find(|m| {
+                    m.recover.as_ref().is_some_and(|r| {
+                        (request.action == Action::Click && request.target_node == m.recover_control())
+                            || (r.field && request.action == Action::Focus && request.target_node == m.recover_field())
+                    })
+                })
+            })
+        {
+            return Some(NavigationAction::RecoverKeys(message.event.clone()));
+        }
         if request.action == Action::Focus
             && let Some(message) = self.history.as_ref().and_then(|history| {
                 history
@@ -797,6 +988,15 @@ impl NavigationSnapshot {
         {
             return Some(NavigationAction::FocusMessageRetry(message.event.clone()));
         }
+        if let Some(history) = &self.history
+            && let Some((event, ix)) = history.poll_option(request.target_node)
+        {
+            match request.action {
+                Action::Focus => return Some(NavigationAction::FocusPollOption(event, ix)),
+                Action::Click => return Some(NavigationAction::VotePoll(event, ix)),
+                _ => (),
+            }
+        }
         if request.action == Action::Click
             && let Some(history) = &self.history
         {
@@ -806,6 +1006,11 @@ impl NavigationSnapshot {
                 .find(|m| m.play == Some(request.target_node))
             {
                 return Some(NavigationAction::PlayVideo(message.event.clone()));
+            }
+            if let Some(link) = history.messages.iter().find_map(|m| {
+                m.profile.as_ref().filter(|_| NodeId(m.id.0 + 8) == request.target_node)
+            }) {
+                return Some(NavigationAction::OpenProfile(link.user_id.clone()));
             }
             if let Some(message) = history
                 .messages
@@ -890,7 +1095,10 @@ impl NavigationSnapshot {
                             .then_some((room, button.1))
                     }) =>
             {
-                Some(NavigationAction::AnswerInvite { scope: room.scope.clone(), accept })
+                Some(NavigationAction::AnswerInvite {
+                    scope: room.scope.clone(),
+                    accept,
+                })
             }
             (id, Action::Click)
                 if self.visible
@@ -1068,7 +1276,7 @@ impl NavigationSnapshot {
             list.set_label("Storico messaggi");
             for (offset, message) in history.messages.iter().enumerate() {
                 let mut node = Node::new(Role::ListItem);
-                node.set_label(message.text.clone());
+                node.set_label(message.name.clone());
                 node.set_description(message.description.clone());
                 if let Some(bounds) = message.bounds {
                     node.set_bounds(bounds);
@@ -1077,9 +1285,10 @@ impl NavigationSnapshot {
                 node.set_size_of_set(history.total);
                 node.add_action(Action::Focus);
                 node.set_selected(message.selection.selected);
-                for link in &message.links {
-                    node.push_child(link.id());
-                    tree.nodes.push((link.id(), link.node()));
+                for stop in message.stops() {
+                    let (id, child) = stop.node(message);
+                    node.push_child(id);
+                    tree.nodes.push((id, child));
                 }
                 if let Some(control) = &message.offline_delivery {
                     node.push_child(control.id());
@@ -1124,6 +1333,38 @@ impl NavigationSnapshot {
                     node.push_child(id);
                     tree.nodes.push((id, button));
                 }
+                if let Some(poll) = &message.poll {
+                    let group_id = NodeId(message.id.0 + 9);
+                    let mut group = Node::new(Role::Group);
+                    group.set_label(format!("Sondaggio: {}{}", poll.question, if poll.ended { ", chiuso" } else { "" }));
+                    if let Some(bounds) = message.poll_bounds {
+                        group.set_bounds(bounds);
+                    }
+                    for (ix, _) in poll.answers.iter().enumerate().take(POLL_OPTIONS) {
+                        let id = NodeId(message.id.0 + 11 + ix as u64);
+                        let mut option = Node::new(if poll.multiple { Role::CheckBox } else { Role::RadioButton });
+                        option.set_label(poll.option_label(ix));
+                        option.set_toggled(if poll.answers[ix].own { Toggled::True } else { Toggled::False });
+                        if poll.ended {
+                            option.set_disabled();
+                        } else if message.actions.is_some() {
+                            option.add_action(Action::Click);
+                            option.add_action(Action::Focus);
+                        }
+                        if let Some(Some(bounds)) = message.poll_option_bounds.get(ix) {
+                            option.set_bounds(*bounds);
+                        }
+                        group.push_child(id);
+                        tree.nodes.push((id, option));
+                    }
+                    let footer_id = NodeId(message.id.0 + 10);
+                    let mut footer = Node::new(Role::Label);
+                    footer.set_label(poll.footer());
+                    group.push_child(footer_id);
+                    tree.nodes.push((footer_id, footer));
+                    node.push_child(group_id);
+                    tree.nodes.push((group_id, group));
+                }
                 if let Some(id) = message.play {
                     let mut play = Node::new(Role::Button);
                     play.set_label("Riproduci");
@@ -1133,6 +1374,18 @@ impl NavigationSnapshot {
                     }
                     node.push_child(id);
                     tree.nodes.push((id, play));
+                }
+                if let Some(link) = &message.profile {
+                    let id = NodeId(message.id.0 + 8);
+                    let mut n = Node::new(Role::Button);
+                    n.set_label(format!("Apri profilo di {}", link.name));
+                    n.add_action(Action::Click);
+                    n.add_action(Action::Focus);
+                    if let Some(bounds) = link.bounds {
+                        n.set_bounds(bounds);
+                    }
+                    node.push_child(id);
+                    tree.nodes.push((id, n));
                 }
                 if let Some(id) = message.save {
                     let mut save = Node::new(Role::Button);
@@ -1154,6 +1407,33 @@ impl NavigationSnapshot {
                     }
                     node.push_child(id);
                     tree.nodes.push((id, retry));
+                }
+                if let Some(recover) = &message.recover {
+                    let mut control = Node::new(Role::Button);
+                    control.set_label(crate::recover_keys::RECOVER_KEYS_LABEL);
+                    control.add_action(Action::Click);
+                    if let Some(bounds) = recover.control_bounds {
+                        control.set_bounds(bounds);
+                    }
+                    node.push_child(message.recover_control());
+                    tree.nodes.push((message.recover_control(), control));
+                    if recover.field {
+                        let mut field = Node::new(Role::PasswordInput);
+                        field.set_label(crate::recover_keys::RECOVERY_KEY_LABEL);
+                        field.add_action(Action::Focus);
+                        if let Some(bounds) = recover.field_bounds {
+                            field.set_bounds(bounds);
+                        }
+                        node.push_child(message.recover_field());
+                        tree.nodes.push((message.recover_field(), field));
+                    }
+                    if let Some(text) = recover.status {
+                        let mut status = Node::new(Role::Label);
+                        status.set_label(text);
+                        status.set_live(accesskit::Live::Polite);
+                        node.push_child(message.recover_status());
+                        tree.nodes.push((message.recover_status(), status));
+                    }
                 }
                 list.push_child(message.id);
                 tree.nodes.push((message.id, node));
@@ -1177,9 +1457,26 @@ impl NavigationSnapshot {
             if let Some(id) = history
                 .messages
                 .iter()
+                .find_map(|m| m.poll_focus.map(|ix| NodeId(m.id.0 + 11 + ix as u64)))
+            {
+                tree.focus = id;
+            }
+            if let Some(id) = history
+                .messages
+                .iter()
                 .find(|message| message.retry_focused)
                 .and_then(|message| message.retry)
             {
+                tree.focus = id;
+            }
+            if let Some(id) = history.messages.iter().find_map(|m| {
+                let r = m.recover.as_ref()?;
+                if r.field_focused {
+                    Some(m.recover_field())
+                } else {
+                    r.control_focused.then(|| m.recover_control())
+                }
+            }) {
                 tree.focus = id;
             }
         }
@@ -1209,6 +1506,11 @@ impl NavigationSnapshot {
             .and_then(|h| h.messages.iter().flat_map(|m| &m.links).find(|l| l.focused))
         {
             tree.focus = link.id();
+        }
+        if let Some(id) = self.history.as_ref().filter(|h| h.focused).and_then(|h| {
+            h.messages.iter().find_map(|m| m.pills.iter().position(|p| p.focused).map(|i| m.pill_id(i)))
+        }) {
+            tree.focus = id;
         }
         if let Some(copy) = self.history.as_ref().filter(|h| h.focused).and_then(|h| {
             h.messages
@@ -1292,6 +1594,10 @@ impl NavigationSnapshot {
             attach.set_label("Allega file");
             tree.nodes[0].1.push_child(ATTACH);
             tree.nodes.push((ATTACH, attach));
+            let mut poll = Node::new(Role::Button);
+            poll.set_label("Crea sondaggio");
+            tree.nodes[0].1.push_child(POLL_CREATE);
+            tree.nodes.push((POLL_CREATE, poll));
             let mut emoji = Node::new(Role::Button);
             emoji.set_label(if composer.emoji_open {
                 "Chiudi selettore emoji"
@@ -1368,7 +1674,7 @@ impl NavigationSnapshot {
             } else if composer.send_focused && tree.nodes.iter().any(|(id, _)| *id == SEND) {
                 tree.focus = SEND;
             } else if let Some(icon) = composer.icon_focused {
-                tree.focus = [EMOJI, ATTACH, RECORD][icon as usize];
+                tree.focus = [EMOJI, ATTACH, RECORD, POLL_CREATE][icon as usize];
             }
         }
         for opener in &self.openers {
@@ -1386,6 +1692,7 @@ impl NavigationSnapshot {
                 tree.focus = id;
             }
         }
+        self.room_search.append(&mut tree);
         for bar in &self.scrollbars {
             if match bar.pane {
                 scrollbars::Pane::Rooms(_) => self.visible,
@@ -1429,7 +1736,11 @@ impl NavigationSnapshot {
             for icon in crate::IconChoice::ALL {
                 let mut node = Node::new(Role::RadioButton);
                 node.set_label(icon.label());
-                node.set_toggled(if icon == current { Toggled::True } else { Toggled::False });
+                node.set_toggled(if icon == current {
+                    Toggled::True
+                } else {
+                    Toggled::False
+                });
                 node.add_action(Action::Click);
                 node.add_action(Action::Focus);
                 tree.nodes[0].1.push_child(icon_node(icon));
@@ -1483,10 +1794,16 @@ pub enum NavigationAction {
     OperationPanel(operation_panel::PanelAction),
     PlayVideo(matrix_domain::ScopedTimelineId),
     SaveAttachment(matrix_domain::ScopedTimelineId),
+    OpenProfile(String),
+    FocusPill(matrix_domain::ScopedTimelineId, usize),
     FocusMessageActions(matrix_domain::ScopedTimelineId),
     OpenMessageActions(matrix_domain::ScopedTimelineId),
     FocusMessageRetry(matrix_domain::ScopedTimelineId),
+    FocusPollOption(matrix_domain::ScopedTimelineId, usize),
+    VotePoll(matrix_domain::ScopedTimelineId, usize),
     RetryMessage(matrix_domain::ScopedTimelineId),
+    /// Opens (or refocuses) the «Chiave di recupero Matrix» field under that message.
+    RecoverKeys(matrix_domain::ScopedTimelineId),
     Spaces(spaces::SpacesAction),
     Filter(filters::FilterAction),
     FocusServerHistory(matrix_engine::RequestTag),
@@ -1497,6 +1814,8 @@ pub enum NavigationAction {
     Notifications(notifications::NotificationAction),
     Settings(settings::SettingsAction),
     NewChat(new_chat::NewChatAction),
+    RoomSearch(room_search::RoomSearchAction),
+    NewRoom(new_room::NewRoomAction),
     FocusMessage(matrix_domain::ScopedTimelineId),
     ChooseIcon(crate::IconChoice),
     ToggleMenu,
@@ -1514,7 +1833,10 @@ pub enum NavigationAction {
         text: String,
     },
     ActivateRoom(RoomIntent),
-    AnswerInvite { scope: matrix_domain::RoomScope, accept: bool },
+    AnswerInvite {
+        scope: matrix_domain::RoomScope,
+        accept: bool,
+    },
     LeaveRoom(matrix_domain::RoomScope),
     FocusRoom(RoomIntent),
 }

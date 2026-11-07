@@ -149,6 +149,10 @@ fn live_member_detail_actions_on_a_real_homeserver() {
         assert_eq!(rights(&carol, &t_carol, &c_id).await.unwrap(), Default::default(), "oneself");
         assert_eq!(rights(&bob, &t_bob, &b_id).await.unwrap(), Default::default(), "moderator over oneself");
         assert_eq!(kbl(&rights(&bob, &t_bob, &a_id).await.unwrap()), (false, false, vec![]), "moderator over the admin");
+        // Carol's last own message is her (implicit) read receipt; yourself and non-members get none.
+        let r = rights(&alice, &t_alice, &c_id).await.unwrap();
+        assert_eq!(r.read_receipt.as_deref(), sent.get(1).map(String::as_str), "read receipt of carol: her last message");
+        assert_eq!(rights(&carol, &t_carol, &c_id).await.unwrap().read_receipt, None, "no receipt jump for oneself");
         let r = rights(&bob, &t_bob, &c_id).await.unwrap();
         println!("RIGHTS moderator over plain: {r:?}");
         assert!(r.kick && r.ban, "moderator may kick and ban a plain user");

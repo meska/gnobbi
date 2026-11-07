@@ -264,7 +264,7 @@ async fn collect(
                         // Only activity after the wanted message counts.
                         seen.activity.clear();
                     }
-                    seen.rooms.insert(r.scope.room_id.as_str().to_owned(), r);
+                    seen.rooms.insert(r.scope.room_id.as_str().to_owned(), *r);
                 }
                 RoomListEvent::Diff(RoomListDiff::Remove(s)) => {
                     seen.rooms.remove(s.room_id.as_str());

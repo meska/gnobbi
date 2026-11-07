@@ -4,6 +4,7 @@ use matrix_engine::history::{HistoryEvent, HistorySender, ThreadInfo};
 
 fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new("$root"),
         body: "radice".into(),
@@ -11,7 +12,7 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
         timestamp_ms: 0,
         sender: HistorySender::new("@anna:test", Some("Anna")),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: replies.map(|num_replies| ThreadInfo {
             num_replies,
             latest_sender: Some(HistorySender::new(latest, None)),
@@ -19,8 +20,9 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
         }),
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }
 }
 

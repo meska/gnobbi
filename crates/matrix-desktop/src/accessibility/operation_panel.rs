@@ -13,6 +13,12 @@ pub struct PanelSnapshot {
     pub redact_focused: bool,
     pub redact_bounds: Option<Rect>,
     pub redact_available: bool,
+    /// Own open poll: the «Chiudi sondaggio» control. Its node is the confirm slot (`confirm_redact_id`), unused outside confirmation.
+    pub end_available: bool,
+    pub end_focused: bool,
+    pub end_bounds: Option<Rect>,
+    /// The confirmation on screen closes the poll (its confirm button is the redact slot).
+    pub ending: bool,
     pub target: ScopedTimelineId,
     pub tag: matrix_engine::RequestTag,
     pub focused: bool,
@@ -37,6 +43,8 @@ pub enum PanelIntent {
     Preview,
     FocusPreview,
     BeginRedact,
+    BeginEnd,
+    FocusEnd,
     FocusRedact,
     FocusConfirmRedact,
     ConfirmRedact,
@@ -107,7 +115,27 @@ impl PanelSnapshot {
                     PanelIntent::Close
                 }
                 ("tab", false, false) if self.redact_focused && self.redact_available => {
+                    if self.end_available {
+                        PanelIntent::FocusEnd
+                    } else {
+                        PanelIntent::Composer
+                    }
+                }
+                ("space" | "enter", false, false) if self.end_focused && self.end_available => {
+                    PanelIntent::BeginEnd
+                }
+                ("escape", false, false) if self.end_focused && self.end_available => {
+                    PanelIntent::Close
+                }
+                ("tab", false, false) if self.end_focused && self.end_available => {
                     PanelIntent::Composer
+                }
+                ("tab", true, false) if self.end_focused && self.end_available => {
+                    if self.redact_available {
+                        PanelIntent::FocusRedact
+                    } else {
+                        PanelIntent::Focus
+                    }
                 }
                 ("tab", true, false) if self.redact_focused && self.redact_available => {
                     if self.react_available {
@@ -141,6 +169,17 @@ impl PanelSnapshot {
                         && self.retry_request.is_none() =>
                 {
                     PanelIntent::FocusRedact
+                }
+                // shortcut: end without redact (never for an own poll) is reached only from the opener.
+                ("tab", false, true)
+                    if self.end_available
+                        && !self.redact_available
+                        && !self.reply_available
+                        && !self.edit_available
+                        && !self.react_available
+                        && self.retry_request.is_none() =>
+                {
+                    PanelIntent::FocusEnd
                 }
                 ("tab", false, true) if self.retry_request.is_some() => PanelIntent::FocusRetry,
                 ("tab", false, false) if self.retry_focused && self.retry_request.is_some() => {
@@ -268,6 +307,8 @@ impl PanelSnapshot {
                 PanelIntent::BeginRedact
             }
             _ if self.confirming => return None,
+            (id, Action::Focus) if self.end_available && id == self.end_id() => PanelIntent::FocusEnd,
+            (id, Action::Click) if self.end_available && id == self.end_id() => PanelIntent::BeginEnd,
             (id, Action::Focus) if self.retry_request.is_some() && id == self.retry_id() => {
                 PanelIntent::FocusRetry
             }
@@ -320,6 +361,9 @@ impl PanelSnapshot {
                 PanelIntent::ConfirmRedact | PanelIntent::FocusConfirmRedact => {
                     self.redact_available && self.confirming
                 }
+                PanelIntent::BeginEnd | PanelIntent::FocusEnd => {
+                    self.end_available && !self.confirming
+                }
                 PanelIntent::CancelRedact => self.confirming,
                 PanelIntent::Focus | PanelIntent::Composer => true,
                 _ => !self.confirming,
@@ -366,6 +410,10 @@ impl PanelSnapshot {
             confirming: false,
             redact_focused: false,
             redact_bounds: None,
+            end_available: false,
+            end_focused: false,
+            end_bounds: None,
+            ending: false,
             redact_available: operations
                 .details()
                 .is_some_and(|details| details.permissions.redact)
@@ -411,6 +459,9 @@ impl PanelSnapshot {
     pub fn confirm_redact_id(&self) -> NodeId {
         NodeId(self.close.0 + 7)
     }
+    pub fn end_id(&self) -> NodeId {
+        self.confirm_redact_id()
+    }
     pub fn reply_id(&self) -> NodeId {
         NodeId(self.close.0 + 2)
     }
@@ -426,7 +477,7 @@ impl PanelSnapshot {
     pub fn append_to(&self, tree: &mut TreeUpdate) {
         if self.confirming {
             let mut cancel = Node::new(Role::Button);
-            cancel.set_label("Annulla eliminazione messaggio");
+            cancel.set_label(if self.ending { "Annulla chiusura sondaggio" } else { "Annulla eliminazione messaggio" });
             cancel.set_description(self.notice.clone());
             cancel.add_action(Action::Click);
             cancel.add_action(Action::Focus);
@@ -446,7 +497,7 @@ impl PanelSnapshot {
             tree.nodes.push((self.close, cancel));
             if self.redact_available {
                 let mut confirm = Node::new(Role::Button);
-                confirm.set_label("Conferma eliminazione messaggio");
+                confirm.set_label(if self.ending { "Conferma chiusura sondaggio" } else { "Conferma eliminazione messaggio" });
                 confirm.set_description(self.notice.clone());
                 confirm.add_action(Action::Click);
                 confirm.add_action(Action::Focus);
@@ -489,6 +540,9 @@ impl PanelSnapshot {
         }
         if self.redact_available {
             root.push_child(self.redact_id());
+        }
+        if self.end_available {
+            root.push_child(self.end_id());
         }
         if self.reply_available {
             root.push_child(self.reply_id());
@@ -575,8 +629,21 @@ impl PanelSnapshot {
             }
             tree.nodes.push((self.redact_id(), redact));
         }
+        if self.end_available {
+            let mut end = Node::new(Role::Button);
+            end.set_label("Chiudi sondaggio");
+            end.set_description(self.notice.clone());
+            end.add_action(Action::Click);
+            end.add_action(Action::Focus);
+            if let Some(bounds) = self.end_bounds {
+                end.set_bounds(bounds);
+            }
+            tree.nodes.push((self.end_id(), end));
+        }
         if self.focused {
             tree.focus = self.close;
+        } else if self.end_available && self.end_focused {
+            tree.focus = self.end_id();
         } else if self.preview_available && self.preview_focused {
             tree.focus = self.preview_id();
         } else if self.reply_available && self.reply_focused {

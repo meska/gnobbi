@@ -106,12 +106,13 @@ pub(crate) fn observe(label: String) -> Option<gpui::AnyElement> {
     })
 }
 
-const RING: [&str; 9] = [
+const RING: [&str; 10] = [
     "list",
     "search",
     "unread",
     "devices",
     "notifications",
+    "lens",
     "info",
     "entry",
     "back",
@@ -143,12 +144,13 @@ fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
             this.opener_ui.focused(Control::Notifications, window),
             "notifications",
         ),
+        (this.opener_ui.focused(Control::Search, window), "lens"),
         (this.opener_ui.focused(Control::Info, window), "info"),
         (entry, "entry"),
     ]
     .into_iter()
     .find_map(|(focused, name)| focused.then_some(name))
-    .unwrap_or(RING[8])
+    .unwrap_or(RING[9])
 }
 
 fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Context<Shell>) {
@@ -164,6 +166,7 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
         "unread" => return this.unread_focus.focus(window),
         "devices" => Control::Devices,
         "notifications" => Control::Notifications,
+        "lens" => Control::Search,
         "info" => Control::Info,
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         "entry" => return this.history_focus.focus(window),
@@ -195,7 +198,7 @@ fn ring_visible(label: &str, wide: bool, chat: bool) -> bool {
     match (wide, chat) {
         (true, _) => label != "back",
         (false, false) => ["list", "search", "unread"].contains(&label),
-        (false, true) => ["info", "entry", "back"].contains(&label),
+        (false, true) => ["lens", "info", "entry", "back"].contains(&label),
     }
 }
 
@@ -267,7 +270,7 @@ fn pointer_transition(this: &mut Shell, transition: &str, away: bool) {
 }
 
 fn upsert_space(this: &mut Shell, account: matrix_domain::AccountId, id: &str, name: &str) {
-    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(
+    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(
         matrix_engine::RoomSummary {
             scope: RoomScope {
                 account_id: account,
@@ -280,7 +283,7 @@ fn upsert_space(this: &mut Shell, account: matrix_domain::AccountId, id: &str, n
                 ..Default::default()
             },
         },
-    ));
+    )));
 }
 
 fn focus_choice(
@@ -338,6 +341,7 @@ fn sidebar_session(
     SemanticSession::new(NavigationSnapshot {
         title: matrix_desktop::window::TITLE.into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(feature = "live")]
         signin: None,
         openers: vec![],
@@ -435,11 +439,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.sync_room(cx);
             if SPACES.load(Ordering::SeqCst) {
                 for (id, name) in [("!alpha:fixture", "Alpha"), ("!beta:fixture", "Beta")] {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id: scopes[0].account_id, room_id: matrix_domain::RoomId::new(id) },
                         name: name.into(), unread: 0,
                         info: matrix_engine::RoomInfo { is_space: true, ..Default::default() },
-                    }));
+                    })));
                 }
                 assert_eq!(this.sidebar.spaces().count(), 2);
             }
@@ -557,11 +561,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // List/chat seam: room list -> footer Devices, Notifications -> Info -> chat entry, and back.
             let chat = CHAT.load(Ordering::SeqCst);
             let steps: Vec<(&str, &str)> = if chat {
-                vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "back")]
+                vec![("tab", "lens"), ("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "lens"), ("shift-tab", "back")]
             } else if COMPACT.load(Ordering::SeqCst) {
                 vec![("tab", "menu"), ("shift-tab", "list")]
             } else {
-                vec![("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "list")]
+                vec![("tab", "lens"), ("tab", "info"), ("tab", "entry"), ("shift-tab", "info"), ("shift-tab", "lens"), ("shift-tab", "list")]
             };
             this.update_in(cx, |this, window, cx| {
                 if chat {
@@ -583,6 +587,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "back" => this.back_focus_handle().is_focused(window),
                         "devices" => this.opener_ui.focused(Control::Devices, window),
                         "notifications" => this.opener_ui.focused(Control::Notifications, window),
+                        "lens" => this.opener_ui.focused(Control::Search, window),
                         "info" => this.opener_ui.focused(Control::Info, window),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         "entry" => this.history_focus.is_focused(window),
@@ -615,10 +620,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // Every ring control, focused before a real native Configure with paint suspended, lands on a visible one.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let cases: &[(bool, bool, &str)] = &[
-                (true, false, "info"), (true, false, "entry"),
+                (true, false, "lens"), (true, false, "info"), (true, false, "entry"),
                 (true, false, "unread"), (true, false, "search"), (true, false, "list"),
                 (true, true, "info"), (true, true, "entry"),
-                (false, true, "info"), (false, true, "entry"),
+                (false, true, "lens"), (false, true, "info"), (false, true, "entry"),
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 (false, true, "back"),
                 (false, false, "unread"), (false, false, "search"), (false, false, "list"),
@@ -699,13 +704,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // A light/dark change with focus on each ring control keeps the focus target, room, history and drafts.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let mut cases: Vec<(bool, bool, &str)> = vec![];
-            for label in ["list", "search", "unread", "info", "entry"] {
+            for label in ["list", "search", "unread", "lens", "info", "entry"] {
                 cases.push((true, false, label));
             }
             for label in ["list", "search", "unread"] {
                 cases.push((false, false, label));
             }
-            for label in ["info", "entry", #[cfg(all(feature = "linux-a11y", target_os = "linux"))] "back"] {
+            for label in ["lens", "info", "entry", #[cfg(all(feature = "linux-a11y", target_os = "linux"))] "back"] {
                 cases.push((false, true, label));
             }
             for (wide, chat, start) in cases {
@@ -789,9 +794,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let painted = this.update_in(cx, |this, window, _| activation_callback(this, window)).unwrap();
             this.update_in(cx, |this, window, cx| {
                 let name = this.sidebar.rooms()[1].name.clone();
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope: scopes[1].clone(), name, unread: 3, info: Default::default(),
-                }));
+                })));
                 // Room switch and back through the sidebar, then the filter.
                 assert!(this.sidebar.select(&scopes[1]));
                 this.sync_room(cx);
@@ -825,8 +830,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 eprintln!("hidden-ring empty={empty}: retired unread callback inert");
             }).unwrap();
             let steps = [
-                ("tab", "info"), ("tab", "entry"),
-                ("shift-tab", "info"), ("shift-tab", "list"),
+                ("tab", "lens"), ("tab", "info"), ("tab", "entry"),
+                ("shift-tab", "info"), ("shift-tab", "lens"), ("shift-tab", "list"),
                 ("shift-tab", "search"), ("tab", "list"),
             ];
             for (key, expected) in steps {
@@ -838,6 +843,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "search" => this.search_focus.is_focused(window),
                         "devices" => this.opener_ui.focused(Control::Devices, window),
                         "notifications" => this.opener_ui.focused(Control::Notifications, window),
+                        "lens" => this.opener_ui.focused(Control::Search, window),
                         "info" => this.opener_ui.focused(Control::Info, window),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         "entry" => this.history_focus.is_focused(window),
@@ -887,7 +893,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 steps.push(("tab", "send"));
             }
             steps.push(("tab", first));
-            steps.push(("tab", if chat { "info" } else { "rail0" }));
+            steps.push(("tab", if chat { "lens" } else { "rail0" }));
             this.update_in(cx, |this, window, cx| {
                 if chat {
                     this.set_compact_chat(true);
@@ -916,6 +922,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     let focused = match expected {
                         "back" => this.back_focus_handle().is_focused(window),
                         "menu" => this.menu_focus.is_focused(window),
+                        "lens" => this.opener_ui.focused(Control::Search, window),
                         "info" => this.opener_ui.focused(Control::Info, window),
                         "send" => this.composer.read(cx).send_is_focused(window),
                         "composer" => this.composer.read(cx).is_focused(window),
@@ -1451,6 +1458,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(700).await;
             this.update_in(cx, |this, _, cx| {
                 let events = (1..=3).map(|n| matrix_engine::history::HistoryEvent {
+                    poll: None,
                     redacted: false,
                     event_id: matrix_domain::EventId::new(format!("$debugevent{n}:gnobbi.test")),
                     body: format!("Messaggio {n}"),
@@ -1458,12 +1466,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     timestamp_ms: 1_700_000_000_000 + n * 60_000,
                     sender: matrix_engine::history::HistorySender::new("@anna:gnobbi.test", None),
                     video: None,
-                    styles: Vec::new(),
+                    styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                 }).collect();
                 // The harness timeline is an offline fixture; debug ids only show on live rows.
                 let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
@@ -1845,11 +1854,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let hidden = this.update_in(cx, |this, _, cx| {
                 let account = this.active_scope.account_id;
                 for (id, name, members, preview) in [("!a:t", "Anna Bianchi", 2, Some("Ci vediamo domani")), ("!b:t", "Stanza vuota", 1, None)] {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(id) },
                         name: name.into(), unread: 0,
                         info: matrix_engine::RoomInfo { preview: preview.map(Into::into), joined_members: members, ..Default::default() },
-                    }));
+                    })));
                 }
                 cx.notify();
                 visible(this)
@@ -1874,11 +1883,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let rows = this.update_in(cx, |this, _, cx| {
                 let account = this.active_scope.account_id;
                 for (id, name, preview) in [("!a:t", "Anna Bianchi", Some("Ci vediamo domani alle nove")), ("!b:t", "Anna Rossi", None)] {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(id) },
                         name: name.into(), unread: 0,
                         info: matrix_engine::RoomInfo { preview: preview.map(Into::into), ..Default::default() },
-                    }));
+                    })));
                 }
                 this.sidebar.set_query("Anna");
                 cx.notify();
@@ -2173,10 +2182,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, cx| {
                 let account_id = this.sidebar.rooms()[0].scope.account_id;
                 for i in 0..60 {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id, room_id: matrix_domain::RoomId::new(format!("!fill{i:02}:fixture")) },
                         name: format!("Stanza {i:02}"), unread: 0, info: Default::default(),
-                    }));
+                    })));
                 }
                 cx.notify();
             }).unwrap();
@@ -2403,14 +2412,14 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let alpha = this.sidebar.navigation_entries()[1].scope.clone().unwrap();
                 let beta = this.sidebar.navigation_entries()[2].scope.clone().unwrap();
                 this.sidebar.apply_diff(matrix_engine::RoomListDiff::Remove(alpha));
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary { scope: beta.clone(), name: "Beta no longer a Space".into(), unread: 0, info: Default::default() }));
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary { scope: beta.clone(), name: "Beta no longer a Space".into(), unread: 0, info: Default::default() })));
                 cx.notify();
                 beta
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
                 assert!(this.unread_focus.is_focused(window));
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary { scope: beta, name: "Beta replacement".into(), unread: 0, info: matrix_engine::RoomInfo { is_space: true, ..Default::default() } }));
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary { scope: beta, name: "Beta replacement".into(), unread: 0, info: matrix_engine::RoomInfo { is_space: true, ..Default::default() } })));
                 cx.notify();
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
@@ -2428,14 +2437,14 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let space = this.update_in(cx, |this, window, cx| {
                 let space = this.sidebar.navigation_entries()[1].scope.clone().unwrap();
                 let name = this.sidebar.rooms()[1].name.clone();
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope: scopes[1].clone(), name, unread: 3, info: Default::default(),
-                }));
+                })));
                 let name = this.sidebar.rooms().iter().find(|r| r.scope == space).unwrap().name.clone();
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope: space.clone(), name, unread: 0,
                     info: matrix_engine::RoomInfo { is_space: true, children: vec![scopes[1].room_id.clone()], ..Default::default() },
-                }));
+                })));
                 this.list_focus.focus(window);
                 cx.notify();
                 space

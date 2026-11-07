@@ -285,7 +285,7 @@ impl Shell {
             control
                 .track_focus(&self.back_ui.focus)
                 .border_1()
-                .border_color(rgb(if view.focused { t.accent } else { t.surface }))
+                .border_color(rgb(if input_modality::only_keys(view.focused, cx) { t.accent } else { t.surface }))
                 .child(
                     gpui::canvas(
                         |_, _, _| (),
@@ -326,7 +326,7 @@ impl Shell {
         }
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         {
-            let focused = self.back_focus.is_focused(window);
+            let focused = input_modality::only_keys(self.back_focus.is_focused(window), cx);
             control
                 .track_focus(&self.back_focus)
                 .border_1()

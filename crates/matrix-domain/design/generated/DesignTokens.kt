@@ -20,6 +20,7 @@ object DesignTokens {
         const val SURFACE = 0xffffffL
         const val TEXT = 0x17231bL
         const val SECONDARY = 0x46604eL
+        const val PLACEHOLDER = 0x6b8071L
         const val ACCENT = 0x1264aaL
         const val TIMELINE = 0xe9f0ebL
         const val OUTGOING = 0xd9fdd3L
@@ -28,6 +29,7 @@ object DesignTokens {
         const val INPUT = 0xf1f4f2L
         const val DISABLED = 0xe9efebL
         const val SELECTION = 0xd0ead8L
+        const val MENTION_ROW = 0xe2d5d1L
         const val ERROR = 0xb43030L
         const val ON_ACCENT = 0xffffffL
         const val AVATAR_TEXT = 0x101b14L
@@ -38,6 +40,7 @@ object DesignTokens {
         const val SURFACE = 0xffffffL
         const val TEXT = 0x111512L
         const val SECONDARY = 0x47514aL
+        const val PLACEHOLDER = 0x6c746eL
         const val ACCENT = 0x0b5cadL
         const val TIMELINE = 0xf4f6f5L
         const val OUTGOING = 0xd2f6ddL
@@ -46,6 +49,7 @@ object DesignTokens {
         const val INPUT = 0xf1f3f2L
         const val DISABLED = 0xe6eae7L
         const val SELECTION = 0xcde9d6L
+        const val MENTION_ROW = 0xead4d7L
         const val ERROR = 0xb00020L
         const val ON_ACCENT = 0xffffffL
         const val AVATAR_TEXT = 0x101b14L
@@ -56,6 +60,7 @@ object DesignTokens {
         const val SURFACE = 0x17231bL
         const val TEXT = 0xe5efe8L
         const val SECONDARY = 0xb4c9baL
+        const val PLACEHOLDER = 0x95a89aL
         const val ACCENT = 0x80c8ffL
         const val TIMELINE = 0x101b14L
         const val OUTGOING = 0x244436L
@@ -64,6 +69,7 @@ object DesignTokens {
         const val INPUT = 0x203226L
         const val DISABLED = 0x26372cL
         const val SELECTION = 0x254d34L
+        const val MENTION_ROW = 0x3b3631L
         const val ERROR = 0xffb3b3L
         const val ON_ACCENT = 0x101922L
         const val AVATAR_TEXT = 0x101b14L
@@ -74,6 +80,7 @@ object DesignTokens {
         const val SURFACE = 0x0b0f0cL
         const val TEXT = 0xe8eeeaL
         const val SECONDARY = 0xa9b9aeL
+        const val PLACEHOLDER = 0x89978eL
         const val ACCENT = 0x7cc4ffL
         const val TIMELINE = 0x000000L
         const val OUTGOING = 0x16301fL
@@ -82,6 +89,7 @@ object DesignTokens {
         const val INPUT = 0x141c17L
         const val DISABLED = 0x1a241dL
         const val SELECTION = 0x1b412aL
+        const val MENTION_ROW = 0x2e2020L
         const val ERROR = 0xffb3b3L
         const val ON_ACCENT = 0x000000L
         const val AVATAR_TEXT = 0x101b14L

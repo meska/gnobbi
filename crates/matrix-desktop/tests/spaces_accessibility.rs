@@ -80,7 +80,7 @@ fn space_choice_ids_never_alias_sas_flow_handles() {
     };
     use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
     let mut sidebar = Sidebar::connected(AccountId::new(17));
-    sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
         scope: scope(17, "!space:test"),
         name: "Space".into(),
         unread: 0,
@@ -88,7 +88,7 @@ fn space_choice_ids_never_alias_sas_flow_handles() {
             is_space: true,
             ..Default::default()
         },
-    }));
+    })));
     let choices = SpaceNodes::default().choices(&sidebar);
     let account = AccountId::new(17);
     let panel = DeviceNodes::default().scope_panel(DeviceOverview::project(
@@ -132,6 +132,7 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
     let mut view = NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -181,6 +182,7 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
         enabled: false,
         preview: false,
         selected: None,
+        room_name: String::new(),
         service_failed: false,
     }));
     assert!(!view.tree().nodes.iter().any(|(id, _)| *id == TOGGLE));
@@ -204,48 +206,48 @@ fn joined_space_choices_have_scoped_stable_nonrecycled_ids() {
         },
     };
     let mut sidebar = Sidebar::connected(AccountId::new(17));
-    sidebar.apply_diff(RoomListDiff::Upsert(room(
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room(
         17,
         "!ordinary:test",
         "Not a Space",
         false,
-    )));
+    ))));
     let mut nodes = SpaceNodes::default();
     assert!(nodes.choices(&sidebar).is_empty());
-    sidebar.apply_diff(RoomListDiff::Upsert(room(
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room(
         17,
         "!space:test",
         "Project",
         true,
-    )));
+    ))));
     let choices = nodes.choices(&sidebar);
     assert_eq!(choices.len(), 2);
     assert_eq!(choices[0].id, ALL);
     let old_id = choices[1].id;
     assert!(old_id.0 >= (1 << 57) && old_id.0 < (1 << 58));
-    sidebar.apply_diff(RoomListDiff::Upsert(room(
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room(
         17,
         "!space:test",
         "Renamed",
         true,
-    )));
+    ))));
     assert_eq!(nodes.choices(&sidebar)[1].id, old_id);
     sidebar.apply_diff(RoomListDiff::Remove(scope(17, "!space:test")));
     assert!(nodes.choices(&sidebar).is_empty());
-    sidebar.apply_diff(RoomListDiff::Upsert(room(
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room(
         17,
         "!space:test",
         "Returned",
         true,
-    )));
+    ))));
     assert_ne!(nodes.choices(&sidebar)[1].id, old_id);
     let mut other = Sidebar::connected(AccountId::new(18));
-    other.apply_diff(RoomListDiff::Upsert(room(
+    other.apply_diff(RoomListDiff::Upsert(Box::new(room(
         18,
         "!space:test",
         "Other account",
         true,
-    )));
+    ))));
     assert_ne!(nodes.choices(&other)[1].id, old_id);
 }
 
@@ -297,6 +299,7 @@ fn navigation() -> matrix_desktop::accessibility::NavigationSnapshot {
     matrix_desktop::accessibility::NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -473,19 +476,19 @@ fn space_revision_retires_filter_away_back_and_unobserved_removal() {
             ..Default::default()
         },
     };
-    sidebar.apply_diff(RoomListDiff::Upsert(summary()));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(summary())));
     let initial = sidebar.navigation_revision();
     assert!(sidebar.set_space(Some(scope(17, "!space:test"))));
     assert!(sidebar.set_space(None));
     assert_ne!(initial, sidebar.navigation_revision());
     let initial = sidebar.navigation_revision();
     sidebar.apply_diff(RoomListDiff::Remove(scope(17, "!space:test")));
-    sidebar.apply_diff(RoomListDiff::Upsert(summary()));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(summary())));
     assert_ne!(initial, sidebar.navigation_revision());
     let current = sidebar.navigation_revision();
     assert!(!sidebar.set_space(Some(scope(18, "!space:test"))));
     sidebar.set_space(None);
-    sidebar.apply_diff(RoomListDiff::Upsert(summary()));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(summary())));
     assert_eq!(current, sidebar.navigation_revision());
 }
 

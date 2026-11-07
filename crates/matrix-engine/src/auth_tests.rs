@@ -13,6 +13,7 @@ include!("encryption_tests.rs");
 include!("verification_tests.rs");
 include!("device_delete_tests.rs");
 include!("member_detail_tests.rs");
+include!("member_names_tests.rs");
 include!("recovery_tests.rs");
 include!("media_tests.rs");
 include!("avatar_account_tests.rs");
@@ -100,7 +101,7 @@ fn disposable_lifecycle_shutdown_drains_accepted_send_before_join() {
                     },
                     transaction_id: TransactionId::new("p022-drain"),
                     body: "Shutdown città".into(),
-                    attachment: None,
+                    attachment: None, poll: None,
                     mentions: Vec::new()
                 })
                 .await
@@ -691,7 +692,7 @@ fn disposable_send_reads_actual_event() {
             },
             transaction_id: TransactionId::new("p020-stable-transaction"),
             body: "città · prima riga\nseconda riga".into(),
-            attachment: None,
+            attachment: None, poll: None,
             mentions: Vec::new(),
         };
         let first = sync.send_text(&request).await.expect("SDK send accepted");
@@ -747,7 +748,7 @@ fn disposable_send_worker_survives_offline_retry() {
             },
             transaction_id: TransactionId::new("p020-offline-retry"),
             body: "Offline retry preserves città\nsecond line".into(),
-            attachment: None,
+            attachment: None, poll: None,
             mentions: Vec::new(),
         };
         relay.go_offline();
@@ -2149,5 +2150,87 @@ fn disposable_password_login_is_confirmed_by_server_whoami() {
         let identity = session.whoami().await.expect("server whoami accepted");
         assert!(identity.user_id() == "@alice:matrix-desktop.test");
         assert!(!identity.device_id().is_empty());
+    });
+}
+
+#[test]
+fn poll_start_content_is_msc3381_with_ids_kind_and_selections() {
+    use matrix_sdk::ruma::events::AnyMessageLikeEventContent;
+    let draft = matrix_domain::PollDraft {
+        question: " Dove? ".into(),
+        answers: vec![" Mare ".into(), "Monti".into(), "Lago".into()],
+        multiple: true,
+        disclosed: true,
+    };
+    let content = AnyMessageLikeEventContent::from(crate::sending::poll_start(&draft));
+    let json = serde_json::to_value(&content).unwrap();
+    let start = &json["org.matrix.msc3381.poll.start"];
+    assert_eq!(start["kind"], "org.matrix.msc3381.poll.disclosed");
+    assert_eq!(start["max_selections"], 3);
+    assert_eq!(start["question"]["org.matrix.msc1767.text"], "Dove?");
+    assert_eq!(start["answers"][0]["id"], "1");
+    assert_eq!(start["answers"][2]["id"], "3");
+    assert_eq!(start["answers"][0]["org.matrix.msc1767.text"], "Mare");
+    assert_eq!(json["org.matrix.msc1767.text"], "Dove?\n1. Mare\n2. Monti\n3. Lago");
+    let single = crate::sending::poll_start(&matrix_domain::PollDraft { multiple: false, disclosed: false, ..draft });
+    let json = serde_json::to_value(&single).unwrap();
+    assert_eq!(json["org.matrix.msc3381.poll.start"]["kind"], "org.matrix.msc3381.poll.undisclosed");
+    assert_eq!(json["org.matrix.msc3381.poll.start"]["max_selections"], 1);
+}
+
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_poll_send_vote_end_and_limits() {
+    use crate::{
+        operations::{Operation, OperationError, OperationRequest},
+        room_sync::RoomSync,
+        sending::{SendError, SendRequest},
+    };
+    use matrix_domain::{EventId, PollDraft, RoomId, RoomScope, TransactionId};
+    let config = fixture();
+    runtime().block_on(async {
+        let room = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"name":"poll","visibility":"private","invite":["@bob:matrix-desktop.test"]})).await["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("rooms/{room}/join"), serde_json::json!({})).await;
+        let foreign = room_request(&config, "bob", reqwest::Method::PUT, &format!("rooms/{room}/send/org.matrix.msc3381.poll.start/bobpoll"),
+            serde_json::json!({"org.matrix.msc3381.poll.start":{"kind":"org.matrix.msc3381.poll.disclosed","max_selections":1,
+              "question":{"org.matrix.msc1767.text":"Altro?"},
+              "answers":[{"id":"1","org.matrix.msc1767.text":"a"},{"id":"2","org.matrix.msc1767.text":"b"}]},
+              "org.matrix.msc1767.text":"Altro?"})).await["event_id"].as_str().unwrap().to_owned();
+        let mut sync = RoomSync::new(login(&config, "alice", 61).await);
+        sync.sliding_round().await.unwrap();
+        let scope = RoomScope { account_id: AccountId::new(61), room_id: RoomId::new(&room) };
+        let draft = PollDraft { question: "Dove?".into(), answers: vec!["Mare".into(), "Monti".into(), "Lago".into()], multiple: true, disclosed: false };
+        let send = |poll| SendRequest { scope: scope.clone(), transaction_id: TransactionId::new("p61-poll"), body: String::new(), attachment: None, poll, mentions: Vec::new() };
+        let invalid = PollDraft { answers: vec!["solo".into()], ..draft.clone() };
+        assert_eq!(sync.send_text(&send(Some(invalid))).await, Err(SendError::InvalidInput));
+        let start = sync.send_text(&send(Some(draft))).await.expect("poll start accepted");
+        let get = |id: String| { let (config, room) = (config.clone(), room.clone()); async move {
+            room_request(&config, "alice", reqwest::Method::GET, &format!("rooms/{room}/event/{id}"), serde_json::json!({})).await } };
+        let event = get(start.as_str().to_owned()).await;
+        assert_eq!(event["type"], "org.matrix.msc3381.poll.start");
+        let block = &event["content"]["org.matrix.msc3381.poll.start"];
+        assert_eq!(block["kind"], "org.matrix.msc3381.poll.undisclosed");
+        assert_eq!(block["max_selections"], 3);
+        assert_eq!(block["answers"][1]["id"], "2");
+        let op = |tx: &str, target: &EventId, operation| OperationRequest { scope: scope.clone(), transaction_id: TransactionId::new(tx), target: target.clone(), operation };
+        let vote = sync.operate(&op("p61-vote", &start, Operation::Vote { answers: vec!["1".into(), "3".into()] })).await.expect("vote accepted");
+        let event = get(vote.as_str().to_owned()).await;
+        assert_eq!(event["type"], "org.matrix.msc3381.poll.response");
+        assert_eq!(event["content"]["m.relates_to"]["rel_type"], "m.reference");
+        assert_eq!(event["content"]["m.relates_to"]["event_id"], start.as_str());
+        assert_eq!(event["content"]["org.matrix.msc3381.poll.response"]["answers"], serde_json::json!(["1", "3"]));
+        let too_many = Operation::Vote { answers: (0..21).map(|n| n.to_string()).collect() };
+        assert_eq!(sync.operate(&op("p61-many", &start, too_many)).await, Err(OperationError::InvalidInput));
+        let too_long = Operation::Vote { answers: vec!["x".repeat(341)] };
+        assert_eq!(sync.operate(&op("p61-long", &start, too_long)).await, Err(OperationError::InvalidInput));
+        let bobs = EventId::new(&foreign);
+        assert_eq!(sync.operate(&op("p61-foreign", &bobs, Operation::EndPoll)).await, Err(OperationError::Forbidden));
+        let end = sync.operate(&op("p61-end", &start, Operation::EndPoll)).await.expect("end accepted");
+        let event = get(end.as_str().to_owned()).await;
+        assert_eq!(event["type"], "org.matrix.msc3381.poll.end");
+        assert_eq!(event["content"]["m.relates_to"]["rel_type"], "m.reference");
+        assert_eq!(event["content"]["m.relates_to"]["event_id"], start.as_str());
+        assert_eq!(event["content"]["org.matrix.msc1767.text"], "Sondaggio chiuso");
     });
 }

@@ -6,6 +6,7 @@ use matrix_engine::history::{HistoryEvent, HistorySender};
 
 fn row(id: &str, body: &str, status: bool) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         event_id: EventId::new(id),
         body: body.into(),
         outgoing: false,
@@ -14,11 +15,12 @@ fn row(id: &str, body: &str, status: bool) -> HistoryEvent {
         sender: HistorySender::new("@anna:test", None),
         video: None,
         attachment_name: None,
-        attachment_size: None,
-        styles: Vec::new(),
+        attachment_size: None, media: None,
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,
         status,
+        utd: false,
     }
 }
 

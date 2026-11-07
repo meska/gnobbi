@@ -1,6 +1,7 @@
 //! «Gruppi» dialog of the «Modifica» panel: create, rename and delete groups and put rooms in them.
 //! Every change is one explicit click or Enter and goes to the server as a standard room tag through
 //! the engine; nothing here writes by itself. The lists come from the tags the sync already delivered.
+use crate::switch_row::switch_row;
 use crate::*;
 use matrix_engine::operations::{OperationCommand, OperationError, TagEdit};
 
@@ -215,18 +216,7 @@ impl Shell {
                             div().id("groups-rooms").flex().flex_col().flex_1().min_h_0().overflow_y_scroll().children(rooms.into_iter().enumerate().map(|(i, room)| {
                                 let has = room.info.tags.contains(&edit.selected);
                                 let room_id = room.scope.room_id.as_str().to_owned();
-                                div()
-                                    .id(("groups-room", i))
-                                    .h(px(36.))
-                                    .flex_shrink_0()
-                                    .px_2()
-                                    .flex()
-                                    .items_center()
-                                    .justify_between()
-                                    .cursor_pointer()
-                                    .text_color(rgb(t.text))
-                                    .child(div().flex_1().truncate().child(room.name.clone()))
-                                    .child(div().w(px(20.)).text_color(rgb(t.accent)).child(if has { "✓" } else { "" }))
+                                switch_row(("groups-room", i), room.name.clone(), has, true, false, t)
                                     .on_click(cx.listener(move |this, _, window, cx| {
                                         this.groups_toggle_room(room_id.clone(), !has, cx);
                                         if let Some(edit) = &this.groups_edit {

@@ -48,6 +48,7 @@ fn notification_actions_reject_hidden_disabled_and_stale_room_targets() {
         enabled: false,
         preview: true,
         selected: None,
+        room_name: String::new(),
         service_failed: false,
     }));
     assert!(
@@ -75,6 +76,7 @@ fn open_notification_panel_replaces_hidden_chat_tree_and_rejects_chat_actions() 
     let mut snapshot = NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![matrix_desktop::panel_openers::Snapshot {
@@ -176,6 +178,7 @@ fn panel() -> NotificationView {
             },
             false,
         )),
+        room_name: "Privacy".into(),
         service_failed: true,
     }))
 }
@@ -191,7 +194,7 @@ fn notification_dialog_exports_current_checkbox_states_and_privacy_text() {
     assert_eq!(tree.nodes[0].1.label(), Some("Notifiche locali"));
     for (id, label, state) in [
         (ENABLED, "Notifiche locali attive", Toggled::False),
-        (MUTE, "Stanza selezionata silenziata", Toggled::False),
+        (MUTE, "Notifiche della stanza Privacy", Toggled::True),
         (PREVIEW, "Anteprima del solo conteggio", Toggled::True),
     ] {
         let node = &tree.nodes.iter().find(|(n, _)| *n == id).unwrap().1;

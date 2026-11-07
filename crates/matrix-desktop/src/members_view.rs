@@ -56,6 +56,9 @@ impl Shell {
         acts.push(ProfileAct::Link);
         if !me {
             acts.push(ProfileAct::Quote);
+            if self.profile_rights.as_ref().is_some_and(|(id, r)| *id == p.user_id && r.read_receipt.is_some()) {
+                acts.push(ProfileAct::ReadReceipt);
+            }
         }
         if matrix_desktop::verify_mark(me, p.verified) == matrix_desktop::VerifyMark::Offer {
             acts.push(ProfileAct::Verify);
@@ -183,6 +186,17 @@ impl Shell {
                 self.set_room_details_open(false);
                 self.composer.update(cx, |editor, cx| editor.insert_mention(user_id, &name, window, cx));
             }
+            ProfileAct::ReadReceipt => {
+                let event = self.profile_rights.as_ref().and_then(|(_, r)| r.read_receipt.clone());
+                self.set_room_details_open(false);
+                if let (Some(event), Some(timeline)) = (event, &self.timeline) {
+                    let event = matrix_domain::EventId::new(&event);
+                    if timeline.scroll_to_event(&event) {
+                        let flash_until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                        timeline.set_search_mark(Some(crate::timeline_view::SearchMark { event, term: String::new(), flash_until, ended: false }));
+                    }
+                }
+            }
             ProfileAct::Power(level) => self.moderate(user_id, Moderation::SetPower(level)),
             ProfileAct::RemoveMessages | ProfileAct::Kick | ProfileAct::Ban | ProfileAct::Ignore => {
                 // Cancel is the focused answer: Enter on a stray press does not destroy anything.
@@ -279,6 +293,24 @@ impl Shell {
         })
         .detach();
         cx.notify();
+    }
+
+    /// Click on a bubble's avatar or name: the same sheet and profile as a members-list row. Focus stays where it was.
+    /// Waits (request kept) while another command is pending, so the click is not lost.
+    pub(crate) fn drive_profile(&mut self, cx: &mut Context<Self>) {
+        if self.pending_operation_command.is_some() {
+            return;
+        }
+        let Some(user_id) = self.timeline.as_ref().and_then(|t| t.want_profile.borrow_mut().take()) else { return };
+        self.set_room_details_open(true);
+        self.open_profile(user_id, cx);
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn pending_profile(&mut self, user_id: String) {
+        if let Some(t) = &self.timeline {
+            *t.want_profile.borrow_mut() = Some(user_id);
+        }
     }
 
     /// Row click: ask the engine for the profile; a click while another command waits is ignored.
@@ -388,8 +420,9 @@ impl Shell {
         match &self.profile {
             Some(ProfileState::Loaded(p)) => {
                 let ctls = self.profile_ctls();
+                let keys = input_modality::is_keyboard(cx);
                 let ring = |ctl: ProfileCtl| {
-                    let on = ctls.get(self.profile_focus) == Some(&ctl);
+                    let on = keys && ctls.get(self.profile_focus) == Some(&ctl);
                     move |d: gpui::Stateful<gpui::Div>| d.border_1().border_color(rgb(if on { t.accent } else { t.surface }))
                 };
                 let icon_button = |id: &'static str, icon: composer_icons::Icon, ctl: ProfileCtl, color: u32, cx: &mut Context<Self>| {

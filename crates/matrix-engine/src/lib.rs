@@ -23,10 +23,14 @@ pub mod recovery;
 mod outbox;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
+pub mod message_match;
+#[cfg(feature = "sdk")]
+pub mod message_search;
 #[cfg(feature = "sdk")]
 pub mod notify;
 #[cfg(feature = "sdk")]
 pub mod room_tags;
+pub mod search;
 #[cfg(feature = "sdk")]
 pub mod sliding;
 #[cfg(feature = "sdk")]
@@ -83,7 +87,8 @@ pub struct RoomInfo {
 
 /// Stable-ID updates independent of the current UI filter or selection.
 pub enum RoomListDiff {
-    Upsert(RoomSummary),
+    // Boxed: RoomSummary is large next to Remove(RoomScope) (clippy::large_enum_variant).
+    Upsert(Box<RoomSummary>),
     Remove(RoomScope),
 }
 
@@ -110,7 +115,10 @@ pub mod discovery;
 mod generation;
 pub mod history;
 pub mod status_line;
-#[cfg(all(feature = "mac-vault", target_os = "macos"))]
+#[cfg(any(
+    all(feature = "mac-vault", target_os = "macos"),
+    all(feature = "ios-vault", target_os = "ios")
+))]
 pub mod keychain;
 pub mod media;
 #[cfg(feature = "sdk")]

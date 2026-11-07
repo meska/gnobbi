@@ -6,8 +6,8 @@ import pathlib, tomllib
 here = pathlib.Path(__file__).resolve().parent
 src = tomllib.loads((here / "tokens.toml").read_text(encoding="utf-8"))
 THEME_ORDER = ["classic", "day", "dark", "night"]
-COLORS = ["surface", "text", "secondary", "accent", "timeline", "outgoing", "selected",
-          "border", "input", "disabled", "selection", "error", "on_accent", "avatar_text"]
+COLORS = ["surface", "text", "secondary", "placeholder", "accent", "timeline", "outgoing", "selected",
+          "border", "input", "disabled", "selection", "mention_row", "error", "on_accent", "avatar_text"]
 assert list(src["themes"]) == THEME_ORDER, "themes must be classic, day, dark, night"
 for t in src["themes"].values():
     assert set(t) == {"label", "dark", *COLORS}, "theme keys differ from the colour list"

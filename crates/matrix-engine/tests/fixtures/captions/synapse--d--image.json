@@ -1,0 +1,20 @@
+{
+ "age": 27,
+ "content": {
+  "body": "sent-image.bin",
+  "filename": "sent-image.bin",
+  "msgtype": "m.image",
+  "url": "mxc://matrix-desktop.test/media000"
+ },
+ "event_id": "$CMk97lhgPMpSZsjg6eUcoyFQKZMf_82Ew9janV0sC8I",
+ "origin_server_ts": 1794005844348,
+ "room_id": "!Fc4FkswTyaB9tZXHs7M7JmsrHOOYtq7ZWHwel4XDlAo",
+ "sender": "@alice:matrix-desktop.test",
+ "type": "m.room.message",
+ "unsigned": {
+  "age": 27,
+  "membership": "join",
+  "transaction_id": "p0fg-d-image"
+ },
+ "user_id": "@alice:matrix-desktop.test"
+}

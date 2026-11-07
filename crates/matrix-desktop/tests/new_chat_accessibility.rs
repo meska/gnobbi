@@ -3,6 +3,7 @@
 use accesskit::{Action, ActionRequest, Live, Role, TreeId};
 use matrix_desktop::accessibility::new_chat::*;
 use matrix_desktop::new_chat::{Entry, Status};
+use matrix_desktop::search_list::Hit as _;
 
 fn entry(id: &str, name: &str) -> Entry {
     Entry {
@@ -72,7 +73,12 @@ fn status_is_a_polite_live_line_and_empty_list_has_no_listbox() {
     for (status, text) in [
         (Status::Searching, "Ricerca in corso"),
         (Status::NoResults, "Nessun risultato"),
-        (Status::Error, "Ricerca non riuscita"),
+        (Status::Failed, "Ricerca non riuscita"),
+        (Status::Partial, "Risultati parziali"),
+        (
+            Status::Error(matrix_engine::search::SearchError::Network),
+            "Connessione non riuscita",
+        ),
     ] {
         let tree = open(vec![], Some(status), None).tree().unwrap();
         let line = &tree.nodes.iter().find(|(i, _)| *i == STATUS).unwrap().1;

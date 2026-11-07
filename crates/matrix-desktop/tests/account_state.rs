@@ -14,12 +14,12 @@ fn scope(account: u64, room: &str) -> RoomScope {
 }
 
 fn upsert(account: u64, room: &str, name: &str) -> RoomListEvent {
-    RoomListEvent::Diff(RoomListDiff::Upsert(RoomSummary {
+    RoomListEvent::Diff(RoomListDiff::Upsert(Box::new(RoomSummary {
         scope: scope(account, room),
         name: name.to_owned(),
         unread: 0,
         info: Default::default(),
-    }))
+    })))
 }
 
 /// A state whose worker is replaced by the test: it returns the room-list sender.
@@ -158,7 +158,7 @@ fn drafts_follow_the_account_even_when_both_report_the_same_account_and_room_id(
 }
 
 fn room(account: u64, id: &str, unread: u64, mentions: u64) -> RoomListEvent {
-    RoomListEvent::Diff(RoomListDiff::Upsert(RoomSummary {
+    RoomListEvent::Diff(RoomListDiff::Upsert(Box::new(RoomSummary {
         scope: scope(account, id),
         name: id.to_owned(),
         unread,
@@ -166,7 +166,7 @@ fn room(account: u64, id: &str, unread: u64, mentions: u64) -> RoomListEvent {
             mentions,
             ..Default::default()
         },
-    }))
+    })))
 }
 
 #[test]

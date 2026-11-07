@@ -52,7 +52,7 @@ fn shutdown_during_restore_does_not_claim_to_flush_queued_sends() {
                 },
                 transaction_id: TransactionId::new("p022-before-restore"),
                 body: "Unconfirmed".into(),
-                attachment: None,
+                attachment: None, poll: None,
                 mentions: Vec::new()
             })
             .is_ok()

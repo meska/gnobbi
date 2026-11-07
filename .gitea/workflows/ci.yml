@@ -1,7 +1,7 @@
 name: ci
 on:
   push:
-    branches: [main]
+    branches: [main, 'ci/**']
   pull_request:
 concurrency:
   group: ci-${{ gitea.ref }}
@@ -9,7 +9,34 @@ concurrency:
 env:
   CARGO_TERM_COLOR: never
 jobs:
+  debounce:
+    runs-on: linux-x86_64
+    outputs:
+      stale: ${{ steps.check.outputs.stale }}
+    steps:
+      # Debounce (owner 05/11): build only the last push on a ref. A newer push
+      # cancels this run via workflow concurrency, or makes it stale here.
+      - name: Wait 30 minutes
+        if: gitea.event_name == 'push'
+        run: sleep 1800
+      - name: Check ref freshness
+        id: check
+        run: |
+          if [ "${{ gitea.event_name }}" != 'push' ]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          remote="$(git -c http.extraHeader="Authorization: token ${{ gitea.token }}" \
+            ls-remote "${{ gitea.server_url }}/${{ gitea.repository }}.git" "${{ gitea.ref }}" | cut -f1)"
+          if [ -n "$remote" ] && [ "$remote" != "${{ gitea.sha }}" ]; then
+            echo "ref ${{ gitea.ref }} moved to $remote; run for ${{ gitea.sha }} is stale"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          fi
   linux:
+    needs: debounce
+    if: needs.debounce.outputs.stale != 'true'
     runs-on: linux-x86_64
     steps:
       - name: Checkout
@@ -32,6 +59,8 @@ jobs:
         run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
       - name: Test desktop
         run: cargo test --locked -j4 -p matrix-desktop --features live
+      - name: Composer rendered geometry (Xvfb, xauth, D-Bus)
+        run: sh packaging/linux/test-composer-render.sh
       - name: AppImage
         if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
         run: |
@@ -49,8 +78,8 @@ jobs:
           mkdir -p "$HOME/ci/out"
           printf '%s %s linux\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci/out/${{ gitea.sha }}.linux.status"
   macos:
-    needs: linux
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    needs: [debounce, linux]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: macos-arm64
     steps:
       - name: Checkout
@@ -74,8 +103,8 @@ jobs:
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s macos\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.macos.status"
   windows:
-    needs: linux
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    needs: [debounce, linux]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: windows-x64
     steps:
       - name: Checkout
@@ -99,8 +128,8 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
   ios-mobile:
-    needs: linux
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    needs: [debounce, linux]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: macos-arm64
     steps:
       - name: Checkout
@@ -129,3 +158,74 @@ jobs:
         run: |
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s ios-mobile\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.ios-mobile.status"
+  publish:
+    needs: [debounce, linux, macos]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
+    runs-on: linux-x86_64
+    concurrency:
+      group: publish-main
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        run: |
+          git init -q .
+          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
+          git checkout -q "${{ gitea.sha }}"
+      - name: Prove negative verifica firma (MANIFEST_SIGNING.md §5.8)
+        run: |
+          set -euo pipefail
+          T="$(mktemp -d)"
+          gen() { jq -nc --argjson b "$1" --arg vu "$2" '{schema:1,version:"0.0.0",build:$b,
+              commit:"0000000000000000000000000000000000000000",released:"2026-01-01T00:00:00Z",
+              valid_until:$vu,channel:"stable",artifacts:{}}' >"$T/m$1.json"; }
+          expect_fail() { if packaging/linux/publish-site.sh --verify "$@"; then
+              echo "::error::verifica accettata dove doveva rifiutare: $*"; exit 1; fi; }
+          vu="$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)"
+          gen 7 "$vu"
+          packaging/linux/publish-site.sh --sign "$T/m7.json" 7
+          packaging/linux/publish-site.sh --verify "$T/m7.json" "$T/m7.json.minisig"
+          sed -i '2s/^\(.\)\(.\)/\2\1/' "$T/m7.json.minisig"
+          expect_fail "$T/m7.json" "$T/m7.json.minisig"
+          jq -c '.build=99' "$T/m7.json" >"$T/m7.mod" && mv "$T/m7.mod" "$T/m7.json"
+          expect_fail "$T/m7.json" "$T/m7.json.minisig"
+          gen 8 "$vu"
+          packaging/linux/publish-site.sh --sign "$T/m8.json" 7
+          expect_fail "$T/m8.json" "$T/m8.json.minisig"
+          printf 'eph\neph\n' | minisign -G -s "$T/r.key" -p "$T/r.pub"
+          printf 'eph\n' >"$T/r.pass" && chmod 600 "$T/r.pass"
+          gen 9 "$vu"
+          SIGN_KEY="$T/r.key" SIGN_PASSPHRASE_FILE="$T/r.pass" \
+            packaging/linux/publish-site.sh --sign "$T/m9.json" 9
+          expect_fail "$T/m9.json" "$T/m9.json.minisig"
+          gen 10 2020-01-01T00:00:00Z
+          packaging/linux/publish-site.sh --sign "$T/m10.json" 10
+          expect_fail "$T/m10.json" "$T/m10.json.minisig"
+          echo "prove negative OK: R3/R4/R5/R7 rifiutati, firma buona accettata"
+      - name: Test firma manifesto (casi negativi e di bordo, chiave efimera)
+        run: packaging/linux/test-publish-signing.sh
+      - name: Publish AppImage
+        run: |
+          app="$HOME/ci/share/Gnobbi-x86_64.AppImage"
+          built="$(sed -n 's/^commit=//p' "$HOME/ci/share/BUILDINFO" 2>/dev/null || true)"
+          if [ ! -f "$app" ]; then
+            echo "::error::AppImage del job linux assente in \$HOME/ci/share (job AppImage non eseguito?)"
+            exit 1
+          fi
+          if [ "$built" != "${{ gitea.sha }}" ]; then
+            echo "::error::AppImage costruita da commit diverso (BUILDINFO=$built, CI=${{ gitea.sha }})"
+            exit 1
+          fi
+          # build = rev-list count: deve coincidere con BUILD_INFO.build del binario (build.rs)
+          build="$(git rev-list --count HEAD)"
+          rc=0
+          packaging/linux/publish-site.sh "$app" "$build" "${{ gitea.sha }}" || rc=$?
+          if [ "$rc" = 75 ]; then
+            echo "::warning::PUBLISH SKIPPED: sito irraggiungibile (publish-site.sh rc=75)"
+            printf 'PUBLISH SKIPPED: sito irraggiungibile (rc=75), build %s non pubblicata.\n' "$build" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+            exit 0
+          fi
+          if [ "$rc" != 0 ]; then
+            echo "::error::publish fallito: publish-site.sh rc=$rc (2=config, 3=verifica, 4=upload)"
+            exit "$rc"
+          fi
+          printf 'Publish OK: build %s (%s) - latest.json e AppImage aggiornati.\n' "$build" "${{ gitea.sha }}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"

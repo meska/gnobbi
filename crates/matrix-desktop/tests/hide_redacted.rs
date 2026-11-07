@@ -14,6 +14,7 @@ fn scope() -> RoomScope {
 
 fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
     HistoryEvent {
+        poll: None,
         redacted,
         event_id: EventId::new(id),
         body: if redacted {
@@ -25,12 +26,13 @@ fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
         timestamp_ms: ts,
         sender: HistorySender::new(sender, Some(sender)),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     }
 }
 
@@ -199,4 +201,30 @@ fn redacted_thread_root_stays_visible() {
     h.prepend_server(vec![root, ev("$x", "@anna:test", 200, true), ev("$y", "@anna:test", 300, false)]);
     h.set_hide_redacted(true);
     assert_eq!(texts(&h), ["[Messaggio eliminato]", "$y"], "root kept, plain deleted row hidden");
+}
+
+#[test]
+fn delivery_echo_of_a_poll_keeps_the_poll_when_history_arrives_later() {
+    let mut h = DemoHistory::new(scope(), 0);
+    h.project_delivery(&[TimelineItem {
+        identity: ScopedTimelineId { scope: scope(), id: TimelineId::Server(EventId::new("$poll")) },
+        transaction_id: Some(TransactionId::new("tx1")),
+        body: "Cena?\n1. Pizzeria\n2. Sushi".into(),
+        status: SendStatus::Sent,
+    }]);
+    let mut e = ev("$poll", "@me:test", 5_000, false);
+    e.outgoing = true;
+    e.poll = Some(matrix_domain::Poll {
+        question: "Cena?".into(),
+        answers: Vec::new(),
+        max_selections: 1,
+        multiple: false,
+        disclosed: true,
+        ended: false,
+        voters: 0,
+        can_end: true,
+    });
+    h.prepend_server(vec![e]);
+    assert_eq!(h.events().len(), 1);
+    assert!(h.events()[0].poll.is_some());
 }

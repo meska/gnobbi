@@ -33,6 +33,7 @@ fn peer_receipt_marks_that_event_and_older_ones_with_the_double_check() {
         receipts::PublicReadReceipt,
     };
     let event = |id: &str, ts| HistoryEvent {
+        poll: None,
         redacted: false,
         event_id: EventId::new(id),
         body: id.into(),
@@ -40,11 +41,12 @@ fn peer_receipt_marks_that_event_and_older_ones_with_the_double_check() {
         timestamp_ms: ts,
         sender: HistorySender::new("@me:test", None),
         video: None,
-        styles: Vec::new(),
+        styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None,
         status: false,
+        utd: false,
         attachment_name: None,
-        attachment_size: None,
+        attachment_size: None, media: None,
     };
     let mut rows = matrix_desktop::DemoHistory::new(
         RoomScope {

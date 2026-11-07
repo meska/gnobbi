@@ -3,8 +3,11 @@
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
 pub mod build_info;
+pub mod directory_rooms;
 pub mod new_chat;
 pub mod notifications;
+pub mod search_list;
+pub mod update;
 
 /// Send is shown for a committed, non-blank draft or an attachment, never while recording.
 pub fn send_visible(composing: bool, text: &str, attachment: bool, recording: bool) -> bool {
@@ -24,6 +27,7 @@ pub const MONO_FONT: &str = "DejaVu Sans Mono";
 #[cfg(windows)]
 pub const MONO_FONT: &str = "Consolas";
 mod verification;
+pub mod recover_keys;
 #[cfg(feature = "desktop")]
 pub mod window;
 pub use verification::{DeviceVerification, device_detail, device_label, device_title};
@@ -39,9 +43,9 @@ pub use signin_form::{
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
-pub mod app_icon;
 mod account_catalog;
 mod account_erase;
+pub mod app_icon;
 pub use account_erase::erase_account;
 mod account_list;
 mod account_state;
@@ -56,13 +60,15 @@ mod accent;
 pub use accent::{Accent, current_accent, set_accent, system_accent};
 mod preferences;
 pub mod quick_search;
+pub mod directory_servers;
 mod rail_layout;
 mod room_prefs;
-pub use room_prefs::RoomPrefs;
-pub use rail_layout::{RailLayout, RailLayouts};
 pub use preferences::{
-    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,
+    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font,
+    ui_font,
 };
+pub use rail_layout::{RailLayout, RailLayouts};
+pub use room_prefs::RoomPrefs;
 mod composer;
 mod connection_options;
 pub mod panel_openers;
@@ -84,6 +90,7 @@ pub use event_id_copy::{EventIdCopies, EventIdCopyTarget};
 mod link_requests;
 pub use link_requests::{LinkMenu, MessageLinkRequests, MessageLinkTarget, link_at};
 mod links;
+pub mod mention_gaps;
 pub use links::{
     LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links,
 };
@@ -91,7 +98,10 @@ mod voice;
 pub use voice::{max_note_samples, voice_attachment};
 mod attachment_save;
 mod live_media;
-pub use attachment_save::{SaveState, Saves, failure_label as save_failure_label, offers_save, over_cap as save_over_cap, retryable as save_retryable, start_dir as save_start_dir};
+pub use attachment_save::{
+    SaveState, Saves, failure_label as save_failure_label, offers_save, over_cap as save_over_cap,
+    retryable as save_retryable, start_dir as save_start_dir,
+};
 pub use live_media::LiveMedia;
 mod live_delivery;
 pub use live_delivery::LiveDelivery;
@@ -123,6 +133,7 @@ pub struct DesignTokens {
     pub surface: u32,
     pub text: u32,
     pub secondary: u32,
+    pub placeholder: u32,
     pub accent: u32,
     pub timeline: u32,
     pub outgoing: u32,
@@ -131,6 +142,7 @@ pub struct DesignTokens {
     pub input: u32,
     pub disabled: u32,
     pub selection: u32,
+    pub mention_row: u32,
     pub error: u32,
     pub on_accent: u32,
     pub avatar_text: u32,
@@ -239,6 +251,7 @@ pub const LIGHT: DesignTokens = DesignTokens {
     surface: 0xffffff,
     text: 0x17231b,
     secondary: 0x46604e,
+    placeholder: matrix_domain::design::THEMES[0].palette.placeholder,
     accent: 0x1264aa,
     timeline: 0xe9f0eb,
     outgoing: 0xd9fdd3,
@@ -247,6 +260,7 @@ pub const LIGHT: DesignTokens = DesignTokens {
     input: 0xf1f4f2,
     disabled: 0xe9efeb,
     selection: 0xd0ead8,
+    mention_row: 0xe2d5d1,
     error: 0xb43030,
     on_accent: 0xffffff,
     avatar_text: 0x101b14,
@@ -256,6 +270,7 @@ pub const DARK: DesignTokens = DesignTokens {
     surface: 0x17231b,
     text: 0xe5efe8,
     secondary: 0xb4c9ba,
+    placeholder: matrix_domain::design::THEMES[2].palette.placeholder,
     accent: 0x80c8ff,
     timeline: 0x101b14,
     outgoing: 0x244436,
@@ -264,6 +279,7 @@ pub const DARK: DesignTokens = DesignTokens {
     input: 0x203226,
     disabled: 0x26372c,
     selection: 0x254d34,
+    mention_row: 0x3b3631,
     error: 0xffb3b3,
     on_accent: 0x101922,
     ..LIGHT
@@ -273,6 +289,7 @@ pub const DARK: DesignTokens = DesignTokens {
 pub const DAY: DesignTokens = DesignTokens {
     text: 0x111512,
     secondary: 0x47514a,
+    placeholder: matrix_domain::design::THEMES[1].palette.placeholder,
     accent: 0x0b5cad,
     timeline: 0xf4f6f5,
     outgoing: 0xd2f6dd,
@@ -281,6 +298,7 @@ pub const DAY: DesignTokens = DesignTokens {
     input: 0xf1f3f2,
     disabled: 0xe6eae7,
     selection: 0xcde9d6,
+    mention_row: 0xead4d7,
     error: 0xb00020,
     ..LIGHT
 };
@@ -290,6 +308,7 @@ pub const NIGHT: DesignTokens = DesignTokens {
     surface: 0x0b0f0c,
     text: 0xe8eeea,
     secondary: 0xa9b9ae,
+    placeholder: matrix_domain::design::THEMES[3].palette.placeholder,
     accent: 0x7cc4ff,
     timeline: 0x000000,
     outgoing: 0x16301f,
@@ -298,6 +317,7 @@ pub const NIGHT: DesignTokens = DesignTokens {
     input: 0x141c17,
     disabled: 0x1a241d,
     selection: 0x1b412a,
+    mention_row: 0x2e2020,
     error: 0xffb3b3,
     on_accent: 0x000000,
     ..LIGHT
@@ -310,6 +330,8 @@ pub enum ProfileAct {
     Message,
     Link,
     Quote,
+    /// Only offered when the member's last read event is loaded.
+    ReadReceipt,
     Verify,
     /// Moderation, only offered when the room power levels allow it.
     Power(i64),
@@ -346,6 +368,7 @@ impl ProfileAct {
             Self::Message => "Invia messaggio",
             Self::Link => "Condividi link utente",
             Self::Quote => "Cita",
+            Self::ReadReceipt => "Salta alla ricevuta di lettura",
             Self::Verify => "Verifica utente",
             Self::Power(0) => "Rendi utente",
             Self::Power(50) => "Rendi moderatore",

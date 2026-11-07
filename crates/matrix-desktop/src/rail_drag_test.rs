@@ -137,12 +137,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             .update_in(cx, |this, window, cx| {
                 let account = this.sidebar.rooms()[0].scope.account_id;
                 for i in 1..=ROWS {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(format!("!s{i:02}:fixture")) },
                         name: format!("Spazio {i:02}"),
                         unread: 0,
                         info: matrix_engine::RoomInfo { is_space: true, ..Default::default() },
-                    }));
+                    })));
                 }
                 if tag == "dark" {
                     this.set_theme(Theme::Dark, cx);

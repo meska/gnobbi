@@ -5,6 +5,7 @@ use gpui::{
     UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, rgb, size,
 };
 use crate::composer_icons::{Icon, icon};
+use crate::input_modality;
 use matrix_desktop::{Composer, DesignTokens, LIGHT, RoomDrafts};
 use matrix_domain::RoomScope;
 use std::ops::Range;
@@ -83,6 +84,11 @@ const DEFAULT_UPLOAD_LIMIT: u64 = 24 * 1024 * 1024;
 
 pub struct Submitted(pub String);
 
+/// The «Crea sondaggio» icon was activated: the shell opens the dialog.
+pub struct OpenPoll;
+
+impl gpui::EventEmitter<OpenPoll> for ComposerView {}
+
 impl gpui::EventEmitter<Submitted> for ComposerView {}
 
 pub struct ComposerView {
@@ -98,6 +104,8 @@ pub struct ComposerView {
     attachment: Option<Pending>,
     /// Joined members of the shown room, offered by the @ completion.
     members: Vec<matrix_engine::operations::Member>,
+    /// Decoded avatars of the listed members, filled by the shell's avatar tick.
+    pictures: std::collections::HashMap<String, std::sync::Arc<gpui::RenderImage>>,
     /// Users picked from the completion for the draft being written.
     mentions: Vec<matrix_engine::sending::Mention>,
     mention_selected: usize,
@@ -116,8 +124,8 @@ pub struct ComposerView {
     /// Last `send_visible()` seen by render, and when the fade towards it began (None: settled or reduced motion).
     send_shown: bool,
     fade_since: Option<Instant>,
-    /// Emoji, Attach, Voice: tab stops between the field and Send.
-    icon_focus: [FocusHandle; 3],
+    /// Emoji, Attach, Voice, Poll (Tab order Emoji, Poll, Attach, Voice | Send).
+    icon_focus: [FocusHandle; 4],
     layout: Option<TextLayout>,
     scroll: ScrollHandle,
     anchor: usize,
@@ -143,6 +151,7 @@ impl ComposerView {
             draft: Composer::default(),
             attachment: None,
             members: Vec::new(),
+            pictures: Default::default(),
             mentions: Vec::new(),
             mention_selected: 0,
             mention_closed: None,
@@ -157,7 +166,7 @@ impl ComposerView {
             send_focus_source: 0,
             send_shown: false,
             fade_since: None,
-            icon_focus: [cx.focus_handle(), cx.focus_handle(), cx.focus_handle()],
+            icon_focus: std::array::from_fn(|_| cx.focus_handle()),
             layout: None,
             scroll: ScrollHandle::new(),
             anchor: 0,
@@ -198,6 +207,20 @@ impl ComposerView {
         cx: &mut Context<Self>,
     ) {
         self.members = members;
+        cx.notify();
+    }
+
+    /// Avatars of the members now listed, for the shell to fetch.
+    pub(crate) fn mention_avatars(&self) -> Vec<String> {
+        self.mention_options().into_iter().filter_map(|m| m.avatar).collect()
+    }
+
+    pub(crate) fn has_picture(&self, mxc: &str) -> bool {
+        self.pictures.contains_key(mxc)
+    }
+
+    pub(crate) fn set_picture(&mut self, mxc: String, image: std::sync::Arc<gpui::RenderImage>, cx: &mut Context<Self>) {
+        self.pictures.insert(mxc, image);
         cx.notify();
     }
 
@@ -333,15 +356,20 @@ impl ComposerView {
         self.live && self.recorder.is_none()
     }
 
-    pub fn icon_focused(&self, window: &Window) -> Option<u8> {
-        (0..3u8).find(|i| self.icon_focus[*i as usize].is_focused(window))
+    /// Icon to draw the ring on: the keyboard focus, hidden while the pointer drives.
+    fn ring_icon(&self, window: &Window, cx: &gpui::App) -> Option<u8> {
+        self.icon_focused(window).filter(|_| input_modality::is_keyboard(cx))
     }
 
-    /// Tab order: field, Emoji, Attach, then the one of Voice | Send that is showing.
+    pub fn icon_focused(&self, window: &Window) -> Option<u8> {
+        (0..4u8).find(|i| self.icon_focus[*i as usize].is_focused(window))
+    }
+
+    /// Tab order: field, Emoji, Poll, Attach, then the one of Voice | Send that is showing.
     fn stops(&self) -> Vec<FocusHandle> {
         let mut stops = vec![self.focus.clone()];
         if self.icons_shown() {
-            stops.extend(self.icon_focus[..2].iter().cloned());
+            stops.extend([0, 3, 1].map(|i| self.icon_focus[i].clone()));
             if !self.send_visible() {
                 stops.push(self.icon_focus[2].clone());
             }
@@ -677,7 +705,14 @@ impl ComposerView {
         cx.notify();
     }
 
+    #[cfg_attr(test, allow(unreachable_code, unused_variables))]
     fn pick_file(&mut self, cx: &mut Context<Self>) {
+        // Tests count the request instead of opening a native dialog.
+        #[cfg(test)]
+        {
+            tests::PICKS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            return;
+        }
         let picked = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: true,
             directories: false,
@@ -1110,7 +1145,7 @@ impl Render for ComposerView {
         if self.fade_since.is_some() {
             window.request_animation_frame();
         }
-        let icon_focus = self.icon_focused(window);
+        let icon_focus = self.ring_icon(window, cx);
         let options = self.mention_options();
         let mention_selected = self.mention_selected.min(options.len().saturating_sub(1));
         let attachment_name = self.attachment.as_ref().map(|p| p.filename.clone());
@@ -1145,12 +1180,29 @@ impl Render for ComposerView {
             .justify_center()
             .gap_1()
             .when(!options.is_empty(), |d| {
+                let list = div().flex().flex_col();
+                #[cfg(test)]
+                let list = list.on_children_prepainted(|b, _, _| tests::MENTION_ROWS.with(|r| *r.borrow_mut() = b));
                 d.child(
-                    div()
-                        .flex()
-                        .flex_col()
+                    list
                         .children(options.into_iter().enumerate().map(|(i, member)| {
-                            div()
+                            let picture = member.avatar.as_ref().and_then(|m| self.pictures.get(m));
+                            let avatar = match picture {
+                                Some(image) => {
+                                    #[cfg(test)]
+                                    tests::MENTION_PICTURE.with(|p| { p.borrow_mut().insert(i, true); });
+                                    crate::avatar_view::round(image.clone(), 36.)
+                                }
+                                None => {
+                                    #[cfg(test)]
+                                    tests::MENTION_PICTURE.with(|p| { p.borrow_mut().insert(i, false); });
+                                    div().flex().items_center().justify_center().size(px(36.)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(14.)).font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::initials(&member.name)).into_any_element()
+                                }
+                            };
+                            let row = div();
+                            #[cfg(test)]
+                            let row = row.on_children_prepainted(move |b, _, _| tests::MENTION_CELLS.with(|c| { c.borrow_mut().insert(i, b); }));
+                            row
                                 .id(("composer-mention", i))
                                 .cursor_pointer()
                                 .px_2()
@@ -1161,7 +1213,9 @@ impl Render for ComposerView {
                                 .overflow_hidden()
                                 .text_size(px(14.))
                                 .text_color(rgb(t.text))
+                                .items_center()
                                 .when(i == mention_selected, |d| d.bg(rgb(t.selection)))
+                                .child(avatar)
                                 .child(
                                     div()
                                         .min_w_0()
@@ -1287,16 +1341,18 @@ impl Render for ComposerView {
                     .child(
                         div()
                             .id("composer-editor")
+                            .child(probe("editor"))
                             .when(self.recorder.is_some(), |d| d.hidden())
                             .flex_1()
                             .min_w_0()
                             .min_h(px(36.))
+                            .px_2()
                             .py(px(8.))
                             .relative()
                             // Always 1px so focus never moves the text; the ring is painted only while the field holds focus.
                             .rounded_lg()
                             .border_1()
-                            .border_color(if self.focus.is_focused(window) {
+                            .border_color(if input_modality::only_keys(self.focus.is_focused(window), cx) {
                                 gpui::Hsla::from(rgb(t.accent))
                             } else {
                                 gpui::transparent_black()
@@ -1336,7 +1392,8 @@ impl Render for ComposerView {
                             .text_size(px(14.))
                             .line_height(px(20.))
                             .whitespace_normal()
-                            .text_color(rgb(if empty { t.secondary } else { t.text }))
+                            .when(empty, |d| d.whitespace_nowrap().overflow_x_hidden())
+                            .text_color(rgb(if empty { t.placeholder } else { t.text }))
                             .child(body)
                             .child(
                                 canvas(
@@ -1371,6 +1428,10 @@ impl Render for ComposerView {
                                             && this.draft.selection().is_empty()
                                             && let Some(p) = layout.position_for_index(this.cursor)
                                         {
+                                            #[cfg(test)]
+                                            PROBE.with(|probe| {
+                                                probe.borrow_mut().insert("caret", Bounds::new(point(p.x, p.y), size(px(1.), px(20.))));
+                                            });
                                             window.paint_quad(fill(
                                                 Bounds::new(point(p.x, p.y), size(px(1.), px(20.))),
                                                 rgb(t.accent),
@@ -1421,6 +1482,7 @@ impl Render for ComposerView {
                             this.emoji_selected = 0;
                             cx.notify();
                         }))
+                        .child(icon_button("composer-poll", Icon::Poll, t, &self.icon_focus[3], icon_focus == Some(3), cx, |_, _, cx| cx.emit(OpenPoll)))
                         .child(icon_button("composer-attach", Icon::Attach, t, &self.icon_focus[1], icon_focus == Some(1), cx, |this, _, cx| this.pick_file(cx)))
                     })
                     // Voice and Send share this 32x32 slot and cross-fade (opacity only). The one that is fading out or hidden is inert: no click, no focus, no a11y node.
@@ -1469,7 +1531,7 @@ impl Render for ComposerView {
                                             .when(send_visible, |d| {
                                                 let send = self.send_callback();
                                                 d.track_focus(&self.send_focus)
-                                                    .when(self.send_focus.is_focused(window), |d| {
+                                                    .when(input_modality::ring(&self.send_focus, window, cx), |d| {
                                                         d.border_1().border_color(rgb(t.text))
                                                     })
                                                     .cursor_pointer()
@@ -1491,6 +1553,118 @@ impl Render for ComposerView {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use matrix_engine::operations::Member;
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    // Filled by the test-only hooks in the @ list render: row bounds, per-row cell bounds
+    // (avatar, name, id) and whether the row painted a picture rather than initials.
+    thread_local! {
+        pub(super) static MENTION_ROWS: RefCell<Vec<Bounds<Pixels>>> = const { RefCell::new(Vec::new()) };
+        pub(super) static MENTION_CELLS: RefCell<HashMap<usize, Vec<Bounds<Pixels>>>> = RefCell::new(HashMap::new());
+        pub(super) static MENTION_PICTURE: RefCell<HashMap<usize, bool>> = RefCell::new(HashMap::new());
+    }
+
+    fn member(id: &str, name: &str, avatar: Option<&str>) -> Member {
+        Member { user_id: id.into(), name: name.into(), avatar: avatar.map(Into::into) }
+    }
+
+    fn picture() -> std::sync::Arc<gpui::RenderImage> {
+        let buffer = image::RgbaImage::from_pixel(96, 96, image::Rgba([200, 30, 30, 255]));
+        std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]))
+    }
+
+    /// Painted @ list at the window scale given by GPUI_X11_SCALE_FACTOR (1, 1.5, 2):
+    /// image row, initials row, absent / empty / still-loading avatar, long names.
+    #[test]
+    #[ignore = "requires a private display"]
+    fn painted_mention_rows_with_avatar_at_scale() {
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        let want: f32 = std::env::var("GPUI_X11_SCALE_FACTOR").ok().and_then(|v| v.parse().ok()).unwrap_or(1.);
+        let long = "Bartolomeo Maria Fontana-Rossi";
+        let huge = "Massimiliano ".repeat(12);
+        let members = vec![
+            member("@anna:x", "Anna Rossi", Some("mxc://x/anna")),
+            member("@bruno:x", "Bruno Verdi", Some("mxc://x/bruno")),
+            member("@carla:x", "Carla", None),
+            member("@dario:x", "Dario", Some("")),
+            member("@long:x", long, None),
+            member("@huge:x", huge.trim(), None),
+        ];
+        let plain: Vec<_> = members.iter().map(|m| Member { avatar: None, ..m.clone() }).collect();
+        gpui::Application::new().run(move |cx| {
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    cx.new(|cx| {
+                        let mut v = ComposerView::new(
+                            RoomScope {
+                                account_id: matrix_domain::AccountId::new(1),
+                                room_id: matrix_domain::RoomId::new("!avatar:fixture.invalid"),
+                            },
+                            cx,
+                        );
+                        v.set_live(true);
+                        v.set_members(members.clone(), cx);
+                        v.set_picture("mxc://x/anna".into(), picture(), cx);
+                        v.replace_text_in_range(None, "@", window, cx);
+                        v
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(400)).await;
+                let order = view.update(cx, |v, window, _| {
+                    assert_eq!(window.scale_factor(), want, "window scale");
+                    v.mention_options().into_iter().map(|m| m.user_id).collect::<Vec<_>>()
+                }).unwrap();
+                // Same order as the avatar-less list (ranked by name only).
+                assert_eq!(order, ["@anna:x", "@long:x", "@bruno:x", "@carla:x", "@dario:x", "@huge:x"]);
+                let check = |loaded: &[&str]| {
+                    let rows = MENTION_ROWS.with(|r| r.borrow().clone());
+                    assert_eq!(rows.len(), order.len(), "one painted row per option");
+                    for (i, id) in order.iter().enumerate() {
+                        let cells = MENTION_CELLS.with(|c| c.borrow()[&i].clone());
+                        let (avatar, name) = (cells[0], cells[1]);
+                        // 36 logical px = 36 * scale device px, whatever the avatar kind.
+                        assert_eq!((f32::from(avatar.size.width), f32::from(avatar.size.height)), (36., 36.), "{id}");
+                        assert_eq!(f32::from(avatar.size.width) * want, 36. * want);
+                        assert!(avatar.left() <= name.left() && f32::from(name.size.width) > 0., "{id}: avatar left of name");
+                        let image = MENTION_PICTURE.with(|p| p.borrow()[&i]);
+                        assert_eq!(image, loaded.contains(&id.as_str()), "{id}: picture vs initials");
+                        if let Some(&idb) = cells.get(2) {
+                            assert!(idb.left() >= name.right() - px(0.5), "{id}: ID after the name");
+                            assert!(idb.right() <= rows[i].right() + px(0.5), "{id}: ID inside the row");
+                            assert!(f32::from(idb.size.width) > 0., "{id}: ID visible");
+                        }
+                        if id == "@long:x" {
+                            // fits in the row: name takes its full text width, not squeezed by the avatar
+                            assert!(f32::from(name.size.width) > 150., "long name not truncated: {:?}", name.size);
+                        }
+                    }
+                };
+                check(&["@anna:x"]);
+                // Loading, then the image arrives: Bruno flips to a picture, geometry unchanged.
+                let before = MENTION_CELLS.with(|c| c.borrow()[&2].clone());
+                view.update(cx, |v, _, cx| v.set_picture("mxc://x/bruno".into(), picture(), cx)).unwrap();
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                check(&["@anna:x", "@bruno:x"]);
+                assert_eq!(MENTION_CELLS.with(|c| c.borrow()[&2].clone()), before, "arriving image keeps the layout");
+                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                view.update(cx, |v, window, _| {
+                    let scope = RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!avatar:fixture.invalid") };
+                    let names = v.semantic_snapshot(scope.clone(), window).mentions;
+                    v.members = plain.clone();
+                    let without = v.semantic_snapshot(scope, window).mentions;
+                    assert_eq!(names, without, "a11y mention names unchanged by avatars");
+                    assert!(names.unwrap().0.iter().all(|n| !n.contains("mxc")));
+                }).unwrap();
+                let _ = &plain;
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
 
     #[test]
     #[ignore = "requires private display"]
@@ -2547,35 +2721,48 @@ mod tests {
         });
     }
 
+    pub(super) static POLLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    pub(super) static PICKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    fn open_composer(width: f32, text: &'static str, cx: &mut gpui::App) -> gpui::WindowHandle<ComposerView> {
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        let bounds = Bounds::centered(None, size(px(width), px(72.)), cx);
+        cx.open_window(
+            gpui::WindowOptions { window_bounds: Some(gpui::WindowBounds::Windowed(bounds)), ..Default::default() },
+            |window, cx| {
+                cx.new(|cx| {
+                    let mut v = ComposerView::new(
+                        RoomScope {
+                            account_id: matrix_domain::AccountId::new(1),
+                            room_id: matrix_domain::RoomId::new("!icons:fixture.invalid"),
+                        },
+                        cx,
+                    );
+                    v.set_live(true);
+                    if std::env::var("COMPOSER_THEME").as_deref() == Ok("dark") {
+                        v.theme = matrix_desktop::DARK;
+                    }
+                    v.draft.replace(None, text);
+                    if std::env::var("COMPOSER_TEST_ATTACHMENT").as_deref() == Ok("1") {
+                        v.attachment = Some(Pending { filename: "a.txt".into(), data: vec![1], voice: None });
+                    }
+                    v.changed(cx);
+                    v.focus.focus(window);
+                    v
+                })
+            },
+        )
+        .unwrap()
+    }
+
     /// Live composer in a 72 px bar (the real min height), text and one icon state checked after paint.
     fn rendered_composer(text: &'static str, check: impl FnOnce(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static) {
-        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        rendered_composer_at(800., text, check)
+    }
+
+    fn rendered_composer_at(width: f32, text: &'static str, check: impl FnOnce(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static) {
         gpui::Application::new().run(move |cx| {
-            let bounds = Bounds::centered(None, size(px(800.), px(72.)), cx);
-            let view = cx
-                .open_window(
-                    gpui::WindowOptions { window_bounds: Some(gpui::WindowBounds::Windowed(bounds)), ..Default::default() },
-                    |window, cx| {
-                        cx.new(|cx| {
-                            let mut v = ComposerView::new(
-                                RoomScope {
-                                    account_id: matrix_domain::AccountId::new(1),
-                                    room_id: matrix_domain::RoomId::new("!icons:fixture.invalid"),
-                                },
-                                cx,
-                            );
-                            v.set_live(true);
-                            if std::env::var("COMPOSER_THEME").as_deref() == Ok("dark") {
-                                v.theme = matrix_desktop::DARK;
-                            }
-                            v.draft.replace(None, text);
-                            v.changed(cx);
-                            v.focus.focus(window);
-                            v
-                        })
-                    },
-                )
-                .unwrap();
+            let view = open_composer(width, text, cx);
             let executor = cx.background_executor().clone();
             cx.spawn(async move |cx| {
                 executor.timer(std::time::Duration::from_millis(400)).await;
@@ -2595,6 +2782,86 @@ mod tests {
         });
     }
 
+    /// Focuses `stop`, lets it paint (GPUI turns Enter/Space key-up into a click only on a painted, focused element),
+    /// then sends the real key through xdotool (down + up). Checks that the draft is untouched and Submitted came only from Send.
+    fn press_on(text: &'static str, stop: u8, key: &'static str, check: fn(&mut ComposerView)) {
+        gpui::Application::new().run(move |cx| {
+            let view = open_composer(800., text, cx);
+            let submitted = Rc::new(Cell::new(0));
+            let count = submitted.clone();
+            let entity = view.entity(cx).unwrap();
+            cx.subscribe(&entity, move |_, _: &Submitted, _| count.set(count.get() + 1)).detach();
+            cx.subscribe(&entity, |_, _: &OpenPoll, _| {
+                POLLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            })
+            .detach();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                view.update(cx, |v, window, cx| {
+                    match stop {
+                        0..=3 => v.icon_focus[stop as usize].focus(window),
+                        _ => v.send_focus.focus(window),
+                    }
+                    cx.notify();
+                })
+                .unwrap();
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                // Real X11 key press + release (GPUI clicks on key-up), as the OS delivers it.
+                let ids = std::process::Command::new("xdotool")
+                    .args(["search", "--onlyvisible", "--pid", &std::process::id().to_string()])
+                    .output()
+                    .unwrap();
+                let id = String::from_utf8(ids.stdout).unwrap();
+                assert!(std::process::Command::new("xdotool").args(["windowfocus", id.lines().next().unwrap()]).status().unwrap().success());
+                executor.timer(std::time::Duration::from_millis(200)).await;
+                let sent = std::process::Command::new("xdotool")
+                    .args(["key", if key == "enter" { "Return" } else { "space" }])
+                    .status()
+                    .unwrap();
+                assert!(sent.success());
+                executor.timer(std::time::Duration::from_millis(100)).await;
+                view.update(cx, |v, _, _| {
+                    assert_eq!(v.draft.text(), text, "{key} on a control never edits the draft");
+                    check(v);
+                })
+                .unwrap();
+                assert_eq!(submitted.get(), u32::from(stop == 4), "{key} on stop {stop}: Submitted only from Send");
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    /// One process per case: GPUI's `Application::run` is once per process.
+    macro_rules! activation {
+        ($enter:ident, $space:ident, $text:expr, $stop:expr, $check:expr) => {
+            #[test]
+            #[ignore = "requires private display"]
+            fn $enter() {
+                press_on($text, $stop, "enter", $check);
+            }
+            #[test]
+            #[ignore = "requires private display"]
+            fn $space() {
+                press_on($text, $stop, "space", $check);
+            }
+        };
+    }
+
+    activation!(enter_activates_emoji, space_activates_emoji, "ciao", 0, |v| assert!(v.emoji_open, "Emoji opens the picker"));
+    activation!(enter_activates_attach, space_activates_attach, "ciao", 1, |_| {
+        assert!(PICKS.load(std::sync::atomic::Ordering::SeqCst) >= 1, "Attach asks for a file")
+    });
+    // No microphone on the CT: the activation shows as the error; with one it shows as a recorder.
+    activation!(enter_activates_voice, space_activates_voice, "", 2, |v| {
+        assert!(v.recorder.is_some() || v.attach_error.is_some(), "Voice tried to record")
+    });
+    activation!(enter_activates_poll, space_activates_poll, "ciao", 3, |_| {
+        assert!(POLLS.load(std::sync::atomic::Ordering::SeqCst) >= 1, "Poll emits OpenPoll")
+    });
+    activation!(enter_activates_send, space_activates_send, "ciao", 4, |_| ());
+
     fn centre(b: Bounds<Pixels>) -> f32 {
         (f32::from(b.top()) + f32::from(b.bottom())) / 2.
     }
@@ -2605,37 +2872,94 @@ mod tests {
 
     #[test]
     #[ignore = "requires private display"]
-    fn painted_icons_are_32px_right_of_the_text_and_centred_in_the_bar() {
-        rendered_composer("una riga", |v, _, _| {
+    fn painted_composer_padding_and_height() {
+        let state = std::env::var("COMPOSER_TEST_STATE").expect("composer test state");
+        let text = match state.as_str() {
+            "empty" | "attachment" => "",
+            "text" => "una riga",
+            "multiline" => "prima\nseconda",
+            _ => panic!("unknown composer test state: {state}"),
+        };
+        rendered_composer(text, move |v, window, _| {
+            let expected_scale: f32 = std::env::var("COMPOSER_TEST_SCALE").unwrap().parse().unwrap();
+            assert!((window.scale_factor() - expected_scale).abs() < 0.01, "actual scale {}", window.scale_factor());
+            assert!(v.focus.is_focused(window), "caret must be painted");
+            let editor = probed("editor");
+            let layout = v.layout.as_ref().expect("text laid out");
+            assert_eq!(v.attachment.is_some(), state == "attachment");
+            let caret = probed("caret");
+            assert!(f32::from(caret.left() - editor.left()) + 0.001 >= 8.0,
+                "{state} scale {expected_scale}: painted caret {caret:?}, editor {editor:?}");
+            let mut indices = vec![0];
+            if state == "multiline" { indices.push(6); }
+            for index in indices {
+                let caret = layout.position_for_index(index).expect("laid-out caret");
+                let inset = f32::from(caret.x - editor.left());
+                assert!(inset + 0.001 >= 8.0, "{state} scale {expected_scale}: inset {inset} editor {editor:?}");
+            }
+            if state == "empty" || state == "text" {
+                let bar = probed("bar");
+                assert!((f32::from(bar.size.height) + 1. - v.theme.bottom_bar).abs() <= 0.5,
+                    "{state}: bar {bar:?} vs token {}", v.theme.bottom_bar);
+            }
+            eprintln!("{state} scale {expected_scale}: editor {editor:?}, layout {:?}", layout.bounds());
+        });
+    }
+
+    /// Emoji, Poll, Attach and the last slot (Voice when empty, Send otherwise) are ≥32x32, in order right of the text,
+    /// and the text and every control are centred on the bar within 1 physical px (the scale comes from the harness:
+    /// GPUI_X11_SCALE_FACTOR on X11).
+    fn assert_icons_in_the_bar(text: &'static str, last: &'static str, bar_at_rest: bool) {
+        rendered_composer(text, move |v, window, _| {
+            let tol = 1. / window.scale_factor() + 1e-3;
             let bar = probed("bar");
-            // At rest the one-line composer is exactly the shared bottom-bar height (the list footer uses the same token); the probe is the content box, inside the 1px top border.
-            assert!((f32::from(bar.size.height) + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar {bar:?} vs token {}", v.theme.bottom_bar);
             let mid = centre(bar);
             let text = v.layout.as_ref().expect("text laid out").bounds();
-            assert!((centre(text) - mid).abs() <= 1., "text centre {:?} vs bar {mid}", text);
-            let names = ["composer-emoji-toggle", "composer-attach", "send"];
+            assert!((centre(text) - mid).abs() <= tol, "text centre {text:?} vs bar {mid}");
             let mut left = text.right();
-            for name in names {
+            for name in ["composer-emoji-toggle", "composer-poll", "composer-attach", last] {
                 let b = probed(name);
                 assert!(b.size.width >= px(32.) && b.size.height >= px(32.), "{name} is {:?}", b.size);
                 assert!(b.left() >= left, "{name} must follow the previous control");
-                assert!((centre(b) - mid).abs() <= 1., "{name} centre vs bar {mid}: {b:?}");
+                assert!((centre(b) - mid).abs() <= tol, "{name} centre vs bar {mid}: {b:?}");
                 left = b.right();
+            }
+            if bar_at_rest {
+                // At rest the one-line composer is exactly the shared bottom-bar height (the list footer uses the same token); the probe is the content box, inside the 1px top border.
+                assert!((f32::from(bar.size.height) + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar {bar:?} vs token {}", v.theme.bottom_bar);
             }
             eprintln!("bar {bar:?} text {text:?}");
         });
     }
 
-    /// Emoji, Attach, Voice form one block and end exactly at the bar's right padding edge (no space reserved for Send), whatever the text.
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_icons_are_32px_right_of_the_text_and_centred_in_the_bar() {
+        assert_icons_in_the_bar("una riga", "send", true);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_voice_is_32px_right_of_the_text_and_centred_in_the_bar() {
+        assert_icons_in_the_bar("", "composer-record", false);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_icons_stay_centred_in_a_bar_grown_by_many_lines() {
+        assert_icons_in_the_bar("uno\ndue\ntre\nquattro\ncinque", "send", false);
+    }
+
+    /// Emoji, Poll, Attach, Voice form one block and end exactly at the bar's right padding edge (no space reserved for Send), whatever the text.
     fn assert_icons_flush_right(v: &mut ComposerView, last: &str) {
         let bar = probed("bar");
-        let (e, a, r) = (probed("composer-emoji-toggle"), probed("composer-attach"), probed(last));
+        let (e, p, a, r) = (probed("composer-emoji-toggle"), probed("composer-poll"), probed("composer-attach"), probed(last));
         assert!((f32::from(r.size.width) - 32.).abs() <= 0.5 && (f32::from(r.size.height) - 32.).abs() <= 0.5, "{last} is {:?}", r.size);
         let d = |x: Pixels, y: Pixels| (f32::from(x) - f32::from(y)).abs();
         // The probe spans the bar's padding box; px_6 leaves 24 px on the right.
         assert!(d(r.right(), bar.right() - px(24.)) <= 1., "Voice {r:?} vs bar {bar:?}");
-        // Same gap between the three, so they form one block ending at the edge.
-        assert!(d(a.left() - e.right(), r.left() - a.right()) <= 1., "uneven gaps: {e:?} {a:?} {r:?}");
+        // Same gap between the four, so they form one block ending at the edge.
+        assert!(d(p.left() - e.right(), r.left() - a.right()) <= 1. && d(a.left() - p.right(), r.left() - a.right()) <= 1., "uneven gaps: {e:?} {p:?} {a:?} {r:?}");
         let _ = v;
     }
 
@@ -2652,6 +2976,18 @@ mod tests {
             // Send takes Voice's slot: same 32x32 rectangle at the right edge, after Emoji and Attach.
             assert_icons_flush_right(v, "send");
             assert!(probed("send").left() >= probed("composer-attach").right());
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn narrow_window_keeps_the_field_at_least_120px_with_four_icons() {
+        rendered_composer_at(360., "", |v, _, _| {
+            let editor = probed("editor");
+            eprintln!("editor at 360: {editor:?}");
+            assert!(f32::from(editor.size.width) >= 120., "field is {:?}", editor.size);
+            assert_icons_flush_right(v, "composer-record");
+            assert_right_edge_at_scales("composer-record");
         });
     }
 
@@ -2701,18 +3037,18 @@ mod tests {
         let at = |v: &ComposerView, w: &Window| {
             [v.focus.is_focused(w)]
                 .into_iter()
-                .chain((0..3).map(|i| v.icon_focus[i].is_focused(w)))
+                .chain([0, 3, 1, 2].map(|i| v.icon_focus[i].is_focused(w)))
                 .chain([v.send_focus.is_focused(w)])
                 .position(|f| f)
         };
         rendered_composer("ciao", move |v, window, cx| {
             let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
-            for stop in [1, 2, 4] {
+            for stop in [1, 2, 3, 5] {
                 v.key_down(&key("tab"), window, cx);
-                assert_eq!(at(v, window), Some(stop), "text: field, Emoji, Attach, Send");
+                assert_eq!(at(v, window), Some(stop), "text: field, Emoji, Poll, Attach, Send");
             }
             assert!(v.at_last_stop(window));
-            for stop in [2, 1, 0] {
+            for stop in [3, 2, 1, 0] {
                 v.key_down(&key("shift-tab"), window, cx);
                 assert_eq!(at(v, window), Some(stop));
             }
@@ -2724,37 +3060,41 @@ mod tests {
     fn tab_reaches_voice_when_there_is_nothing_to_send() {
         rendered_composer("", |v, window, cx| {
             let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
-            for _ in 0..3 {
+            for _ in 0..4 {
                 v.key_down(&key("tab"), window, cx);
             }
-            assert_eq!(v.icon_focused(window), Some(2), "field, Emoji, Attach, Voice");
+            assert_eq!(v.icon_focused(window), Some(2), "field, Emoji, Poll, Attach, Voice");
             assert!(v.at_last_stop(window));
             v.key_down(&key("tab"), window, cx);
             assert_eq!(v.icon_focused(window), Some(2), "Send is not a stop");
+            input_modality::set_pointer(cx);
+            assert_eq!(v.ring_icon(window, cx), None, "pointer: focused icon has no ring");
+            input_modality::set_keyboard(cx);
+            assert_eq!(v.ring_icon(window, cx), Some(2), "key: ring on the focused icon");
         });
     }
 
     #[test]
     #[ignore = "requires private display"]
-    fn tab_walks_field_emoji_attach_voice_send_and_back() {
+    fn tab_walks_field_emoji_poll_attach_voice_send_and_back() {
         rendered_composer("ciao", |v, window, cx| {
             let key = |k: &str| KeyDownEvent { keystroke: gpui::Keystroke::parse(k).unwrap(), is_held: false };
             let at = |v: &ComposerView, w: &Window| {
                 [v.focus.is_focused(w)]
                     .into_iter()
-                    .chain((0..3).map(|i| v.icon_focus[i].is_focused(w)))
+                    .chain([0, 3, 1, 2].map(|i| v.icon_focus[i].is_focused(w)))
                     .chain([v.send_focus.is_focused(w)])
                     .position(|f| f)
             };
             assert_eq!(at(v, window), Some(0));
-            for stop in [1, 2, 4] {
+            for stop in [1, 2, 3, 5] {
                 v.key_down(&key("tab"), window, cx);
                 assert_eq!(at(v, window), Some(stop), "Tab {stop}");
             }
             assert!(v.at_last_stop(window), "Send is the last stop: the next Tab leaves the composer");
             v.key_down(&key("tab"), window, cx);
-            assert_eq!(at(v, window), Some(4), "the composer does not trap or wrap by itself");
-            for stop in [2, 1, 0] {
+            assert_eq!(at(v, window), Some(5), "the composer does not trap or wrap by itself");
+            for stop in [3, 2, 1, 0] {
                 v.key_down(&key("shift-tab"), window, cx);
                 assert_eq!(at(v, window), Some(stop), "Shift-Tab to {stop}");
             }
@@ -2796,10 +3136,10 @@ mod tests {
         for scale in [1.0_f32, 1.5, 2.0] {
             let snap = |x: Pixels| (f32::from(x) * scale).round();
             let want = snap(bar.right() - px(24.));
-            for name in ["composer-emoji-toggle", "composer-attach", last] {
+            for name in ["composer-emoji-toggle", "composer-poll", "composer-attach", last] {
                 let b = probed(name);
                 let right = snap(b.right());
-                let expected = want - snap(px(0.)) - (match name { "composer-emoji-toggle" => 2., "composer-attach" => 1., _ => 0. }) * (32. + GAP) * scale;
+                let expected = want - snap(px(0.)) - (match name { "composer-emoji-toggle" => 3., "composer-poll" => 2., "composer-attach" => 1., _ => 0. }) * (32. + GAP) * scale;
                 assert!((right - expected).abs() <= 1., "{name} at {scale}x: right {right} vs {expected}");
             }
         }
@@ -2812,7 +3152,7 @@ mod tests {
             let (e, a, r, h) = icon_layout("composer-record");
             eprintln!("VOICE e={e:?} a={a:?} r={r:?} bar_h={h}");
             assert_eq!(r[2..], [32., 32.]);
-            assert!((e[0] - (r[0] - 2. * (32. + GAP))).abs() <= 1. && (a[0] - (r[0] - (32. + GAP))).abs() <= 1., "gaps are {GAP}");
+            assert!((e[0] - (r[0] - 3. * (32. + GAP))).abs() <= 1. && (a[0] - (r[0] - (32. + GAP))).abs() <= 1., "gaps are {GAP}");
             assert!((e[1] - r[1]).abs() <= 1. && (a[1] - r[1]).abs() <= 1., "same top");
             assert!((h + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar height at rest {h}");
             assert_right_edge_at_scales("composer-record");
@@ -2827,7 +3167,7 @@ mod tests {
             let (e, a, s, h) = icon_layout("send");
             eprintln!("SEND  e={e:?} a={a:?} s={s:?} bar_h={h}");
             assert_eq!(s[2..], [32., 32.]);
-            assert!((e[0] - (s[0] - 2. * (32. + GAP))).abs() <= 1. && (a[0] - (s[0] - (32. + GAP))).abs() <= 1.);
+            assert!((e[0] - (s[0] - 3. * (32. + GAP))).abs() <= 1. && (a[0] - (s[0] - (32. + GAP))).abs() <= 1.);
             assert!((e[1] - s[1]).abs() <= 1. && (a[1] - s[1]).abs() <= 1.);
             assert!((h + 1. - v.theme.bottom_bar).abs() <= 0.5, "bar height with text {h}");
             assert_right_edge_at_scales("send");

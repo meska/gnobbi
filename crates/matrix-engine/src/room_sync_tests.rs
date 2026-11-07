@@ -393,7 +393,7 @@ fn nonempty_treats_missing_and_empty_avatar_as_absent() {
 }
 
 #[test]
-fn ambiguous_member_name_carries_user_id() {
+fn unique_name_alone_ambiguous_keeps_id_missing_name_none() {
     let id = |n: &str| format!("@{n}:example.org");
     assert_eq!(
         super::disambiguated_name(Some("Anna"), true, &id("anna1")).as_deref(),
@@ -408,4 +408,69 @@ fn ambiguous_member_name_carries_user_id() {
         Some("Anna")
     );
     assert_eq!(super::disambiguated_name(None, true, &id("x")), None);
+}
+
+mod poll_mapping {
+    use super::super::poll_from_parts;
+    use matrix_domain::Poll;
+
+    fn poll(disclosed: bool, max: u64, ended: bool, own_event: bool, votes: &[(&str, &[&str])]) -> Poll {
+        let votes = votes
+            .iter()
+            .map(|(a, u)| (a.to_string(), u.iter().map(|u| u.to_string()).collect()))
+            .collect();
+        poll_from_parts("Q", disclosed, max, [("a", "A"), ("b", "B"), ("c", "C")].into_iter(), &votes, ended, "@me:x", own_event)
+    }
+
+    #[test]
+    fn distinct_voters_and_own_vote() {
+        let p = poll(true, 2, false, false, &[("a", &["@me:x", "@u:x"]), ("b", &["@u:x"])]);
+        assert_eq!(p.voters, 2);
+        assert_eq!(p.answers.iter().map(|a| (a.votes, a.own)).collect::<Vec<_>>(), [(2, true), (1, false), (0, false)]);
+        assert_eq!((p.multiple, p.max_selections, p.disclosed, p.ended, p.can_end), (true, 2, true, false, false));
+        assert_eq!(p.question, "Q");
+    }
+
+    #[test]
+    fn undisclosed_closed_and_can_end() {
+        let open = poll(false, 1, false, true, &[]);
+        assert!(!open.disclosed && !open.results_visible() && open.can_end);
+        let closed = poll(false, 1, true, true, &[]);
+        assert!(closed.ended && closed.results_visible() && !closed.can_end);
+    }
+
+    #[test]
+    fn zero_max_selections_becomes_single() {
+        let p = poll(true, 0, false, false, &[]);
+        assert_eq!((p.max_selections, p.multiple), (1, false));
+    }
+}
+
+fn msgtype_of(json: serde_json::Value) -> MessageType {
+    serde_json::from_value(json).unwrap()
+}
+
+#[test]
+fn attachment_caption_comes_from_the_sdk_not_from_the_file_name() {
+    for kind in ["m.image", "m.video", "m.audio", "m.file"] {
+        let with = |extra: serde_json::Value| {
+            let mut j = serde_json::json!({"msgtype":kind,"url":"mxc://t/x"});
+            j.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            msgtype_of(j)
+        };
+        let t = with(serde_json::json!({"body":"Ecco i dati 😀","filename":"a.png"}));
+        assert_eq!(caption_sources(&t).0, Some("Ecco i dati 😀"), "{kind}");
+        let t = with(serde_json::json!({"body":"a.png","filename":"a.png"}));
+        assert!(caption_sources(&t).0.is_none() && caption_sources(&t).1.is_none(), "{kind}: body = file name");
+        let t = with(serde_json::json!({"body":"a.png"}));
+        assert!(caption_sources(&t).0.is_none() && caption_sources(&t).1.is_none(), "{kind}: old style");
+        let t = with(serde_json::json!({"body":"*x*","filename":"a.png","format":"org.matrix.custom.html","formatted_body":"<em>x</em>"}));
+        assert_eq!(caption_sources(&t).1.map(|f| f.body.as_str()), Some("<em>x</em>"), "{kind}");
+        let m = media_of(&t).unwrap();
+        assert!(!m.label.contains("Ecco") && !m.label.is_empty(), "{kind}");
+    }
+    assert!(media_of(&msgtype_of(serde_json::json!({"msgtype":"m.text","body":"ciao"}))).is_none());
+    assert!(caption_sources(&msgtype_of(serde_json::json!({"msgtype":"m.text","body":"ciao"}))).0.is_none());
+    let image = media_of(&msgtype_of(serde_json::json!({"msgtype":"m.image","body":"x","filename":"a.png","url":"mxc://t/x"}))).unwrap();
+    assert_eq!((image.kind, image.label.as_str()), (crate::history::MediaKind::Image, "Immagine"));
 }

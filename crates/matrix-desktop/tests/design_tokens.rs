@@ -5,11 +5,11 @@ use matrix_domain::design as gen_;
 fn same(id: &str, d: DesignTokens, g: gen_::Palette) {
     let pairs = [
         ("surface", d.surface, g.surface), ("text", d.text, g.text),
-        ("secondary", d.secondary, g.secondary), ("accent", d.accent, g.accent),
+        ("secondary", d.secondary, g.secondary), ("placeholder", d.placeholder, g.placeholder), ("accent", d.accent, g.accent),
         ("timeline", d.timeline, g.timeline), ("outgoing", d.outgoing, g.outgoing),
         ("selected", d.selected, g.selected), ("border", d.border, g.border),
         ("input", d.input, g.input), ("disabled", d.disabled, g.disabled),
-        ("selection", d.selection, g.selection), ("error", d.error, g.error),
+        ("selection", d.selection, g.selection), ("mention_row", d.mention_row, g.mention_row), ("error", d.error, g.error),
         ("on_accent", d.on_accent, g.on_accent), ("avatar_text", d.avatar_text, g.avatar_text),
     ];
     for (name, desktop, generated) in pairs {

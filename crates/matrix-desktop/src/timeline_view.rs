@@ -13,6 +13,27 @@ use matrix_desktop::{
     DemoHistory, DemoSendState, DesignTokens, LinkConfirmation, TextSelection, message_links,
 };
 use matrix_domain::{RoomScope, ScopedTimelineId};
+use crate::input_modality;
+
+/// The body's text layout seen through the avatar gaps of its mention pills: positions and
+/// indices are those of the message text, not of the drawn string.
+#[derive(Clone)]
+struct PillLayout {
+    layout: TextLayout,
+    gaps: Rc<matrix_desktop::mention_gaps::Gaps>,
+}
+
+impl PillLayout {
+    fn index_for_position(&self, position: gpui::Point<Pixels>) -> Result<usize, usize> {
+        self.layout.index_for_position(position).map(|i| self.gaps.text_index(i)).map_err(|i| self.gaps.text_index(i))
+    }
+    fn position_for_index(&self, index: usize) -> Option<gpui::Point<Pixels>> {
+        self.layout.position_for_index(self.gaps.start(index))
+    }
+    fn line_height(&self) -> Pixels {
+        self.layout.line_height()
+    }
+}
 
 type RowBounds = Rc<RefCell<Option<Bounds<Pixels>>>>;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -76,7 +97,30 @@ fn close_viewer(
 type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
+type PollParts = std::collections::HashMap<(matrix_domain::TimelineId, crate::poll_view::PollPart), Bounds<Pixels>>;
+
+/// Painted «Recupera chiavi» control (`false`) and key field (`true`) by message.
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+type SemanticBounds2 = Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, bool), Bounds<Pixels>>>>;
+
 const SENDER_AVATAR_PX: f32 = 32.;
+
+/// Avatar or name of a bubble: a click asks the shell to open that member's profile.
+fn profile_target(
+    base: gpui::Stateful<gpui::Div>,
+    user_id: String,
+    want: Rc<RefCell<Option<String>>>,
+    painted: impl Fn(Bounds<Pixels>) + 'static,
+    child: impl IntoElement,
+) -> gpui::Stateful<gpui::Div> {
+    base.relative().cursor_pointer()
+        .on_click(move |_, window, _| {
+            *want.borrow_mut() = Some(user_id.clone());
+            window.refresh();
+        })
+        .child(child)
+        .child(canvas(|_, _, _| (), move |bounds, _, _, _| painted(bounds)).absolute().inset_0())
+}
 const STATUS_AVATAR_PX: f32 = 12.;
 
 /// Where a Tab press over the «Scarica» icons went.
@@ -87,7 +131,24 @@ pub(crate) enum IconStep {
     Ignored,
 }
 
+/// The message a room search jumped to: its bubble flashes until `flash_until`, the term stays
+/// marked in the text while the search is open.
+#[derive(Clone)]
+pub struct SearchMark {
+    pub event: matrix_domain::EventId,
+    pub term: String,
+    pub flash_until: std::time::Instant,
+    pub ended: bool,
+}
+
+/// The accent over the bubble colour, for the flash after a jump.
+fn flash(base: u32, accent: u32) -> u32 {
+    let mix = |shift: u32| (((base >> shift) & 0xff) * 7 + ((accent >> shift) & 0xff) * 3) / 10;
+    (mix(16) << 16) | (mix(8) << 8) | mix(0)
+}
+
 pub struct TimelineView {
+    search_mark: Rc<RefCell<Option<SearchMark>>>,
     offline_delivery: Rc<RefCell<matrix_desktop::OfflineDelivery>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     offline_cursor: Rc<Cell<Option<u64>>>,
@@ -103,6 +164,9 @@ pub struct TimelineView {
     link_bounds: Rc<RefCell<std::collections::HashMap<u64, Bounds<Pixels>>>>,
     link_sources: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     link_cursor: Rc<Cell<Option<u64>>>,
+    /// Keyboard stop on a user mention pill: its message and the pill's start in the text.
+    pill_cursor: Rc<RefCell<Option<(ScopedTimelineId, usize)>>>,
+    pill_bounds: Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, usize), Bounds<Pixels>>>>,
     link_hover: Rc<Cell<Option<u64>>>,
     pub(crate) viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Full-resolution picture of the open large view (loading, ready or failed).
@@ -114,6 +178,10 @@ pub struct TimelineView {
     pub(crate) want_video: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Set by a click on a thread summary; the shell opens the panel.
     pub(crate) want_thread: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// Click on a bubble's avatar or name: the shell opens that member's profile in the room sheet.
+    pub(crate) want_profile: Rc<RefCell<Option<String>>>,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    profile_painted: Rc<RefCell<std::collections::HashMap<matrix_domain::ScopedTimelineId, Bounds<Pixels>>>>,
     /// «Scarica»: what each save is doing, the click waiting for the file picker, and a stop request.
     pub(crate) saves: Rc<RefCell<matrix_desktop::Saves>>,
     pub(crate) want_save: Rc<RefCell<Option<(matrix_domain::EventId, String)>>>,
@@ -121,9 +189,16 @@ pub struct TimelineView {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     save_painted: Rc<RefCell<std::collections::HashMap<matrix_domain::EventId, Bounds<Pixels>>>>,
     link_menu: Rc<RefCell<matrix_desktop::LinkMenu>>,
+    recover: crate::recover_keys_view::Ui,
+    recover_field: crate::recover_keys_view::Field,
+    recover_focus: crate::recover_keys_view::Focus,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    recover_bounds: SemanticBounds2,
     link_menu_at: Rc<Cell<gpui::Point<Pixels>>>,
     /// Last painted bounds of each video bubble part, by event and part name.
     pub(crate) video_painted: Rc<RefCell<VideoParts>>,
+    /// Last painted bounds of each poll bubble part, by event.
+    pub(crate) poll_painted: Rc<RefCell<PollParts>>,
     pub(crate) images: Rc<
         RefCell<std::collections::HashMap<matrix_domain::EventId, crate::media_view::InlineImage>>,
     >,
@@ -150,6 +225,8 @@ pub struct TimelineView {
     retry_bounds: SemanticBounds,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     retry_cursor: RefCell<Option<ScopedTimelineId>>,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    poll_cursor: RefCell<Option<(ScopedTimelineId, usize)>>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     semantic_bounds: SemanticBounds,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -239,6 +316,24 @@ impl TimelineView {
         Self::with_history(DemoHistory::new(scope, count), focus, false)
     }
 
+    /// The shell's key-recovery model for this frame: offered on every undecryptable bubble, Pending, last failure.
+    pub fn set_key_recovery(&self, offered: bool, pending: bool, message: Option<&'static str>) {
+        self.recover.borrow_mut().set_state(offered, pending, message);
+    }
+
+    /// The key typed in the field, handed over once; the shell queues it and nothing keeps it.
+    pub fn take_recovery_key(&self) -> Option<zeroize::Zeroizing<String>> {
+        self.recover.borrow_mut().take_submitted()
+    }
+
+    /// Screen-reader click on «Recupera chiavi», or Focus on its field: opens the field and focuses it.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn focus_semantic_recover(&self, id: &ScopedTimelineId, window: &mut gpui::Window, cx: &mut gpui::App) -> bool {
+        self.live
+            && self.history.borrow().events().iter().any(|e| e.id == *id && e.utd)
+            && crate::recover_keys_view::open(&self.recover, &self.recover_field, id, window, cx)
+    }
+
     pub fn set_debug(&self, on: bool) {
         self.debug.set(on);
     }
@@ -274,22 +369,33 @@ impl TimelineView {
             confirmation_focus: Rc::default(),
             link_sources: Rc::default(),
             link_cursor: Rc::default(),
+            pill_cursor: Rc::default(),
+            pill_bounds: Rc::default(),
             link_hover: Rc::default(),
             viewing: Rc::default(),
             original: Rc::default(),
             want_original: Rc::default(),
             want_video: Rc::default(),
             want_thread: Rc::default(),
+            want_profile: Rc::default(),
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            profile_painted: Rc::default(),
             saves: Rc::default(),
             want_save: Rc::default(),
             stop_save: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             save_painted: Rc::default(),
             link_menu: Rc::default(),
+            recover: Rc::default(),
+            recover_field: Rc::default(),
+            recover_focus: Rc::default(),
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            recover_bounds: Rc::default(),
             link_menu_at: Rc::default(),
             images: Rc::default(),
             sender_pictures: Rc::default(),
             video_painted: Rc::default(),
+            poll_painted: Rc::default(),
             requested_link: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             selection_cursor: Rc::default(),
@@ -303,6 +409,8 @@ impl TimelineView {
             retry_bounds: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             retry_cursor: RefCell::default(),
+            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+            poll_cursor: RefCell::default(),
             history: Rc::new(RefCell::new(history)),
             // The offline fixture stands for a group chat.
             member_count: Cell::new(if live { 0 } else { 3 }),
@@ -322,6 +430,7 @@ impl TimelineView {
             ))),
             probe: std::env::var("MATRIX_DESKTOP_TIMELINE_PROBE").as_deref() == Ok("1"),
             selection: Rc::default(),
+            search_mark: Rc::default(),
             focus,
             dragging: Rc::default(),
             link: Rc::default(),
@@ -412,6 +521,32 @@ impl TimelineView {
         );
     }
 
+    /// Scrolls the row of `event` to the top; false when it is not among the loaded rows.
+    pub fn scroll_to_event(&self, event: &matrix_domain::EventId) -> bool {
+        let Some(item_ix) = self.history.borrow().events().iter().position(|e| matches!(&e.id.id, matrix_domain::TimelineId::Server(id) if id == event)) else {
+            return false;
+        };
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        self.semantic_cursor.replace(None);
+        self.state.scroll_to(ListOffset { item_ix, offset_in_item: px(0.) });
+        true
+    }
+
+    pub fn set_search_mark(&self, mark: Option<SearchMark>) {
+        *self.search_mark.borrow_mut() = mark;
+    }
+
+    /// True once, when the flash of the mark has just run out (the shell repaints).
+    pub fn flash_ended(&self) -> bool {
+        match self.search_mark.borrow_mut().as_mut() {
+            Some(m) if !m.ended && m.flash_until <= std::time::Instant::now() => {
+                m.ended = true;
+                true
+            }
+            _ => false,
+        }
+    }
+
     pub fn jump_to_boundary(&self, last: bool) {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         self.semantic_cursor.replace(None);
@@ -466,6 +601,22 @@ impl TimelineView {
                         },
                     );
             }
+            let at = history.events().iter().position(|e| e.id == message.event);
+            if let Some(at) = at
+                && let Some(name) = history.sender_label(at, self.member_count.get())
+                && let Some(sender) = &history.events()[at].sender
+            {
+                message.profile = Some(matrix_desktop::accessibility::ProfileLink {
+                    user_id: sender.id.clone(),
+                    name,
+                    bounds: self.profile_painted.borrow().get(&message.event).map(|b| accesskit::Rect::new(
+                        f64::from(f32::from(b.left())) * scale,
+                        f64::from(f32::from(b.top())) * scale,
+                        f64::from(f32::from(b.right())) * scale,
+                        f64::from(f32::from(b.bottom())) * scale,
+                    )),
+                });
+            }
             if self.live {
                 message.event_id_copy = self
                     .event_id_copies
@@ -488,6 +639,29 @@ impl TimelineView {
                             target,
                         },
                     );
+            }
+            if let Some(at) = at {
+                let event = &history.events()[at];
+                message.pills = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions)
+                    .filter_map(|m| match &m.kind {
+                        matrix_engine::rich_text::MentionKind::User { sender, .. } => Some((m.range.start, sender)),
+                        _ => None,
+                    })
+                    .take(matrix_desktop::accessibility::PILLS)
+                    .map(|(start, sender)| matrix_desktop::accessibility::PillLink {
+                        user_id: sender.id.clone(),
+                        name: sender.name.clone().unwrap_or_else(|| sender.id.clone()),
+                        start,
+                        bounds: self.pill_bounds.borrow().get(&(message.event.clone(), start)).map(|b| accesskit::Rect::new(
+                            f64::from(f32::from(b.left())) * scale,
+                            f64::from(f32::from(b.top())) * scale,
+                            f64::from(f32::from(b.right())) * scale,
+                            f64::from(f32::from(b.bottom())) * scale,
+                        )),
+                        focused: self.focus.is_focused(window)
+                            && self.pill_cursor.borrow().as_ref() == Some(&(message.event.clone(), start)),
+                    })
+                    .collect();
             }
             message.links = self
                 .link_sources
@@ -572,6 +746,21 @@ impl TimelineView {
                     f64::from(f32::from(bounds.bottom())) * scale,
                 ));
             }
+            if message.poll.is_some() {
+                message.poll_focus = self.poll_cursor.borrow().as_ref().filter(|(e, _)| *e == message.event && self.focus.is_focused(window)).map(|(_, ix)| *ix);
+                let parts = self.poll_painted.borrow();
+                let rect = |b: &Bounds<Pixels>| accesskit::Rect::new(
+                    f64::from(f32::from(b.left())) * scale,
+                    f64::from(f32::from(b.top())) * scale,
+                    f64::from(f32::from(b.right())) * scale,
+                    f64::from(f32::from(b.bottom())) * scale,
+                );
+                let at = |part| parts.get(&(message.event.id.clone(), part)).map(rect);
+                message.poll_bounds = at(crate::poll_view::PollPart::Bubble);
+                message.poll_option_bounds = (0..message.poll.as_ref().map_or(0, |p| p.answers.len()))
+                    .map(|ix| at(crate::poll_view::PollPart::Option(ix)))
+                    .collect();
+            }
             if message.save.is_some()
                 && let matrix_domain::TimelineId::Server(id) = &message.event.id
                 && let Some(bounds) = self.save_painted.borrow().get(id)
@@ -602,6 +791,30 @@ impl TimelineView {
                     f64::from(f32::from(bounds.right())) * scale,
                     f64::from(f32::from(bounds.bottom())) * scale,
                 ));
+            }
+        }
+        if self.live {
+            let ui = self.recover.borrow();
+            let open = history.events().iter().map(|e| &e.id).find(|id| ui.is_open(id));
+            snapshot.offer_recover_keys(ui.offered(), open, ui.status());
+            let rect = |b: &Bounds<Pixels>| {
+                accesskit::Rect::new(
+                    f64::from(f32::from(b.left())) * scale,
+                    f64::from(f32::from(b.top())) * scale,
+                    f64::from(f32::from(b.right())) * scale,
+                    f64::from(f32::from(b.bottom())) * scale,
+                )
+            };
+            let field_focus = self.recover_field.borrow().as_ref().is_some_and(|(_, f)| f.is_focused(window));
+            for message in &mut snapshot.messages {
+                let bounds = self.recover_bounds.borrow();
+                let control_focus = self.recover_focus.borrow().get(&message.event).is_some_and(|f| f.is_focused(window));
+                if let Some(r) = &mut message.recover {
+                    r.control_bounds = bounds.get(&(message.event.clone(), false)).map(rect);
+                    r.field_bounds = bounds.get(&(message.event.clone(), true)).map(rect);
+                    r.control_focused = control_focus;
+                    r.field_focused = r.field && field_focus;
+                }
             }
         }
         use matrix_desktop::accessibility::links::{ConfirmationControl, ConfirmationSnapshot};
@@ -647,10 +860,12 @@ impl TimelineView {
         self.event_id_cursor.set(None);
         self.offline_cursor.set(None);
         self.link_cursor.set(None);
+        self.pill_cursor.replace(None);
         self.requested_link.replace(None);
         self.link.borrow_mut().cancel();
         self.selection_cursor.replace(None);
         self.retry_cursor.replace(None);
+        self.poll_cursor.replace(None);
         self.actions_cursor.replace(None);
         let Some(index) = self
             .history
@@ -914,6 +1129,15 @@ impl TimelineView {
     }
 
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn apply_pill(&self, id: &ScopedTimelineId, start: usize, window: &mut gpui::Window) -> bool {
+        if !self.focus_semantic_message(id, window) {
+            return false;
+        }
+        self.pill_cursor.replace(Some((id.clone(), start)));
+        true
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub fn apply_link(
         &self,
         intent: &matrix_desktop::accessibility::links::Intent,
@@ -961,6 +1185,22 @@ impl TimelineView {
     }
 
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub fn focus_semantic_poll(&self, id: &ScopedTimelineId, ix: usize, window: &mut gpui::Window) -> bool {
+        if !self.live
+            || !self.history.borrow().events().iter().any(|event| {
+                event.id == *id
+                    && matches!(id.id, matrix_domain::TimelineId::Server(_))
+                    && event.poll.as_ref().is_some_and(|p| !p.ended && ix < p.answers.len())
+            })
+            || !self.focus_semantic_message(id, window)
+        {
+            return false;
+        }
+        self.poll_cursor.replace(Some((id.clone(), ix)));
+        true
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub fn focus_semantic_actions(&self, id: &ScopedTimelineId, window: &mut gpui::Window) -> bool {
         if !self.live
             || !self.history.borrow().events().iter().any(|event| {
@@ -976,6 +1216,10 @@ impl TimelineView {
         }
         self.actions_cursor.replace(Some(id.clone()));
         true
+    }
+
+    pub fn poll_of(&self, id: &ScopedTimelineId) -> Option<matrix_domain::Poll> {
+        self.history.borrow().events().iter().find(|e| e.id == *id)?.poll.clone()
     }
 
     pub fn keyboard_menu_target(&self) -> Option<ScopedTimelineId> {
@@ -1065,7 +1309,7 @@ impl TimelineView {
             .events()
             .iter()
             .rev()
-            .filter(|e| e.video.is_some() || matrix_engine::history::is_image_body(&e.text))
+            .filter(|e| e.video.is_some() || e.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image))
             .filter_map(|e| match &e.id.id {
                 matrix_domain::TimelineId::Server(id) => Some(id.clone()),
                 _ => None,
@@ -1163,6 +1407,7 @@ impl TimelineView {
         self.retire_event_id_copies();
         self.link_sources.borrow_mut().clear();
         self.link_cursor.set(None);
+        self.pill_cursor.replace(None);
         self.requested_link.replace(None);
         self.link.borrow_mut().cancel();
         self.selection.borrow_mut().clear();
@@ -1351,7 +1596,9 @@ impl TimelineView {
         window: &gpui::Window,
         delivery: Option<Rc<RefCell<matrix_desktop::LiveDelivery>>>,
         operations: Option<Rc<RefCell<matrix_desktop::LiveOperations>>>,
+        cx: &gpui::App,
     ) -> impl IntoElement {
+        let keys = input_modality::is_keyboard(cx); // rings only after a key; the cursors below also feed the a11y tree
         let history = self.history.clone();
         let live = self.live;
         let probe = self.probe;
@@ -1393,6 +1640,14 @@ impl TimelineView {
             .then(|| self.actions_cursor.borrow().clone())
             .flatten();
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let focused_poll = self
+            .focus
+            .is_focused(window)
+            .then(|| self.poll_cursor.borrow().clone())
+            .flatten();
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        let focused_poll: Option<(ScopedTimelineId, usize)> = None;
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let focused_retry = self
             .focus
             .is_focused(window)
@@ -1412,6 +1667,7 @@ impl TimelineView {
             .then(|| self.offline_cursor.get())
             .flatten();
         let selection = self.selection.clone();
+        let search_mark = self.search_mark.clone();
         let focus = self.focus.clone();
         let dragging = self.dragging.clone();
         let released = self.dragging.clone();
@@ -1422,19 +1678,30 @@ impl TimelineView {
         let menu_target = self.link_menu.borrow().target().cloned();
         let link_sources = self.link_sources.clone();
         let link_cursor = self.link_cursor.clone();
+        let pill_cursor = self.pill_cursor.clone();
+        let self_pill_bounds = self.pill_bounds.clone();
         let link_hover = self.link_hover.clone();
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
         let images = self.images.clone();
         let sender_pictures = self.sender_pictures.clone();
         let video_painted = self.video_painted.clone();
+        let poll_painted = self.poll_painted.clone();
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let want_video = self.want_video.clone();
         let want_thread = self.want_thread.clone();
+        let want_profile = self.want_profile.clone();
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let profile_painted = self.profile_painted.clone();
         let (saves, want_save, stop_save) = (self.saves.clone(), self.want_save.clone(), self.stop_save.clone());
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let save_painted = self.save_painted.clone();
+        let (recover, recover_field, recover_focus) = (self.recover.clone(), self.recover_field.clone(), self.recover_focus.clone());
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let recover_painted: SemanticBounds2 = Rc::default();
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let row_recover_painted = recover_painted.clone();
         let requested_link = self.requested_link.clone();
         let link_painted = Rc::new(RefCell::new(std::collections::HashMap::new()));
         let row_link_painted = link_painted.clone();
@@ -1482,7 +1749,7 @@ impl TimelineView {
             .overflow_hidden()
             .bg(rgb(t.timeline))
             .child(
-                list(self.state.clone(), move |index, _, _| {
+                list(self.state.clone(), move |index, _, cx| {
                     let row_extent = row_extent.clone();
                     let delivery = delivery.clone();
                     let operations = operations.clone();
@@ -1505,10 +1772,19 @@ impl TimelineView {
                             .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::status_with_time(&event.text, &event.time))).into_any_element();
                     }
                     let sender_label = history.sender_label(index, members);
+                    let sender_user = event.sender.as_ref().map(|s| s.id.clone());
+                    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                    let profile_bounds = { let (map, id) = (profile_painted.clone(), event.id.clone()); move |b: Bounds<Pixels>| { map.borrow_mut().insert(id.clone(), b); } };
+                    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                    let profile_bounds = |_: Bounds<Pixels>| ();
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
-                        match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
+                        let avatar = match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
                             Some(image) => crate::avatar_view::round(image, SENDER_AVATAR_PX),
                             None => div().flex().items_center().justify_center().size(px(SENDER_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(12.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
+                        };
+                        match &sender_user {
+                            Some(user) => profile_target(div().id(("sender-avatar", index)).flex_shrink_0(), user.clone(), want_profile.clone(), profile_bounds.clone(), avatar).into_any_element(),
+                            None => avatar,
                         }
                     });
                     // Groups only: the room header already shows the one other person of a chat.
@@ -1539,7 +1815,25 @@ impl TimelineView {
                             _ => picture,
                         }
                     });
-                    let picture = video_picture.or_else(|| matrix_engine::history::is_image_body(&event.text).then(|| {
+                    let poll_bubble = event.poll.as_ref().map(|poll| {
+                        let (parts, id) = (poll_painted.clone(), event.id.id.clone());
+                        let target = match &event.id.id { matrix_domain::TimelineId::Server(e) => Some(e.clone()), _ => None };
+                        let failed = target.as_ref().zip(operations.as_ref()).is_some_and(|(e, o)| o.borrow().vote_failed(e));
+                        let focus_ix = focused_poll.as_ref().filter(|(m, _)| keys && *m == event.id).map(|(_, ix)| *ix);
+                        let on_vote: crate::poll_view::PollVote = match (target, operations.clone()) {
+                            #[cfg(feature = "live")]
+                            (Some(target), Some(ops)) => {
+                                let (scope, poll) = (event.id.scope.clone(), poll.clone());
+                                Rc::new(move |ix, window, _| {
+                                    ops.borrow_mut().vote(scope.clone(), target.clone(), &poll, ix, matrix_engine::sending::fresh_transaction_id());
+                                    window.refresh();
+                                })
+                            }
+                            _ => Rc::new(|_, _, _| {}),
+                        };
+                        crate::poll_view::poll_bubble(poll, t, index, focus_ix, failed, on_vote, Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.clone(), part), bounds); }))
+                    });
+                    let picture = poll_bubble.or(video_picture).or_else(|| event.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image).then(|| {
                         let state = match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
@@ -1593,37 +1887,63 @@ impl TimelineView {
                         }
                         _ => (None, None),
                     };
-                    let mut body = StyledText::new(event.text.clone());
+                    let recover_keys = event.utd.then(|| {
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        let painted: crate::recover_keys_view::Painted = { let (map, id) = (row_recover_painted.clone(), event.id.clone()); Rc::new(move |field, bounds| { map.borrow_mut().insert((id.clone(), field), bounds); }) };
+                        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                        let painted: crate::recover_keys_view::Painted = Rc::new(|_, _| ());
+                        crate::recover_keys_view::row(index, &event.id, t, (&recover, &recover_field, &recover_focus), painted, cx)
+                    }).flatten();
+                    let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions);
+                    let gaps = Rc::new(gaps);
+                    let mut body = StyledText::new(drawn);
+                    let pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions).collect();
+                    let pill_paint: Vec<_> = pills.iter().map(|m| {
+                        use matrix_engine::rich_text::MentionKind;
+                        let (bg, picture, user, uid) = match &m.kind {
+                            MentionKind::User { sender, me } => (if *me { t.error } else { t.border }, sender.avatar.as_deref().and_then(|mxc| sender_pictures.borrow().get(mxc).cloned()), true, Some(sender.id.clone())),
+                            MentionKind::AtRoom => (t.error, None, false, None),
+                            MentionKind::Room => (t.border, None, false, None),
+                        };
+                        let ring = uid.is_some() && pill_cursor.borrow().as_ref() == Some(&(event.id.clone(), m.range.start));
+                        (m.range.clone(), bg, picture, user, uid, ring)
+                    }).collect();
                     let links = message_links(&event.text);
                     let targets = link_sources.borrow_mut().targets(&event.id, &event.text);
                     let selected = selection.borrow().range(&event.id, &event.text);
+                    let mark = search_mark.borrow().as_ref().filter(|m| matches!(&event.id.id, matrix_domain::TimelineId::Server(id) if *id == m.event)).cloned();
+                    let found = mark.as_ref().map(|m| matrix_engine::message_match::find_ranges(&event.text, &m.term)).unwrap_or_default();
+                    let flashing = mark.as_ref().is_some_and(|m| m.flash_until > std::time::Instant::now());
                     let mut cuts = vec![0, event.text.len()];
+                    for r in &found { cuts.extend([r.start, r.end]); }
                     // Only spans that fit the text: a stale range must never slice inside a character.
                     let styles: Vec<_> = event.styles.iter().filter(|s| s.range.start < s.range.end && s.range.end <= event.text.len() && event.text.is_char_boundary(s.range.start) && event.text.is_char_boundary(s.range.end)).collect();
                     for style in &styles { cuts.extend([style.range.start, style.range.end]); }
                     for link in &links { cuts.extend([link.range.start, link.range.end]); }
+                    for pill in &pills { cuts.extend([pill.range.start, pill.range.end]); }
                     if let Some(range) = &selected { cuts.extend([range.start, range.end]); }
                     cuts.sort_unstable();
                     cuts.dedup();
                     body = body.with_highlights(cuts.windows(2).map(|pair| {
                         let range = pair[0]..pair[1];
                         let is_link = links.iter().any(|link| link.range.contains(&range.start));
+                        let pill = pill_paint.iter().find(|(r, ..)| r.contains(&range.start));
                         use matrix_engine::rich_text::Style;
                         let has = |kind| styles.iter().any(|s| s.style == kind && s.range.contains(&range.start));
                         let style = HighlightStyle {
                             font_weight: has(Style::Bold).then_some(gpui::FontWeight::BOLD),
                             font_style: has(Style::Italic).then_some(gpui::FontStyle::Italic),
                             strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
-                            color: if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
+                            color: if let Some((_, bg, ..)) = pill { Some(rgb(if *bg == t.error { t.surface } else { t.text }).into()) } else if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
                             underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
-                            background_color: if selected.as_ref().is_some_and(|r| r.contains(&range.start))
+                            background_color: if found.iter().any(|r| r.contains(&range.start)) || selected.as_ref().is_some_and(|r| r.contains(&range.start))
                                 || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { has(Style::Code).then(|| rgb(t.input).into()) },
                             ..Default::default()
                         };
-                        (range, style)
+                        (gaps.start(range.start)..gaps.end(range.end), style)
                     }));
-                    let down_layout = body.layout().clone();
-                    let move_layout = body.layout().clone();
+                    let down_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
+                    let move_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let down_generation = selection.borrow().generation();
                     let down_selection = selection.clone();
                     let move_selection = selection.clone();
@@ -1636,7 +1956,7 @@ impl TimelineView {
                     let down_focus = focus.clone();
                     let down_drag = dragging.clone();
                     let move_drag = dragging.clone();
-                    let up_layout = body.layout().clone();
+                    let up_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let up_selection = selection.clone();
                     let up_id = event.id.clone();
                     let up_text = event.text.clone();
@@ -1653,13 +1973,17 @@ impl TimelineView {
                     let (tip_surface, tip_border, tip_text) = (t.surface, t.border, t.text);
                     let down_cursor = link_cursor.clone();
                     let down_menu = link_menu.clone();
-                    let menu_layout = body.layout().clone();
+                    let menu_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let menu_targets = targets.clone();
                     let menu_state = link_menu.clone();
                     let menu_at = link_menu_at.clone();
                     let paint_targets = targets.clone();
-                    let paint_layout = body.layout().clone();
+                    let paint_layout = PillLayout { layout: body.layout().clone(), gaps: gaps.clone() };
                     let paint_links = row_link_painted.clone();
+                    let pill_layout = paint_layout.clone();
+                    let (pill_bounds, pill_event, accent) = (self_pill_bounds.clone(), event.id.clone(), t.accent);
+                    let up_pills: Vec<_> = pill_paint.iter().filter_map(|(r, _, _, _, uid, _)| uid.clone().map(|u| (r.clone(), u))).collect();
+                    let up_want = want_profile.clone();
                     let down_requested = requested_link.clone();
                     let up_requested = requested_link.clone();
                     let status = match event.send_state {
@@ -1700,7 +2024,8 @@ impl TimelineView {
                                 .py_3()
                                 .rounded_lg()
                                 .relative()
-                                .bg(rgb(if event.outgoing { t.outgoing } else { t.surface }))
+                                .bg(rgb(if flashing { flash(if event.outgoing { t.outgoing } else if event.highlighted { t.mention_row } else { t.surface }, t.accent) } else if event.outgoing { t.outgoing } else if event.highlighted { t.mention_row } else { t.surface }))
+                                .when(event.highlighted, |d| d.child(div().absolute().left_0().top_0().bottom_0().w(px(3.)).rounded_l_lg().bg(rgb(t.error))))
                                 .when(event.menu_available(live), |d| {
                                     let id = event.id.clone();
                                     let operations = operations.clone();
@@ -1711,14 +2036,19 @@ impl TimelineView {
                                     {
                                         let painted = row_actions_painted.clone();
                                         let id = event.id.clone();
-                                        d.when(focused_actions.as_ref() == Some(&id), |d| d.border_2().border_color(rgb(t.accent)))
+                                        d.when(keys && focused_actions.as_ref() == Some(&id), |d| d.border_2().border_color(rgb(t.accent)))
                                             .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(id.clone(),bounds); }).absolute().inset_0())
                                     }
                                     #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
                                     { d }
                                 })
-                                .when_some(sender_label, |d, name| d.child(
-                                    div().id(("sender-name", index)).mb_1().text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(name)))
+                                .when_some(sender_label, |d, name| d.child(div().flex().mb_1().child({
+                                    let base = div().id(("sender-name", index)).text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent));
+                                    match &sender_user {
+                                        Some(user) => profile_target(base, user.clone(), want_profile.clone(), profile_bounds.clone(), name),
+                                        None => base.child(name),
+                                    }
+                                })))
                                 .child(div().id(("message-text", index))
                                     .cursor(if hovered_url.is_some() { gpui::CursorStyle::PointingHand } else { gpui::CursorStyle::IBeam })
                                     .when_some(hovered_url, |d, url| d.tooltip(move |_, cx| cx.new(|_| LinkTooltip { url: url.clone(), surface: tip_surface, border: tip_border, text: tip_text }).into()))
@@ -1750,15 +2080,45 @@ impl TimelineView {
                                         if up_selection.borrow().range(&up_id, &up_text).is_none()
                                             && let Some((id, start)) = origin
                                             && id == up_id
-                                            && up_layout.index_for_position(e.position) == Ok(start)
-                                            && let Some(target) = up_targets.iter().find(|target| target.range().contains(&start))
-                                            && up_sources.borrow_mut().request(target, &mut up_link.borrow_mut()) {
+                                            && up_layout.index_for_position(e.position) == Ok(start) {
+                                            // A user pill opens the profile drawer; a link asks for confirmation.
+                                            if let Some((_, user)) = up_pills.iter().find(|(r, _)| r.contains(&start)) {
+                                                *up_want.borrow_mut() = Some(user.clone());
+                                                window.refresh();
+                                            } else if let Some(target) = up_targets.iter().find(|target| target.range().contains(&start))
+                                                && up_sources.borrow_mut().request(target, &mut up_link.borrow_mut()) {
                                                 up_requested.replace(Some(target.clone()));
                                                 window.refresh();
+                                            }
                                         }
                                     })
                                     .relative()
                                     .child(canvas(|_, _, _| (), move |bounds, _, window, _| {
+                                        // Pills first, behind the text: a rounded fill per line and the avatar in the gap.
+                                        let lh = pill_layout.line_height();
+                                        for (range, bg, picture, user, uid, ring) in &pill_paint {
+                                            let from = if *user { pill_layout.layout.position_for_index(pill_layout.gaps.gap_start(range.start)) } else { pill_layout.position_for_index(range.start) };
+                                            let (Some(a), Some(b)) = (from, pill_layout.layout.position_for_index(pill_layout.gaps.end(range.end))) else { continue };
+                                            let left = a.x - if *user { px(2.) } else { px(3.) };
+                                            let lines = if b.y == a.y { vec![(a.y, left, b.x + px(3.))] } else { vec![(a.y, left, bounds.right()), (b.y, bounds.left(), b.x + px(3.))] };
+                                            for (y, l, r) in lines {
+                                                let mut quad = gpui::fill(Bounds::from_corners(gpui::point(l, y + px(1.)), gpui::point(r, y + lh - px(1.))), rgb(*bg));
+                                                quad.corner_radii = ((lh - px(2.)) / 2.).into();
+                                                if *ring { quad.border_widths = px(2.).into(); quad.border_color = rgb(accent).into(); }
+                                                window.paint_quad(quad);
+                                            }
+                                            if uid.is_some() {
+                                                let right = if b.y == a.y { b.x } else { bounds.right() };
+                                                pill_bounds.borrow_mut().insert((pill_event.clone(), range.start), Bounds::from_corners(a, gpui::point(right, a.y + lh)));
+                                            }
+                                            if *user {
+                                                let icon = Bounds::new(gpui::point(a.x, a.y + (lh - px(16.)) / 2.), gpui::size(px(16.), px(16.)));
+                                                match picture {
+                                                    Some(image) => { let _ = window.paint_image(icon, gpui::Corners::all(px(8.)), image.clone(), 0, false); }
+                                                    None => { let mut quad = gpui::fill(icon, rgb(matrix_desktop::AVATAR_FALLBACK)); quad.corner_radii = px(8.).into(); window.paint_quad(quad); }
+                                                }
+                                            }
+                                        }
                                         // Accessible link bounds come from the text itself: first line only when a link wraps.
                                         for target in &paint_targets {
                                             let r = target.range();
@@ -1794,10 +2154,17 @@ impl TimelineView {
                                             }
                                         });
                                     }).absolute().inset_0())
-                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child(match picture {
-                                        // The mouse handlers read the text layout, which only exists once the text was painted: keep it painted, invisible.
-                                        Some(picture) => div().child(picture).child(div().size_0().overflow_hidden().child(body)).into_any_element(),
-                                        None => body.into_any_element(),
+                                    .text_size(px(14.)).line_height(px(20.)).whitespace_normal().child({
+                                        // On an attachment row the text is its caption; the file name is never text.
+                                        let caption = event.media.is_some() && !event.text.is_empty();
+                                        let file_label = event.media.as_ref().filter(|m| m.kind == matrix_engine::history::MediaKind::File).map(|m| div().child(m.label.clone()));
+                                        // The mouse handlers read the text layout, which only exists once the text was painted: keep it painted, invisible, when there is no caption to show.
+                                        let wrap = |body: StyledText| if caption { div().mt_1().child(body) } else { div().size_0().overflow_hidden().child(body) };
+                                        match picture {
+                                            Some(picture) => div().child(picture).child(wrap(body)).into_any_element(),
+                                            None if event.media.is_some() => div().children(file_label).child(wrap(body)).into_any_element(),
+                                            None => body.into_any_element(),
+                                        }
                                     }))
                                 .when_some(event.thread_label(), |d, (label, initials, mxc)| d.child(
                                     div().id(("thread-summary", index)).mt_2().flex().items_center().gap_2().cursor_pointer()
@@ -1829,7 +2196,7 @@ impl TimelineView {
                                                 {
                                                     let painted = row_event_id_painted.clone();
                                                     let instance = target.instance();
-                                                    d.relative().border_1().border_color(rgb(if focused_event_id == Some(instance) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
+                                                    d.relative().border_1().border_color(rgb(if keys && focused_event_id == Some(instance) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
                                                         .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(instance,bounds); }).absolute().inset_0())
                                                 }
                                                 #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -1843,6 +2210,7 @@ impl TimelineView {
                                         .child(stamp),
                                 ))
                                 .children(save_failure)
+                                .children(recover_keys)
                                 .when_some((debug && live).then(|| event.debug_id().map(str::to_owned)).flatten(), |d, id| {
                                     let copied = id.clone();
                                     d.child(div().id(("event-debug-id", index)).w_full().text_right().text_size(px(10.)).line_height(px(14.))
@@ -1864,7 +2232,7 @@ impl TimelineView {
                                             let selected = selection.clone();
                                             let cursor = selection_cursor.clone();
                                             let focus = focus.clone();
-                                            let focused = focused_selection.as_ref() == Some(&(id.clone(),control));
+                                            let focused = keys && focused_selection.as_ref() == Some(&(id.clone(),control));
                                             controls = controls.child(div().id(("selection-control", index*3+control as usize))
                                                 .relative().border_1().border_color(rgb(if focused { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
                                                 .px_1().text_size(px(12.)).text_color(rgb(t.accent)).cursor_pointer()
@@ -1901,7 +2269,7 @@ impl TimelineView {
                                                 {
                                                     let painted = row_retry_painted.clone();
                                                     let id = event.id.clone();
-                                                    d.relative().border_1().border_color(rgb(if focused_retry.as_ref() == Some(&id) || offline_target.as_ref().is_some_and(|s| focused_offline == Some(s.instance())) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
+                                                    d.relative().border_1().border_color(rgb(if keys && (focused_retry.as_ref() == Some(&id) || offline_target.as_ref().is_some_and(|s| focused_offline == Some(s.instance()))) { t.accent } else if event.outgoing { t.outgoing } else { t.surface }))
                                                         .child(canvas(|_,_,_| (), move |bounds,_,_,_| { painted.borrow_mut().insert(id.clone(),bounds); }).absolute().inset_0())
                                                 }
                                                 #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -1991,6 +2359,7 @@ impl TimelineView {
                 {
                     let published = self.semantic_bounds.clone();
                     let published_retry = self.retry_bounds.clone();
+                    let published_recover = self.recover_bounds.clone();
                     let published_actions = self.actions_bounds.clone();
                     let published_selection = self.selection_bounds.clone();
                     let state = self.state.clone();
@@ -2006,6 +2375,11 @@ impl TimelineView {
                         painted.borrow_mut().retain(|_, bounds| bounds.bottom() > viewport.top() && bounds.top() < viewport.bottom());
                         retry_painted.borrow_mut().retain(|_, bounds| bounds.bottom() > viewport.top() && bounds.top() < viewport.bottom());
                         actions_painted.borrow_mut().retain(|_, bounds| bounds.bottom() > viewport.top() && bounds.top() < viewport.bottom());
+                        recover_painted.borrow_mut().retain(|_, bounds| bounds.bottom() > viewport.top() && bounds.top() < viewport.bottom());
+                        if *published_recover.borrow() != *recover_painted.borrow() {
+                            *published_recover.borrow_mut() = recover_painted.borrow().clone();
+                            window.on_next_frame(|window, _| window.refresh());
+                        }
                         if *published_actions.borrow() != *actions_painted.borrow() {
                             *published_actions.borrow_mut() = actions_painted.borrow().clone();
                             window.on_next_frame(|window, _| window.refresh());
@@ -2211,11 +2585,11 @@ mod tests {
         fn render(
             &mut self,
             window: &mut gpui::Window,
-            _: &mut gpui::Context<Self>,
+            cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
             div()
                 .size_full()
-                .child(self.0.render(matrix_desktop::LIGHT, window, None, None))
+                .child(self.0.render(matrix_desktop::LIGHT, window, None, None, cx))
         }
     }
 
@@ -2224,13 +2598,13 @@ mod tests {
         fn render(
             &mut self,
             window: &mut gpui::Window,
-            _: &mut gpui::Context<Self>,
+            cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
             div().size_full().flex().flex_col().child(self.0.render(
                 matrix_desktop::LIGHT,
                 window,
                 None,
-                None,
+                None, cx
             ))
         }
     }
@@ -2463,6 +2837,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
@@ -2470,12 +2845,13 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
+                            utd: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2515,7 +2891,7 @@ mod tests {
         fn render(
             &mut self,
             window: &mut gpui::Window,
-            _: &mut gpui::Context<Self>,
+            cx: &mut gpui::Context<Self>,
         ) -> impl IntoElement {
             div()
                 .size_full()
@@ -2525,7 +2901,7 @@ mod tests {
                     matrix_desktop::LIGHT,
                     window,
                     None,
-                    None,
+                    None, cx
                 )))
                 .child(self.1.clone())
         }
@@ -2604,6 +2980,7 @@ mod tests {
                 view.update(cx, |host, _, cx| {
                     let older = (0..25)
                         .map(|n| HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: EventId::new(format!("$old{n}:fixture.invalid")),
                             body: format!("older {n}"),
@@ -2611,12 +2988,13 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
+                            utd: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         })
                         .collect();
                     host.0.prepend_server(older);
@@ -2721,6 +3099,7 @@ mod tests {
                             false,
                         );
                         v.append_server(vec![HistoryEvent {
+                            poll: None,
                             redacted: false,
                             event_id: id.clone(),
                             body: "Video · 0:12 · 1.4 MB".into(),
@@ -2733,12 +3112,13 @@ mod tests {
                                 #[cfg(feature = "live")]
                                 thumbnail: None,
                             }),
-                            styles: Vec::new(),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
                             status: false,
+                            utd: false,
                             attachment_name: None,
-                            attachment_size: None,
+                            attachment_size: None, media: None,
                         }]);
                         if thumbnail {
                             let buffer =
@@ -2827,6 +3207,306 @@ mod tests {
         video_bubble_shot(false);
     }
 
+    /// Paints a row with a pill for me, one for another person, «@room» and a room, then clicks them for real
+    /// (synthetic mouse events through the window): only the two user pills open a profile, each its own.
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_pills_click_opens_that_profile_and_text_around_does_not() {
+        use matrix_engine::{history::{HistoryEvent, HistorySender}, rich_text::{MentionKind, MentionSpan}};
+        gpui::Application::new().run(move |cx| {
+            let id = EventId::new("$pills:fixture.invalid");
+            let (me, bea) = ("@anna:fixture.invalid", "@bea:fixture.invalid");
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi pills");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!pills:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        let body = "Anna e Bea, @room in #qa fine";
+                        let at = |word: &str| { let i = body.find(word).unwrap(); i..i + word.len() };
+                        let user = |who: &str, name: &str, me| MentionKind::User { sender: HistorySender::new(who, Some(name)), me };
+                        v.append_server(vec![HistoryEvent {
+                            poll: None, redacted: false, event_id: id.clone(), body: body.into(), outgoing: false, timestamp_ms: 0, utd: false,
+                            sender: HistorySender::new("@z:fixture.invalid", Some("Zeno")), video: None, styles: Vec::new(),
+                            mentions: vec![
+                                MentionSpan { range: at("Anna"), kind: user(me, "Anna", true) },
+                                MentionSpan { range: at("Bea"), kind: user(bea, "Bea", false) },
+                                MentionSpan { range: at("@room"), kind: MentionKind::AtRoom },
+                                MentionSpan { range: at("#qa"), kind: MentionKind::Room },
+                            ],
+                            highlighted: true, thread: None, thread_root: None, status: false, attachment_name: None, attachment_size: None, media: None,
+                        }]);
+                        ShotHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                let (anna, bea_box) = view
+                    .update(cx, |host, _, _| {
+                        let event = host.0.history.borrow().events()[0].id.clone();
+                        let mut painted: Vec<_> = host.0.pill_bounds.borrow().iter().filter(|((e, _), _)| *e == event).map(|((_, s), b)| (*s, *b)).collect();
+                        painted.sort_by_key(|(s, _)| *s);
+                        assert_eq!(painted.len(), 2, "only the two user pills are painted as targets: {painted:?}");
+                        (painted[0].1, painted[1].1)
+                    })
+                    .unwrap();
+                assert!(anna.size.width > px(10.) && anna.right() <= bea_box.left(), "left to right, apart: {anna:?} {bea_box:?}");
+                assert!((anna.center().y - bea_box.center().y).abs() < px(1.), "same line");
+                // Real X11 clicks (xdotool, window-relative), the same path a hand takes.
+                let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--name", "Gnobbi pills"]).output().unwrap().stdout).unwrap();
+                let win = win.lines().next().expect("window found").to_owned();
+                let mut click = async |at: gpui::Point<Pixels>| {
+                    view.update(cx, |host, _, _| { host.0.want_profile.replace(None); }).unwrap();
+                    let (x, y) = (f32::from(at.x).round().to_string(), f32::from(at.y).round().to_string());
+                    assert!(std::process::Command::new("xdotool").args(["mousemove", "--window", &win, &x, &y, "click", "1"]).status().unwrap().success());
+                    executor.timer(std::time::Duration::from_millis(500)).await;
+                    view.update(cx, |host, _, _| host.0.want_profile.borrow().clone()).unwrap()
+                };
+                let on = |b: Bounds<Pixels>| gpui::point(b.right() - px(6.), b.center().y);
+                assert_eq!(click(on(anna)).await.as_deref(), Some(me), "my pill opens my profile");
+                assert_eq!(click(on(bea_box)).await.as_deref(), Some(bea), "the other's pill opens theirs");
+                assert_eq!(click(gpui::point(bea_box.right() + px(300.), bea_box.center().y)).await, None, "empty space after the text opens nothing");
+                assert_eq!(click(gpui::point(anna.right() + px(3.), anna.center().y)).await, None, "the plain text between pills opens nothing");
+                view.update(cx, |_, _, cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    struct NarrowHost(TimelineView);
+    impl Render for NarrowHost {
+        fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, None, cx))
+        }
+    }
+
+    /// Paints one poll row in a 360 px wide timeline and checks parts and containment.
+    fn poll_bubble_shot(poll: matrix_domain::Poll) {
+        use crate::poll_view::PollPart;
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let shown = poll.results_visible();
+            let options = poll.answers.len();
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi poll bubble");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!poll:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        v.append_server(vec![HistoryEvent {
+                            poll: Some(poll.clone()),
+                            redacted: false,
+                            utd: false,
+                            event_id: EventId::new("$poll:fixture.invalid"),
+                            body: poll.question.clone(),
+                            outgoing: false,
+                            timestamp_ms: 0,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: None,
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
+                            thread: None,
+                            thread_root: None,
+                            status: false,
+                            attachment_name: None,
+                            attachment_size: None, media: None,
+                        }]);
+                        NarrowHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(500)).await;
+                view.update(cx, |host, _, cx| {
+                    let parts = host.0.poll_painted.borrow();
+                    let id = TimelineId::Server(EventId::new("$poll:fixture.invalid"));
+                    let get = |part| parts.get(&(id.clone(), part)).copied();
+                    let bubble = get(PollPart::Bubble).expect("bubble was not painted");
+                    assert!(bubble.left() >= px(0.) && bubble.right() <= px(361.), "no overflow at 360: {bubble:?}");
+                    for ix in 0..options {
+                        let option = get(PollPart::Option(ix)).expect("option was not painted");
+                        assert!(option.left() >= bubble.left() - px(1.) && option.right() <= bubble.right() + px(1.), "option inside the bubble");
+                        for part in [PollPart::Votes(ix), PollPart::Bar(ix)] {
+                            assert_eq!(get(part).is_some(), shown, "{part:?}: counts and bars only when results are visible");
+                            if let Some(inner) = get(part) {
+                                assert!(inner.right() <= bubble.right() + px(1.), "{part:?} inside the bubble");
+                            }
+                        }
+                    }
+                    cx.quit();
+                })
+                .unwrap();
+            })
+            .detach();
+        });
+    }
+
+    fn sample_poll(disclosed: bool, ended: bool) -> matrix_domain::Poll {
+        let a = |id: &str, text: &str, votes, own| matrix_domain::PollAnswer { id: id.into(), text: text.into(), votes, own };
+        matrix_domain::Poll {
+            question: "Dove ceniamo venerdì sera con tutti gli amici del corso di fotografia?".into(),
+            answers: vec![
+                a("y", "Pizzeria da Mario in centro, quella con il forno a legna e il tavolo lungo", 5, true),
+                a("n", "No", 1, false),
+            ],
+            max_selections: 1,
+            multiple: false,
+            disclosed,
+            ended,
+            voters: 6,
+            can_end: false,
+        }
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_open_disclosed() {
+        poll_bubble_shot(sample_poll(true, false));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_undisclosed_open_has_no_counts_or_bars() {
+        poll_bubble_shot(sample_poll(false, false));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_poll_bubble_ended_with_own_vote() {
+        poll_bubble_shot(sample_poll(false, true));
+    }
+
+    #[cfg(feature = "live")]
+    struct VotingHost(TimelineView, Rc<RefCell<matrix_desktop::LiveOperations>>);
+    #[cfg(feature = "live")]
+    impl Render for VotingHost {
+        fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().w(px(360.)).h_full().flex().flex_col().child(self.0.render(matrix_desktop::LIGHT, window, None, Some(self.1.clone()), cx))
+        }
+    }
+
+    /// Clicks option `ix` with the mouse and checks the answers of the Vote that goes out (None = nothing sent).
+    #[cfg(feature = "live")]
+    fn poll_click_shot(poll: matrix_domain::Poll, ix: usize, expected: Option<Vec<&'static str>>) {
+        use crate::poll_view::PollPart;
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        use matrix_engine::operations::{Operation, OperationCommand};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let operations = Rc::new(RefCell::new(matrix_desktop::LiveOperations::default()));
+            let ops = operations.clone();
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi poll click");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!poll:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        v.append_server(vec![HistoryEvent {
+                            poll: Some(poll.clone()),
+                            redacted: false,
+                            utd: false,
+                            event_id: EventId::new("$poll:fixture.invalid"),
+                            body: poll.question.clone(),
+                            outgoing: false,
+                            timestamp_ms: 0,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: None,
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
+                            thread: None,
+                            thread_root: None,
+                            status: false,
+                            attachment_name: None,
+                            attachment_size: None, media: None,
+                        }]);
+                        VotingHost(v, ops)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(500)).await;
+                let at = view
+                    .update(cx, |host, _, _| {
+                        let parts = host.0.poll_painted.borrow();
+                        let option = parts[&(TimelineId::Server(EventId::new("$poll:fixture.invalid")), PollPart::Option(ix))];
+                        option.center()
+                    })
+                    .unwrap();
+                // Real pointer through the Wayland test session (the window is the only one, at 0,0).
+                let helper = std::env::var("WL_INPUT").expect("run through the gui-test-wayland script");
+                let status = std::process::Command::new(helper).arg(format!("click:{},{}", f32::from(at.x) as i32, f32::from(at.y) as i32)).status().unwrap();
+                assert!(status.success());
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                let sent = match operations.borrow_mut().take_command() {
+                    Some(OperationCommand::Apply(request)) => {
+                        assert_eq!(request.target, EventId::new("$poll:fixture.invalid"));
+                        let Operation::Vote { answers } = request.operation else { panic!("not a vote") };
+                        Some(answers)
+                    }
+                    other => {
+                        assert!(other.is_none(), "unexpected command");
+                        None
+                    }
+                };
+                assert_eq!(sent, expected.map(|a| a.into_iter().map(String::from).collect::<Vec<_>>()));
+                let _ = cx.update(|cx| cx.quit());
+            })
+            .detach();
+        });
+    }
+
+    fn poll_with(multiple: bool, ended: bool, own: &[&str]) -> matrix_domain::Poll {
+        let a = |id: &str| matrix_domain::PollAnswer { id: id.into(), text: id.into(), votes: 1, own: own.contains(&id) };
+        matrix_domain::Poll {
+            question: "q".into(),
+            answers: vec![a("a"), a("b"), a("c")],
+            max_selections: if multiple { 2 } else { 1 },
+            multiple,
+            disclosed: true,
+            ended,
+            voters: 1,
+            can_end: false,
+        }
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_single_choice_replaces_the_vote() {
+        poll_click_shot(poll_with(false, false, &["a"]), 1, Some(vec!["b"]));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_multiple_choice_adds() {
+        poll_click_shot(poll_with(true, false, &["a"]), 2, Some(vec!["a", "c"]));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_multiple_choice_removes() {
+        poll_click_shot(poll_with(true, false, &["a", "b"]), 0, Some(vec!["b"]));
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_over_the_cap_sends_nothing() {
+        poll_click_shot(poll_with(true, false, &["a", "b"]), 2, None);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    #[cfg(feature = "live")]
+    fn painted_poll_click_on_a_closed_poll_sends_nothing() {
+        poll_click_shot(poll_with(false, true, &["a"]), 1, None);
+    }
+
     fn ready_image() -> crate::media_view::InlineImage {
         let buffer = image::RgbaImage::from_raw(2, 2, vec![255; 16]).unwrap();
         crate::media_view::InlineImage::Ready(std::sync::Arc::new(gpui::RenderImage::new([
@@ -2838,8 +3518,8 @@ mod tests {
     struct ThemedHost(TimelineView, matrix_desktop::DesignTokens);
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     impl Render for ThemedHost {
-        fn render(&mut self, window: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-            div().size_full().flex().flex_col().child(self.0.render(self.1, window, None, None))
+        fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().size_full().flex().flex_col().child(self.0.render(self.1, window, None, None, cx))
         }
     }
 
@@ -2853,19 +3533,21 @@ mod tests {
             let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
             let ids = ["$img-in", "$file-in", "$img-out", "$file-out"].map(|id| EventId::new(format!("{id}:fixture.invalid")));
             let event = |id: &EventId, outgoing: bool, name: Option<&str>, image: bool, ms: u64| HistoryEvent {
+                poll: None,
                 redacted: false,
                 event_id: id.clone(),
-                body: if image { matrix_engine::history::IMAGE_BODY.into() } else { name.unwrap_or("solo testo").into() },
+                body: if image { String::new() } else { name.unwrap_or("solo testo").into() },
                 outgoing,
                 timestamp_ms: ms,
                 sender: HistorySender::new(if outgoing { "@me:fixture.invalid" } else { "@a:fixture.invalid" }, None),
                 video: None,
-                styles: Vec::new(),
+                styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                 thread: None,
                 thread_root: None,
                 status: false,
                 attachment_name: name.map(Into::into),
-                attachment_size: name.map(|_| 2048),
+                attachment_size: name.map(|_| 2048), media: image.then(|| matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Image, label: "Immagine".into() }),
+                utd: false,
             };
             let view = cx
                 .open_window(gpui::WindowOptions::default(), |window, cx| {
@@ -2940,6 +3622,181 @@ mod tests {
         save_icons_painted(true);
     }
 
+    /// Captions under attachments painted for real (rows as the engine delivers them: blank and
+    /// spaces-only captions arrive as empty text, a late-decrypted or edited caption is just the new
+    /// text): every shape paints without panicking and keeps its ↓. With SHOT=<path> a screenshot of
+    /// the window is written for a visual check (file names only as File labels, never under images).
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn captions_painted(dark: bool) {
+        use matrix_engine::history::{HistoryEvent, HistorySender, Media, MediaKind};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
+            let long = "Una didascalia molto lunga che deve andare a capo senza uscire dalla bolla. ".repeat(6);
+            // (id, kind, label, caption)
+            let cases: Vec<(&str, Option<MediaKind>, &str, String)> = vec![
+                ("$short", Some(MediaKind::Image), "Immagine", "Ecco i dati fiscali".into()),
+                ("$long", Some(MediaKind::Image), "Immagine", long),
+                ("$emoji", Some(MediaKind::Image), "Immagine", "Ciao 😀🎉 👨‍👩‍👧".into()),
+                ("$link", Some(MediaKind::Image), "Immagine", "vedi https://example.org/x".into()),
+                ("$mention", Some(MediaKind::Image), "Immagine", "ciao @Bob".into()),
+                ("$empty", Some(MediaKind::Image), "Immagine", String::new()),
+                ("$edited", Some(MediaKind::Image), "Immagine", "Didascalia modificata".into()),
+                ("$utd", None, "", "Cifrato · chiavi non disponibili".into()),
+                ("$file", Some(MediaKind::File), "File · contratto.pdf · 1 KB", "Il contratto".into()),
+                ("$filebare", Some(MediaKind::File), "File · nota.txt · 10 B", String::new()),
+            ];
+            let event = |(id, kind, label, caption): &(&str, Option<MediaKind>, &str, String), ms: u64| HistoryEvent {
+                poll: None,
+                redacted: false,
+                utd: false,
+                event_id: EventId::new(format!("{id}:fixture.invalid")),
+                body: caption.clone(),
+                outgoing: false,
+                timestamp_ms: ms,
+                sender: HistorySender::new("@a:fixture.invalid", None),
+                video: None,
+                styles: Vec::new(), mentions: Vec::new(), highlighted: false,
+                thread: None,
+                thread_root: None,
+                status: false,
+                attachment_name: kind.map(|_| if matches!(kind, Some(MediaKind::File)) { label.split(" · ").nth(1).unwrap().to_owned() } else { "foto.png".into() }),
+                attachment_size: kind.map(|_| 2048),
+                media: kind.map(|kind| Media { kind, label: (*label).into() }),
+            };
+            let rows: Vec<_> = cases.iter().enumerate().map(|(i, c)| event(c, i as u64 + 1)).collect();
+            let images: Vec<_> = rows.iter().filter(|r| r.media.as_ref().is_some_and(|m| m.kind == MediaKind::Image)).map(|r| r.event_id.clone()).collect();
+            let attachments = rows.iter().filter(|r| r.media.is_some()).count();
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi captions");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!cap:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), true);
+                        v.append_server(rows);
+                        for id in &images {
+                            v.images.borrow_mut().insert(id.clone(), ready_image());
+                        }
+                        ThemedHost(v, tokens)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                if let Ok(path) = std::env::var("SHOT") {
+                    let _ = if std::env::var("WAYLAND_DISPLAY").is_ok() { std::process::Command::new("grim").arg(&path).status() } else { std::process::Command::new("import").args(["-window", "root", &path]).status() };
+                }
+                view.update(cx, |host, _, _| {
+                    // The list paints the rows in view (anchored to the newest): a ↓ on each of them, never more than attachments.
+                    let painted = host.0.save_painted.borrow().len();
+                    println!("CAPTIONS dark={dark} attachments={attachments} painted_icons={painted}");
+                    assert!((1..=attachments).contains(&painted), "a ↓ on every painted attachment row, none on the others");
+                })
+                .unwrap();
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_captions_light() {
+        captions_painted(false);
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_captions_dark() {
+        captions_painted(true);
+    }
+
+    /// «Recupera chiavi» painted for real on the undecryptable bubble only, a Tab stop, opening the key
+    /// field on Enter/click; the key typed with X11 keys reaches the shell once and the field is empty.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_recover_keys_field_takes_the_key_once() {
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(move |cx| {
+            let utd = EventId::new("$utd:fixture.invalid");
+            let ok = EventId::new("$ok:fixture.invalid");
+            let event = |id: &EventId, utd: bool, ms: u64| HistoryEvent {
+                redacted: false,
+                event_id: id.clone(),
+                body: if utd { "Impossibile decifrare".into() } else { "leggibile".into() },
+                outgoing: false,
+                timestamp_ms: ms,
+                sender: HistorySender::new("@a:fixture.invalid", None),
+                video: None,
+                styles: Vec::new(),
+                thread: None,
+                thread_root: None,
+                status: false,
+                utd,
+                attachment_name: None,
+                attachment_size: None,
+            };
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi recover keys");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!rk:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), true);
+                        v.append_server(vec![event(&ok, false, 1), event(&utd, true, 2)]);
+                        v.set_key_recovery(true, false, None);
+                        ThemedHost(v, matrix_desktop::LIGHT)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                let id = view.update(cx, |host, window, cx| {
+                    let v = &host.0;
+                    let id = v.history.borrow().events().iter().find(|e| e.utd).unwrap().id.clone();
+                    {
+                        let painted = v.recover_bounds.borrow();
+                        assert_eq!(painted.len(), 1, "one control, on the undecryptable bubble only");
+                        assert!(painted.contains_key(&(id.clone(), false)));
+                    }
+                    v.focus.focus(window);
+                    assert!(v.enter_icons(false, window), "Tab reaches the control");
+                    assert!(matches!(v.step_icons(false, window, cx), IconStep::Left), "and it is the only stop");
+                    assert!(v.recover_field.borrow().is_none(), "no field before it is opened");
+                    assert!(crate::recover_keys_view::open(&v.recover, &v.recover_field, &id, window, cx));
+                    id
+                }).unwrap();
+                executor.timer(std::time::Duration::from_millis(600)).await;
+                view.update(cx, |host, _, _| {
+                    assert!(host.0.recover_bounds.borrow().contains_key(&(id.clone(), true)), "the key field is painted");
+                }).unwrap();
+                let xdotool = |args: &[&str]| assert!(std::process::Command::new("xdotool").args(args).status().unwrap().success());
+                xdotool(&["type", "--delay", "30", "EsTu abc"]);
+                xdotool(&["key", "Return"]);
+                executor.timer(std::time::Duration::from_millis(600)).await;
+                view.update(cx, |host, _, cx| {
+                    let v = &host.0;
+                    assert_eq!(v.take_recovery_key().as_deref().map(String::as_str), Some("EsTu abc"));
+                    assert!(v.take_recovery_key().is_none(), "handed over once");
+                    let (field, _) = v.recover_field.borrow().clone().unwrap();
+                    assert_eq!(field.read(cx).input.display_text(), "", "the field is empty after the submit");
+                    // Pending: no second submit, the status line says so.
+                    v.set_key_recovery(true, true, None);
+                    assert!(!v.recover.borrow().accepts_key());
+                    // Complete: field and control are gone.
+                    v.set_key_recovery(false, false, None);
+                    assert!(!v.recover.borrow().is_open(&id));
+                    cx.quit();
+                }).unwrap();
+            })
+            .detach();
+        });
+    }
     #[test]
     #[ignore = "requires private display"]
     fn large_image_view_opens_and_escape_returns_focus_to_timeline() {

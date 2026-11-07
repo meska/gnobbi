@@ -36,10 +36,10 @@ fn video_thumbnail_receive_cap_precedes_mime_and_decode() {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let recorded = requests.clone();
             let server = tokio::spawn(async move {
-                loop {
+                'accept: loop {
                     let (mut stream, _) = listener.accept().await.unwrap();
-                    let mut headers = Vec::new();
-                    while !headers.ends_with(b"\r\n\r\n") { headers.push(stream.read_u8().await.unwrap()); }
+                    let mut headers = Vec::new(); // a client closing before sending headers (EOF) is not a test failure
+                    while !headers.ends_with(b"\r\n\r\n") { match stream.read_u8().await { Ok(b) => headers.push(b), Err(_) => continue 'accept } }
                     let headers = String::from_utf8(headers).unwrap();
                     // Windows resets the connection (RST) when we close with an unread request
                     // body, which the SDK reports as a transport failure; drain the body first.
@@ -507,7 +507,7 @@ fn disposable_media_download_png_returns_exact_bytes_and_preview() {
         assert!(
             page.events
                 .iter()
-                .any(|e| e.event_id == event && crate::history::is_image_body(&e.body))
+                .any(|e| e.event_id == event && e.media.as_ref().is_some_and(|m| m.kind == crate::history::MediaKind::Image))
         );
     });
 }
@@ -854,10 +854,10 @@ fn image_bubble_uses_thumbnail_and_keeps_original_a_separate_resource() {
             let requests = Arc::new(Mutex::new(Vec::<String>::new()));
             let recorded = requests.clone();
             let server = tokio::spawn(async move {
-                loop {
+                'accept: loop {
                     let (mut stream, _) = listener.accept().await.unwrap();
-                    let mut headers = Vec::new();
-                    while !headers.ends_with(b"\r\n\r\n") { headers.push(stream.read_u8().await.unwrap()); }
+                    let mut headers = Vec::new(); // a client closing before sending headers (EOF) is not a test failure
+                    while !headers.ends_with(b"\r\n\r\n") { match stream.read_u8().await { Ok(b) => headers.push(b), Err(_) => continue 'accept } }
                     let headers = String::from_utf8(headers).unwrap();
                     // Windows resets the connection (RST) when we close with an unread request
                     // body, which the SDK reports as a transport failure; drain the body first.

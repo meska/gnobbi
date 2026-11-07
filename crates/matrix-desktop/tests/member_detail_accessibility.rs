@@ -6,11 +6,12 @@ use matrix_desktop::Sidebar;
 use matrix_desktop::accessibility::details::{BACK, DetailsAction, DetailsControl, DetailsSnapshot, DetailsView};
 use matrix_domain::AccountId;
 
-const ALL: [A; 15] = [
+const ALL: [A; 16] = [
     A::CopyId,
     A::Message,
     A::Link,
     A::Quote,
+    A::ReadReceipt,
     A::Verify,
     A::Power(0),
     A::Power(50),

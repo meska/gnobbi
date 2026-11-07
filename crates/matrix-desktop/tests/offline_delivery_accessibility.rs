@@ -18,6 +18,7 @@ fn snapshot() -> NavigationSnapshot {
     NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

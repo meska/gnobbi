@@ -44,6 +44,10 @@ pub struct DemoEvent {
     pub text: String,
     /// Bold, italic, code… of `text` for a formatted message.
     pub styles: Vec<matrix_engine::rich_text::StyleSpan>,
+    /// Mention pills of `text` (users, «@room», rooms).
+    pub mentions: Vec<matrix_engine::rich_text::MentionSpan>,
+    /// The message is for the active user: the row is drawn highlighted.
+    pub highlighted: bool,
     pub annotation: String,
     pub outgoing: bool,
     pub time: String,
@@ -53,6 +57,10 @@ pub struct DemoEvent {
     pub timestamp_ms: u64,
     /// Set for an `m.video` row: the bubble paints a picture with play symbol instead of `text`.
     pub video: Option<VideoFacts>,
+    /// Set on an image, video, audio or file row: `text` (with `styles`, `mentions`) is then its caption, empty when none.
+    pub media: Option<matrix_engine::history::Media>,
+    /// Set on a poll start: the bubble paints the poll instead of `text`. Private user data: never log.
+    pub poll: Option<matrix_domain::Poll>,
     /// File name of a received attachment (any kind): the bubble offers «Scarica».
     pub attachment_name: Option<String>,
     pub attachment_size: Option<u64>,
@@ -62,6 +70,8 @@ pub struct DemoEvent {
     pub thread_root: Option<matrix_domain::EventId>,
     /// A status row (join, invite, rename…): drawn as a quiet centred line, not a bubble.
     pub status: bool,
+    /// Could not be decrypted: the row offers «Recupera chiavi» while the recovery is incomplete.
+    pub utd: bool,
 }
 
 impl DemoEvent {
@@ -175,13 +185,15 @@ impl DemoHistory {
                     outgoing: index % 3 == 1,
                     send_state: None,
                     timestamp_ms: index as u64 * 60_000,
-                    styles: Vec::new(),
+                    styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
+                    poll: None,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                     sender: (index % 3 != 1).then(|| {
                         let (id, name) = [("@bruno:fixture.invalid", None), ("@anna:fixture.invalid", Some("Anna"))][index / 2 % 2];
                         HistorySender::new(id, name)
@@ -255,13 +267,15 @@ impl DemoHistory {
             send_state: Some(DemoSendState::Pending),
             sender: None,
             timestamp_ms: 0,
-            styles: Vec::new(),
+            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None,
             thread_root: None,
             status: false,
+            utd: false,
             video: None,
+            poll: None,
             attachment_name: None,
-            attachment_size: None,
+            attachment_size: None, media: None,
         });
     }
 
@@ -322,12 +336,22 @@ impl DemoHistory {
                 .iter_mut()
                 .find(|row| row.id.id == TimelineId::Server(event.event_id.clone()))
                 && (row.text != event.body
+                    || row.utd != event.utd
                     || row.styles != event.styles
+                    || row.mentions != event.mentions
+                    || row.highlighted != event.highlighted
+                    || row.poll != event.poll
+                    || row.media != event.media
                     || row.redacted != event.redacted)
             {
+                row.media.clone_from(&event.media);
+                row.poll.clone_from(&event.poll);
                 row.redacted = event.redacted;
+                row.utd = event.utd;
                 row.text.clone_from(&event.body);
                 row.styles.clone_from(&event.styles);
+                row.mentions.clone_from(&event.mentions);
+                row.highlighted = event.highlighted;
                 changed_body = true;
             }
             // The ACK row is born without attachment facts and the server copy is then dropped as a duplicate.
@@ -357,6 +381,15 @@ impl DemoHistory {
         events: Vec<matrix_engine::history::HistoryEvent>,
         append: bool,
     ) -> usize {
+        // A delivery echo row is born without the poll; the history copy would be dropped as duplicate.
+        for event in events.iter().filter(|e| e.poll.is_some()) {
+            if let Some(row) = self.events.iter_mut().find(|r| r.id.id == TimelineId::Server(event.event_id.clone()))
+                && row.poll != event.poll
+            {
+                row.poll.clone_from(&event.poll);
+                row.text.clone_from(&event.body);
+            }
+        }
         let mut seen: std::collections::HashSet<_> = self
             .events
             .iter()
@@ -382,12 +415,17 @@ impl DemoHistory {
                 sender: (!event.outgoing).then_some(event.sender),
                 timestamp_ms: event.timestamp_ms,
                 styles: event.styles,
+                mentions: event.mentions,
+                highlighted: event.highlighted,
                 thread: event.thread,
                 thread_root: event.thread_root,
                 status: event.status,
+                utd: event.utd,
                 attachment_name: event.attachment_name,
                 attachment_size: event.attachment_size,
+                media: event.media,
                 video: event.video.map(video_facts),
+                poll: event.poll,
             })
             .collect::<Vec<_>>();
         let count = rows
@@ -481,6 +519,7 @@ impl DemoHistory {
             {
                 row.text = "[Messaggio eliminato]".into();
                 row.styles.clear();
+                row.mentions.clear();
                 row.redacted = true;
                 row.annotation.clear();
             }
@@ -523,13 +562,15 @@ impl DemoHistory {
                     send_state: None,
                     sender: None,
                     timestamp_ms: 0,
-                    styles: Vec::new(),
+                    styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
+                    poll: None,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                 });
             }
             if let matrix_engine::operations::Operation::Edit { body } =
@@ -541,6 +582,7 @@ impl DemoHistory {
             {
                 row.text = body.clone();
                 row.styles.clear();
+                row.mentions.clear();
                 row.time = format!(
                     "{} · modificato",
                     row.time.trim_end_matches(" · modificato")
@@ -581,6 +623,7 @@ impl DemoHistory {
                 if !row.server_confirmed {
                     row.text = item.body.clone();
                     row.styles.clear();
+                    row.mentions.clear();
                 }
                 row.send_state = state;
                 row.server_confirmed = state.is_none();
@@ -608,13 +651,15 @@ impl DemoHistory {
                     send_state: state,
                     sender: None,
                     timestamp_ms: 0,
-                    styles: Vec::new(),
+                    styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
                     status: false,
+                    utd: false,
                     video: None,
+                    poll: None,
                     attachment_name: None,
-                    attachment_size: None,
+                    attachment_size: None, media: None,
                 });
             }
         }
@@ -648,7 +693,11 @@ impl DemoHistory {
     pub fn sender_avatar_mxcs(&self) -> impl Iterator<Item = &str> {
         self.events.iter().rev().flat_map(|e| {
             let latest = e.thread.as_ref().and_then(|t| t.latest_sender.as_ref());
-            e.sender.iter().chain(latest).filter_map(|s| s.avatar.as_deref())
+            let pills = e.mentions.iter().filter_map(|m| match &m.kind {
+                matrix_engine::rich_text::MentionKind::User { sender, .. } => Some(sender),
+                _ => None,
+            });
+            e.sender.iter().chain(latest).chain(pills).filter_map(|s| s.avatar.as_deref())
         })
     }
 

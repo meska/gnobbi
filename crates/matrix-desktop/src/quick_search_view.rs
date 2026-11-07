@@ -370,7 +370,7 @@ impl Shell {
                 q.zone == Zone::Rows && q.active == i,
             ));
         }
-        Some(Snapshot { items })
+        Some(Snapshot { items, join: None })
     }
 
     pub(crate) fn render_quick_search(

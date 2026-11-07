@@ -26,7 +26,7 @@ fn load(this: &mut Shell, p: UserProfile, rights: Option<MemberRights>) {
 }
 
 fn mod_rights() -> MemberRights {
-    MemberRights { kick: true, ban: true, levels: vec![0, 100], recent: vec!["$e1".into(), "$e2".into()] }
+    MemberRights { kick: true, ban: true, levels: vec![0, 100], recent: vec!["$e1".into(), "$e2".into()], read_receipt: None }
 }
 
 fn composer_text(this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>) -> String {
@@ -97,6 +97,10 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         with(&[A::Verify, A::Power(0), A::Power(100), A::RemoveMessages, A::Kick, A::Ban, A::Ignore]),
         "moderator: moderation after the plain acts, destructive last, ignore after"
     );
+    shell!(|this, _, _| load(this, profile(ADA, "Ada", Some(true), false), Some(MemberRights { read_receipt: Some("$r1".into()), ..Default::default() })));
+    assert_eq!(acts!(), with(&[A::ReadReceipt, A::Ignore]), "receipt loaded: «Salta alla ricevuta di lettura» right after Cita");
+    shell!(|this, _, _| load(this, profile(ME, "Io", Some(true), false), Some(MemberRights { read_receipt: Some("$r1".into()), ..Default::default() })));
+    assert_eq!(acts!(), vec![A::CopyId, A::Link], "never for yourself");
     // Rights loaded for another user never leak into this profile.
     shell!(|this, _, _| {
         load(this, profile(ADA, "Ada", None, false), None);
@@ -253,6 +257,13 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(composer_text(this, window, cx).contains("@Ada"), "Cita puts the mention in the composer: {:?}", composer_text(this, window, cx));
         assert!(this.composer.read(cx).is_focused(window), "and the focus goes to the composer");
     });
+    shell!(|this, _, _| {
+        this.set_room_details_open(true);
+        load(this, profile(ADA, "Ada", Some(true), false), Some(MemberRights { read_receipt: Some("$r1".into()), ..Default::default() }));
+        this.profile_focus = to(A::ReadReceipt, this);
+    });
+    key!("enter");
+    shell!(|this, _, _| assert!(!this.room_details_open, "Salta alla ricevuta di lettura closes the sheet"));
 
     // 7. Outcomes: success updates the profile, failure flashes and changes nothing; kick/ban leave the list.
     shell!(|this, window, cx| {
@@ -328,6 +339,58 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
             cx.notify();
         });
     }
+
+    // 10. A click on a bubble's avatar or name (modelled by its request) opens the right member in the same sheet,
+    // without taking the focus from the composer; the tree names the control «Apri profilo di …».
+    shell!(|this, window, cx| {
+        this.set_room_details_open(false);
+        this.pending_operation_command = None;
+        let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
+        timeline.set_member_count(3);
+        timeline.append_server(vec![matrix_engine::history::HistoryEvent {
+            poll: None,
+            redacted: false,
+            utd: false,
+            event_id: matrix_domain::EventId::new("$bubble:test"),
+            body: "ciao".into(),
+            outgoing: false,
+            timestamp_ms: 0,
+            sender: matrix_engine::history::HistorySender::new(ADA, Some("Ada")),
+            video: None,
+            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
+            thread: None,
+            thread_root: None,
+            status: false,
+            attachment_name: None,
+            attachment_size: None, media: None,
+        }]);
+        this.timeline = Some(timeline);
+        this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx));
+        *this.timeline.as_ref().unwrap().want_profile.borrow_mut() = Some(ADA.into());
+        this.drive_profile(cx);
+        assert!(this.room_details_open, "bubble click opens the sheet");
+        assert!(matches!(&this.profile, Some(ProfileState::Loading(id)) if id == ADA), "and that member's profile");
+        assert!(matches!(&this.pending_operation_command, Some(OperationCommand::Profile { user_id }) if user_id == ADA));
+        assert!(this.composer.read(cx).is_focused(window), "focus stays on the composer");
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        {
+            let mut nodes = matrix_desktop::accessibility::HistoryNodes::default();
+            let snap = this.timeline.as_ref().unwrap().semantic_snapshot(&mut nodes, window);
+            let link = snap.messages[0].profile.as_ref().expect("group bubble has the control");
+            assert_eq!((link.user_id.as_str(), link.name.as_str()), (ADA, "Ada"));
+        }
+    });
+    // Esc from the profile opened by a bubble: back to the list, then closed; the composer keeps the focus throughout.
+    key!("escape");
+    shell!(|this, window, cx| {
+        assert!(this.profile.is_none() && this.room_details_open, "Esc: back to the member list");
+        assert!(this.composer.read(cx).is_focused(window), "focus still on the composer after the first Esc");
+    });
+    key!("escape");
+    shell!(|this, window, cx| {
+        assert!(!this.room_details_open, "second Esc closes the sheet");
+        assert!(this.composer.read(cx).is_focused(window), "focus still on the composer after closing");
+    });
 
     println!("DEFECTS {known:?}");
     assert!(known.is_empty() || std::env::var_os("MEMBER_PROFILE_STRICT").is_none(), "known defects: {known:?}");
