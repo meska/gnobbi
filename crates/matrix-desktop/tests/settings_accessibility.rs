@@ -30,7 +30,7 @@ fn switches_are_labelled_checkboxes_with_state_and_set_explicitly() {
         [
             "Modalità debug",
             "Conferme di lettura",
-            "Nascondi messaggi eliminati",
+            "Messaggi eliminati",
             "Riduci nel tray alla chiusura"
         ]
     );

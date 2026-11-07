@@ -3,7 +3,7 @@
 use crate::tray_menu::{TrayAction, TrayItem};
 use matrix_domain::AccountId;
 use std::sync::mpsc::{Receiver, Sender};
-use tray_icon::menu::{IconMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tray_icon::menu::{CheckMenuItem, IconMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
 #[cfg(target_os = "macos")]
@@ -164,6 +164,9 @@ fn build_menu(items: &[TrayItem]) -> Menu {
                         avatar(*account),
                         None,
                     )),
+                    TrayAction::ToggleNotifications => {
+                        menu.append(&CheckMenuItem::with_id(id, label, true, *checked, None))
+                    }
                     _ => menu.append(&MenuItem::with_id(id, title, true, None)),
                 }
             }

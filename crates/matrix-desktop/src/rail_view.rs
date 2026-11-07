@@ -771,7 +771,7 @@ impl Shell {
                         .child(grip(t.secondary))
                         .child(div().flex_1().truncate().child(entry.name.clone()))
                         .child(
-                            action(("rail-edit-hide", row), if hidden { "Mostra" } else { "Nascondi" }, t.accent).w(px(76.)).text_center().on_click(
+                            div().id(("rail-edit-hide", row)).cursor_pointer().child(crate::switch_row::switch_track(!hidden, true, t)).on_click(
                                 cx.listener(move |this, _, _, cx| {
                                     this.rail_edit_act(row, PanelAct::Toggle);
                                     cx.notify();

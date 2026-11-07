@@ -2414,7 +2414,9 @@ impl Shell {
                                 )))
                                 .when(self.connected && self.sidebar.hidden_empty_count() > 0, |d| d.child(
                                     div().id("empty-rooms-filter").cursor_pointer().text_color(rgb(t.accent))
-                                        .child(if self.sidebar.show_empty() { "Nascondi vuote".to_owned() } else { format!("Vuote ({})", self.sidebar.hidden_empty_count()) })
+                                        .flex().items_center().gap_2()
+                                        .child(format!("Vuote ({})", self.sidebar.hidden_empty_count()))
+                                        .child(crate::switch_row::switch_track(self.sidebar.show_empty(), true, t))
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.sidebar.set_show_empty(!this.sidebar.show_empty());
                                             cx.notify();

@@ -405,11 +405,11 @@ impl Shell {
             .text_color(rgb(t.accent))
             .border_1()
             .border_color(rgb(if input_modality::only_keys(focused, cx) { t.accent } else { t.surface }))
-            .child(if self.sidebar.unread_only() {
-                "Tutte"
-            } else {
-                "Non lette"
-            })
+            .flex()
+            .items_center()
+            .gap_2()
+            .child("Non lette")
+            .child(crate::switch_row::switch_track(self.sidebar.unread_only(), true, t))
             .children(self.unread_observer(cx))
             .children({
                 #[cfg(test)]

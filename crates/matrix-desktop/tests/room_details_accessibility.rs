@@ -301,8 +301,8 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
         assert!(node.supports_action(Action::Focus) && node.supports_action(Action::Click));
         node.label().unwrap().to_owned()
     };
-    assert_eq!(label(&panel, DetailsControl::HideStatus), "Nascondi messaggi di stato");
-    assert_eq!(label(&panel, DetailsControl::HideRedacted), "Nascondi messaggi eliminati");
+    assert_eq!(label(&panel, DetailsControl::HideStatus), "Messaggi di stato");
+    assert_eq!(label(&panel, DetailsControl::HideRedacted), "Messaggi eliminati");
     assert_eq!(label(&panel, DetailsControl::Edit), "Modifica");
     let toggled = |panel: &DetailsSnapshot, c: DetailsControl| {
         let tree = panel.tree();
@@ -310,12 +310,12 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
         assert_eq!(node.role(), Role::Switch);
         node.toggled()
     };
-    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::False));
+    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::True));
     panel.hide_status = true;
     panel.hide_redacted = true;
-    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::True));
-    assert_eq!(toggled(&panel, DetailsControl::HideRedacted), Some(Toggled::True));
-    assert_eq!(label(&panel, DetailsControl::HideStatus), "Nascondi messaggi di stato");
+    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::False));
+    assert_eq!(toggled(&panel, DetailsControl::HideRedacted), Some(Toggled::False));
+    assert_eq!(label(&panel, DetailsControl::HideStatus), "Messaggi di stato");
     let view = DetailsView::Open(Box::new(panel));
     for (control, want) in [
         (DetailsControl::HideStatus, DetailsAction::HideStatus(scope.clone())),

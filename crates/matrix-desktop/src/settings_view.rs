@@ -29,7 +29,7 @@ impl Shell {
                 on: [
                     self.prefs.debug,
                     self.prefs.read_receipts,
-                    self.prefs.hide_redacted,
+                    !self.prefs.hide_redacted,
                     self.prefs.close_to_tray,
                 ],
             })
@@ -631,7 +631,7 @@ impl Shell {
             )
             .child(
                 switch_row(
-                    "settings-hide-redacted", "Nascondi messaggi eliminati", self.prefs.hide_redacted, true,
+                    "settings-hide-redacted", "Messaggi eliminati", !self.prefs.hide_redacted, true,
                     input_modality::only_keys(self.settings_row == 2 && self.settings_focus.is_focused(window), cx), t,
                 )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_redacted(cx))),

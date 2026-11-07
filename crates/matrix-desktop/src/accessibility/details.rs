@@ -246,16 +246,16 @@ impl DetailsSnapshot {
             (DetailsControl::Close, "Chiudi informazioni stanza"),
             (DetailsControl::Topic, "Argomento"),
             (DetailsControl::Copy, "Copia ID stanza"),
-            (DetailsControl::HideStatus, "Nascondi messaggi di stato"),
-            (DetailsControl::HideRedacted, "Nascondi messaggi eliminati"),
+            (DetailsControl::HideStatus, "Messaggi di stato"),
+            (DetailsControl::HideRedacted, "Messaggi eliminati"),
             (DetailsControl::Edit, "Modifica"),
         ]
         .into_iter()
         .enumerate()
         {
             let on = match control {
-                DetailsControl::HideStatus => Some(self.hide_status),
-                DetailsControl::HideRedacted => Some(self.hide_redacted),
+                DetailsControl::HideStatus => Some(!self.hide_status),
+                DetailsControl::HideRedacted => Some(!self.hide_redacted),
                 _ => None,
             };
             let topic = control == DetailsControl::Topic;

@@ -1,11 +1,11 @@
-//! Drawer settings: four on/off switches (debug, read receipts, hide deleted messages, close to tray).
+//! Drawer settings: four on/off switches (debug, read receipts, show deleted messages, close to tray).
 use super::ROOT;
 use accesskit::{Action, ActionRequest, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
 pub const LABELS: [&str; 4] = [
     "Modalità debug",
     "Conferme di lettura",
-    "Nascondi messaggi eliminati",
+    "Messaggi eliminati",
     "Riduci nel tray alla chiusura",
 ];
 const BASE: u64 = 70;
