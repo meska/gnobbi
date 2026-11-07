@@ -144,6 +144,19 @@ async fn publish(
     true
 }
 
+/// `SyncService` has no `Drop`: its spawned loops outlive `run` (also when `run` is cancelled by a
+/// `select!`) and keep syncing on the shared store. Stops it on every exit path.
+struct StopOnDrop(std::sync::Arc<SyncService>);
+
+impl Drop for StopOnDrop {
+    fn drop(&mut self) {
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let service = self.0.clone();
+            runtime.spawn(async move { service.stop().await });
+        }
+    }
+}
+
 /// Runs until the consumer drops or the session is logged out. `on_ready` fires once, at the
 /// first `Ready`. Await only on the backend runtime.
 pub async fn run(
@@ -182,6 +195,8 @@ pub async fn run(
             return;
         }
     };
+    let service = std::sync::Arc::new(service);
+    let _stop = StopOnDrop(service.clone());
     let room_list = service.room_list_service();
     let Ok(list) = room_list.all_rooms().await else {
         let _ = emit(sender, RoomListEvent::Status(RoomSyncStatus::SyncFailed)).await;
