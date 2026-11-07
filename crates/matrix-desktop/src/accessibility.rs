@@ -556,6 +556,8 @@ pub struct SemanticRoom {
     pub scope: matrix_domain::RoomScope,
     pub name: String,
     pub unread: u64,
+    /// Conversation-list stamp of the last message; None when unknown.
+    pub stamp: Option<String>,
     pub selected: bool,
     /// Set for an invitation row: it carries «Accetta» / «Rifiuta» child buttons.
     pub invite: Option<crate::InviteState>,
@@ -640,6 +642,7 @@ impl RoomNodes {
                     scope: room.scope.clone(),
                     name: room.name.clone(),
                     unread: room.unread,
+                    stamp: room.stamp(),
                     selected: sidebar.selected().is_some_and(|r| r.scope == room.scope),
                     invite: room.info.invited.then(|| sidebar.invite_state(&room.scope)),
                     leave: None,
@@ -1203,7 +1206,10 @@ impl NavigationSnapshot {
                 // The invitation state is part of the name, so it is read with the room name.
                 node.set_label(match room.invite {
                     Some(state) => format!("{}, {}", room.name, invite_state_label(state)),
-                    None => room.name.clone(),
+                    None => match &room.stamp {
+                        Some(stamp) => format!("{}, {}", room.name, crate::time_fmt::last_message_spoken(stamp)),
+                        None => room.name.clone(),
+                    },
                 });
                 node.set_description(match room.unread {
                     _ if room.invite.is_some() => "Invito".to_owned(),

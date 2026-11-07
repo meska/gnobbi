@@ -92,6 +92,8 @@ fn adapter_matches_the_classic_loop_and_follows_new_messages() {
             () = collect(&mut rx, &mut seen, &id, "first", false) => {}
         }
         assert!(seen.ready, "Ready never came");
+        let first_ts = seen.rooms[&id].info.last_event_ts;
+        assert!(first_ts.is_some(), "no last_event_ts for a room with a message");
 
         step("second");
         // A new message: preview and activity follow, .
@@ -106,6 +108,7 @@ fn adapter_matches_the_classic_loop_and_follows_new_messages() {
             seen.activity.iter().any(|s| s.room_id.as_str() == id),
             "no TimelineActivity for the new message"
         );
+        assert!(seen.rooms[&id].info.last_event_ts > first_ts, "last_event_ts did not follow the new message");
 
         step("cleanup");
         // Leave only what this run created, then revoke the devices.
