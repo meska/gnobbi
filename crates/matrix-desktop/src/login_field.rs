@@ -68,8 +68,7 @@ impl LoginField {
         }
         let key = &event.keystroke;
         let command = command_modifier(&key.modifiers, mac);
-        let mac_command = mac && key.modifiers.platform && !key.modifiers.alt;
-        if mac_command && matches!(key.key.as_str(), "c" | "x") {
+        if command && matches!(key.key.as_str(), "c" | "x") {
             if let Some(text) = self.input.exportable_selection() {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
                 if key.key == "x" {

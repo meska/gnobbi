@@ -838,8 +838,10 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         let key = &event.keystroke;
-        // Device sign-out dialog is modal: its field and buttons get the keys.
-        if self.verification_open && self.verification.delete_dialog().is_some() {
+        // Device sign-out and rename dialogs are modal: their field and buttons get the keys.
+        if self.verification_open
+            && (self.verification.delete_dialog().is_some() || self.verification.rename_dialog().is_some())
+        {
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             {
                 use matrix_desktop::accessibility::devices::{DeviceAction, DeviceControl, DeviceView};
