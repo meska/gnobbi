@@ -340,6 +340,7 @@ fn opening_an_old_room_keeps_the_order() {
 }
 
 /// Pump the adapter stream through the probe phases, printing every order change.
+#[allow(clippy::too_many_arguments)] // probe plumbing, each argument is a distinct room or handle
 async fn reorder_probe(
     rx: &mut matrix_engine::Receiver<RoomListEvent>,
     seen: &mut Seen,

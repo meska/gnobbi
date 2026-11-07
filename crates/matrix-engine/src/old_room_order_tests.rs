@@ -286,3 +286,67 @@ fn disposable_old_room_redacted_last_event_keeps_position() {
         f.back_to_list(async {}, "opening the old chat with a redacted MID").await;
     });
 }
+
+/// Impact measurement (not a regression test): 24 rooms, 4 with 90 membership events after the last
+/// message, 1 with 300, 1 with a redacted last message. Prints startup times; the request count and
+/// bytes come from the homeserver request log (the backpag_probe script). Run with and without the SDK option.
+#[test]
+#[ignore = "measurement; run via the backpag_probe script"]
+fn disposable_back_pagination_startup_impact() {
+    use crate::{RoomListEvent, RoomSyncStatus, room_sync::RoomSync};
+    use std::time::{Duration, Instant};
+    runtime().block_on(async {
+        let config = fixture();
+        let mut ids = Vec::new();
+        for n in 0..24 {
+            let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+                serde_json::json!({"invite":["@bob:matrix-desktop.test"],"name":format!("impact-{n}")})).await;
+            let room = created["room_id"].as_str().unwrap().to_owned();
+            room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+            let mut last = String::new();
+            for i in 0..3 {
+                let sent = room_request(&config, "alice", reqwest::Method::PUT, &format!("rooms/{room}/send/m.room.message/imp-{n}-{i}"),
+                    serde_json::json!({"msgtype":"m.text","body":format!("m{n}-{i}")})).await;
+                last = sent["event_id"].as_str().unwrap().to_owned();
+            }
+            if n == 23 {
+                room_request(&config, "alice", reqwest::Method::PUT, &format!("rooms/{room}/redact/{last}/imp-redact"), serde_json::json!({})).await;
+            }
+            let cycles = match n { 18..=21 => 30, 22 => 100, _ => 0 };
+            for _ in 0..cycles { // bob leaves, alice re-invites, bob joins: 3 membership events
+                room_request(&config, "bob", reqwest::Method::POST, &format!("rooms/{room}/leave"), serde_json::json!({})).await;
+                room_request(&config, "alice", reqwest::Method::POST, &format!("rooms/{room}/invite"), serde_json::json!({"user_id":"@bob:matrix-desktop.test"})).await;
+                room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+            }
+            ids.push(room);
+        }
+        let root = std::env::temp_dir().join(format!("gnobbi-test-impact-{}", std::process::id()));
+        crate::fsx::create_private_dir(&root).unwrap();
+        let bob = AccountStore::create(&root, AccountId::new(90)).unwrap()
+            .password_login_with_http(HomeserverUrl::parse(config["url"].as_str().unwrap()).unwrap(), "@bob:matrix-desktop.test",
+                config["bob_password"].as_str().unwrap(), "long disposable fixture passphrase", http(&config))
+            .await.expect("fixture login accepted");
+        let mut sync = RoomSync::new(bob);
+        let (mut tx, mut rx) = crate::bounded(std::num::NonZeroUsize::new(1024).unwrap());
+        let start = Instant::now();
+        let collect = async {
+            let (mut ready, mut last_order, mut orders) = (None, None, 0);
+            loop {
+                let wait = Duration::from_secs(if ready.is_some() { 8 } else { 60 });
+                match tokio::time::timeout(wait, rx.recv()).await {
+                    Ok(Some(RoomListEvent::Status(RoomSyncStatus::Ready))) => ready = Some(start.elapsed()),
+                    Ok(Some(RoomListEvent::Order(_))) => { last_order = Some(start.elapsed()); orders += 1; }
+                    Ok(Some(_)) => {}
+                    _ => return (ready, last_order, orders),
+                }
+            }
+        };
+        let (ready, last_order, orders) = tokio::select! {
+            () = crate::sliding::run(&mut sync, &mut tx, || {}) => panic!("sliding run ended early"),
+            r = collect => r,
+        };
+        let _ = std::fs::remove_dir_all(&root);
+        println!("MEASURE rooms={} ready_ms={:?} last_order_ms={:?} order_events={orders}", ids.len(),
+            ready.map(|d| d.as_millis()), last_order.map(|d| d.as_millis()));
+    });
+}
