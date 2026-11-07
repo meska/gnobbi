@@ -1621,6 +1621,8 @@ impl TimelineView {
         operations: Option<Rc<RefCell<matrix_desktop::LiveOperations>>>,
         cx: &gpui::App,
     ) -> impl IntoElement {
+        // Width of a no-break space in the body font (14 px): the avatar gap is measured on this platform.
+        let space = window.text_system().advance(window.text_system().resolve_font(&window.text_style().font()), px(14.), '\u{a0}').map_or(0., |s| f32::from(s.width));
         let keys = input_modality::is_keyboard(cx); // rings only after a key; the cursors below also feed the a11y tree
         let history = self.history.clone();
         let live = self.live;
@@ -1919,7 +1921,7 @@ impl TimelineView {
                         let painted: crate::recover_keys_view::Painted = Rc::new(|_, _| ());
                         crate::recover_keys_view::row(index, &event.id, t, (&recover, &recover_field, &recover_focus), painted, cx)
                     }).flatten();
-                    let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions);
+                    let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions, &matrix_desktop::mention_gaps::avatar_gap(space));
                     let gaps = Rc::new(gaps);
                     let mut body = StyledText::new(drawn);
                     let pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions).collect();
