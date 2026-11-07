@@ -185,3 +185,56 @@ fn disposable_account_avatar_transient_failure_then_picture_final_failure_initia
         }
     });
 }
+
+/// Incompressible 300x300 picture: its 96 px thumbnail is far above a few KiB, so a small cap bites.
+fn avatar_noise_png() -> Vec<u8> {
+    let mut s = 0x2545F491u32;
+    let mut out = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_fn(300, 300, |_, _| {
+        s = s.wrapping_mul(1664525).wrapping_add(1013904223);
+        image::Rgb([(s >> 8) as u8, (s >> 16) as u8, (s >> 24) as u8])
+    })
+    .write_to(&mut out, image::ImageFormat::Png)
+    .unwrap();
+    out.into_inner()
+}
+
+#[test]
+#[ignore = "requires disposable homeserver"]
+fn disposable_account_avatar_download_cap_cache_hit_needs_no_network_bad_mxc_no_request() {
+    use crate::avatar_cache::{AVATAR_MAX_BYTES, AvatarCache};
+    runtime().block_on(async {
+        let config = fixture();
+        let mxc = avatar_set(&config, "alice", Some(avatar_noise_png())).await.unwrap();
+        let session = login(&config, "alice", 91).await;
+        let client = session.client.clone().expect("logged in");
+        let dir = avatar_root(&config).join("cap-test");
+        let (small, normal) = (dir.join("small"), dir.join("normal"));
+        std::fs::create_dir_all(&dir).unwrap(); // the cache creates only its own last directory
+
+        // 1. Over the cap: stopped while received, final failure (initials), nothing written to disk.
+        let capped = AvatarCache::with_limits(small.clone(), 4 * 1024, 8, 2);
+        assert_eq!(capped.try_get(&client, &mxc).await, Err(false), "over the cap must be final");
+        assert_eq!(capped.downloads(), 1);
+        assert!(!small.exists() || std::fs::read_dir(&small).unwrap().next().is_none(), "no file for a refused body");
+
+        // 2. Under the real cap: bytes arrive, are within AVATAR_MAX_BYTES and are saved once.
+        let cache = AvatarCache::new(normal.clone());
+        let bytes = cache.try_get(&client, &mxc).await.expect("picture");
+        assert!(bytes.len() > 4 * 1024 && bytes.len() <= AVATAR_MAX_BYTES, "{} bytes", bytes.len());
+        assert_eq!(cache.downloads(), 1);
+
+        // 3. Parked account with a saved profile: the server is away, the row is served from disk, no request starts.
+        let paused = PausedServer::new(&config);
+        assert_eq!(cache.try_get(&client, &mxc).await.as_deref(), Ok(bytes.as_slice()));
+        assert_eq!(cache.downloads(), 1, "cache hit must not touch the network");
+        drop(paused);
+
+        // 4. Bad URLs never reach the network: not mxc, empty (Tuwunel's "no avatar"), no media id.
+        for bad in ["https://example.invalid/a.png", "", "mxc://", "mxc://server-only"] {
+            assert_eq!(cache.try_get(&client, bad).await, Err(false), "{bad:?}");
+        }
+        assert_eq!(cache.downloads(), 1, "invalid mxc must not start a download");
+        let _ = std::fs::remove_dir_all(&dir);
+    });
+}
