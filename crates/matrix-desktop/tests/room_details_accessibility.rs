@@ -386,3 +386,21 @@ fn topic_is_a_labelled_focusable_scroll_area_without_help_text_or_click() {
     );
     assert_eq!(view.action(&request(Action::Click)), None);
 }
+
+#[test]
+fn details_switches_never_rename_and_show_on_when_the_content_is_visible() {
+    for (hide_status, hide_redacted) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut p = panel();
+        p.hide_status = hide_status;
+        p.hide_redacted = hide_redacted;
+        let tree = p.tree();
+        let sw: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Switch).collect();
+        let got: Vec<_> = sw.iter().map(|(_, n)| (n.label().unwrap(), n.toggled())).collect();
+        let on = |hide: bool| Some(if hide { Toggled::False } else { Toggled::True });
+        assert_eq!(
+            got,
+            [("Messaggi di stato", on(hide_status)), ("Messaggi eliminati", on(hide_redacted))],
+            "hide_status={hide_status} hide_redacted={hide_redacted}"
+        );
+    }
+}
