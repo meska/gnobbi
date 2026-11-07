@@ -431,3 +431,151 @@ fn disposable_thread_replies_leave_the_main_timeline() {
         assert_eq!(badge, Some(1), "main counter counts \"main one\" only, not the 3 thread replies");
     });
 }
+
+/// Thread roots that are not text: the panel gets the root with its `media` (image: the bubble's picture is
+/// downloadable by event id; file/video: label; sticker: no media). Run: `python3 the auth_smoke script --filter disposable_thread_root_kinds [--server tuwunel]`
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_root_kinds_reach_the_panel() {
+    use crate::{ViewRequests, history::MediaKind, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+        let room = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+        let upload = |mime: &'static str, data: Vec<u8>| {
+            let config = config.clone();
+            async move {
+                let response = http(&config).post(format!("{}_matrix/media/v3/upload", config["url"].as_str().unwrap()))
+                    .bearer_auth(config["alice_token"].as_str().unwrap()).header("Content-Type", mime).body(data).send().await.unwrap();
+                let v: serde_json::Value = serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+                v["content_uri"].as_str().unwrap().to_owned()
+            }
+        };
+        let png = upload("image/png", MEDIA_PNG.to_vec()).await;
+        let blob = upload("application/octet-stream", b"synthetic".to_vec()).await;
+        let put = |kind: &'static str, txn: &'static str, content: serde_json::Value| {
+            let (config, room, actor) = (config.clone(), room.clone(), if txn.ends_with("-r") { "bob" } else { "alice" });
+            async move {
+                let sent = room_request(&config, actor, reqwest::Method::PUT, &format!("rooms/{room}/send/{kind}/{txn}"), content).await;
+                sent["event_id"].as_str().unwrap().to_owned()
+            }
+        };
+        let roots = [
+            ("text", put("m.room.message", "k-text", serde_json::json!({"msgtype":"m.text","body":"plain root"})).await, None),
+            ("image", put("m.room.message", "k-image", serde_json::json!({"msgtype":"m.image","body":"pic.png","url":png,"info":{"mimetype":"image/png","size":1,"w":8,"h":8}})).await, Some(MediaKind::Image)),
+            ("file", put("m.room.message", "k-file", serde_json::json!({"msgtype":"m.file","body":"a.pdf","url":blob,"info":{"mimetype":"application/pdf","size":9}})).await, Some(MediaKind::File)),
+            ("video", put("m.room.message", "k-video", serde_json::json!({"msgtype":"m.video","body":"a.mp4","url":blob,"info":{"mimetype":"video/mp4","size":9,"duration":12000}})).await, Some(MediaKind::Video)),
+            ("sticker", put("m.sticker", "k-sticker", serde_json::json!({"body":"st","url":png,"info":{"mimetype":"image/png","w":8,"h":8}})).await, None),
+        ];
+        for (name, id, _) in &roots {
+            let txn: &'static str = Box::leak(format!("k-{name}-r").into_boxed_str());
+            put("m.room.message", txn, serde_json::json!({"msgtype":"m.text","body":format!("{name} reply"),
+                "m.relates_to":{"rel_type":"m.thread","event_id":id,"is_falling_back":true,"m.in_reply_to":{"event_id":id}}})).await;
+        }
+        let session = login(&config, "alice", 71).await;
+        let client = session.client.clone().unwrap();
+        let mut sync = RoomSync::new(login(&config, "alice", 71).await);
+        sync.sliding_round().await.unwrap();
+        crate::room_sync::RoomSync::sliding_catch_up(&client).await.unwrap();
+        let scope = matrix_domain::RoomScope { account_id: AccountId::new(71), room_id: matrix_domain::RoomId::new(room.clone()) };
+        sync.open_history(ViewRequests::new().start(scope.clone()).unwrap(), crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: true }).await.unwrap();
+        let mut tags = ViewRequests::new();
+        let mut seen = Vec::new();
+        for (name, id, want) in &roots {
+            let root_id = matrix_domain::EventId::new(id.clone());
+            let mut page = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+            for _ in 0..10 {
+                if page.root.is_some() && !page.replies.is_empty() { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let _ = sync.sliding_round().await;
+                page = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+            }
+            let got = page.root.as_ref().and_then(|r| r.media.as_ref()).map(|m| (m.kind, m.label.clone()));
+            seen.push(serde_json::json!({"root": name, "media": got.as_ref().map(|g| format!("{:?} {}", g.0, g.1)),
+                "body": page.root.as_ref().map(|r| r.body.clone()), "replies": page.replies.len()}));
+            assert!(page.root.is_some(), "{name}: root reaches the panel");
+            assert_eq!(page.replies.len(), 1, "{name}: its reply");
+            assert_eq!(got.as_ref().map(|g| g.0), *want, "{name}: media kind of the root");
+            if *want == Some(MediaKind::Image) {
+                // The panel draws the bubble's picture: the same download by event id must work for the root.
+                let tag = tags.start(scope.clone()).unwrap();
+                let down = session.download_png(&tag, &root_id, false).await;
+                seen.push(serde_json::json!({"image_root_download": down.is_ok()}));
+                assert!(down.is_ok(), "image root downloads like a bubble");
+            }
+        }
+        println!("T_ROOTS {}", serde_json::json!({"server": config["server"], "roots": seen}));
+    });
+}
+
+/// Reopen a thread already seen: with the homeserver frozen (SIGSTOP) the second open must not wait for the
+/// network and returns what the first showed; a reply sent while it was closed shows up once the server is back.
+/// Run: `python3 the auth_smoke script --filter disposable_thread_reopen [--server tuwunel]`
+#[test]
+#[cfg(unix)]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_reopen_does_not_wait_for_the_network() {
+    use crate::{ViewRequests, room_sync::RoomSync};
+    let config = fixture();
+    runtime().block_on(async {
+        let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+            serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+        let room = created["room_id"].as_str().unwrap().to_owned();
+        room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+        let put = |actor: &'static str, txn: &'static str, body: &'static str, root: Option<String>| {
+            let (config, room) = (config.clone(), room.clone());
+            async move {
+                let mut content = serde_json::json!({"msgtype":"m.text","body":body});
+                if let Some(root) = root {
+                    content["m.relates_to"] = serde_json::json!({"rel_type":"m.thread","event_id":root,"is_falling_back":true,"m.in_reply_to":{"event_id":root}});
+                }
+                let sent = room_request(&config, actor, reqwest::Method::PUT, &format!("rooms/{room}/send/m.room.message/{txn}"), content).await;
+                sent["event_id"].as_str().unwrap().to_owned()
+            }
+        };
+        let root = put("alice", "ro-root", "root", None).await;
+        for (txn, body) in [("ro-r1", "one"), ("ro-r2", "two"), ("ro-r3", "three")] {
+            put("bob", txn, body, Some(root.clone())).await;
+        }
+        let mut sync = RoomSync::new(login(&config, "alice", 72).await);
+        sync.sliding_round().await.unwrap();
+        let scope = matrix_domain::RoomScope { account_id: AccountId::new(72), room_id: matrix_domain::RoomId::new(room.clone()) };
+        sync.open_history(ViewRequests::new().start(scope.clone()).unwrap(), crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: true }).await.unwrap();
+        let root_id = matrix_domain::EventId::new(root.clone());
+        let mut first = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+        for _ in 0..10 {
+            if first.replies.len() >= 3 { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            first = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+        }
+        assert_eq!(first.replies.len(), 3, "first open shows the thread");
+        let frozen = {
+            let _paused = PausedServer::new(&config);
+            let t = std::time::Instant::now();
+            let again = tokio::time::timeout(std::time::Duration::from_secs(20), sync.open_thread(&scope, &root_id, 25)).await;
+            (t.elapsed(), again)
+        };
+        println!("T_REOPEN {}", serde_json::json!({"server": config["server"], "frozen_ms": frozen.0.as_millis() as u64,
+            "timed_out": frozen.1.is_err(), "replies": frozen.1.as_ref().ok().and_then(|r| r.as_ref().ok()).map(|p| p.replies.len())}));
+        let again = frozen.1.expect("reopen with the server frozen must not hang").expect("reopen answers from the cache");
+        let bodies = |p: &crate::threads::ThreadPage| p.replies.iter().map(|r| r.body.clone()).collect::<Vec<_>>();
+        assert_eq!(bodies(&again), bodies(&first), "same content from the cache");
+        assert_eq!(again.root.as_ref().map(|r| r.body.as_str()), Some("root"));
+        // A reply sent while the thread is closed (and the server was away) shows up after reconnection.
+        put("bob", "ro-r4", "four", Some(root.clone())).await;
+        let mut after = None;
+        for _ in 0..20 {
+            let _ = sync.sliding_round().await;
+            let page = sync.open_thread(&scope, &root_id, 25).await.unwrap();
+            if page.replies.iter().any(|r| r.body == "four") { after = Some(page); break; }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        let after = after.expect("the reply sent while closed reaches the thread");
+        assert_eq!(bodies(&after), ["one", "two", "three", "four"]);
+        assert_eq!(after.root.as_ref().and_then(|r| r.thread.as_ref()).map(|t| t.num_replies), Some(4));
+        // Last on purpose: the content checks above hold even when this one fails (`fill` paginates over the network).
+        assert!(frozen.0 < std::time::Duration::from_secs(3), "reopen waited {:?} for the network", frozen.0);
+    });
+}

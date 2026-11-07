@@ -180,6 +180,51 @@ async fn raw_relation(room: &Room, id: &OwnedEventId) -> serde_json::Value {
     v["content"]["m.relates_to"].clone()
 }
 
+
+/// (msgtype or "non-message", thread summary count) of the item with this id in a timeline.
+async fn kind_of(t: &Timeline, id: &OwnedEventId) -> Option<(String, Option<u32>)> {
+    t.items().await.iter().filter_map(|i| i.as_event()).find(|e| e.event_id() == Some(id)).map(|e| {
+        let kind = e.content().as_message().map_or("non-message".to_owned(), |m| m.msgtype().msgtype().to_owned());
+        (kind, e.content().thread_summary().map(|s| s.num_replies))
+    })
+}
+
+/// Thread roots that are not text (image, file, video, sticker), sent by alice, answered in the thread by bob:
+/// bob's main timeline (decrypting in the E2EE room) must show each root with its real kind and the summary,
+/// and the thread timeline must hold the reply. Same scenarios for plain and encrypted rooms.
+async fn media_roots(tag: &str, ra: &Room, rb: &Room, failed: &mut Vec<String>) {
+    use matrix_engine::sdk::attachment::AttachmentConfig;
+    let png = include_bytes!("fixtures/checker.png").to_vec();
+    let mut roots: Vec<(&str, OwnedEventId, &str)> = Vec::new();
+    for (name, mime, file, want) in [("image", "image/png", "a.png", "m.image"), ("file", "application/pdf", "a.pdf", "m.file"), ("video", "video/mp4", "a.mp4", "m.video")] {
+        let data = if name == "image" { png.clone() } else { b"synthetic bytes".to_vec() };
+        let id = ra.send_attachment(file, &mime.parse().unwrap(), data, AttachmentConfig::new()).await.unwrap().event_id;
+        roots.push((name, id, want));
+    }
+    let sticker = ra.send_raw("m.sticker", serde_json::json!({"body": "st", "url": "mxc://matrix-desktop.test/none", "info": {"mimetype": "image/png", "w": 1, "h": 1}})).await.unwrap().response.event_id;
+    roots.push(("sticker", sticker, "non-message"));
+    for (name, id, _) in &roots {
+        rb.send(in_thread(&format!("{name}-reply"), id)).await.unwrap();
+    }
+    let main = rb.timeline_builder().with_focus(TimelineFocus::Live { hide_threaded_events: true }).build().await.unwrap();
+    for (name, id, want) in &roots {
+        let seen = until(&format!("{tag} {name} root"), 40, async || {
+            let _ = main.paginate_backwards(50).await;
+            kind_of(&main, id).await.filter(|(k, n)| k == want && *n == Some(1))
+        })
+        .await;
+        let last = kind_of(&main, id).await;
+        report(failed, &format!("{tag}.media-root-{name}"), seen.is_some(), format!("receiver main timeline: want={want} summary=1 got={last:?}"));
+        let t = thread_timeline::open(rb, id.clone()).await.unwrap();
+        let reply = until(&format!("{tag} {name} reply"), 25, async || {
+            let _ = t.paginate_backwards(20).await;
+            bodies(&t).await.contains(&format!("{name}-reply")).then_some(())
+        })
+        .await;
+        report(failed, &format!("{tag}.media-root-{name}-thread"), reply.is_some(), format!("thread timeline holds the reply; root kind there: {:?}", kind_of(&t, id).await));
+    }
+}
+
 /// Core scenarios on one room (plain or encrypted). Returns the thread root id.
 async fn core(
     tag: &str,
@@ -619,6 +664,8 @@ fn thread_qa_scenarios() {
         let (root, root2) = core("plain", strict, &ra, &rb, &mut failed).await;
         report(&mut failed, "encrypted-flag", ea.encryption_state().is_encrypted(), String::new());
         core("e2ee", strict, &ea, &eb, &mut failed).await;
+        media_roots("plain", &ra, &rb, &mut failed).await;
+        media_roots("e2ee", &ea, &eb, &mut failed).await;
 
         // Restart: drop everything for alice, reopen the SAME store with the saved session.
         let before = {
