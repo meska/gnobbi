@@ -134,6 +134,8 @@ impl Shell {
                 .child(
                     div()
                         .id("install-offer")
+                        // as wide as the room list (312 px less the margins): never over the composer
+                        .w(gpui::px(280.))
                         .p_3()
                         .gap_2()
                         .flex()
@@ -154,6 +156,7 @@ impl Shell {
                         .child(
                             div()
                                 .flex()
+                                .flex_wrap()
                                 .justify_end()
                                 .gap_2()
                                 .child(button(

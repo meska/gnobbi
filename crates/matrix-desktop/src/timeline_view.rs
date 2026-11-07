@@ -3738,6 +3738,10 @@ mod tests {
                 thread_root: None,
                 status: false,
                 utd,
+                media: None,
+                mentions: Vec::new(),
+                highlighted: false,
+                poll: None,
                 attachment_name: None,
                 attachment_size: None,
             };
