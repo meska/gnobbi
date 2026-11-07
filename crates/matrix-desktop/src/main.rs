@@ -9,6 +9,7 @@ mod composer_icons;
 mod composer_view;
 mod editing_command;
 mod emoji_font;
+mod directory_servers_view;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;
@@ -24,6 +25,7 @@ mod menu_view;
 mod navigation_resize_test;
 mod new_room_view;
 mod quick_search_view;
+mod search_list_view;
 mod room_edit_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -110,6 +112,8 @@ struct Shell {
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
     refocus_menu: bool,
     refocus_list: bool,
+    /// The «Unisciti» server-name field went away: the next render puts the focus back on the search field.
+    refocus_join_field: bool,
     drawer_row: usize,
     settings_focus: FocusHandle,
     /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
@@ -1577,6 +1581,7 @@ impl Shell {
         }
         self.flush_user_search();
         self.flush_room_search();
+        self.flush_directory();
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
@@ -1669,8 +1674,18 @@ impl Shell {
                             state: matrix_engine::operations::SearchState::Error,
                             all_available: false,
                         },
-                        OperationCommand::SearchDirectory { .. } => OperationResult::DirectoryFound {
-                            result: Err(OperationError::Unavailable),
+                        OperationCommand::SearchRooms { term, .. } => OperationResult::RoomSearch {
+                            state: matrix_engine::search::SearchState::Error {
+                                term,
+                                error: matrix_engine::search::SearchError::Network,
+                            },
+                        },
+                        OperationCommand::MoreRooms => OperationResult::RoomSearch {
+                            state: matrix_engine::search::SearchState::Idle,
+                        },
+                        OperationCommand::ProbeServer { server } => OperationResult::ServerProbed {
+                            server,
+                            result: Err(matrix_engine::search::SearchError::Network),
                         },
                         OperationCommand::LeaveRoom { scope } => OperationResult::RoomLeft {
                             scope,
@@ -1871,6 +1886,9 @@ impl Shell {
         // The sign-in inputs are gone after login: without this nothing has focus and shortcuts stay dead.
         if std::mem::take(&mut self.refocus_list) {
             self.list_focus.focus(window);
+        }
+        if std::mem::take(&mut self.refocus_join_field) {
+            self.focus_dialog_field(window, cx);
         }
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
@@ -2872,8 +2890,12 @@ fn main() {
                                                 this.room_edited(result, cx);
                                                 continue;
                                             }
-                                            if let matrix_engine::operations::OperationResult::DirectoryFound { result } = result {
-                                                this.directory_found(result, cx);
+                                            if let matrix_engine::operations::OperationResult::RoomSearch { state } = result {
+                                                this.directory_result(state, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::ServerProbed { server, result } = result {
+                                                this.server_probed(server, result, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::MessageSearch { scope, state } = result {
@@ -3161,6 +3183,7 @@ fn main() {
                         groups_edit: None,
                         refocus_menu: false,
                         refocus_list: false,
+                        refocus_join_field: false,
                         drawer_row: 0,
                         settings_focus: cx.focus_handle(),
                         settings_row: 0,

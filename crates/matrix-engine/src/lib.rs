@@ -30,6 +30,7 @@ pub mod message_search;
 pub mod notify;
 #[cfg(feature = "sdk")]
 pub mod room_tags;
+pub mod search;
 #[cfg(feature = "sdk")]
 pub mod sliding;
 #[cfg(feature = "sdk")]

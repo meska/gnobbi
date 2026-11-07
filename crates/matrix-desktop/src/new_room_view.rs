@@ -3,16 +3,24 @@
 //! dialog opened from the drawer. The engine does the work; the result closes it or shows one error line.
 use crate::*;
 use crate::switch_row::switch_row;
-use matrix_desktop::new_chat::{Picker, Status};
+use matrix_desktop::directory_servers::{Choice as ServerChoice, SavedServers, ServerPicker};
+use matrix_desktop::new_chat::Picker;
+use crate::directory_servers_view::render_server_picker;
+use matrix_desktop::search_list::{Choice, SearchList};
 use matrix_engine::operations::{DirectoryRoom, OperationCommand, OperationError, SearchState};
 
 pub(crate) struct NewRoom {
     dm: bool,
     /// «Unisciti»: one field, directory hits below it.
     join: bool,
-    /// Directory hits of the last search (`None` before any search) and their Tab stops.
-    found: Option<Vec<DirectoryRoom>>,
-    hits: Vec<FocusHandle>,
+    /// «Unisciti»: the public rooms found for the field (shared result list), the server whose
+    /// directory is read (`None` when this account's server is not known) and the last request sent.
+    rooms: SearchList<DirectoryRoom>,
+    servers: Option<ServerPicker>,
+    server_focus: FocusHandle,
+    /// «Aggiungi nuovo server…»: the name field, while it is open.
+    add_field: Option<gpui::Entity<crate::login_field::LoginField>>,
+    rooms_sent: Option<(String, Option<String>)>,
     public: bool,
     /// DM: user ID. Room: name, then topic.
     fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
@@ -66,7 +74,10 @@ impl NewRoom {
             .iter()
             .map(|f| f.read(cx).focus.clone())
             .collect();
-        ring.extend(self.hits.iter().cloned());
+        if self.servers.is_some() {
+            ring.push(self.server_focus.clone());
+        }
+        ring.extend(self.add_field.iter().map(|f| f.read(cx).focus.clone()));
         if !self.dm && !self.join {
             ring.push(self.public_focus.clone());
         }
@@ -118,8 +129,11 @@ impl Shell {
         self.new_room = Some(NewRoom {
             dm,
             join,
-            found: None,
-            hits: Vec::new(),
+            rooms: SearchList::default(),
+            servers: join.then(|| self.directory_picker()).flatten(),
+            server_focus: cx.focus_handle(),
+            add_field: None,
+            rooms_sent: None,
             public: false,
             fields,
             public_focus: cx.focus_handle(),
@@ -164,11 +178,20 @@ impl Shell {
             return;
         }
         let command = if room.join && first.starts_with(['#', '!']) {
-            OperationCommand::JoinRoom { target: first }
+            OperationCommand::JoinRoom { target: first, via: Vec::new() }
         } else if room.join {
-            room.found = None;
-            room.hits.clear();
-            OperationCommand::SearchDirectory { term: first }
+            match room.rooms.chosen() {
+                // From the directory: the room ID, asked through the server that listed it.
+                Some(Choice::Hit(hit)) => OperationCommand::JoinRoom {
+                    target: hit.room_id.clone(),
+                    via: vec![hit.origin.clone()],
+                },
+                Some(Choice::More) => {
+                    self.pending_operation_command = Some(OperationCommand::MoreRooms);
+                    return;
+                }
+                None => return,
+            }
         } else if room.dm {
             OperationCommand::StartDm { user_id: first }
         } else {
@@ -188,44 +211,138 @@ impl Shell {
         cx.notify();
     }
 
-    /// A click (or Enter) on directory hit `i`: join it by alias, or by room ID when it has none.
-    fn join_hit(&mut self, i: usize, cx: &mut Context<Self>) {
+    /// The server picker of «Unisciti»: this account's server first (the one searched by default).
+    fn directory_picker(&self) -> Option<ServerPicker> {
+        let server = |user_id: &str| user_id.split_once(':').map(|(_, s)| s.to_owned());
+        let mine = self
+            .active_id
+            .and_then(|id| self.accounts.get(id))
+            .and_then(|a| a.user_id.as_deref())
+            .or_else(|| self.verification.profile().map(|(id, _)| id.as_str()))?;
+        let others = self
+            .accounts
+            .accounts()
+            .iter()
+            .filter(|a| Some(a.id) != self.active_id)
+            .filter_map(|a| server(a.user_id.as_deref()?))
+            .collect();
+        let saved = self.prefs_dirs.as_ref().map(SavedServers::load).unwrap_or_default();
+        Some(ServerPicker::new(self.active_id.map_or(0, |id| id.as_u64()), &server(mine)?, others, saved))
+    }
+
+    /// What the server picker asked for: a new search, the name field, or the saved list to write.
+    fn server_choice(&mut self, choice: ServerChoice, window: &mut Window, cx: &mut Context<Self>) {
         let Some(room) = self.new_room.as_mut() else {
             return;
         };
-        let Some(hit) = room.found.as_ref().and_then(|found| found.get(i)) else {
-            return;
-        };
-        if room.busy || self.pending_operation_command.is_some() {
-            return;
+        match choice {
+            ServerChoice::AddStarted => {
+                let field = cx.new(|cx| {
+                    let mut field = crate::login_field::LoginField::new(false, cx);
+                    field.enabled = true;
+                    field.placeholder = "Nome del server";
+                    field
+                });
+                cx.observe(&field, |_, _, cx| cx.notify()).detach();
+                field.read(cx).focus.focus(window);
+                room.add_field = Some(field);
+            }
+            ServerChoice::Removed => self.save_servers(),
+            ServerChoice::Selected | ServerChoice::Nothing => {}
         }
-        room.busy = true;
-        room.error = None;
-        self.pending_operation_command = Some(OperationCommand::JoinRoom { target: hit.target().to_owned() });
         cx.notify();
     }
 
-    /// The directory answer: hits become Tab stops under the field.
-    pub(crate) fn directory_found(
-        &mut self,
-        result: Result<Vec<DirectoryRoom>, OperationError>,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(room) = self.new_room.as_mut().filter(|room| room.busy && room.join) else {
+    pub(crate) fn focus_dialog_field(&self, window: &mut Window, cx: &gpui::App) {
+        if let Some(room) = &self.new_room {
+            room.fields[0].read(cx).focus.focus(window);
+        }
+    }
+
+    fn save_servers(&self) {
+        if let Some(dirs) = &self.prefs_dirs
+            && let Some(picker) = self.new_room.as_ref().and_then(|r| r.servers.as_ref())
+            && let Err(error) = picker.store().save(dirs)
+        {
+            eprintln!("Gnobbi: cannot save directory servers: {error}");
+        }
+    }
+
+    /// Enter in the name field: probe the server (the engine answers with `server_probed`).
+    fn confirm_server(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(room) = self.new_room.as_mut() else {
             return;
         };
-        room.busy = false;
-        match result {
-            Ok(found) => {
-                room.hits = found.iter().map(|_| cx.focus_handle()).collect();
-                room.found = Some(found);
+        let (Some(picker), Some(field)) = (room.servers.as_mut(), room.add_field.clone()) else {
+            return;
+        };
+        let name = field.read(cx).input.display_text().trim().to_owned();
+        match picker.confirm_add(&name) {
+            Some(server) if self.pending_operation_command.is_none() => {
+                self.pending_operation_command = Some(OperationCommand::ProbeServer { server });
             }
-            Err(error) => room.error = Some(error),
+            Some(_) => picker.cancel_add(),
+            None => {}
         }
-        for field in &room.fields {
-            field.update(cx, |f, _| f.enabled = true);
+        if !picker.is_adding() {
+            room.add_field = None;
+            room.fields[0].read(cx).focus.focus(window);
         }
         cx.notify();
+    }
+
+    pub(crate) fn server_probed(
+        &mut self,
+        server: String,
+        result: Result<(), matrix_engine::search::SearchError>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(room) = self.new_room.as_mut() else {
+            return;
+        };
+        if room.servers.as_mut().is_some_and(|p| p.probed(&server, result)) {
+            self.save_servers();
+        }
+        if let Some(room) = self.new_room.as_mut()
+            && room.servers.as_ref().is_some_and(|p| !p.is_adding())
+            && room.add_field.take().is_some()
+        {
+            self.refocus_join_field = true;
+        }
+        cx.notify();
+    }
+
+    /// An engine answer for the room search; dropped when it answers another term.
+    pub(crate) fn directory_result(
+        &mut self,
+        state: matrix_engine::search::SearchState<DirectoryRoom>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(room) = self.new_room.as_mut().filter(|r| r.join) {
+            room.rooms.set_state(state);
+            cx.notify();
+        }
+    }
+
+    /// Sends the wanted term and server to the engine once; called from the operations tick.
+    /// Nothing is asked below two characters or for an alias/ID (the engine answers Idle).
+    pub(crate) fn flush_directory(&mut self) {
+        let Some(room) = self.new_room.as_mut().filter(|r| r.join) else {
+            return;
+        };
+        let term = if room.term_wanted.starts_with(['#', '!']) { String::new() } else { room.term_wanted.clone() };
+        let wanted = (term, room.servers.as_ref().and_then(|p| p.value()));
+        if room.rooms_sent.as_ref() == Some(&wanted) || (room.rooms_sent.is_none() && wanted.0.is_empty()) {
+            return;
+        }
+        if let Some((sender, _)) = &mut self.routes.operation
+            && sender
+                .try_send(OperationCommand::SearchRooms { term: wanted.0.clone(), server: wanted.1.clone() })
+                .is_ok()
+        {
+            room.rooms.set_term(&wanted.0);
+            room.rooms_sent = Some(wanted);
+        }
     }
 
     /// The field changed: the old results no longer match, so drop them until the engine answers.
@@ -233,10 +350,15 @@ impl Shell {
         let Some(room) = self
             .new_room
             .as_mut()
-            .filter(|r| r.dm && r.term_wanted != term)
+            .filter(|r| (r.dm || r.join) && r.term_wanted != term)
         else {
             return;
         };
+        if room.join {
+            room.rooms.set_term(if term.starts_with(['#', '!']) { "" } else { &term });
+            room.term_wanted = term;
+            return;
+        }
         let state = if term.chars().count() < 2 {
             SearchState::Idle
         } else {
@@ -285,8 +407,14 @@ impl Shell {
     pub(crate) fn new_chat_avatars(&self) -> Vec<String> {
         self.new_room
             .iter()
-            .flat_map(|r| r.picker.entries())
-            .filter_map(|e| e.avatar)
+            .flat_map(|r| {
+                let users = r.picker.entries().into_iter().filter_map(|e| e.avatar);
+                let rooms = r.rooms.rows().into_iter().filter_map(|row| match row {
+                    matrix_desktop::search_list::Row::Hit(h) => h.avatar_url.clone(),
+                    _ => None,
+                });
+                users.chain(rooms).collect::<Vec<_>>()
+            })
             .collect()
     }
 
@@ -331,7 +459,6 @@ impl Shell {
                 }
                 self.submit_new_room(cx);
             }
-
         }
         cx.notify();
     }
@@ -385,6 +512,7 @@ impl Shell {
     ) -> Option<matrix_desktop::accessibility::new_room::Snapshot> {
         use accesskit::Role;
         use matrix_desktop::accessibility::new_room::{Item, Snapshot};
+        use matrix_desktop::search_list::Hit;
         let room = self.new_room.as_ref()?;
         let item = |role, label: &str, checked, focus: &FocusHandle, bounds| Item {
             role,
@@ -407,8 +535,28 @@ impl Shell {
                 )
             })
             .collect();
-        for (hit, focus) in room.found.iter().flatten().zip(&room.hits) {
-            items.push(item(Role::Button, &hit.name, None, focus, None));
+        if let Some(servers) = &room.servers {
+            items.push(item(
+                Role::Button,
+                &format!("Server: {}", servers.shown()),
+                None,
+                &room.server_focus,
+                None,
+            ));
+        }
+        if let Some(field) = &room.add_field {
+            let f = field.read(cx);
+            items.push(item(Role::TextInput, f.placeholder, None, &f.focus, f.semantic_bounds));
+        }
+        // One node per result (name, alias, members); the highlighted one is what Enter joins.
+        for row in room.rooms.rows() {
+            let label = match row {
+                matrix_desktop::search_list::Row::Hit(hit) => hit.label(),
+                matrix_desktop::search_list::Row::More(more) => {
+                    matrix_desktop::search_list::more_text(more).to_owned()
+                }
+            };
+            items.push(Item { role: Role::Button, label, checked: None, focused: false, bounds: None });
         }
         if !room.dm && !room.join {
             let focus = &room.public_focus;
@@ -427,9 +575,19 @@ impl Shell {
             &room.cancel_focus,
             None,
         ));
-        items.push(item(Role::Button, room.submit_label(), None, &room.submit_focus, None));
-        let none_found = room.found.as_ref().is_some_and(Vec::is_empty);
-        if let Some(text) = room.error.map(|e| error_text(room.dm, room.join, e)).or(none_found.then_some("Nessun risultato")) {
+        items.push(item(
+            Role::Button,
+            room.submit_label(),
+            None,
+            &room.submit_focus,
+            None,
+        ));
+        if let Some(text) = room
+            .error
+            .map(|e| error_text(room.dm, room.join, e))
+            .or(room.servers.as_ref().and_then(|p| p.add_error()))
+            .or(room.rooms.status().map(|s| s.text()))
+        {
             items.push(Item {
                 role: Role::Label,
                 label: text.to_owned(),
@@ -468,14 +626,26 @@ impl Shell {
                 (at + 1) % ring.len()
             };
             ring[next].focus(window);
+        } else if let Some(picker) = room.servers.as_mut().filter(|p| {
+            room.server_focus.is_focused(window) && (key != "escape" || p.is_open())
+        }) && let Some(choice) = picker.key(key)
+        {
+            self.server_choice(choice, window, cx);
+        } else if room.add_field.is_some() && key == "escape" {
+            if let Some(picker) = room.servers.as_mut() {
+                picker.cancel_add();
+            }
+            room.add_field = None;
+            room.fields[0].read(cx).focus.focus(window);
+        } else if key == "enter"
+            && room.add_field.as_ref().is_some_and(|f| f.read(cx).focus.is_focused(window))
+        {
+            self.confirm_server(window, cx);
         } else if key == "escape"
             || (matches!(key, "enter" | "space") && room.cancel_focus.is_focused(window))
         {
             self.close_new_room(window, cx);
-        } else if let Some(i) = room.hits.iter().position(|h| h.is_focused(window))
-            && matches!(key, "enter" | "space")
-        {
-            self.join_hit(i, cx);
+        } else if room.join && matches!(key, "up" | "down") && room.rooms.key(key) {
         } else if matches!(key, "enter" | "space") && room.public_focus.is_focused(window) {
             room.public = !room.public;
         } else if room.dm && matches!(key, "up" | "down") && room.picker.key(key) {
@@ -500,68 +670,19 @@ impl Shell {
         window: &Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let active = room.picker.active();
-        let rows = room
-            .picker
-            .entries()
-            .into_iter()
-            .enumerate()
-            .map(|(i, entry)| {
-                let initial = entry
-                    .name
-                    .as_deref()
-                    .unwrap_or(&entry.user_id)
-                    .trim_start_matches('@')
-                    .chars()
-                    .next()
-                    .map(|c| c.to_uppercase().to_string())
-                    .unwrap_or_default();
-                let picture = match self.avatars.get(entry.avatar.as_deref()) {
-                    Some(image) => avatar_view::round(image, 28.),
-                    None => div()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size(px(28.))
-                        .flex_shrink_0()
-                        .rounded_full()
-                        .bg(rgb(t.accent))
-                        .text_color(rgb(t.on_accent))
-                        .child(initial)
-                        .into_any_element(),
-                };
-                let line =
-                    |text: String, color: u32| div().truncate().text_color(rgb(color)).child(text);
-                div()
-                    .id(("new-chat-hit", i))
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .px_2()
-                    .h(px(40.))
-                    .cursor_pointer()
-                    .when(i == active, |d| d.bg(rgb(t.input)))
-                    .child(picture)
-                    .child(if entry.direct {
-                        div().min_w_0().child(line(entry.label(), t.text))
-                    } else {
-                        div()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(line(
-                                entry.name.clone().unwrap_or_else(|| entry.user_id.clone()),
-                                t.text,
-                            ))
-                            .child(line(entry.user_id.clone(), t.disabled).text_size(px(12.)))
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(room) = &mut this.new_room {
-                            room.picker.set_active(i);
-                        }
-                        this.submit_new_room(cx);
-                    }))
-            });
+        let rows = crate::search_list_view::rows(
+            "new-chat-hit",
+            room.picker.list(),
+            t,
+            &self.avatars,
+            cx,
+            |this, i, cx| {
+                if let Some(room) = &mut this.new_room {
+                    room.picker.set_active(i);
+                }
+                this.submit_new_room(cx);
+            },
+        );
         let switch = room.picker.all_available().then(|| {
             let segment = |id: &'static str, label: &'static str, on: bool| {
                 div()
@@ -607,16 +728,102 @@ impl Shell {
             .gap_1()
             .children(switch)
             .children(rows)
-            .children(room.picker.status().map(|status| {
-                div()
-                    .text_size(px(13.))
-                    .text_color(rgb(if status == Status::Error {
-                        t.error
-                    } else {
-                        t.disabled
-                    }))
-                    .child(status.text())
+            .children(crate::search_list_view::status(room.picker.list(), t))
+            .into_any_element()
+    }
+
+    /// The server button and menu of «Unisciti», and the name field of «Aggiungi nuovo server…».
+    fn render_server_row(
+        &self,
+        room: &NewRoom,
+        t: matrix_desktop::DesignTokens,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let Some(picker) = &room.servers else {
+            return div().into_any_element();
+        };
+        let this = cx.entity();
+        let (toggle, choose, close) = (this.clone(), this.clone(), this);
+        let menu = render_server_picker(
+            picker,
+            &room.server_focus,
+            room.server_focus.is_focused(window),
+            t,
+            move |window, cx| {
+                toggle.update(cx, |this, cx| {
+                    if let Some(room) = &mut this.new_room
+                        && let Some(p) = &mut room.servers
+                    {
+                        if p.is_open() { p.close() } else { p.open() }
+                        room.server_focus.focus(window);
+                    }
+                    cx.notify();
+                })
+            },
+            move |i, window, cx| {
+                choose.update(cx, |this, cx| {
+                    let choice = this.new_room.as_mut().and_then(|r| r.servers.as_mut()).map(|p| p.choose(i));
+                    if let Some(choice) = choice {
+                        this.server_choice(choice, window, cx);
+                    }
+                })
+            },
+            move |_, cx| {
+                close.update(cx, |this, cx| {
+                    if let Some(p) = this.new_room.as_mut().and_then(|r| r.servers.as_mut()) {
+                        p.close();
+                    }
+                    cx.notify();
+                })
+            },
+        );
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(menu)
+            .children(room.add_field.clone())
+            .children(picker.add_error().filter(|_| room.add_field.is_some()).map(|e| {
+                div().text_size(px(13.)).text_color(rgb(t.error)).child(e)
             }))
+            .into_any_element()
+    }
+
+    /// Public rooms found for the field: rows, «Altri risultati», then the one status line.
+    fn render_room_results(
+        &self,
+        room: &NewRoom,
+        t: matrix_desktop::DesignTokens,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let rows = crate::search_list_view::rows(
+            "join-hit",
+            &room.rooms,
+            t,
+            &self.avatars,
+            cx,
+            |this, i, cx| {
+                if let Some(room) = &mut this.new_room {
+                    room.rooms.set_active(i);
+                }
+                this.submit_new_room(cx);
+            },
+        );
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .id("join-hits")
+                    .max_h(px(220.))
+                    .overflow_y_scroll()
+                    .flex()
+                    .flex_col()
+                    .children(rows),
+            )
+            .children(crate::search_list_view::status(&room.rooms, t))
             .into_any_element()
     }
 
@@ -683,49 +890,8 @@ impl Shell {
                                 .child(room.title()),
                         )
                         .children(room.fields.iter().cloned())
-                        .when(room.found.as_ref().is_some_and(|f| !f.is_empty()), |d| {
-                            d.child(
-                                div()
-                                    .id("new-room-hits")
-                                    .max_h(px(220.))
-                                    .overflow_y_scroll()
-                                    .flex()
-                                    .flex_col()
-                                    .children(
-                                        room.found.iter().flatten().zip(&room.hits).enumerate().map(
-                                            |(i, (hit, focus))| {
-                                                div()
-                                                    .id(("new-room-hit", i))
-                                                    .track_focus(focus)
-                                                    .h(px(36.))
-                                                    .px_2()
-                                                    .flex()
-                                                    .items_center()
-                                                    .justify_between()
-                                                    .gap_2()
-                                                    .cursor_pointer()
-                                                    .border_1()
-                                                    .border_color(rgb(if input_modality::only_keys(focus.is_focused(window), cx) {
-                                                        t.accent
-                                                    } else {
-                                                        t.surface
-                                                    }))
-                                                    .text_color(rgb(t.text))
-                                                    .child(div().truncate().child(hit.name.clone()))
-                                                    .child(
-                                                        div()
-                                                            .text_size(px(12.))
-                                                            .text_color(rgb(t.text))
-                                                            .child(hit.members.to_string()),
-                                                    )
-                                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                                        this.join_hit(i, cx)
-                                                    }))
-                                            },
-                                        ),
-                                    ),
-                            )
-                        })
+                        .when(room.servers.is_some(), |d| d.child(self.render_server_row(room, t, window, cx)))
+                        .when(room.join, |d| d.child(self.render_room_results(room, t, cx)))
                         .when(!room.dm && !room.join, |d| {
                             d.child(self.render_new_chat_results(room, t, window, cx))
                         })
@@ -751,9 +917,6 @@ impl Shell {
                                 .text_color(rgb(t.error))
                                 .child(error_text(room.dm, room.join, error))
                         }))
-                        .when(room.found.as_ref().is_some_and(Vec::is_empty), |d| {
-                            d.child(div().text_size(px(13.)).text_color(rgb(t.disabled)).child("Nessun risultato"))
-                        })
                         .child(
                             div()
                                 .flex()
@@ -795,12 +958,24 @@ mod tests {
     #[test]
     fn one_line_per_failure() {
         use OperationError::*;
-        assert_eq!(error_text(true, false, InvalidInput), "ID utente non valido");
+        assert_eq!(
+            error_text(true, false, InvalidInput),
+            "ID utente non valido"
+        );
         assert_eq!(error_text(false, false, InvalidInput), "Nome mancante");
         assert_eq!(error_text(true, false, Unavailable), "Utente non trovato");
-        assert_eq!(error_text(false, false, Unavailable), "Connessione non riuscita");
-        assert_eq!(error_text(true, false, Forbidden), "Non consentito dal server");
-        assert_eq!(error_text(true, false, Transport), "Connessione non riuscita");
+        assert_eq!(
+            error_text(false, false, Unavailable),
+            "Connessione non riuscita"
+        );
+        assert_eq!(
+            error_text(true, false, Forbidden),
+            "Non consentito dal server"
+        );
+        assert_eq!(
+            error_text(true, false, Transport),
+            "Connessione non riuscita"
+        );
         assert_eq!(error_text(false, true, InvalidInput), "Alias non valido");
         assert_eq!(error_text(false, true, Unavailable), "Stanza non trovata");
     }

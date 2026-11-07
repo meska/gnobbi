@@ -251,7 +251,8 @@ impl LiveOperations {
             | OperationResult::RoomStarted { .. }
             | OperationResult::RoomEdited { .. }
             | OperationResult::InviteAnswered { .. }
-            | OperationResult::DirectoryFound { .. }
+            | OperationResult::RoomSearch { .. }
+            | OperationResult::ServerProbed { .. }
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
             | OperationResult::UserVerification { .. }

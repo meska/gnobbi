@@ -153,10 +153,20 @@ pub enum OperationCommand {
     /// Join by alias (`#a:server`) or room ID (`!id:server`), typed or taken from the directory.
     JoinRoom {
         target: String,
+        /// Servers that can answer the join (`server_name`); empty = the target's own server.
+        via: Vec<String>,
     },
-    /// Public directory of the user's homeserver, filtered by `term`.
-    SearchDirectory {
+    /// «Unisciti» search of a public room directory (`server` None = the account's own),
+    /// answered with `OperationResult::RoomSearch` as it progresses. The term is never logged.
+    SearchRooms {
         term: String,
+        server: Option<String>,
+    },
+    /// «Altri risultati» of the running room search.
+    MoreRooms,
+    /// «Aggiungi nuovo server…»: one directory request to see whether `server` answers.
+    ProbeServer {
+        server: String,
     },
     /// «Esci»: leave the joined room and forget it, so it drops out of the list.
     LeaveRoom {
@@ -255,8 +265,12 @@ pub enum OperationResult {
         action: Moderation,
         result: Result<(), OperationError>,
     },
-    DirectoryFound {
-        result: Result<Vec<DirectoryRoom>, OperationError>,
+    RoomSearch {
+        state: crate::search::SearchState<DirectoryRoom>,
+    },
+    ServerProbed {
+        server: String,
+        result: Result<(), crate::search::SearchError>,
     },
     RoomLeft {
         scope: RoomScope,
@@ -307,7 +321,15 @@ pub struct DirectoryRoom {
     pub room_id: String,
     pub alias: Option<String>,
     pub name: String,
+    pub topic: Option<String>,
     pub members: u64,
+    pub avatar_url: Option<String>,
+    pub world_readable: bool,
+    pub guest_can_join: bool,
+    /// `public`, `knock`, `invite`...: only `public` can be joined straight away.
+    pub join_rule: String,
+    /// Server whose directory listed the room; the `via` of the join.
+    pub origin: String,
 }
 impl DirectoryRoom {
     /// What `JoinRoom` takes: the alias when the room has one, else the room ID.
@@ -576,20 +598,19 @@ pub async fn answer_invite(
         .map_err(|e| classify(&e))
 }
 
-/// Join by alias or room ID (`Client::join_room_by_id_or_alias`; the server resolves an alias, a bare
-/// room ID is tried through its own server). Not a room the server lets the user into: `Forbidden`.
+/// Join by alias or room ID (`Client::join_room_by_id_or_alias`; the server resolves an alias).
+/// `via` = servers to try (the directory server of a result); empty and a room ID: the ID's own
+/// server. A room that needs an invite or a knock: the server says no, `Forbidden`.
 #[cfg(feature = "sdk")]
 pub async fn join_room(
     client: &matrix_sdk::Client,
     account: matrix_domain::AccountId,
     target: &str,
+    via: &[String],
 ) -> Result<RoomScope, OperationError> {
-    use matrix_sdk::ruma::{OwnedRoomOrAliasId, OwnedServerName};
+    use matrix_sdk::ruma::OwnedRoomOrAliasId;
     let target = OwnedRoomOrAliasId::try_from(target.trim()).map_err(|_| OperationError::InvalidInput)?;
-    let via: Vec<OwnedServerName> = match target.is_room_id() {
-        true => target.server_name().into_iter().map(ToOwned::to_owned).collect(),
-        false => Vec::new(),
-    };
+    let via = join_via(&target, via)?;
     let room = timeout_create(client.join_room_by_id_or_alias(&target, &via)).await?;
     Ok(RoomScope {
         account_id: account,
@@ -597,29 +618,115 @@ pub async fn join_room(
     })
 }
 
-/// First page (20) of the homeserver's public room directory matching `term`.
+/// The `via` list of a join: the given servers (deduplicated, each a valid server name), else the
+/// server of a room ID, else nothing (an alias resolves on its own server).
 #[cfg(feature = "sdk")]
-pub async fn search_directory(
+pub fn join_via(
+    target: &matrix_sdk::ruma::OwnedRoomOrAliasId,
+    via: &[String],
+) -> Result<Vec<matrix_sdk::ruma::OwnedServerName>, OperationError> {
+    let mut out: Vec<matrix_sdk::ruma::OwnedServerName> = Vec::new();
+    for v in via {
+        let v = matrix_sdk::ruma::OwnedServerName::try_from(v.trim()).map_err(|_| OperationError::InvalidInput)?;
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    if out.is_empty() && target.is_room_id() {
+        out.extend(target.server_name().map(ToOwned::to_owned));
+    }
+    Ok(out)
+}
+
+/// A Matrix server name (`host`, `host:port`, `[v6]:port`) from the user's text; checked before any request.
+#[cfg(feature = "sdk")]
+pub fn parse_server(text: &str) -> Result<matrix_sdk::ruma::OwnedServerName, crate::search::SearchError> {
+    matrix_sdk::ruma::OwnedServerName::try_from(text.trim()).map_err(|_| crate::search::SearchError::InvalidServer)
+}
+
+/// The POST /publicRooms body and query. `server` = another server's directory (our homeserver
+/// relays); `None` or our own server name = the local directory, no `server` parameter.
+#[cfg(feature = "sdk")]
+pub fn directory_request(
+    term: &str,
+    server: Option<&str>,
+    local: Option<&matrix_sdk::ruma::ServerName>,
+    since: Option<String>,
+    limit: u32,
+) -> Result<matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered::v3::Request, crate::search::SearchError> {
+    let mut request = matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered::v3::Request::new();
+    request.server = match server.map(parse_server).transpose()? {
+        Some(s) if Some(&*s) != local => Some(s),
+        _ => None,
+    };
+    request.limit = Some(limit.into());
+    request.since = since;
+    request.filter.generic_search_term = Some(term.trim().to_owned()).filter(|t| !t.is_empty());
+    Ok(request)
+}
+
+/// Directory answer to hits; `origin` is the server that was asked.
+#[cfg(feature = "sdk")]
+pub fn directory_page(
+    response: matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered::v3::Response,
+    origin: &str,
+) -> crate::search::Page<DirectoryRoom> {
+    crate::search::Page {
+        hits: response
+            .chunk
+            .into_iter()
+            .map(|d| DirectoryRoom {
+                room_id: d.room_id.to_string(),
+                alias: d.canonical_alias.as_ref().map(ToString::to_string),
+                name: d.name.clone().unwrap_or_else(|| d.canonical_alias.as_ref().map_or_else(|| d.room_id.to_string(), ToString::to_string)),
+                topic: d.topic.filter(|t| !t.trim().is_empty()),
+                members: d.num_joined_members.into(),
+                avatar_url: d.avatar_url.map(|u| u.to_string()),
+                world_readable: d.world_readable,
+                guest_can_join: d.guest_can_join,
+                join_rule: d.join_rule.as_str().to_owned(),
+                origin: origin.to_owned(),
+            })
+            .collect(),
+        next_batch: response.next_batch.filter(|b| !b.is_empty()),
+    }
+}
+
+/// Transport failure = our homeserver is down; 400 = it rejected the server name; 401/403/404 =
+/// the remote refuses its directory to us (many servers do, or do not federate it); the rest
+/// (5xx relayed: the remote does not answer) = unreachable.
+#[cfg(feature = "sdk")]
+pub fn directory_error(status: Option<u16>, kind: Option<&ErrorKind>) -> crate::search::SearchError {
+    use crate::search::SearchError::*;
+    match (status, kind) {
+        (None, _) => Network,
+        (_, Some(ErrorKind::InvalidParam)) | (Some(400), _) => InvalidServer,
+        (_, Some(ErrorKind::Forbidden | ErrorKind::Unrecognized | ErrorKind::NotFound)) => Refused,
+        (Some(401 | 403 | 404), _) => Refused,
+        _ => Unreachable,
+    }
+}
+
+/// One page of a public room directory (`Client::public_rooms_filtered`, POST /publicRooms), `term`
+/// matched by the server. No debounce or timeout here: the driver aborts the future when superseded.
+/// Privacy: the term is never logged.
+#[cfg(feature = "sdk")]
+pub async fn public_rooms(
     client: &matrix_sdk::Client,
     term: &str,
-) -> Result<Vec<DirectoryRoom>, OperationError> {
-    let mut search = matrix_sdk::room_directory_search::RoomDirectorySearch::new(client.clone());
-    let term = Some(term.trim().to_owned()).filter(|t| !t.is_empty());
-    tokio::time::timeout(std::time::Duration::from_secs(20), search.search(term, 20, None))
-        .await
-        .map_err(|_| OperationError::Transport)?
-        .map_err(|e| classify(&e))?;
-    Ok(search
-        .results()
-        .0
-        .iter()
-        .map(|d| DirectoryRoom {
-            room_id: d.room_id.to_string(),
-            alias: d.alias.as_ref().map(ToString::to_string),
-            name: d.name.clone().unwrap_or_else(|| d.alias.as_ref().map_or_else(|| d.room_id.to_string(), ToString::to_string)),
-            members: d.joined_members,
-        })
-        .collect())
+    server: Option<&str>,
+    since: Option<String>,
+    limit: u32,
+) -> Result<crate::search::Page<DirectoryRoom>, crate::search::SearchError> {
+    let local = client.user_id().map(|u| u.server_name().to_owned());
+    let request = directory_request(term, server, local.as_deref(), since, limit)?;
+    let origin = request.server.as_ref().map(ToString::to_string).or_else(|| local.map(|l| l.to_string())).unwrap_or_default();
+    // The SDK retries 5xx; a home server's 502 for a dead remote must surface at once, not as a 20 s timeout.
+    let response = client.send(request).with_request_config(matrix_sdk::config::RequestConfig::new().disable_retry()).await.map_err(|e| {
+        let api = e.as_client_api_error();
+        directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind())
+    })?;
+    Ok(directory_page(response, &origin))
 }
 
 /// Leave a joined room (`Room::leave`), then forget it (`Room::forget`) so the store drops it too.
@@ -1575,3 +1682,7 @@ mod tests {
         });
     }
 }
+
+#[cfg(all(test, feature = "sdk"))]
+#[path = "operations_directory_tests.rs"]
+mod directory_tests;

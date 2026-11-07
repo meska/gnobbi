@@ -3,8 +3,10 @@
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
 pub mod build_info;
+pub mod directory_rooms;
 pub mod new_chat;
 pub mod notifications;
+pub mod search_list;
 pub mod update;
 
 /// Send is shown for a committed, non-blank draft or an attachment, never while recording.
@@ -40,9 +42,9 @@ pub use signin_form::{
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput};
-pub mod app_icon;
 mod account_catalog;
 mod account_erase;
+pub mod app_icon;
 pub use account_erase::erase_account;
 mod account_list;
 mod account_state;
@@ -56,13 +58,15 @@ mod accent;
 pub use accent::{Accent, current_accent, set_accent, system_accent};
 mod preferences;
 pub mod quick_search;
+pub mod directory_servers;
 mod rail_layout;
 mod room_prefs;
-pub use room_prefs::RoomPrefs;
-pub use rail_layout::{RailLayout, RailLayouts};
 pub use preferences::{
-    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font, ui_font,
+    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font,
+    ui_font,
 };
+pub use rail_layout::{RailLayout, RailLayouts};
+pub use room_prefs::RoomPrefs;
 mod composer;
 mod connection_options;
 pub mod panel_openers;
@@ -92,7 +96,10 @@ mod voice;
 pub use voice::{max_note_samples, voice_attachment};
 mod attachment_save;
 mod live_media;
-pub use attachment_save::{SaveState, Saves, failure_label as save_failure_label, offers_save, over_cap as save_over_cap, retryable as save_retryable, start_dir as save_start_dir};
+pub use attachment_save::{
+    SaveState, Saves, failure_label as save_failure_label, offers_save, over_cap as save_over_cap,
+    retryable as save_retryable, start_dir as save_start_dir,
+};
 pub use live_media::LiveMedia;
 mod live_delivery;
 pub use live_delivery::LiveDelivery;
