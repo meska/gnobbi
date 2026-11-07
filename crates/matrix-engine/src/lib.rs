@@ -87,7 +87,8 @@ pub struct RoomInfo {
 
 /// Stable-ID updates independent of the current UI filter or selection.
 pub enum RoomListDiff {
-    Upsert(RoomSummary),
+    // Boxed: RoomSummary is large next to Remove(RoomScope) (clippy::large_enum_variant).
+    Upsert(Box<RoomSummary>),
     Remove(RoomScope),
 }
 

@@ -270,7 +270,7 @@ fn pointer_transition(this: &mut Shell, transition: &str, away: bool) {
 }
 
 fn upsert_space(this: &mut Shell, account: matrix_domain::AccountId, id: &str, name: &str) {
-    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(
+    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(
         matrix_engine::RoomSummary {
             scope: RoomScope {
                 account_id: account,
@@ -283,7 +283,7 @@ fn upsert_space(this: &mut Shell, account: matrix_domain::AccountId, id: &str, n
                 ..Default::default()
             },
         },
-    ));
+    )));
 }
 
 fn focus_choice(
@@ -439,11 +439,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.sync_room(cx);
             if SPACES.load(Ordering::SeqCst) {
                 for (id, name) in [("!alpha:fixture", "Alpha"), ("!beta:fixture", "Beta")] {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id: scopes[0].account_id, room_id: matrix_domain::RoomId::new(id) },
                         name: name.into(), unread: 0,
                         info: matrix_engine::RoomInfo { is_space: true, ..Default::default() },
-                    }));
+                    })));
                 }
                 assert_eq!(this.sidebar.spaces().count(), 2);
             }
@@ -794,9 +794,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let painted = this.update_in(cx, |this, window, _| activation_callback(this, window)).unwrap();
             this.update_in(cx, |this, window, cx| {
                 let name = this.sidebar.rooms()[1].name.clone();
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope: scopes[1].clone(), name, unread: 3, info: Default::default(),
-                }));
+                })));
                 // Room switch and back through the sidebar, then the filter.
                 assert!(this.sidebar.select(&scopes[1]));
                 this.sync_room(cx);
@@ -1853,11 +1853,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let hidden = this.update_in(cx, |this, _, cx| {
                 let account = this.active_scope.account_id;
                 for (id, name, members, preview) in [("!a:t", "Anna Bianchi", 2, Some("Ci vediamo domani")), ("!b:t", "Stanza vuota", 1, None)] {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(id) },
                         name: name.into(), unread: 0,
                         info: matrix_engine::RoomInfo { preview: preview.map(Into::into), joined_members: members, ..Default::default() },
-                    }));
+                    })));
                 }
                 cx.notify();
                 visible(this)
@@ -1882,11 +1882,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let rows = this.update_in(cx, |this, _, cx| {
                 let account = this.active_scope.account_id;
                 for (id, name, preview) in [("!a:t", "Anna Bianchi", Some("Ci vediamo domani alle nove")), ("!b:t", "Anna Rossi", None)] {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(id) },
                         name: name.into(), unread: 0,
                         info: matrix_engine::RoomInfo { preview: preview.map(Into::into), ..Default::default() },
-                    }));
+                    })));
                 }
                 this.sidebar.set_query("Anna");
                 cx.notify();
@@ -2181,10 +2181,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, cx| {
                 let account_id = this.sidebar.rooms()[0].scope.account_id;
                 for i in 0..60 {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: RoomScope { account_id, room_id: matrix_domain::RoomId::new(format!("!fill{i:02}:fixture")) },
                         name: format!("Stanza {i:02}"), unread: 0, info: Default::default(),
-                    }));
+                    })));
                 }
                 cx.notify();
             }).unwrap();
@@ -2411,14 +2411,14 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let alpha = this.sidebar.navigation_entries()[1].scope.clone().unwrap();
                 let beta = this.sidebar.navigation_entries()[2].scope.clone().unwrap();
                 this.sidebar.apply_diff(matrix_engine::RoomListDiff::Remove(alpha));
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary { scope: beta.clone(), name: "Beta no longer a Space".into(), unread: 0, info: Default::default() }));
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary { scope: beta.clone(), name: "Beta no longer a Space".into(), unread: 0, info: Default::default() })));
                 cx.notify();
                 beta
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
                 assert!(this.unread_focus.is_focused(window));
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary { scope: beta, name: "Beta replacement".into(), unread: 0, info: matrix_engine::RoomInfo { is_space: true, ..Default::default() } }));
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary { scope: beta, name: "Beta replacement".into(), unread: 0, info: matrix_engine::RoomInfo { is_space: true, ..Default::default() } })));
                 cx.notify();
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
@@ -2436,14 +2436,14 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let space = this.update_in(cx, |this, window, cx| {
                 let space = this.sidebar.navigation_entries()[1].scope.clone().unwrap();
                 let name = this.sidebar.rooms()[1].name.clone();
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope: scopes[1].clone(), name, unread: 3, info: Default::default(),
-                }));
+                })));
                 let name = this.sidebar.rooms().iter().find(|r| r.scope == space).unwrap().name.clone();
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope: space.clone(), name, unread: 0,
                     info: matrix_engine::RoomInfo { is_space: true, children: vec![scopes[1].room_id.clone()], ..Default::default() },
-                }));
+                })));
                 this.list_focus.focus(window);
                 cx.notify();
                 space

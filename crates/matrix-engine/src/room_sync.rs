@@ -1206,7 +1206,7 @@ impl RoomSync {
             .previous
             .iter()
             .filter(|(id, room)| before.get(*id) != Some(*room))
-            .map(|(_, room)| RoomListDiff::Upsert(room.clone()))
+            .map(|(_, room)| RoomListDiff::Upsert(Box::new(room.clone())))
             .collect();
         diffs.extend(
             before
@@ -1341,7 +1341,7 @@ impl RoomSync {
         let mut changes: Vec<_> = current
             .iter()
             .filter(|(id, room)| self.previous.get(*id) != Some(*room))
-            .map(|(_, room)| RoomListDiff::Upsert(room.clone()))
+            .map(|(_, room)| RoomListDiff::Upsert(Box::new(room.clone())))
             .collect();
         changes.extend(
             self.previous

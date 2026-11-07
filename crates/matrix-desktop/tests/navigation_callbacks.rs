@@ -62,13 +62,13 @@ fn painted_callback_rejects_eligibility_replacement_and_same_scope_return() {
     for case in ["remove", "reclassify", "unread", "search", "direct-child"] {
         let mut sidebar = Sidebar::connected(AccountId::new(17));
         let original = room();
-        sidebar.apply_diff(RoomListDiff::Upsert(original.clone()));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(original.clone())));
         sidebar.set_unread_only(true);
         let mut space = original.clone();
         space.scope.room_id = RoomId::new("!space:test");
         space.info.is_space = true;
         space.info.children = vec![original.scope.room_id.clone()];
-        sidebar.apply_diff(RoomListDiff::Upsert(space.clone()));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(space.clone())));
         if case == "direct-child" {
             sidebar.set_space(Some(space.scope.clone()));
         }
@@ -80,23 +80,23 @@ fn painted_callback_rejects_eligibility_replacement_and_same_scope_return() {
             }
             "reclassify" => {
                 changed.info.is_space = true;
-                sidebar.apply_diff(RoomListDiff::Upsert(changed));
+                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
             }
             "unread" => {
                 changed.unread = 0;
-                sidebar.apply_diff(RoomListDiff::Upsert(changed));
+                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
             }
             "search" => sidebar.set_query("absent"),
             "direct-child" => {
                 let mut changed = space.clone();
                 changed.info.children.clear();
-                sidebar.apply_diff(RoomListDiff::Upsert(changed));
+                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
             }
             _ => unreachable!(),
         }
         assert!(!captured(&sidebar), "{case}");
-        sidebar.apply_diff(RoomListDiff::Upsert(original));
-        sidebar.apply_diff(RoomListDiff::Upsert(space));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(original)));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(space)));
         sidebar.set_query("");
         assert!(!captured(&sidebar), "returned {case}");
         assert!(sidebar.navigation_callback()(&sidebar));
@@ -107,13 +107,13 @@ fn painted_callback_rejects_eligibility_replacement_and_same_scope_return() {
 fn live_callback_survives_labels_counts_and_irrelevant_hidden_menu_flags() {
     let mut sidebar = Sidebar::connected(AccountId::new(17));
     let mut row = room();
-    sidebar.apply_diff(RoomListDiff::Upsert(row.clone()));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(row.clone())));
     sidebar.set_navigation_visibility(true, true, false);
     let captured = sidebar.navigation_callback();
     row.name = "New live label".into();
     row.unread = 5;
     row.info.topic = Some("New topic".into());
-    sidebar.apply_diff(RoomListDiff::Upsert(row));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(row)));
     sidebar.set_navigation_visibility(true, true, true);
     assert!(captured(&sidebar));
 }

@@ -41,11 +41,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.accounts = c;
             this.connected = true;
             for (room, name) in [("!alpha:fixture", "Alpha"), ("!beta:fixture", "Beta")] {
-                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope: RoomScope { account_id: id, room_id: matrix_domain::RoomId::new(room) },
                     name: name.into(), unread: 0,
                     info: matrix_engine::RoomInfo { is_space: true, ..Default::default() },
-                }));
+                })));
             }
             this.rail_ui.target = this.sidebar.navigation_entries()[0].scope.clone();
             this.rail_ui.focus.focus(window);

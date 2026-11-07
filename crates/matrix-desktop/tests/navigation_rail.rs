@@ -9,12 +9,12 @@ fn scope(id: &str) -> RoomScope {
     }
 }
 fn add(sidebar: &mut Sidebar, id: &str, unread: u64, info: RoomInfo) {
-    sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
         scope: scope(id),
         name: id.into(),
         unread,
         info,
-    }));
+    })));
 }
 
 #[test]

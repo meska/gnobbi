@@ -70,7 +70,7 @@ async fn until(
         while !done(st) {
             match rx.recv().await {
                 Some(RoomListEvent::Diff(RoomListDiff::Upsert(r))) => {
-                    st.rooms.insert(r.scope.room_id.as_str().to_owned(), r);
+                    st.rooms.insert(r.scope.room_id.as_str().to_owned(), *r);
                 }
                 Some(RoomListEvent::Diff(RoomListDiff::Remove(s))) => {
                     st.removed.push(s.room_id.as_str().to_owned());
@@ -345,7 +345,7 @@ fn qa_profile_filled_by_classic_loop_opens_on_sliding() {
         // Like RoomListWorker: saved rooms from the store first, then the live path.
         for d in sync.saved_batch().await.unwrap() {
             if let RoomListDiff::Upsert(r) = d {
-                st.rooms.insert(r.scope.room_id.as_str().to_owned(), r);
+                st.rooms.insert(r.scope.room_id.as_str().to_owned(), *r);
             }
         }
         // The preview is the SDK latest event: a store written by the old loop has none until sliding sync computes it.

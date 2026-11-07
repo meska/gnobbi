@@ -63,12 +63,12 @@ fn scope(room: &str) -> RoomScope {
     }
 }
 fn upsert(room: &str, name: &str, unread: u64) -> RoomListEvent {
-    RoomListEvent::Diff(RoomListDiff::Upsert(RoomSummary {
+    RoomListEvent::Diff(RoomListDiff::Upsert(Box::new(RoomSummary {
         scope: scope(room),
         name: name.into(),
         unread,
         info: RoomInfo::default(),
-    }))
+    })))
 }
 
 #[test]

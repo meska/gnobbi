@@ -145,7 +145,7 @@ fn dm_avatar_rules_hot_update_and_cache_reuse() {
                         _ = tokio::time::sleep_until(end) => panic!("timeout: {} ; avatars={:?}", $what,
                             rooms.iter().map(|(k, r)| (k.clone(), r.info.avatar.clone(), r.info.joined_members)).collect::<Vec<_>>()),
                         event = rx.recv() => match event.unwrap() {
-                            RoomListEvent::Diff(RoomListDiff::Upsert(r)) => { rooms.insert(r.scope.room_id.as_str().to_owned(), r); }
+                            RoomListEvent::Diff(RoomListDiff::Upsert(r)) => { rooms.insert(r.scope.room_id.as_str().to_owned(), *r); }
                             RoomListEvent::Diff(RoomListDiff::Remove(s)) => { rooms.remove(s.room_id.as_str()); }
                             _ => {}
                         },
@@ -161,7 +161,7 @@ fn dm_avatar_rules_hot_update_and_cache_reuse() {
                         _ = &mut run => panic!("adapter ended"),
                         _ = tokio::time::sleep_until(end) => break,
                         event = rx.recv() => match event.unwrap() {
-                            RoomListEvent::Diff(RoomListDiff::Upsert(r)) => { rooms.insert(r.scope.room_id.as_str().to_owned(), r); }
+                            RoomListEvent::Diff(RoomListDiff::Upsert(r)) => { rooms.insert(r.scope.room_id.as_str().to_owned(), *r); }
                             _ => {}
                         },
                     }

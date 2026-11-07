@@ -221,12 +221,12 @@ fn view_entries_find_dm_by_matrix_id_contact_and_room_by_alias_even_with_empty_s
     let account = AccountId::new(1);
     let mut sidebar = Sidebar::connected(account);
     let mut add = |id: &str, name: &str, info: RoomInfo| {
-        sidebar.apply_diff(RoomListDiff::Upsert(RoomSummary {
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: RoomScope { account_id: account, room_id: RoomId::new(id) },
             name: name.into(),
             unread: 0,
             info,
-        }));
+        })));
     };
     add(
         "!dm:matrix-desktop.test",

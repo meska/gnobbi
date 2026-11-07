@@ -159,8 +159,8 @@ fn queued_room_focus_rejects_removed_replaced_hidden_foreign_sources() {
     ] {
         let mut sidebar = Sidebar::connected(AccountId::new(17));
         let room = summary("!room:test", false);
-        sidebar.apply_diff(RoomListDiff::Upsert(room.clone()));
-        sidebar.apply_diff(RoomListDiff::Upsert(summary("!other:test", false)));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(summary("!other:test", false))));
         sidebar.set_navigation_visibility(true, true, false);
         if case == "unread-return" {
             sidebar.set_unread_only(true);
@@ -189,19 +189,19 @@ fn queued_room_focus_rejects_removed_replaced_hidden_foreign_sources() {
         match case {
             "remove-return" => {
                 sidebar.apply_diff(RoomListDiff::Remove(room.scope.clone()));
-                sidebar.apply_diff(RoomListDiff::Upsert(room.clone()));
+                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
             }
             "space-return" => {
                 let mut changed = room.clone();
                 changed.info.is_space = true;
-                sidebar.apply_diff(RoomListDiff::Upsert(changed));
-                sidebar.apply_diff(RoomListDiff::Upsert(room.clone()));
+                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
+                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
             }
             "unread-return" => {
                 let mut changed = room.clone();
                 changed.unread = 0;
-                sidebar.apply_diff(RoomListDiff::Upsert(changed));
-                sidebar.apply_diff(RoomListDiff::Upsert(room.clone()));
+                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
+                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
             }
             "search-return" => {
                 sidebar.set_query("other");
@@ -247,8 +247,8 @@ fn retired_space_and_room_paths_cannot_reacquire_the_returned_navigation_visit()
         (true, true, (true, false, false)),  // covering panel
     ] {
         let mut sidebar = Sidebar::connected(AccountId::new(17));
-        sidebar.apply_diff(RoomListDiff::Upsert(summary("!room:test", false)));
-        sidebar.apply_diff(RoomListDiff::Upsert(summary("!space:test", true)));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(summary("!room:test", false))));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(summary("!space:test", true))));
         sidebar.set_navigation_visibility(persistent, true, open);
         let mut rooms = RoomNodes::default();
         let mut spaces = SpaceNodes::default();
@@ -348,32 +348,32 @@ fn upsert_search_and_direct_child_eligibility_retire_without_changing_hidden_cha
     let room = summary("!room:test", false);
     let mut space = summary("!space:test", true);
     space.info.children = vec![room.scope.room_id.clone()];
-    sidebar.apply_diff(RoomListDiff::Upsert(room.clone()));
-    sidebar.apply_diff(RoomListDiff::Upsert(space.clone()));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(space.clone())));
     sidebar.set_space(Some(space.scope.clone()));
     let selected = sidebar.selected().unwrap().scope.clone();
     let before = sidebar.navigation_revision();
     space.info.children.clear();
-    sidebar.apply_diff(RoomListDiff::Upsert(space.clone()));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(space.clone())));
     space.info.children.push(room.scope.room_id.clone());
-    sidebar.apply_diff(RoomListDiff::Upsert(space));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(space)));
     assert_ne!(before, sidebar.navigation_revision());
     assert_eq!(selected, sidebar.selected().unwrap().scope);
     sidebar.set_query("!room:");
     let before = sidebar.navigation_revision();
     let mut renamed = room.clone();
     renamed.name = "hidden".into();
-    sidebar.apply_diff(RoomListDiff::Upsert(renamed));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(renamed)));
     assert!(sidebar.visible_indices().is_empty());
-    sidebar.apply_diff(RoomListDiff::Upsert(room.clone()));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
     assert_ne!(before, sidebar.navigation_revision());
     assert_eq!(selected, sidebar.selected().unwrap().scope);
     let stable = sidebar.navigation_revision();
     let mut ordinary = room;
     ordinary.info.topic = Some("updated read-only details".into());
-    sidebar.apply_diff(RoomListDiff::Upsert(ordinary.clone()));
+    sidebar.apply_diff(RoomListDiff::Upsert(Box::new(ordinary.clone())));
     assert_eq!(stable, sidebar.navigation_revision());
     ordinary.scope.account_id = AccountId::new(18);
-    assert!(!sidebar.apply_diff(RoomListDiff::Upsert(ordinary)));
+    assert!(!sidebar.apply_diff(RoomListDiff::Upsert(Box::new(ordinary))));
     assert_eq!(stable, sidebar.navigation_revision());
 }

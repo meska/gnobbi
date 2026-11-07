@@ -101,12 +101,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 // A fresh list: no room selected unless we add one (Remove falls back to the first row).
                 this.sidebar = matrix_desktop::Sidebar::connected(scope.account_id);
                 if let Some(muted) = room {
-                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(matrix_engine::RoomSummary {
+                    this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                         scope: scope.clone(),
                         name: "Privacy".into(),
                         unread: 0,
                         info: matrix_engine::RoomInfo { muted, ..Default::default() },
-                    }));
+                    })));
                     assert!(this.sidebar.select(&scope));
                 }
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
