@@ -81,7 +81,7 @@ impl LiveOperations {
         self.inspection = None;
     }
     pub fn submit(&mut self, operation: Operation, transaction_id: TransactionId) -> bool {
-        if self.pending.is_some() || transaction_id.as_str().is_empty() {
+        if self.pending.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
             return false;
         }
         let text = match &operation {
@@ -127,7 +127,8 @@ impl LiveOperations {
     /// Vote on option `ix` of `poll`: the new answers come from `Poll::toggle`, the state from the Timeline.
     /// Needs no message selection; the server decides whether the vote is allowed.
     pub fn vote(&mut self, scope: RoomScope, target: EventId, poll: &Poll, ix: usize, transaction_id: TransactionId) -> bool {
-        if self.voting.is_some() || transaction_id.as_str().is_empty() {
+        // a vote and another operation share the single `command` slot: never overwrite one not yet sent
+        if self.voting.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
             return false;
         }
         let Some(answers) = poll.answers.get(ix).and_then(|a| poll.toggle(&a.id)) else {
@@ -143,7 +144,7 @@ impl LiveOperations {
         self.vote_failed.as_ref() == Some(target)
     }
     pub fn toggle_reaction(&mut self, key: &str, transaction_id: TransactionId) -> bool {
-        if self.pending.is_some() || transaction_id.as_str().is_empty() {
+        if self.pending.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
             return false;
         }
         let Some(selected) = &self.selection else {
@@ -210,7 +211,7 @@ impl LiveOperations {
             .flatten()
     }
     pub fn retry(&mut self) -> bool {
-        if self.error != Some(OperationError::Transport) {
+        if self.error != Some(OperationError::Transport) || self.command.is_some() {
             return false;
         }
         let Some(request) = &self.pending else {

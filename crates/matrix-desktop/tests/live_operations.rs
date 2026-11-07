@@ -388,3 +388,25 @@ fn right_click_on_a_poll_bubble_opens_the_menu_like_any_message() {
     assert_eq!(actions.selection(), Some(&id("!room:test", "$poll")));
     assert!(matches!(actions.take_command(), Some(OperationCommand::Inspect { .. })));
 }
+
+#[test]
+fn a_vote_and_another_operation_in_the_same_frame_never_overwrite_each_other() {
+    let mut actions = LiveOperations::default();
+    let selected = id("!room:test", "$msg");
+    actions.select(selected.clone());
+    let Some(OperationCommand::Inspect { tag, target }) = actions.take_command() else { panic!("inspect") };
+    actions.apply(OperationResult::Inspected {
+        tag,
+        target,
+        details: Ok(MessageDetails { body: "hi".into(), permissions: MessagePermissions { react: true, ..Default::default() } }),
+    });
+    let p = poll(false, false, &[]);
+    assert!(actions.submit(Operation::React { key: "+1".into() }, TransactionId::new("r")));
+    assert!(!actions.vote(selected.scope.clone(), EventId::new("$poll"), &p, 0, TransactionId::new("v")), "the unsent reaction is kept");
+    let Some(OperationCommand::Apply(react)) = actions.take_command() else { panic!("react") };
+    assert!(matches!(react.operation, Operation::React { .. }));
+    actions.apply(OperationResult::Applied { request: react, result: Ok(EventId::new("$r")) });
+    assert!(actions.vote(selected.scope, EventId::new("$poll"), &p, 0, TransactionId::new("v")));
+    assert!(!actions.submit(Operation::React { key: "+1".into() }, TransactionId::new("r2")), "the unsent vote is kept");
+    assert!(matches!(actions.take_command(), Some(OperationCommand::Apply(r)) if matches!(r.operation, Operation::Vote { .. })));
+}
