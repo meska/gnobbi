@@ -54,6 +54,13 @@ impl Picker {
         self.settle()
     }
 
+    /// The pointer left the window: gpui sends no on_hover(false) then, so both zones are out.
+    pub fn leave_window(&mut self) -> Timer {
+        self.icon = false;
+        self.popup = false;
+        self.settle()
+    }
+
     /// Icon click, mouse or keyboard: open the drawer, or close it.
     pub fn click(&mut self) {
         self.mode = if self.mode == PickerMode::Pinned { PickerMode::Closed } else { PickerMode::Pinned };
@@ -275,6 +282,19 @@ mod tests {
         assert_eq!(p.hover(Zone::Popup, false), Timer::Start);
         assert!(p.fired());
         assert_eq!(p.mode, Closed);
+    }
+
+    #[test]
+    fn leaving_the_window_from_icon_or_popup_starts_the_timer() {
+        let mut p = Picker::default();
+        p.hover(Zone::Icon, true);
+        assert_eq!(p.leave_window(), Timer::Start);
+        assert!(p.fired());
+        p.hover(Zone::Icon, true);
+        p.hover(Zone::Popup, true);
+        assert_eq!(p.leave_window(), Timer::Start);
+        assert!(p.fired());
+        assert_eq!(Picker::default().leave_window(), Timer::Cancel); // closed: nothing to time
     }
 
     #[test]

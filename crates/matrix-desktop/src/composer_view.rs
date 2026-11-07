@@ -301,6 +301,15 @@ impl ComposerView {
 
     fn picker_hover(&mut self, zone: Zone, over: bool, cx: &mut Context<Self>) {
         let timer = self.picker.hover(zone, over);
+        self.apply_picker_timer(timer, cx);
+    }
+
+    fn picker_window_left(&mut self, cx: &mut Context<Self>) {
+        let timer = self.picker.leave_window();
+        self.apply_picker_timer(timer, cx);
+    }
+
+    fn apply_picker_timer(&mut self, timer: Timer, cx: &mut Context<Self>) {
         self.sync_picker(cx);
         self.hover_close = (timer == Timer::Start).then(|| {
             cx.spawn(async move |this, cx| {
@@ -1476,6 +1485,17 @@ impl Render for ComposerView {
                             })
                             .on_hover(cx.listener(|this, over: &bool, _, cx| this.picker_hover(Zone::Icon, *over, cx)))
                             .when(self.picker.mode == PickerMode::Hover, |d| {
+                                // gpui reports the window exit only as MouseExitEvent, never as on_hover(false).
+                                let view = cx.entity().downgrade();
+                                let d = d.child(
+                                    canvas(|_, _, _| (), move |_, _, window, _| {
+                                        let view = view.clone();
+                                        window.on_mouse_event(move |_: &gpui::MouseExitEvent, _, _, cx| {
+                                            let _ = view.update(cx, |v, cx| v.picker_window_left(cx));
+                                        });
+                                    })
+                                    .absolute(),
+                                );
                                 // Zero-size anchor at the icon's top-left; the popup grows up and to the right, touching the icon.
                                 d.child(div().absolute().top_0().left_0().child(deferred(
                                     anchored().anchor(Corner::BottomLeft).snap_to_window_with_margin(px(8.)).child(
