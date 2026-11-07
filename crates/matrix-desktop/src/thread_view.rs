@@ -19,6 +19,7 @@ pub(crate) struct ThreadRow {
     who: String,
     text: String,
     time: String,
+    media: Option<matrix_engine::history::Media>,
 }
 
 /// An attachment without caption is shown by its label.
@@ -33,7 +34,7 @@ impl ThreadRow {
     fn from_event(e: &HistoryEvent) -> Self {
         let who = if e.outgoing { "Tu".to_owned() } else { e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone()) };
         let text = caption_or_label(&e.body, e.media.as_ref());
-        Self { id: Some(e.event_id.clone()), who, text, time: matrix_desktop::time_fmt::clock_time(e.timestamp_ms) }
+        Self { id: Some(e.event_id.clone()), who, text, time: matrix_desktop::time_fmt::clock_time(e.timestamp_ms), media: e.media.clone() }
     }
 
     pub(crate) fn from_row(row: &matrix_desktop::DemoEvent) -> Self {
@@ -46,7 +47,7 @@ impl ThreadRow {
             matrix_domain::TimelineId::Server(id) => Some(id.clone()),
             _ => None,
         };
-        Self { id, who, text, time: row.time.clone() }
+        Self { id, who, text, time: row.time.clone(), media: row.media.clone() }
     }
 }
 
@@ -302,12 +303,20 @@ impl Shell {
         if std::mem::take(&mut p.stick_bottom) {
             p.scroll.scroll_to_bottom();
         }
+        let timeline = self.timeline.as_ref();
+        let root = p.root.clone();
         let row = |r: &ThreadRow| {
+            // An image root: the bubbles' picture (the room timeline loads it); the label stands in only without one.
+            // shortcut: replies that are images keep the label, the timeline loads thumbnails of its own rows only.
+            let image = r.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image);
+            let picture = (image && r.id.as_ref() == Some(&root)).then(|| timeline.and_then(|tl| tl.picture_for(&root, t)));
+            let caption = picture.is_none() || r.media.as_ref().is_none_or(|m| m.label != r.text);
             div().flex().flex_col().gap_1()
                 .child(div().flex().gap_2().text_size(px(12.)).text_color(rgb(t.secondary))
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::row_text::one_line(&r.who)))
                     .child(r.time.clone()))
-                .child(div().child(r.text.clone()))
+                .children(picture)
+                .children(caption.then(|| div().child(r.text.clone())))
         };
         let answer = |index: usize, r: &ThreadRow, cx: &mut Context<Self>| {
             let target = r.id.clone()?;
@@ -398,6 +407,19 @@ mod tests {
         let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:t") };
         let root = ThreadRow { who: "x".into(), text: "radice".into(), ..Default::default() };
         ThreadPanel::new(scope, EventId::new("$root"), root, total)
+    }
+
+    #[test]
+    fn a_caption_less_image_root_keeps_its_media_and_a_text_root_none() {
+        let mut e = event(0);
+        e.body = "testo".into();
+        let text = ThreadRow::from_event(&e);
+        assert_eq!((text.text.as_str(), text.media.is_none()), ("testo", true));
+        e.body.clear();
+        e.media = Some(matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Image, label: "Immagine".into() });
+        let image = ThreadRow::from_event(&e);
+        assert_eq!(image.text, "Immagine");
+        assert!(image.media.is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image));
     }
 
     #[test]
