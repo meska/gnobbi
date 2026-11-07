@@ -81,7 +81,8 @@ fn disclosed_poll_has_a_group_radio_options_and_a_footer() {
     let tree = nodes(poll(true, false, false));
     assert_eq!(labels(&tree, Role::Group), ["Sondaggio: Pizza?"]);
     assert_eq!(labels(&tree, Role::RadioButton), ["Si, 5 voti, selezionata", "No, 1 voto"]);
-    assert_eq!(labels(&tree, Role::Label), ["Basato su 6 voti"]);
+    // The first message also carries its day separator (a Label too).
+    assert_eq!(&labels(&tree, Role::Label)[..1], ["Basato su 6 voti"]);
     let toggled: Vec<_> = tree.iter().filter(|(_, n)| n.role() == Role::RadioButton).map(|(_, n)| n.toggled()).collect();
     assert_eq!(toggled, [Some(Toggled::True), Some(Toggled::False)]);
     assert!(tree.iter().filter(|(_, n)| n.role() == Role::RadioButton).all(|(_, n)| !n.is_disabled()));
@@ -91,7 +92,7 @@ fn disclosed_poll_has_a_group_radio_options_and_a_footer() {
 fn hidden_results_leave_out_the_counts() {
     let tree = nodes(poll(false, false, false));
     assert_eq!(labels(&tree, Role::RadioButton), ["Si, selezionata", "No"]);
-    assert_eq!(labels(&tree, Role::Label), ["6 voti"]);
+    assert_eq!(&labels(&tree, Role::Label)[..1], ["6 voti"]);
 }
 
 #[test]

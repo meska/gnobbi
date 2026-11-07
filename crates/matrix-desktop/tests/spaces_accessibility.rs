@@ -378,7 +378,7 @@ fn queued_room_selection_cannot_revive_after_filter_away_back() {
         .tree()
         .nodes
         .iter()
-        .find(|(_, n)| n.label() == Some("Design desktop"))
+        .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Design desktop")))
         .unwrap()
         .0;
     let request = accesskit::ActionRequest {
@@ -417,7 +417,7 @@ fn native_room_path_cannot_translate_a_fresh_intent_after_unobserved_filter_retu
         .tree()
         .nodes
         .iter()
-        .find(|(_, n)| n.label() == Some("Design desktop"))
+        .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Design desktop")))
         .unwrap()
         .0;
     let request = accesskit::ActionRequest {

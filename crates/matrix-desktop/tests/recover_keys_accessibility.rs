@@ -11,6 +11,7 @@ fn snapshot(history: HistorySnapshot) -> NavigationSnapshot {
     NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],
@@ -67,6 +68,10 @@ fn history() -> DemoHistory {
         utd,
         attachment_name: None,
         attachment_size: None,
+        media: None,
+        mentions: Vec::new(),
+        highlighted: false,
+        poll: None,
     };
     history.prepend_server(vec![event("$ok:test", false), event("$utd:test", true)]);
     history

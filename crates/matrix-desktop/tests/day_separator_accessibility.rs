@@ -23,6 +23,11 @@ fn row(id: &str, timestamp_ms: u64) -> HistoryEvent {
         thread: None,
         thread_root: None,
         status: false,
+        utd: false,
+        media: None,
+        mentions: Vec::new(),
+        highlighted: false,
+        poll: None,
     }
 }
 
@@ -33,6 +38,7 @@ fn snapshot() -> NavigationSnapshot {
     NavigationSnapshot {
         title: "Gnobbi".into(),
         new_chat: Default::default(),
+        room_search: Default::default(),
         #[cfg(all(feature = "live", unix))]
         signin: None,
         openers: vec![],

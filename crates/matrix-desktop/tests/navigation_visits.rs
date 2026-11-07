@@ -86,7 +86,7 @@ fn room_focus_translates_without_activating_the_conversation() {
         .tree()
         .nodes
         .into_iter()
-        .find(|(_, node)| node.label() == Some(target.name.as_str()))
+        .find(|(_, node)| node.label().is_some_and(|l| l == target.name || l.starts_with(&format!("{}, ultimo messaggio", target.name))))
         .unwrap();
     assert!(node.supports_action(Action::Focus));
     let intent = session.action(&ActionRequest {
