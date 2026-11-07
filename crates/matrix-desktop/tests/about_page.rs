@@ -101,14 +101,13 @@ fn build_script_without_git_falls_back_and_honours_overrides() {
 fn build_script_in_a_git_checkout_reads_head() {
     let dir = scratch("git");
     let git = |args: &[&str]| {
-        let ok = Command::new("git")
+        Command::new("git")
             .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid"])
             .args(args)
             .current_dir(&dir)
             .status()
             .map(|s| s.success())
-            .unwrap_or(false);
-        ok
+            .unwrap_or(false)
     };
     if !git(&["init", "-q"]) {
         return; // no git on this machine: the no-git test above covers the fallback
@@ -137,10 +136,12 @@ fn copied_text_has_the_expected_shape_and_no_personal_data() {
     let real = BUILD_INFO.copy_text(&matrix_desktop::build_info::system_version());
     let mut forbidden: Vec<String> = ["@", "://", "/Users/", "/home/", "/root", "token", "password"].map(Into::into).into();
     for k in ["USER", "USERNAME", "LOGNAME", "HOME", "HOSTNAME"] {
-        if let Ok(v) = std::env::var(k) {
-            if v.len() > 2 && v != "/" && v != "root" {
-                forbidden.push(v);
-            }
+        if let Ok(v) = std::env::var(k)
+            && v.len() > 2
+            && v != "/"
+            && v != "root"
+        {
+            forbidden.push(v);
         }
     }
     let first_line_free = real.replacen("Build: ", "", 1);
