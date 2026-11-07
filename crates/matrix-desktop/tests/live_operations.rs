@@ -336,3 +336,55 @@ fn refused_vote_is_flagged_until_the_next_vote() {
     assert!(actions.vote(scope, target.clone(), &p, 1, TransactionId::new("t3")), "a transport error does not block the next vote");
     assert!(!actions.vote_failed(&target));
 }
+
+/// The operations panel (the message menu) is shown while a message is selected, an operation is pending
+/// or an error is held. A poll vote must trigger none of them: the click only votes.
+fn panel_shown(actions: &LiveOperations) -> bool {
+    actions.selection().is_some() || actions.is_pending() || actions.error().is_some()
+}
+
+#[test]
+fn left_click_on_a_poll_option_never_shows_the_message_menu() {
+    let mut actions = LiveOperations::default();
+    let scope = id("!room:test", "$poll").scope;
+    let p = poll(false, false, &[]);
+    assert!(!panel_shown(&actions));
+    assert!(actions.vote(scope, EventId::new("$poll"), &p, 1, TransactionId::new("t1")));
+    // right after the event, while the vote is in flight (the frame that used to flash the menu)
+    assert!(actions.take_command().is_some(), "the vote goes out");
+    assert!(!panel_shown(&actions), "menu visible while the vote is in flight");
+}
+
+#[test]
+fn accepted_and_refused_votes_leave_no_menu_behind() {
+    for result in [Ok(EventId::new("$v")), Err(OperationError::Transport)] {
+        let mut actions = LiveOperations::default();
+        let scope = id("!room:test", "$poll").scope;
+        assert!(actions.vote(scope, EventId::new("$poll"), &poll(false, false, &[]), 0, TransactionId::new("t1")));
+        let Some(OperationCommand::Apply(request)) = actions.take_command() else { panic!("apply") };
+        actions.apply(OperationResult::Applied { request, result: result.clone() });
+        assert!(!panel_shown(&actions), "menu left after a vote that ended with {result:?}");
+    }
+}
+
+#[test]
+fn clicks_that_send_no_vote_show_no_menu() {
+    let scope = id("!room:test", "$poll").scope;
+    // own vote clicked again (single choice), cap reached, closed poll
+    for (p, ix) in [(poll(false, false, &["a"]), 0), (poll(true, false, &["a", "b"]), 2), (poll(false, true, &["a"]), 1)] {
+        let mut actions = LiveOperations::default();
+        assert!(!actions.vote(scope.clone(), EventId::new("$poll"), &p, ix, TransactionId::new("t")));
+        assert!(actions.take_command().is_none());
+        assert!(!panel_shown(&actions));
+    }
+}
+
+#[test]
+fn right_click_on_a_poll_bubble_opens_the_menu_like_any_message() {
+    // the bubble's right-button handler is `select`, whatever the poll state
+    let mut actions = LiveOperations::default();
+    assert!(actions.select(id("!room:test", "$poll")));
+    assert!(panel_shown(&actions));
+    assert_eq!(actions.selection(), Some(&id("!room:test", "$poll")));
+    assert!(matches!(actions.take_command(), Some(OperationCommand::Inspect { .. })));
+}
