@@ -259,8 +259,21 @@ impl Shell {
         let current = shown
             .and_then(|a| a.user_id.as_deref())
             .or_else(|| self.verification.profile().map(|(id, _)| id.as_str()));
-        let mut rows =
-            matrix_desktop::account_rows(&self.accounts, current, &self.account_counts());
+        let live = |id| {
+            let v = match self.active_id == Some(id) {
+                true => Some(&self.verification),
+                false => self.parked.get(&id).map(|s| &s.verification),
+            };
+            v.and_then(|v| v.profile().map(|_| v.profile_avatar()))
+        };
+        let mut rows: Vec<_> =
+            matrix_desktop::account_rows(&self.accounts, current, &self.account_counts())
+                .into_iter()
+                .map(|r| {
+                    let live = live(r.id);
+                    r.with_live_avatar(live)
+                })
+                .collect();
         rows.retain(|a| !self.removals.iter().any(|r| r.id == a.id));
         rows
     }
@@ -296,8 +309,9 @@ impl Shell {
                     .flex()
                     .items_center()
                     .gap_3()
-                    .child(
-                        div()
+                    .child(match a.picture(|mxc| self.avatars.get(Some(mxc))) {
+                        Some(image) => crate::avatar_view::round(image, 36.),
+                        None => div()
                             .size(px(36.))
                             .flex_shrink_0()
                             .flex()
@@ -306,8 +320,9 @@ impl Shell {
                             .rounded_full()
                             .bg(rgb(matrix_desktop::AVATAR_FALLBACK))
                             .text_color(rgb(t.avatar_text))
-                            .child(a.initials.clone()),
-                    )
+                            .child(a.initials.clone())
+                            .into_any_element(),
+                    })
                     .child(
                         div()
                             .flex_1()

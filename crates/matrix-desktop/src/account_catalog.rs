@@ -19,6 +19,8 @@ pub struct AccountEntry {
     pub user_id: Option<String>,
     pub homeserver: Option<String>,
     pub label: String,
+    /// Last known profile picture (mxc), for when the account has no live session to ask.
+    pub avatar: Option<String>,
     /// Relative to the data dir: `accounts/<id>`, or `profile` for a migrated install.
     dir: PathBuf,
 }
@@ -68,6 +70,7 @@ fn parse(bytes: &[u8]) -> Option<AccountCatalog> {
             user_id: text("user_id"),
             homeserver: text("homeserver"),
             label: text("label").unwrap_or_default(),
+            avatar: text("avatar").filter(|a| !a.is_empty()),
             dir,
         });
     }
@@ -121,6 +124,7 @@ impl AccountCatalog {
             user_id: None,
             homeserver: None,
             label: String::new(),
+            avatar: None,
             dir: LEGACY_DIR.into(),
         });
         true
@@ -134,6 +138,7 @@ impl AccountCatalog {
             user_id: Some(user_id.into()),
             homeserver: Some(homeserver.into()),
             label: label.into(),
+            avatar: None,
             dir: Path::new("accounts").join(id.as_u64().to_string()),
         });
         id
@@ -188,9 +193,22 @@ impl AccountCatalog {
             user_id,
             homeserver: None,
             label,
+            avatar: None,
             dir,
         });
         true
+    }
+
+    /// Remembers the account's picture. True when it changed (the caller saves).
+    pub fn record_avatar(&mut self, id: AccountId, avatar: Option<&str>) -> bool {
+        let avatar = avatar.filter(|a| !a.is_empty()).map(str::to_owned);
+        match self.accounts.iter_mut().find(|a| a.id == id) {
+            Some(a) if !self.damaged && a.avatar != avatar => {
+                a.avatar = avatar;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Drops the entry (its ID is never reused). The caller deletes the dirs and saves.
@@ -276,7 +294,7 @@ impl AccountCatalog {
             .map(|a| {
                 json!({
                     "id": a.id.as_u64(), "user_id": a.user_id, "homeserver": a.homeserver,
-                    "label": a.label, "dir": a.dir.to_string_lossy(),
+                    "label": a.label, "avatar": a.avatar, "dir": a.dir.to_string_lossy(),
                 })
             })
             .collect();
