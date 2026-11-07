@@ -386,9 +386,10 @@ impl Shell {
                             .when(focused_control == Some(0), |d| {
                                 d.border_1().border_color(rgb(t.accent))
                             })
+                            .w(px(32.)).h(px(32.)).flex().items_center().justify_center()
                             .cursor_pointer()
-                            .text_color(rgb(t.accent))
-                            .child("Chiudi")
+                            .hover(|s| s.bg(rgb(t.border)))
+                            .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.set_room_details_open(false);
                                 if this.details_zone.contains_focused(window, cx) {
