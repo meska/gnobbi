@@ -1,7 +1,7 @@
 name: ci
 on:
   push:
-    branches: [main]
+    branches: [main, 'ci/**']
   pull_request:
 concurrency:
   group: ci-${{ gitea.ref }}
@@ -9,7 +9,34 @@ concurrency:
 env:
   CARGO_TERM_COLOR: never
 jobs:
+  debounce:
+    runs-on: linux-x86_64
+    outputs:
+      stale: ${{ steps.check.outputs.stale }}
+    steps:
+      # Debounce (owner 05/11): build only the last push on a ref. A newer push
+      # cancels this run via workflow concurrency, or makes it stale here.
+      - name: Wait 30 minutes
+        if: gitea.event_name == 'push'
+        run: sleep 1800
+      - name: Check ref freshness
+        id: check
+        run: |
+          if [ "${{ gitea.event_name }}" != 'push' ]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          remote="$(git -c http.extraHeader="Authorization: token ${{ gitea.token }}" \
+            ls-remote "${{ gitea.server_url }}/${{ gitea.repository }}.git" "${{ gitea.ref }}" | cut -f1)"
+          if [ -n "$remote" ] && [ "$remote" != "${{ gitea.sha }}" ]; then
+            echo "ref ${{ gitea.ref }} moved to $remote; run for ${{ gitea.sha }} is stale"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+          fi
   linux:
+    needs: debounce
+    if: needs.debounce.outputs.stale != 'true'
     runs-on: linux-x86_64
     steps:
       - name: Checkout
@@ -51,8 +78,8 @@ jobs:
           mkdir -p "$HOME/ci/out"
           printf '%s %s linux\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci/out/${{ gitea.sha }}.linux.status"
   macos:
-    needs: linux
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    needs: [debounce, linux]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: macos-arm64
     steps:
       - name: Checkout
@@ -76,8 +103,8 @@ jobs:
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s macos\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.macos.status"
   windows:
-    needs: linux
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    needs: [debounce, linux]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: windows-x64
     steps:
       - name: Checkout
@@ -101,8 +128,8 @@ jobs:
           path: dist/*.zip
           if-no-files-found: error
   ios-mobile:
-    needs: linux
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    needs: [debounce, linux]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: macos-arm64
     steps:
       - name: Checkout
@@ -132,8 +159,8 @@ jobs:
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s ios-mobile\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.ios-mobile.status"
   publish:
-    needs: [linux, macos]
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+    needs: [debounce, linux, macos]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: linux-x86_64
     concurrency:
       group: publish-main
