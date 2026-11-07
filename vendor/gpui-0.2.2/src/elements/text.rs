@@ -372,6 +372,8 @@ impl TextLayout {
 
                 if let Some(text_layout) = element_state.0.borrow().as_ref()
                     && text_layout.size.is_some()
+                    // A truncating text re-measures: the first pass is often max-content, which must not freeze the width.
+                    && truncate_width.is_none()
                     && (wrap_width.is_none() || wrap_width == text_layout.wrap_width)
                 {
                     return text_layout.size.unwrap();

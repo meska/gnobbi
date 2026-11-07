@@ -911,7 +911,7 @@ impl Shell {
                         .children(room.fields.iter().cloned())
                         .when(room.servers.is_some(), |d| d.child(self.render_server_row(room, t, window, cx)))
                         .when(room.join, |d| d.child(self.render_room_results(room, t, cx)))
-                        .when(!room.dm && !room.join, |d| {
+                        .when(room.dm, |d| {
                             d.child(self.render_new_chat_results(room, t, window, cx))
                         })
                         .when(!room.dm && !room.join, |d| {
