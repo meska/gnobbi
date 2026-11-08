@@ -1,5 +1,6 @@
 //! Real-server tests run only inside the disposable network namespace.
 include!("receipt_tests.rs");
+include!("old_room_order_tests.rs");
 include!("live_activity_tests.rs");
 include!("thread_tests.rs");
 
@@ -1184,12 +1185,10 @@ async fn room_request(
         .send()
         .await
         .unwrap();
-    assert!(
-        response.status().is_success(),
-        "room fixture request accepted: status {}",
-        response.status().as_u16()
-    );
-    serde_json::from_str(&response.text().await.unwrap()).unwrap()
+    let status = response.status();
+    let text = response.text().await.unwrap();
+    assert!(status.is_success(), "room fixture request accepted: status {} {path}: {text}", status.as_u16());
+    serde_json::from_str(&text).unwrap()
 }
 
 #[test]
