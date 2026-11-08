@@ -1222,7 +1222,8 @@ impl Shell {
         let account = self.active_scope.account_id;
         let saved = self.draft_scope().account_id;
         let (prefs, sidebar) = (&self.room_prefs, &mut self.sidebar);
-        if !sidebar.rooms().is_empty() {
+        // Ready = the live sync listed rooms; the cached list shown at start must not start the clock.
+        if self.status == RoomSyncStatus::Ready && !sidebar.rooms().is_empty() {
             self.restore.list_arrived(std::time::Instant::now());
         }
         let opened = self.restore.poll(
