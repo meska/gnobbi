@@ -32,6 +32,6 @@ fn generated_tokens_equal_the_desktop_for_all_four_themes() {
     assert_eq!(SCRIM, gen_::SCRIM);
     assert_eq!(AVATAR_FALLBACK, gen_::AVATAR_FALLBACK);
     assert_eq!(DEMO_NOTICE, gen_::DEMO_NOTICE);
-    assert_eq!(row_text::ROW_PAD_Y, gen_::SPACING_ROW_PAD_Y);
-    assert_eq!(row_text::TEXT_GAP_PX, gen_::SPACING_TEXT_GAP);
+    assert_eq!(row_text::ROW_PAD_Y, gen_::SPACING_LIST_ROW_PAD_Y);
+    assert_eq!(row_text::TEXT_GAP_PX, gen_::SPACING_LIST_TEXT_GAP);
 }
