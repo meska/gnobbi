@@ -54,7 +54,7 @@ impl UnreadFilter {
     }
 
     pub fn node(&self) -> (NodeId, Node) {
-        let mut node = Node::new(Role::CheckBox);
+        let mut node = Node::new(Role::Switch);
         node.set_label("Solo stanze non lette");
         node.set_toggled(if self.checked {
             Toggled::True

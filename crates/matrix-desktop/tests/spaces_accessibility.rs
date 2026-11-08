@@ -95,14 +95,9 @@ fn space_choice_ids_never_alias_sas_flow_handles() {
         account,
         &matrix_desktop::DeviceVerification::new(account),
         DeviceControl::Close,
-        [None; 6],
+        [None; 2],
     ));
-    for control in [
-        DeviceControl::Confirm,
-        DeviceControl::Mismatch,
-        DeviceControl::Cancel,
-        DeviceControl::Comparison,
-    ] {
+    for control in matrix_desktop::PopupButton::ALL.map(DeviceControl::Popup) {
         assert_ne!(choices[1].id, panel.control_id(control));
     }
     assert!(!(1 << 55..1 << 57).contains(&choices[1].id.0));
@@ -147,6 +142,7 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
         new_room: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -314,6 +310,7 @@ fn navigation() -> matrix_desktop::accessibility::NavigationSnapshot {
         new_room: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -378,7 +375,7 @@ fn queued_room_selection_cannot_revive_after_filter_away_back() {
         .tree()
         .nodes
         .iter()
-        .find(|(_, n)| n.label() == Some("Design desktop"))
+        .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Design desktop")))
         .unwrap()
         .0;
     let request = accesskit::ActionRequest {
@@ -417,7 +414,7 @@ fn native_room_path_cannot_translate_a_fresh_intent_after_unobserved_filter_retu
         .tree()
         .nodes
         .iter()
-        .find(|(_, n)| n.label() == Some("Design desktop"))
+        .find(|(_, n)| n.label().is_some_and(|l| l.starts_with("Design desktop")))
         .unwrap()
         .0;
     let request = accesskit::ActionRequest {

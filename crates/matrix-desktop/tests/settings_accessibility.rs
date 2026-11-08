@@ -22,7 +22,7 @@ fn switches_are_labelled_checkboxes_with_state_and_set_explicitly() {
     let boxes: Vec<_> = tree
         .nodes
         .iter()
-        .filter(|(_, n)| n.role() == Role::CheckBox)
+        .filter(|(_, n)| n.role() == Role::Switch)
         .collect();
     let labels: Vec<_> = boxes.iter().map(|(_, n)| n.label().unwrap()).collect();
     assert_eq!(
@@ -30,7 +30,7 @@ fn switches_are_labelled_checkboxes_with_state_and_set_explicitly() {
         [
             "Modalità debug",
             "Conferme di lettura",
-            "Nascondi messaggi eliminati",
+            "Messaggi eliminati",
             "Riduci nel tray alla chiusura"
         ]
     );

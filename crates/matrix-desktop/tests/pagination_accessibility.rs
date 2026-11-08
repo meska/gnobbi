@@ -28,6 +28,7 @@ fn snapshot(tag: matrix_engine::RequestTag, status: HistoryStatus) -> Navigation
         new_room: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -151,7 +152,7 @@ fn pagination_handle_never_aliases_a_device_overview_label() {
     let id = server_id(&snapshot(tag, HistoryStatus::More));
     let account = AccountId::new(36);
     let model = matrix_desktop::DeviceVerification::new(account);
-    let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6]);
+    let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 2]);
     assert!(
         !panel.tree().nodes.iter().any(|(other, _)| *other == id),
         "old AT page object must not be a label in another panel"

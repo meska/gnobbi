@@ -32,6 +32,7 @@ fn unread_control_is_absent_when_hidden_or_covered_by_a_sheet() {
         new_room: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
@@ -135,7 +136,7 @@ fn unread_filter_projects_checkbox_state_focus_and_observed_bounds() {
         };
         let (id, node) = filter.node();
         assert_eq!(id, UNREAD);
-        assert_eq!(node.role(), Role::CheckBox);
+        assert_eq!(node.role(), Role::Switch);
         assert_eq!(node.label(), Some("Solo stanze non lette"));
         assert_eq!(
             node.toggled(),

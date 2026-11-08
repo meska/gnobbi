@@ -2,6 +2,7 @@
 use crate::*;
 
 // Rail entry geometry in one place; indicator/badge offsets follow the icon (36x32, label 11 px).
+pub(crate) const RAIL_WIDTH: f32 = 72.;
 const RAIL_ENTRY_HEIGHT: f32 = 63.;
 const RAIL_INDICATOR_TOP: f32 = 8.;
 const RAIL_BADGE_TOP: f32 = 1.;
@@ -318,7 +319,6 @@ impl Shell {
         if window.viewport_size().width < px(800.)
             || self.notifications_open
             || self.verification_open
-            || self.room_details_open
         {
             return false;
         }
@@ -429,7 +429,7 @@ impl Shell {
         let t = self.theme.tokens();
         // The menu button stays on top of the rail, above «Tutte» and the scrolling entries.
         div()
-            .w(px(72.))
+            .w(px(RAIL_WIDTH))
             .h_full()
             .flex_shrink_0()
             .flex()
@@ -772,7 +772,7 @@ impl Shell {
                         .child(grip(t.secondary))
                         .child(div().flex_1().truncate().child(entry.name.clone()))
                         .child(
-                            action(("rail-edit-hide", row), if hidden { "Mostra" } else { "Nascondi" }, t.accent).w(px(76.)).text_center().on_click(
+                            div().id(("rail-edit-hide", row)).cursor_pointer().child(crate::switch_row::switch_track(!hidden, true, t)).on_click(
                                 cx.listener(move |this, _, _, cx| {
                                     this.rail_edit_act(row, PanelAct::Toggle);
                                     cx.notify();

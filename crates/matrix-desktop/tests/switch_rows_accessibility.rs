@@ -21,6 +21,20 @@ fn no_on_off_letters_or_close_esc_text_in_any_view() {
     assert!(files > 40, "scan looked at {files} files only");
 }
 
+/// Default build too: Tab order of the panel, wrapping; «Stanza» is skipped while no room is selected.
+#[test]
+fn tab_order_wraps_and_skips_the_room_switch_without_a_room() {
+    use matrix_desktop::notifications::NotificationControl::*;
+    let walk = |room, back| {
+        let mut c = Enabled;
+        (0..4).map(|_| { c = c.next(room, back); c }).collect::<Vec<_>>()
+    };
+    assert_eq!(walk(true, false), [Mute, Preview, Close, Enabled]);
+    assert_eq!(walk(true, true), [Close, Preview, Mute, Enabled]);
+    assert_eq!(walk(false, false), [Preview, Close, Enabled, Preview]);
+    assert_eq!(walk(false, true), [Close, Preview, Enabled, Close]);
+}
+
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 mod tree {
     use accesskit::{Action, ActionRequest, Toggled, TreeId};
@@ -30,13 +44,17 @@ mod tree {
     use matrix_domain::{AccountId, RoomId, RoomScope};
 
     fn view(enabled: bool, room_muted: Option<bool>, preview: bool) -> NotificationView {
+        named(enabled, room_muted, preview, "Privacy")
+    }
+
+    fn named(enabled: bool, room_muted: Option<bool>, preview: bool, name: &str) -> NotificationView {
         NotificationView::Open(Box::new(NotificationSnapshot {
             bounds: [None; 4],
             focus: Default::default(),
             enabled,
             preview,
             selected: room_muted.map(|m| (RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:fixture.invalid") }, m)),
-            room_name: "Privacy".into(),
+            room_name: name.into(),
             service_failed: false,
         }))
     }
@@ -83,5 +101,23 @@ mod tree {
             assert_eq!(node(&v, ENABLED), (Some(if enabled { Toggled::True } else { Toggled::False }), false, true));
             assert_eq!(node(&v, PREVIEW), (Some(Toggled::True), false, true));
         }
+    }
+
+    fn mute_label(v: &NotificationView) -> String {
+        let tree = v.tree().unwrap();
+        tree.nodes.iter().find(|(i, _)| *i == MUTE).unwrap().1.label().unwrap().to_owned()
+    }
+
+    #[test]
+    fn room_name_is_in_the_label_on_or_off_follows_the_room_and_is_absent_without_one() {
+        for muted in [false, true] {
+            assert_eq!(mute_label(&named(true, Some(muted), true, "Privacy")), "Notifiche della stanza Privacy");
+            // Another room selected while the panel is open: the label follows.
+            assert_eq!(mute_label(&named(true, Some(muted), true, "Famiglia")), "Notifiche della stanza Famiglia");
+        }
+        // No room: no trailing space, no name, node disabled.
+        let v = named(true, None, true, "");
+        assert_eq!(mute_label(&v), "Notifiche della stanza");
+        assert!(node(&v, MUTE).1);
     }
 }

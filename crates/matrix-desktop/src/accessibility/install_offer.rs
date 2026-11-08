@@ -9,18 +9,31 @@ const LABELS: [(Choice, &str); 3] = [
     (Choice::Later, "Non ora"),
     (Choice::Never, "Non chiedere più"),
 ];
+const CONFIRM_TITLE: &str = "Sostituire gnobbi.AppImage?";
+const CONFIRM_LABELS: [(Choice, &str); 2] =
+    [(Choice::Replace, "Sostituisci"), (Choice::Later, "Annulla")];
 
 #[derive(Clone, Default)]
 pub struct Snapshot {
     pub generation: u64,
-    /// Button bounds (Add, Later, Never) while the proposal is open.
+    /// Button bounds (Add, Later, Never; or Replace, Cancel) while the proposal is open.
     pub dialog: Option<[Option<Rect>; 3]>,
+    /// Second step: replace the different `~/Applications/gnobbi.AppImage`.
+    pub confirm: bool,
     /// Row bounds while Settings is open.
     pub settings_row: Option<Option<Rect>>,
     pub error: Option<String>,
 }
 
 impl Snapshot {
+    fn labels(&self) -> &'static [(Choice, &'static str)] {
+        if self.confirm {
+            &CONFIRM_LABELS
+        } else {
+            &LABELS
+        }
+    }
+
     fn id(&self, slot: u64) -> NodeId {
         NodeId(BASE + self.generation * 8 + slot)
     }
@@ -28,12 +41,17 @@ impl Snapshot {
     /// Slots: 0 window, 1 dialog, 2..=4 buttons, 5 Settings row, 6 error.
     pub fn tree(&self) -> Option<TreeUpdate> {
         let bounds = self.dialog?;
+        let title = if self.confirm {
+            CONFIRM_TITLE
+        } else {
+            "Aggiungi al menu"
+        };
         let mut root = Node::new(Role::Window);
-        root.set_label("Aggiungi al menu");
+        root.set_label(title);
         let mut dialog = Node::new(Role::Dialog);
-        dialog.set_label("Aggiungi al menu");
+        dialog.set_label(title);
         let mut nodes = vec![];
-        for (i, (_, label)) in LABELS.iter().enumerate() {
+        for (i, (_, label)) in self.labels().iter().enumerate() {
             let mut b = Node::new(Role::Button);
             b.set_label(*label);
             if let Some(r) = bounds[i] {
@@ -92,7 +110,7 @@ impl Snapshot {
             return Some(Choice::Add);
         }
         self.dialog?;
-        LABELS
+        self.labels()
             .iter()
             .enumerate()
             .find(|(i, _)| self.id(2 + *i as u64) == request.target_node)

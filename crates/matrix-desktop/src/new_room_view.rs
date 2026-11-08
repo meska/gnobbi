@@ -23,7 +23,7 @@ pub(crate) struct NewRoom {
     rooms_sent: Option<(String, Option<String>)>,
     public: bool,
     /// DM: user ID. Room: name, then topic.
-    fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
+    pub(crate) fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
     public_focus: FocusHandle,
     cancel_focus: FocusHandle,
     submit_focus: FocusHandle,
@@ -574,7 +574,7 @@ impl Shell {
         if !room.dm && !room.join {
             let focus = &room.public_focus;
             items.push(item(
-                Role::CheckBox,
+                Role::Switch,
                 "Pubblica",
                 Some(room.public),
                 focus,
@@ -703,43 +703,22 @@ impl Shell {
             },
         );
         let switch = room.picker.all_available().then(|| {
-            let segment = |id: &'static str, label: &'static str, on: bool| {
-                div()
-                    .id(id)
-                    .px_2()
-                    .py_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .text_color(rgb(if on { t.on_accent } else { t.text }))
-                    .when(on, |d| d.bg(rgb(t.accent)))
-                    .child(label)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if let Some(room) = &mut this.new_room {
-                            if room.picker.all() != on {
-                                room.picker.toggle_all();
-                            }
-                            room.switch_focus.focus(window);
-                        }
-                        cx.notify();
-                    }))
-            };
-            div()
-                .id("new-chat-scope")
-                .track_focus(&room.switch_focus)
-                .flex()
-                .gap_1()
-                .border_1()
-                .border_color(rgb(if input_modality::only_keys(room.switch_focus.is_focused(window), cx) {
-                    t.accent
-                } else {
-                    t.surface
-                }))
-                .child(segment(
-                    "new-chat-same",
-                    "Stessa istanza",
-                    !room.picker.all(),
-                ))
-                .child(segment("new-chat-all", "Tutti", room.picker.all()))
+            crate::switch_row::switch_row(
+                "new-chat-scope",
+                "Cerca anche su altre istanze",
+                room.picker.all(),
+                true,
+                input_modality::only_keys(room.switch_focus.is_focused(window), cx),
+                t,
+            )
+            .track_focus(&room.switch_focus)
+            .on_click(cx.listener(|this, _, window, cx| {
+                if let Some(room) = &mut this.new_room {
+                    room.picker.toggle_all();
+                    room.switch_focus.focus(window);
+                }
+                cx.notify();
+            }))
         });
         div()
             .flex()

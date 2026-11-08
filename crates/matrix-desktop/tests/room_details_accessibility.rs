@@ -34,6 +34,7 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
         new_room: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         details: DetailsView::Closed(scope.clone()),
         notifications: Default::default(),
         dark: false,
@@ -76,7 +77,7 @@ fn panel() -> DetailsSnapshot {
         acts: vec![],
         focus: DetailsControl::Close,
         profile_focus: 0,
-        bounds: [None; 5],
+        bounds: [None; 6],
         hide_status: false,
         hide_redacted: false,
     }
@@ -89,7 +90,7 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
     panel.info.topic = Some("Argomento visibile".into());
     panel.info.joined_members = 2;
     panel.info.encrypted = None;
-    panel.bounds[1] = Some(accesskit::Rect::new(800., 400., 900., 430.));
+    panel.bounds[2] = Some(accesskit::Rect::new(800., 400., 900., 430.));
     panel.people = vec![("Membro: Bruno, @bruno:x".into(), None)];
     let tree = panel.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Informazioni stanza"));
@@ -117,8 +118,8 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
         .1;
     assert_eq!(copy.role(), Role::Button);
     assert_eq!(copy.label(), Some("Copia ID stanza"));
-    assert_eq!(copy.bounds(), panel.bounds[1]);
-    assert_eq!(panel.next_focus(), DetailsControl::Copy);
+    assert_eq!(copy.bounds(), panel.bounds[2]);
+    assert_eq!(panel.next_focus(), DetailsControl::Topic);
 }
 
 #[test]
@@ -244,6 +245,41 @@ fn profile_actions_are_buttons_with_names_and_route_to_act() {
     }
 }
 
+fn navigation(details: matrix_desktop::accessibility::details::DetailsView) -> matrix_desktop::accessibility::NavigationSnapshot {
+    use matrix_desktop::accessibility::NavigationSnapshot;
+    NavigationSnapshot {
+        title: "Gnobbi".into(),
+        new_chat: Default::default(),
+        room_search: Default::default(),
+        #[cfg(all(feature = "live", unix))]
+        signin: None,
+        openers: vec![],
+        back: None,
+        drawer: None,
+        scrollbars: vec![],
+        operation_panel: None,
+        spaces: None,
+        navigation_revision: 0,
+        icon_choice: None,
+        unread_filter: None,
+        new_room: None,
+        devices: Default::default(),
+        settings: None,
+        about: None,
+        details,
+        notifications: Default::default(),
+        dark: false,
+        visible: true,
+        query: String::new(),
+        search_focused: false,
+        search_bounds: None,
+        rooms: vec![],
+        history: None,
+        list_focused: false,
+        composer: None,
+    }
+}
+
 #[test]
 fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
     use accesskit::{Action, ActionRequest, TreeId};
@@ -256,10 +292,10 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
         panel.focus = panel.next_focus();
         order.push(panel.focus);
     }
-    assert_eq!(order[..5], DetailsControl::ALL);
-    assert_eq!(order[5], DetailsControl::Close);
+    assert_eq!(order[..6], DetailsControl::ALL);
+    assert_eq!(order[6], DetailsControl::Close);
     let ids: std::collections::HashSet<_> = DetailsControl::ALL.iter().map(|c| c.id()).collect();
-    assert_eq!(ids.len(), 5);
+    assert_eq!(ids.len(), 6);
     panel.people = vec![("Membro: Ada, @ada:x".into(), Some("@ada:x".into()))];
     let label = |panel: &DetailsSnapshot, c: DetailsControl| {
         let tree = panel.tree();
@@ -267,21 +303,21 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
         assert!(node.supports_action(Action::Focus) && node.supports_action(Action::Click));
         node.label().unwrap().to_owned()
     };
-    assert_eq!(label(&panel, DetailsControl::HideStatus), "Nascondi messaggi di stato");
-    assert_eq!(label(&panel, DetailsControl::HideRedacted), "Nascondi messaggi eliminati");
+    assert_eq!(label(&panel, DetailsControl::HideStatus), "Messaggi di stato");
+    assert_eq!(label(&panel, DetailsControl::HideRedacted), "Messaggi eliminati");
     assert_eq!(label(&panel, DetailsControl::Edit), "Modifica");
     let toggled = |panel: &DetailsSnapshot, c: DetailsControl| {
         let tree = panel.tree();
         let node = &tree.nodes.iter().find(|(id, _)| *id == c.id()).unwrap().1;
-        assert_eq!(node.role(), Role::CheckBox);
+        assert_eq!(node.role(), Role::Switch);
         node.toggled()
     };
-    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::False));
+    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::True));
     panel.hide_status = true;
     panel.hide_redacted = true;
-    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::True));
-    assert_eq!(toggled(&panel, DetailsControl::HideRedacted), Some(Toggled::True));
-    assert_eq!(label(&panel, DetailsControl::HideStatus), "Nascondi messaggi di stato");
+    assert_eq!(toggled(&panel, DetailsControl::HideStatus), Some(Toggled::False));
+    assert_eq!(toggled(&panel, DetailsControl::HideRedacted), Some(Toggled::False));
+    assert_eq!(label(&panel, DetailsControl::HideStatus), "Messaggi di stato");
     let view = DetailsView::Open(Box::new(panel));
     for (control, want) in [
         (DetailsControl::HideStatus, DetailsAction::HideStatus(scope.clone())),
@@ -303,4 +339,70 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
         view.action(&ActionRequest { action: Action::Click, target_tree: TreeId::ROOT, target_node: accesskit::NodeId(33 + 6), data: None }),
         Some(DetailsAction::Profile { .. })
     ));
+}
+
+fn details_panel_is_a_named_complementary_not_a_modal_dialog() {
+    let tree = panel().tree();
+    let root = &tree.nodes[0].1;
+    assert_eq!(root.role(), Role::Complementary);
+    assert_eq!(root.label(), Some("Informazioni stanza"));
+    for (id, node) in &tree.nodes {
+        assert!(!matches!(node.role(), Role::Dialog | Role::AlertDialog | Role::Window), "{id:?} is a {:?}", node.role());
+        assert!(!node.is_modal(), "{id:?} is aria-modal");
+        assert!(!node.is_hidden(), "{id:?} is hidden");
+    }
+}
+
+// Defect (card to mazinga): NavigationSnapshot::tree()/action() still return only the panel while it is open, so the
+// screen reader loses the list, the search field and the composer. Remove the ignore when the panel is merged into the app tree.
+#[test]
+#[ignore = "DIFETTO: the semantic tree still replaces the whole app while the panel is open"]
+fn open_panel_does_not_hide_the_rest_of_the_app_from_the_screen_reader() {
+    use accesskit::{Action, ActionRequest, TreeId};
+    use matrix_desktop::accessibility::details::DetailsView;
+    use matrix_desktop::accessibility::SEARCH;
+    let open = navigation(DetailsView::Open(Box::new(panel())));
+    let tree = open.tree();
+    assert!(tree.nodes.iter().any(|(id, _)| *id == SEARCH), "search field must stay in the tree");
+    assert!(tree.nodes.iter().any(|(_, n)| n.label() == Some("Informazioni stanza") && n.role() == Role::Complementary), "panel must stay in the tree");
+    let request = ActionRequest { action: Action::Click, target_tree: TreeId::ROOT, target_node: SEARCH, data: None };
+    assert!(open.action(&request).is_some(), "search stays actionable");
+}
+
+#[test]
+fn topic_is_a_labelled_focusable_scroll_area_without_help_text_or_click() {
+    use accesskit::{Action, ActionRequest, TreeId};
+    use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
+    let panel = panel();
+    let scope = panel.scope.clone();
+    let tree = panel.tree();
+    let node = &tree.nodes.iter().find(|(id, _)| *id == DetailsControl::Topic.id()).unwrap().1;
+    assert_eq!((node.role(), node.label()), (Role::ScrollView, Some("Argomento")));
+    assert!(node.supports_action(Action::Focus) && !node.supports_action(Action::Click));
+    assert_eq!(node.description(), None);
+    let view = DetailsView::Open(Box::new(panel));
+    let request = |action| ActionRequest { action, target_tree: TreeId::ROOT, target_node: DetailsControl::Topic.id(), data: None };
+    assert_eq!(
+        view.action(&request(Action::Focus)),
+        Some(DetailsAction::Focus { scope, control: DetailsControl::Topic })
+    );
+    assert_eq!(view.action(&request(Action::Click)), None);
+}
+
+#[test]
+fn details_switches_never_rename_and_show_on_when_the_content_is_visible() {
+    for (hide_status, hide_redacted) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut p = panel();
+        p.hide_status = hide_status;
+        p.hide_redacted = hide_redacted;
+        let tree = p.tree();
+        let sw: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Switch).collect();
+        let got: Vec<_> = sw.iter().map(|(_, n)| (n.label().unwrap(), n.toggled())).collect();
+        let on = |hide: bool| Some(if hide { Toggled::False } else { Toggled::True });
+        assert_eq!(
+            got,
+            [("Messaggi di stato", on(hide_status)), ("Messaggi eliminati", on(hide_redacted))],
+            "hide_status={hide_status} hide_redacted={hide_redacted}"
+        );
+    }
 }

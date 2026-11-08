@@ -145,7 +145,6 @@ impl Shell {
             match intent.control {
                 Control::Info => {
                     self.set_room_details_open(true);
-                    self.list_focus.focus(window);
                 }
                 Control::Notifications => self.open_notifications_panel(window),
                 Control::Devices => self.open_devices_panel(window),
@@ -166,7 +165,7 @@ impl Shell {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
             self.device_focus = Default::default();
-            self.a11y_device_bounds = [None; 6];
+            self.a11y_device_bounds = [None; 2];
         }
         self.verification.refresh();
         self.list_focus.focus(window);
@@ -461,6 +460,7 @@ mod tests {
             new_room: None,
             devices: Default::default(),
             settings: None,
+            about: None,
             details: Default::default(),
             notifications: Default::default(),
             dark: false,

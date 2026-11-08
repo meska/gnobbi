@@ -15,6 +15,21 @@ KEEP=0; [ -f "$D/AuthKey_$ASC_KEY_ID.p8" ] && KEEP=1
 cleanup() { [ "$KEEP" = 1 ] || rm -f "$D/AuthKey_$ASC_KEY_ID.p8"; }; trap cleanup EXIT
 [ "$KEEP" = 1 ] || ( umask 077; cp "$ASC_KEY_FILE" "$D/AuthKey_$ASC_KEY_ID.p8" )
 ACT=--validate-app; [ "$MODE" = upload ] && ACT=--upload-package
+BUILD="${GNOBBI_BUILD:-$(git rev-list --count HEAD 2>/dev/null || echo 0)}"
+rc=0
 xcrun altool $ACT -f "$PKG" -t macos --apple-id "${GNOBBI_APPLE_ID:-6826654528}" --bundle-id net.meskatech.gnobbi \
-  --bundle-version "${GNOBBI_BUILD:-$(git rev-list --count HEAD)}" --bundle-short-version-string "${GNOBBI_VERSION:-0.1.0}" \
-  --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" 2>&1
+  --bundle-version "$BUILD" --bundle-short-version-string "${GNOBBI_VERSION:-0.1.0}" \
+  --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" 2>&1 || rc=$?
+[ "$rc" = 0 ] || exit "$rc"
+# What to Test: elenco commit visibili (crates/matrix-desktop|matrix-domain)
+# dall'ultimo upload riuscito (marker locale --state, fallback ultimi 15), stessa chiave ASC
+# di altool (nessun nuovo segreto). Best-effort: un errore qui non invalida l'upload.
+if [ "$MODE" = upload ]; then
+  state="${GNOBBI_TF_STATE:-$HOME/.config/gnobbi-ci/last-upload-sha}"
+  export ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_FILE
+  python3 "$(dirname -- "$0")/asc-whatsnew.py" --app "${GNOBBI_APPLE_ID:-6826654528}" --build "$BUILD" --state "$state" \
+    || echo "::warning::note TestFlight non impostate (rc=$?)"
+  mkdir -p "$(dirname -- "$state")" 2>/dev/null || true
+  git rev-parse HEAD > "$state" 2>/dev/null || true
+fi
+exit 0

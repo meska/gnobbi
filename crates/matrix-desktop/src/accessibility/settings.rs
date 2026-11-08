@@ -1,11 +1,11 @@
-//! Drawer settings: four on/off switches (debug, read receipts, hide deleted messages, close to tray).
+//! Drawer settings: four on/off switches (debug, read receipts, show deleted messages, close to tray).
 use super::ROOT;
 use accesskit::{Action, ActionRequest, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
 pub const LABELS: [&str; 4] = [
     "Modalità debug",
     "Conferme di lettura",
-    "Nascondi messaggi eliminati",
+    "Messaggi eliminati",
     "Riduci nel tray alla chiusura",
 ];
 const BASE: u64 = 70;
@@ -32,7 +32,7 @@ impl SettingsSnapshot {
         root.set_label("Impostazioni");
         let mut nodes = vec![];
         for (row, label) in LABELS.into_iter().enumerate() {
-            let mut node = Node::new(Role::CheckBox);
+            let mut node = Node::new(Role::Switch);
             node.set_label(label);
             node.set_toggled(if self.on[row] {
                 Toggled::True

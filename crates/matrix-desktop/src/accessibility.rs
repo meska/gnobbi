@@ -4,6 +4,7 @@
 use crate::send_visible;
 use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
+pub mod about;
 pub mod compact;
 pub mod details;
 pub mod drawer;
@@ -53,7 +54,11 @@ pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
 pub const MENTIONS: NodeId = NodeId((1 << 63) - 8);
 pub const EMOJI: NodeId = NodeId((1 << 63) - 9);
 pub const EMOJI_PICKER: NodeId = NodeId((1 << 63) - 10);
-pub const POLL_CREATE: NodeId = NodeId((1 << 63) - 11);
+pub const EMOJI_TABS: NodeId = NodeId((1 << 63) - 11);
+pub const EMOJI_TAB: NodeId = NodeId((1 << 63) - 12);
+pub const EMOJI_PANEL: NodeId = NodeId((1 << 63) - 13);
+pub const EMOJI_CLOSE: NodeId = NodeId((1 << 63) - 14);
+pub const POLL_CREATE: NodeId = NodeId((1 << 63) - 15);
 /// First of the 32 consecutive ids of the picker's emoji buttons.
 pub const EMOJI_ITEM: u64 = (1 << 63) - 100;
 
@@ -74,8 +79,14 @@ pub struct ComposerSnapshot {
     pub mentions: Option<(Vec<String>, usize)>,
     /// Elapsed seconds of a voice note being recorded.
     pub recording: Option<u64>,
-    /// The emoji picker is open.
+    /// The emoji picker is open (popup or drawer).
     pub emoji_open: bool,
+    /// ... as the drawer, which has a Close button.
+    pub picker_pinned: bool,
+    /// Highlighted item, while the picker grid has the focus.
+    pub picker_selected: Option<usize>,
+    /// ... or the drawer's Close button has it.
+    pub picker_close_focused: bool,
     pub text: String,
     /// UTF-8 byte positions from the editor, including selection direction.
     pub anchor: usize,
@@ -160,6 +171,8 @@ pub struct SemanticMessage {
     /// «Scarica» on a received attachment (slot +7 of the message's block of 32).
     pub save: Option<NodeId>,
     pub save_bounds: Option<accesskit::Rect>,
+    /// Day label drawn above this message (slot +31): a node of its own for screen readers.
+    pub day: Option<(NodeId, String)>,
     pub bounds: Option<accesskit::Rect>,
     pub id: NodeId,
     pub event: matrix_domain::ScopedTimelineId,
@@ -434,7 +447,9 @@ impl HistoryNodes {
         let end = start.saturating_add(20).min(events.len());
         let messages = events[start..end]
             .iter()
-            .map(|event| {
+            .enumerate()
+            .map(|(offset, event)| {
+                let index = start + offset;
                 // The ACK changes protocol identity, not the focused message.
                 let pending =
                     event
@@ -489,6 +504,9 @@ impl HistoryNodes {
                     play_bounds: None,
                     save: crate::offers_save(event, true).then_some(NodeId(id.0 + 7)),
                     save_bounds: None,
+                    day: history
+                        .day_separator(index)
+                        .map(|label| (NodeId(id.0 + 31), label)),
                     bounds: None,
                     id,
                     event: event.id.clone(),
@@ -556,6 +574,8 @@ pub struct SemanticRoom {
     pub scope: matrix_domain::RoomScope,
     pub name: String,
     pub unread: u64,
+    /// Spoken conversation-list stamp of the last message («ultimo messaggio alle …»); None when unknown.
+    pub stamp: Option<String>,
     pub selected: bool,
     /// Set for an invitation row: it carries «Accetta» / «Rifiuta» child buttons.
     pub invite: Option<crate::InviteState>,
@@ -640,6 +660,7 @@ impl RoomNodes {
                     scope: room.scope.clone(),
                     name: room.name.clone(),
                     unread: room.unread,
+                    stamp: room.stamp_spoken(),
                     selected: sidebar.selected().is_some_and(|r| r.scope == room.scope),
                     invite: room.info.invited.then(|| sidebar.invite_state(&room.scope)),
                     leave: None,
@@ -723,6 +744,8 @@ pub struct NavigationSnapshot {
     pub back: Option<compact::BackSnapshot>,
     /// The open account drawer; while set it is the whole page.
     pub drawer: Option<drawer::DrawerSnapshot>,
+    /// The Info page opened from the drawer; it covers the drawer.
+    pub about: Option<about::AboutSnapshot>,
     pub scrollbars: Vec<scrollbars::ScrollbarSnapshot>,
     pub operation_panel: Option<operation_panel::PanelSnapshot>,
     pub spaces: Option<spaces::SpacesSnapshot>,
@@ -758,6 +781,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.action(request);
+        }
+        if let Some(about) = &self.about {
+            return about.action(request).map(NavigationAction::About);
         }
         if let Some(drawer) = &self.drawer {
             return drawer.action(request).map(NavigationAction::Drawer);
@@ -1133,6 +1159,9 @@ impl NavigationSnapshot {
         if let Some(signin) = &self.signin {
             return signin.tree();
         }
+        if let Some(about) = &self.about {
+            return about.tree();
+        }
         if let Some(drawer) = &self.drawer {
             return drawer.tree();
         }
@@ -1203,7 +1232,10 @@ impl NavigationSnapshot {
                 // The invitation state is part of the name, so it is read with the room name.
                 node.set_label(match room.invite {
                     Some(state) => format!("{}, {}", room.name, invite_state_label(state)),
-                    None => room.name.clone(),
+                    None => match &room.stamp {
+                        Some(spoken) => format!("{}, {spoken}", room.name),
+                        None => room.name.clone(),
+                    },
                 });
                 node.set_description(match room.unread {
                     _ if room.invite.is_some() => "Invito".to_owned(),
@@ -1435,6 +1467,12 @@ impl NavigationSnapshot {
                         tree.nodes.push((message.recover_status(), status));
                     }
                 }
+                if let Some((id, label)) = &message.day {
+                    let mut day = Node::new(Role::Label);
+                    day.set_label(label.clone());
+                    list.push_child(*id);
+                    tree.nodes.push((*id, day));
+                }
                 list.push_child(message.id);
                 tree.nodes.push((message.id, node));
             }
@@ -1599,23 +1637,37 @@ impl NavigationSnapshot {
             tree.nodes[0].1.push_child(POLL_CREATE);
             tree.nodes.push((POLL_CREATE, poll));
             let mut emoji = Node::new(Role::Button);
-            emoji.set_label(if composer.emoji_open {
-                "Chiudi selettore emoji"
-            } else {
-                "Apri selettore emoji"
-            });
+            emoji.set_label("Emoji");
+            emoji.set_expanded(composer.emoji_open);
             tree.nodes[0].1.push_child(EMOJI);
             tree.nodes.push((EMOJI, emoji));
             if composer.emoji_open {
-                let mut picker = Node::new(Role::Label);
+                let mut picker = Node::new(Role::Group);
                 picker.set_label("Selettore emoji");
                 tree.nodes[0].1.push_child(EMOJI_PICKER);
+                let mut tabs = Node::new(Role::TabList);
+                let mut tab = Node::new(Role::Tab);
+                tab.set_label("Emoji");
+                tab.set_selected(true);
+                tabs.push_child(EMOJI_TAB);
+                tree.nodes.push((EMOJI_TAB, tab));
+                picker.push_child(EMOJI_TABS);
+                tree.nodes.push((EMOJI_TABS, tabs));
+                let mut panel = Node::new(Role::TabPanel);
                 for (i, (name, _)) in crate::EMOJI_SET.iter().enumerate() {
                     let id = NodeId(EMOJI_ITEM + i as u64);
                     let mut item = Node::new(Role::Button);
                     item.set_label(*name);
-                    picker.push_child(id);
+                    panel.push_child(id);
                     tree.nodes.push((id, item));
+                }
+                picker.push_child(EMOJI_PANEL);
+                tree.nodes.push((EMOJI_PANEL, panel));
+                if composer.picker_pinned {
+                    let mut close = Node::new(Role::Button);
+                    close.set_label("Chiudi");
+                    picker.push_child(EMOJI_CLOSE);
+                    tree.nodes.push((EMOJI_CLOSE, close));
                 }
                 tree.nodes.push((EMOJI_PICKER, picker));
             }
@@ -1673,6 +1725,10 @@ impl NavigationSnapshot {
                 tree.focus = COMPOSER;
             } else if composer.send_focused && tree.nodes.iter().any(|(id, _)| *id == SEND) {
                 tree.focus = SEND;
+            } else if let Some(item) = composer.picker_selected.filter(|_| composer.emoji_open) {
+                tree.focus = NodeId(EMOJI_ITEM + item as u64);
+            } else if composer.picker_close_focused && composer.picker_pinned {
+                tree.focus = EMOJI_CLOSE;
             } else if let Some(icon) = composer.icon_focused {
                 tree.focus = [EMOJI, ATTACH, RECORD, POLL_CREATE][icon as usize];
             }
@@ -1811,6 +1867,7 @@ pub enum NavigationAction {
     Devices(devices::DeviceAction),
     Details(details::DetailsAction),
     Drawer(drawer::DrawerAction),
+    About(about::AboutAction),
     Notifications(notifications::NotificationAction),
     Settings(settings::SettingsAction),
     NewChat(new_chat::NewChatAction),

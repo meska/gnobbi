@@ -5,25 +5,70 @@ Grazie per provare Gnobbi, il programma di chat per Matrix. Questa e' una
 versione di test: incompleta e con difetti noti, serve a raccogliere
 commenti prima del rilascio pubblico.
 
+IMPORTANTE — USA SOLO UN ACCOUNT DI PROVA
+Usa un account Matrix creato appositamente per i test, MAI il tuo
+account personale. La versione di test puo' comportarsi in modo
+imprevedibile e i dati dell'account usato dentro l'app non vanno
+considerati al sicuro.
+
 REQUISITI
 - Windows 10 o Windows 11 a 64 bit.
-- Un account Matrix (server, nome utente e password). Se non sai cosa sia,
-  chiedi a chi ti ha dato questo pacchetto.
+- Un account Matrix di prova (server, nome utente e password). Se non
+  sai come crearne uno, chiedi a chi ti ha dato questo pacchetto.
+- Il login deve avvenire con password: l'accesso SSO («Continua con
+  Google» e simili) non e' supportato. Se il tuo server di prova offre
+  solo SSO, chiedi un account con password.
 
-INSTALLAZIONE
-1. Estrai lo ZIP in una cartella qualsiasi (per esempio Documenti\Gnobbi).
-2. Non c'e' niente da installare: il programma e' il file gnobbi.exe.
+SCARICARE E SCOMPATTARE
+1. Salva lo ZIP in una cartella qualsiasi, per esempio Documenti.
+2. Prima di scompattare: clic destro sul file ZIP -> Proprieta' ->
+   in basso spunta «Sblocca» -> OK. Cosi Windows segna i file come
+   provenienti da Internet e gli avvisi al primo avvio sono meno
+   insistiti.
+3. Estrai tutto il contenuto in una cartella, per esempio
+   Documenti\Gnobbi. Non spostare gnobbi.exe da solo: lascia tutti i
+   file estratti insieme nella stessa cartella (il file
+   vcruntime140.dll che trovi accanto serve al programma).
 
-Al primo avvio Windows puo' mostrare l'avviso "Windows ha protetto il
-computer" perche' l'eseguibile non e' firmato: clicca "Ulteriori
-informazioni" e poi "Esegui comunque".
+AVVISO DI WINDOWS AL PRIMO AVVIO (normale, non e' un virus)
+Gnobbi non e' ancora firmato con un certificato digitale, quindi al
+primo avvio Windows mostra molto probabilmente la schermata blu
+«Windows ha protetto il PC». Non e' un errore ed e' il comportamento
+atteso per le app nuove non firmate. Per procedere:
+1. Clicca «Ulteriori informazioni».
+2. Clicca «Esegui comunque».
+Se l'avviso compare di nuovo ai successivi aggiornamenti, ripeti i
+passaggi: per un'app non firmata Windows chiede conferma a ogni
+versione nuova.
 
-PRIMO AVVIO E ACCESSO
-1. Avvia gnobbi.exe: compare la schermata "Accedi a Gnobbi".
-2. Inserisci il server Matrix (homeserver), il tuo ID Matrix completo e la
-   password, poi conferma con "Accedi".
-3. Ai riavvii successivi l'account viene ripristinato da solo: la password
-   non viene chiesta di nuovo.
+Regole di sicurezza durante i test:
+- Non disattivare mai l'antivirus per far partire l'app.
+- Verifica, se ti e' stato comunicato, che l'impronta SHA-256 dello
+  ZIP scaricato corrisponda a quella indicata insieme al link: apri il
+  menu Start, digita powershell, e nella finestra blu che si apre
+  esegui (sostituendo il percorso dello ZIP):
+      certutil -hashfile "C:\percorso\del\pacchetto.zip" SHA256
+  Il codice mostrato deve essere identico a quello comunicato.
+- Su alcuni Windows 11 con «Smart App Control» attivo l'app puo'
+  essere bloccata SENZA il pulsante «Esegui comunque». In quel caso
+  non disattivare nulla: segnalalo, indicando la versione di Windows.
+
+PRIMO ACCESSO
+1. Avvia gnobbi.exe: compare la schermata di accesso.
+2. Compila i tre campi:
+   - Server: l'indirizzo del server Matrix (homeserver), per esempio
+     https://matrix.org
+   - Nome utente: il tuo ID Matrix completo, nel formato
+     @nome:server
+   - Password: la password dell'account di prova.
+3. Conferma con il pulsante di accesso.
+4. Al primo accesso di un account Gnobbi puo' mostrare una «chiave di
+   configurazione» (una lunga sequenza di parole): viene mostrata UNA
+   SOLA VOLTA e serve a recuperare la cronologia cifrata. Salvala
+   subito in un gestore di password o in un file, anche se e' solo un
+   account di prova.
+5. Ai riavvii successivi la sessione viene ripristinata da sola: la
+   password non viene richiesta di nuovo.
 
 DOVE VENGONO SALVATI I DATI
 - Impostazioni ed elenco account:
@@ -32,35 +77,39 @@ DOVE VENGONO SALVATI I DATI
 - Profili, messaggi e cache:
   %LOCALAPPDATA%\Gnobbi
   (per esempio C:\Users\<tuo-nome>\AppData\Local\Gnobbi)
-- Le chiavi che proteggono i dati sono nel Gestore credenziali di Windows
-  (Pannello di controllo -> Gestore credenziali -> Credenziali generiche,
-  voci che iniziano per "gnobbi").
+- Le chiavi che proteggono i dati sono nel Gestore credenziali di
+  Windows (Pannello di controllo -> Gestore credenziali -> Credenziali
+  generiche, voci che iniziano per «gnobbi»).
 La password del tuo account Matrix non viene mai salvata sul disco.
 
 PER RIMUOVERE TUTTO
 1. Chiudi Gnobbi ed elimina la cartella dove hai estratto lo ZIP.
 2. Elimina le cartelle %APPDATA%\Gnobbi e %LOCALAPPDATA%\Gnobbi.
 3. Dal Gestore credenziali elimina le voci generiche che iniziano per
-   "gnobbi".
+   «gnobbi».
 
 COME SEGNALARE PROBLEMI
 Scrivi a chi ti ha fornito il pacchetto, indicando:
 - cosa facevi e cosa e' successo, passo per passo;
 - il testo esatto di eventuali messaggi di errore;
-- uno screenshot, se possibile;
-- se il problema si ripete sempre o solo a volte.
-Per privacy non inviare screenshot con contenuti sensibili di chat.
+- uno screenshot, se possibile (attenzione a non includere contenuti
+  sensibili di chat o dati personali);
+- se il problema si ripete sempre o solo a volte;
+- la versione di Windows usata e, se l'avviso era diverso dal solito,
+  se avevi Smart App Control o un antivirus particolare attivo.
 
-LIMITI NOTI (non serve segnalarli)
-- L'eseguibile non e' firmato: compare l'avviso di Windows gia' descritto.
+LIMITI NOTI (non serve segnalarli, sono gia' conosciuti)
+- L'eseguibile non e' firmato: compare l'avviso di Windows descritto
+  sopra a ogni nuova versione.
 - L'icona del file e' quella generica di Windows.
 - Non e' ancora utilizzabile con screen reader e lettori di schermo
   (l'accessibilita' via UI Automation non e' implementata su Windows).
-- Un messaggio ricevuto con molte citazioni annidate una dentro l'altra
-  puo' chiudere improvvisamente il programma: riavvia e segnalalo se ti
-  capita.
-- Le notifiche sono spente per impostazione predefinita: si attivano dal
-  pannello Notifiche di ogni account.
+- Non c'e' un'icona nell'area di notifica (tray): chiudendo la
+  finestra il programma si chiude del tutto.
+- Il login con SSO/OIDC non e' supportato: serve un account con
+  password.
+- Le notifiche sono spente per impostazione predefinita: si attivano
+  dal pannello Notifiche di ogni account.
 - Il testo digitato ma non inviato (la bozza) si perde chiudendo il
   programma.
 - I video si aprono nel lettore video di Windows, non dentro l'app.

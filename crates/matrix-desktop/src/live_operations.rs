@@ -24,6 +24,8 @@ pub struct LiveOperations {
     error: Option<OperationError>,
     inspection_error: Option<OperationError>,
     pending: Option<OperationRequest>,
+    /// Vote in flight: kept apart from `pending`/`error` so the operations panel (message menu) never shows for a vote.
+    voting: Option<OperationRequest>,
     /// Poll whose last vote was refused; cleared by the next vote.
     vote_failed: Option<EventId>,
     confirmed: Vec<ConfirmedOperation>,
@@ -79,7 +81,7 @@ impl LiveOperations {
         self.inspection = None;
     }
     pub fn submit(&mut self, operation: Operation, transaction_id: TransactionId) -> bool {
-        if self.pending.is_some() || transaction_id.as_str().is_empty() {
+        if self.pending.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
             return false;
         }
         let text = match &operation {
@@ -125,7 +127,8 @@ impl LiveOperations {
     /// Vote on option `ix` of `poll`: the new answers come from `Poll::toggle`, the state from the Timeline.
     /// Needs no message selection; the server decides whether the vote is allowed.
     pub fn vote(&mut self, scope: RoomScope, target: EventId, poll: &Poll, ix: usize, transaction_id: TransactionId) -> bool {
-        if self.pending.is_some() || transaction_id.as_str().is_empty() {
+        // a vote and another operation share the single `command` slot: never overwrite one not yet sent
+        if self.voting.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
             return false;
         }
         let Some(answers) = poll.answers.get(ix).and_then(|a| poll.toggle(&a.id)) else {
@@ -133,8 +136,7 @@ impl LiveOperations {
         };
         let request = OperationRequest { scope, target, transaction_id, operation: Operation::Vote { answers } };
         self.command = Some(OperationCommand::Apply(request.clone()));
-        self.pending = Some(request);
-        self.error = None;
+        self.voting = Some(request);
         self.vote_failed = None;
         true
     }
@@ -142,7 +144,7 @@ impl LiveOperations {
         self.vote_failed.as_ref() == Some(target)
     }
     pub fn toggle_reaction(&mut self, key: &str, transaction_id: TransactionId) -> bool {
-        if self.pending.is_some() || transaction_id.as_str().is_empty() {
+        if self.pending.is_some() || self.command.is_some() || transaction_id.as_str().is_empty() {
             return false;
         }
         let Some(selected) = &self.selection else {
@@ -209,7 +211,7 @@ impl LiveOperations {
             .flatten()
     }
     pub fn retry(&mut self) -> bool {
-        if self.error != Some(OperationError::Transport) {
+        if self.error != Some(OperationError::Transport) || self.command.is_some() {
             return false;
         }
         let Some(request) = &self.pending else {
@@ -255,7 +257,6 @@ impl LiveOperations {
             | OperationResult::ServerProbed { .. }
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
-            | OperationResult::UserVerification { .. }
             | OperationResult::Ignored { .. }
             | OperationResult::MemberRights { .. }
             | OperationResult::Moderated { .. }
@@ -282,6 +283,15 @@ impl LiveOperations {
                 }
                 true
             }
+            OperationResult::Applied { request, result } if self.voting.as_ref() == Some(&request) => {
+                self.voting = None;
+                match result {
+                    Ok(event_id) => self.confirmed.push(ConfirmedOperation { request, event_id }),
+                    // A vote is never retried by the panel: the next click is a new vote.
+                    Err(_) => self.vote_failed = Some(request.target),
+                }
+                true
+            }
             OperationResult::Applied { request, result } => {
                 if !self.pending.as_ref().is_some_and(|pending| {
                     pending.scope == request.scope
@@ -300,12 +310,7 @@ impl LiveOperations {
                     }
                     Err(error) => {
                         self.error = Some(error);
-                        let vote = matches!(request.operation, Operation::Vote { .. });
-                        if vote {
-                            self.vote_failed = Some(request.target.clone());
-                        }
-                        // A vote is never retried by the panel: the next click is a new vote.
-                        if vote || error != OperationError::Transport {
+                        if error != OperationError::Transport {
                             self.pending = None;
                         }
                     }

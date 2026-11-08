@@ -13,13 +13,21 @@ fn assert_icons(home: &Path, icon: IconChoice) {
 
 const ID: &str = "net.meskatech.gnobbi";
 
+/// A real AppImage already under `~/Applications` (with a space in its path): used as is, not copied.
+fn appimage(home: &Path) -> std::path::PathBuf {
+    let app = home.join("Applications/my apps/Gnobbi.AppImage");
+    fs::create_dir_all(app.parent().unwrap()).unwrap();
+    fs::write(&app, "x").unwrap();
+    app
+}
+
 fn run(home: &Path, args: &[&str]) -> std::process::ExitStatus {
     Command::new(env!("CARGO_BIN_EXE_gnobbi"))
         .args(args)
         .env("HOME", home)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("XDG_DATA_HOME")
-        .env("APPIMAGE", "/opt/my apps/Gnobbi.AppImage")
+        .env("APPIMAGE", appimage(home))
         .status()
         .unwrap()
 }
@@ -37,7 +45,7 @@ fn installs_idempotently_and_only_on_request() {
     assert!(run(&home, &["--install-desktop-entry"]).success());
     let first = fs::read_to_string(&desktop).unwrap();
     for line in [
-        "Exec=\"/opt/my apps/Gnobbi.AppImage\"".to_string(),
+        format!("Exec=\"{}\"", home.join("Applications/my apps/Gnobbi.AppImage").display()),
         format!("Icon={ID}"),
         format!("StartupWMClass={ID}"),
     ] {

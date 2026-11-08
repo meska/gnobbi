@@ -83,7 +83,7 @@ fn painted_pointer() -> PointerCallback {
     POINTER.with_borrow(|painted| painted.as_ref().unwrap().clone())
 }
 
-static PAINTED: std::sync::LazyLock<
+pub(crate) static PAINTED: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<String, gpui::Bounds<gpui::Pixels>>>,
 > = std::sync::LazyLock::new(Default::default);
 
@@ -356,6 +356,7 @@ fn sidebar_session(
         new_room: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: this.theme.is_dark(),
@@ -1764,6 +1765,14 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 90 {
+            crate::details_panel_test::scenario(this, cx, executor).await;
+            return;
+        }
+        if let n @ 92..=95 = DYNAMIC.load(Ordering::SeqCst) {
+            crate::dialog_typing_test::scenario(n, this, cx, executor).await;
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 91 {
             crate::member_profile_test::scenario(this, cx, executor).await;
             return;
@@ -1935,7 +1944,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     let room = this.sidebar.selected().unwrap();
                     matrix_desktop::accessibility::details::DetailsSnapshot {
                         scope: room.scope.clone(), name: room.name.clone(), info: room.info.clone(),
-                        people: this.people_labels(), back: false, acts: vec![], focus: Default::default(), profile_focus: 0, bounds: [None; 5], hide_status: false, hide_redacted: false,
+                        people: this.people_labels(), back: false, acts: vec![], focus: Default::default(), profile_focus: 0, bounds: [None; 6], hide_status: false, hide_redacted: false,
                     }.tree().nodes.len()
                 }).unwrap();
                 println!("AFTER a11y nodes in sheet tree: {nodes}");
@@ -3475,6 +3484,16 @@ fn tab_ring_compact_from_the_menu_button() {
 
 #[test]
 #[ignore = "requires private display"]
+fn non_modal_room_details_panel_keeps_list_composer_and_timeline_live() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(90, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
 fn member_detail_profile_actions_and_keyboard() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(91, Ordering::SeqCst);
@@ -3482,3 +3501,21 @@ fn member_detail_profile_actions_and_keyboard() {
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }
+
+macro_rules! dialog_typing_test {
+    ($name:ident, $n:expr) => {
+        #[test]
+        #[ignore = "requires private display"]
+        fn $name() {
+            assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+            DYNAMIC.store($n, Ordering::SeqCst);
+            CONNECTED.store(true, Ordering::SeqCst);
+            ACTIVE.store(true, Ordering::SeqCst);
+            crate::main();
+        }
+    };
+}
+dialog_typing_test!(dialog_typing_modifica_stanza, 92);
+dialog_typing_test!(dialog_typing_nuova_stanza, 93);
+dialog_typing_test!(dialog_typing_rinomina_dispositivo, 94);
+dialog_typing_test!(dialog_typing_crea_sondaggio, 95);

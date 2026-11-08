@@ -8,8 +8,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 
 pub const MINIMIZE: &str = "Riduci a icona";
 pub const SHOW: &str = "Mostra Gnobbi";
-pub const NOTIFICATIONS_OFF: &str = "Disattiva notifiche";
-pub const NOTIFICATIONS_ON: &str = "Attiva notifiche";
+/// Fixed label; the native check mark carries the state.
+pub const NOTIFICATIONS: &str = "Notifiche";
 pub const QUIT: &str = "Chiudi Gnobbi";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,14 +69,13 @@ pub fn tray_menu(
             TrayAction::ToggleWindow,
             if window_visible { MINIMIZE } else { SHOW },
         ),
-        entry(
-            TrayAction::ToggleNotifications,
-            if notifications_enabled {
-                NOTIFICATIONS_OFF
-            } else {
-                NOTIFICATIONS_ON
-            },
-        ),
+        {
+            let mut item = entry(TrayAction::ToggleNotifications, NOTIFICATIONS);
+            if let TrayItem::Entry { checked, .. } = &mut item {
+                *checked = notifications_enabled;
+            }
+            item
+        },
         entry(TrayAction::Quit, QUIT),
     ];
     if accounts.len() >= 2 {
@@ -146,7 +145,7 @@ mod tests {
     #[test]
     fn one_account_has_no_account_section() {
         let menu = tray_menu(true, true, &[row(1, "Anna", true)]);
-        assert_eq!(labels(&menu), [MINIMIZE, NOTIFICATIONS_OFF, QUIT],);
+        assert_eq!(labels(&menu), [MINIMIZE, NOTIFICATIONS, QUIT],);
         assert!(tray_menu(true, true, &[]).len() == 3);
     }
 
@@ -155,7 +154,7 @@ mod tests {
         let menu = tray_menu(true, true, &[row(1, "Anna", false), row(2, "Bruno", true)]);
         assert_eq!(
             labels(&menu),
-            [MINIMIZE, NOTIFICATIONS_OFF, QUIT, "-", "Anna", "Bruno"],
+            [MINIMIZE, NOTIFICATIONS, QUIT, "-", "Anna", "Bruno"],
         );
         let checks: Vec<_> = menu
             .iter()
@@ -190,16 +189,12 @@ mod tests {
     #[test]
     fn notification_entry_reads_the_same_policy_as_settings() {
         let mut policy = NotificationPolicy::new(AccountId::new(1));
-        assert_eq!(
-            labels(&tray_menu(true, policy.enabled(), &[]))[1],
-            NOTIFICATIONS_ON
-        );
+        let checked = |on| matches!(tray_menu(true, on, &[])[1], TrayItem::Entry { checked: true, .. });
+        assert_eq!(checked(policy.enabled()), policy.enabled());
         // Settings and tray both end in set_enabled on this one policy: no second flag.
         policy.set_enabled(!policy.enabled());
-        assert_eq!(
-            labels(&tray_menu(true, policy.enabled(), &[]))[1],
-            NOTIFICATIONS_OFF
-        );
+        assert_eq!(checked(policy.enabled()), policy.enabled());
+        assert_eq!(labels(&tray_menu(true, policy.enabled(), &[]))[1], NOTIFICATIONS);
     }
 
     #[test]

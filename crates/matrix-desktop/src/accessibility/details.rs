@@ -82,6 +82,7 @@ impl DetailsView {
                         control,
                     }),
                     Action::Click => Some(match control {
+                        DetailsControl::Topic => return None,
                         DetailsControl::Close => DetailsAction::Close(panel.scope.clone()),
                         DetailsControl::Copy => DetailsAction::Copy(panel.scope.clone()),
                         DetailsControl::HideStatus => DetailsAction::HideStatus(panel.scope.clone()),
@@ -128,6 +129,8 @@ pub use crate::ProfileAct;
 pub enum DetailsControl {
     #[default]
     Close,
+    /// «Argomento»: scrollable area, a tab stop of its own (no click action).
+    Topic,
     Copy,
     HideStatus,
     HideRedacted,
@@ -135,11 +138,12 @@ pub enum DetailsControl {
 }
 impl DetailsControl {
     /// Focus order = visual order.
-    pub const ALL: [Self; 5] = [Self::Close, Self::Copy, Self::HideStatus, Self::HideRedacted, Self::Edit];
+    pub const ALL: [Self; 6] = [Self::Close, Self::Topic, Self::Copy, Self::HideStatus, Self::HideRedacted, Self::Edit];
     pub fn id(self) -> NodeId {
         match self {
             Self::Close => NodeId(31),
             Self::Copy => NodeId(32),
+            Self::Topic => NodeId((1 << 40) + 4),
             // Above BACK: member labels take every id from 33 up.
             Self::HideStatus => NodeId((1 << 40) + 1),
             Self::HideRedacted => NodeId((1 << 40) + 2),
@@ -161,7 +165,7 @@ pub struct DetailsSnapshot {
     pub focus: DetailsControl,
     /// Keyboard focus inside an opened profile: index in the ring ‹, ✕, then the acts.
     pub profile_focus: usize,
-    pub bounds: [Option<accesskit::Rect>; 5],
+    pub bounds: [Option<accesskit::Rect>; 6],
     /// Current values: the toggles' accessible names follow the visible labels.
     pub hide_status: bool,
     pub hide_redacted: bool,
@@ -191,7 +195,7 @@ impl DetailsSnapshot {
         DetailsControl::ALL[(self.focus as usize + 1) % DetailsControl::ALL.len()]
     }
     pub fn tree(&self) -> TreeUpdate {
-        let mut root = Node::new(Role::Window);
+        let mut root = Node::new(Role::Complementary);
         root.set_label("Informazioni stanza");
         let mut nodes = vec![];
         for (index, label) in [
@@ -240,25 +244,35 @@ impl DetailsSnapshot {
         }
         for (index, (control, label)) in [
             (DetailsControl::Close, "Chiudi informazioni stanza"),
+            (DetailsControl::Topic, "Argomento"),
             (DetailsControl::Copy, "Copia ID stanza"),
-            (DetailsControl::HideStatus, "Nascondi messaggi di stato"),
-            (DetailsControl::HideRedacted, "Nascondi messaggi eliminati"),
+            (DetailsControl::HideStatus, "Messaggi di stato"),
+            (DetailsControl::HideRedacted, "Messaggi eliminati"),
             (DetailsControl::Edit, "Modifica"),
         ]
         .into_iter()
         .enumerate()
         {
             let on = match control {
-                DetailsControl::HideStatus => Some(self.hide_status),
-                DetailsControl::HideRedacted => Some(self.hide_redacted),
+                DetailsControl::HideStatus => Some(!self.hide_status),
+                DetailsControl::HideRedacted => Some(!self.hide_redacted),
                 _ => None,
             };
-            let mut node = Node::new(if on.is_some() { Role::CheckBox } else { Role::Button });
+            let topic = control == DetailsControl::Topic;
+            let mut node = Node::new(if on.is_some() {
+                Role::Switch
+            } else if topic {
+                Role::ScrollView
+            } else {
+                Role::Button
+            });
             node.set_label(label);
             if let Some(on) = on {
                 node.set_toggled(if on { Toggled::True } else { Toggled::False });
             }
-            node.add_action(Action::Click);
+            if !topic {
+                node.add_action(Action::Click);
+            }
             node.add_action(Action::Focus);
             if let Some(bounds) = self.bounds[index] {
                 node.set_bounds(bounds);

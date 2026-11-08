@@ -73,6 +73,8 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
             Member { user_id: "@bo:fixture.test".into(), name: "Bo".into(), avatar: None },
         ];
         this.set_room_details_open(true);
+        // Non-modal sheet: a keyboard user enters it with F6; the fixture does the same focus move.
+        this.details_zone.focus(window);
         cx.notify();
     });
     wait(300).await;
@@ -130,8 +132,9 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     shell!(|this, _, _| assert!(!this.room_details_open, "Esc from the list closes the sheet"));
 
     // 4. ‹ and ✕ with Enter.
-    shell!(|this, _, _| {
+    shell!(|this, window, _| {
         this.set_room_details_open(true);
+        this.details_zone.focus(window);
         load(this, profile(ADA, "Ada", Some(false), false), None);
     });
     key!("enter");
@@ -140,7 +143,12 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     key!("tab");
     key!("enter");
     shell!(|this, _, _| assert!(!this.room_details_open, "✕ (focus 1) + Enter closes the sheet"));
-    shell!(|this, _, _| this.set_room_details_open(true));
+    // Real mouse flow: the member row is clicked while the focus is in the room list, and the sheet
+    // opens without moving it (drive_profile). Enter/Esc keep working through the profile gate.
+    shell!(|this, window, _| {
+        this.set_room_details_open(true);
+        this.list_focus.focus(window);
+    });
 
     // 5. Destructive acts: confirmation names the user, Cancel has the focus, every way of cancelling sends nothing.
     let to = |ctl: A, this: &Shell| this.profile_acts().iter().position(|a| *a == ctl).unwrap() + 2;
@@ -239,7 +247,13 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     assert_eq!(clip.as_deref(), Some("https://matrix.to/#/@ada:fixture.test"), "Condividi link utente");
     shell!(|this, _, _| this.profile_focus = to(A::Verify, this));
     key!("enter");
-    shell!(|this, _, _| assert!(matches!(&this.pending_operation_command, Some(OperationCommand::VerifyUser { user_id }) if user_id == ADA)));
+    shell!(|this, _, _| {
+        assert!(matches!(this.verification.pending(), Some(matrix_engine::verification::VerificationCommand::BeginUser { user_id, .. }) if user_id == ADA));
+        assert!(this.verification.popup_open(), "«Verifica utente» opens the popup at once");
+    });
+    // The popup is modal: Esc leaves it (nothing to cancel yet) and the sheet keys work again.
+    key!("escape");
+    shell!(|this, _, _| assert!(!this.verification.popup_open(), "Esc closes the popup while waiting"));
     shell!(|this, _, _| {
         this.pending_operation_command = None;
         this.profile_focus = to(A::Message, this);
@@ -257,8 +271,9 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(composer_text(this, window, cx).contains("@Ada"), "Cita puts the mention in the composer: {:?}", composer_text(this, window, cx));
         assert!(this.composer.read(cx).is_focused(window), "and the focus goes to the composer");
     });
-    shell!(|this, _, _| {
+    shell!(|this, window, _| {
         this.set_room_details_open(true);
+        this.details_zone.focus(window);
         load(this, profile(ADA, "Ada", Some(true), false), Some(MemberRights { read_receipt: Some("$r1".into()), ..Default::default() }));
         this.profile_focus = to(A::ReadReceipt, this);
     });
@@ -268,6 +283,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     // 7. Outcomes: success updates the profile, failure flashes and changes nothing; kick/ban leave the list.
     shell!(|this, window, cx| {
         this.set_room_details_open(true);
+        this.details_zone.focus(window);
         load(this, profile(ADA, "Ada", Some(false), false), Some(mod_rights()));
         this.ignored_set(ADA.into(), true, Err(OperationError::Forbidden), cx);
         assert_eq!(this.profile_failed, Some(A::Ignore));
@@ -386,9 +402,15 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(this.profile.is_none() && this.room_details_open, "Esc: back to the member list");
         assert!(this.composer.read(cx).is_focused(window), "focus still on the composer after the first Esc");
     });
+    // Non-modal: with the focus outside the panel, Esc belongs to the composer; the shortcut closes.
     key!("escape");
     shell!(|this, window, cx| {
-        assert!(!this.room_details_open, "second Esc closes the sheet");
+        assert!(this.room_details_open, "Esc from the composer no longer closes the non-modal sheet");
+        assert!(this.composer.read(cx).is_focused(window), "focus still on the composer");
+    });
+    key!("ctrl-i");
+    shell!(|this, window, cx| {
+        assert!(!this.room_details_open, "Ctrl+I closes the sheet from the composer");
         assert!(this.composer.read(cx).is_focused(window), "focus still on the composer after closing");
     });
 

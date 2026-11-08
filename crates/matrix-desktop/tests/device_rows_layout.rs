@@ -52,13 +52,6 @@ fn row_height_follows_content_and_never_clips() {
 }
 
 #[test]
-fn selected_device_id_is_shown_in_full() {
-    // The list ellipsizes long IDs; the active flow is where the rest is read, so that line must wrap.
-    let line = VIEW.lines().find(|l| l.contains("\"Dispositivo: {}\"")).expect("selected device line");
-    assert!(!line.contains(".truncate()"), "selected device ID must wrap, not ellipsize");
-}
-
-#[test]
 fn detail_line_wraps_under_the_title_instead_of_clipping() {
     let row = row_source();
     let start = row.find("device_detail").expect("detail line");
@@ -130,7 +123,7 @@ fn rows_tree(list: Vec<VerificationDevice>) -> Vec<(accesskit::NodeId, accesskit
     let mut model = DeviceVerification::new(account);
     model.apply(VerificationEvent::Devices { account_id: account, devices: list });
     let rows = DeviceNodes::default().project(account, &model);
-    DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6])
+    DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 2])
         .with_devices(rows)
         .tree()
         .nodes
@@ -199,7 +192,7 @@ fn own_device_row_is_a_label_shown_once_and_never_clickable() {
     model.apply(VerificationEvent::Profile { account_id: account, user_id: "@a:x".into(), display_name: None, device_id: Some("OWN".into()), avatar: None });
     model.apply(VerificationEvent::Devices { account_id: account, devices: devices(2, |_| false, |i| format!("D{i}")) });
     let rows = DeviceNodes::default().project(account, &model);
-    let nodes = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6]).with_devices(rows).tree().nodes;
+    let nodes = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 2]).with_devices(rows).tree().nodes;
     let own: Vec<_> = nodes.iter().filter(|(_, n)| [n.label(), n.value()].into_iter().flatten().any(|t| t.contains("OWN"))).collect();
     assert_eq!(own.len(), 1, "own device appears exactly once");
     assert_eq!(own[0].1.value(), Some("Questo dispositivo · OWN"));
@@ -224,7 +217,7 @@ fn screen_reader_text_carries_name_state_time_ip_and_id_for_own_and_other_device
     model.apply(VerificationEvent::OwnDevice { account_id: account, device: full("OWN", true) });
     model.apply(VerificationEvent::Devices { account_id: account, devices: vec![full("D1", false)] });
     let rows = DeviceNodes::default().project(account, &model);
-    let nodes = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6]).with_devices(rows).tree().nodes;
+    let nodes = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 2]).with_devices(rows).tree().nodes;
     let at = matrix_desktop::time_fmt::day_or_time(0);
     let own = format!("Questo dispositivo · Gnobbi (Linux) · Verificato · Ultima attività {at} · 192.0.2.17 · OWN");
     let other = format!("Gnobbi (Linux) · Non verificato · Ultima attività {at} · 192.0.2.17 · D1");

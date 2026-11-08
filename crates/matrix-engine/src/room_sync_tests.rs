@@ -474,3 +474,16 @@ fn attachment_caption_comes_from_the_sdk_not_from_the_file_name() {
     let image = media_of(&msgtype_of(serde_json::json!({"msgtype":"m.image","body":"x","filename":"a.png","url":"mxc://t/x"}))).unwrap();
     assert_eq!((image.kind, image.label.as_str()), (crate::history::MediaKind::Image, "Immagine"));
 }
+
+#[test]
+fn latest_event_ts_is_none_for_no_event_and_for_invites() {
+    use matrix_sdk::ruma::MilliSecondsSinceUnixEpoch;
+    use matrix_sdk_ui::timeline::{LatestEventValue, TimelineDetails};
+    assert_eq!(latest_event_ts(&LatestEventValue::None), None);
+    let invite = LatestEventValue::RemoteInvite {
+        timestamp: MilliSecondsSinceUnixEpoch(1_700_000_000_123_u64.try_into().unwrap()),
+        inviter: None,
+        inviter_profile: TimelineDetails::Unavailable,
+    };
+    assert_eq!(latest_event_ts(&invite), None, "invite stamp is client receipt time");
+}

@@ -19,15 +19,17 @@ pub enum DrawerItem {
     AddAccount,
     NewChat,
     NewRoom,
+    About,
 }
 impl DrawerItem {
-    const ALL: [(Self, &'static str); 6] = [
+    const ALL: [(Self, &'static str); 7] = [
         (Self::Settings, "Impostazioni"),
         (Self::Devices, "Dispositivi"),
         (Self::Notifications, "Notifiche"),
         (Self::AddAccount, "Aggiungi account"),
         (Self::NewChat, "Nuova chat"),
         (Self::NewRoom, "Nuova stanza"),
+        (Self::About, "Informazioni su Gnobbi"),
     ];
 }
 
@@ -132,7 +134,7 @@ impl DrawerSnapshot {
                 );
             }
             for (i, (item, label)) in DrawerItem::ALL.into_iter().enumerate() {
-                if self.connected || item == DrawerItem::Settings {
+                if self.connected || matches!(item, DrawerItem::Settings | DrawerItem::About) {
                     add(&mut root, NodeId(ITEM_BASE + i as u64), button(label, true));
                 }
             }
@@ -185,7 +187,7 @@ impl DrawerSnapshot {
             _ if self.confirm.is_some() => false,
             DrawerAction::Switch(id) => self.rows.iter().any(|r| r.id == *id && r.switchable),
             DrawerAction::AskRemove(id) => self.rows.iter().any(|r| r.id == *id),
-            DrawerAction::Item(item) => self.connected || *item == DrawerItem::Settings,
+            DrawerAction::Item(item) => self.connected || matches!(item, DrawerItem::Settings | DrawerItem::About),
             DrawerAction::Close => true,
         }
     }

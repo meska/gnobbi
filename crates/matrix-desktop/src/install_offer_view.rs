@@ -3,6 +3,12 @@ use crate::*;
 use matrix_desktop::install_offer::Choice;
 
 impl Shell {
+    /// The 280 px card covers the composer when the chat fills the window (<800 px): wait for the list.
+    pub(crate) fn install_offer_visible(&self) -> bool {
+        self.install_offer
+            .visible(!self.navigation_wide && self.compact_chat)
+    }
+
     /// Called every render: cheap until the one-time check runs.
     pub(crate) fn poll_install_offer(&mut self, window: &Window, cx: &mut Context<Self>) {
         let typing = self.composer.read(cx).is_focused(window);
@@ -18,11 +24,11 @@ impl Shell {
 
     pub(crate) fn choose_install(&mut self, choice: Choice, cx: &mut Context<Self>) {
         let icon = self.prefs.icon;
-        let changed = self.install_offer.choose(
-            choice,
-            &mut self.prefs.desktop_entry_dont_ask,
-            || matrix_desktop::desktop_entry::install_for_current_user(icon),
-        );
+        let changed =
+            self.install_offer
+                .choose(choice, &mut self.prefs.desktop_entry_dont_ask, |replace| {
+                    matrix_desktop::desktop_entry::install_for_current_user(icon, replace)
+                });
         if changed {
             self.save_prefs(cx);
         }
@@ -41,7 +47,7 @@ impl Shell {
             || self.notifications_open
             || self.verification_open
             || self.room_details_open;
-        if !self.install_offer.open || other_layer || key != "escape" {
+        if !self.install_offer_visible() || other_layer || key != "escape" {
             return false;
         }
         self.choose_install(Choice::Later, cx);
@@ -55,8 +61,9 @@ impl Shell {
         self.accessibility.update_install_offer(
             matrix_desktop::accessibility::install_offer::Snapshot {
                 generation: o.generation,
-                dialog: o.open.then(|| [b[0], b[1], b[2]]),
+                dialog: self.install_offer_visible().then(|| [b[0], b[1], b[2]]),
                 settings_row: self.settings_open.then_some(b[3]),
+                confirm: o.confirm,
                 error: o.error.clone(),
             },
         );
@@ -108,9 +115,48 @@ impl Shell {
         t: matrix_desktop::DesignTokens,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        if !self.install_offer.open {
+        if !self.install_offer_visible() {
             return None;
         }
+        let confirm = self.install_offer.confirm;
+        let (title, buttons) = if confirm {
+            (
+                "Sostituire gnobbi.AppImage?",
+                vec![
+                    (
+                        "install-offer-replace",
+                        "Sostituisci",
+                        t.accent,
+                        Choice::Replace,
+                    ),
+                    (
+                        "install-offer-cancel",
+                        "Annulla",
+                        t.secondary,
+                        Choice::Later,
+                    ),
+                ],
+            )
+        } else {
+            (
+                "Aggiungi al menu",
+                vec![
+                    (
+                        "install-offer-add",
+                        "Aggiungi al menu",
+                        t.accent,
+                        Choice::Add,
+                    ),
+                    ("install-offer-later", "Non ora", t.secondary, Choice::Later),
+                    (
+                        "install-offer-never",
+                        "Non chiedere più",
+                        t.secondary,
+                        Choice::Never,
+                    ),
+                ],
+            )
+        };
         let mut button =
             |i: usize, id: &'static str, label: &'static str, color: u32, c: Choice| {
                 div()
@@ -120,6 +166,7 @@ impl Shell {
                     .py_2()
                     .rounded_md()
                     .cursor_pointer()
+                    .tab_index(i as isize)
                     .text_color(rgb(color))
                     .child(label)
                     .children(self.offer_observer(i, cx))
@@ -148,38 +195,17 @@ impl Shell {
                             div()
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(rgb(t.text))
-                                .child("Aggiungi al menu"),
+                                .child(title),
                         )
                         .when_some(self.install_offer.error.clone(), |d, e| {
                             d.child(div().text_color(rgb(t.error)).child(e))
                         })
                         .child(
-                            div()
-                                .flex()
-                                .flex_wrap()
-                                .justify_end()
-                                .gap_2()
-                                .child(button(
-                                    0,
-                                    "install-offer-add",
-                                    "Aggiungi al menu",
-                                    t.accent,
-                                    Choice::Add,
-                                ))
-                                .child(button(
-                                    1,
-                                    "install-offer-later",
-                                    "Non ora",
-                                    t.secondary,
-                                    Choice::Later,
-                                ))
-                                .child(button(
-                                    2,
-                                    "install-offer-never",
-                                    "Non chiedere più",
-                                    t.secondary,
-                                    Choice::Never,
-                                )),
+                            div().flex().flex_wrap().justify_end().gap_2().children(
+                                buttons.into_iter().enumerate().map(
+                                    |(i, (id, label, color, c))| button(i, id, label, color, c),
+                                ),
+                            ),
                         ),
                 )
                 .into_any_element(),

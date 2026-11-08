@@ -7,6 +7,26 @@ use std::sync::{
 };
 use std::time::Duration;
 
+/// Controls of the «Notifiche locali» panel, in Tab order; the keyboard focus lives in every build.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NotificationControl {
+    #[default]
+    Enabled,
+    Mute,
+    Preview,
+    Close,
+}
+impl NotificationControl {
+    /// Next control in Tab order, wrapping; «Mute» is skipped while no room is selected.
+    pub fn next(self, room: bool, backwards: bool) -> Self {
+        use NotificationControl::*;
+        let all = [Enabled, Mute, Preview, Close];
+        let controls: Vec<_> = all.into_iter().filter(|c| room || *c != Mute).collect();
+        let index = controls.iter().position(|c| *c == self).unwrap_or(0);
+        controls[(index + if backwards { controls.len() - 1 } else { 1 }) % controls.len()]
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NotificationError {
     Unavailable,

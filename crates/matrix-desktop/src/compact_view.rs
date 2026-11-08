@@ -139,7 +139,6 @@ impl Shell {
             self.navigation_wide,
             !self.notifications_open
                 && !self.verification_open
-                && !self.room_details_open
                 && (self.navigation_wide || !self.compact_chat),
             self.spaces_open,
         );
@@ -157,6 +156,9 @@ impl Shell {
     }
 
     pub(crate) fn set_notifications_open(&mut self, open: bool) {
+        if open && !self.notifications_open {
+            self.notification_focus = Default::default();
+        }
         self.notifications_open = open;
         self.refresh_navigation_visibility();
     }
@@ -172,7 +174,6 @@ impl Shell {
             && self.compact_chat
             && !self.notifications_open
             && !self.verification_open
-            && !self.room_details_open
             && self.timeline.is_some())
         .then(|| {
             self.sidebar

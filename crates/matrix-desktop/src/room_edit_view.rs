@@ -6,7 +6,7 @@ use matrix_engine::operations::{OperationCommand, OperationError};
 pub(crate) struct RoomEdit {
     scope: RoomScope,
     /// Name, then topic.
-    fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
+    pub(crate) fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
     original: [String; 2],
     avatar: Option<std::path::PathBuf>,
     avatar_focus: FocusHandle,
