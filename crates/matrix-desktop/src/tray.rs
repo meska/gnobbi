@@ -152,13 +152,21 @@ pub(crate) fn round_picture(picture: &image::RgbaImage) -> Option<tray_icon::men
     tray_icon::menu::Icon::from_rgba(small.into_raw(), SIDE, SIDE).ok()
 }
 
-/// Fallback when the account has no picture: a plain disc whose colour follows the account (the
-/// catalog holds no avatar; only the shown account's picture is known).
-fn avatar(
-    id: AccountId,
-    picture: Option<&(AccountId, image::RgbaImage)>,
-) -> Option<tray_icon::menu::Icon> {
-    if let Some((_, image)) = picture.filter(|(owner, _)| *owner == id) {
+type Pictures = Vec<(AccountId, image::RgbaImage)>;
+
+/// The loaded picture of every account that has one; the others are left out (they keep the disc).
+pub fn pictures_of<T>(
+    rows: &[crate::AccountRow],
+    load: impl Fn(&str) -> Option<T>,
+) -> Vec<(AccountId, T)> {
+    rows.iter()
+        .filter_map(|r| Some((r.id, r.picture(&load)?)))
+        .collect()
+}
+
+/// Fallback when the account has no picture (yet): a plain disc whose colour follows the account.
+fn avatar(id: AccountId, pictures: &Pictures) -> Option<tray_icon::menu::Icon> {
+    if let Some((_, image)) = pictures.iter().find(|(owner, _)| *owner == id) {
         if let Some(icon) = round_picture(image) {
             return Some(icon);
         }
@@ -184,13 +192,13 @@ fn avatar(
     tray_icon::menu::Icon::from_rgba(rgba, 16, 16).ok()
 }
 
-fn build_menu(items: &[TrayItem], picture: Option<&(AccountId, image::RgbaImage)>) -> Menu {
+fn build_menu(items: &[TrayItem], pictures: &Pictures) -> Menu {
     let menu = Menu::new();
     for item in items {
         let _ = match item {
             TrayItem::Separator => menu.append(&PredefinedMenuItem::separator()),
             // muda has no avatar-plus-check on one entry: the shown account gets a "✓" in the
-            // title (which assistive tech reads) and keeps its avatar.
+            // title (which assistive tech reads) and keeps its avatar (every account shows its own).
             TrayItem::Entry {
                 action,
                 label,
@@ -208,7 +216,7 @@ fn build_menu(items: &[TrayItem], picture: Option<&(AccountId, image::RgbaImage)
                         id,
                         title,
                         true,
-                        avatar(*account, picture),
+                        avatar(*account, pictures),
                         None,
                     )),
                     TrayAction::ToggleNotifications => {
@@ -225,7 +233,7 @@ fn build_menu(items: &[TrayItem], picture: Option<&(AccountId, image::RgbaImage)
 pub struct Tray {
     icon: TrayIcon,
     rx: Receiver<TrayAction>,
-    menu: Option<(Vec<TrayItem>, Option<(AccountId, image::RgbaImage)>)>,
+    menu: Option<(Vec<TrayItem>, Pictures)>,
     badge: Option<u64>,
 }
 
@@ -288,12 +296,12 @@ impl Tray {
         &mut self,
         items: &[TrayItem],
         unread: u64,
-        picture: Option<(AccountId, image::RgbaImage)>,
+        pictures: Pictures,
     ) {
-        if self.menu.as_ref().map(|(i, p)| (i.as_slice(), p)) != Some((items, &picture)) {
+        if self.menu.as_ref().map(|(i, p)| (i.as_slice(), p)) != Some((items, &pictures)) {
             self.icon
-                .set_menu(Some(Box::new(build_menu(items, picture.as_ref()))));
-            self.menu = Some((items.to_vec(), picture));
+                .set_menu(Some(Box::new(build_menu(items, &pictures))));
+            self.menu = Some((items.to_vec(), pictures));
         }
         if self.badge != Some(unread) {
             if let Some(icon) = Self::icon(unread) {
@@ -398,6 +406,29 @@ mod tests {
         let img = image::RgbaImage::from_pixel(96, 96, image::Rgba([10, 200, 30, 255]));
         assert!(round_picture(&img).is_some());
         assert!(round_picture(&image::RgbaImage::new(0, 0)).is_none());
+    }
+
+    #[test]
+    fn every_account_with_a_loaded_picture_gets_one() {
+        let row = |id, avatar: Option<&str>| crate::AccountRow {
+            id: AccountId::new(id),
+            name: String::new(),
+            user_id: String::new(),
+            initials: String::new(),
+            avatar: avatar.map(str::to_owned),
+            current: id == 1,
+            unread: 0,
+            mentions: 0,
+        };
+        let rows = [
+            row(1, Some("mxc://s/a")),
+            row(2, Some("mxc://s/b")),
+            row(3, Some("mxc://s/not-cached")),
+            row(4, None),
+        ];
+        let cached = |m: &str| (m != "mxc://s/not-cached").then(|| m.len());
+        let got = pictures_of(&rows, cached);
+        assert_eq!(got, vec![(AccountId::new(1), 9), (AccountId::new(2), 9)]);
     }
 
     #[test]

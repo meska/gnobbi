@@ -15,31 +15,21 @@ impl Shell {
         for action in tray.actions() {
             self.apply_tray_action(action, window, cx);
         }
-        let items = tray_menu(
-            self.window_visible,
-            self.notifications.enabled(),
-            &self.drawer_accounts(),
-        );
+        let accounts = self.drawer_accounts();
+        let items = tray_menu(self.window_visible, self.notifications.enabled(), &accounts);
         let unread = total_unread(&self.account_counts());
-        // Only the shown account's picture is loaded (one avatar worker); the others keep the disc.
-        let picture = self
-            .drawer_accounts()
-            .iter()
-            .find(|a| a.current)
-            .and_then(|a| {
-                let image = self.avatars.get(self.verification.profile_avatar())?;
-                let (size, mut rgba) = (image.size(0), image.as_bytes(0)?.to_vec());
-                rgba.as_chunks_mut::<4>()
-                    .0
-                    .iter_mut()
-                    .for_each(|p| p.swap(0, 2)); // BGRA -> RGBA
-                Some((
-                    a.id,
-                    image::RgbaImage::from_raw(size.width.0 as u32, size.height.0 as u32, rgba)?,
-                ))
-            });
+        let picture = |mxc: &str| {
+            let image = self.avatars.get(Some(mxc))?;
+            let (size, mut rgba) = (image.size(0), image.as_bytes(0)?.to_vec());
+            rgba.as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .for_each(|p| p.swap(0, 2)); // BGRA -> RGBA
+            image::RgbaImage::from_raw(size.width.0 as u32, size.height.0 as u32, rgba)
+        };
+        let pictures = matrix_desktop::tray::pictures_of(&accounts, picture);
         if let Some(tray) = &mut self.tray {
-            tray.update(&items, unread, picture);
+            tray.update(&items, unread, pictures);
         }
     }
 
