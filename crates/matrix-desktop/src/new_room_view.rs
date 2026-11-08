@@ -212,7 +212,7 @@ impl Shell {
     }
 
     /// The server picker of «Unisciti»: this account's server first (the one searched by default).
-    fn directory_picker(&self) -> Option<ServerPicker> {
+    pub(crate) fn directory_picker(&self) -> Option<ServerPicker> {
         let server = |user_id: &str| user_id.split_once(':').map(|(_, s)| s.to_owned());
         let mine = self
             .active_id
@@ -230,9 +230,20 @@ impl Shell {
         Some(ServerPicker::new(self.active_id.map_or(0, |id| id.as_u64()), &server(mine)?, others, saved))
     }
 
+    /// The server picker of whichever search owns it now: the «Unisciti» dialog, else the quick
+    /// search overlay. One picker implementation, one saved list.
+    fn dir_servers(&mut self) -> Option<(&mut ServerPicker, &mut Option<gpui::Entity<crate::login_field::LoginField>>)> {
+        if self.new_room.as_ref().is_some_and(|r| r.servers.is_some()) {
+            let r = self.new_room.as_mut()?;
+            return Some((r.servers.as_mut()?, &mut r.add_field));
+        }
+        let q = self.quick.as_mut()?;
+        Some((q.servers.as_mut()?, &mut q.add_field))
+    }
+
     /// What the server picker asked for: a new search, the name field, or the saved list to write.
-    fn server_choice(&mut self, choice: ServerChoice, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(room) = self.new_room.as_mut() else {
+    pub(crate) fn server_choice(&mut self, choice: ServerChoice, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((_, add)) = self.dir_servers() else {
             return;
         };
         match choice {
@@ -245,7 +256,7 @@ impl Shell {
                 });
                 cx.observe(&field, |_, _, cx| cx.notify()).detach();
                 field.read(cx).focus.focus(window);
-                room.add_field = Some(field);
+                *add = Some(field);
             }
             ServerChoice::Removed => self.save_servers(),
             ServerChoice::Selected | ServerChoice::Nothing => {}
@@ -256,12 +267,15 @@ impl Shell {
     pub(crate) fn focus_dialog_field(&self, window: &mut Window, cx: &gpui::App) {
         if let Some(room) = &self.new_room {
             room.fields[0].read(cx).focus.focus(window);
+        } else if let Some(q) = &self.quick {
+            q.focus_field(window, cx);
         }
     }
 
     fn save_servers(&self) {
+        let picker = self.new_room.as_ref().and_then(|r| r.servers.as_ref()).or_else(|| self.quick.as_ref().and_then(|q| q.servers.as_ref()));
         if let Some(dirs) = &self.prefs_dirs
-            && let Some(picker) = self.new_room.as_ref().and_then(|r| r.servers.as_ref())
+            && let Some(picker) = picker
             && let Err(error) = picker.store().save(dirs)
         {
             eprintln!("Gnobbi: cannot save directory servers: {error}");
@@ -269,25 +283,41 @@ impl Shell {
     }
 
     /// Enter in the name field: probe the server (the engine answers with `server_probed`).
-    fn confirm_server(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(room) = self.new_room.as_mut() else {
+    pub(crate) fn confirm_server(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let busy = self.pending_operation_command.is_some();
+        let Some((picker, add)) = self.dir_servers() else {
             return;
         };
-        let (Some(picker), Some(field)) = (room.servers.as_mut(), room.add_field.clone()) else {
+        let Some(field) = add.clone() else {
             return;
         };
         let name = field.read(cx).input.display_text().trim().to_owned();
+        let mut probe = None;
         match picker.confirm_add(&name) {
-            Some(server) if self.pending_operation_command.is_none() => {
-                self.pending_operation_command = Some(OperationCommand::ProbeServer { server });
-            }
+            Some(server) if !busy => probe = Some(server),
             Some(_) => picker.cancel_add(),
             None => {}
         }
-        if !picker.is_adding() {
-            room.add_field = None;
-            room.fields[0].read(cx).focus.focus(window);
+        let done = !picker.is_adding();
+        if done {
+            *add = None;
         }
+        if let Some(server) = probe {
+            self.pending_operation_command = Some(OperationCommand::ProbeServer { server });
+        }
+        if done {
+            self.focus_dialog_field(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Esc in the name field of «Aggiungi nuovo server…».
+    pub(crate) fn cancel_server_add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some((picker, add)) = self.dir_servers() {
+            picker.cancel_add();
+            *add = None;
+        }
+        self.focus_dialog_field(window, cx);
         cx.notify();
     }
 
@@ -297,15 +327,15 @@ impl Shell {
         result: Result<(), matrix_engine::search::SearchError>,
         cx: &mut Context<Self>,
     ) {
-        let Some(room) = self.new_room.as_mut() else {
+        let Some((picker, _)) = self.dir_servers() else {
             return;
         };
-        if room.servers.as_mut().is_some_and(|p| p.probed(&server, result)) {
+        if picker.probed(&server, result) {
             self.save_servers();
         }
-        if let Some(room) = self.new_room.as_mut()
-            && room.servers.as_ref().is_some_and(|p| !p.is_adding())
-            && room.add_field.take().is_some()
+        if let Some((picker, add)) = self.dir_servers()
+            && !picker.is_adding()
+            && add.take().is_some()
         {
             self.refocus_join_field = true;
         }
@@ -320,6 +350,11 @@ impl Shell {
     ) {
         if let Some(room) = self.new_room.as_mut().filter(|r| r.join) {
             room.rooms.set_state(state);
+            cx.notify();
+        } else if self.new_room.is_none()
+            && let Some(q) = self.quick.as_mut()
+        {
+            q.set_rooms(state);
             cx.notify();
         }
     }
@@ -337,7 +372,7 @@ impl Shell {
         }
         if let Some((sender, _)) = &mut self.routes.operation
             && sender
-                .try_send(OperationCommand::SearchRooms { term: wanted.0.clone(), server: wanted.1.clone() })
+                .try_send(OperationCommand::SearchRooms { term: wanted.0.clone(), server: wanted.1.clone(), kind: None })
                 .is_ok()
         {
             room.rooms.set_term(&wanted.0);
@@ -478,7 +513,7 @@ impl Shell {
         use matrix_desktop::accessibility::directory_servers::ServerAction;
         use matrix_desktop::accessibility::new_room::NewRoomAction;
         let Some(room) = self.new_room.as_mut().filter(|r| r.join) else {
-            return;
+            return self.apply_semantic_quick(action, window, cx);
         };
         match action {
             NewRoomAction::Server(ServerAction::Toggle) => {

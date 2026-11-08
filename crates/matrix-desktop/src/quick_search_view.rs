@@ -5,9 +5,12 @@
 //! «Cerca» section: the «Persone» entry puts a chip in the field; server users («Utenti», from
 //! `UserSearch` through `OperationCommand::SearchUsers`) follow the local results.
 use crate::*;
+use matrix_desktop::directory_servers::ServerPicker;
 use matrix_desktop::new_chat::{Picker, Status};
+use crate::directory_servers_view::render_server_picker;
+use matrix_desktop::search_list::{Choice, Row, SearchList, more_text};
 use matrix_desktop::quick_search::{self as qs, Category, Entry, Hit, Index, Recent};
-use matrix_engine::operations::{OperationCommand, SearchState};
+use matrix_engine::operations::{DirectoryRoom, OperationCommand, SearchState};
 use std::ops::Range;
 
 const ROW_H: f32 = 44.;
@@ -18,12 +21,16 @@ const LIMIT: usize = 50;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Zone {
+    /// The directory server selector, right of the field.
+    Server,
     /// The horizontal «Visti di recente» row.
     Seen,
     /// The vertical list: «Ricerche recenti» while the field is empty, else the local results.
     Rows,
     /// «Utenti» from the server.
     Users,
+    /// Public rooms or spaces from the directory.
+    Rooms,
     /// The «Cerca» entries.
     Search,
 }
@@ -32,7 +39,8 @@ impl Zone {
     fn idx(self) -> usize {
         self as usize
     }
-    const ALL: [Zone; 4] = [Zone::Seen, Zone::Rows, Zone::Users, Zone::Search];
+    const ALL: [Zone; 6] =
+        [Zone::Server, Zone::Seen, Zone::Rows, Zone::Users, Zone::Rooms, Zone::Search];
 }
 
 pub(crate) struct QuickSearch {
@@ -44,6 +52,13 @@ pub(crate) struct QuickSearch {
     /// Server users for `term`, and the last term handed to the engine.
     users: Picker,
     sent: Option<String>,
+    /// Public directory: the hits, the last `(term, server, kind)` sent, and the server selector
+    /// (the «Unisciti» one) with its «Aggiungi nuovo server…» name field.
+    rooms: SearchList<DirectoryRoom>,
+    rooms_sent: Option<qs::DirectoryRequest>,
+    pub(crate) servers: Option<ServerPicker>,
+    server_focus: FocusHandle,
+    pub(crate) add_field: Option<gpui::Entity<crate::login_field::LoginField>>,
     zone: Zone,
     active: usize,
     scroll: UniformListScrollHandle,
@@ -55,18 +70,36 @@ impl QuickSearch {
     pub(crate) fn set_users(&mut self, state: SearchState) {
         self.users.set_state(state, false);
     }
+
+    pub(crate) fn set_rooms(&mut self, state: matrix_engine::search::SearchState<DirectoryRoom>) {
+        self.rooms.set_state(state);
+    }
+
+    /// A directory chip is set: results come from the public directory.
+    fn directory(&self) -> bool {
+        self.chip.is_some_and(|c| c.kind().is_some())
+    }
+
+    pub(crate) fn focus_field(&self, window: &mut Window, cx: &gpui::App) {
+        self.field.read(cx).focus.focus(window);
+    }
+
+    /// The directory hits, without the «Altri risultati» row.
+    fn room_entries(&self) -> Vec<&DirectoryRoom> {
+        self.rooms.rows().into_iter().filter_map(|r| if let Row::Hit(h) = r { Some(h) } else { None }).collect()
+    }
 }
 
 /// Where a navigation key puts the highlight; `None` when it does not move. `lens` is the
-/// item count of each zone (Seen, Rows, Users, Search): empty zones are skipped.
-fn step(zone: Zone, active: usize, key: &str, lens: [usize; 4]) -> Option<(Zone, usize)> {
+/// item count of each zone (in `Zone::ALL` order): empty zones are skipped.
+fn step(zone: Zone, active: usize, key: &str, lens: [usize; 6]) -> Option<(Zone, usize)> {
     let next = |from: usize| Zone::ALL[from + 1..].iter().copied().find(|z| lens[z.idx()] > 0);
     let prev = |from: usize| Zone::ALL[..from].iter().rev().copied().find(|z| lens[z.idx()] > 0);
     let last = |z: Zone| if z == Zone::Seen { 0 } else { lens[z.idx()] - 1 };
     let horizontal = zone == Zone::Seen;
     let moved = match key {
         "left" if horizontal && active > 0 => Some((zone, active - 1)),
-        "right" if horizontal && active + 1 < lens[0] => Some((zone, active + 1)),
+        "right" if horizontal && active + 1 < lens[Zone::Seen.idx()] => Some((zone, active + 1)),
         "down" if !horizontal && active + 1 < lens[zone.idx()] => Some((zone, active + 1)),
         "down" => next(zone.idx()).map(|z| (z, 0)),
         "up" if !horizontal && active > 0 => Some((zone, active - 1)),
@@ -77,6 +110,15 @@ fn step(zone: Zone, active: usize, key: &str, lens: [usize; 4]) -> Option<(Zone,
         _ => None,
     };
     moved.filter(|&m| m != (zone, active))
+}
+
+/// Where the highlight starts once a chip is set (or removed).
+fn chip_zone(chip: Option<Category>) -> Zone {
+    match chip {
+        None => Zone::Rows,
+        Some(Category::People) => Zone::Users,
+        Some(_) => Zone::Rooms,
+    }
 }
 
 /// «Svuota» from the keyboard: Backspace/Delete on the highlighted searches, or Cmd/Ctrl+Backspace.
@@ -164,9 +206,25 @@ impl Shell {
     /// «Utenti»: server hits for the typed term.
     fn quick_users(&self) -> Vec<Hit> {
         match self.quick.as_ref() {
-            Some(q) if !q.term.is_empty() => qs::user_hits(q.users.entries(), q.chip),
+            Some(q) if !q.term.is_empty() && !q.directory() => qs::user_hits(q.users.entries(), q.chip),
             _ => Vec::new(),
         }
+    }
+
+    /// «Stanze pubbliche» under the locals (no chip, a typed term, max 5), or every directory hit
+    /// of the chip.
+    fn quick_room_hits(&self) -> Vec<Hit> {
+        match self.quick.as_ref() {
+            Some(q) if q.directory() => qs::room_hits(q.room_entries(), usize::MAX),
+            Some(q) if q.chip.is_none() && !q.term.is_empty() => qs::room_hits(q.room_entries(), qs::ROOMS_LIMIT),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The «Altri risultati» row of a directory chip, when there is a next page.
+    fn quick_more(&self) -> Option<matrix_engine::search::More> {
+        let q = self.quick.as_ref().filter(|q| q.directory())?;
+        q.rooms.rows().into_iter().find_map(|r| if let Row::More(m) = r { Some(m) } else { None })
     }
 
     /// «Cerca» entries; none once a chip is set.
@@ -177,11 +235,19 @@ impl Shell {
         }
     }
 
-    /// Items per zone (Seen, Rows, Users, Search). «Visti» only shows while browsing.
-    fn quick_lens(&self) -> [usize; 4] {
+    /// Items per zone, in `Zone::ALL` order. «Visti» only shows while browsing.
+    fn quick_lens(&self) -> [usize; 6] {
         let browsing = self.quick.as_ref().is_some_and(|q| q.term.is_empty() && q.chip.is_none());
         let seen = if browsing { self.recents.get(self.recents_account()).seen().len() } else { 0 };
-        [seen, self.quick_rows().len(), self.quick_users().len(), self.quick_categories().len()]
+        let server = self.quick.as_ref().is_some_and(|q| q.directory() && q.servers.is_some());
+        [
+            usize::from(server),
+            seen,
+            self.quick_rows().len(),
+            self.quick_users().len(),
+            self.quick_room_hits().len() + usize::from(self.quick_more().is_some()),
+            self.quick_categories().len(),
+        ]
     }
 
     /// Mxc references the overlay's user rows and searched list want from the cache.
@@ -194,6 +260,7 @@ impl Shell {
             .entries()
             .into_iter()
             .filter_map(|e| e.avatar)
+            .chain(q.room_entries().into_iter().filter_map(|r| r.avatar_url.clone()))
             .chain(recents.searched().iter().filter_map(|r| r.avatar.clone()))
             .collect()
     }
@@ -201,7 +268,7 @@ impl Shell {
     /// Sends the typed term to the user search once; called from the operations tick. The
     /// «Nuova chat» dialog owns the search while it is open.
     pub(crate) fn flush_quick_users(&mut self) {
-        let Some(q) = self.quick.as_mut().filter(|_| self.new_room.is_none()) else {
+        let Some(q) = self.quick.as_mut().filter(|q| self.new_room.is_none() && !q.directory()) else {
             return;
         };
         let Some(term) = qs::user_request(&q.term, q.sent.as_deref()) else {
@@ -216,13 +283,45 @@ impl Shell {
         }
     }
 
-    /// The overlay is gone: a search still in flight is cancelled.
-    fn end_quick(&mut self) {
-        if let Some(q) = self.quick.take()
-            && q.sent.as_deref().is_some_and(|t| !t.is_empty())
-            && let Some((sender, _)) = &mut self.routes.operation
+    /// Sends the directory request the overlay wants (see `qs::room_request`) once; called from
+    /// the operations tick. Nothing goes out before a chip is chosen or a term is typed.
+    pub(crate) fn flush_quick_rooms(&mut self) {
+        let Some(q) = self.quick.as_mut().filter(|_| self.new_room.is_none()) else {
+            return;
+        };
+        let wanted = qs::room_request(q.chip, &q.term, q.servers.as_ref().and_then(|p| p.value()));
+        if wanted == q.rooms_sent {
+            return;
+        }
+        let command = match &wanted {
+            Some((term, server, kind)) => OperationCommand::SearchRooms { term: term.clone(), server: server.clone(), kind: *kind },
+            None => OperationCommand::SearchRooms { term: String::new(), server: None, kind: None },
+        };
+        if let Some((sender, _)) = &mut self.routes.operation
+            && sender.try_send(command).is_ok()
         {
+            match &wanted {
+                Some((term, ..)) if term.is_empty() => q.rooms.set_suggesting(),
+                Some((term, ..)) => q.rooms.set_term(term),
+                None => q.rooms.set_term(""),
+            }
+            q.rooms_sent = wanted;
+        }
+    }
+
+    /// The overlay is gone: searches still in flight are cancelled.
+    fn end_quick(&mut self) {
+        let Some(q) = self.quick.take() else {
+            return;
+        };
+        let Some((sender, _)) = &mut self.routes.operation else {
+            return;
+        };
+        if q.sent.as_deref().is_some_and(|t| !t.is_empty()) {
             let _ = sender.try_send(OperationCommand::SearchUsers { term: String::new(), all: false });
+        }
+        if q.rooms_sent.is_some() {
+            let _ = sender.try_send(OperationCommand::SearchRooms { term: String::new(), server: None, kind: None });
         }
     }
 
@@ -268,6 +367,11 @@ impl Shell {
             chip: None,
             users: Picker::default(),
             sent: None,
+            rooms: SearchList::default(),
+            rooms_sent: None,
+            servers: self.directory_picker(),
+            server_focus: cx.focus_handle(),
+            add_field: None,
             zone: if has_searched {
                 Zone::Rows
             } else if has_seen {
@@ -302,7 +406,7 @@ impl Shell {
         };
         q.users.set_state(state, false);
         q.term = term;
-        q.zone = if q.chip.is_some() { Zone::Users } else { Zone::Rows };
+        q.zone = chip_zone(q.chip);
         q.active = 0;
         q.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
     }
@@ -315,7 +419,8 @@ impl Shell {
             Zone::Seen => recents.seen().get(i).cloned(),
             Zone::Rows => self.quick_rows().get(i).map(Recent::from),
             Zone::Users => self.quick_users().get(i).map(Recent::from),
-            Zone::Search => return,
+            Zone::Rooms => return self.quick_pick_room(i, window, cx),
+            Zone::Server | Zone::Search => return,
         };
         if let Some(user) = item.as_ref().filter(|r| r.id.starts_with('@')) {
             return self.quick_pick_user(user.clone(), window, cx);
@@ -345,6 +450,11 @@ impl Shell {
             self.save_recents();
         }
         self.end_quick();
+        self.open_scope(scope, window, cx);
+    }
+
+    /// Opens a room the account already has: lifts the filters that would hide it.
+    fn open_scope(&mut self, scope: RoomScope, window: &mut Window, cx: &mut Context<Self>) {
         if !self.sidebar.select(&scope) {
             // Hidden by an empty-room, unread or text filter: lift them rather than not opening.
             self.sidebar.keep_visible(scope.clone());
@@ -358,6 +468,51 @@ impl Shell {
         self.set_compact_chat(true);
         self.list_focus.focus(window);
         cx.notify();
+    }
+
+    /// A directory row: «Altri risultati» asks the next page; a room the account is in opens, any
+    /// other one is joined like «Unisciti» does (room ID through the server that listed it).
+    fn quick_pick_room(&mut self, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(q) = self.quick.as_mut() else {
+            return;
+        };
+        q.rooms.set_active(i);
+        let hit = match q.rooms.chosen() {
+            Some(Choice::Hit(hit)) => hit.clone(),
+            Some(Choice::More) => {
+                if let Some((sender, _)) = &mut self.routes.operation {
+                    let _ = sender.try_send(OperationCommand::MoreRooms);
+                }
+                return;
+            }
+            None => return,
+        };
+        let joined = self
+            .sidebar
+            .rooms()
+            .iter()
+            .find(|r| !r.info.invited && r.scope.room_id.as_str() == hit.room_id)
+            .map(|r| r.scope.clone());
+        if joined.is_none() && self.pending_operation_command.is_some() {
+            return;
+        }
+        let account = self.recents_account();
+        let mut recents = self.recents.get(account);
+        recents.picked(Recent { id: hit.room_id.clone(), name: hit.name.clone(), avatar: hit.avatar_url.clone() });
+        self.recents.set(account, recents);
+        self.save_recents();
+        self.end_quick();
+        match joined {
+            Some(scope) => self.open_scope(scope, window, cx),
+            None => {
+                self.pending_operation_command =
+                    Some(OperationCommand::JoinRoom { target: hit.room_id, via: vec![hit.origin] });
+                // The answer opens the room, like «Invia messaggio» of a profile does.
+                self.profile_dm = true;
+                self.list_focus.focus(window);
+                cx.notify();
+            }
+        }
     }
 
     /// A user: remembered in «Ricerche recenti», then the same engine call as «Nuova chat» and
@@ -385,7 +540,12 @@ impl Shell {
             return;
         };
         q.chip = chip;
-        (q.zone, q.active) = (if chip.is_some() { Zone::Users } else { Zone::Rows }, 0);
+        q.add_field = None;
+        if let Some(p) = &mut q.servers {
+            p.close();
+            p.cancel_add();
+        }
+        (q.zone, q.active) = (chip_zone(chip), 0);
         q.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
         // The click took the focus off the field: give it back so typing continues.
         q.field.read(cx).focus.focus(window);
@@ -406,6 +566,23 @@ impl Shell {
         let Some(q) = self.quick.as_mut() else {
             return false;
         };
+        // «Aggiungi nuovo server…»: Enter probes the name, Esc drops it, other keys type.
+        if q.add_field.as_ref().is_some_and(|f| f.read(cx).focus.is_focused(window)) {
+            match key {
+                "enter" => self.confirm_server(window, cx),
+                "escape" => self.cancel_server_add(window, cx),
+                _ => return false,
+            }
+            return true;
+        }
+        // The server menu takes the keys while open; Enter or Down on the selector opens it.
+        let menu = q.servers.as_ref().is_some_and(|p| p.is_open());
+        if plain && (menu || (q.zone == Zone::Server && matches!(key, "enter" | "down")))
+            && let Some(choice) = q.servers.as_mut().and_then(|p| p.key(key))
+        {
+            self.server_choice(choice, window, cx);
+            return true;
+        }
         if key == "escape" {
             if qs::escape_closes(q.chip) {
                 self.close_quick_search(window, cx);
@@ -426,7 +603,7 @@ impl Shell {
             "enter" if plain => {
                 // Typed text found only on the server: Enter takes the first list that has rows.
                 let zone = if lens[q.zone.idx()] == 0 {
-                    [Zone::Rows, Zone::Users].into_iter().find(|z| lens[z.idx()] > 0)
+                    [Zone::Rows, Zone::Users, Zone::Rooms].into_iter().find(|z| lens[z.idx()] > 0)
                 } else {
                     Some(q.zone)
                 };
@@ -450,8 +627,12 @@ impl Shell {
                     (q.zone, q.active) = (zone, active);
                     match zone {
                         Zone::Rows | Zone::Users => q.scroll.scroll_to_item(active, ScrollStrategy::Top),
+                        Zone::Rooms => {
+                            q.rooms.set_active(active);
+                            q.scroll.scroll_to_item(active, ScrollStrategy::Top)
+                        }
                         Zone::Seen => q.seen_scroll.scroll_to_item(active),
-                        Zone::Search => {}
+                        Zone::Search | Zone::Server => {}
                     }
                 }
                 cx.notify();
@@ -526,7 +707,27 @@ impl Shell {
         if q.term.is_empty() && q.chip.is_none() && lens[Zone::Rows.idx()] > 0 {
             items.push(item("Svuota".into(), false));
         }
-        for (zone, hits) in [(Zone::Rows, self.quick_rows()), (Zone::Users, self.quick_users())] {
+        // A directory chip hangs the selector and its rows on the field (`Join`).
+        let at = items.len();
+        let join = q.servers.as_ref().filter(|_| q.directory()).map(|p| {
+            use matrix_desktop::accessibility::directory_servers::ServerMenu;
+            matrix_desktop::accessibility::new_room::Join::new(
+                at,
+                ServerMenu::of(p),
+                q.zone == Zone::Server || p.is_open(),
+                &q.rooms.rows(),
+                q.rooms.active(),
+                q.rooms.status(),
+            )
+        });
+        let hits_of = |zone| match zone {
+            Zone::Rooms if q.directory() => Vec::new(),
+            Zone::Rooms => self.quick_room_hits(),
+            Zone::Users => self.quick_users(),
+            _ => self.quick_rows(),
+        };
+        for zone in [Zone::Rows, Zone::Users, Zone::Rooms] {
+            let hits = hits_of(zone);
             for (i, hit) in hits.iter().enumerate() {
                 items.push(item(
                     format!("{}, {}", hit.name, hit.secondary),
@@ -537,7 +738,46 @@ impl Shell {
         for (i, c) in self.quick_categories().iter().enumerate() {
             items.push(item(c.label().into(), q.zone == Zone::Search && q.active == i));
         }
-        Some(Snapshot { items, join: None })
+        if let Some(add) = &q.add_field {
+            let f = add.read(cx);
+            items.push(Item {
+                role: Role::TextInput,
+                label: f.placeholder.to_owned(),
+                checked: None,
+                focused: f.focus.is_focused(window),
+                bounds: f.semantic_bounds,
+            });
+        }
+        Some(Snapshot { items, join })
+    }
+
+    /// Screen-reader actions on the directory selector and rows of the overlay.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn apply_semantic_quick(
+        &mut self,
+        action: matrix_desktop::accessibility::new_room::NewRoomAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use matrix_desktop::accessibility::{directory_servers::ServerAction, new_room::NewRoomAction};
+        let Some(q) = self.quick.as_mut() else {
+            return;
+        };
+        match action {
+            NewRoomAction::Server(ServerAction::Toggle) => {
+                q.zone = Zone::Server;
+                if let Some(p) = &mut q.servers {
+                    if p.is_open() { p.close() } else { p.open() }
+                }
+            }
+            NewRoomAction::Server(ServerAction::Choose(i)) => {
+                if let Some(choice) = q.servers.as_mut().map(|p| p.choose(i)) {
+                    self.server_choice(choice, window, cx);
+                }
+            }
+            NewRoomAction::Join(i) => self.quick_pick(Zone::Rooms, i, window, cx),
+        }
+        cx.notify();
     }
 
     pub(crate) fn render_quick_search(
@@ -619,7 +859,8 @@ impl Shell {
                         .on_click(cx.listener(|this, _, window, cx| this.quick_clear(window, cx))),
                 )
         });
-        let local_cap = if lens[Zone::Users.idx()] > 0 || q.users.status().is_some() {
+        let room_hits = self.quick_room_hits();
+        let local_cap = if lens[Zone::Users.idx()] > 0 || q.users.status().is_some() || !room_hits.is_empty() {
             SHARED_LIST_MAX_H
         } else {
             LIST_MAX_H
@@ -631,11 +872,13 @@ impl Shell {
             div().text_size(px(13.)).text_color(rgb(no_results_color(&t))).child(text)
         };
         let users_section = match q.chip {
+            // The directory has its own section below.
+            Some(c) if c.kind().is_some() => None,
             // The whole result: a scrolling list, or one status line.
             Some(_) => (!users.is_empty())
                 .then(|| self.quick_list(t, Zone::Users, users.len(), LIST_MAX_H, cx))
                 .or_else(|| status.map(|s| status_line(s.text()).into_any_element())),
-            None => (!users.is_empty() || matches!(status, Some(Status::Searching | Status::Error)))
+            None => (!users.is_empty() || matches!(status, Some(Status::Searching | Status::Error(_))))
                 .then(|| {
                     div()
                         .flex()
@@ -651,6 +894,50 @@ impl Shell {
                         )
                         .into_any_element()
                 }),
+        };
+        let rooms_status = q.rooms.status();
+        let rooms_section = if q.directory() {
+            // «Suggerimenti» is the first page for an empty field; typed text shows only the hits.
+            let more = self.quick_more();
+            Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .children((!typing && !room_hits.is_empty()).then(|| header("Suggerimenti")))
+                    .children((!room_hits.is_empty()).then(|| self.quick_list(t, Zone::Rooms, room_hits.len(), LIST_MAX_H, cx)))
+                    .children(more.map(|m| {
+                        div()
+                            .id("quick-more")
+                            .flex()
+                            .items_center()
+                            .px_2()
+                            .h(px(ROW_H))
+                            .rounded_md()
+                            .cursor_pointer()
+                            .text_color(rgb(t.secondary))
+                            .when(zone == Zone::Rooms && active == room_hits.len(), |d| d.bg(rgb(t.input)))
+                            .child(more_text(m))
+                            .on_click(cx.listener({
+                                let n = room_hits.len();
+                                move |this, _, window, cx| this.quick_pick(Zone::Rooms, n, window, cx)
+                            }))
+                    }))
+                    .children(rooms_status.filter(|_| room_hits.is_empty()).map(|s| status_line(s.text())))
+                    .into_any_element(),
+            )
+        } else if !room_hits.is_empty() {
+            Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(header("Stanze pubbliche"))
+                    .children(room_hits.iter().enumerate().map(|(i, hit)| {
+                        self.quick_row(t, Zone::Rooms, i, hit, zone == Zone::Rooms && active == i, cx)
+                    }))
+                    .into_any_element(),
+            )
+        } else {
+            None
         };
         let categories = self.quick_categories();
         let search_section = (!categories.is_empty()).then(|| {
@@ -707,7 +994,9 @@ impl Shell {
             && q.chip.is_none()
             && rows == 0
             && users.is_empty()
-            && !matches!(status, Some(Status::Searching | Status::Error));
+            && room_hits.is_empty()
+            && !matches!(status, Some(Status::Searching | Status::Error(_)))
+            && !matches!(rooms_status, Some(matrix_desktop::search_list::Status::Searching));
         Some(
             div()
                 .id("quick-search-layer")
@@ -738,12 +1027,18 @@ impl Shell {
                                 .items_center()
                                 .gap_2()
                                 .children(chip)
-                                .child(div().flex_1().min_w_0().child(q.field.clone())),
+                                .child(div().flex_1().min_w_0().child(q.field.clone()))
+                                .children(self.quick_server_picker(t, cx)),
                         )
+                        .children(q.add_field.clone())
+                        .children(q.servers.as_ref().and_then(|p| p.add_error()).filter(|_| q.add_field.is_some()).map(|e| {
+                            div().text_size(px(13.)).text_color(rgb(t.error)).child(e)
+                        }))
                         .children(seen)
                         .children(searched_header)
                         .children(list)
                         .children(users_section)
+                        .children(rooms_section)
                         .children(search_section)
                         .when(nothing, |d| {
                             d.child(
@@ -756,6 +1051,49 @@ impl Shell {
                 )
                 .into_any_element(),
         )
+    }
+
+    /// The «Unisciti» server selector, right of the field while a directory chip is set. It never
+    /// takes the keyboard focus: the field keeps typing, the highlight zone carries the keys.
+    fn quick_server_picker(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let q = self.quick.as_ref().filter(|q| q.directory())?;
+        let picker = q.servers.as_ref()?;
+        let this = cx.entity();
+        let (toggle, choose, close) = (this.clone(), this.clone(), this);
+        Some(render_server_picker(
+            picker,
+            &q.server_focus,
+            q.zone == Zone::Server,
+            t,
+            move |window, cx| {
+                toggle.update(cx, |this, cx| {
+                    if let Some(q) = &mut this.quick {
+                        q.zone = Zone::Server;
+                        if let Some(p) = &mut q.servers {
+                            if p.is_open() { p.close() } else { p.open() }
+                        }
+                        q.focus_field(window, cx);
+                    }
+                    cx.notify();
+                })
+            },
+            move |i, window, cx| {
+                choose.update(cx, |this, cx| {
+                    let choice = this.quick.as_mut().and_then(|q| q.servers.as_mut()).map(|p| p.choose(i));
+                    if let Some(choice) = choice {
+                        this.server_choice(choice, window, cx);
+                    }
+                })
+            },
+            move |_, cx| {
+                close.update(cx, |this, cx| {
+                    if let Some(p) = this.quick.as_mut().and_then(|q| q.servers.as_mut()) {
+                        p.close();
+                    }
+                    cx.notify();
+                })
+            },
+        ))
     }
 
     /// A scrolling list of `zone`'s rows (`Rows` or `Users`).
@@ -776,7 +1114,11 @@ impl Shell {
                     "quick-rows",
                     count,
                     cx.processor(move |this, range: Range<usize>, _, cx| {
-                        let hits = if zone == Zone::Users { this.quick_users() } else { this.quick_rows() };
+                        let hits = match zone {
+                            Zone::Users => this.quick_users(),
+                            Zone::Rooms => this.quick_room_hits(),
+                            _ => this.quick_rows(),
+                        };
                         let (z, active) = this.quick.as_ref().map_or((zone, 0), |q| (q.zone, q.active));
                         range
                             .filter_map(|i| hits.get(i).map(|hit| (i, hit)))
@@ -805,7 +1147,11 @@ impl Shell {
         active: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<gpui::Div> {
-        let id = if zone == Zone::Users { "quick-user" } else { "quick-row" };
+        let id = match zone {
+            Zone::Users => "quick-user",
+            Zone::Rooms => "quick-room",
+            _ => "quick-row",
+        };
         div()
             .id((id, i))
             .flex()
@@ -853,6 +1199,9 @@ impl Shell {
             .filter(|q| (q.zone, q.active) != (zone, i))
         {
             (q.zone, q.active) = (zone, i);
+            if zone == Zone::Rooms {
+                q.rooms.set_active(i);
+            }
             cx.notify();
         }
     }
@@ -881,21 +1230,24 @@ mod tests {
 
     #[test]
     fn highlight_moves_within_and_between_the_zones() {
-        // Typing: «Visti» is hidden (0); locals, users, «Cerca» in that order.
-        let typing = [0, 5, 3, 1];
+        // Lens order = `Zone::ALL`: the selector, «Visti», locals, users, directory, «Cerca».
+        assert_eq!(Zone::ALL, [Server, Seen, Rows, Users, Rooms, Search]);
+        // Typing: «Visti» is hidden (0); locals, users, rooms, «Cerca» in that order.
+        let typing = [0, 0, 5, 3, 2, 1];
         assert_eq!(step(Rows, 0, "down", typing), Some((Rows, 1)));
         assert_eq!(step(Rows, 4, "down", typing), Some((Users, 0)));
-        assert_eq!(step(Users, 2, "down", typing), Some((Search, 0)));
+        assert_eq!(step(Users, 2, "down", typing), Some((Rooms, 0)));
+        assert_eq!(step(Rooms, 1, "down", typing), Some((Search, 0)));
         assert_eq!(step(Search, 0, "down", typing), None);
-        assert_eq!(step(Users, 0, "up", typing), Some((Rows, 4)));
+        assert_eq!(step(Rooms, 0, "up", typing), Some((Users, 2)));
         assert_eq!(step(Rows, 0, "up", typing), None);
         // Tab goes section to section and wraps.
         assert_eq!(step(Rows, 3, "tab", typing), Some((Users, 0)));
-        assert_eq!(step(Users, 1, "tab", typing), Some((Search, 0)));
+        assert_eq!(step(Users, 1, "tab", typing), Some((Rooms, 0)));
         assert_eq!(step(Search, 0, "tab", typing), Some((Rows, 0)));
         // Empty zones are skipped: no local hit, «Visti» row on top of the searches.
-        assert_eq!(step(Rows, 0, "down", [0, 1, 0, 1]), Some((Search, 0)));
-        let browsing = [3, 5, 0, 1];
+        assert_eq!(step(Rows, 0, "down", [0, 0, 1, 0, 0, 1]), Some((Search, 0)));
+        let browsing = [0, 3, 5, 0, 0, 1];
         assert_eq!(step(Seen, 0, "right", browsing), Some((Seen, 1)));
         assert_eq!(step(Seen, 2, "right", browsing), None);
         assert_eq!(step(Seen, 0, "left", browsing), None);
@@ -904,10 +1256,16 @@ mod tests {
         assert_eq!(step(Rows, 2, "up", browsing), Some((Rows, 1)));
         assert_eq!(step(Seen, 1, "tab", browsing), Some((Rows, 0)));
         assert_eq!(step(Search, 0, "tab", browsing), Some((Seen, 0)));
-        assert_eq!(step(Seen, 0, "down", [3, 0, 0, 0]), None);
-        // Chip active: only the users list.
-        assert_eq!(step(Users, 0, "tab", [0, 0, 4, 0]), None);
-        assert_eq!(step(Users, 0, "down", [0, 0, 4, 0]), Some((Users, 1)));
+        assert_eq!(step(Seen, 0, "down", [0, 3, 0, 0, 0, 0]), None);
+        // People chip: only the users list.
+        assert_eq!(step(Users, 0, "tab", [0, 0, 0, 4, 0, 0]), None);
+        assert_eq!(step(Users, 0, "down", [0, 0, 0, 4, 0, 0]), Some((Users, 1)));
+        // Directory chip: the selector sits above the hits, Tab goes between them and wraps.
+        let chip = [1, 0, 0, 0, 3, 0];
+        assert_eq!(step(Rooms, 0, "up", chip), Some((Server, 0)));
+        assert_eq!(step(Server, 0, "down", chip), Some((Rooms, 0)));
+        assert_eq!(step(Rooms, 1, "tab", chip), Some((Server, 0)));
+        assert_eq!(step(Server, 0, "tab", chip), Some((Rooms, 0)));
     }
 
     #[test]

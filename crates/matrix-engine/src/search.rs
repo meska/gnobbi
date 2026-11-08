@@ -147,6 +147,11 @@ mod driver {
         /// New term and/or scope: the running request is dropped, a new one starts after `DEBOUNCE`.
         /// Below `MIN_CHARS` (after trim) nothing is asked and the state is `Idle`.
         pub fn set_query(&mut self, term: &str, scope: S) {
+            self.set_query_from(term, scope, MIN_CHARS)
+        }
+
+        /// `set_query` with its own minimum length (0 = an empty term lists the provider's first page).
+        pub fn set_query_from(&mut self, term: &str, scope: S, min_chars: usize) {
             self.term = term.trim().to_owned();
             self.scope = scope;
             self.abort();
@@ -154,7 +159,7 @@ mod driver {
                 s.hits.clear();
                 s.next = None;
             });
-            if self.term.chars().count() < MIN_CHARS {
+            if self.term.chars().count() < min_chars {
                 self.tx.send_replace(SearchState::Idle);
                 return;
             }

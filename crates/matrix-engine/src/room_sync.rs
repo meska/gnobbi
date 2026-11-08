@@ -380,12 +380,12 @@ impl RoomListWorker {
                         let mut messages: Option<(RoomScope, crate::message_search::MessageSearch)> = None;
                         let mut messages_rx: Option<tokio::sync::watch::Receiver<crate::operations::MessageSearchState>> = None;
                         let rooms_client = operation_client.clone();
-                        let mut rooms = crate::search::Search::<Option<String>, crate::operations::DirectoryRoom>::new(
-                            None,
-                            move |term, server, since| {
+                        let mut rooms = crate::search::Search::<(Option<String>, Option<crate::operations::DirectoryKind>), crate::operations::DirectoryRoom>::new(
+                            (None, None),
+                            move |term, (server, kind), since| {
                                 let client = rooms_client.clone();
                                 async move {
-                                    crate::operations::public_rooms(&client, &term, server.as_deref(), since, crate::search::PAGE).await
+                                    crate::operations::public_rooms(&client, &term, server.as_deref(), since, crate::search::PAGE, kind).await
                                 }
                             },
                         );
@@ -610,8 +610,10 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
-                                OperationCommand::SearchRooms { term, server } => {
-                                    rooms.set_query(&term, server);
+                                OperationCommand::SearchRooms { term, server, kind } => {
+                                    // Spaces and rooms list their first page for an empty term.
+                                    let min = if kind.is_some() && term.trim().is_empty() { 0 } else { crate::search::MIN_CHARS };
+                                    rooms.set_query_from(&term, (server, kind), min);
                                     continue;
                                 }
                                 OperationCommand::MoreRooms => {
@@ -621,7 +623,7 @@ impl RoomListWorker {
                                 OperationCommand::ProbeServer { server } => {
                                     let result = tokio::time::timeout(
                                         crate::search::TIMEOUT,
-                                        crate::operations::public_rooms(&operation_client, "", Some(&server), None, 1),
+                                        crate::operations::public_rooms(&operation_client, "", Some(&server), None, 1, None),
                                     )
                                     .await
                                     .unwrap_or(Err(crate::search::SearchError::Timeout))

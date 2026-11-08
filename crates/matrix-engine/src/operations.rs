@@ -161,6 +161,8 @@ pub enum OperationCommand {
     SearchRooms {
         term: String,
         server: Option<String>,
+        /// Only rooms or only spaces; with an empty `term` the directory's first page («Suggerimenti»).
+        kind: Option<DirectoryKind>,
     },
     /// «Altri risultati» of the running room search.
     MoreRooms,
@@ -307,6 +309,24 @@ pub enum OperationResult {
         request: OperationRequest,
         result: Result<EventId, OperationError>,
     },
+}
+
+/// What a directory search lists: rooms (`room_types: [null]`) or spaces (`["m.space"]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectoryKind {
+    Rooms,
+    Spaces,
+}
+
+/// Some servers ignore the `room_types` filter: the answer is checked on each chunk's own type too.
+#[cfg(feature = "sdk")]
+pub fn kind_matches(kind: Option<DirectoryKind>, room_type: Option<&matrix_sdk::ruma::room::RoomType>) -> bool {
+    use matrix_sdk::ruma::room::RoomType;
+    match kind {
+        None => true,
+        Some(DirectoryKind::Spaces) => room_type == Some(&RoomType::Space),
+        Some(DirectoryKind::Rooms) => room_type.is_none(),
+    }
 }
 
 /// One public-directory hit.
@@ -647,6 +667,7 @@ pub fn directory_request(
     local: Option<&matrix_sdk::ruma::ServerName>,
     since: Option<String>,
     limit: u32,
+    kind: Option<DirectoryKind>,
 ) -> Result<matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered::v3::Request, crate::search::SearchError> {
     let mut request = matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered::v3::Request::new();
     request.server = match server.map(parse_server).transpose()? {
@@ -656,6 +677,11 @@ pub fn directory_request(
     request.limit = Some(limit.into());
     request.since = since;
     request.filter.generic_search_term = Some(term.trim().to_owned()).filter(|t| !t.is_empty());
+    request.filter.room_types = match kind {
+        None => Vec::new(),
+        Some(DirectoryKind::Rooms) => vec![matrix_sdk::ruma::directory::RoomTypeFilter::Default],
+        Some(DirectoryKind::Spaces) => vec![matrix_sdk::ruma::directory::RoomTypeFilter::Space],
+    };
     Ok(request)
 }
 
@@ -711,15 +737,18 @@ pub async fn public_rooms(
     server: Option<&str>,
     since: Option<String>,
     limit: u32,
+    kind: Option<DirectoryKind>,
 ) -> Result<crate::search::Page<DirectoryRoom>, crate::search::SearchError> {
     let local = client.user_id().map(|u| u.server_name().to_owned());
-    let request = directory_request(term, server, local.as_deref(), since, limit)?;
+    let request = directory_request(term, server, local.as_deref(), since, limit, kind)?;
     let origin = request.server.as_ref().map(ToString::to_string).or_else(|| local.map(|l| l.to_string())).unwrap_or_default();
     // The SDK retries 5xx; a home server's 502 for a dead remote must surface at once, not as a 20 s timeout.
     let response = client.send(request).with_request_config(matrix_sdk::config::RequestConfig::new().disable_retry()).await.map_err(|e| {
         let api = e.as_client_api_error();
         directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind())
     })?;
+    let mut response = response;
+    response.chunk.retain(|d| kind_matches(kind, d.room_type.as_ref()));
     Ok(directory_page(response, &origin))
 }
 

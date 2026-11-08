@@ -2,6 +2,7 @@
 //! «Visti di recente» / «Ricerche recenti». No UI, no network. Stored locally in the config dir
 //! (`quick-search.json`, like `rail-layout.json`), never sent to the server.
 use crate::AppDirs;
+use matrix_engine::operations::{DirectoryKind, DirectoryRoom};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -21,24 +22,72 @@ pub struct Hit {
     pub secondary: String,
 }
 
-/// «Cerca» entries: each one becomes a chip in the field and limits the results to its kind.
-/// «Stanze pubbliche» / «Spazi pubblici» join with the public-directory card.
+/// «Cerca» entries (order as Element): each one becomes a chip in the field and limits the
+/// results to its kind. The two directory kinds also show the server selector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Category {
+    Spaces,
+    Rooms,
     People,
 }
 
 impl Category {
-    pub const ALL: [Category; 1] = [Category::People];
+    pub const ALL: [Category; 3] = [Category::Spaces, Category::Rooms, Category::People];
 
     pub fn label(self) -> &'static str {
-        "Persone"
+        match self {
+            Category::Spaces => "Spazi pubblici",
+            Category::Rooms => "Stanze pubbliche",
+            Category::People => "Persone",
+        }
     }
 
     /// Screen-reader name of the chip.
     pub fn chip_label(self) -> String {
         format!("Filtro: {}", self.label())
     }
+
+    /// What the public directory is asked for; `None` for people.
+    pub fn kind(self) -> Option<DirectoryKind> {
+        match self {
+            Category::Spaces => Some(DirectoryKind::Spaces),
+            Category::Rooms => Some(DirectoryKind::Rooms),
+            Category::People => None,
+        }
+    }
+}
+
+/// `(term, server, kind)` of a directory search.
+pub type DirectoryRequest = (String, Option<String>, Option<DirectoryKind>);
+
+/// Public rooms shown under the local results when no chip is active.
+pub const ROOMS_LIMIT: usize = 5;
+
+/// The directory request the overlay wants now: `(term, server, kind)`, or `None` for no request
+/// at all. A directory chip asks at once (empty term = «Suggerimenti», one page of `server`); no
+/// chip asks only for a typed term, always the active account's server; people ask nothing here.
+pub fn room_request(
+    chip: Option<Category>,
+    term: &str,
+    server: Option<String>,
+) -> Option<DirectoryRequest> {
+    let term = term.trim();
+    let typed = term.chars().count() >= matrix_engine::search::MIN_CHARS;
+    let term = if typed { term.to_owned() } else { String::new() };
+    match chip {
+        Some(c) => c.kind().map(|k| (term, server, Some(k))),
+        None => typed.then_some((term, None, Some(DirectoryKind::Rooms))),
+    }
+}
+
+/// Directory rows as overlay rows: the shared list's detail line (alias, members) is the secondary.
+pub fn room_hits<'a>(rooms: impl IntoIterator<Item = &'a DirectoryRoom>, limit: usize) -> Vec<Hit> {
+    use crate::search_list::Hit as _;
+    rooms
+        .into_iter()
+        .take(limit)
+        .map(|r| Hit { id: r.room_id.clone(), name: r.name.clone(), avatar: r.avatar_url.clone(), secondary: r.detail() })
+        .collect()
 }
 
 /// Server users shown under the local results when no chip is active.

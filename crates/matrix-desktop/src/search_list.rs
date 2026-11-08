@@ -109,6 +109,13 @@ impl<H: Hit> SearchList<H> {
         self.active = 0;
     }
 
+    /// An empty field that lists the provider's first page: Searching on the empty term.
+    pub fn set_suggesting(&mut self) {
+        self.term.clear();
+        self.state = SearchState::Searching { term: String::new() };
+        self.active = 0;
+    }
+
     /// An engine answer. Dropped (false) when it answers a term the field no longer holds.
     /// The active row stays while the rows only grow (next page), else it restarts from the first.
     pub fn set_state(&mut self, state: SearchState<H>) -> bool {
