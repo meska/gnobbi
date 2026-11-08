@@ -31,6 +31,24 @@ pub(crate) fn drawer_shell(
             ),
     )
 }
+/// Full-window scrim (click = `on_close`) with `dialog` centred, `width` px wide; shared by the device dialogs and the verification popup.
+/// Keys and focus stay with the caller.
+pub(crate) fn dialog_shell(
+    layer_id: &'static str,
+    dialog: gpui::Stateful<gpui::Div>,
+    width: f32,
+    t: matrix_desktop::DesignTokens,
+    on_close: impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static,
+) -> gpui::Stateful<gpui::Div> {
+    div().id(layer_id).occlude().absolute().inset_0().flex().items_center().justify_center()
+        .bg(gpui::rgba(matrix_desktop::SCRIM))
+        .on_click(on_close)
+        .child(
+            dialog.w(px(width)).max_w_full().p_4().gap_2().flex().flex_col().rounded_lg()
+                .bg(rgb(t.surface)).border_1().border_color(rgb(t.border))
+                .on_click(|_, _, cx| cx.stop_propagation()),
+        )
+}
 /// Settings, Devices, Notifications, Add account, New chat, New room, Join, Quick search, version line (after the account rows).
 pub(crate) const DRAWER_ROWS: usize = 9;
 

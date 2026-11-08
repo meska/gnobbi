@@ -198,8 +198,6 @@ pub enum OperationCommand {
         /// (`Some(public)`, the «Conferme di lettura» setting).
         read: Option<bool>,
     },
-    /// «Verifica utente»: ask `user_id` for an interactive verification.
-    VerifyUser { user_id: String },
     /// Account-wide ignore (`ignore`) or unignore of `user_id`.
     Ignore { user_id: String, ignore: bool },
     /// What the current user may do to `user_id` in this room (moderation entries of the profile).
@@ -244,10 +242,6 @@ pub enum OperationResult {
     Profile {
         user_id: String,
         result: Result<UserProfile, OperationError>,
-    },
-    UserVerification {
-        user_id: String,
-        result: Result<(), OperationError>,
     },
     Ignored {
         user_id: String,
@@ -976,7 +970,7 @@ pub async fn set_ignored(client: &matrix_sdk::Client, user_id: &str, ignore: boo
 
 /// E2EE identity of `id`: the local store first, else one `/keys/query` (same on Synapse and Tuwunel).
 #[cfg(feature = "sdk")]
-async fn user_identity(
+pub(crate) async fn user_identity(
     client: &matrix_sdk::Client,
     id: &matrix_sdk::ruma::UserId,
 ) -> Option<matrix_sdk::encryption::identities::UserIdentity> {
@@ -988,21 +982,6 @@ async fn user_identity(
         .await
         .ok()?
         .ok()?
-}
-
-/// Sends an interactive verification request to `user_id`; the flow itself continues in the verification UI.
-#[cfg(feature = "sdk")]
-pub async fn request_user_verification(
-    client: &matrix_sdk::Client,
-    user_id: &str,
-) -> Result<(), OperationError> {
-    let id = matrix_sdk::ruma::UserId::parse(user_id.trim()).map_err(|_| OperationError::InvalidInput)?;
-    let identity = user_identity(client, &id).await.ok_or(OperationError::Unavailable)?;
-    tokio::time::timeout(WAIT, identity.request_verification())
-        .await
-        .map_err(|_| OperationError::Transport)?
-        .map_err(|_| OperationError::Transport)?;
-    Ok(())
 }
 
 /// Rights of `me` over `target` from the room power levels (SDK checks stay with ruma). The bool is

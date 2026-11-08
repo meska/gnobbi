@@ -7,12 +7,13 @@ use matrix_sdk::{
     },
 };
 
-/// One exact device and transaction. No manual trust override or key export.
+/// One exact transaction (and device, once known). No manual trust override or key export.
 pub struct VerificationFlow {
     client: Client,
     account_id: AccountId,
     user_id: matrix_sdk::ruma::OwnedUserId,
-    device_id: matrix_sdk::ruma::OwnedDeviceId,
+    /// `None` for a whole-user request until the SDK reports the answering device.
+    device_id: Option<matrix_sdk::ruma::OwnedDeviceId>,
     request: VerificationRequest,
     failed: bool,
 }
@@ -42,7 +43,7 @@ impl AccountSession {
             client: client.clone(),
             account_id: self.account_id,
             user_id,
-            device_id,
+            device_id: Some(device_id),
             request,
             failed: false,
         })
@@ -123,7 +124,34 @@ impl AccountSession {
             client: client.clone(),
             account_id: self.account_id,
             user_id,
-            device_id,
+            device_id: Some(device_id),
+            request,
+            failed: false,
+        })
+    }
+
+    /// «Verifica utente»: SAS-only request to the user's cross-signing identity.
+    pub async fn request_user_verification(
+        &self,
+        user_id: &str,
+    ) -> Result<VerificationFlow, VerificationError> {
+        let user_id = matrix_sdk::ruma::UserId::parse(user_id.trim())
+            .map_err(|_| VerificationError::InvalidTarget)?;
+        let client = self.client.as_ref().ok_or(VerificationError::LoggedOut)?;
+        let identity = crate::operations::user_identity(client, &user_id)
+            .await
+            .ok_or(VerificationError::UnknownDevice)?;
+        let request = identity
+            .request_verification_with_methods(vec![
+                matrix_sdk::ruma::events::key::verification::VerificationMethod::SasV1,
+            ])
+            .await
+            .map_err(|_| VerificationError::Transport)?;
+        Ok(VerificationFlow {
+            client: client.clone(),
+            account_id: self.account_id,
+            user_id,
+            device_id: None,
             request,
             failed: false,
         })
@@ -226,20 +254,60 @@ impl VerificationFlow {
         result.map_err(|_| VerificationError::Transport)
     }
 
+    /// Automatic protocol steps only (never a trust decision): the side that asked starts SAS when
+    /// the request is Ready; the side that received accepts the SAS the peer started. The user's
+    /// own `Accept` of the request stays explicit.
+    async fn advance(&mut self) -> Result<(), VerificationError> {
+        if self.failed {
+            return Ok(());
+        }
+        if self.request.we_started() {
+            if self.snapshot().await?.state == VerificationState::Ready {
+                return self.perform(VerificationAction::StartSas).await;
+            }
+        } else if self.sas().await.is_some_and(|sas| matches!(sas.state(), SasState::Started { .. })) {
+            return self.perform(VerificationAction::AcceptSas).await;
+        }
+        Ok(())
+    }
+
     pub async fn snapshot(&self) -> Result<VerificationSnapshot, VerificationError> {
-        let device = self
-            .client
-            .encryption()
-            .get_device(&self.user_id, &self.device_id)
-            .await
-            .map_err(|_| VerificationError::Transport)?
-            .ok_or(VerificationError::UnknownDevice)?;
-        let device_verified = device.is_verified();
+        let sas = self.sas().await;
+        // A whole-user request learns its device from the SDK once the peer answers.
+        let device_id = self.device_id.clone().or_else(|| match self.request.state() {
+            VerificationRequestState::Requested { other_device_data, .. }
+            | VerificationRequestState::Ready { other_device_data, .. } => Some(other_device_data.device_id().to_owned()),
+            _ => sas.as_ref().map(|sas| sas.other_device().device_id().to_owned()),
+        });
+        let device_verified = match &device_id {
+            Some(id) => self
+                .client
+                .encryption()
+                .get_device(&self.user_id, id)
+                .await
+                .map_err(|_| VerificationError::Transport)?
+                .ok_or(VerificationError::UnknownDevice)?
+                .is_verified(),
+            None => self
+                .client
+                .encryption()
+                .get_user_identity(&self.user_id)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|identity| identity.is_verified()),
+        };
+        let mut sas_emoji = None;
         let state = if self.failed {
             VerificationState::Failed
-        } else if let Some(sas) = self.sas().await {
+        } else if let Some(sas) = sas {
             match sas.state() {
-                SasState::KeysExchanged { decimals, .. } => VerificationState::Compare { decimals },
+                SasState::KeysExchanged { decimals, emojis } => {
+                    sas_emoji = emojis.map(|e| {
+                        e.emojis.iter().map(|e| (e.symbol.to_owned(), e.description.to_owned())).collect()
+                    });
+                    VerificationState::Compare { decimals }
+                }
                 SasState::Confirmed => VerificationState::Confirmed,
                 SasState::Done { .. } if device_verified => VerificationState::Verified,
                 SasState::Cancelled(info) => cancellation_state(info.cancel_code()),
@@ -257,10 +325,11 @@ impl VerificationFlow {
         Ok(VerificationSnapshot {
             account_id: self.account_id,
             user_id: self.user_id.to_string(),
-            device_id: self.device_id.to_string(),
+            device_id: device_id.map(|id| id.to_string()).unwrap_or_default(),
             flow_id: self.request.flow_id().to_owned(),
             state,
             device_verified,
+            sas_emoji,
         })
     }
 }
@@ -279,6 +348,25 @@ pub(crate) async fn run_service(
     };
     let mut active: Option<VerificationFlow> = None;
     let mut previous = None;
+    // Requests from other people/devices: the SDK stores them, the handlers only tell us which one.
+    let (incoming_tx, mut incoming) = tokio::sync::mpsc::unbounded_channel::<(matrix_sdk::ruma::OwnedUserId, String)>();
+    let to_device = incoming_tx.clone();
+    let to_device_handler = client.add_event_handler(
+        move |event: matrix_sdk::ruma::events::key::verification::request::ToDeviceKeyVerificationRequestEvent| {
+            let _ = to_device.send((event.sender, event.content.transaction_id.to_string()));
+            std::future::ready(())
+        },
+    );
+    let own_id = client.user_id().map(ToOwned::to_owned);
+    let room_handler = client.add_event_handler(
+        move |event: matrix_sdk::ruma::events::room::message::OriginalSyncRoomMessageEvent| {
+            use matrix_sdk::ruma::events::room::message::MessageType;
+            if matches!(event.content.msgtype, MessageType::VerificationRequest(_)) && Some(&event.sender) != own_id.as_ref() {
+                let _ = incoming_tx.send((event.sender, event.event_id.to_string()));
+            }
+            std::future::ready(())
+        },
+    );
     let mut ticks = tokio::time::interval(std::time::Duration::from_millis(200));
     // Profile name and picture are re-read every minute: a change made elsewhere shows up without restart.
     let mut shown = None;
@@ -301,14 +389,21 @@ pub(crate) async fn run_service(
                         }
                     }
                     VerificationCommand::Begin { account_id: requested, user_id, device_id } if requested == account_id => {
-                        if let Some(flow) = &active {
-                            let state = flow.snapshot().await.map(|s| s.state);
-                            if !matches!(state, Ok(VerificationState::Verified | VerificationState::Cancelled | VerificationState::Mismatched | VerificationState::Failed)) {
-                                if events.send(VerificationEvent::Error { account_id, error: VerificationError::Busy }).await.is_err() { break; }
-                                continue;
-                            }
+                        if is_busy(&active).await {
+                            if events.send(VerificationEvent::Error { account_id, error: VerificationError::Busy }).await.is_err() { break; }
+                            continue;
                         }
                         match session.request_device_verification(&user_id, &device_id).await {
+                            Ok(flow) => { active = Some(flow); previous = None; Ok(()) }
+                            Err(error) => Err(error),
+                        }
+                    }
+                    VerificationCommand::BeginUser { account_id: requested, user_id } if requested == account_id => {
+                        if is_busy(&active).await {
+                            if events.send(VerificationEvent::Error { account_id, error: VerificationError::Busy }).await.is_err() { break; }
+                            continue;
+                        }
+                        match session.request_user_verification(&user_id).await {
                             Ok(flow) => { active = Some(flow); previous = None; Ok(()) }
                             Err(error) => Err(error),
                         }
@@ -383,14 +478,23 @@ pub(crate) async fn run_service(
                 }
                 Ok(())
             }
-            _ = ticks.tick() => {
-                if let Some(flow) = &mut active {
-                    match flow.snapshot().await {
-                        Ok(snapshot) if snapshot.state == VerificationState::Ready => flow.perform(VerificationAction::StartSas).await,
-                        Ok(_) => Ok(()),
-                        Err(error) => Err(error),
+            Some((sender, flow_id)) = incoming.recv() => {
+                // shortcut: la SDK fa scadere la richiesta, rivedere se serve un rifiuto esplicito
+                if !is_busy(&active).await {
+                    // Never accepted here: the snapshot is `Requested` and the user decides. A request
+                    // already cancelled or unknown is not an error worth showing.
+                    if let Ok(flow) = session.receive_device_verification(sender.as_str(), &flow_id).await {
+                        active = Some(flow);
+                        previous = None;
                     }
-                } else { Ok(()) }
+                }
+                Ok(())
+            }
+            _ = ticks.tick() => {
+                match &mut active {
+                    Some(flow) => flow.advance().await,
+                    None => Ok(()),
+                }
             }
         };
         if let Err(error) = result
@@ -417,6 +521,15 @@ pub(crate) async fn run_service(
             }
         }
     }
+    client.remove_event_handler(to_device_handler);
+    client.remove_event_handler(room_handler);
+}
+
+/// A flow that has not reached a terminal state blocks a new one.
+async fn is_busy(active: &Option<VerificationFlow>) -> bool {
+    let Some(flow) = active else { return false };
+    let state = flow.snapshot().await.map(|s| s.state);
+    !matches!(state, Ok(VerificationState::Verified | VerificationState::Cancelled | VerificationState::Mismatched | VerificationState::Failed))
 }
 
 const PROFILE_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);

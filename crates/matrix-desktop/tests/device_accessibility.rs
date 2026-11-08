@@ -5,62 +5,72 @@ use matrix_desktop::accessibility::devices::{DeviceControl, DeviceOverview};
 use matrix_domain::AccountId;
 use matrix_engine::verification::{VerificationDevice, VerificationEvent};
 
-#[test]
-fn old_sas_node_handles_cannot_confirm_a_replaced_flow_or_changed_numbers() {
-    use accesskit::{ActionRequest, TreeId};
-    use matrix_desktop::accessibility::devices::{DeviceNodes, DeviceView};
-    use matrix_engine::verification::{VerificationSnapshot, VerificationState};
-    let account = AccountId::new(18);
-    let mut model = DeviceVerification::new(account);
-    let mut ids = DeviceNodes::default();
-    let original = VerificationSnapshot {
+use matrix_desktop::PopupButton;
+use matrix_engine::verification::{VerificationSnapshot, VerificationState};
+
+const EMOJI: [(&str, &str); 7] = [
+    ("💡", "Light Bulb"),
+    ("🐱", "Cat"),
+    ("🦋", "Butterfly"),
+    ("🎅", "Santa"),
+    ("🎧", "Headphone"),
+    ("✏️", "Pencil"),
+    ("✂️", "Scissors"),
+];
+
+fn snapshot(account: AccountId, state: VerificationState, emoji: bool) -> VerificationSnapshot {
+    VerificationSnapshot {
         account_id: account,
         user_id: "@alice:matrix-desktop.test".into(),
         device_id: "FIXTURE_DEVICE".into(),
-        flow_id: "flow-one".into(),
-        state: VerificationState::Compare {
-            decimals: (1234, 5678, 9012),
-        },
+        flow_id: "fixture-flow-1".into(),
+        state,
         device_verified: false,
-    };
-    model.apply(VerificationEvent::Snapshot(original.clone()));
-    let project = |model: &DeviceVerification| {
-        DeviceOverview::project(account, model, DeviceControl::Confirm, [None; 6])
-    };
+        sas_emoji: emoji.then(|| EMOJI.iter().map(|(s, n)| (s.to_string(), n.to_string())).collect()),
+    }
+}
+
+/// A request from the other side opens the popup; then the comparison starts.
+fn open_compare(model: &mut DeviceVerification, snapshot: VerificationSnapshot) {
+    let mut request = snapshot.clone();
+    request.state = VerificationState::Requested;
+    model.apply(VerificationEvent::Snapshot(request));
+    model.apply(VerificationEvent::Snapshot(snapshot));
+}
+
+const COMPARE: VerificationState = VerificationState::Compare { decimals: (1234, 5678, 9012) };
+
+#[test]
+fn old_popup_node_handles_cannot_press_a_replaced_flow_or_changed_emoji() {
+    use accesskit::{ActionRequest, TreeId};
+    use matrix_desktop::accessibility::devices::{DeviceNodes, DeviceView};
+    let account = AccountId::new(18);
+    let mut model = DeviceVerification::new(account);
+    let mut ids = DeviceNodes::default();
+    let original = snapshot(account, COMPARE, true);
+    open_compare(&mut model, original.clone());
+    let project = |model: &DeviceVerification| DeviceOverview::project(account, model, DeviceControl::Close, [None; 2]);
+    let yes = DeviceControl::Popup(PopupButton::Match);
     let first = ids.scope_panel(project(&model));
     let request = ActionRequest {
         action: Action::Click,
-        target_node: first.control_id(DeviceControl::Confirm),
+        target_node: first.control_id(yes),
         target_tree: TreeId::ROOT,
         data: None,
     };
-    assert!(
-        DeviceView::Open(Box::new(first.clone()))
-            .action(&request)
-            .is_some()
-    );
-    assert_eq!(
-        ids.scope_panel(project(&model))
-            .control_id(DeviceControl::Confirm),
-        request.target_node
-    );
+    assert!(DeviceView::Open(Box::new(first.clone())).action(&request).is_some());
+    assert_eq!(ids.scope_panel(project(&model)).control_id(yes), request.target_node);
     for change in 0..3 {
         let mut next = original.clone();
-        if change == 0 {
-            next.flow_id = "flow-two".into();
-        }
-        if change == 1 {
-            next.state = VerificationState::Compare {
-                decimals: (1234, 5678, 9013),
-            };
+        match change {
+            0 => next.flow_id = "flow-two".into(),
+            1 => next.state = VerificationState::Compare { decimals: (1234, 5678, 9013) },
+            _ => next.sas_emoji.as_mut().unwrap()[0].0 = "🔥".into(),
         }
         // Returning to an older snapshot must not resurrect an old handle.
         model.apply(VerificationEvent::Snapshot(next));
         let panel = ids.scope_panel(project(&model));
-        assert_ne!(
-            panel.control_id(DeviceControl::Confirm),
-            request.target_node
-        );
+        assert_ne!(panel.control_id(yes), request.target_node);
         assert!(DeviceView::Open(Box::new(panel)).action(&request).is_none());
     }
 }
@@ -94,7 +104,7 @@ fn device_initiation_uses_stable_scoped_ids_and_rejects_removed_or_busy_targets(
     assert_ne!(a_id, b_id);
     let make_view = |rows| {
         DeviceView::Open(Box::new(
-            DeviceOverview::project(account, &model, DeviceControl::Close, [None; 6])
+            DeviceOverview::project(account, &model, DeviceControl::Close, [None; 2])
                 .with_devices(rows),
         ))
     };
@@ -121,7 +131,7 @@ fn device_initiation_uses_stable_scoped_ids_and_rejects_removed_or_busy_targets(
     assert_eq!(rows[0].id, b_id);
     assert_eq!(rows[1].id, a_id);
     let view = DeviceView::Open(Box::new(
-        DeviceOverview::project(account, &model, DeviceControl::Close, [None; 6])
+        DeviceOverview::project(account, &model, DeviceControl::Close, [None; 2])
             .with_devices(rows),
     ));
     assert!(
@@ -133,7 +143,7 @@ fn device_initiation_uses_stable_scoped_ids_and_rejects_removed_or_busy_targets(
         devices: vec![b.clone()],
     });
     let view = DeviceView::Open(Box::new(
-        DeviceOverview::project(account, &model, DeviceControl::Close, [None; 6])
+        DeviceOverview::project(account, &model, DeviceControl::Close, [None; 2])
             .with_devices(ids.project(account, &model)),
     ));
     assert!(!view.allows(&begin));
@@ -145,7 +155,7 @@ fn device_initiation_uses_stable_scoped_ids_and_rejects_removed_or_busy_targets(
     assert_eq!(ids.project(account, &model)[0].id, a_id);
     assert!(model.begin(0));
     let view = DeviceView::Open(Box::new(
-        DeviceOverview::project(account, &model, DeviceControl::Close, [None; 6])
+        DeviceOverview::project(account, &model, DeviceControl::Close, [None; 2])
             .with_devices(ids.project(account, &model)),
     ));
     assert!(!view.allows(&begin));
@@ -159,176 +169,105 @@ fn device_initiation_uses_stable_scoped_ids_and_rejects_removed_or_busy_targets(
 }
 
 #[test]
-fn sas_keyboard_ring_includes_readable_comparison_and_only_available_decisions() {
-    use matrix_engine::verification::{VerificationSnapshot, VerificationState};
+fn popup_ring_starts_on_the_first_button_and_never_leaves_the_popup() {
     let account = AccountId::new(18);
     let mut model = DeviceVerification::new(account);
-    model.apply(VerificationEvent::Snapshot(VerificationSnapshot {
+    model.apply(VerificationEvent::Devices {
         account_id: account,
-        user_id: "@alice:matrix-desktop.test".into(),
-        device_id: "FIXTURE_DEVICE".into(),
-        flow_id: "fixture-flow-1".into(),
-        state: VerificationState::Compare {
-            decimals: (1234, 5678, 9012),
-        },
-        device_verified: false,
-    }));
-    let rect = accesskit::Rect::new(10., 20., 200., 50.);
-    let mut bounds = [None; 6];
-    bounds[DeviceControl::Comparison.index().unwrap()] = Some(rect);
-    let panel = DeviceOverview::project(account, &model, DeviceControl::Comparison, bounds);
-    let tree = panel.tree();
-    let node = &tree
-        .nodes
-        .iter()
-        .find(|(id, _)| *id == DeviceControl::Comparison.id())
-        .unwrap()
-        .1;
-    assert_eq!(node.value(), Some("Numeri SAS: 1234, 5678, 9012"));
-    assert_eq!(node.bounds(), Some(rect));
-    assert!(node.supports_action(Action::Focus));
-    assert!(!node.supports_action(Action::Click));
-    assert_eq!(tree.focus, DeviceControl::Comparison.id());
-    assert_eq!(panel.next_control(false), DeviceControl::Confirm);
-    assert_eq!(panel.next_control(true), DeviceControl::Refresh);
-    assert_eq!(
-        panel.controls(),
-        vec![
-            DeviceControl::Close,
-            DeviceControl::Refresh,
-            DeviceControl::Comparison,
-            DeviceControl::Confirm,
-            DeviceControl::Mismatch,
-            DeviceControl::Cancel
-        ]
-    );
-    model.apply(VerificationEvent::Snapshot(VerificationSnapshot {
-        account_id: account,
-        user_id: "@alice:matrix-desktop.test".into(),
-        device_id: "FIXTURE_DEVICE".into(),
-        flow_id: "fixture-flow-1".into(),
-        state: VerificationState::Cancelled,
-        device_verified: false,
-    }));
-    let panel = DeviceOverview::project(account, &model, DeviceControl::Confirm, [None; 6]);
-    assert_eq!(panel.focus, DeviceControl::Close);
-    assert_eq!(
-        panel.controls(),
-        vec![DeviceControl::Close, DeviceControl::Refresh]
-    );
-    assert_eq!(panel.next_control(true), DeviceControl::Refresh);
+        devices: vec![VerificationDevice {
+            user_id: "@alice:matrix-desktop.test".into(),
+            device_id: "FIXTURE_DEVICE".into(),
+            verified: false,
+            display_name: None,
+            last_seen_ts: None,
+            last_seen_ip: None,
+        }],
+    });
+    open_compare(&mut model, snapshot(account, COMPARE, true));
+    let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 2]);
+    let (yes, no, x) = (PopupButton::Match, PopupButton::NoMatch, PopupButton::Close);
+    assert_eq!(panel.controls(), vec![DeviceControl::Popup(yes), DeviceControl::Popup(no), DeviceControl::Popup(x)]);
+    assert_eq!(panel.focus, DeviceControl::Popup(yes), "initial focus: first button");
+    assert_eq!(panel.tree().focus, panel.control_id(DeviceControl::Popup(yes)));
+    assert_eq!(panel.next_control(false), DeviceControl::Popup(no));
+    assert_eq!(panel.next_control(true), DeviceControl::Popup(x));
+    model.popup_tab(false);
+    let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 2]);
+    assert_eq!(panel.focus, DeviceControl::Popup(no));
+    // Outcome: OK and the X only.
+    model.apply(VerificationEvent::Snapshot(snapshot(account, VerificationState::Verified, true)));
+    let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 2]);
+    assert_eq!(panel.controls(), vec![DeviceControl::Popup(PopupButton::Ok), DeviceControl::Popup(x)]);
+    assert_eq!(panel.focus, DeviceControl::Popup(PopupButton::Ok));
 }
 
 #[test]
-fn sas_decisions_are_explicit_and_revalidated_against_exact_snapshot() {
+fn popup_presses_are_explicit_and_revalidated_against_the_exact_snapshot() {
     use accesskit::{ActionRequest, TreeId};
     use matrix_desktop::accessibility::devices::{DeviceAction, DeviceView};
-    use matrix_engine::verification::{
-        VerificationAction, VerificationSnapshot, VerificationState,
-    };
     let account = AccountId::new(18);
     let mut model = DeviceVerification::new(account);
-    let snapshot = VerificationSnapshot {
-        account_id: account,
-        user_id: "@alice:matrix-desktop.test".into(),
-        device_id: "FIXTURE_DEVICE".into(),
-        flow_id: "fixture-flow-1".into(),
-        state: VerificationState::Compare {
-            decimals: (1234, 5678, 9012),
-        },
-        device_verified: false,
-    };
-    model.apply(VerificationEvent::Snapshot(snapshot.clone()));
+    let original = snapshot(account, COMPARE, true);
+    open_compare(&mut model, original.clone());
     let view = |model: &DeviceVerification| {
-        DeviceView::Open(Box::new(DeviceOverview::project(
-            account,
-            model,
-            DeviceControl::Close,
-            [None; 6],
-        )))
+        DeviceView::Open(Box::new(DeviceOverview::project(account, model, DeviceControl::Close, [None; 2])))
     };
-    let request = ActionRequest {
-        target_node: DeviceControl::Confirm.id(),
-        action: Action::Click,
-        target_tree: TreeId::ROOT,
-        data: None,
-    };
+    let confirm = DeviceControl::Popup(PopupButton::Match);
+    let request = ActionRequest { target_node: confirm.id(), action: Action::Click, target_tree: TreeId::ROOT, data: None };
     let current = view(&model);
-    let action = current
-        .action(&request)
-        .expect("comparison must offer explicit confirmation");
-    assert!(
-        matches!(&action, DeviceAction::Decide { snapshot: captured, action: VerificationAction::Confirm } if **captured == snapshot)
-    );
+    let action = current.action(&request).expect("the comparison must offer an explicit «Corrispondono»");
+    assert!(matches!(&action, DeviceAction::Popup { button: PopupButton::Match, snapshot: Some(captured), .. } if **captured == original));
     assert!(current.allows(&action));
     assert!(!DeviceView::Closed(account).allows(&action));
     assert!(!DeviceView::Unavailable.allows(&action));
-    for changed in 0..6 {
-        let mut next = snapshot.clone();
+    for changed in 0..5 {
+        let mut next = original.clone();
         match changed {
             0 => next.flow_id = "fixture-flow-2".into(),
             1 => next.device_id = "OTHER_DEVICE".into(),
             2 => next.user_id = "@bob:matrix-desktop.test".into(),
-            3 => {
-                next.state = VerificationState::Compare {
-                    decimals: (1234, 5678, 9013),
-                }
-            }
-            4 => next.state = VerificationState::Confirmed,
-            _ => next.device_verified = true,
+            3 => next.state = VerificationState::Compare { decimals: (1234, 5678, 9013) },
+            _ => next.state = VerificationState::Confirmed,
         }
         model.apply(VerificationEvent::Snapshot(next));
-        assert!(
-            !view(&model).allows(&action),
-            "stale decision accepted: {changed}"
-        );
+        assert!(!view(&model).allows(&action), "stale press accepted: {changed}");
     }
-    model.apply(VerificationEvent::Snapshot(snapshot));
-    assert!(model.act(VerificationAction::Confirm));
-    assert!(
-        !view(&model).allows(&action),
-        "pending decision must reject duplicates"
-    );
+    model.apply(VerificationEvent::Snapshot(original));
+    assert!(model.popup_press(PopupButton::Match));
+    assert!(!view(&model).allows(&action), "a pending decision must reject duplicates");
     assert!(view(&model).action(&request).is_none());
-    assert!(
-        !format!("{action:?}").contains("fixture-flow"),
-        "diagnostics must redact SAS identities"
-    );
+    assert!(!format!("{action:?}").contains("fixture-flow"), "diagnostics must redact SAS identities");
 }
 
 #[test]
-fn sas_snapshot_exposes_exact_identity_comparison_and_separate_trust() {
-    use matrix_engine::verification::{VerificationSnapshot, VerificationState};
+fn popup_is_a_named_dialog_with_readable_emoji_names_numbers_outcome_and_actions() {
     let account = AccountId::new(18);
     let mut model = DeviceVerification::new(account);
-    model.apply(VerificationEvent::Snapshot(VerificationSnapshot {
-        account_id: account,
-        user_id: "@alice:matrix-desktop.test".into(),
-        device_id: "FIXTURE_DEVICE".into(),
-        flow_id: "fixture-flow-1".into(),
-        state: VerificationState::Compare {
-            decimals: (1234, 5678, 9012),
-        },
-        device_verified: false,
-    }));
-    let tree = DeviceOverview::project(account, &model, DeviceControl::Close, [None; 6]).tree();
-    for value in [
-        "Account: @alice:matrix-desktop.test",
-        "Dispositivo: FIXTURE_DEVICE",
-        "Numeri SAS: 1234, 5678, 9012",
-        "Dispositivo non verificato",
-    ] {
-        assert!(
-            tree.nodes.iter().any(|(_, n)| n.value() == Some(value)),
-            "missing readable value: {value}"
-        );
-    }
-    assert!(
-        !tree
-            .nodes
-            .iter()
-            .any(|(_, n)| n.value() == Some("fixture-flow-1"))
-    );
+    open_compare(&mut model, snapshot(account, COMPARE, true));
+    let tree = DeviceOverview::project(account, &model, DeviceControl::Close, [None; 2]).tree();
+    let dialog = tree.nodes.iter().map(|(_, n)| n).find(|n| n.role() == Role::Dialog).expect("dialog node");
+    assert_eq!(dialog.label(), Some("Verifica"));
+    // One readable node per emoji, in order, named with the SDK description; the symbol itself is not read twice.
+    let labels: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Label).map(|(_, n)| n.value().unwrap()).collect();
+    assert_eq!(labels, EMOJI.map(|(_, n)| n));
+    let buttons: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Button).map(|(_, n)| (n.label().unwrap(), n.supports_action(Action::Click))).collect();
+    assert_eq!(buttons, vec![("Corrispondono", true), ("Non corrispondono", true), ("Chiudi", true)]);
+    assert_eq!(dialog.children().len(), 7 + 3);
+    // The peer negotiated decimals only: the numbers are read.
+    let mut decimals = DeviceVerification::new(account);
+    open_compare(&mut decimals, snapshot(account, COMPARE, false));
+    let tree = DeviceOverview::project(account, &decimals, DeviceControl::Close, [None; 2]).tree();
+    assert!(tree.nodes.iter().any(|(_, n)| n.value() == Some("Numeri SAS: 1234, 5678, 9012")));
+    // Outcome and waiting.
+    model.apply(VerificationEvent::Snapshot(snapshot(account, VerificationState::Mismatched, true)));
+    let tree = DeviceOverview::project(account, &model, DeviceControl::Close, [None; 2]).tree();
+    assert!(tree.nodes.iter().any(|(_, n)| n.value() == Some("Gli emoji non corrispondono")));
+    assert!(tree.nodes.iter().any(|(_, n)| n.label() == Some("OK")));
+    // Closed popup: no dialog at all, the panel tree is back.
+    assert!(model.popup_press(PopupButton::Ok));
+    let tree = DeviceOverview::project(account, &model, DeviceControl::Close, [None; 2]).tree();
+    assert!(!tree.nodes.iter().any(|(_, n)| n.role() == Role::Dialog));
+    assert_eq!(tree.nodes[0].1.label(), Some("Verifica dispositivi"));
 }
 
 #[test]
@@ -377,7 +316,7 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
         account,
         &DeviceVerification::new(account),
         DeviceControl::Close,
-        [None; 6],
+        [None; 2],
     )));
     let tree = snapshot.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Verifica dispositivi"));
@@ -420,7 +359,7 @@ fn overview_actions_reject_closed_foreign_account_and_malformed_requests() {
         account,
         &DeviceVerification::new(account),
         DeviceControl::Close,
-        [None; 6],
+        [None; 2],
     )));
     let refresh = DeviceAction::Refresh(account);
     assert_eq!(
@@ -460,14 +399,13 @@ fn device_overview_reads_sdk_devices_without_offering_unverified_sas_actions() {
             last_seen_ip: None,
         }],
     });
-    let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 6]);
+    let panel = DeviceOverview::project(account, &model, DeviceControl::Refresh, [None; 2]);
     let tree = panel.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Verifica dispositivi"));
     assert_eq!(tree.focus, DeviceControl::Refresh.id());
     for value in [
         "Altri dispositivi",
         "FIXTURE_DEVICE · Non verificato",
-        "Seleziona un dispositivo",
     ] {
         assert!(
             tree.nodes
@@ -534,7 +472,7 @@ fn disconnect_buttons_and_password_dialog_are_reachable_and_never_expose_the_pas
     let view = |model: &DeviceVerification, ids: &mut DeviceNodes, focus| {
         let rows = ids.project(account, model);
         DeviceView::Open(Box::new(
-            DeviceOverview::project(account, model, focus, [None; 6]).with_devices(rows),
+            DeviceOverview::project(account, model, focus, [None; 2]).with_devices(rows),
         ))
     };
     let DeviceView::Open(panel) = view(&model, &mut ids, DeviceControl::Close) else { unreachable!() };
@@ -585,7 +523,7 @@ fn rename_button_and_name_dialog_are_reachable() {
     let mut model = DeviceVerification::new(account);
     let view = |model: &DeviceVerification| {
         let rows = DeviceNodes::default().project(account, model);
-        DeviceView::Open(Box::new(DeviceOverview::project(account, model, DeviceControl::Close, [None; 6]).with_devices(rows)))
+        DeviceView::Open(Box::new(DeviceOverview::project(account, model, DeviceControl::Close, [None; 2]).with_devices(rows)))
     };
     let DeviceView::Open(panel) = view(&model) else { unreachable!() };
     assert!(!panel.controls().contains(&DeviceControl::Rename), "own device not known yet");

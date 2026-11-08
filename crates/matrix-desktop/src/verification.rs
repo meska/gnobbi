@@ -44,7 +44,83 @@ pub struct RenameDialog {
     pub error: Option<&'static str>,
 }
 
+/// A button of the verification popup. `Close` is the X at the top right.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PopupButton {
+    Accept,
+    Decline,
+    Cancel,
+    Match,
+    NoMatch,
+    Yes,
+    No,
+    Ok,
+    Close,
+}
+impl PopupButton {
+    pub const ALL: [PopupButton; 9] = [
+        Self::Accept,
+        Self::Decline,
+        Self::Cancel,
+        Self::Match,
+        Self::NoMatch,
+        Self::Yes,
+        Self::No,
+        Self::Ok,
+        Self::Close,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Accept => "Accetta",
+            Self::Decline => "Rifiuta",
+            Self::Cancel => "Annulla",
+            Self::Match => "Corrispondono",
+            Self::NoMatch => "Non corrispondono",
+            Self::Yes => "Sì",
+            Self::No => "No",
+            Self::Ok => "OK",
+            Self::Close => "Chiudi",
+        }
+    }
+    pub fn index(self) -> usize {
+        Self::ALL.iter().position(|b| *b == self).unwrap()
+    }
+}
+
+/// What the popup shows besides its title.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PopupBody {
+    Waiting,
+    /// Title and buttons only («Annullare la verifica?»).
+    Empty,
+    /// «user · device» of the peer that asked.
+    Request(String),
+    /// Seven (symbol, SDK name) pairs.
+    Emoji(Vec<(String, String)>),
+    /// The peer negotiated only decimals.
+    Decimals((u16, u16, u16)),
+    Outcome(&'static str),
+}
+
+/// Everything the popup draws, derived from the SDK snapshot; never from our own trust logic.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PopupView {
+    pub title: &'static str,
+    pub body: PopupBody,
+    /// Action buttons in tab order; the X (`PopupButton::Close`) always comes last.
+    pub buttons: Vec<PopupButton>,
+}
+
 pub struct DeviceVerification {
+    popup: bool,
+    /// «Annullare la verifica?» asked inside the popup while comparing.
+    confirming: bool,
+    /// Index into `popup_view().buttons` + the X.
+    popup_focus: usize,
+    /// The popup was closed before the SDK answered: cancel the flow as soon as it exists.
+    abandoned: bool,
+    /// Flow the user closed: a late snapshot of it must not reopen the popup.
+    closed_flow: Option<String>,
     delete: Option<DeleteDialog>,
     rename: Option<RenameDialog>,
     account: AccountId,
@@ -65,6 +141,11 @@ pub struct DeviceVerification {
 impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
         Self {
+            popup: false,
+            confirming: false,
+            popup_focus: 0,
+            abandoned: false,
+            closed_flow: None,
             delete: None,
             rename: None,
             account,
@@ -220,10 +301,29 @@ impl DeviceVerification {
             user_id: device.user_id.clone(),
             device_id: device.device_id.clone(),
         });
+        self.start_popup();
+        true
+    }
+    fn start_popup(&mut self) {
         self.snapshot = None;
         self.failed = false;
         self.deciding = true;
+        self.popup = true;
+        self.confirming = false;
+        self.abandoned = false;
+        self.popup_focus = 0;
+    }
+    /// «Verifica utente»: ask the whole user, not one device.
+    pub fn begin_user(&mut self, user_id: String) -> bool {
+        if !self.can_begin() {
+            return false;
+        }
+        self.pending = Some(VerificationCommand::BeginUser { account_id: self.account, user_id });
+        self.start_popup();
         true
+    }
+    pub fn pending(&self) -> Option<&VerificationCommand> {
+        self.pending.as_ref()
     }
     pub fn apply(&mut self, event: VerificationEvent) {
         match event {
@@ -239,9 +339,23 @@ impl DeviceVerification {
                 self.profile_avatar = avatar;
             }
             VerificationEvent::Snapshot(snapshot) if snapshot.account_id == self.account => {
+                // A request from another device or user opens the popup; one the user already closed does not.
+                if snapshot.state == VerificationState::Requested
+                    && !self.popup
+                    && self.closed_flow.as_deref() != Some(&snapshot.flow_id)
+                {
+                    self.popup = true;
+                }
+                if self.snapshot.as_ref().is_none_or(|s| s.state != snapshot.state) {
+                    self.confirming = false;
+                    self.popup_focus = 0;
+                }
                 self.snapshot = Some(snapshot);
                 self.deciding = false;
                 self.failed = false;
+                if std::mem::take(&mut self.abandoned) && !self.popup && self.snapshot.as_ref().is_some_and(|s| !is_final(s.state)) {
+                    self.act(VerificationAction::Cancel);
+                }
             }
             VerificationEvent::Devices {
                 account_id,
@@ -304,52 +418,10 @@ impl DeviceVerification {
                 self.pending = None;
                 self.deciding = false;
                 self.delete = None;
+                self.abandoned = false;
+                self.confirming = false;
             }
             _ => (),
-        }
-    }
-    pub fn comparison(&self) -> Option<(u16, u16, u16)> {
-        if self.failed {
-            return None;
-        }
-        match self.snapshot.as_ref()?.state {
-            VerificationState::Compare { decimals } => Some(decimals),
-            _ => None,
-        }
-    }
-    pub fn verified(&self) -> bool {
-        !self.failed
-            && self
-                .snapshot
-                .as_ref()
-                .is_some_and(|s| s.state == VerificationState::Verified && s.device_verified)
-    }
-    pub fn status_label(&self) -> &'static str {
-        if self.failed {
-            return "Verifica non riuscita";
-        }
-        if self.snapshot.is_none() && self.deciding {
-            return "Richiesta in corso";
-        }
-        use VerificationState::*;
-        match self.snapshot.as_ref().map(|s| s.state) {
-            None => "Seleziona un dispositivo",
-            Some(Waiting) => "Richiesta inviata · in attesa",
-            Some(Requested) => "Richiesta ricevuta · accetta solo se attesa",
-            Some(Ready | Negotiating) => "Negoziazione SAS in corso",
-            Some(Compare { .. }) => "Confronta i tre numeri sull’altro dispositivo",
-            Some(Confirmed) => "Confermato qui · in attesa del dispositivo",
-            Some(Verified) => "Verifica completata",
-            Some(Cancelled) => "Verifica annullata",
-            Some(Mismatched) => "Numeri diversi · verifica rifiutata",
-            Some(Failed) => "Verifica non riuscita",
-        }
-    }
-    pub fn trust_label(&self) -> &'static str {
-        if self.snapshot.as_ref().is_some_and(|s| s.device_verified) {
-            "Dispositivo verificato"
-        } else {
-            "Dispositivo non verificato"
         }
     }
     pub fn snapshot(&self) -> Option<&VerificationSnapshot> {
@@ -376,9 +448,8 @@ impl DeviceVerification {
             VerificationAction::Confirm | VerificationAction::Mismatch => {
                 matches!(snapshot.state, Compare { .. })
             }
-            VerificationAction::Cancel => {
-                !matches!(snapshot.state, Verified | Cancelled | Mismatched | Failed)
-            }
+            VerificationAction::Cancel => !is_final(snapshot.state),
+            VerificationAction::Accept => snapshot.state == Requested,
             _ => false,
         }
     }
@@ -391,6 +462,119 @@ impl DeviceVerification {
             action,
         });
         self.deciding = true;
+        true
+    }
+    pub fn popup_open(&self) -> bool {
+        self.popup
+    }
+    fn comparing(&self) -> bool {
+        !self.failed
+            && !self.deciding
+            && self.snapshot.as_ref().is_some_and(|s| matches!(s.state, VerificationState::Compare { .. }))
+    }
+    /// The popup's content for the current SDK state; `None` while closed.
+    pub fn popup_view(&self) -> Option<PopupView> {
+        use PopupButton::*;
+        use VerificationState::*;
+        if !self.popup {
+            return None;
+        }
+        let view = |title, body, buttons| Some(PopupView { title, body, buttons });
+        if self.failed {
+            return view("Verifica", PopupBody::Outcome("Verifica non riuscita"), vec![Ok]);
+        }
+        let Some(s) = self.snapshot.as_ref() else {
+            return view("Verifica", PopupBody::Waiting, vec![Cancel]);
+        };
+        match s.state {
+            Requested => view(
+                "Richiesta di verifica",
+                PopupBody::Request(format!("{} · {}", s.user_id, s.device_id)),
+                vec![Accept, Decline],
+            ),
+            Compare { .. } if self.confirming => view("Annullare la verifica?", PopupBody::Empty, vec![Yes, No]),
+            Compare { decimals } if !self.deciding => view(
+                "Verifica",
+                match s.sas_emoji.as_ref().filter(|e| !e.is_empty()) {
+                    Some(emoji) => PopupBody::Emoji(emoji.clone()),
+                    None => PopupBody::Decimals(decimals),
+                },
+                vec![Match, NoMatch],
+            ),
+            Verified => view("Verifica", PopupBody::Outcome("Verificato"), vec![Ok]),
+            Cancelled => view("Verifica", PopupBody::Outcome("Verifica annullata"), vec![Ok]),
+            Mismatched => view("Verifica", PopupBody::Outcome("Gli emoji non corrispondono"), vec![Ok]),
+            Failed => view("Verifica", PopupBody::Outcome("Verifica non riuscita"), vec![Ok]),
+            _ => view("Verifica", PopupBody::Waiting, vec![Cancel]),
+        }
+    }
+    /// Tab order of the popup: its buttons, then the X.
+    pub fn popup_controls(&self) -> Vec<PopupButton> {
+        self.popup_view()
+            .map(|v| v.buttons.into_iter().chain([PopupButton::Close]).collect())
+            .unwrap_or_default()
+    }
+    pub fn popup_focused(&self) -> Option<PopupButton> {
+        self.popup_controls().get(self.popup_focus).copied()
+    }
+    pub fn popup_set_focus(&mut self, button: PopupButton) {
+        if let Some(i) = self.popup_controls().iter().position(|b| *b == button) {
+            self.popup_focus = i;
+        }
+    }
+    /// Tab / Shift+Tab: the focus never leaves the popup.
+    pub fn popup_tab(&mut self, reverse: bool) {
+        let n = self.popup_controls().len();
+        if n > 0 {
+            self.popup_focus = (self.popup_focus + if reverse { n - 1 } else { 1 }) % n;
+        }
+    }
+    /// X, Esc and a click outside: ask first while comparing, otherwise leave (cancelling a live flow).
+    pub fn popup_close(&mut self) {
+        if !self.popup {
+            return;
+        }
+        if self.confirming {
+            self.confirming = false;
+        } else if self.comparing() {
+            self.confirming = true;
+        } else {
+            self.close_now();
+            return;
+        }
+        self.popup_focus = 0;
+    }
+    /// Closes the popup; a flow still alive behind it is cancelled through the SDK, never left running.
+    fn close_now(&mut self) {
+        let live = !self.failed && self.snapshot.as_ref().map_or(self.deciding, |s| !is_final(s.state));
+        self.closed_flow = self.snapshot.as_ref().map(|s| s.flow_id.clone());
+        self.popup = false;
+        self.confirming = false;
+        if live && !self.act(VerificationAction::Cancel) {
+            self.abandoned = true;
+        }
+    }
+    /// A popup button pressed by mouse, keyboard or assistive technology; false if it does not apply now.
+    pub fn popup_press(&mut self, button: PopupButton) -> bool {
+        if !self.popup_controls().contains(&button) {
+            return false;
+        }
+        use PopupButton::*;
+        match button {
+            Close => self.popup_close(),
+            Accept => return self.act(VerificationAction::Accept),
+            Match => return self.act(VerificationAction::Confirm),
+            NoMatch => return self.act(VerificationAction::Mismatch),
+            Decline | Cancel | Yes => self.close_now(),
+            No => {
+                self.confirming = false;
+                self.popup_focus = 0;
+            }
+            Ok => {
+                self.closed_flow = self.snapshot.as_ref().map(|s| s.flow_id.clone());
+                self.popup = false;
+            }
+        }
         true
     }
     pub fn flush(&mut self, sender: &mut matrix_engine::Sender<VerificationCommand>) {
@@ -408,6 +592,13 @@ impl DeviceVerification {
             }
         }
     }
+}
+
+fn is_final(state: VerificationState) -> bool {
+    matches!(
+        state,
+        VerificationState::Verified | VerificationState::Cancelled | VerificationState::Mismatched | VerificationState::Failed
+    )
 }
 
 #[cfg(test)]

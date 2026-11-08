@@ -1240,14 +1240,9 @@ fn panel_handles_never_alias_device_sas_flow_handles() {
         account,
         &matrix_desktop::DeviceVerification::new(account),
         DeviceControl::Close,
-        [None; 6],
+        [None; 2],
     ));
-    for control in [
-        DeviceControl::Confirm,
-        DeviceControl::Mismatch,
-        DeviceControl::Cancel,
-        DeviceControl::Comparison,
-    ] {
+    for control in matrix_desktop::PopupButton::ALL.map(DeviceControl::Popup) {
         assert_ne!(panel.close, devices.control_id(control));
         assert_ne!(
             accesskit::NodeId(panel.close.0 + 1),

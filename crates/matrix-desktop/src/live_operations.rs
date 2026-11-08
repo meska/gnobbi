@@ -257,7 +257,6 @@ impl LiveOperations {
             | OperationResult::ServerProbed { .. }
             | OperationResult::RoomLeft { .. }
             | OperationResult::Profile { .. }
-            | OperationResult::UserVerification { .. }
             | OperationResult::Ignored { .. }
             | OperationResult::MemberRights { .. }
             | OperationResult::Moderated { .. }

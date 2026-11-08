@@ -178,9 +178,7 @@ impl Shell {
                 }
             }
             ProfileAct::Verify => {
-                if self.pending_operation_command.is_none() {
-                    self.pending_operation_command = Some(OperationCommand::VerifyUser { user_id });
-                }
+                self.verification.begin_user(user_id);
             }
             ProfileAct::Quote => {
                 self.set_room_details_open(false);

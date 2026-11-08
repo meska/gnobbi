@@ -95,14 +95,9 @@ fn space_choice_ids_never_alias_sas_flow_handles() {
         account,
         &matrix_desktop::DeviceVerification::new(account),
         DeviceControl::Close,
-        [None; 6],
+        [None; 2],
     ));
-    for control in [
-        DeviceControl::Confirm,
-        DeviceControl::Mismatch,
-        DeviceControl::Cancel,
-        DeviceControl::Comparison,
-    ] {
+    for control in matrix_desktop::PopupButton::ALL.map(DeviceControl::Popup) {
         assert_ne!(choices[1].id, panel.control_id(control));
     }
     assert!(!(1 << 55..1 << 57).contains(&choices[1].id.0));

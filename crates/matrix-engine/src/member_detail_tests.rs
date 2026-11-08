@@ -1,7 +1,7 @@
 // Member detail on a real Synapse/Tuwunel (the member_detail_probe script; disposable accounts alice=admin, bob=moderator,
 // carol=plain user). The engine functions behind each action of the profile, as the UI calls them. Included by auth_tests.
 use crate::operations::{
-    Moderation, OperationError, load_member_rights as md_rights, moderate as md_moderate, request_user_verification, set_ignored,
+    Moderation, OperationError, load_member_rights as md_rights, moderate as md_moderate, set_ignored,
     start_dm, user_profile,
 };
 use matrix_sdk::ruma::{self, api::client::uiaa, events::room::message::RoomMessageEventContent};
@@ -282,13 +282,14 @@ fn live_member_detail_actions_on_a_real_homeserver() {
 
         md_step("5. verification: no identity, unverified, verified, oneself");
         assert_eq!(user_profile(&bob, &a_id).await.unwrap().verified, None, "no cross-signing: no identity");
-        assert_eq!(request_user_verification(&bob, &a_id).await, Err(OperationError::Unavailable), "nothing to verify against");
-        assert_eq!(request_user_verification(&bob, "not a user").await, Err(OperationError::InvalidInput));
+        let bob_session = AccountSession { account_id: account, client: Some(bob.clone()), store: None };
+        assert_eq!(bob_session.request_user_verification(&a_id).await.err(), Some(crate::verification::VerificationError::UnknownDevice), "nothing to verify against");
+        assert_eq!(bob_session.request_user_verification("not a user").await.err(), Some(crate::verification::VerificationError::InvalidTarget));
         md_bootstrap(&carol, c_uid.localpart(), config["carol_password"].as_str().unwrap()).await;
         md_bootstrap(&bob, b_uid.localpart(), config["bob_password"].as_str().unwrap()).await;
         md_until("bob sees carol's identity", async || user_profile(&bob, &c_id).await.map(|p| p.verified.is_some()).unwrap_or(false)).await;
         assert_eq!(user_profile(&bob, &c_id).await.unwrap().verified, Some(false), "identity exists, not verified");
-        assert_eq!(request_user_verification(&bob, &c_id).await, Ok(()), "request sent");
+        assert!(bob_session.request_user_verification(&c_id).await.is_ok(), "request sent");
         println!("VERIFY self profile.verified = {:?}", user_profile(&bob, &b_id).await.map(|p| p.verified));
         let identity = bob.encryption().get_user_identity(&c_uid).await.unwrap().expect("identity cached");
         identity.verify().await.unwrap();
