@@ -291,6 +291,10 @@ impl Shell {
                 this.apply_semantic_filter(action, window, cx);
                 continue;
             }
+            if let matrix_desktop::accessibility::NavigationAction::About(action) = action {
+                this.apply_semantic_about(action, window, cx);
+                continue;
+            }
             if let matrix_desktop::accessibility::NavigationAction::Drawer(action) = action {
                 this.apply_semantic_drawer(action, window, cx);
                 continue;
@@ -634,7 +638,8 @@ impl Shell {
                 matrix_desktop::accessibility::NavigationAction::Spaces(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Filter(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Devices(_)
-                | matrix_desktop::accessibility::NavigationAction::Drawer(_) => unreachable!(),
+                | matrix_desktop::accessibility::NavigationAction::Drawer(_)
+                | matrix_desktop::accessibility::NavigationAction::About(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::LoadServerHistory(_) => {
                     unreachable!()
                 }
@@ -2012,6 +2017,7 @@ impl Shell {
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
                 settings: self.semantic_settings(),
+                about: self.semantic_about(),
                 new_chat: self.semantic_new_chat(cx),
                 room_search: self.semantic_room_search(window, cx),
                 dark: self.theme.is_dark(),
@@ -3307,6 +3313,7 @@ fn main() {
                                 new_room: None,
                                 devices: Default::default(),
                                 settings: None,
+                                about: None,
                                 details: Default::default(),
                                 notifications: Default::default(),
                                 dark: false,

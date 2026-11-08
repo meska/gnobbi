@@ -18,6 +18,7 @@ fn snapshot(visible: bool) -> NavigationSnapshot {
         unread_filter: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         icon_choice: None,
         new_room: None,
         title: String::new(),

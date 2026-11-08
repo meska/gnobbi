@@ -65,6 +65,39 @@ impl Shell {
         }
     }
 
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_about(
+        &self,
+    ) -> Option<matrix_desktop::accessibility::about::AboutSnapshot> {
+        (self.menu_open && self.about_open).then(|| {
+            matrix_desktop::accessibility::about::AboutSnapshot {
+                focus: self.about_row,
+                system: self.about_system.clone(),
+            }
+        })
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn apply_semantic_about(
+        &mut self,
+        action: matrix_desktop::accessibility::about::AboutAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use matrix_desktop::accessibility::about::AboutAction;
+        if !(self.menu_open && self.about_open) {
+            return;
+        }
+        match action {
+            AboutAction::Focus(row) => self.about_row = row,
+            AboutAction::Activate(row) => {
+                self.about_row = row;
+                self.activate_about(row, window, cx)
+            }
+        }
+        cx.notify();
+    }
+
     /// Keys while the About page is shown (the drawer is open); true when consumed.
     pub(crate) fn about_key(
         &mut self,

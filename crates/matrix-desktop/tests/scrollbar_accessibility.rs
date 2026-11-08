@@ -29,6 +29,7 @@ fn navigation_routes_scrollbar_value_before_rejecting_other_action_data() {
         new_room: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,

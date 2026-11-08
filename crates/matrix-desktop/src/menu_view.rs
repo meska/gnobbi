@@ -146,6 +146,7 @@ impl Shell {
                 DrawerItem::AddAccount => self.add_account(window, cx),
                 DrawerItem::NewChat => self.open_new_room(true, window, cx),
                 DrawerItem::NewRoom => self.open_new_room(false, window, cx),
+                DrawerItem::About => self.set_about_open(true, window, cx),
             },
         }
         cx.notify();

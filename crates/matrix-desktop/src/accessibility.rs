@@ -4,6 +4,7 @@
 use crate::send_visible;
 use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
+pub mod about;
 pub mod compact;
 pub mod details;
 pub mod drawer;
@@ -733,6 +734,8 @@ pub struct NavigationSnapshot {
     pub back: Option<compact::BackSnapshot>,
     /// The open account drawer; while set it is the whole page.
     pub drawer: Option<drawer::DrawerSnapshot>,
+    /// The Info page opened from the drawer; it covers the drawer.
+    pub about: Option<about::AboutSnapshot>,
     pub scrollbars: Vec<scrollbars::ScrollbarSnapshot>,
     pub operation_panel: Option<operation_panel::PanelSnapshot>,
     pub spaces: Option<spaces::SpacesSnapshot>,
@@ -768,6 +771,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.action(request);
+        }
+        if let Some(about) = &self.about {
+            return about.action(request).map(NavigationAction::About);
         }
         if let Some(drawer) = &self.drawer {
             return drawer.action(request).map(NavigationAction::Drawer);
@@ -1142,6 +1148,9 @@ impl NavigationSnapshot {
         #[cfg(feature = "live")]
         if let Some(signin) = &self.signin {
             return signin.tree();
+        }
+        if let Some(about) = &self.about {
+            return about.tree();
         }
         if let Some(drawer) = &self.drawer {
             return drawer.tree();
@@ -1830,6 +1839,7 @@ pub enum NavigationAction {
     Devices(devices::DeviceAction),
     Details(details::DetailsAction),
     Drawer(drawer::DrawerAction),
+    About(about::AboutAction),
     Notifications(notifications::NotificationAction),
     Settings(settings::SettingsAction),
     NewChat(new_chat::NewChatAction),

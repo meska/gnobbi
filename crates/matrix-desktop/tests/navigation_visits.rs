@@ -59,6 +59,7 @@ fn navigation(
         new_room: None,
         devices: Default::default(),
         settings: None,
+        about: None,
         details: Default::default(),
         notifications: Default::default(),
         dark: false,
