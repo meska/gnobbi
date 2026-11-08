@@ -102,6 +102,11 @@ jobs:
           name: gnobbi-windows-x64
           path: dist/*.zip
           if-no-files-found: error
+      - name: Publish zip (latest + share)
+        env:
+          CI_SHARE_TARGET: ${{ vars.CI_SHARE_TARGET }}
+          CI_SHARE_KEY: ${{ vars.CI_SHARE_KEY }}
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\publish-tester-zip.ps1
   ios-mobile:
     needs: [debounce, linux]
     if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
