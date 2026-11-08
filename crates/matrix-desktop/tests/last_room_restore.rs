@@ -54,3 +54,15 @@ fn manual_choice_cancels() {
     s.cancel();
     assert_eq!(s.poll(acc(1), || None, t, |_| true), None);
 }
+
+#[test]
+fn timeout_counts_from_first_list_not_from_arm() {
+    let (mut s, t) = (LastRoomRestore::default(), Instant::now());
+    s.arm(acc(1), || Some(r("!a:s")), t);
+    let listed = t + RESTORE_TIMEOUT - Duration::from_millis(1);
+    s.list_arrived(listed);
+    let later = listed + RESTORE_TIMEOUT - Duration::from_millis(1);
+    assert_eq!(s.poll(acc(1), || None, later, |_| false), None);
+    assert!(s.waiting(), "still within 5 s of the list");
+    assert_eq!(s.poll(acc(1), || None, later, |_| true), Some(r("!a:s")));
+}

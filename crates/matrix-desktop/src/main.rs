@@ -1222,6 +1222,9 @@ impl Shell {
         let account = self.active_scope.account_id;
         let saved = self.draft_scope().account_id;
         let (prefs, sidebar) = (&self.room_prefs, &mut self.sidebar);
+        if !sidebar.rooms().is_empty() {
+            self.restore.list_arrived(std::time::Instant::now());
+        }
         let opened = self.restore.poll(
             saved,
             || prefs.last_open_room(saved),

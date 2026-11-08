@@ -11,6 +11,8 @@ pub struct LastRoomRestore {
     pending: Option<(RoomId, Instant)>,
     /// The user chose a room before the first arm: that arm must not wait for the saved one.
     manual: bool,
+    /// The sync has delivered rooms: the wait started then, not when the account was armed.
+    listed: bool,
 }
 
 impl LastRoomRestore {
@@ -34,10 +36,20 @@ impl LastRoomRestore {
     pub fn arm(&mut self, account: AccountId, saved: impl FnOnce() -> Option<RoomId>, now: Instant) {
         if self.armed_for != Some(account) {
             self.armed_for = Some(account);
+            self.listed = false;
             let manual = std::mem::take(&mut self.manual);
             self.pending = saved()
                 .filter(|_| !manual)
                 .map(|room| (room, now + RESTORE_TIMEOUT));
+        }
+    }
+
+    /// The sync listed rooms for the first time: restart the timeout from now (slow sync must not eat it).
+    pub fn list_arrived(&mut self, now: Instant) {
+        if !std::mem::replace(&mut self.listed, true)
+            && let Some((_, deadline)) = &mut self.pending
+        {
+            *deadline = now + RESTORE_TIMEOUT;
         }
     }
 
