@@ -78,6 +78,9 @@ pub struct VerificationSnapshot {
     pub state: VerificationState,
     /// SDK device trust, distinct from completion of this particular flow.
     pub device_verified: bool,
+    /// Seven (symbol, SDK description) pairs while comparing; `None` if the peer negotiated only
+    /// decimals. Kept out of `VerificationState` so that stays `Copy`.
+    pub sas_emoji: Option<Vec<(String, String)>>,
 }
 
 #[cfg(feature = "sdk")]
@@ -127,6 +130,11 @@ pub enum VerificationCommand {
         account_id: AccountId,
         user_id: String,
         device_id: String,
+    },
+    /// «Verifica utente»: request verification of the whole user (their identity), not a device.
+    BeginUser {
+        account_id: AccountId,
+        user_id: String,
     },
     Act {
         target: VerificationTarget,

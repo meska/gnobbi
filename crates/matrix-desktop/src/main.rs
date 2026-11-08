@@ -1685,10 +1685,6 @@ impl Shell {
                             user_id,
                             result: Err(OperationError::Unavailable),
                         },
-                        OperationCommand::VerifyUser { user_id } => OperationResult::UserVerification {
-                            user_id,
-                            result: Err(OperationError::Unavailable),
-                        },
                         OperationCommand::Ignore { user_id, ignore } => OperationResult::Ignored {
                             user_id,
                             ignore,
@@ -2936,10 +2932,6 @@ fn main() {
                                             }
                                             if let matrix_engine::operations::OperationResult::Profile { user_id, result } = result {
                                                 this.profile_found(user_id, result, cx);
-                                                continue;
-                                            }
-                                            if let matrix_engine::operations::OperationResult::UserVerification { result, .. } = result {
-                                                this.act_done(matrix_desktop::ProfileAct::Verify, result.is_ok(), cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::Ignored { user_id, ignore, result } = result {

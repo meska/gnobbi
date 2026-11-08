@@ -22,6 +22,7 @@ fn old_sas_node_handles_cannot_confirm_a_replaced_flow_or_changed_numbers() {
             decimals: (1234, 5678, 9012),
         },
         device_verified: false,
+        sas_emoji: None,
     };
     model.apply(VerificationEvent::Snapshot(original.clone()));
     let project = |model: &DeviceVerification| {
@@ -172,6 +173,7 @@ fn sas_keyboard_ring_includes_readable_comparison_and_only_available_decisions()
             decimals: (1234, 5678, 9012),
         },
         device_verified: false,
+        sas_emoji: None,
     }));
     let rect = accesskit::Rect::new(10., 20., 200., 50.);
     let mut bounds = [None; 6];
@@ -209,6 +211,7 @@ fn sas_keyboard_ring_includes_readable_comparison_and_only_available_decisions()
         flow_id: "fixture-flow-1".into(),
         state: VerificationState::Cancelled,
         device_verified: false,
+        sas_emoji: None,
     }));
     let panel = DeviceOverview::project(account, &model, DeviceControl::Confirm, [None; 6]);
     assert_eq!(panel.focus, DeviceControl::Close);
@@ -237,6 +240,7 @@ fn sas_decisions_are_explicit_and_revalidated_against_exact_snapshot() {
             decimals: (1234, 5678, 9012),
         },
         device_verified: false,
+        sas_emoji: None,
     };
     model.apply(VerificationEvent::Snapshot(snapshot.clone()));
     let view = |model: &DeviceVerification| {
@@ -310,6 +314,7 @@ fn sas_snapshot_exposes_exact_identity_comparison_and_separate_trust() {
             decimals: (1234, 5678, 9012),
         },
         device_verified: false,
+        sas_emoji: None,
     }));
     let tree = DeviceOverview::project(account, &model, DeviceControl::Close, [None; 6]).tree();
     for value in [

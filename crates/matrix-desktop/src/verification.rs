@@ -225,6 +225,20 @@ impl DeviceVerification {
         self.deciding = true;
         true
     }
+    /// «Verifica utente»: ask the whole user, not one device.
+    pub fn begin_user(&mut self, user_id: String) -> bool {
+        if !self.can_begin() {
+            return false;
+        }
+        self.pending = Some(VerificationCommand::BeginUser { account_id: self.account, user_id });
+        self.snapshot = None;
+        self.failed = false;
+        self.deciding = true;
+        true
+    }
+    pub fn pending(&self) -> Option<&VerificationCommand> {
+        self.pending.as_ref()
+    }
     pub fn apply(&mut self, event: VerificationEvent) {
         match event {
             VerificationEvent::Profile {

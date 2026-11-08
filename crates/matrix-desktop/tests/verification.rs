@@ -13,6 +13,7 @@ fn snapshot(state: State) -> VerificationSnapshot {
         flow_id: "flow-one".into(),
         state,
         device_verified: false,
+        sas_emoji: None,
     }
 }
 
