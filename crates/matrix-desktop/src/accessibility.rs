@@ -54,7 +54,11 @@ pub const RECORD_SEND: NodeId = NodeId((1 << 63) - 7);
 pub const MENTIONS: NodeId = NodeId((1 << 63) - 8);
 pub const EMOJI: NodeId = NodeId((1 << 63) - 9);
 pub const EMOJI_PICKER: NodeId = NodeId((1 << 63) - 10);
-pub const POLL_CREATE: NodeId = NodeId((1 << 63) - 11);
+pub const EMOJI_TABS: NodeId = NodeId((1 << 63) - 11);
+pub const EMOJI_TAB: NodeId = NodeId((1 << 63) - 12);
+pub const EMOJI_PANEL: NodeId = NodeId((1 << 63) - 13);
+pub const EMOJI_CLOSE: NodeId = NodeId((1 << 63) - 14);
+pub const POLL_CREATE: NodeId = NodeId((1 << 63) - 15);
 /// First of the 32 consecutive ids of the picker's emoji buttons.
 pub const EMOJI_ITEM: u64 = (1 << 63) - 100;
 
@@ -75,8 +79,14 @@ pub struct ComposerSnapshot {
     pub mentions: Option<(Vec<String>, usize)>,
     /// Elapsed seconds of a voice note being recorded.
     pub recording: Option<u64>,
-    /// The emoji picker is open.
+    /// The emoji picker is open (popup or drawer).
     pub emoji_open: bool,
+    /// ... as the drawer, which has a Close button.
+    pub picker_pinned: bool,
+    /// Highlighted item, while the picker grid has the focus.
+    pub picker_selected: Option<usize>,
+    /// ... or the drawer's Close button has it.
+    pub picker_close_focused: bool,
     pub text: String,
     /// UTF-8 byte positions from the editor, including selection direction.
     pub anchor: usize,
@@ -1627,23 +1637,37 @@ impl NavigationSnapshot {
             tree.nodes[0].1.push_child(POLL_CREATE);
             tree.nodes.push((POLL_CREATE, poll));
             let mut emoji = Node::new(Role::Button);
-            emoji.set_label(if composer.emoji_open {
-                "Chiudi selettore emoji"
-            } else {
-                "Apri selettore emoji"
-            });
+            emoji.set_label("Emoji");
+            emoji.set_expanded(composer.emoji_open);
             tree.nodes[0].1.push_child(EMOJI);
             tree.nodes.push((EMOJI, emoji));
             if composer.emoji_open {
-                let mut picker = Node::new(Role::Label);
+                let mut picker = Node::new(Role::Group);
                 picker.set_label("Selettore emoji");
                 tree.nodes[0].1.push_child(EMOJI_PICKER);
+                let mut tabs = Node::new(Role::TabList);
+                let mut tab = Node::new(Role::Tab);
+                tab.set_label("Emoji");
+                tab.set_selected(true);
+                tabs.push_child(EMOJI_TAB);
+                tree.nodes.push((EMOJI_TAB, tab));
+                picker.push_child(EMOJI_TABS);
+                tree.nodes.push((EMOJI_TABS, tabs));
+                let mut panel = Node::new(Role::TabPanel);
                 for (i, (name, _)) in crate::EMOJI_SET.iter().enumerate() {
                     let id = NodeId(EMOJI_ITEM + i as u64);
                     let mut item = Node::new(Role::Button);
                     item.set_label(*name);
-                    picker.push_child(id);
+                    panel.push_child(id);
                     tree.nodes.push((id, item));
+                }
+                picker.push_child(EMOJI_PANEL);
+                tree.nodes.push((EMOJI_PANEL, panel));
+                if composer.picker_pinned {
+                    let mut close = Node::new(Role::Button);
+                    close.set_label("Chiudi");
+                    picker.push_child(EMOJI_CLOSE);
+                    tree.nodes.push((EMOJI_CLOSE, close));
                 }
                 tree.nodes.push((EMOJI_PICKER, picker));
             }
@@ -1701,6 +1725,10 @@ impl NavigationSnapshot {
                 tree.focus = COMPOSER;
             } else if composer.send_focused && tree.nodes.iter().any(|(id, _)| *id == SEND) {
                 tree.focus = SEND;
+            } else if let Some(item) = composer.picker_selected.filter(|_| composer.emoji_open) {
+                tree.focus = NodeId(EMOJI_ITEM + item as u64);
+            } else if composer.picker_close_focused && composer.picker_pinned {
+                tree.focus = EMOJI_CLOSE;
             } else if let Some(icon) = composer.icon_focused {
                 tree.focus = [EMOJI, ATTACH, RECORD, POLL_CREATE][icon as usize];
             }

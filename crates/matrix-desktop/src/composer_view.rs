@@ -1,11 +1,12 @@
 //! Original multiline editor over the GPUI text-input protocol.
 use gpui::{
-    Bounds, ClipboardItem, Context, ElementInputHandler, EntityInputHandler, FocusHandle,
+    Bounds, ClickEvent, ClipboardItem, Context, Corner, ElementInputHandler, Entity, EntityInputHandler, FocusHandle,
     HighlightStyle, KeyDownEvent, MouseButton, Pixels, Point, ScrollHandle, StyledText, TextLayout,
-    UTF16Selection, UnderlineStyle, Window, canvas, div, fill, point, prelude::*, px, rgb, size,
+    Subscription, Task, UTF16Selection, UnderlineStyle, Window, anchored, canvas, deferred, div, fill, point, prelude::*, px, rgb, size,
 };
 use crate::composer_icons::{Icon, icon};
 use crate::input_modality;
+use crate::picker_view::{CLOSE_AFTER, Pick, Picker, PickerEvent, PickerMode, PickerView, Timer, Zone};
 use matrix_desktop::{Composer, DesignTokens, LIGHT, RoomDrafts};
 use matrix_domain::RoomScope;
 use std::ops::Range;
@@ -111,8 +112,16 @@ pub struct ComposerView {
     mention_selected: usize,
     /// Start of the `@` whose list was closed with Esc.
     mention_closed: Option<usize>,
-    emoji_open: bool,
-    emoji_selected: usize,
+    picker: Picker,
+    picker_view: Entity<PickerView>,
+    /// The picker's grid focus and highlighted item, shared with `picker_view`.
+    picker_focus: FocusHandle,
+    picker_selected: Rc<Cell<usize>>,
+    /// The drawer's «Chiudi» focus, shared with `picker_view`.
+    picker_close_focus: FocusHandle,
+    /// Dropping the task cancels the pending hover close.
+    hover_close: Option<Task<()>>,
+    picker_sub: Option<Subscription>,
     attach_error: Option<&'static str>,
     /// The homeserver's upload limit (media config), once read.
     upload_limit: Option<u64>,
@@ -137,6 +146,10 @@ pub struct ComposerView {
 
 impl ComposerView {
     pub fn new(scope: RoomScope, cx: &mut Context<Self>) -> Self {
+        let picker_focus = cx.focus_handle();
+        let picker_selected = Rc::new(Cell::new(0));
+        let picker_close_focus = cx.focus_handle();
+        let picker_view = cx.new(|_| PickerView::new(picker_focus.clone(), picker_close_focus.clone(), picker_selected.clone()));
         Self {
             visit: Rc::new(SendVisit {
                 generation: Cell::new(0),
@@ -155,8 +168,13 @@ impl ComposerView {
             mentions: Vec::new(),
             mention_selected: 0,
             mention_closed: None,
-            emoji_open: false,
-            emoji_selected: 0,
+            picker: Picker::default(),
+            picker_view,
+            picker_focus,
+            picker_close_focus,
+            picker_selected,
+            hover_close: None,
+            picker_sub: None,
             attach_error: None,
             upload_limit: None,
             recorder: None,
@@ -183,7 +201,7 @@ impl ComposerView {
         self.attachment = None;
         self.members.clear();
         self.mentions.clear();
-        self.emoji_open = false;
+        self.close_picker(cx);
         self.attach_error = None;
         self.recorder = None;
         self.layout = None;
@@ -274,7 +292,6 @@ impl ComposerView {
 
     /// Insert `EMOJI[index]` at the caret (over the selection) and give the focus back to the text.
     fn pick_emoji(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        self.emoji_open = false;
         if let Some((_, emoji)) = matrix_desktop::EMOJI_SET.get(index)
             && self.draft.marked().is_none()
         {
@@ -284,12 +301,89 @@ impl ComposerView {
         self.changed(cx);
     }
 
+    /// Pushes mode and theme to the view, and drops the hover timer unless it is still wanted.
+    fn sync_picker(&mut self, cx: &mut Context<Self>) {
+        if self.picker.mode != PickerMode::Hover {
+            self.hover_close = None;
+        }
+        let (drawer, theme) = (self.picker.mode == PickerMode::Pinned, self.theme);
+        self.picker_view.update(cx, |p, cx| {
+            p.drawer = drawer;
+            p.theme = theme;
+            cx.notify();
+        });
+        cx.notify();
+    }
+
+    /// Esc, Close, room switch. True when a popup or drawer was open.
+    pub fn close_picker(&mut self, cx: &mut Context<Self>) -> bool {
+        let was = self.picker.close();
+        self.sync_picker(cx);
+        was
+    }
+
+    fn picker_hover(&mut self, zone: Zone, over: bool, cx: &mut Context<Self>) {
+        let timer = self.picker.hover(zone, over);
+        self.apply_picker_timer(timer, cx);
+    }
+
+    fn picker_window_left(&mut self, cx: &mut Context<Self>) {
+        let timer = self.picker.leave_window();
+        self.apply_picker_timer(timer, cx);
+    }
+
+    fn apply_picker_timer(&mut self, timer: Timer, cx: &mut Context<Self>) {
+        self.sync_picker(cx);
+        self.hover_close = (timer == Timer::Start).then(|| {
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(CLOSE_AFTER).await;
+                let _ = this.update(cx, |this, cx| {
+                    if this.picker.fired() {
+                        this.sync_picker(cx);
+                    }
+                });
+            })
+        });
+    }
+
+    /// Icon click: drawer on, or off. A keyboard click moves into the grid; a mouse click leaves the focus in the field.
+    fn picker_click(&mut self, keyboard: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.picker.click();
+        self.sync_picker(cx);
+        if !keyboard {
+            window.focus(&self.focus);
+        } else if self.picker.mode == PickerMode::Pinned {
+            self.picker_selected.set(0);
+            self.picker_focus.focus(window);
+        }
+    }
+
+    fn on_picker_event(&mut self, _: &Entity<PickerView>, event: &PickerEvent, window: &mut Window, cx: &mut Context<Self>) {
+        match event {
+            PickerEvent::Picked(Pick::Emoji(i)) => self.pick_emoji(*i, window, cx),
+            PickerEvent::Close => {
+                self.close_picker(cx);
+                window.focus(&self.focus);
+            }
+            PickerEvent::FocusField => window.focus(&self.focus),
+            PickerEvent::FocusIcon => self.icon_focus[0].focus(window),
+        }
+    }
+
+    /// The picker as the right-hand drawer, while pinned.
+    pub fn pinned_picker(&self) -> Option<Entity<PickerView>> {
+        (self.picker.mode == PickerMode::Pinned).then(|| self.picker_view.clone())
+    }
+
     pub fn set_text_only(&mut self) {
         self.text_only = true;
     }
 
     pub fn set_live(&mut self, live: bool) {
         self.live = live;
+        if !live {
+            self.picker.close(); // the view catches up at the next sync
+        }
     }
 
     #[cfg(feature = "live")]
@@ -340,6 +434,7 @@ impl ComposerView {
 
     pub fn set_theme(&mut self, theme: DesignTokens, cx: &mut Context<Self>) {
         self.theme = theme;
+        self.sync_picker(cx);
         cx.notify();
     }
 
@@ -427,7 +522,10 @@ impl ComposerView {
                     )
                 }),
             recording: self.recorder.as_ref().map(|r| r.elapsed_secs()),
-            emoji_open: self.emoji_open,
+            emoji_open: self.picker.mode != PickerMode::Closed,
+            picker_pinned: self.picker.mode == PickerMode::Pinned,
+            picker_selected: self.picker_focus.is_focused(window).then(|| self.picker_selected.get()),
+            picker_close_focused: self.picker_close_focus.is_focused(window),
             send_bounds: self
                 .send_bounds
                 .filter(|(source, _)| self.visit.source() == Some(*source))
@@ -657,6 +755,7 @@ impl ComposerView {
         match crate::voice_recorder::Recorder::start(self.upload_limit.unwrap_or(DEFAULT_UPLOAD_LIMIT)) {
             Ok(recorder) => {
                 self.recorder = Some(recorder);
+                self.close_picker(cx);
                 self.attach_error = None;
                 // Repaints the elapsed time until the recording ends.
                 cx.spawn(async move |this, cx| {
@@ -771,29 +870,10 @@ impl ComposerView {
     ) {
         self.refresh_send_focus(cx);
         let key = &event.keystroke;
-        if self.emoji_open && key.key == "escape" && self.focus.is_focused(window) {
-            self.emoji_open = false;
-            cx.notify();
-            cx.stop_propagation();
-            return;
-        }
-        if self.emoji_open && self.focus.is_focused(window) {
-            let last = matrix_desktop::EMOJI_SET.len() - 1;
-            match key.key.as_str() {
-                "right" | "down" => {
-                    self.emoji_selected = if self.emoji_selected >= last {
-                        0
-                    } else {
-                        self.emoji_selected + 1
-                    }
-                }
-                "left" | "up" => {
-                    self.emoji_selected = self.emoji_selected.checked_sub(1).unwrap_or(last)
-                }
-                "enter" => self.pick_emoji(self.emoji_selected, window, cx),
-                _ => return self.key_down_text(event, mac, window, cx),
-            }
-            cx.notify();
+        if key.key == "escape"
+            && (self.focus.is_focused(window) || self.icon_focused(window).is_some())
+            && self.close_picker(cx)
+        {
             cx.stop_propagation();
             return;
         }
@@ -1081,7 +1161,7 @@ fn icon_button(
     focus: &FocusHandle,
     focused: bool,
     cx: &mut Context<ComposerView>,
-    on: impl Fn(&mut ComposerView, &mut Window, &mut Context<ComposerView>) + 'static,
+    on: impl Fn(&mut ComposerView, &ClickEvent, &mut Window, &mut Context<ComposerView>) + 'static,
 ) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
@@ -1097,12 +1177,16 @@ fn icon_button(
         .cursor_pointer()
         .hover(|s| s.bg(rgb(t.selected)))
         .child(icon(kind, t.accent))
-        .on_click(cx.listener(move |this, _, window, cx| on(this, window, cx)))
+        .on_click(cx.listener(move |this, event, window, cx| on(this, event, window, cx)))
 }
 
 impl Render for ComposerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.refresh_send_focus(cx);
+        if self.picker_sub.is_none() {
+            let view = self.picker_view.clone();
+            self.picker_sub = Some(cx.subscribe_in(&view, window, Self::on_picker_event));
+        }
         let t = self.theme;
         let empty = self.draft.text().is_empty();
         // The layout-only sentinel provides a caret position after a final newline.
@@ -1238,27 +1322,6 @@ impl Render for ComposerView {
                                     cx.listener(move |this, _, _, cx| this.accept_mention(i, cx)),
                                 )
                         })),
-                )
-            })
-            .when(self.emoji_open, |d| {
-                d.child(
-                    div().flex().flex_wrap().gap_1().children(
-                        matrix_desktop::EMOJI_SET
-                            .iter()
-                            .enumerate()
-                            .map(|(i, (_, emoji))| {
-                                div()
-                                    .when(i == self.emoji_selected, |d| d.bg(rgb(t.selection)))
-                                    .id(("composer-emoji", i))
-                                    .cursor_pointer()
-                                    .px_1()
-                                    .text_size(px(20.))
-                                    .child(*emoji)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.pick_emoji(i, window, cx)
-                                    }))
-                            }),
-                    ),
                 )
             })
             .when(
@@ -1477,13 +1540,37 @@ impl Render for ComposerView {
                             ),
                     )
                     .when(self.live && self.recorder.is_none(), |d| {
-                        d.child(icon_button("composer-emoji-toggle", Icon::Emoji, t, &self.icon_focus[0], icon_focus == Some(0), cx, |this, _, cx| {
-                            this.emoji_open = !this.emoji_open;
-                            this.emoji_selected = 0;
-                            cx.notify();
-                        }))
-                        .child(icon_button("composer-poll", Icon::Poll, t, &self.icon_focus[3], icon_focus == Some(3), cx, |_, _, cx| cx.emit(OpenPoll)))
-                        .child(icon_button("composer-attach", Icon::Attach, t, &self.icon_focus[1], icon_focus == Some(1), cx, |this, _, cx| this.pick_file(cx)))
+                        d.child(
+                            icon_button("composer-emoji-toggle", Icon::Emoji, t, &self.icon_focus[0], icon_focus == Some(0), cx, |this, event, window, cx| {
+                                this.picker_click(event.is_keyboard(), window, cx)
+                            })
+                            .on_hover(cx.listener(|this, over: &bool, _, cx| this.picker_hover(Zone::Icon, *over, cx)))
+                            .when(self.picker.mode == PickerMode::Hover, |d| {
+                                // gpui reports the window exit only as MouseExitEvent, never as on_hover(false).
+                                let view = cx.entity().downgrade();
+                                let d = d.child(
+                                    canvas(|_, _, _| (), move |_, _, window, _| {
+                                        let view = view.clone();
+                                        window.on_mouse_event(move |_: &gpui::MouseExitEvent, _, _, cx| {
+                                            let _ = view.update(cx, |v, cx| v.picker_window_left(cx));
+                                        });
+                                    })
+                                    .absolute(),
+                                );
+                                // Zero-size anchor at the icon's top-left; the popup grows up and to the right, touching the icon.
+                                d.child(div().absolute().top_0().left_0().child(deferred(
+                                    anchored().anchor(Corner::BottomLeft).snap_to_window_with_margin(px(8.)).child(
+                                        div()
+                                            .id("composer-emoji-popup")
+                                            .occlude()
+                                            .on_hover(cx.listener(|this, over: &bool, _, cx| this.picker_hover(Zone::Popup, *over, cx)))
+                                            .child(self.picker_view.clone()),
+                                    ),
+                                )))
+                            }),
+                        )
+                        .child(icon_button("composer-poll", Icon::Poll, t, &self.icon_focus[3], icon_focus == Some(3), cx, |_, _, _, cx| cx.emit(OpenPoll)))
+                        .child(icon_button("composer-attach", Icon::Attach, t, &self.icon_focus[1], icon_focus == Some(1), cx, |this, _, _, cx| this.pick_file(cx)))
                     })
                     // Voice and Send share this 32x32 slot and cross-fade (opacity only). The one that is fading out or hidden is inert: no click, no focus, no a11y node.
                     .when(self.icons_shown() || send_visible || mix > 0., |d| {
@@ -1505,7 +1592,7 @@ impl Render for ComposerView {
                                             .child(icon(Icon::Voice, t.accent))
                                             .into_any_element()
                                     } else {
-                                        icon_button("composer-record", Icon::Voice, t, &self.icon_focus[2], icon_focus == Some(2), cx, |this, window, cx| {
+                                        icon_button("composer-record", Icon::Voice, t, &self.icon_focus[2], icon_focus == Some(2), cx, |this, _, window, cx| {
                                             this.start_recording(cx);
                                             window.focus(&this.focus); // the icons leave the tree while recording
                                         })
@@ -2580,7 +2667,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires private display"]
-    fn emoji_picker_inserts_at_the_caret_and_closes_with_esc() {
+    fn pinned_picker_inserts_at_the_caret_stays_open_and_returns_focus() {
         command_probe(|v, window, cx| {
             v.set_live(true);
             v.replace_text_in_range(None, "", window, cx);
@@ -2588,28 +2675,163 @@ mod tests {
             v.draft.replace(None, "ciao  fine");
             v.draft.select(5..5);
             v.changed(cx);
-            v.emoji_open = true;
+            v.picker_click(false, window, cx);
+            assert_eq!(v.picker.mode, PickerMode::Pinned);
             v.pick_emoji(0, window, cx);
-            assert_eq!(v.draft.text(), "ciao 😀 fine");
-            assert!(!v.emoji_open);
-            // A selection is replaced, like typing; Esc closes without touching the text.
+            v.pick_emoji(1, window, cx);
+            assert_eq!(v.draft.text(), "ciao 😀😁 fine");
+            assert_eq!(v.picker.mode, PickerMode::Pinned);
+            assert!(v.focus.is_focused(window));
+            // A selection is replaced, like typing.
             v.draft.select(0..4);
-            v.emoji_open = true;
             v.pick_emoji(16, window, cx);
-            assert_eq!(v.draft.text(), "👍 😀 fine");
-            v.emoji_open = true;
+            assert_eq!(v.draft.text(), "👍 😀😁 fine");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn picking_from_the_hover_popup_leaves_it_open() {
+        command_probe(|v, window, cx| {
+            v.set_live(true);
+            v.picker_hover(Zone::Icon, true, cx);
+            assert_eq!(v.picker.mode, PickerMode::Hover);
+            v.pick_emoji(0, window, cx);
+            assert_eq!(v.picker.mode, PickerMode::Hover);
+            assert!(v.draft.text().ends_with('😀'));
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn esc_closes_a_drawer_opened_with_the_mouse() {
+        command_probe(|v, window, cx| {
+            v.set_live(true);
+            v.picker_click(false, window, cx);
+            assert!(v.focus.is_focused(window));
             command(v, "escape", false, window, cx);
-            assert!(!v.emoji_open);
-            assert_eq!(v.draft.text(), "👍 😀 fine");
-            // Arrow keys move through the set, Enter inserts the selected one at the caret.
-            v.draft.select(4..4);
-            v.changed(cx);
-            v.emoji_open = true;
-            v.emoji_selected = 0;
-            command(v, "right", false, window, cx);
-            command(v, "enter", false, window, cx);
-            assert_eq!(v.draft.text(), "👍😁 😀 fine");
-            assert!(!v.emoji_open);
+            assert_eq!(v.picker.mode, PickerMode::Closed);
+            v.picker_hover(Zone::Icon, true, cx);
+            command(v, "escape", false, window, cx);
+            assert_eq!(v.picker.mode, PickerMode::Closed);
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn space_in_the_field_never_picks_an_emoji_while_the_drawer_is_open() {
+        command_probe(|v, window, cx| {
+            v.set_live(true);
+            let before = v.draft.text().to_owned();
+            v.picker_click(false, window, cx);
+            command(v, "space", false, window, cx);
+            // The space itself arrives through the input handler, not the key handler: the key must just not pick.
+            assert_eq!(v.draft.text(), before);
+            assert_eq!(v.picker.mode, PickerMode::Pinned);
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn keyboard_click_opens_the_drawer_with_focus_in_the_grid_and_clicking_again_closes_it() {
+        command_probe(|v, window, cx| {
+            v.set_live(true);
+            v.picker_click(true, window, cx);
+            assert_eq!(v.picker.mode, PickerMode::Pinned);
+            assert!(v.picker_focus.is_focused(window));
+            assert_eq!(v.picker_selected.get(), 0);
+            v.picker_click(true, window, cx);
+            assert_eq!(v.picker.mode, PickerMode::Closed);
+        });
+    }
+
+    /// Like the app shell, which draws the pinned drawer next to the composer.
+    struct Host(Entity<ComposerView>);
+
+    impl Render for Host {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            div().child(self.0.clone()).children(self.0.read(cx).pinned_picker())
+        }
+    }
+
+    /// `command()` only reaches the composer's own key handler, not the grid's `on_key_down`, and a
+    /// view update holds the composer's lease while the grid's event needs it: keys go through the
+    /// window to the focused element, from outside the view, with a frame between steps.
+    #[test]
+    #[ignore = "requires private display"]
+    fn keyboard_in_the_grid_picks_tabs_to_close_and_escapes_back_to_the_field() {
+        assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+        gpui::Application::new().run(|cx| {
+            let mut composer = None;
+            let host = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    let c = cx.new(|cx| {
+                        let v = ComposerView::new(
+                            RoomScope {
+                                account_id: matrix_domain::AccountId::new(1),
+                                room_id: matrix_domain::RoomId::new("!grid:fixture.invalid"),
+                            },
+                            cx,
+                        );
+                        v.focus.focus(window);
+                        v
+                    });
+                    composer = Some(c.clone());
+                    cx.new(|_| Host(c))
+                })
+                .unwrap();
+            let composer = composer.unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                let frame = || executor.timer(std::time::Duration::from_millis(150));
+                frame().await;
+                macro_rules! key {
+                    ($k:expr) => {{
+                        cx.update(|cx| {
+                            cx.update_window(host.into(), |_, w, cx| {
+                                w.dispatch_keystroke(gpui::Keystroke::parse($k).unwrap(), cx);
+                            })
+                            .unwrap()
+                        })
+                        .unwrap();
+                        frame().await;
+                    }};
+                }
+                macro_rules! with {
+                    ($f:expr) => {{
+                        let f: fn(&mut ComposerView, &mut Window, &mut Context<ComposerView>) = $f;
+                        cx.update(|cx| {
+                            cx.update_window(host.into(), |_, w, cx| composer.update(cx, |v, cx| f(v, w, cx))).unwrap()
+                        })
+                        .unwrap();
+                        frame().await;
+                    }};
+                }
+                with!(|v, _, cx| v.set_live(true));
+                with!(|v, w, cx| v.picker_click(true, w, cx));
+                key!("right");
+                key!("enter");
+                with!(|v, w, _| {
+                    assert!(v.draft.text().ends_with(matrix_desktop::EMOJI_SET[1].1), "{:?}", v.draft.text());
+                    assert!(v.focus.is_focused(w));
+                    assert_eq!(v.picker.mode, PickerMode::Pinned);
+                });
+                with!(|v, w, cx| v.picker_click(true, w, cx));
+                with!(|v, w, cx| {
+                    assert_eq!(v.picker.mode, PickerMode::Closed);
+                    v.picker_click(true, w, cx);
+                });
+                with!(|v, w, _| assert!(v.picker_focus.is_focused(w)));
+                key!("tab");
+                with!(|v, w, _| assert!(v.picker_close_focus.is_focused(w)));
+                key!("escape");
+                with!(|v, w, _| {
+                    assert_eq!(v.picker.mode, PickerMode::Closed);
+                    assert!(v.focus.is_focused(w));
+                });
+                cx.update(|cx| cx.quit()).unwrap();
+            })
+            .detach();
         });
     }
 
@@ -2849,7 +3071,7 @@ mod tests {
         };
     }
 
-    activation!(enter_activates_emoji, space_activates_emoji, "ciao", 0, |v| assert!(v.emoji_open, "Emoji opens the picker"));
+    activation!(enter_activates_emoji, space_activates_emoji, "ciao", 0, |v| assert_eq!(v.picker.mode, PickerMode::Pinned, "Emoji opens the picker"));
     activation!(enter_activates_attach, space_activates_attach, "ciao", 1, |_| {
         assert!(PICKS.load(std::sync::atomic::Ordering::SeqCst) >= 1, "Attach asks for a file")
     });

@@ -98,6 +98,24 @@ pub(crate) struct ThreadPanel {
     scroll: ScrollHandle,
 }
 
+const SIDE_PANEL_WIDTH: f32 = 360.;
+/// The chat column must keep at least this much next to a docked panel (usable composer).
+const CHAT_MIN_WIDTH: f32 = 360.;
+
+/// Narrowest window that fits rail + room list + chat + panel side by side.
+fn dock_min_width(t: matrix_desktop::DesignTokens) -> f32 {
+    crate::rail_view::RAIL_WIDTH + t.sidebar + CHAT_MIN_WIDTH + SIDE_PANEL_WIDTH
+}
+
+/// Right-hand column shared by the thread and the emoji drawer. Wide window: docked next to the chat. Narrow: a sheet over it (as the room sheet).
+pub(crate) fn side_panel(id: &'static str, window: &Window, t: matrix_desktop::DesignTokens) -> gpui::Stateful<gpui::Div> {
+    let docked = window.viewport_size().width >= px(dock_min_width(t));
+    div().id(id).occlude()
+        .when(docked, |d| d.h_full().w(px(SIDE_PANEL_WIDTH)).flex_shrink_0())
+        .when(!docked, |d| d.absolute().right_0().top_0().bottom_0().w(window.viewport_size().width.min(px(SIDE_PANEL_WIDTH))))
+        .flex().flex_col().bg(rgb(t.surface)).border_l_1().border_color(rgb(t.border))
+}
+
 impl ThreadPanel {
     pub(crate) fn new(scope: RoomScope, root: EventId, root_row: ThreadRow, total: u32) -> Self {
         Self {
@@ -303,12 +321,8 @@ impl Shell {
                 })))
         };
         let status = if p.failed { Some("Impossibile caricare · riprova più tardi") } else if p.pending && p.replies.is_empty() { Some("Caricamento…") } else { None };
-        // Wide window: a column next to the chat. Narrow: a sheet over it (as the room sheet).
-        let docked = window.viewport_size().width >= px(800.);
-        let panel = div().id("thread-panel").occlude()
-            .when(docked, |d| d.h_full().w(px(360.)).flex_shrink_0())
-            .when(!docked, |d| d.absolute().right_0().top_0().bottom_0().w(window.viewport_size().width.min(px(360.))))
-            .flex().flex_col().bg(rgb(t.surface)).border_l_1().border_color(rgb(t.border))
+        let docked = window.viewport_size().width >= px(dock_min_width(t));
+        let panel = side_panel("thread-panel", window, t)
             .child(div().h(px(t.header)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Thread"))
                 .child(div().id("thread-close").cursor_pointer().text_color(rgb(t.accent)).child("Chiudi")
@@ -345,6 +359,13 @@ impl Shell {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn side_panel_docks_only_when_chat_keeps_360px() {
+        // Measured on the layout: rail 72 + list 320 + chat 360 + panel 360.
+        assert_eq!(super::dock_min_width(matrix_desktop::LIGHT), 1112.);
+        assert_eq!(super::dock_min_width(matrix_desktop::DARK), super::dock_min_width(matrix_desktop::LIGHT));
+    }
+
     use super::*;
     use matrix_domain::{AccountId, RoomId};
     use matrix_engine::history::HistorySender;

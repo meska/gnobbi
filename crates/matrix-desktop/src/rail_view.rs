@@ -2,6 +2,7 @@
 use crate::*;
 
 // Rail entry geometry in one place; indicator/badge offsets follow the icon (36x32, label 11 px).
+pub(crate) const RAIL_WIDTH: f32 = 72.;
 const RAIL_ENTRY_HEIGHT: f32 = 63.;
 const RAIL_INDICATOR_TOP: f32 = 8.;
 const RAIL_BADGE_TOP: f32 = 1.;
@@ -428,7 +429,7 @@ impl Shell {
         let t = self.theme.tokens();
         // The menu button stays on top of the rail, above «Tutte» and the scrolling entries.
         div()
-            .w(px(72.))
+            .w(px(RAIL_WIDTH))
             .h_full()
             .flex_shrink_0()
             .flex()
