@@ -3,6 +3,11 @@ use crate::*;
 use matrix_desktop::install_offer::Choice;
 
 impl Shell {
+    /// The 280 px card covers the composer when the chat fills the window (<800 px): wait for the list.
+    pub(crate) fn install_offer_visible(&self) -> bool {
+        self.install_offer.visible(!self.navigation_wide && self.compact_chat)
+    }
+
     /// Called every render: cheap until the one-time check runs.
     pub(crate) fn poll_install_offer(&mut self, window: &Window, cx: &mut Context<Self>) {
         let typing = self.composer.read(cx).is_focused(window);
@@ -41,7 +46,7 @@ impl Shell {
             || self.notifications_open
             || self.verification_open
             || self.room_details_open;
-        if !self.install_offer.open || other_layer || key != "escape" {
+        if !self.install_offer_visible() || other_layer || key != "escape" {
             return false;
         }
         self.choose_install(Choice::Later, cx);
@@ -55,7 +60,7 @@ impl Shell {
         self.accessibility.update_install_offer(
             matrix_desktop::accessibility::install_offer::Snapshot {
                 generation: o.generation,
-                dialog: o.open.then(|| [b[0], b[1], b[2]]),
+                dialog: self.install_offer_visible().then(|| [b[0], b[1], b[2]]),
                 settings_row: self.settings_open.then_some(b[3]),
                 error: o.error.clone(),
             },
@@ -108,7 +113,7 @@ impl Shell {
         t: matrix_desktop::DesignTokens,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        if !self.install_offer.open {
+        if !self.install_offer_visible() {
             return None;
         }
         let mut button =
@@ -120,6 +125,7 @@ impl Shell {
                     .py_2()
                     .rounded_md()
                     .cursor_pointer()
+                    .tab_index(i as isize)
                     .text_color(rgb(color))
                     .child(label)
                     .children(self.offer_observer(i, cx))

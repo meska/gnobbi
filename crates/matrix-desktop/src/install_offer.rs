@@ -22,6 +22,11 @@ pub struct State {
 }
 
 impl State {
+    /// Shown only while open and the chat does not cover the window (`compact_chat`).
+    pub fn visible(&self, compact_chat: bool) -> bool {
+        self.open && !compact_chat
+    }
+
     /// Evaluates `due` at most once per launch, and only when signed in, synced and the user is
     /// not typing; otherwise the check is retried on the next call.
     pub fn poll(&mut self, ready: bool, typing: bool, due: impl FnOnce() -> bool) {

@@ -43,3 +43,12 @@ fn choices() {
     assert!(!s.choose(Choice::Add, &mut dont, || Err("no".into())));
     assert!(s.open && dont && s.error.as_deref() == Some("no"));
 }
+
+#[test]
+fn hidden_while_compact_chat_covers_the_window_but_stays_open() {
+    let mut s = State::default();
+    s.open = true;
+    assert!(s.visible(false) && !s.visible(true));
+    s.open = false;
+    assert!(!s.visible(false));
+}
