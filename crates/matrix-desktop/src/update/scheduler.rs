@@ -6,8 +6,8 @@ use super::channel::Channel;
 use super::{channel::{Env, detect_channel}, stage::{UpdateState, clean_orphans, ORPHAN_AGE}};
 use crate::{AppDirs, Preferences};
 #[cfg(feature = "live")]
-use std::sync::{Arc, Mutex};
-use std::{path::Path, time::{Duration, SystemTime, UNIX_EPOCH}};
+use std::{path::Path, sync::{Arc, Mutex}};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -32,6 +32,7 @@ fn due(channel: &Channel, prefs: &Preferences, now: u64, interval: Duration) -> 
         && prefs.last_check.is_none_or(|t| t > now || now - t >= interval.as_secs())
 }
 
+#[cfg_attr(not(feature = "live"), allow(dead_code))]
 /// Loads the settings fresh (the switch may have changed) and runs `work` only when due.
 fn tick(dirs: &AppDirs, channel: &Channel, interval: Duration, work: impl FnOnce(Preferences)) -> bool {
     let prefs = Preferences::load(dirs);
@@ -43,6 +44,7 @@ fn tick(dirs: &AppDirs, channel: &Channel, interval: Duration, work: impl FnOnce
     go
 }
 
+#[cfg_attr(not(feature = "live"), allow(dead_code))]
 fn run_loop(dirs: &AppDirs, channel: &Channel, cfg: Config, mut work: impl FnMut(Preferences)) {
     std::thread::sleep(cfg.start_delay);
     loop {
