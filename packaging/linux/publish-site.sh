@@ -55,15 +55,15 @@ sign_manifest() { # <file> <trusted-comment>
 # Verifica $1 contro $2 con tutte le chiavi di KEYS_FILE (max 2), poi trusted comment
 # e scadenza (MANIFEST_SIGNING.md §5.4; rifiuti R3/R4/R5/R7).
 verify_manifest() { # <manifest> <minisig>
-  local m="$1" s="$2" pub b until n=0
+  local m="$1" s="$2" pub b until ok=0 keys
   [[ -s "$m" && -s "$s" && -s "$KEYS_FILE" ]] || return 1
-  while read -r pub; do
-    [[ -n "$pub" ]] || continue
-    ((++n > 2)) && break
-    minisign -V -q -P "$pub" -m "$m" -x "$s" 2>/dev/null && break
-    pub=""
-  done < <(sed -n '2~2p' "$KEYS_FILE")
-  [[ -n "${pub:-}" ]] || return 1
+  mapfile -t keys < <(sed -n '2~2p' "$KEYS_FILE" | grep .)
+  # più di 2 chiavi = file non previsto: rifiuto, non verifico un sottoinsieme
+  ((${#keys[@]} >= 1 && ${#keys[@]} <= 2)) || return 1
+  for pub in "${keys[@]}"; do
+    minisign -V -q -P "$pub" -m "$m" -x "$s" 2>/dev/null && { ok=1; break; }
+  done
+  ((ok)) || return 1
   b="$(jq -er 'select(.schema==1) | select(.build|type=="number") |
        select(.valid_until|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) |
        .build' "$m" 2>/dev/null)" || return 1

@@ -56,6 +56,16 @@ expect "firma di un'altra chiave (key id sconosciuto)" nz -- V "$T/m.json" "$T/k
 cp "$T/m.json.minisig" "$T/id.minisig"; sed -i '2s/^\(..\)./\1A/' "$T/id.minisig"
 expect "key id nell'header alterato" nz -- V "$T/m.json" "$T/id.minisig"
 expect "chiave attendibile = k2, firma k1" nz -- env GNOBBI_UPDATE_KEYS="$T/k2.pub" "$PS" --verify "$T/m.json" "$T/m.json.minisig"
+# file chiavi: 1 e 2 chiavi (firma dell'ultima) accettate; 3 chiavi rifiutate, anche con firma estranea
+mkkey "$T/k3" _ "$PASSPHRASE"; mkkey "$T/k4" _ "$PASSPHRASE"
+cat "$T/k2.pub" "$T/k1.pub" >"$T/two.pub"; cat "$T/k2.pub" "$T/k3.pub" "$T/k1.pub" >"$T/three.pub"
+cp "$T/m.json.minisig" "$T/k1.minisig"
+expect "2 chiavi, firma della seconda accettata" 0 -- env GNOBBI_UPDATE_KEYS="$T/two.pub" "$PS" --verify "$T/m.json" "$T/k1.minisig"
+expect "3 chiavi, firma valida della terza rifiutata" 3 -- env GNOBBI_UPDATE_KEYS="$T/three.pub" "$PS" --verify "$T/m.json" "$T/k1.minisig"
+SIGN_KEY="$T/k4.key" SIGN_PASSPHRASE_FILE="$T/k4.pass" "$PS" --sign "$T/m.json" 7 && cp "$T/m.json.minisig" "$T/k4.minisig"
+cp "$T/k1.minisig" "$T/m.json.minisig"
+cat "$T/k1.pub" "$T/k2.pub" "$T/k3.pub" >"$T/three.pub"
+expect "3 chiavi, firma estranea rifiutata" 3 -- env GNOBBI_UPDATE_KEYS="$T/three.pub" "$PS" --verify "$T/m.json" "$T/k4.minisig"
 # firma mancante / vuota / manifesto vuoto
 expect "firma mancante (404)" nz -- V "$T/m.json" "$T/nope.minisig"
 : >"$T/empty.minisig"
