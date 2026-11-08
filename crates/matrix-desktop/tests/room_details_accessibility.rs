@@ -110,6 +110,11 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
             "missing readable label value: {label}"
         );
     }
+    let close = &tree.nodes.iter().find(|(id, _)| *id == DetailsControl::Close.id()).unwrap().1;
+    assert_eq!(close.role(), Role::Button);
+    assert_eq!(close.label(), Some("Chiudi informazioni stanza"));
+    assert!(close.supports_action(accesskit::Action::Click));
+    assert!(close.supports_action(accesskit::Action::Focus));
     let copy = &tree
         .nodes
         .iter()

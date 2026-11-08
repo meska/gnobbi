@@ -44,7 +44,7 @@ fn panel_headers_close_with_the_x_icon() {
         assert!(!src.contains(".child(\"Chiudi\")"), "{file}: visible «Chiudi» text");
         assert!(src.contains("Icon::Close"), "{file}: no close icon");
     }
-    for (file, id) in [("rail_view.rs", "rail-edit-close"), ("groups_edit_view.rs", "groups-close"), ("about_view.rs", "about-close")] {
+    for (file, id) in [("verification_view.rs", "verification-close"), ("notification_view.rs", "notifications-close"), ("room_details_view.rs", "room-details-close"), ("thread_view.rs", "thread-close"), ("rail_view.rs", "rail-edit-close"), ("groups_edit_view.rs", "groups-close"), ("about_view.rs", "about-close")] {
         let src = std::fs::read_to_string(dir.join(file)).unwrap();
         let button = src.split(&format!(".id(\"{id}\")")).nth(1).expect(id).split(".on_click").next().unwrap();
         assert!(button.contains(".w(px(32.))") && button.contains(".h(px(32.))"), "{id}: incorrect size");
