@@ -25,10 +25,19 @@ pub(crate) async fn open(
     let root_id = matrix_sdk::ruma::EventId::parse(root.as_str()).map_err(|_| HistoryError::WrongScope)?;
     let main = loaded(room, &*timelines.get(room).await?).await;
     let thread = timelines.thread(room, &root_id).await?;
-    let (mut now, status) = fill(room, &thread, want.max(PAGE)).await;
-    // A thread that cannot be read at all is an error; a partial one is shown.
-    if now.rows.is_empty() && let Err(e) = status {
-        return Err(e);
+    let mut now = loaded(room, &thread).await;
+    if now.rows.is_empty() {
+        let (filled, status) = fill(room, &thread, want.max(PAGE)).await;
+        now = filled;
+        if now.rows.is_empty() && let Err(e) = status {
+            return Err(e);
+        }
+    } else {
+        let room = room.clone();
+        let thread = thread.clone();
+        tokio::spawn(async move {
+            let _ = fill(&room, &thread, want.max(PAGE)).await;
+        });
     }
     // No `annotate_unread` here: it paginates every thread in view (network) and the read below zeroes this one.
     let mut root_row = main.rows.into_iter().find(|r| r.event_id == *root);
