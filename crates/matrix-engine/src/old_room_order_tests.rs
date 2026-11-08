@@ -233,7 +233,7 @@ fn disposable_old_room_live_mark_read_keeps_position() {
         f.live("«Segna come letto» while the list is live", async |client, timelines, scope| {
             let tag = crate::ViewRequests::new().start(scope.clone()).unwrap();
             crate::room_sync::open_page(&client, &timelines, tag).await.unwrap();
-            crate::operations::mark_room(&client, &timelines, account, &scope, true, true).await.unwrap();
+            crate::operations::mark_room(&client, &timelines, account, &scope, true, true, false).await.unwrap();
         }).await;
     });
 }
