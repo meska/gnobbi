@@ -143,3 +143,23 @@ fn shown_account_is_found_by_resolved_folder_or_user() {
     assert_eq!(c.id_for_user("@a:example.org"), Some(id));
     assert_eq!(c.id_for_user("@z:example.org"), None);
 }
+
+#[test]
+fn avatar_mxc_is_saved_read_back_and_optional_in_old_files() {
+    let d = dirs("avatar");
+    let mut c = AccountCatalog::load(&d);
+    let a = c.add("@a:x", "https://x", "A");
+    let b = c.add("@b:x", "https://x", "B");
+    assert!(c.record_avatar(a, Some("mxc://x/a")));
+    assert!(!c.record_avatar(a, Some("mxc://x/a")));
+    c.save(&d).unwrap();
+    let r = AccountCatalog::load(&d);
+    assert_eq!(r.get(a).unwrap().avatar.as_deref(), Some("mxc://x/a"));
+    assert_eq!(r.get(b).unwrap().avatar, None);
+    // a catalog written before the field existed still loads
+    let old = std::fs::read_to_string(d.config.join("accounts.json")).unwrap().replace("\"avatar\":\"mxc://x/a\",", "").replace("\"avatar\":null,", "");
+    assert!(!old.contains("avatar"));
+    std::fs::write(d.config.join("accounts.json"), old).unwrap();
+    let r = AccountCatalog::load(&d);
+    assert!(!r.is_damaged() && r.get(a).unwrap().avatar.is_none());
+}
