@@ -18,6 +18,8 @@ cpal = "=0.18.2"
 minisign-verify = "=0.3.0"
 # Update check only (same version and features as matrix-engine); gated by `live`.
 reqwest = { version = "=0.13.5", optional = true, default-features = false, features = ["rustls"] }
+# Update scheduler runtime (check + download); same version as the dev-dependency, gated by `live`.
+tokio = { version = "=1.53.2", optional = true, default-features = false, features = ["rt", "time"] }
 unicode-segmentation = "=1.13.3"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 
@@ -64,7 +66,7 @@ accesskit_unix = { version = "=0.22.1", optional = true }
 linux-a11y = ["dep:accesskit", "dep:accesskit_unix"]
 default = ["desktop"]
 desktop = ["dep:gpui", "dep:image", "dep:tray-icon"]
-live = ["desktop", "matrix-engine/sdk", "dep:tracing-subscriber", "dep:reqwest"]
+live = ["desktop", "matrix-engine/sdk", "dep:tracing-subscriber", "dep:reqwest", "dep:tokio"]
 # Test-only fixture driver, absent from ordinary/default/live desktop builds.
 perf-probe = ["desktop"]
 # Test-only fixture hook (src/rail_drag_test.rs) for builds that must run as a plain binary: macOS has no libtest main thread for gpui.

@@ -2563,6 +2563,11 @@ fn main() {
             .with_writer(std::io::stderr)
             .init();
     }
+    // Background update check; a no-op (no thread, no network) outside AppImage/Windows portable.
+    #[cfg(feature = "live")]
+    if let Some(dirs) = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
+        matrix_desktop::update::scheduler::start(dirs, Default::default(), Default::default());
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--install-desktop-entry") {
         // Saved icon choice; missing or invalid preferences fall back to the default.

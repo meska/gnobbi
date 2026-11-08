@@ -2,6 +2,7 @@
 pub mod channel;
 #[cfg(feature = "live")]
 pub mod check;
+pub mod scheduler;
 pub mod verify;
 pub mod startup;
 pub mod stage;
