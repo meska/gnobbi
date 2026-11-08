@@ -31,6 +31,10 @@ fn caption_or_label(text: &str, media: Option<&matrix_engine::history::Media>) -
 }
 
 impl ThreadRow {
+    fn show_caption(&self, has_picture: bool) -> bool {
+        !has_picture || self.media.as_ref().is_none_or(|m| m.label != self.text)
+    }
+
     fn from_event(e: &HistoryEvent) -> Self {
         let who = if e.outgoing { "Tu".to_owned() } else { e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone()) };
         let text = caption_or_label(&e.body, e.media.as_ref());
@@ -249,8 +253,7 @@ impl Shell {
         let read = focused.then_some(public);
         p.dirty |= focused && !p.read_done;
         if p.scope != self.active_scope {
-            self.thread = None;
-            self.thread_last = None;
+            self.thread_last = self.thread.take();
             cx.notify();
             return;
         }
@@ -309,8 +312,8 @@ impl Shell {
             // An image root: the bubbles' picture (the room timeline loads it); the label stands in only without one.
             // shortcut: replies that are images keep the label, the timeline loads thumbnails of its own rows only.
             let image = r.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image);
-            let picture = (image && r.id.as_ref() == Some(&root)).then(|| timeline.and_then(|tl| tl.picture_for(&root, t)));
-            let caption = picture.is_none() || r.media.as_ref().is_none_or(|m| m.label != r.text);
+            let picture = (image && r.id.as_ref() == Some(&root)).then(|| timeline.and_then(|tl| tl.picture_for(&root, t))).flatten();
+            let caption = r.show_caption(picture.is_some());
             div().flex().flex_col().gap_1()
                 .child(div().flex().gap_2().text_size(px(12.)).text_color(rgb(t.secondary))
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::row_text::one_line(&r.who)))
@@ -419,6 +422,8 @@ mod tests {
         e.media = Some(matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Image, label: "Immagine".into() });
         let image = ThreadRow::from_event(&e);
         assert_eq!(image.text, "Immagine");
+        assert!(image.show_caption(false), "an unloaded image keeps its label visible");
+        assert!(!image.show_caption(true), "a loaded image does not repeat its label");
         assert!(image.media.is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image));
     }
 

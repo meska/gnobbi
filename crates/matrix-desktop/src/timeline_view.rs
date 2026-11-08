@@ -1341,7 +1341,7 @@ impl TimelineView {
     pub(crate) fn picture_for(&self, id: &matrix_domain::EventId, t: DesignTokens) -> Option<gpui::AnyElement> {
         // Not asked for yet (root outside the loaded history): None, the caller shows the label.
         let state = self.images.borrow().get(id).cloned()?;
-        let opened = matches!(state, Some(crate::media_view::InlineImage::Ready(_)));
+        let opened = matches!(state, crate::media_view::InlineImage::Ready(_));
         let picture = crate::media_view::inline_picture(Some(state), t);
         if !opened {
             return Some(picture);
