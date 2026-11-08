@@ -38,7 +38,7 @@ pub(crate) struct NewRoom {
 }
 
 /// One line per failure, nothing else.
-fn error_text(dm: bool, join: bool, error: OperationError) -> &'static str {
+pub(crate) fn error_text(dm: bool, join: bool, error: OperationError) -> &'static str {
     match (error, dm, join) {
         (OperationError::InvalidInput, _, true) => "Alias non valido",
         (OperationError::Unavailable, _, true) => "Stanza non trovata",
@@ -541,6 +541,15 @@ impl Shell {
         result: Result<RoomScope, OperationError>,
         cx: &mut Context<Self>,
     ) {
+        if self.quick_answered(&result, cx) {
+            if let Ok(scope) = result {
+                self.sidebar.keep_visible(scope.clone());
+                self.pending_open = Some(scope);
+                self.open_started_room(cx);
+            }
+            cx.notify();
+            return;
+        }
         if self.new_room.is_none() && std::mem::take(&mut self.profile_dm) {
             // «Invia messaggio» of a member profile: open the chat; a failure leaves the profile as it is.
             if let Ok(scope) = result {

@@ -59,6 +59,10 @@ pub(crate) struct QuickSearch {
     pub(crate) servers: Option<ServerPicker>,
     server_focus: FocusHandle,
     pub(crate) add_field: Option<gpui::Entity<crate::login_field::LoginField>>,
+    /// A join or DM is waiting for the engine: the entry to remember on success, and whether it is a DM.
+    busy: Option<(Recent, bool)>,
+    /// The one line shown under the field when that join or DM failed.
+    error: Option<&'static str>,
     zone: Zone,
     active: usize,
     scroll: UniformListScrollHandle,
@@ -372,6 +376,8 @@ impl Shell {
             servers: self.directory_picker(),
             server_focus: cx.focus_handle(),
             add_field: None,
+            busy: None,
+            error: None,
             zone: if has_searched {
                 Zone::Rows
             } else if has_seen {
@@ -496,42 +502,95 @@ impl Shell {
         if joined.is_none() && self.pending_operation_command.is_some() {
             return;
         }
-        let account = self.recents_account();
-        let mut recents = self.recents.get(account);
-        recents.picked(Recent { id: hit.room_id.clone(), name: hit.name.clone(), avatar: hit.avatar_url.clone() });
-        self.recents.set(account, recents);
-        self.save_recents();
-        self.end_quick();
+        let recent = Recent { id: hit.room_id.clone(), name: hit.name.clone(), avatar: hit.avatar_url.clone() };
         match joined {
-            Some(scope) => self.open_scope(scope, window, cx),
+            Some(scope) => {
+                self.remember_recent(recent);
+                self.end_quick();
+                self.open_scope(scope, window, cx)
+            }
             None => {
+                self.quick_busy(recent, false, cx);
                 self.pending_operation_command =
                     Some(OperationCommand::JoinRoom { target: hit.room_id, via: vec![hit.origin] });
-                // The answer opens the room, like «Invia messaggio» of a profile does.
-                self.profile_dm = true;
-                self.list_focus.focus(window);
                 cx.notify();
             }
         }
     }
 
-    /// A user: remembered in «Ricerche recenti», then the same engine call as «Nuova chat» and
-    /// the member profile, which opens the existing DM or creates one.
-    fn quick_pick_user(&mut self, user: Recent, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending_operation_command.is_some() {
+    /// A user: the same engine call as «Nuova chat» and the member profile, which opens the existing
+    /// DM or creates one; the overlay stays until the answer and remembers the user only on success.
+    pub(crate) fn quick_pick_user(&mut self, user: Recent, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.pending_operation_command.is_some() || self.quick.is_none() {
             return;
         }
+        let user_id = user.id.clone();
+        self.quick_busy(user, true, cx);
+        self.pending_operation_command = Some(OperationCommand::StartDm { user_id });
+        cx.notify();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn quick_busy_for_test(&self) -> bool {
+        self.quick.as_ref().is_some_and(|q| q.busy.is_some())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn quick_error_for_test(&self) -> Option<&'static str> {
+        self.quick.as_ref().and_then(|q| q.error)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn quick_open_for_test(&self) -> bool {
+        self.quick.is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn quick_field_enabled_for_test(&self, cx: &gpui::App) -> bool {
+        self.quick.as_ref().is_some_and(|q| q.field.read(cx).enabled)
+    }
+
+    fn remember_recent(&mut self, recent: Recent) {
         let account = self.recents_account();
         let mut recents = self.recents.get(account);
-        let user_id = user.id.clone();
-        recents.picked(user);
+        recents.picked(recent);
         self.recents.set(account, recents);
         self.save_recents();
-        self.end_quick();
-        self.pending_operation_command = Some(OperationCommand::StartDm { user_id });
-        self.profile_dm = true;
-        self.list_focus.focus(window);
-        cx.notify();
+    }
+
+    /// The overlay waits for the engine: field disabled, no old error.
+    fn quick_busy(&mut self, recent: Recent, dm: bool, cx: &mut Context<Self>) {
+        let Some(q) = self.quick.as_mut() else {
+            return;
+        };
+        q.busy = Some((recent, dm));
+        q.error = None;
+        q.field.update(cx, |f, _| f.enabled = false);
+    }
+
+    /// The engine's answer to a join or DM started from the overlay; false when none is waiting.
+    pub(crate) fn quick_answered(
+        &mut self,
+        result: &Result<RoomScope, matrix_engine::operations::OperationError>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(q) = self.quick.as_mut() else {
+            return false;
+        };
+        let Some((recent, dm)) = q.busy.take() else {
+            return false;
+        };
+        match result {
+            Ok(_) => {
+                self.remember_recent(recent);
+                self.end_quick();
+            }
+            Err(e) => {
+                q.error = Some(crate::new_room_view::error_text(dm, !dm, *e));
+                q.field.update(cx, |f, _| f.enabled = true);
+            }
+        }
+        true
     }
 
     /// A «Cerca» entry: the chip goes before the text and limits the results to its kind.
@@ -566,6 +625,10 @@ impl Shell {
         let Some(q) = self.quick.as_mut() else {
             return false;
         };
+        // Waiting for the engine: only Esc (closes the overlay) is handled.
+        if q.busy.is_some() && key != "escape" {
+            return true;
+        }
         // «Aggiungi nuovo server…»: Enter probes the name, Esc drops it, other keys type.
         if q.add_field.as_ref().is_some_and(|f| f.read(cx).focus.is_focused(window)) {
             match key {
@@ -1034,6 +1097,7 @@ impl Shell {
                         .children(q.servers.as_ref().and_then(|p| p.add_error()).filter(|_| q.add_field.is_some()).map(|e| {
                             div().text_size(px(13.)).text_color(rgb(t.error)).child(e)
                         }))
+                        .children(q.error.map(|e| div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
                         .children(seen)
                         .children(searched_header)
                         .children(list)

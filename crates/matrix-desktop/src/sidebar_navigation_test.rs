@@ -1773,6 +1773,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             crate::dialog_typing_test::scenario(n, this, cx, executor).await;
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 96 {
+            crate::quick_answer_test::scenario(this, cx, executor).await;
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 91 {
             crate::member_profile_test::scenario(this, cx, executor).await;
             return;
@@ -3497,6 +3501,16 @@ fn non_modal_room_details_panel_keeps_list_composer_and_timeline_live() {
 fn member_detail_profile_actions_and_keyboard() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(91, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn quick_search_join_dm_answer() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(96, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
