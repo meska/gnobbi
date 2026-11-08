@@ -2570,7 +2570,8 @@ fn main() {
         })
         .map(|d| matrix_desktop::Preferences::load(&d).icon)
         .unwrap_or_default();
-        let done = matrix_desktop::desktop_entry::install_for_current_user(icon);
+        // An explicit command is its own confirmation: replace a different copy.
+        let done = matrix_desktop::desktop_entry::install_for_current_user(icon, true);
         if let Err(e) = done {
             eprintln!("install-desktop-entry: {e}");
             std::process::exit(1);

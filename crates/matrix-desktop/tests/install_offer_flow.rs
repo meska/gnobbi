@@ -5,6 +5,7 @@ use matrix_desktop::desktop_entry::{
     detect::{entry_status, should_prompt, Env, EntryStatus},
     install_desktop_entry, install_desktop_entry_with,
 };
+use matrix_desktop::desktop_entry::Outcome;
 use matrix_desktop::install_offer::{Choice, State};
 use matrix_desktop::{AppDirs, IconChoice, Preferences};
 use std::{fs, path::{Path, PathBuf}};
@@ -72,9 +73,9 @@ fn full_flow_missing_add_then_moved_then_never_across_restart() {
 
     // «Aggiungi al menu»: entry and icon appear, nothing more is proposed.
     let exec = env.exec.clone().unwrap();
-    assert!(!s.choose(Choice::Add, &mut prefs.desktop_entry_dont_ask, || {
+    assert!(!s.choose(Choice::Add, &mut prefs.desktop_entry_dont_ask, |_| {
         install(&env, &exec);
-        Ok(())
+        Ok(Outcome::Done)
     }));
     assert!(!s.open);
     assert_eq!(entry_status(&env), EntryStatus::Ok);
@@ -90,13 +91,13 @@ fn full_flow_missing_add_then_moved_then_never_across_restart() {
     assert!(s.open);
 
     // «Non ora»: nothing saved, proposed again at the next launch.
-    assert!(!s.choose(Choice::Later, &mut prefs.desktop_entry_dont_ask, || panic!()));
+    assert!(!s.choose(Choice::Later, &mut prefs.desktop_entry_dont_ask, |_| panic!()));
     let mut s = State::default();
     s.poll(true, false, || should_prompt(&env2, prefs.desktop_entry_dont_ask));
     assert!(s.open);
 
     // «Non chiedere più»: saved, and respected after a restart (fresh State, prefs reloaded).
-    assert!(s.choose(Choice::Never, &mut prefs.desktop_entry_dont_ask, || panic!()));
+    assert!(s.choose(Choice::Never, &mut prefs.desktop_entry_dont_ask, |_| panic!()));
     prefs.save(&d).unwrap();
     let reloaded = Preferences::load(&d);
     assert!(reloaded.desktop_entry_dont_ask);
@@ -106,9 +107,9 @@ fn full_flow_missing_add_then_moved_then_never_across_restart() {
 
     // Reversible from Settings: «Aggiungi al menu» repairs the entry and clears the opt-out.
     let mut p = reloaded;
-    assert!(State::default().choose(Choice::Add, &mut p.desktop_entry_dont_ask, || {
+    assert!(State::default().choose(Choice::Add, &mut p.desktop_entry_dont_ask, |_| {
         install(&env2, env2.exec.as_deref().unwrap());
-        Ok(())
+        Ok(Outcome::Done)
     }));
     p.save(&d).unwrap();
     assert!(!Preferences::load(&d).desktop_entry_dont_ask);

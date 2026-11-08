@@ -5,16 +5,144 @@ use std::{fs, io, path::Path};
 const APP_ID: &str = "net.meskatech.gnobbi";
 const DESKTOP: &str = include_str!("../../../packaging/linux/net.meskatech.gnobbi.desktop");
 
-/// Installs for the current user (CLI and in-app UI): `$APPIMAGE` if set, else `current_exe`.
-pub fn install_for_current_user(icon: IconChoice) -> Result<(), String> {
-    // $APPIMAGE is the AppImage file; current_exe would point into the temporary mount.
-    let exec = std::env::var("APPIMAGE")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .or_else(|| std::env::current_exe().ok().map(|p| p.to_string_lossy().into_owned()))
-        .ok_or("executable path unknown")?;
+/// What an installation did: written, or waiting for the user to confirm replacing the copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    Done,
+    /// `~/Applications/gnobbi.AppImage` exists and differs: ask, then retry with `replace`.
+    NeedsConfirm,
+}
+
+/// Installs for the current user (CLI and in-app UI): `$APPIMAGE` (copied under `~/Applications`
+/// when it lives elsewhere) if set, else `current_exe`.
+pub fn install_for_current_user(icon: IconChoice, replace: bool) -> Result<Outcome, String> {
+    let var = |k| std::env::var_os(k).filter(|v| !v.is_empty());
     let home = std::env::var_os("HOME").ok_or("HOME unknown")?;
-    install_desktop_entry(Path::new(&home), &exec, icon).map_err(|e| e.to_string())
+    let home = Path::new(&home);
+    let share = user_share(home, var("XDG_DATA_HOME").as_deref().map(Path::new));
+    // $APPIMAGE is the AppImage file; current_exe would point into the temporary mount.
+    let appimage = var("APPIMAGE").map(std::path::PathBuf::from);
+    let exe = std::env::current_exe().ok();
+    install_resolved(
+        home,
+        &share,
+        appimage.as_deref(),
+        exe.as_deref(),
+        icon,
+        replace,
+        &mut run_cache_tool,
+    )
+}
+
+/// [`install_for_current_user`] with the environment already read (testable with a temporary HOME).
+pub fn install_resolved(
+    home: &Path,
+    share: &Path,
+    appimage: Option<&Path>,
+    exe: Option<&Path>,
+    icon: IconChoice,
+    replace: bool,
+    run: &mut dyn FnMut(&str, &[&Path]),
+) -> Result<Outcome, String> {
+    let mut exec = appimage
+        .or(exe)
+        .ok_or("executable path unknown")?
+        .to_path_buf();
+    #[cfg(target_os = "linux")]
+    if let Some(a) = appimage {
+        match place_appimage(home, a, replace, &|| Ok(Box::new(fs::File::open(a)?)))? {
+            Placed::At(copy) => exec = copy,
+            Placed::NeedsConfirm => return Ok(Outcome::NeedsConfirm),
+            Placed::Elsewhere => {}
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = (home, replace, &mut exec);
+    install_desktop_entry_with(share, &exec.to_string_lossy(), icon, run)
+        .map_err(|e| e.to_string())?;
+    Ok(Outcome::Done)
+}
+
+/// Where the launcher should point after [`place_appimage`].
+#[cfg(target_os = "linux")]
+#[derive(Debug, PartialEq, Eq)]
+pub enum Placed {
+    /// Already under `~/Applications`: use the original path.
+    Elsewhere,
+    /// The stable copy (new, or already identical).
+    At(std::path::PathBuf),
+    NeedsConfirm,
+}
+
+/// Copies the running AppImage to `~/Applications/gnobbi.AppImage` unless it is already under
+/// `~/Applications`. The copy is written to a temporary name and renamed over the destination, so a
+/// running copy keeps its old inode. The original is never touched. `open` yields the source bytes.
+#[cfg(target_os = "linux")]
+pub fn place_appimage(
+    home: &Path,
+    appimage: &Path,
+    replace: bool,
+    open: &dyn Fn() -> io::Result<Box<dyn io::Read>>,
+) -> Result<Placed, String> {
+    let apps = home.join("Applications");
+    let dest = apps.join("gnobbi.AppImage");
+    let src = fs::canonicalize(appimage).map_err(|e| one_line(&e))?;
+    if src.starts_with(fs::canonicalize(&apps).unwrap_or_else(|_| apps.clone())) {
+        return Ok(Placed::Elsewhere);
+    }
+    if dest.exists() {
+        if same_bytes(&src, &dest).map_err(|e| one_line(&e))? {
+            return Ok(Placed::At(dest));
+        }
+        if !replace {
+            return Ok(Placed::NeedsConfirm);
+        }
+    }
+    let tmp = apps.join(format!(".gnobbi.AppImage.tmp-{}", std::process::id()));
+    let copy = || -> io::Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(&apps)?;
+        let mut out = fs::File::create(&tmp)?;
+        io::copy(&mut open()?, &mut out)?;
+        out.sync_all()?;
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o755))?;
+        fs::rename(&tmp, &dest)
+    };
+    copy().map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        one_line(&e)
+    })?;
+    Ok(Placed::At(dest))
+}
+
+#[cfg(target_os = "linux")]
+fn one_line(e: &io::Error) -> String {
+    if e.kind() == io::ErrorKind::StorageFull {
+        "Spazio su disco insufficiente".into()
+    } else {
+        e.to_string().lines().next().unwrap_or_default().into()
+    }
+}
+
+/// Same size, then same content.
+#[cfg(target_os = "linux")]
+pub(crate) fn same_bytes(a: &Path, b: &Path) -> io::Result<bool> {
+    use io::Read;
+    let (mut fa, mut fb) = (fs::File::open(a)?, fs::File::open(b)?);
+    if fa.metadata()?.len() != fb.metadata()?.len() {
+        return Ok(false);
+    }
+    let (mut x, mut y) = (vec![0u8; 1 << 16], vec![0u8; 1 << 16]);
+    loop {
+        let n = fa.read(&mut x)?;
+        if n == 0 {
+            return Ok(true);
+        }
+        fb.read_exact(&mut y[..n])?;
+        if x[..n] != y[..n] {
+            return Ok(false);
+        }
+    }
 }
 
 /// User data dir shared by install and detection: an absolute `$XDG_DATA_HOME`, else `home/.local/share`.
@@ -29,15 +157,17 @@ pub(crate) fn user_share(home: &Path, xdg_data_home: Option<&Path>) -> std::path
 pub fn install_desktop_entry(home: &Path, exec: &str, icon: IconChoice) -> io::Result<()> {
     let xdg = std::env::var_os("XDG_DATA_HOME").filter(|v| !v.is_empty());
     let share = user_share(home, xdg.as_deref().map(Path::new));
-    install_desktop_entry_with(&share, exec, icon, &mut |prog, args| {
-        // Missing binary or failure is deliberately ignored: the caches are only an optimisation.
-        let _ = std::process::Command::new(prog)
-            .args(args)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-    })
+    install_desktop_entry_with(&share, exec, icon, &mut run_cache_tool)
+}
+
+/// Missing binary or failure is deliberately ignored: the caches are only an optimisation.
+fn run_cache_tool(prog: &str, args: &[&Path]) {
+    let _ = std::process::Command::new(prog)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
 }
 
 /// Same as [`install_desktop_entry`] with an injectable cache-command runner `(program, args)`.
@@ -64,7 +194,10 @@ pub fn install_desktop_entry_with(
     let apps = share.join("applications");
     fs::create_dir_all(&apps)?;
     fs::write(apps.join(format!("{APP_ID}.desktop")), desktop)?;
-    for (size, png) in [("256x256", icon.theme_png_256()), ("512x512", icon.runtime_png())] {
+    for (size, png) in [
+        ("256x256", icon.theme_png_256()),
+        ("512x512", icon.runtime_png()),
+    ] {
         let dir = share.join("icons/hicolor").join(size).join("apps");
         fs::create_dir_all(&dir)?;
         fs::write(dir.join(format!("{APP_ID}.png")), png)?;
@@ -72,7 +205,11 @@ pub fn install_desktop_entry_with(
     run("update-desktop-database", &[&apps]);
     run(
         "gtk-update-icon-cache",
-        &[Path::new("-f"), Path::new("-t"), &share.join("icons/hicolor")],
+        &[
+            Path::new("-f"),
+            Path::new("-t"),
+            &share.join("icons/hicolor"),
+        ],
     );
     Ok(())
 }
@@ -179,13 +316,25 @@ pub mod detect {
         Some(out.replace("%%", "%"))
     }
 
+    /// The entry points at the `~/Applications` copy of the running AppImage (identical bytes).
+    fn is_stable_copy(env: &Env, running: &str, target: &str) -> bool {
+        env.home.as_ref().is_some_and(|h| {
+            Path::new(target) == h.join("Applications/gnobbi.AppImage")
+                && super::same_bytes(Path::new(running), Path::new(target)).unwrap_or(false)
+        })
+    }
+
     pub fn entry_status(env: &Env) -> EntryStatus {
         let user = env.user_share();
         if let Some(share) = &user
             && let Ok(text) = std::fs::read_to_string(entry_file(share))
         {
             let exec_ok = exec_target(&text).is_some_and(|t| {
-                Path::new(&t).exists() && env.exec.as_deref().is_none_or(|cur| cur == t)
+                Path::new(&t).exists()
+                    && env
+                        .exec
+                        .as_deref()
+                        .is_none_or(|cur| cur == t || is_stable_copy(env, cur, &t))
             });
             return if exec_ok && has_icon(share) {
                 EntryStatus::Ok
@@ -231,10 +380,8 @@ pub mod detect {
         }
 
         fn install(env: &Env, exec: &str) {
-            let share = super::super::user_share(
-                env.home.as_ref().unwrap(),
-                env.xdg_data_home.as_deref(),
-            );
+            let share =
+                super::super::user_share(env.home.as_ref().unwrap(), env.xdg_data_home.as_deref());
             crate::desktop_entry::install_desktop_entry_with(
                 &share,
                 exec,

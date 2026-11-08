@@ -61,3 +61,38 @@ fn settings_row_is_a_button_only_while_settings_is_open() {
     s.settings_row = None;
     assert_eq!(s.action(&click(*id)), None);
 }
+
+#[test]
+fn confirm_step_has_two_labelled_buttons_no_help_text_and_maps_clicks() {
+    let s = Snapshot {
+        generation: 2,
+        dialog: Some([None; 3]),
+        confirm: true,
+        ..Default::default()
+    };
+    let tree = s.tree().unwrap();
+    // window + dialog + 2 buttons
+    assert_eq!(tree.nodes.len(), 4);
+    let titles: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| matches!(n.role(), Role::Window | Role::Dialog))
+        .map(|(_, n)| n.label().unwrap())
+        .collect();
+    assert_eq!(titles, ["Sostituire gnobbi.AppImage?"; 2]);
+    let buttons: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|(_, n)| n.role() == Role::Button)
+        .collect();
+    let labels: Vec<_> = buttons.iter().map(|(_, n)| n.label().unwrap()).collect();
+    assert_eq!(labels, ["Sostituisci", "Annulla"]);
+    for (_, n) in &tree.nodes {
+        assert!(n.description().is_none() && n.value().is_none());
+    }
+    let choices: Vec<_> = buttons
+        .iter()
+        .map(|(id, _)| s.action(&click(*id)))
+        .collect();
+    assert_eq!(choices, [Some(Choice::Replace), Some(Choice::Later)]);
+}
