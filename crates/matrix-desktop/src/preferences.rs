@@ -1,6 +1,7 @@
 //! User preferences in `settings.json` inside the config dir. Never holds secrets.
 use crate::{Accent, AppDirs, DARK, DAY, DesignTokens, LIGHT, NIGHT};
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -205,7 +206,7 @@ impl Preferences {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Preferences {
     /// `None` follows the OS appearance (first start, or a missing/unknown saved value).
     pub theme: Option<Theme>,
@@ -223,6 +224,16 @@ pub struct Preferences {
     pub close_to_tray: bool,
     /// «Non chiedere più» on the launcher-entry proposal (Linux); «Aggiungi al menu» clears it.
     pub desktop_entry_dont_ask: bool,
+    /// «Cerca aggiornamenti»: on by default, also when the saved value is missing or not a boolean.
+    pub update_check_enabled: bool,
+    /// Unix seconds of the last update check; `None` = never.
+    pub last_check: Option<u64>,
+    /// Highest manifest `build` seen (anti-rollback); 0 = none yet.
+    pub max_build_seen: u64,
+    /// Builds that failed the self-test or the restore; never offered again.
+    pub bad_builds: BTreeSet<u64>,
+    /// Download base override (LAN), hand-edited in settings.json; no UI.
+    pub update_base: Option<String>,
 }
 
 impl Default for Preferences {
@@ -238,6 +249,11 @@ impl Default for Preferences {
             hide_redacted: true,
             close_to_tray: false,
             desktop_entry_dont_ask: false,
+            update_check_enabled: true,
+            last_check: None,
+            max_build_seen: 0,
+            bad_builds: BTreeSet::new(),
+            update_base: None,
         }
     }
 }
@@ -300,13 +316,32 @@ impl Preferences {
                 .get("desktop_entry_dont_ask")
                 .and_then(Value::as_bool)
                 .unwrap_or_default(),
+            update_check_enabled: map
+                .get("update_check_enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            last_check: map.get("last_check").and_then(Value::as_u64),
+            max_build_seen: map
+                .get("max_build_seen")
+                .and_then(Value::as_u64)
+                .unwrap_or_default(),
+            bad_builds: map
+                .get("bad_builds")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default(),
+            update_base: map
+                .get("update_base")
+                .and_then(Value::as_str)
+                .filter(|b| !b.trim().is_empty())
+                .map(str::to_owned),
         }
     }
 
     /// Atomic write (temp file then rename), owner-only. Keys it does not own stay as they are.
     pub fn save(&self, dirs: &AppDirs) -> std::io::Result<()> {
         update_settings(dirs, |map| {
-            let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "desktop_entry_dont_ask": self.desktop_entry_dont_ask });
+            let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base });
             if let Value::Object(own) = body {
                 map.extend(own);
             }

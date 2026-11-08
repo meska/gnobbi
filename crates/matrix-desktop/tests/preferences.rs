@@ -37,6 +37,11 @@ fn roundtrip_keeps_values() {
         hide_redacted: false,
         close_to_tray: true,
         desktop_entry_dont_ask: true,
+        update_check_enabled: false,
+        last_check: Some(1_700_000_000),
+        max_build_seen: 812,
+        bad_builds: [7, 3].into(),
+        update_base: Some("http://lan/dl/".into()),
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);
@@ -297,4 +302,26 @@ fn hide_redacted_defaults_on_invalid_falls_back_and_persists() {
     };
     p.save(&d).unwrap();
     assert!(!Preferences::load(&d).hide_redacted, "survives a restart");
+}
+
+#[test]
+fn update_fields_old_file_defaults_and_full_roundtrip() {
+    let d = dirs(&tmp("update_fields"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    std::fs::write(d.config.join("settings.json"), r#"{"theme":"dark","debug":true}"#).unwrap();
+    let old = Preferences::load(&d);
+    assert!(old.update_check_enabled && old.debug);
+    assert_eq!((old.last_check, old.max_build_seen, old.update_base), (None, 0, None));
+    assert!(old.bad_builds.is_empty());
+    let full = Preferences {
+        update_check_enabled: false,
+        last_check: Some(1_700_000_000),
+        max_build_seen: 812,
+        bad_builds: [7, 3, 7].into(),
+        update_base: Some("http://lan/dl/".into()),
+        ..Preferences::default()
+    };
+    full.save(&d).unwrap();
+    assert_eq!(Preferences::load(&d), full);
+    assert_eq!(full.bad_builds.len(), 2);
 }
