@@ -81,6 +81,9 @@ jobs:
     needs: [debounce, linux]
     if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
     runs-on: windows-x64
+    env:
+      # rustc va in STATUS_STACK_BUFFER_OVERRUN (0xc0000409) su crate grossi come windows 0.61 (run 2290): stack dei thread del compiler a 32 MiB.
+      RUST_MIN_STACK: 33554432
     steps:
       - name: Checkout
         run: |
