@@ -2,6 +2,9 @@
 pub mod channel;
 pub mod verify;
 pub mod startup;
+pub mod stage;
+#[cfg(all(test, unix))]
+mod stage_tests;
 #[cfg(test)]
 mod startup_tests;
 
