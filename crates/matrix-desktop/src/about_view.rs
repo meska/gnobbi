@@ -171,7 +171,21 @@ impl Shell {
         div()
             .id("about-page")
             .track_focus(&self.about_focus)
-            .child(action(0, "about-back", "‹ Indietro"))
+            .child(
+                div().flex().items_center().justify_between()
+                    .child(action(0, "about-back", "‹ Indietro"))
+                    .child(
+                        div().id("about-close").w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
+                            .border_1()
+                            .border_color(rgb(if input_modality::only_keys(focused, cx) && self.about_row == 4 { t.accent } else { t.surface }))
+                            .hover(|s| s.bg(rgb(t.border)))
+                            .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.about_row = 4;
+                                this.activate_about(4, window, cx)
+                            })),
+                    ),
+            )
             .child(
                 div()
                     .p_4()
@@ -203,7 +217,6 @@ impl Shell {
             .child(action(1, "about-license", "Apri licenze"))
             .child(action(2, "about-third-party", "Licenze di terze parti"))
             .child(action(3, "about-copy", "Copia informazioni"))
-            .child(action(4, "about-close", "Chiudi"))
             .into_any_element()
     }
 }

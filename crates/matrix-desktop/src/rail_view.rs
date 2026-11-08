@@ -705,7 +705,12 @@ impl Shell {
                     .child(header_button("rail-edit-groups", "Crea").on_click(cx.listener(|this, _, window, cx| {
                         this.open_groups_edit(window, cx);
                     })))
-                    .child(header_button("rail-edit-close", "Chiudi").on_click(close_edit(cx))),
+                    .child(
+                        div().id("rail-edit-close").w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
+                            .hover(|s| s.bg(rgb(t.border)))
+                            .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
+                            .on_click(close_edit(cx)),
+                    ),
             )
             .child(
                 div()
