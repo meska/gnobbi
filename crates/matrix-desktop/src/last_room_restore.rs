@@ -9,6 +9,8 @@ pub const RESTORE_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct LastRoomRestore {
     armed_for: Option<AccountId>,
     pending: Option<(RoomId, Instant)>,
+    /// The user chose a room before the first arm: that arm must not wait for the saved one.
+    manual: bool,
 }
 
 impl LastRoomRestore {
@@ -20,6 +22,23 @@ impl LastRoomRestore {
     /// The user chose a room by hand: the saved one no longer applies.
     pub fn cancel(&mut self) {
         self.pending = None;
+        self.manual = self.armed_for.is_none();
+    }
+
+    /// A different account is now shown: forget everything so the next arm waits for its room.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Arms the wait for `account` (once). Call before anything may open or save a room.
+    pub fn arm(&mut self, account: AccountId, saved: impl FnOnce() -> Option<RoomId>, now: Instant) {
+        if self.armed_for != Some(account) {
+            self.armed_for = Some(account);
+            let manual = std::mem::take(&mut self.manual);
+            self.pending = saved()
+                .filter(|_| !manual)
+                .map(|room| (room, now + RESTORE_TIMEOUT));
+        }
     }
 
     /// Call on every tick. The first call for an account arms the wait with its `saved` room.
@@ -31,10 +50,7 @@ impl LastRoomRestore {
         now: Instant,
         open: impl FnOnce(&RoomId) -> bool,
     ) -> Option<RoomId> {
-        if self.armed_for != Some(account) {
-            self.armed_for = Some(account);
-            self.pending = saved().map(|room| (room, now + RESTORE_TIMEOUT));
-        }
+        self.arm(account, saved, now);
         let (room, deadline) = self.pending.take()?;
         if open(&room) {
             Some(room)

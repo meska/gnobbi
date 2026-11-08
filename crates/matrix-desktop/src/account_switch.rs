@@ -259,7 +259,8 @@ impl Shell {
         self.put_state(next);
         self.active_id = Some(id);
         self.clear_account_views(cx);
-        self.restore.cancel(); // re-armed for the new account by the next tick
+        self.restore.reset();
+        self.restore_last_room(cx); // arms for the new account; its room may already be listed
         self.sync_room(cx);
         cx.notify();
     }

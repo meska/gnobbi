@@ -1145,6 +1145,12 @@ impl Shell {
     }
 
     fn sync_room(&mut self, cx: &mut Context<Self>) {
+        // Arm before the first event: a slow sync must not open (and save) the first row.
+        if self.connected {
+            let (account, prefs) = (self.draft_scope().account_id, &self.room_prefs);
+            self.restore
+                .arm(account, || prefs.last_open_room(account), std::time::Instant::now());
+        }
         // Waiting for the saved room: opening the auto-selected first row would mark it read.
         if self.restore.waiting() {
             return;
