@@ -625,8 +625,11 @@ impl Shell {
         let Some(q) = self.quick.as_mut() else {
             return false;
         };
-        // Waiting for the engine: only Esc (closes the overlay) is handled.
-        if q.busy.is_some() && key != "escape" {
+        // Waiting for the engine: only Esc is handled, and it closes the overlay even with a chip.
+        if q.busy.is_some() {
+            if key == "escape" {
+                self.close_quick_search(window, cx);
+            }
             return true;
         }
         // «Aggiungi nuovo server…»: Enter probes the name, Esc drops it, other keys type.
@@ -810,6 +813,10 @@ impl Shell {
                 focused: f.focus.is_focused(window),
                 bounds: f.semantic_bounds,
             });
+        }
+        let add_error = q.servers.as_ref().filter(|_| q.add_field.is_some()).and_then(|p| p.add_error());
+        for e in q.error.into_iter().chain(add_error) {
+            items.push(Item { role: Role::Label, label: e.to_owned(), checked: None, focused: false, bounds: None });
         }
         Some(Snapshot { items, join })
     }
