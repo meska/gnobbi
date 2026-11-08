@@ -4489,6 +4489,7 @@ dependencies = [
  "objc",
  "objc2-core-foundation",
  "raw-window-handle",
+ "reqwest",
  "serde_json",
  "sha2 0.10.9",
  "tokio",
