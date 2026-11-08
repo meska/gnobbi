@@ -165,7 +165,7 @@ impl Shell {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
             self.device_focus = Default::default();
-            self.a11y_device_bounds = [None; 6];
+            self.a11y_device_bounds = [None; 2];
         }
         self.verification.refresh();
         self.list_focus.focus(window);

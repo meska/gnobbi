@@ -30,7 +30,7 @@ mod verification;
 pub mod recover_keys;
 #[cfg(feature = "desktop")]
 pub mod window;
-pub use verification::{DeviceVerification, device_detail, device_label, device_title};
+pub use verification::{DeviceVerification, PopupBody, PopupButton, PopupView, device_detail, device_label, device_title};
 #[cfg(feature = "live")]
 mod signin_form;
 #[cfg(feature = "live")]

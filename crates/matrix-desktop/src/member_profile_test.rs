@@ -247,7 +247,13 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     assert_eq!(clip.as_deref(), Some("https://matrix.to/#/@ada:fixture.test"), "Condividi link utente");
     shell!(|this, _, _| this.profile_focus = to(A::Verify, this));
     key!("enter");
-    shell!(|this, _, _| assert!(matches!(this.verification.pending(), Some(matrix_engine::verification::VerificationCommand::BeginUser { user_id, .. }) if user_id == ADA)));
+    shell!(|this, _, _| {
+        assert!(matches!(this.verification.pending(), Some(matrix_engine::verification::VerificationCommand::BeginUser { user_id, .. }) if user_id == ADA));
+        assert!(this.verification.popup_open(), "«Verifica utente» opens the popup at once");
+    });
+    // The popup is modal: Esc leaves it (nothing to cancel yet) and the sheet keys work again.
+    key!("escape");
+    shell!(|this, _, _| assert!(!this.verification.popup_open(), "Esc closes the popup while waiting"));
     shell!(|this, _, _| {
         this.pending_operation_command = None;
         this.profile_focus = to(A::Message, this);

@@ -50,6 +50,8 @@ mod rail_drag_test;
 #[cfg(test)]
 mod bar_alignment_test;
 #[cfg(test)]
+mod verification_popup_test;
+#[cfg(test)]
 mod member_profile_test;
 #[cfg(test)]
 mod drawer_active_test;
@@ -204,7 +206,7 @@ struct Shell {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     device_focus: matrix_desktop::accessibility::devices::DeviceControl,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_device_bounds: [Option<accesskit::Rect>; 6],
+    a11y_device_bounds: [Option<accesskit::Rect>; 2],
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     device_scroll: verification_view::DeviceScroll,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -839,6 +841,11 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // The verification popup is modal over every screen: it gets all keys.
+        if self.verification.popup_open() {
+            self.popup_key(event, cx);
+            return;
+        }
         let key = &event.keystroke;
         // Device sign-out and rename dialogs are modal: their field and buttons get the keys.
         if self.verification_open
@@ -1100,7 +1107,7 @@ impl Shell {
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 {
                     self.device_focus = Default::default();
-                    self.a11y_device_bounds = [None; 6];
+                    self.a11y_device_bounds = [None; 2];
                 }
                 self.verification.refresh();
             }
@@ -1930,7 +1937,7 @@ impl Shell {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Common wrapper: sign-in, notifications and verification return early from `render_screen` and must update the input modality too.
-        div().size_full()
+        div().size_full().relative()
             .capture_key_down(|_, _, cx| input_modality::set_keyboard(cx))
             // Window-level listener: a click under an `.occlude()` overlay never reaches the root's own mouse handlers.
             .child(gpui::canvas(|_, _, _| (), |_, _, window, _| {
@@ -1939,6 +1946,7 @@ impl Render for Shell {
                 });
             }).absolute().size_0())
             .child(self.render_screen(window, cx))
+            .children(self.render_verification_popup(cx))
     }
 }
 
@@ -2107,7 +2115,8 @@ impl Shell {
             .capture_key_down(cx.listener({
                 let opener_keys=self.opener_key_callback();
                 move |this,event,window,cx| {
-                    if this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
+                    if this.verification.popup_open() {this.navigation_key(event,window,cx);}
+                    else if this.menu_key(event,window,cx) || this.sidebar_activation_down(event,window,cx) || opener_keys(this,event,window,cx) {cx.stop_propagation();}
                     else {this.navigation_key(event,window,cx);}
                 }
             }))
@@ -2615,6 +2624,7 @@ fn main() {
         || sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || bar_alignment_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || verification_popup_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || drawer_active_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || rail_ring_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || switch_rows_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
@@ -3234,6 +3244,8 @@ fn main() {
                     #[cfg(test)]
                     bar_alignment_test::install(window, cx);
                     #[cfg(test)]
+                    verification_popup_test::install(window, cx);
+                    #[cfg(test)]
                     drawer_active_test::install(window, cx);
                     #[cfg(test)]
                     rail_ring_test::install(window, cx);
@@ -3391,7 +3403,7 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         device_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_device_bounds: [None; 6],
+                        a11y_device_bounds: [None; 2],
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         device_scroll: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

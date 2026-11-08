@@ -2,7 +2,8 @@
 use super::ROOT;
 use accesskit::{Action, Node, NodeId, Role, Tree, TreeId, TreeUpdate};
 use matrix_domain::AccountId;
-use matrix_engine::verification::{VerificationAction, VerificationDevice, VerificationSnapshot};
+use crate::{PopupBody, PopupButton, PopupView};
+use matrix_engine::verification::{VerificationDevice, VerificationSnapshot};
 
 #[derive(Clone)]
 pub struct SemanticDevice {
@@ -15,7 +16,7 @@ pub struct DeviceNodes {
     ids: std::collections::HashMap<(AccountId, String, String), NodeId>,
     next: u64,
     panel_key: Option<(AccountId, Option<VerificationSnapshot>)>,
-    flow_ids: [NodeId; 4],
+    flow_ids: [NodeId; 9],
     next_flow: u64,
 }
 impl Default for DeviceNodes {
@@ -24,13 +25,13 @@ impl Default for DeviceNodes {
             ids: Default::default(),
             next: 1_u64 << 55,
             panel_key: None,
-            flow_ids: [NodeId(0); 4],
+            flow_ids: [NodeId(0); 9],
             next_flow: 1_u64 << 56,
         }
     }
 }
 impl DeviceNodes {
-    /// Scope decision handles before publishing or resolving assistive actions.
+    /// Scope popup button handles before publishing or resolving assistive actions.
     /// Never recycle a prior handle, even if an older snapshot is seen again.
     pub fn scope_panel(&mut self, mut panel: DeviceOverview) -> DeviceOverview {
         let key = (panel.account, panel.snapshot.clone());
@@ -101,9 +102,11 @@ pub enum DeviceAction {
         account: AccountId,
         control: DeviceControl,
     },
-    Decide {
-        snapshot: Box<VerificationSnapshot>,
-        action: VerificationAction,
+    /// A button of the verification popup, valid only for the snapshot it was published with.
+    Popup {
+        account: AccountId,
+        button: PopupButton,
+        snapshot: Option<Box<VerificationSnapshot>>,
     },
     Begin {
         account: AccountId,
@@ -163,9 +166,10 @@ impl DeviceView {
                             device: panel.devices.iter().find(|d| d.id == id)?.device.clone(),
                             previous: panel.snapshot.clone().map(Box::new),
                         },
-                        _ => DeviceAction::Decide {
-                            snapshot: Box::new(panel.snapshot.clone()?),
-                            action: control.decision()?,
+                        DeviceControl::Popup(button) => DeviceAction::Popup {
+                            account: panel.account,
+                            button,
+                            snapshot: panel.snapshot.clone().map(Box::new),
                         },
                     }),
                     _ => None,
@@ -183,13 +187,17 @@ impl DeviceView {
             (Self::Open(panel), DeviceAction::Focus { account, control }) => {
                 panel.account == *account && panel.controls().contains(control)
             }
-            (Self::Open(panel), DeviceAction::Decide { snapshot, action }) => {
-                panel.account == snapshot.account_id
-                    && panel.snapshot.as_ref() == Some(snapshot.as_ref())
-                    && panel
-                        .controls()
-                        .iter()
-                        .any(|c| c.decision() == Some(*action))
+            (
+                Self::Open(panel),
+                DeviceAction::Popup {
+                    account,
+                    button,
+                    snapshot,
+                },
+            ) => {
+                panel.account == *account
+                    && panel.snapshot.as_ref() == snapshot.as_deref()
+                    && panel.controls().contains(&DeviceControl::Popup(*button))
             }
             (
                 Self::Open(panel),
@@ -232,10 +240,6 @@ pub enum DeviceControl {
     #[default]
     Close,
     Refresh,
-    Confirm,
-    Mismatch,
-    Cancel,
-    Comparison,
     Device(NodeId),
     /// «Disconnetti» of the row whose device handle is the payload.
     Delete(NodeId),
@@ -244,6 +248,8 @@ pub enum DeviceControl {
     DialogField,
     DialogCancel,
     DialogConfirm,
+    /// A button of the verification popup (its X included).
+    Popup(PopupButton),
 }
 impl DeviceControl {
     pub fn id(self) -> NodeId {
@@ -254,6 +260,7 @@ impl DeviceControl {
             Self::DialogField => NodeId(47),
             Self::DialogCancel => NodeId(48),
             Self::DialogConfirm => NodeId(49),
+            Self::Popup(b) => NodeId(60 + b.index() as u64),
             _ => NodeId(41 + self.index().unwrap() as u64),
         }
     }
@@ -261,21 +268,9 @@ impl DeviceControl {
         Some(match self {
             Self::Close => 0,
             Self::Refresh => 1,
-            Self::Confirm => 2,
-            Self::Mismatch => 3,
-            Self::Cancel => 4,
-            Self::Comparison => 5,
             Self::Device(_) | Self::Delete(_) | Self::Rename => return None,
-            Self::DialogField | Self::DialogCancel | Self::DialogConfirm => return None,
+            Self::DialogField | Self::DialogCancel | Self::DialogConfirm | Self::Popup(_) => return None,
         })
-    }
-    fn decision(self) -> Option<VerificationAction> {
-        match self {
-            Self::Confirm => Some(VerificationAction::Confirm),
-            Self::Mismatch => Some(VerificationAction::Mismatch),
-            Self::Cancel => Some(VerificationAction::Cancel),
-            _ => None,
-        }
     }
 }
 
@@ -283,11 +278,11 @@ impl DeviceControl {
 pub struct DeviceOverview {
     pub account: AccountId,
     pub focus: DeviceControl,
-    pub bounds: [Option<accesskit::Rect>; 6],
+    pub bounds: [Option<accesskit::Rect>; 2],
     labels: Vec<String>,
     snapshot: Option<VerificationSnapshot>,
-    decisions: [bool; 3],
-    comparison: Option<String>,
+    /// The open verification popup: it alone is reachable while it is up, over the panel or over any screen.
+    popup: Option<PopupView>,
     devices: Vec<SemanticDevice>,
     can_begin: bool,
     own_device: Option<String>,
@@ -295,14 +290,14 @@ pub struct DeviceOverview {
     /// Open «Disconnetti» or «Rinomina» dialog: title and last outcome. The password is never here.
     dialog: Option<(String, Option<&'static str>)>,
     dialog_rename: bool,
-    flow_ids: [NodeId; 4],
+    flow_ids: [NodeId; 9],
 }
 impl DeviceOverview {
     pub fn project(
         account: AccountId,
         model: &crate::DeviceVerification,
         focus: DeviceControl,
-        bounds: [Option<accesskit::Rect>; 6],
+        bounds: [Option<accesskit::Rect>; 2],
     ) -> Self {
         let mut labels: Vec<String> = model
             .own_device()
@@ -322,28 +317,17 @@ impl DeviceOverview {
         labels.extend(model.devices().iter().map(|device| {
             crate::device_label(device)
         }));
-        labels.push(model.status_label().into());
-        if let Some(snapshot) = model.snapshot() {
-            labels.push(format!("Account: {}", snapshot.user_id));
-            labels.push(format!("Dispositivo: {}", snapshot.device_id));
-        }
-        labels.push(model.trust_label().into());
-        let comparison = model
-            .comparison()
-            .map(|(a, b, c)| format!("Numeri SAS: {a}, {b}, {c}"));
+        let popup = model.popup_view();
         let mut panel = Self {
             account,
-            focus,
+            focus: match model.popup_focused() {
+                Some(button) if popup.is_some() => DeviceControl::Popup(button),
+                _ => focus,
+            },
             bounds,
             labels,
             snapshot: model.snapshot().cloned(),
-            decisions: [
-                VerificationAction::Confirm,
-                VerificationAction::Mismatch,
-                VerificationAction::Cancel,
-            ]
-            .map(|a| model.can_act(a)),
-            comparison,
+            popup,
             devices: vec![],
             can_begin: model.can_begin(),
             own_device: model.own_device().map(str::to_owned),
@@ -353,7 +337,7 @@ impl DeviceOverview {
                 .map(|d| (d.name.clone(), d.error))
                 .or_else(|| model.rename_dialog().map(|d| ("Rinomina".to_owned(), d.error))),
             dialog_rename: model.rename_dialog().is_some(),
-            flow_ids: [NodeId(43), NodeId(44), NodeId(45), NodeId(46)],
+            flow_ids: PopupButton::ALL.map(|b| DeviceControl::Popup(b).id()),
         };
         if !matches!(panel.focus, DeviceControl::Device(_) | DeviceControl::Delete(_))
             && !panel.controls().contains(&panel.focus)
@@ -379,6 +363,15 @@ impl DeviceOverview {
     }
 
     pub fn controls(&self) -> Vec<DeviceControl> {
+        if let Some(popup) = &self.popup {
+            return popup
+                .buttons
+                .iter()
+                .copied()
+                .chain([PopupButton::Close])
+                .map(DeviceControl::Popup)
+                .collect();
+        }
         if self.dialog.is_some() {
             return vec![
                 DeviceControl::DialogField,
@@ -400,27 +393,12 @@ impl DeviceOverview {
                 controls.push(DeviceControl::Delete(d.id));
             }
         }
-        if self.comparison.is_some() {
-            controls.push(DeviceControl::Comparison);
-        }
-        for (index, control) in [
-            DeviceControl::Confirm,
-            DeviceControl::Mismatch,
-            DeviceControl::Cancel,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            if self.decisions[index] {
-                controls.push(control);
-            }
-        }
         controls
     }
 
     pub fn control_id(&self, control: DeviceControl) -> NodeId {
-        match control.index() {
-            Some(index @ 2..=5) => self.flow_ids[index - 2],
+        match control {
+            DeviceControl::Popup(b) => self.flow_ids[b.index()],
             _ => control.id(),
         }
     }
@@ -474,7 +452,54 @@ impl DeviceOverview {
         }
     }
 
+    /// The popup as a dialog named after its title: emoji (SDK names) or numbers, outcome, then its buttons.
+    fn popup_tree(&self, view: &PopupView) -> TreeUpdate {
+        let mut root = Node::new(Role::Window);
+        root.set_label("Verifica");
+        let mut dialog = Node::new(Role::Dialog);
+        dialog.set_label(view.title);
+        let texts: Vec<String> = match &view.body {
+            PopupBody::Waiting => vec!["In attesa dell’altro dispositivo".into()],
+            PopupBody::Empty => vec![],
+            PopupBody::Request(who) => vec![who.clone()],
+            PopupBody::Outcome(text) => vec![(*text).into()],
+            PopupBody::Decimals((a, b, c)) => vec![format!("Numeri SAS: {a}, {b}, {c}")],
+            PopupBody::Emoji(emoji) => emoji.iter().map(|(_, name)| name.clone()).collect(),
+        };
+        let mut nodes = vec![];
+        for (i, text) in texts.into_iter().enumerate() {
+            let id = NodeId((1 << 59) + 2 + i as u64);
+            let mut node = Node::new(Role::Label);
+            node.set_value(text);
+            dialog.push_child(id);
+            nodes.push((id, node));
+        }
+        for control in self.controls() {
+            let DeviceControl::Popup(button) = control else { continue };
+            let mut node = Node::new(Role::Button);
+            node.set_label(button.label());
+            node.add_action(Action::Focus);
+            node.add_action(Action::Click);
+            let id = self.control_id(control);
+            dialog.push_child(id);
+            nodes.push((id, node));
+        }
+        let dialog_id = NodeId((1 << 59) + 1);
+        root.push_child(dialog_id);
+        nodes.insert(0, (dialog_id, dialog));
+        nodes.insert(0, (ROOT, root));
+        TreeUpdate {
+            nodes,
+            tree: Some(Tree::new(ROOT)),
+            tree_id: TreeId::ROOT,
+            focus: self.control_id(self.focus),
+        }
+    }
+
     pub fn tree(&self) -> TreeUpdate {
+        if let Some(view) = &self.popup {
+            return self.popup_tree(view);
+        }
         if let Some((name, error)) = &self.dialog {
             return self.dialog_tree(name, *error);
         }
@@ -494,10 +519,6 @@ impl DeviceOverview {
                 DeviceControl::Close => "Chiudi verifica dispositivi",
                 DeviceControl::Refresh => "Aggiorna dispositivi",
                 DeviceControl::Rename => "Rinomina",
-                DeviceControl::Confirm => "Coincidono",
-                DeviceControl::Mismatch => "Non coincidono",
-                DeviceControl::Cancel => "Annulla verifica",
-                DeviceControl::Comparison => self.comparison.as_deref().unwrap_or_default(),
                 DeviceControl::Device(id) => {
                     let device = &self.devices.iter().find(|d| d.id == id).unwrap().device;
                     device_label = format!("Avvia verifica con {}", crate::device_label(device));
@@ -510,23 +531,13 @@ impl DeviceOverview {
                 }
                 DeviceControl::DialogField
                 | DeviceControl::DialogCancel
-                | DeviceControl::DialogConfirm => unreachable!("dialog has its own tree"),
+                | DeviceControl::DialogConfirm
+                | DeviceControl::Popup(_) => unreachable!("dialog and popup have their own tree"),
             };
-            let comparison = control == DeviceControl::Comparison;
-            let mut node = Node::new(if comparison {
-                Role::Label
-            } else {
-                Role::Button
-            });
-            if comparison {
-                node.set_value(label);
-            } else {
-                node.set_label(label);
-            }
+            let mut node = Node::new(Role::Button);
+            node.set_label(label);
             node.add_action(Action::Focus);
-            if !comparison {
-                node.add_action(Action::Click);
-            }
+            node.add_action(Action::Click);
             let bounds = match control {
                 DeviceControl::Device(id) | DeviceControl::Delete(id) => self
                     .devices
