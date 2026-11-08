@@ -156,6 +156,9 @@ impl Shell {
     }
 
     pub(crate) fn set_notifications_open(&mut self, open: bool) {
+        if open && !self.notifications_open {
+            self.notification_focus = Default::default();
+        }
         self.notifications_open = open;
         self.refresh_navigation_visibility();
     }

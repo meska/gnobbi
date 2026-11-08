@@ -9,14 +9,7 @@ pub const PREVIEW: NodeId = NodeId(23);
 pub const CLOSE: NodeId = NodeId(24);
 pub const OPEN: NodeId = NodeId(27);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum NotificationControl {
-    #[default]
-    Enabled,
-    Mute,
-    Preview,
-    Close,
-}
+pub use crate::notifications::NotificationControl;
 impl NotificationControl {
     pub fn id(self) -> NodeId {
         match self {
@@ -40,14 +33,7 @@ pub struct NotificationSnapshot {
 }
 impl NotificationSnapshot {
     pub fn next_focus(&self, backwards: bool) -> NotificationControl {
-        use NotificationControl::*;
-        let controls = if self.selected.is_some() {
-            vec![Enabled, Mute, Preview, Close]
-        } else {
-            vec![Enabled, Preview, Close]
-        };
-        let index = controls.iter().position(|c| *c == self.focus).unwrap_or(0);
-        controls[(index + if backwards { controls.len() - 1 } else { 1 }) % controls.len()]
+        self.focus.next(self.selected.is_some(), backwards)
     }
 }
 #[derive(Clone, Default)]
@@ -78,7 +64,7 @@ impl NotificationView {
             (ENABLED, "Notifiche locali attive".to_owned(), panel.enabled),
             (
                 MUTE,
-                format!("Notifiche della stanza {}", panel.room_name),
+                format!("Notifiche della stanza {}", panel.room_name).trim_end().to_owned(),
                 // On = notifications active, the opposite of the room's muted flag.
                 panel.selected.as_ref().is_some_and(|(_, muted)| !*muted),
             ),

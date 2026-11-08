@@ -153,10 +153,7 @@ impl Shell {
         let muted = selected.is_some_and(|room| room.info.muted);
         let room_available = selected.is_some();
         let room_name = selected.map(|room| room.name.clone());
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let focused_control = Some(self.notification_focus as usize);
-        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-        let focused_control: Option<usize> = None;
         div().size_full().flex().flex_col().bg(rgb(t.surface)).text_color(rgb(t.text))
             .font_family(matrix_desktop::ui_font()).text_size(px(14.))
             .track_focus(&self.list_focus).capture_key_down(cx.listener(Self::navigation_key))
