@@ -48,7 +48,10 @@ pub(crate) fn switch_track(on: bool, enabled: bool, t: DesignTokens) -> Div {
         .rounded_full()
         .flex()
         .items_center()
-        .px(px(2.))
+        .px(px(1.))
+        // Off track: `disabled` alone is ~1.3:1 on a dark surface; the `secondary` outline keeps it >= 3:1.
+        .border_1()
+        .border_color(rgb(if on { t.accent } else { t.secondary }))
         .bg(rgb(if on { t.accent } else { t.disabled }))
         .when(on, |d| d.justify_end())
         .child(div().size(px(16.)).rounded_full().bg(rgb(t.on_accent)))

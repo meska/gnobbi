@@ -159,8 +159,7 @@ struct Shell {
     unread_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_unread_bounds: Option<accesskit::Rect>,
-    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    notification_focus: matrix_desktop::accessibility::notifications::NotificationControl,
+    notification_focus: matrix_desktop::notifications::NotificationControl,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_notification_bounds: [Option<accesskit::Rect>; 4],
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1054,37 +1053,23 @@ impl Shell {
             return;
         }
         if self.notifications_open {
-            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             if matches!(key.key.as_str(), "tab" | "up" | "down") {
-                use matrix_desktop::accessibility::notifications::{
-                    NotificationAction, NotificationView,
-                };
-                let view = self.semantic_notifications(window);
-                if let NotificationView::Open(snapshot) = &view {
-                    self.apply_semantic_notification(
-                        NotificationAction::Focus(snapshot.next_focus(key.modifiers.shift || key.key == "up")),
-                        window,
-                        cx,
-                    );
-                }
+                let room = self.sidebar.selected().is_some();
+                self.notification_focus =
+                    self.notification_focus.next(room, key.modifiers.shift || key.key == "up");
+                cx.notify();
                 cx.stop_propagation();
                 return;
             }
-            #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             if matches!(key.key.as_str(), "space" | "enter") {
-                let view = self.semantic_notifications(window);
-                if let matrix_desktop::accessibility::notifications::NotificationView::Open(
-                    snapshot,
-                ) = &view
-                    && let Some(action) = view.action(&accesskit::ActionRequest {
-                        action: accesskit::Action::Click,
-                        target_tree: accesskit::TreeId::ROOT,
-                        target_node: snapshot.focus.id(),
-                        data: None,
-                    })
-                {
-                    self.apply_semantic_notification(action, window, cx);
+                use matrix_desktop::notifications::NotificationControl::*;
+                match self.notification_focus {
+                    Enabled => self.change_notification_preference(0),
+                    Mute => self.change_notification_preference(1),
+                    Preview => self.change_notification_preference(2),
+                    Close => self.set_notifications_open(false),
                 }
+                cx.notify();
                 cx.stop_propagation();
                 return;
             }
@@ -3344,7 +3329,6 @@ fn main() {
                         unread_focus,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_unread_bounds: None,
-                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         notification_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_notification_bounds: [None; 4],

@@ -6,8 +6,7 @@
 //! Layout constants mirror render_notifications + switch_row; a drift makes the colour probes fail, which is the point.
 use crate::*;
 use gpui::Keystroke;
-#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-use matrix_desktop::accessibility::notifications::NotificationControl;
+use matrix_desktop::notifications::NotificationControl;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) static ACTIVE: AtomicBool = AtomicBool::new(false);
@@ -109,8 +108,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     })));
                     assert!(this.sidebar.select(&scope));
                 }
-                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                { this.notification_focus = NotificationControl::Close; }
+                this.notification_focus = NotificationControl::Close;
                 cx.notify();
             }
         };
@@ -152,8 +150,34 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }
         }
 
+        // 1b. A very long room name is cut with an ellipsis; the whole switch stays painted.
+        for (theme, t, tname) in [(Theme::Classic, t_classic, "light"), (Theme::Dark, t_dark, "dark")] {
+            this.update_in(cx, |this, _, cx| this.set_theme(theme, cx)).unwrap();
+            let scope = scope.clone();
+            this.update_in(cx, |this, window, cx| {
+                set(true, Some(false), true)(this, window, cx);
+                this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
+                    scope, name: "Riunione del consiglio di amministrazione sulla privacy e le notifiche locali 2026".into(),
+                    unread: 0, info: matrix_engine::RoomInfo { muted: false, ..Default::default() },
+                })));
+            }).unwrap();
+            wait(500).await;
+            match Shot::take(&format!("{tname}-{scale}-longname")) {
+                Err(e) => check!(false, "{tname}/longname: {e}"),
+                Ok(mut shot) => {
+                    shot.1 = shot.0.width() as f32 / w;
+                    for i in 0..3 {
+                        match look(&shot, w, i, &t) {
+                            Ok(got) => check!(got == Look::On, "{tname}/longname row {i}: drawn {got:?}, expected On"),
+                            Err(e) => check!(false, "{tname}/longname: {e}"),
+                        }
+                    }
+                }
+            }
+        }
+
         // 3. Keys. Start: all on, light theme.
-        this.update_in(cx, |this, window, cx| { this.set_theme(Theme::Classic, cx); set(true, Some(false), true)(this, window, cx); #[cfg(all(feature = "linux-a11y", target_os = "linux"))] { this.notification_focus = Default::default(); } }).unwrap();
+        this.update_in(cx, |this, window, cx| { this.set_theme(Theme::Classic, cx); set(true, Some(false), true)(this, window, cx); this.notification_focus = Default::default(); }).unwrap();
         key!("n");
         this.update_in(cx, |this, _, _| check!(!this.notifications.enabled(), "N did not switch Notifiche off")).unwrap();
         key!("n");
@@ -170,7 +194,6 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         // Keys must not leak to the chat behind (no composer text, panel still open).
         this.update_in(cx, |this, _, _| check!(this.notifications_open, "panel closed by N/M/P")).unwrap();
 
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
             let focus = |this: &Shell| this.notification_focus;
             this.update_in(cx, |this, _, _| this.notification_focus = NotificationControl::Enabled).unwrap();
@@ -217,17 +240,6 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             key!("enter");
             this.update_in(cx, |this, _, _| check!(!this.notifications_open, "Enter on the X did not close the panel")).unwrap();
             this.update_in(cx, |this, window, cx| { this.set_notifications_open(true); this.list_focus.focus(window); cx.notify(); }).unwrap();
-        }
-        // Default build: Tab/arrows/Space/Enter and the focus ring exist only behind linux-a11y (known gap, reported to
-        // mazinga). Opt in with SWITCH_KEYS_STRICT=1 to see it fail: Space on the first row must switch Notifiche.
-        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-        if std::env::var("SWITCH_KEYS_STRICT").as_deref() == Ok("1") {
-            let before = this.update_in(cx, |this, _, _| this.notifications.enabled()).unwrap();
-            key!("space");
-            this.update_in(cx, |this, _, _| check!(this.notifications.enabled() != before, "default build: Space on the focused row does nothing")).unwrap();
-            key!("tab");
-            key!("enter");
-            this.update_in(cx, |this, _, _| check!(this.notifications.count_preview() || this.notifications.enabled() == before, "default build: Tab+Enter moved nothing")).unwrap();
         }
         // Full-screen views return early from render (like sign-in): a key must still set keyboard modality (GPUI cannot inject a click here; the pointer listener is the same wrapper).
         cx.update(|_, cx| input_modality::set_pointer(cx)).unwrap();
