@@ -28,6 +28,9 @@ use windows::{
 
 use crate::*;
 
+#[path = "work_area.rs"]
+mod work_area;
+
 pub(crate) struct WindowsWindow(pub Rc<WindowsWindowInner>);
 
 pub struct WindowsWindowState {
@@ -467,6 +470,7 @@ impl WindowsWindow {
             params.bounds,
             this.state.borrow().scale_factor,
             this.state.borrow().border_offset,
+            params.kind != WindowKind::PopUp,
         )?;
         if params.show {
             unsafe { SetWindowPlacement(hwnd, &placement)? };
@@ -1299,6 +1303,7 @@ fn retrieve_window_placement(
     initial_bounds: Bounds<Pixels>,
     scale_factor: f32,
     border_offset: WindowBorderOffset,
+    fit_work_area: bool,
 ) -> Result<WINDOWPLACEMENT> {
     let mut placement = WINDOWPLACEMENT {
         length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
@@ -1313,6 +1318,21 @@ fn retrieve_window_placement(
     };
     let bounds = bounds.to_device_pixels(scale_factor);
     placement.rcNormalPosition = calculate_window_rect(bounds, border_offset);
+    if fit_work_area {
+        let mut info = MONITORINFO {
+            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        if unsafe { GetMonitorInfoW(display.handle, &mut info) }.as_bool() {
+            let array = |r: RECT| [r.left, r.top, r.right, r.bottom];
+            let [left, top, right, bottom] = work_area::fit_window(
+                array(placement.rcNormalPosition),
+                array(info.rcMonitor),
+                array(info.rcWork),
+            );
+            placement.rcNormalPosition = RECT { left, top, right, bottom };
+        }
+    }
     Ok(placement)
 }
 
