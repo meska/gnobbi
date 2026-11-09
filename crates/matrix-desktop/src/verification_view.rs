@@ -383,7 +383,7 @@ impl Shell {
                             #[cfg(not(test))] { None::<gpui::AnyElement> }
                         })
                         .child(div().text_size(px(40.)).line_height(px(EMOJI_LINE)).child(symbol))
-                        .child(div().text_size(px(12.)).text_center().text_color(rgb(t.secondary)).child(name))
+                        .child(div().w_full().truncate().text_size(px(12.)).text_center().text_color(rgb(t.secondary)).child(name))
                 }),
             ).into_any_element()),
         };
