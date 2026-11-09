@@ -2309,8 +2309,8 @@ impl Shell {
                                             .items_center()
                                             .h(px(matrix_desktop::row_text::ROW_HEIGHT_PX))
                                             .flex_shrink_0()
-                                            .px_4()
-                                            .gap_3()
+                                            .px(px(matrix_desktop::row_text::LIST_PAD_X_PX))
+                                            .gap(px(matrix_desktop::row_text::AVATAR_GAP_PX))
                                             .bg(rgb(background))
                                             .child(match this.avatars.get(room.info.avatar.as_deref()) {
                                                 Some(image) => avatar_view::round(image, matrix_desktop::row_text::AVATAR_PX),

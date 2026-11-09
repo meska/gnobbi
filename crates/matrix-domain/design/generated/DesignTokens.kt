@@ -10,6 +10,8 @@ object DesignTokens {
     const val LAYOUT_BOTTOM_BAR = 56.0
     const val SPACING_ROW_PAD_Y = 12.0
     const val SPACING_TEXT_GAP = 4.0
+    const val SPACING_LIST_ROW_PAD_Y = 6.0
+    const val SPACING_LIST_TEXT_GAP = 2.0
     const val SCRIM = 0x00000066L
     const val AVATAR_FALLBACK = 0x53936bL
     const val DEMO_NOTICE = "DEMO OFFLINE · nessun account connesso"

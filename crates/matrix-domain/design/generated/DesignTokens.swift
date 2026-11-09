@@ -8,6 +8,8 @@ enum DesignTokens {
     static let layoutBottomBar: Double = 56
     static let spacingRowPadY: Double = 12
     static let spacingTextGap: Double = 4
+    static let spacingListRowPadY: Double = 6
+    static let spacingListTextGap: Double = 2
     static let scrim: UInt32 = 0x00000066
     static let avatarFallback: UInt32 = 0x53936b
     static let demoNotice = "DEMO OFFLINE · nessun account connesso"

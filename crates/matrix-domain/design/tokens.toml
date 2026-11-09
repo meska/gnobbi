@@ -12,6 +12,8 @@ bottom_bar = 56
 [spacing]           # logical px
 row_pad_y = 12
 text_gap = 4
+list_row_pad_y = 6   # desktop chat list (compact); row_pad_y/text_gap stay for Android
+list_text_gap = 2
 
 [constants]
 scrim = "0x00000066"
