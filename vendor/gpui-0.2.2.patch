@@ -1,6 +1,6 @@
 diff -ruN a/Cargo.toml b/Cargo.toml
---- a/Cargo.toml	2026-11-03 13:31:09
-+++ b/Cargo.toml	2026-11-03 13:30:55
+--- a/Cargo.toml	1970-01-01 01:00:01
++++ b/Cargo.toml	2026-11-09 01:39:56
 @@ -487,6 +487,12 @@
  version = "0.14.0"
  optional = true
@@ -15,9 +15,9 @@ diff -ruN a/Cargo.toml b/Cargo.toml
  version = "0.8.2"
  optional = true
 diff -ruN a/src/elements/text.rs b/src/elements/text.rs
---- a/src/elements/text.rs	2026-11-03 13:31:09
-+++ b/src/elements/text.rs	2026-11-03 13:30:55
-@@ -316,6 +316,7 @@ struct TextLayoutInner {
+--- a/src/elements/text.rs	2006-07-24 03:21:28
++++ b/src/elements/text.rs	2026-11-09 01:39:56
+@@ -316,6 +316,7 @@
      lines: SmallVec<[WrappedLine; 1]>,
      line_height: Pixels,
      wrap_width: Option<Pixels>,
@@ -25,15 +25,18 @@ diff -ruN a/src/elements/text.rs b/src/elements/text.rs
      size: Option<Size<Pixels>>,
      bounds: Option<Bounds<Pixels>>,
  }
-@@ -373,6 +374,7 @@ impl TextLayout {
+@@ -372,7 +373,10 @@
+ 
                  if let Some(text_layout) = element_state.0.borrow().as_ref()
                      && text_layout.size.is_some()
++                    // A truncating text re-measures: the first pass is often max-content, which must not freeze the width.
++                    && truncate_width.is_none()
                      && (wrap_width.is_none() || wrap_width == text_layout.wrap_width)
 +                    && truncate_width == text_layout.truncate_width
                  {
                      return text_layout.size.unwrap();
                  }
-@@ -406,6 +408,7 @@ impl TextLayout {
+@@ -406,6 +410,7 @@
                          len: 0,
                          line_height,
                          wrap_width,
@@ -41,7 +44,7 @@ diff -ruN a/src/elements/text.rs b/src/elements/text.rs
                          size: Some(Size::default()),
                          bounds: None,
                      });
-@@ -424,6 +427,7 @@ impl TextLayout {
+@@ -424,6 +429,7 @@
                      len,
                      line_height,
                      wrap_width,
@@ -50,8 +53,8 @@ diff -ruN a/src/elements/text.rs b/src/elements/text.rs
                      bounds: None,
                  });
 diff -ruN a/src/platform/linux/text_system.rs b/src/platform/linux/text_system.rs
---- a/src/platform/linux/text_system.rs	2026-11-03 13:31:09
-+++ b/src/platform/linux/text_system.rs	2026-11-03 13:30:55
+--- a/src/platform/linux/text_system.rs	2006-07-24 03:21:28
++++ b/src/platform/linux/text_system.rs	2026-11-09 01:39:56
 @@ -371,8 +371,54 @@
          }
      }
@@ -108,8 +111,8 @@ diff -ruN a/src/platform/linux/text_system.rs b/src/platform/linux/text_system.r
          let mut offs = 0;
          for run in font_runs {
 diff -ruN a/src/platform/linux/wayland/client.rs b/src/platform/linux/wayland/client.rs
---- a/src/platform/linux/wayland/client.rs	2026-11-03 13:31:09
-+++ b/src/platform/linux/wayland/client.rs	2026-11-03 13:30:10
+--- a/src/platform/linux/wayland/client.rs	2006-07-24 03:21:28
++++ b/src/platform/linux/wayland/client.rs	2026-11-09 01:39:56
 @@ -1264,13 +1264,17 @@
              } => {
                  let focused_window = state.keyboard_focused_window.clone();
@@ -144,8 +147,8 @@ diff -ruN a/src/platform/linux/wayland/client.rs b/src/platform/linux/wayland/cl
                  let keysym = keymap_state.key_get_one_sym(keycode);
  
 diff -ruN a/src/platform/linux/x11/client.rs b/src/platform/linux/x11/client.rs
---- a/src/platform/linux/x11/client.rs	2026-11-03 13:31:09
-+++ b/src/platform/linux/x11/client.rs	2026-11-03 13:30:10
+--- a/src/platform/linux/x11/client.rs	2006-07-24 03:21:28
++++ b/src/platform/linux/x11/client.rs	2026-11-09 01:39:56
 @@ -392,6 +392,23 @@
              ),
          )?;
@@ -170,3 +173,133 @@ diff -ruN a/src/platform/linux/x11/client.rs b/src/platform/linux/x11/client.rs
          let xkb_context = xkbc::Context::new(xkbc::CONTEXT_NO_FLAGS);
          let xkb_device_id = xkbc::x11::get_core_keyboard_device_id(&xcb_connection);
          let xkb_state = {
+diff -ruN a/src/platform/windows/window.rs b/src/platform/windows/window.rs
+--- a/src/platform/windows/window.rs	2006-07-24 03:21:28
++++ b/src/platform/windows/window.rs	2026-11-09 01:39:56
+@@ -28,6 +28,9 @@
+ 
+ use crate::*;
+ 
++#[path = "work_area.rs"]
++mod work_area;
++
+ pub(crate) struct WindowsWindow(pub Rc<WindowsWindowInner>);
+ 
+ pub struct WindowsWindowState {
+@@ -467,6 +470,7 @@
+             params.bounds,
+             this.state.borrow().scale_factor,
+             this.state.borrow().border_offset,
++            params.kind != WindowKind::PopUp,
+         )?;
+         if params.show {
+             unsafe { SetWindowPlacement(hwnd, &placement)? };
+@@ -1299,6 +1303,7 @@
+     initial_bounds: Bounds<Pixels>,
+     scale_factor: f32,
+     border_offset: WindowBorderOffset,
++    fit_work_area: bool,
+ ) -> Result<WINDOWPLACEMENT> {
+     let mut placement = WINDOWPLACEMENT {
+         length: std::mem::size_of::<WINDOWPLACEMENT>() as u32,
+@@ -1313,6 +1318,21 @@
+     };
+     let bounds = bounds.to_device_pixels(scale_factor);
+     placement.rcNormalPosition = calculate_window_rect(bounds, border_offset);
++    if fit_work_area {
++        let mut info = MONITORINFO {
++            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
++            ..Default::default()
++        };
++        if unsafe { GetMonitorInfoW(display.handle, &mut info) }.as_bool() {
++            let array = |r: RECT| [r.left, r.top, r.right, r.bottom];
++            let [left, top, right, bottom] = work_area::fit_window(
++                array(placement.rcNormalPosition),
++                array(info.rcMonitor),
++                array(info.rcWork),
++            );
++            placement.rcNormalPosition = RECT { left, top, right, bottom };
++        }
++    }
+     Ok(placement)
+ }
+ 
+diff -ruN a/src/platform/windows/work_area.rs b/src/platform/windows/work_area.rs
+--- a/src/platform/windows/work_area.rs	1970-01-01 01:00:00
++++ b/src/platform/windows/work_area.rs	2026-11-09 01:39:56
+@@ -0,0 +1,75 @@
++pub(crate) fn fit_window(rect: [i32; 4], monitor: [i32; 4], work: [i32; 4]) -> [i32; 4] {
++    let mut result = rect;
++    for axis in 0..2 {
++        let size = (rect[axis + 2] - rect[axis]).min(work[axis + 2] - work[axis]);
++        let start = if rect[axis] < work[axis] || rect[axis + 2] > work[axis + 2] {
++            work[axis] + (work[axis + 2] - work[axis] - size) / 2
++        } else {
++            rect[axis]
++        };
++        // SetWindowPlacement uses workspace, not screen, coordinates.
++        result[axis] = start - (work[axis] - monitor[axis]);
++        result[axis + 2] = result[axis] + size;
++    }
++    result
++}
++
++#[cfg(test)]
++mod tests {
++    use super::fit_window;
++
++    #[test]
++    fn fits_and_centers_on_work_area_for_all_taskbar_sides_and_dpi() {
++        for scale in [2, 3, 4] {
++            let unit = |v| v * scale / 2;
++            let monitor = [unit(-2560), unit(-1600), unit(0), unit(0)];
++            for inset in [[0, 0, 0, 80], [0, 80, 0, 0], [80, 0, 0, 0], [0, 0, 80, 0]] {
++                let work = [
++                    monitor[0] + unit(inset[0]),
++                    monitor[1] + unit(inset[1]),
++                    monitor[2] - unit(inset[2]),
++                    monitor[3] - unit(inset[3]),
++                ];
++                let oversized = [
++                    monitor[0] - unit(100),
++                    monitor[1] - unit(100),
++                    monitor[2] + unit(100),
++                    monitor[3] + unit(100),
++                ];
++                assert_eq!(
++                    fit_window(oversized, monitor, work),
++                    [
++                        monitor[0],
++                        monitor[1],
++                        monitor[0] + work[2] - work[0],
++                        monitor[1] + work[3] - work[1]
++                    ]
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn centers_an_oversize_axis_without_moving_a_valid_axis() {
++        let monitor = [0, 0, 1280, 800];
++        let work = [0, 0, 1280, 760];
++        assert_eq!(
++            fit_window([80, 0, 1200, 800], monitor, work),
++            [80, 0, 1200, 760]
++        );
++        assert_eq!(
++            fit_window([-20, 10, 480, 510], monitor, work),
++            [390, 10, 890, 510]
++        );
++    }
++
++    #[test]
++    fn preserves_fitting_window_and_converts_workspace_coordinates() {
++        let monitor = [-1000, -800, 0, 0];
++        let work = [-960, -760, 0, 0];
++        assert_eq!(
++            fit_window([-900, -700, -400, -200], monitor, work),
++            [-940, -740, -440, -240]
++        );
++    }
++}
