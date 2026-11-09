@@ -1,13 +1,19 @@
 //! Local TCP server, real fixtures, no internet.
+use super::super::verify::LINUX_APPIMAGE;
 use super::*;
+use crate::update::startup;
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
 /// 2026-12-05T18:40:00Z minus 10 days: inside the fixtures' validity.
 fn now() -> SystemTime {
-    UNIX_EPOCH + Duration::from_secs(1_796_496_000 - 10 * 86_400)
+    UNIX_EPOCH + Duration::from_secs(now_secs())
+}
+fn now_secs() -> u64 {
+    1_796_496_000 - 10 * 86_400
 }
 fn fx(name: &str) -> Vec<u8> {
     std::fs::read(
@@ -19,6 +25,26 @@ fn fx(name: &str) -> Vec<u8> {
 }
 fn keys() -> UpdateKeys {
     UpdateKeys::parse(&String::from_utf8(fx("keys.pub")).unwrap()).unwrap()
+}
+
+/// Fresh private store per test; `prefs` is written first so the check and the other writers
+/// share the same settings.json and lock file.
+fn store(name: &str, prefs: &Preferences) -> AppDirs {
+    let root = std::env::temp_dir().join(format!("gnobbi-check-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let dirs = AppDirs {
+        config: root.join("cfg"),
+        data: root.join("data"),
+        cache: root.join("cache"),
+    };
+    prefs.save(&dirs).unwrap();
+    dirs
+}
+fn base_prefs(base: &str) -> Preferences {
+    Preferences {
+        update_base: Some(base.into()),
+        ..Preferences::default()
+    }
 }
 
 /// Serves `reply(path)` (a full raw HTTP response) to every connection; returns the base URL
@@ -49,23 +75,6 @@ fn ok(body: &[u8]) -> Vec<u8> {
     r.extend_from_slice(body);
     r
 }
-fn prefs(base: &str) -> Preferences {
-    Preferences {
-        update_base: Some(base.into()),
-        ..Preferences::default()
-    }
-}
-async fn go(p: &mut Preferences, running: u64) -> Result<Outcome, CheckError> {
-    run(
-        p,
-        &keys(),
-        running,
-        super::super::verify::LINUX_APPIMAGE,
-        UPDATE_HOST,
-        now(),
-    )
-    .await
-}
 fn serve_fixture(minisig: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
     serve(move |path| match path {
         "/dl/latest.json" => ok(&fx("valid.json")),
@@ -74,18 +83,82 @@ fn serve_fixture(minisig: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
     })
 }
 
+/// Like [`serve_fixture`], but holds the `latest.json` reply until the returned sender fires and
+/// reports on the returned receiver once that request has arrived: the caller can act while the
+/// fetch is suspended (barrier handshake, no sleep).
+fn serve_gated(
+    minisig: &'static str,
+) -> (String, Arc<Mutex<Vec<String>>>, mpsc::Receiver<()>, mpsc::Sender<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}/dl", listener.local_addr().unwrap());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let (arrived_tx, arrived_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for mut s in listener.incoming().flatten() {
+            let mut buf = vec![0u8; 4096];
+            let n = s.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let path = req.split_whitespace().nth(1).unwrap_or("").to_owned();
+            log.lock().unwrap().push(req);
+            if path == "/dl/latest.json" {
+                arrived_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+            }
+            let reply = match path.as_str() {
+                "/dl/latest.json" => ok(&fx("valid.json")),
+                "/dl/latest.json.minisig" => ok(&fx(minisig)),
+                _ => b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            };
+            let _ = s.write_all(&reply);
+        }
+    });
+    (base, seen, arrived_rx, release_tx)
+}
+
+/// The production path on its own runtime, build and clock injected.
+async fn go(dirs: &AppDirs, p: &Preferences, running: u64) -> Result<Outcome, CheckError> {
+    run(dirs, p, &keys(), running, LINUX_APPIMAGE, UPDATE_HOST, now()).await
+}
+
+/// [`go`] on a thread with its own runtime, so the test can act while the fetch is suspended.
+fn go_blocking(
+    dirs: AppDirs,
+    p: Preferences,
+    running: u64,
+) -> std::thread::JoinHandle<Result<Outcome, CheckError>> {
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(run(
+            &dirs,
+            &p,
+            &keys(),
+            running,
+            LINUX_APPIMAGE,
+            UPDATE_HOST,
+            now(),
+        ))
+    })
+}
+
 #[tokio::test]
 async fn valid_manifest_gives_candidate_resolved_against_effective_base() {
     let (base, seen) = serve_fixture("valid.minisig");
-    let mut p = prefs(&base);
-    let Ok(Outcome::Candidate(o)) = go(&mut p, 41).await else {
+    let d = store("valid", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    let Ok(Outcome::Candidate(o)) = go(&d, &p, 41).await else {
         panic!("no candidate")
     };
     assert_eq!(o.url, format!("{base}/Gnobbi-x86_64-42.AppImage"));
     assert_eq!((o.build, o.size, o.version.as_str()), (42, 1000, "0.1.0"));
+    let after = Preferences::load(&d);
     assert_eq!(
-        (p.max_build_seen, p.last_check),
-        (42, Some(1_796_496_000 - 10 * 86_400))
+        (after.max_build_seen, after.last_check),
+        (42, Some(now_secs()))
     );
     let seen = seen.lock().unwrap();
     assert_eq!(seen.len(), 2);
@@ -101,10 +174,11 @@ async fn redirect_is_not_followed() {
     let (base, seen) = serve(|_| {
         b"HTTP/1.1 302 Found\r\nLocation: /elsewhere\r\nContent-Length: 0\r\n\r\n".to_vec()
     });
-    let mut p = prefs(&base);
-    assert_eq!(go(&mut p, 41).await, Err(CheckError::Status(302)));
+    let d = store("redirect", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    assert_eq!(go(&d, &p, 41).await, Err(CheckError::Status(302)));
     assert_eq!(seen.lock().unwrap().len(), 1);
-    assert_eq!(p.last_check, None);
+    assert_eq!(Preferences::load(&d).last_check, None);
 }
 
 #[tokio::test]
@@ -114,43 +188,194 @@ async fn body_over_cap_without_content_length_is_aborted() {
         r.extend(std::iter::repeat_n(b'x', MAX_MANIFEST_BYTES + 1));
         r
     });
-    let mut p = prefs(&base);
-    assert_eq!(go(&mut p, 41).await, Err(CheckError::TooLarge));
+    let d = store("overcap", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    assert_eq!(go(&d, &p, 41).await, Err(CheckError::TooLarge));
 }
 
 #[tokio::test]
 async fn wrong_signature_is_an_error_and_changes_nothing() {
     let (base, _) = serve_fixture("valid.other.minisig");
-    let mut p = prefs(&base);
+    let d = store("wrongsig", &base_prefs(&base));
+    let p = Preferences::load(&d);
     assert_eq!(
-        go(&mut p, 41).await,
+        go(&d, &p, 41).await,
         Err(CheckError::Verify(UpdateError::UnknownKey))
     );
-    assert_eq!((p.max_build_seen, p.last_check), (0, None));
+    let after = Preferences::load(&d);
+    assert_eq!((after.max_build_seen, after.last_check), (0, None));
 }
 
 #[tokio::test]
 async fn not_newer_is_no_update_but_records_build() {
     let (base, _) = serve_fixture("valid.minisig");
-    let mut p = prefs(&base);
-    assert_eq!(go(&mut p, 42).await, Ok(Outcome::NoUpdate));
-    assert_eq!(p.max_build_seen, 42);
+    let d = store("notnewer", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    assert_eq!(go(&d, &p, 42).await, Ok(Outcome::NoUpdate));
+    assert_eq!(Preferences::load(&d).max_build_seen, 42);
 }
 
 #[tokio::test]
 async fn older_than_max_build_seen_is_discarded_and_max_kept() {
     let (base, _) = serve_fixture("valid.minisig");
-    let mut p = prefs(&base);
-    p.max_build_seen = 50;
-    assert_eq!(go(&mut p, 41).await, Ok(Outcome::NoUpdate));
-    assert_eq!(p.max_build_seen, 50);
+    let d = store(
+        "rollback",
+        &Preferences {
+            max_build_seen: 50,
+            ..base_prefs(&base)
+        },
+    );
+    let p = Preferences::load(&d);
+    assert_eq!(go(&d, &p, 41).await, Ok(Outcome::NoUpdate));
+    assert_eq!(Preferences::load(&d).max_build_seen, 50);
 }
 
 #[tokio::test]
 async fn bad_build_is_discarded() {
     let (base, _) = serve_fixture("valid.minisig");
-    let mut p = prefs(&base);
-    p.bad_builds.insert(42);
-    assert_eq!(go(&mut p, 41).await, Ok(Outcome::NoUpdate));
-    assert_eq!(p.max_build_seen, 42);
+    let d = store(
+        "badbuild",
+        &Preferences {
+            bad_builds: [42].into(),
+            ..base_prefs(&base)
+        },
+    );
+    let p = Preferences::load(&d);
+    assert_eq!(go(&d, &p, 41).await, Ok(Outcome::NoUpdate));
+    assert_eq!(Preferences::load(&d).max_build_seen, 42);
+}
+
+#[tokio::test]
+async fn a_disabled_switch_opens_no_connection() {
+    let (base, seen) = serve_fixture("valid.minisig");
+    let d = store(
+        "disabled",
+        &Preferences {
+            update_check_enabled: false,
+            ..base_prefs(&base)
+        },
+    );
+    let p = Preferences::load(&d);
+    assert_eq!(go(&d, &p, 41).await, Ok(Outcome::NoUpdate));
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "no request while the switch is off"
+    );
+}
+
+/// The card's core: the switch can change while the fetch is in flight, so the decision must be
+/// taken on the values current then, not on the snapshot read before the network.
+#[test]
+fn a_switch_turned_off_during_the_fetch_keeps_off_and_offers_nothing() {
+    let (base, seen, arrived, release) = serve_gated("valid.minisig");
+    let d = store("off-in-flight", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    let check = go_blocking(d.clone(), p, 41);
+    arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+    // Exactly the write the settings handler performs: one field, on the current value.
+    Preferences::update(&d, |p| p.update_check_enabled = false).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(
+        check.join().unwrap().unwrap(),
+        Outcome::NoUpdate,
+        "OFF at completion never offers a download"
+    );
+    let after = Preferences::load(&d);
+    assert!(
+        !after.update_check_enabled,
+        "the concurrent OFF survives the check"
+    );
+    assert_eq!(
+        (after.max_build_seen, after.last_check),
+        (42, Some(now_secs())),
+        "metadata kept"
+    );
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .all(|r| !r.contains("Gnobbi-x86_64")),
+        "no artifact request"
+    );
+}
+
+/// Two real writers (a self-test failure and a newer max seen elsewhere) and the shared stores
+/// land while the fetch is suspended: the commit must not clobber them, and a banned or
+/// rolled-back build is never offered.
+#[test]
+fn a_banned_or_rolled_back_build_is_never_offered_over_concurrent_writes() {
+    let (base, _, arrived, release) = serve_gated("valid.minisig");
+    let d = store(
+        "in-flight-writers",
+        &Preferences {
+            bad_builds: [7].into(),
+            ..base_prefs(&base)
+        },
+    );
+    // Other stores share settings.json; an outcome and an unknown key must survive too.
+    let path = d.config.join("settings.json");
+    let mut raw: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    raw["update_outcome"] = serde_json::json!({ "result": "updated", "build": 31 });
+    raw["future"] = serde_json::json!({ "x": 1 });
+    std::fs::write(&path, raw.to_string()).unwrap();
+    let mut servers = crate::directory_servers::SavedServers::default();
+    servers.add(1, "matrix.example");
+    servers.save(&d).unwrap();
+
+    let p = Preferences::load(&d);
+    let check = go_blocking(d.clone(), p, 41);
+    arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+    startup::add_bad_build(&d, 42).unwrap();
+    Preferences::update(&d, |p| p.max_build_seen = 100).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(
+        check.join().unwrap().unwrap(),
+        Outcome::NoUpdate,
+        "build 42 is banned and below max_build_seen"
+    );
+    let after = Preferences::load(&d);
+    assert_eq!(
+        after.bad_builds.iter().copied().collect::<Vec<_>>(),
+        [7, 42],
+        "bad_builds union kept"
+    );
+    assert_eq!(after.max_build_seen, 100, "max_build_seen only moves forward");
+    assert_eq!(after.last_check, Some(now_secs()));
+    let data: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(data["update_outcome"]["build"], 31);
+    assert_eq!(data["future"]["x"], 1);
+    assert_eq!(
+        crate::directory_servers::SavedServers::load(&d).for_account(1),
+        ["matrix.example"]
+    );
+}
+
+/// The effective base can change between the fetch and the commit: the old endpoint's offer and
+/// its metadata are dropped whole, never mixed into the new endpoint's state.
+#[test]
+fn an_endpoint_change_during_the_fetch_discards_the_offer_and_its_metadata() {
+    let (base, _, arrived, release) = serve_gated("valid.minisig");
+    let d = store("endpoint-change", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    let check = go_blocking(d.clone(), p, 41);
+    arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+    Preferences::update(&d, |p| p.update_base = Some("http://127.0.0.1:9/other".into())).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(
+        check.join().unwrap().unwrap(),
+        Outcome::NoUpdate,
+        "the old endpoint's offer is discarded"
+    );
+    let after = Preferences::load(&d);
+    assert_eq!(
+        after.update_base.as_deref(),
+        Some("http://127.0.0.1:9/other"),
+        "the new base is not overwritten"
+    );
+    assert_eq!(
+        (after.max_build_seen, after.last_check),
+        (0, None),
+        "no metadata from the old endpoint"
+    );
 }
