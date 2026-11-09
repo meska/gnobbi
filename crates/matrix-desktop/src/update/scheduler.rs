@@ -3,7 +3,7 @@
 //! connection and builds no client. Errors go to stderr only; no UI here.
 use super::channel::Channel;
 #[cfg(feature = "live")]
-use super::{channel::{Env, detect_channel}, stage::{UpdateState, clean_orphans, ORPHAN_AGE}};
+use super::{channel::{Env, detect_channel}, stage::UpdateState};
 use crate::{AppDirs, Preferences};
 #[cfg(feature = "live")]
 use std::{path::Path, sync::{Arc, Mutex}};
@@ -61,9 +61,7 @@ pub fn start(dirs: AppDirs, state: Arc<Mutex<UpdateState>>, cfg: Config) -> Opti
         return None;
     }
     std::thread::Builder::new().name("update-check".into()).spawn(move || {
-        if let Some(dir) = target(&channel).parent() {
-            clean_orphans(dir, ORPHAN_AGE);
-        }
+        // shortcut: leave unproven orphans untouched; add interprocess ownership before cleanup.
         // Built lazily: a disabled switch never creates the runtime or the HTTP client.
         let mut rt: Option<tokio::runtime::Runtime> = None;
         run_loop(&dirs, &channel, cfg, |mut prefs| {
@@ -107,7 +105,9 @@ mod online {
             return;
         }
         let c = Candidate { version: o.version, build: o.build, file_name: o.url.rsplit('/').next().unwrap_or_default().into(), sha256: o.sha256, size: o.size };
-        let staging = target(channel).with_file_name(format!(".gnobbi.{}.new", c.build));
+        static ATTEMPT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = ATTEMPT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let staging = target(channel).with_file_name(format!(".gnobbi.{}.{}.{}.new", c.build, std::process::id(), id));
         let client = match reqwest::Client::builder().user_agent("Gnobbi").connect_timeout(READ_TIMEOUT).read_timeout(READ_TIMEOUT).redirect(reqwest::redirect::Policy::none()).build() {
             Ok(c) => c,
             Err(e) => return eprintln!("update: client: {e}"),
