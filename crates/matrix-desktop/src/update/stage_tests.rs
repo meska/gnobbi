@@ -28,6 +28,28 @@ fn stage(t: &T, body: &[u8], c: &Candidate, timeout: Duration) -> Result<Ready, 
 const T10: Duration = Duration::from_secs(10);
 
 #[test]
+fn failed_restage_preserves_verified_ready_file() {
+    let t = t("restage");
+    let b = script("echo gnobbi build=7");
+    let c = cand(&b, 7);
+    let ready = stage(&t, &b, &c, T10).unwrap();
+    let second = t.staging.with_file_name(".gnobbi.second.new");
+    assert!(matches!(stage_with_timeout(&t.dirs, &t.state, &c, Cursor::new(&b[..5]), &second, T10), Err(StageError::Verify(_))));
+    assert!(!second.exists());
+    assert_eq!(std::fs::read(&ready.path).unwrap(), b);
+    assert_eq!(t.state.lock().unwrap().ready.as_ref(), Some(&ready));
+}
+
+#[test]
+fn collision_never_modifies_or_deletes_existing_file() {
+    let t = t("collision");
+    std::fs::write(&t.staging, b"user data").unwrap();
+    let b = script("echo gnobbi build=7");
+    assert!(stage(&t, &b, &cand(&b, 7), T10).is_err());
+    assert_eq!(std::fs::read(&t.staging).unwrap(), b"user data");
+}
+
+#[test]
 fn ok_is_ready_and_file_stays() {
     let t = t("ok");
     let b = script("echo gnobbi build=7");
@@ -110,14 +132,26 @@ fn self_test_timeout_deletes_and_is_memory_only() {
 }
 
 #[test]
-fn clean_orphans_removes_only_old_gnobbi_new_files() {
-    let t = t("orphans");
-    let d = t.staging.parent().unwrap();
-    let keep = d.join("other.new");
-    std::fs::write(&keep, "x").unwrap();
-    std::fs::write(&t.staging, "x").unwrap();
-    clean_orphans(d, Duration::from_secs(3600));
-    assert!(t.staging.exists());
-    clean_orphans(d, Duration::ZERO);
-    assert!(!t.staging.exists() && keep.exists());
+fn invalid_hash_never_executes_candidate() {
+    let t = t("no-exec");
+    let marker = t.staging.with_file_name("executed");
+    let b = script(&format!("touch '{}'; echo gnobbi build=7", marker.display()));
+    let mut c = cand(&b, 7);
+    c.sha256 = "0".repeat(64);
+    assert!(matches!(stage(&t, &b, &c, T10), Err(StageError::Verify(_))));
+    assert!(!marker.exists());
+    assert!(!t.staging.exists());
+}
+
+#[test]
+fn collision_with_ready_preserves_first_attempt() {
+    let t = t("ready-collision");
+    let b = script("echo gnobbi build=7");
+    let c = cand(&b, 7);
+    let ready = stage(&t, &b, &c, T10).unwrap();
+    let other = Mutex::default();
+    assert!(matches!(stage_with_timeout(&t.dirs, &other, &c, Cursor::new(&b), &t.staging, T10), Err(StageError::Io(e)) if e.kind() == std::io::ErrorKind::AlreadyExists));
+    assert_eq!(std::fs::read(&ready.path).unwrap(), b);
+    assert_eq!(t.state.lock().unwrap().ready.as_ref(), Some(&ready));
+    assert_eq!((ready.size, &ready.sha256), (c.size, &c.sha256));
 }
