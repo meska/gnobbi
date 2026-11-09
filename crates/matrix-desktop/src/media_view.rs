@@ -122,18 +122,15 @@ pub(crate) fn save_failure(index: usize, error: MediaError, t: DesignTokens, ret
 pub(crate) type PaintedParts = std::rc::Rc<dyn Fn(&'static str, gpui::Bounds<gpui::Pixels>)>;
 
 /// Video bubble: the thumbnail, or a neutral box when there is none, with a play symbol over it and
-/// the duration and size in the corners. Nothing plays and no text explains it.
+/// the duration and size in the corners. A play that failed shows its own one line instead.
 pub(crate) fn video_picture(
     state: Option<InlineImage>,
     duration: Option<String>,
     size: Option<String>,
+    play_error: Option<MediaError>,
     t: DesignTokens,
     painted: PaintedParts,
 ) -> AnyElement {
-    let base = match state {
-        Some(ready @ InlineImage::Ready(_)) => inline_picture(Some(ready), t),
-        _ => inline_picture(None, t),
-    };
     let probe = {
         let painted = painted.clone();
         move |part: &'static str| {
@@ -142,6 +139,27 @@ pub(crate) fn video_picture(
                 .absolute()
                 .inset_0()
         }
+    };
+    // A play that failed: one line, no picture to open and no play symbol that cannot work.
+    if let Some(error) = play_error {
+        return div()
+            .relative()
+            .w(px(200.))
+            .h(px(60.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_md()
+            .bg(rgb(t.timeline))
+            .text_size(px(12.))
+            .text_color(rgb(t.error))
+            .child(failure_label(Some(error), true))
+            .child(probe("failed"))
+            .into_any_element();
+    }
+    let base = match state {
+        Some(ready @ InlineImage::Ready(_)) => inline_picture(Some(ready), t),
+        _ => inline_picture(None, t),
     };
     let chip = |part: &'static str, text: String| {
         div()
@@ -357,28 +375,42 @@ impl Shell {
     }
 
     /// Store the answer of the finished read under its message.
-    pub(crate) fn update_media_image(&mut self) {
+    pub(crate) fn update_media_image(&mut self, cx: &mut gpui::Context<Self>) {
         if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_saved()) {
             timeline.finish_save(&id, result);
             return;
         }
         if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_video()) {
-            let opened = result.and_then(|file| {
-                crate::video_player::open(file.path()).map_err(|_| MediaError::Failed)?;
-                Ok(file)
-            });
-            match opened {
+            match result {
                 Ok(file) => {
                     // The player has its own window: the large view has done its job.
-                    self.media.hold_playing(file);
+                    timeline.video_play_state(&id, None);
                     if timeline.viewing().as_ref() == Some(&id) {
                         *timeline.viewing.borrow_mut() = None;
                     }
+                    // Held until the next video replaces it: the player reads this file meanwhile.
+                    let (path, scope) = (file.path().to_owned(), self.active_scope.clone());
+                    self.media.hold_playing(file);
+                    // A launch is not a play: the opener's own exit is the result, waited off the UI
+                    // thread and applied only to the message it was asked for.
+                    let opened = cx
+                        .background_executor()
+                        .spawn(async move { crate::video_player::open(&path) });
+                    cx.spawn(async move |this, cx| {
+                        if opened.await.is_err() {
+                            let _ =
+                                this.update(cx, |this, cx| this.video_open_failed(&scope, &id, cx));
+                        }
+                    })
+                    .detach();
                 }
-                Err(error) if timeline.viewing().as_ref() == Some(&id) => {
-                    *timeline.original.borrow_mut() = Some((id, InlineImage::Failed(Some(error))));
+                Err(error) => {
+                    timeline.video_play_state(&id, Some(error));
+                    if timeline.viewing().as_ref() == Some(&id) {
+                        *timeline.original.borrow_mut() =
+                            Some((id, InlineImage::Failed(Some(error))));
+                    }
                 }
-                Err(_) => {}
             }
             return;
         }
@@ -402,6 +434,22 @@ impl Shell {
         };
         timeline.images.borrow_mut().insert(id.clone(), state);
         timeline.image_changed(&id);
+    }
+
+    /// A video opener that failed: one line in the bubble of that message, if its room is open.
+    fn video_open_failed(
+        &mut self,
+        scope: &matrix_domain::RoomScope,
+        id: &matrix_domain::EventId,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if &self.active_scope != scope {
+            return;
+        }
+        if let Some(timeline) = &self.timeline {
+            timeline.video_play_state(id, Some(MediaError::Failed));
+        }
+        cx.notify();
     }
 }
 

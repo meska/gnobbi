@@ -32,7 +32,7 @@ fn private_dir(profile: &Path) -> std::io::Result<PathBuf> {
 }
 
 fn extension(mime: Option<&str>) -> &'static str {
-    match mime {
+    match mime.map(|value| value.split(';').next().unwrap_or_default().trim()) {
         Some("video/webm") => "webm",
         Some("video/quicktime") => "mov",
         Some("video/x-matroska") => "mkv",
@@ -116,6 +116,10 @@ pub(crate) async fn fetch_to_file(
 ) -> Result<VideoFile, MediaError> {
     static NAMES: AtomicU64 = AtomicU64::new(0);
     let bytes = fetch_bytes(client, source, max_bytes, tag, progress).await?;
+    // A zero-byte body is a broken attachment: no player can open an empty file.
+    if bytes.is_empty() {
+        return Err(MediaError::Failed);
+    }
     let dir = private_dir(profile).map_err(|_| MediaError::Failed)?;
     let path = dir.join(format!(
         "{}-{}.{}",
@@ -274,6 +278,11 @@ mod tests {
     use matrix_sdk::ruma::{api::MatrixVersion, owned_mxc_uri};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+    #[test]
+    fn parameterized_audio_mime_keeps_ogg_extension() {
+        assert_eq!(extension(Some("audio/ogg; codecs=opus")), "ogg");
+    }
+
     const CHUNK: usize = 1024;
     const CHUNKS: usize = 8;
 
@@ -426,6 +435,18 @@ mod tests {
             )
             .await;
             assert!(matches!(result, Err(MediaError::Cancelled)), "{result:?}");
+            assert_eq!(files(&profile), 0);
+            std::fs::remove_dir_all(profile).unwrap();
+        });
+    }
+
+    #[test]
+    fn an_empty_body_is_a_failure_and_leaves_no_temp_file() {
+        runtime().block_on(async {
+            let (client, (_views, tag), profile) =
+                (body_client(Vec::new()).await, tag(), temp_profile());
+            let result = fetch_to_file(&client, source(), None, &profile, CHUNK, &tag, |_| ()).await;
+            assert!(matches!(result, Err(MediaError::Failed)), "{result:?}");
             assert_eq!(files(&profile), 0);
             std::fs::remove_dir_all(profile).unwrap();
         });

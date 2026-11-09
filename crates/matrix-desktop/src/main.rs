@@ -3096,7 +3096,7 @@ fn main() {
                                         }
                                         for event in media {
                                             if this.media.apply(event) {
-                                                this.update_media_image();
+                                                this.update_media_image(cx);
                                             }
                                         }
                                         for event in verifications {

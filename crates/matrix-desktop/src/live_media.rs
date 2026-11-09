@@ -167,8 +167,18 @@ impl LiveMedia {
                 Err(
                     matrix_engine::TrySendError::Full(c) | matrix_engine::TrySendError::Busy(c),
                 ) => self.large_command = Some(c),
-                Err(matrix_engine::TrySendError::Closed(_)) => {
-                    self.large_done = self.large.take().map(|e| (e, Err(MediaError::Failed)));
+                Err(matrix_engine::TrySendError::Closed(command)) => {
+                    // A video that never reached the engine failed to play: it belongs to the
+                    // bubble's play lane, not to the large view's picture lane.
+                    match (command, self.large.take()) {
+                        (MediaCommand::OpenVideo { .. }, Some(event)) => {
+                            self.video_done = Some((event, Err(MediaError::Failed)));
+                        }
+                        (_, Some(event)) => {
+                            self.large_done = Some((event, Err(MediaError::Failed)));
+                        }
+                        (_, None) => {}
+                    }
                 }
             }
         }
@@ -283,6 +293,25 @@ mod tests {
             result: Err(MediaError::Cancelled),
         }));
         assert!(media.take_video().is_none());
+    }
+
+    #[test]
+    fn a_closed_channel_reports_a_video_that_never_started_on_its_own_lane() {
+        let (mut media, tag, event) = video_request();
+        // The helper hands over the tag; the command goes back on the lane it belongs to.
+        media.large_command = Some(MediaCommand::OpenVideo {
+            tag,
+            event: event.clone(),
+        });
+        let (mut sender, receiver) =
+            matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
+        drop(receiver);
+        media.flush(&mut sender);
+        assert!(matches!(
+            media.take_video(),
+            Some((e, Err(MediaError::Failed))) if e == event
+        ));
+        assert!(media.take_original().is_none());
     }
 
     fn save_request(media: &mut LiveMedia) -> (matrix_engine::RequestTag, EventId) {

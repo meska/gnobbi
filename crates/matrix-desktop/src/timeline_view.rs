@@ -196,6 +196,12 @@ pub struct TimelineView {
     pub(crate) want_original: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// A video whose download for the system player was asked for and not yet sent.
     pub(crate) want_video: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// Play attempts that failed, by message: one line in its bubble instead of a play symbol.
+    pub(crate) video_errors: Rc<
+        RefCell<
+            std::collections::HashMap<matrix_domain::EventId, matrix_engine::media::MediaError>,
+        >,
+    >,
     /// Set by a click on a thread summary; the shell opens the panel.
     pub(crate) want_thread: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Click on a bubble's avatar or name: the shell opens that member's profile in the room sheet.
@@ -398,6 +404,7 @@ impl TimelineView {
             original: Rc::default(),
             want_original: Rc::default(),
             want_video: Rc::default(),
+            video_errors: Rc::default(),
             want_thread: Rc::default(),
             want_profile: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1318,6 +1325,26 @@ impl TimelineView {
         unique.into_iter().map(str::to_owned).collect()
     }
 
+    /// The outcome of the last play attempt for `id`: `Some` shows one line in its bubble.
+    pub(crate) fn video_play_state(
+        &self,
+        id: &matrix_domain::EventId,
+        error: Option<matrix_engine::media::MediaError>,
+    ) {
+        {
+            let mut errors = self.video_errors.borrow_mut();
+            match error {
+                Some(error) => {
+                    errors.insert(id.clone(), error);
+                }
+                None => {
+                    errors.remove(id);
+                }
+            }
+        }
+        self.image_changed(id);
+    }
+
     /// Video rows of this room: their picture is the thumbnail, when there is one.
     pub(crate) fn video_events(&self) -> Vec<matrix_domain::EventId> {
         self.history
@@ -1717,6 +1744,7 @@ impl TimelineView {
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
         let images = self.images.clone();
+        let video_errors = self.video_errors.clone();
         let sender_pictures = self.sender_pictures.clone();
         let video_painted = self.video_painted.clone();
         let poll_painted = self.poll_painted.clone();
@@ -1830,8 +1858,12 @@ impl TimelineView {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
                         };
+                        let play_error = match &event.id.id {
+                            matrix_domain::TimelineId::Server(id) => video_errors.borrow().get(id).copied(),
+                            _ => None,
+                        };
                         let (parts, id) = (video_painted.clone(), event.id.clone());
-                        let picture = crate::media_view::video_picture(state, facts.duration.clone(), facts.size.clone(), t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.id.clone(), part), bounds); }));
+                        let picture = crate::media_view::video_picture(state, facts.duration.clone(), facts.size.clone(), play_error, t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.id.clone(), part), bounds); }));
                         match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => {
                                 let (id, viewing, focus) = (id.clone(), viewing.clone(), focus.clone());
@@ -3122,8 +3154,9 @@ mod tests {
         );
     }
 
-    /// Paints one video row (with or without a ready thumbnail) and checks what reached the screen.
-    fn video_bubble_shot(thumbnail: bool) {
+    /// Paints one video row (with or without a ready thumbnail, or after a failed play) and checks
+    /// what reached the screen.
+    fn video_bubble_shot(thumbnail: bool, failed: bool) {
         use matrix_engine::history::{HistoryEvent, HistorySender, VideoInfo};
         assert_eq!(
             std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
@@ -3176,6 +3209,9 @@ mod tests {
                                 )),
                             );
                         }
+                        if failed {
+                            v.video_play_state(&id, Some(matrix_engine::media::MediaError::Failed));
+                        }
                         ShotHost(v)
                     })
                 })
@@ -3194,6 +3230,22 @@ mod tests {
                             .copied()
                             .unwrap_or_else(|| panic!("{name} was not painted"))
                     };
+                    if failed {
+                        // One line where the picture was, and nothing that would invite a play.
+                        let line = part("failed");
+                        assert_eq!(f32::from(line.size.width), 200., "the failure line");
+                        for name in ["picture", "play", "duration", "size"] {
+                            assert!(
+                                !parts.contains_key(&(
+                                    TimelineId::Server(EventId::new("$video:fixture.invalid")),
+                                    name
+                                )),
+                                "{name} painted though the video cannot play"
+                            );
+                        }
+                        cx.quit();
+                        return;
+                    }
                     let (picture, play, duration, size) = (
                         part("picture"),
                         part("play"),
@@ -3243,13 +3295,19 @@ mod tests {
     #[test]
     #[ignore = "requires private display"]
     fn painted_video_bubble_with_thumbnail() {
-        video_bubble_shot(true);
+        video_bubble_shot(true, false);
     }
 
     #[test]
     #[ignore = "requires private display"]
     fn painted_video_bubble_without_thumbnail_is_a_neutral_box() {
-        video_bubble_shot(false);
+        video_bubble_shot(false, false);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_video_bubble_after_a_failed_play_has_one_line_and_no_play_symbol() {
+        video_bubble_shot(true, true);
     }
 
     /// Paints a row with a pill for me, one for another person, «@room» and a room, then clicks them for real
