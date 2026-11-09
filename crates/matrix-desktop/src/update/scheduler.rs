@@ -96,10 +96,20 @@ fn target(channel: &Channel) -> &Path {
     }
 }
 
+#[cfg_attr(not(any(feature = "live", test)), allow(dead_code))]
+fn artifact_key(channel: &Channel, os: &str, arch: &str) -> Option<&'static str> {
+    use super::verify::{LINUX_APPIMAGE, WINDOWS_ZIP};
+    match (channel, os, arch) {
+        (Channel::AppImage { .. }, "linux", "x86_64") => Some(LINUX_APPIMAGE),
+        (Channel::WindowsPortable { .. }, "windows", "x86_64") => Some(WINDOWS_ZIP),
+        _ => None,
+    }
+}
+
 #[cfg(feature = "live")]
 mod online {
     use super::*;
-    use crate::update::{check::{self, Outcome}, verify::{Candidate, UpdateKeys, LINUX_APPIMAGE, WINDOWS_ZIP}};
+    use crate::update::{check::{self, Outcome}, verify::{Candidate, UpdateKeys}};
     use std::io::Read;
 
     const KEYS: &str = include_str!("../../update-keys.pub");
@@ -124,7 +134,7 @@ mod online {
     }
 
     pub(super) fn check_and_stage_with(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences, seam: &Seam) {
-        let platform = if matches!(channel, Channel::AppImage { .. }) { LINUX_APPIMAGE } else { WINDOWS_ZIP };
+        let Some(platform) = artifact_key(channel, std::env::consts::OS, std::env::consts::ARCH) else { return };
         // check() logs its own errors and stamps/saves last_check only after a valid answer.
         let Ok(Outcome::Candidate(o)) = rt.block_on(check::check_with(dirs, prefs, seam.keys, platform, seam.build, seam.host, seam.now)) else { return };
         if state.lock().unwrap_or_else(|p| p.into_inner()).bad_session.contains(&o.build) {
@@ -175,6 +185,16 @@ mod tests {
     fn appimage() -> Channel { Channel::AppImage { target: PathBuf::from("/x/g.AppImage") } }
     fn prefs(enabled: bool, last: Option<u64>) -> Preferences {
         Preferences { update_check_enabled: enabled, last_check: last, ..Preferences::default() }
+    }
+
+    #[test]
+    fn artifact_key_requires_matching_os_and_architecture() {
+        let win = Channel::WindowsPortable { exe: PathBuf::from("g.exe") };
+        assert_eq!(artifact_key(&appimage(), "linux", "x86_64"), Some(super::super::verify::LINUX_APPIMAGE));
+        assert_eq!(artifact_key(&win, "windows", "x86_64"), Some(super::super::verify::WINDOWS_ZIP));
+        assert_eq!(artifact_key(&appimage(), "linux", "aarch64"), None);
+        assert_eq!(artifact_key(&win, "windows", "aarch64"), None);
+        assert_eq!(artifact_key(&win, "linux", "x86_64"), None);
     }
 
     #[test]

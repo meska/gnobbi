@@ -170,6 +170,20 @@ async fn valid_manifest_gives_candidate_resolved_against_effective_base() {
 }
 
 #[tokio::test]
+async fn signed_schema_one_resolves_on_two_bases() {
+    let (a, _) = serve_fixture("valid.minisig");
+    let (b, _) = serve_fixture("valid.minisig");
+    for base in [a, b] {
+        let d = store("twobases", &base_prefs(&base));
+        let p = Preferences::load(&d);
+        let Ok(Outcome::Candidate(offer)) = go(&d, &p, 41).await else {
+            panic!("no candidate")
+        };
+        assert_eq!(offer.url, format!("{base}/Gnobbi-x86_64-42.AppImage"));
+    }
+}
+
+#[tokio::test]
 async fn redirect_is_not_followed() {
     let (base, seen) = serve(|_| {
         b"HTTP/1.1 302 Found\r\nLocation: /elsewhere\r\nContent-Length: 0\r\n\r\n".to_vec()
@@ -228,6 +242,46 @@ async fn older_than_max_build_seen_is_discarded_and_max_kept() {
     let p = Preferences::load(&d);
     assert_eq!(go(&d, &p, 41).await, Ok(Outcome::NoUpdate));
     assert_eq!(Preferences::load(&d).max_build_seen, 50);
+}
+
+#[tokio::test]
+async fn signed_manifest_without_local_artifact_records_rollback_floor() {
+    let floor_keys = UpdateKeys::parse(&String::from_utf8(fx("floor.pub")).unwrap()).unwrap();
+    let serve_pair = |json: &'static str, sig: &'static str| {
+        serve(move |path| match path {
+            "/dl/latest.json" => ok(&fx(json)),
+            "/dl/latest.json.minisig" => ok(&fx(sig)),
+            _ => b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_vec(),
+        })
+        .0
+    };
+    let run_with = |d: AppDirs| {
+        let p = Preferences::load(&d);
+        let keys = &floor_keys;
+        async move { run(&d, &p, keys, 40, LINUX_APPIMAGE, UPDATE_HOST, now()).await }
+    };
+    let d = store("floor", &base_prefs(&serve_pair("floor-high.json", "floor-high.minisig")));
+    assert_eq!(run_with(d.clone()).await, Ok(Outcome::NoUpdate));
+    assert_eq!(Preferences::load(&d).max_build_seen, 42);
+    // Same store, endpoint now serving an older signed manifest: discarded, floor kept.
+    let lower = serve_pair("lower.json", "lower.minisig");
+    Preferences::update(&d, |p| p.update_base = Some(lower.clone())).unwrap();
+    assert_eq!(run_with(d.clone()).await, Ok(Outcome::NoUpdate));
+    assert_eq!(Preferences::load(&d).max_build_seen, 42);
+    // Control: the same older manifest on a fresh store is a real candidate.
+    let fresh = store("floor-fresh", &base_prefs(&lower));
+    assert!(matches!(run_with(fresh).await, Ok(Outcome::Candidate(_))));
+}
+
+#[tokio::test]
+async fn persistence_failure_never_offers_candidate() {
+    let (base, _) = serve_fixture("valid.minisig");
+    let path = std::env::temp_dir().join(format!("gnobbi-notdir-{}", std::process::id()));
+    std::fs::write(&path, b"not a directory").unwrap();
+    let dirs = AppDirs { config: path.clone(), data: path.clone(), cache: path.clone() };
+    let p = base_prefs(&base);
+    assert!(matches!(go(&dirs, &p, 41).await, Err(CheckError::Persist(_))));
+    std::fs::remove_file(path).unwrap();
 }
 
 #[tokio::test]

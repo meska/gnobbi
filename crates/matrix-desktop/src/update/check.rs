@@ -5,7 +5,9 @@
 //! persisted inside one `Preferences::update` transaction, on the values current at commit time.
 //! No download of the artifact here.
 
-use super::verify::{Candidate, MAX_MANIFEST_BYTES, UpdateError, UpdateKeys, verify_manifest};
+use super::verify::{
+    Candidate, MAX_MANIFEST_BYTES, UpdateError, UpdateKeys, VerifiedManifest, authenticate_manifest,
+};
 use super::{build_number, effective_base};
 use crate::{AppDirs, Preferences};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -107,14 +109,16 @@ pub(super) async fn run(
     }
     let base = effective_base(prefs);
     let now_secs = now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let verdict = fetch(&base, keys, running_build, now, platform, expected_host).await?;
-    let (build, candidate) = match verdict {
-        Ok(c) => (c.build, Some(c)),
-        Err(UpdateError::NotNewer { build, .. }) => (build, None),
-        // Invalid answer or network error: metadata is never modified.
-        Err(e) => return Err(CheckError::Verify(e)),
+    let verified = fetch(&base, keys, now).await?;
+    let build = verified.build;
+    // Every authenticated manifest raises the floor (B3), even without our artifact.
+    let (candidate, error) = match verified.select(running_build, platform, expected_host) {
+        Ok(c) => (Some(c), None),
+        Err(UpdateError::NotNewer { .. } | UpdateError::NoArtifact) => (None, None),
+        Err(e) => (None, Some(CheckError::Verify(e))),
     };
-    commit(dirs, &base, build, candidate, now_secs)
+    let outcome = commit(dirs, &base, build, candidate, now_secs)?;
+    error.map_or(Ok(outcome), Err)
 }
 
 /// Fetch `latest.json` + `latest.json.minisig` and run the cryptographic verification: the whole
@@ -122,11 +126,8 @@ pub(super) async fn run(
 async fn fetch(
     base: &str,
     keys: &UpdateKeys,
-    running_build: u64,
     now: SystemTime,
-    platform: &str,
-    expected_host: &str,
-) -> Result<Result<Candidate, UpdateError>, CheckError> {
+) -> Result<VerifiedManifest, CheckError> {
     let client = reqwest::Client::builder()
         .user_agent("Gnobbi")
         .timeout(TIMEOUT)
@@ -136,15 +137,7 @@ async fn fetch(
         .map_err(|_| CheckError::Network)?;
     let manifest = get_capped(&client, &format!("{base}latest.json")).await?;
     let minisig = get_capped(&client, &format!("{base}latest.json.minisig")).await?;
-    Ok(verify_manifest(
-        keys,
-        &manifest,
-        &minisig,
-        running_build,
-        now,
-        platform,
-        expected_host,
-    ))
+    authenticate_manifest(keys, &manifest, &minisig, now).map_err(CheckError::Verify)
 }
 
 /// GET with a hard byte cap, counted while streaming (Content-Length is not trusted).
