@@ -1,0 +1,279 @@
+//! Install a verified staging file over the running binary (INSTALL_STAGED_CONTRACT.md,
+//! rettifica 09/11/2026). Read-only until every check has passed.
+//!
+//! Linux order: lock → re-hash and sync the staging → marker → `hard_link(target, prev)` →
+//! one `rename(staging, target)` → relaunch. The target is never moved out of the way first,
+//! so its name is never free in between. Windows replaces the running `gnobbi.exe` through an
+//! internal helper copy with a single `MoveFileExW`; that protocol is not written yet and
+//! [`paths_for`] refuses the channel rather than running the Linux step there, which would be
+//! a fake transaction (the exe cannot be renamed while it runs).
+//!
+//! [`swap`] and [`install_with`] take their file operations as arguments, so a test can force
+//! any failure without starting or terminating the process under test: the spawn and the exit
+//! belong to the caller ([`install_and_restart`]).
+
+use super::{
+    channel::Channel,
+    stage::Ready,
+    startup::{self, Pending},
+    verify::{self, Candidate, UpdateError},
+};
+use crate::AppDirs;
+use std::{io, path::{Path, PathBuf}};
+
+/// Target, verified staging and backup of one transaction; all three in the target folder.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paths {
+    /// The binary to replace.
+    pub target: PathBuf,
+    /// The verified staging file (`Ready.path`), still named `.gnobbi.*.new`.
+    pub new: PathBuf,
+    /// Whole target path plus `.prev`, never an extension swap.
+    pub prev: PathBuf,
+}
+
+/// `<target>.prev`.
+pub fn prev_of(target: &Path) -> PathBuf {
+    let mut s = target.as_os_str().to_owned();
+    s.push(".prev");
+    PathBuf::from(s)
+}
+
+/// One install at a time per target. The OS releases it when this process dies.
+pub(super) struct Lock {
+    _file: std::fs::File,
+}
+
+impl Lock {
+    pub(super) fn acquire(target: &Path) -> Result<Self, String> {
+        let mut s = target.as_os_str().to_owned();
+        s.push(".install.lock");
+        let file = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(PathBuf::from(s)).map_err(|e| message(&e))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Lock { _file: file }),
+            Err(std::fs::TryLockError::WouldBlock) => Err(failed("altra installazione in corso")),
+            Err(std::fs::TryLockError::Error(e)) => Err(message(&e)),
+        }
+    }
+}
+
+/// Regular file: not a directory, not a symlink/reparse point.
+fn regular(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file())
+}
+
+/// Channel and paths, validated before anything is written. Fails closed: external staging,
+/// a symlinked target and an existing backup are refused untouched.
+pub fn paths_for(channel: &Channel, ready: &Ready) -> Result<Paths, String> {
+    let target = match channel {
+        Channel::AppImage { target } => target.clone(),
+        // The Windows helper protocol is not written yet; see the module doc.
+        Channel::WindowsPortable { .. } => return Err(failed("aggiornamento Windows non disponibile")),
+        _ => return Err(failed("canale senza aggiornamento in-app")),
+    };
+    if !regular(&target) {
+        return Err(failed("binario da aggiornare non trovato"));
+    }
+    let new = ready.path.clone();
+    if !regular(&new) {
+        return Err(failed("staging non trovato"));
+    }
+    if new.parent() != target.parent() {
+        return Err(failed("staging fuori dalla cartella del target"));
+    }
+    let prev = prev_of(&target);
+    if new == target || new == prev {
+        return Err(failed("staging non valido"));
+    }
+    // An existing backup means an earlier transaction is still recoverable: stop without
+    // overwriting or deleting anything.
+    if std::fs::symlink_metadata(&prev).is_ok() {
+        return Err(failed("backup precedente presente"));
+    }
+    Ok(Paths { target, new, prev })
+}
+
+/// Which copy is still recoverable after a failed swap.
+#[derive(Debug)]
+pub enum Undo {
+    /// `prev` went back over the target (the rename consumed it): the old build runs.
+    Restored,
+    /// The old build could not be put back: keep `prev` and the transaction data.
+    Lost(io::Error),
+}
+
+#[derive(Debug)]
+pub enum SwapError {
+    /// The backup link failed: the target was never touched.
+    Backup(io::Error),
+    /// The staging could not be put in place.
+    Place { cause: io::Error, undo: Undo },
+}
+
+/// The file-level half of the transaction: no marker, no spawn, no exit, no process state.
+/// `link` makes the backup (a hard link: same bytes, no copy), `rename` is the single atomic
+/// step that puts the staging in place. Preconditions: [`paths_for`] passed, `dirs` untouched.
+pub fn swap<L, R>(paths: &Paths, link: L, rename: R) -> Result<(), SwapError>
+where
+    L: Fn(&Path, &Path) -> io::Result<()>,
+    R: Fn(&Path, &Path) -> io::Result<()>,
+{
+    link(&paths.target, &paths.prev).map_err(SwapError::Backup)?;
+    if let Err(cause) = rename(&paths.new, &paths.target) {
+        // A successful rollback rename consumes `prev`, so no backup is left behind; on
+        // failure `prev` is the only copy still worth keeping, and nothing is deleted.
+        let undo = match rename(&paths.prev, &paths.target) {
+            Ok(()) => Undo::Restored,
+            Err(e) => Undo::Lost(e),
+        };
+        return Err(SwapError::Place { cause, undo });
+    }
+    Ok(())
+}
+
+/// The whole transaction with injected operations: `spawn` starts the new binary, and nothing
+/// here terminates the current process.
+pub(crate) fn install_with<L, R, S>(
+    dirs: &AppDirs,
+    channel: &Channel,
+    ready: &Ready,
+    link: L,
+    rename: R,
+    spawn: S,
+) -> Result<(), String>
+where
+    L: Fn(&Path, &Path) -> io::Result<()>,
+    R: Fn(&Path, &Path) -> io::Result<()>,
+    S: Fn(&Path) -> io::Result<()>,
+{
+    let paths = paths_for(channel, ready)?;
+    let _lock = Lock::acquire(&paths.target)?;
+    reverify(&paths, ready)?;
+    // Before the swap and with this transaction's identity: attempts=0 is the first start.
+    startup::write_pending(dirs, &Pending { from_build: running_build(), to_build: ready.build, attempts: 0 }).map_err(|e| message(&e))?;
+    match swap(&paths, &link, &rename) {
+        Ok(()) => {}
+        // The target is untouched: only our own marker goes away.
+        Err(SwapError::Backup(e)) => {
+            startup::abort_pending(dirs);
+            return Err(message(&e));
+        }
+        Err(SwapError::Place { cause, undo }) => {
+            return Err(match undo {
+                Undo::Restored => {
+                    drop_backup(&paths);
+                    startup::abort_pending(dirs);
+                    message(&cause)
+                }
+                // Nothing is deleted: `prev` is the copy to recover from, the marker stays.
+                Undo::Lost(_) => failed("posizione non riuscita e ripristino non riuscito"),
+            });
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        // The staging was already 0755 and a rename keeps the mode: re-asserted, not trusted.
+        if let Err(e) = std::fs::set_permissions(&paths.target, std::fs::Permissions::from_mode(0o755)) {
+            eprintln!("update: chmod not applied: {e}");
+        }
+    }
+    sync_dir(&paths.target);
+    if let Err(e) = spawn(&paths.target) {
+        // The new binary did not start: put the old one back, and only then drop the marker.
+        return Err(match rename(&paths.prev, &paths.target) {
+            Ok(()) => {
+                drop_backup(&paths);
+                startup::abort_pending(dirs);
+                message(&e)
+            }
+            Err(_) => failed("avvio non riuscito e ripristino non riuscito"),
+        });
+    }
+    Ok(())
+}
+
+/// Removes a backup that a successful rollback left behind: a rename between two names of the
+/// same inode is a no-op on Unix, so `prev` can still be there with the old build back on the
+/// target. It is our own name and the bytes live on, so dropping it loses nothing and the next
+/// install is not refused.
+fn drop_backup(paths: &Paths) {
+    if std::fs::symlink_metadata(&paths.prev).is_ok() {
+        let _ = std::fs::remove_file(&paths.prev);
+    }
+}
+
+/// Production entry. Ends with the new binary started; the marker stays until that build
+/// confirms at the documented checkpoint.
+pub fn install_staged(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> Result<(), String> {
+    install_with(dirs, channel, ready, |a, b| std::fs::hard_link(a, b), |a, b| std::fs::rename(a, b), relaunch)
+}
+
+/// Production entry for the UI: this process is gone once the new build has started.
+pub fn install_and_restart(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> ! {
+    if let Err(e) = install_staged(dirs, channel, ready) {
+        eprintln!("update: {e}");
+        std::process::exit(1);
+    }
+    std::process::exit(0)
+}
+
+/// Size and hash again, immediately before the swap, then the bytes to the disk.
+fn reverify(paths: &Paths, ready: &Ready) -> Result<(), String> {
+    let candidate = Candidate {
+        version: ready.version.clone(),
+        build: ready.build,
+        file_name: paths.new.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        sha256: ready.sha256.clone(),
+        size: ready.size,
+    };
+    verify::verify_file(&paths.new, &candidate).map_err(describe)?;
+    std::fs::File::open(&paths.new).and_then(|f| f.sync_all()).map_err(|e| message(&e))
+}
+
+fn describe(e: UpdateError) -> String {
+    failed(match e {
+        UpdateError::SizeMismatch { .. } => "staging di dimensione diversa",
+        UpdateError::Sha256Mismatch => "staging con hash diverso",
+        _ => "staging non verificabile",
+    })
+}
+
+fn running_build() -> u64 {
+    super::build_number(crate::build_info::BUILD_INFO.build).unwrap_or(0)
+}
+
+/// Best effort: makes the rename itself durable where the filesystem supports it.
+fn sync_dir(target: &Path) {
+    if let Some(dir) = target.parent()
+        && let Ok(f) = std::fs::File::open(dir)
+    {
+        let _ = f.sync_all();
+    }
+}
+
+/// Starts the new binary on the same path, without the AppImage environment of the old one.
+/// A started process is not a working update: the marker carries that confirmation.
+fn relaunch(target: &Path) -> io::Result<()> {
+    let _child = std::process::Command::new(target)
+        .args(std::env::args_os().skip(1))
+        .env_remove("APPIMAGE")
+        .env_remove("APPDIR")
+        .env_remove("ARGV0")
+        .spawn()?;
+    Ok(())
+}
+
+fn failed(cause: &str) -> String {
+    let cause = cause.lines().next().unwrap_or_default().trim();
+    format!("Aggiornamento non riuscito: {}", if cause.is_empty() { "errore" } else { cause })
+}
+
+/// One line, per INSTALL_STAGED_CONTRACT.md §8.
+fn message(e: &io::Error) -> String {
+    if e.kind() == io::ErrorKind::PermissionDenied {
+        failed("cartella non scrivibile")
+    } else {
+        failed(&e.to_string())
+    }
+}

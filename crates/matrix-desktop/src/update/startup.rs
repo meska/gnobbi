@@ -5,7 +5,7 @@
 //! via `update_settings`, the store `Preferences` already shares. The UI shows the outcome once and clears it.
 use crate::{AppDirs, preferences::{read_settings, update_settings}};
 use serde_json::{Value, json};
-use std::{ffi::OsString, io::Write, path::{Path, PathBuf}};
+use std::{io::Write, path::{Path, PathBuf}};
 
 pub const MARKER: &str = "update-pending.json";
 pub const OUTCOME_UPDATED: &str = "updated";
@@ -121,16 +121,18 @@ pub fn handle_marker(dirs: &AppDirs, build: u64, target: &Path, prev: &Path) -> 
     StartupAction::Restored { to_build: pending.to_build }
 }
 
+/// Puts the backup back: a single rename over the target, so the executable name is never
+/// free in between. No second-rename fallback: it is destructive on every platform and can
+/// leave the target missing (INSTALL_STAGED_CONTRACT.md §3).
 fn restore(target: &Path, prev: &Path) -> std::io::Result<()> {
-    match std::fs::rename(prev, target) {
-        Ok(()) => Ok(()),
-        // shortcut: Windows cannot replace the running exe; move it aside first. Not exercised by tests.
-        Err(first) => {
-            let mut aside: OsString = target.as_os_str().to_owned();
-            aside.push(".bad");
-            std::fs::rename(target, &aside).and_then(|()| std::fs::rename(prev, target)).map_err(|_| first)
-        }
-    }
+    std::fs::rename(prev, target)
+}
+
+/// Deletes the marker of a transaction this process abandoned before confirming it: the
+/// marker only. `prev` and the staging stay where they are, so a failed install remains
+/// recoverable (INSTALL_STAGED_CONTRACT.md §5).
+pub fn abort_pending(dirs: &AppDirs) {
+    let _ = std::fs::remove_file(marker_path(dirs));
 }
 
 /// Called after the first frame or the sign-in screen: the new build works.
@@ -172,18 +174,16 @@ pub fn confirm_update() {
     }
 }
 
-/// Thin, untested: start the restored binary with the same arguments and leave.
-fn relaunch(target: &Path) -> ! {
-    let r = std::process::Command::new(target)
+/// Starts the restored binary with the same arguments. Returns the error instead of exiting:
+/// a failed spawn must not look like a successful relaunch (INSTALL_STAGED_CONTRACT.md §5).
+fn relaunch(target: &Path) -> std::io::Result<()> {
+    let _child = std::process::Command::new(target)
         .args(std::env::args_os().skip(1))
         .env_remove("APPIMAGE")
         .env_remove("APPDIR")
         .env_remove("ARGV0")
-        .spawn();
-    if let Err(e) = r {
-        eprintln!("update: relaunch failed: {e}");
-    }
-    std::process::exit(0)
+        .spawn()?;
+    Ok(())
 }
 
 /// First call of `main()`. Ordine fisso (N1): `--self-test` esce senza toccare nulla, poi il marcatore.
@@ -198,6 +198,11 @@ pub fn run_at_start() {
     let (Some(dirs), Some(target)) = (dirs_real(), target_real(|k| std::env::var(k).ok())) else { return };
     let prev = prev_of(&target);
     if let StartupAction::Restored { .. } = handle_marker(&dirs, build, &target, &prev) {
-        relaunch(&target);
+        // The old build is back at `target`; this process is the rejected new one and leaves.
+        if let Err(e) = relaunch(&target) {
+            eprintln!("update: relaunch failed: {e}");
+            std::process::exit(1);
+        }
+        std::process::exit(0);
     }
 }

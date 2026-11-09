@@ -6,10 +6,13 @@ pub mod scheduler;
 pub mod verify;
 pub mod startup;
 pub mod stage;
+pub mod install;
 #[cfg(all(test, unix))]
 mod stage_tests;
 #[cfg(test)]
 mod startup_tests;
+#[cfg(test)]
+mod install_tests;
 
 
 use crate::Preferences;
