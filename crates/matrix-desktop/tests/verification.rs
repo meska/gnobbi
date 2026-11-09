@@ -48,8 +48,12 @@ fn initiation_availability_tracks_pending_active_and_terminal_flows() {
         State::Verified,
     ] {
         panel.apply(Event::Snapshot(snapshot(state)));
-        assert!(panel.can_begin());
+        assert!(!panel.can_begin(), "close the outcome before beginning another flow");
     }
+    panel.popup_close();
+    panel.flush(&mut sender);
+    assert!(matches!(receiver.try_recv(), Ok(matrix_engine::verification::VerificationCommand::Release { .. })));
+    assert!(panel.can_begin());
 }
 
 #[test]
@@ -109,7 +113,8 @@ fn device_selection_retries_full_queue_and_ignores_foreign_account() {
         error: VerificationError::Transport,
     });
     assert_eq!(panel.popup_view().unwrap().body, PopupBody::Outcome("Verifica non riuscita"));
-    assert!(panel.begin(0), "explicit retry after failure");
+    panel.popup_close();
+    assert!(panel.begin(0), "explicit retry after closing the error");
 }
 
 #[test]
@@ -338,7 +343,7 @@ fn leaving_a_comparison_asks_first_and_other_states_leave_at_once() {
     assert_eq!(panel.popup_view().unwrap().body, PopupBody::Outcome("Verificato"));
     panel.popup_close();
     assert!(!panel.popup_open());
-    assert!(drain(&mut panel).is_none());
+    assert!(matches!(drain(&mut panel), Some(matrix_engine::verification::VerificationCommand::Release { target }) if target.flow_id == "flow-one"));
 }
 
 #[test]

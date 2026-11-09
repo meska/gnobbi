@@ -140,6 +140,8 @@ pub enum VerificationCommand {
         target: VerificationTarget,
         action: VerificationAction,
     },
+    /// Release the flow once its popup is closed.
+    Release { target: VerificationTarget },
     /// Rename the session's own device (`Client::rename_device`, PUT /devices/{id}).
     RenameOwnDevice {
         account_id: AccountId,

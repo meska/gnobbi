@@ -120,12 +120,13 @@ pub struct DeviceVerification {
     /// The popup was closed before the SDK answered: cancel the flow as soon as it exists.
     abandoned: bool,
     /// Flow the user closed: a late snapshot of it must not reopen the popup.
-    closed_flow: Option<String>,
+    closed_flow: Option<matrix_engine::verification::VerificationTarget>,
     delete: Option<DeleteDialog>,
     rename: Option<RenameDialog>,
     account: AccountId,
     snapshot: Option<VerificationSnapshot>,
     pending: Option<VerificationCommand>,
+    release: Option<matrix_engine::verification::VerificationTarget>,
     deciding: bool,
     devices: Vec<matrix_engine::verification::VerificationDevice>,
     failed: bool,
@@ -151,6 +152,7 @@ impl DeviceVerification {
             account,
             snapshot: None,
             pending: None,
+            release: None,
             deciding: false,
             devices: Vec::new(),
             failed: false,
@@ -276,6 +278,8 @@ impl DeviceVerification {
     }
     pub fn can_begin(&self) -> bool {
         self.pending.is_none()
+            && self.release.is_none()
+            && !self.popup
             && !self.deciding
             && (self.failed
                 || self.snapshot.as_ref().is_none_or(|s| {
@@ -339,10 +343,16 @@ impl DeviceVerification {
                 self.profile_avatar = avatar;
             }
             VerificationEvent::Snapshot(snapshot) if snapshot.account_id == self.account => {
+                if self.popup && self.snapshot.as_ref().is_some_and(|s| s.user_id != snapshot.user_id || s.flow_id != snapshot.flow_id) {
+                    return;
+                }
+                if !self.popup && self.closed_flow.as_ref() == Some(&snapshot.target()) && is_final(snapshot.state) {
+                    self.release = Some(snapshot.target());
+                }
                 // A request from another device or user opens the popup; one the user already closed does not.
                 if snapshot.state == VerificationState::Requested
                     && !self.popup
-                    && self.closed_flow.as_deref() != Some(&snapshot.flow_id)
+                    && self.closed_flow.as_ref() != Some(&snapshot.target())
                 {
                     self.popup = true;
                 }
@@ -354,6 +364,7 @@ impl DeviceVerification {
                 self.deciding = false;
                 self.failed = false;
                 if std::mem::take(&mut self.abandoned) && !self.popup && self.snapshot.as_ref().is_some_and(|s| !is_final(s.state)) {
+                    self.closed_flow = self.snapshot.as_ref().map(|s| s.target());
                     self.act(VerificationAction::Cancel);
                 }
             }
@@ -547,7 +558,10 @@ impl DeviceVerification {
     /// Closes the popup; a flow still alive behind it is cancelled through the SDK, never left running.
     fn close_now(&mut self) {
         let live = !self.failed && self.snapshot.as_ref().map_or(self.deciding, |s| !is_final(s.state));
-        self.closed_flow = self.snapshot.as_ref().map(|s| s.flow_id.clone());
+        self.closed_flow = self.snapshot.as_ref().map(|s| s.target());
+        if let Some(snapshot) = self.snapshot.as_ref().filter(|s| self.failed || is_final(s.state)) {
+            self.release = Some(snapshot.target());
+        }
         self.popup = false;
         self.confirming = false;
         if live && !self.act(VerificationAction::Cancel) {
@@ -570,14 +584,21 @@ impl DeviceVerification {
                 self.confirming = false;
                 self.popup_focus = 0;
             }
-            Ok => {
-                self.closed_flow = self.snapshot.as_ref().map(|s| s.flow_id.clone());
-                self.popup = false;
-            }
+            Ok => self.close_now(),
         }
         true
     }
     pub fn flush(&mut self, sender: &mut matrix_engine::Sender<VerificationCommand>) {
+        if let Some(target) = self.release.take() {
+            match sender.try_send(VerificationCommand::Release { target }) {
+                Ok(()) => (),
+                Err(matrix_engine::TrySendError::Full(VerificationCommand::Release { target }) | matrix_engine::TrySendError::Busy(VerificationCommand::Release { target })) => {
+                    self.release = Some(target);
+                    return;
+                }
+                Err(_) => { self.failed = true; return; }
+            }
+        }
         if let Some(command) = self.pending.take() {
             match sender.try_send(command) {
                 Ok(()) => (),
@@ -604,6 +625,47 @@ fn is_final(state: VerificationState) -> bool {
 #[cfg(test)]
 mod profile_tests {
     use super::*;
+
+    #[test]
+    fn terminal_popup_keeps_its_flow_when_another_snapshot_arrives() {
+        let account = AccountId::new(1);
+        let mut v = DeviceVerification::new(account);
+        let snapshot = |id: &str, state| VerificationSnapshot {
+            account_id: account, user_id: "@a:x".into(), device_id: "DEV".into(),
+            flow_id: id.into(), state, device_verified: false, sas_emoji: None,
+        };
+        v.apply(VerificationEvent::Snapshot(snapshot("first", VerificationState::Requested)));
+        v.apply(VerificationEvent::Snapshot(snapshot("first", VerificationState::Cancelled)));
+        v.apply(VerificationEvent::Snapshot(snapshot("second", VerificationState::Requested)));
+        assert_eq!(v.snapshot().unwrap().flow_id, "first");
+        v.popup_close();
+        assert!(!v.popup_open());
+        assert!(v.pending().is_none(), "Esc must not cancel the second flow");
+    }
+
+    #[test]
+    fn closing_terminal_flow_retries_release_and_distinguishes_senders() {
+        use matrix_engine::verification::VerificationCommand;
+        let account = AccountId::new(1);
+        let mut v = DeviceVerification::new(account);
+        let snap = |user: &str, state| VerificationSnapshot {
+            account_id: account, user_id: user.into(), device_id: "DEV".into(),
+            flow_id: "same".into(), state, device_verified: false, sas_emoji: None,
+        };
+        v.apply(VerificationEvent::Snapshot(snap("@a:x", VerificationState::Requested)));
+        v.apply(VerificationEvent::Snapshot(snap("@a:x", VerificationState::Cancelled)));
+        v.popup_close();
+        let (mut tx, mut rx) = matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
+        tx.try_send(VerificationCommand::List { account_id: account }).unwrap_or_else(|_| panic!("queue"));
+        v.flush(&mut tx);
+        assert!(rx.try_recv().is_ok());
+        v.flush(&mut tx);
+        assert!(matches!(rx.try_recv(), Ok(VerificationCommand::Release { target }) if target.user_id == "@a:x" && target.flow_id == "same"));
+        v.apply(VerificationEvent::Snapshot(snap("@a:x", VerificationState::Requested)));
+        assert!(!v.popup_open());
+        v.apply(VerificationEvent::Snapshot(snap("@b:x", VerificationState::Requested)));
+        assert!(v.popup_open());
+    }
 
     #[test]
     fn profile_is_kept_only_for_own_account() {

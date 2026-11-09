@@ -444,6 +444,50 @@ fn serve(client: &matrix_sdk::Client, account: u64, tasks: &mut Vec<tokio::task:
     (command_tx, event_rx)
 }
 
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_verification_busy_rejects_the_second_request() {
+    use crate::verification::VerificationState as State;
+    runtime().block_on(async {
+        let config = fixture();
+        let (alice, peer) = verification_pair(&config).await;
+        let client = alice.client.as_ref().unwrap();
+        md_bootstrap(client, "alice", config["alice_password"].as_str().unwrap()).await;
+        md_bootstrap(&peer, "bob", config["bob_password"].as_str().unwrap()).await;
+        client.create_dm(peer.user_id().unwrap()).await.unwrap();
+        peer_sync(&peer).await;
+        for room in peer.invited_rooms() {
+            room.join().await.unwrap();
+        }
+        peer_sync(&peer).await;
+        verification_sync(client).await;
+        let other = login(&config, "alice", 25).await;
+        let other_client = other.client.as_ref().unwrap();
+        other_client.encryption().wait_for_e2ee_initialization_tasks().await;
+        peer_sync(other_client).await;
+        verification_sync(client).await;
+        peer_sync(other_client).await;
+        let mut tasks = Vec::new();
+        let mut route = serve(client, 23, &mut tasks);
+        let first_peer = other.request_device_verification(client.user_id().unwrap().as_str(), client.device_id().unwrap().as_str()).await.unwrap();
+        let first = service_snapshot("first active", &mut route, |s| *s == State::Requested).await;
+        assert_eq!(first.flow_id, first_peer.snapshot().await.unwrap().flow_id);
+        let bob = AccountSession { account_id: AccountId::new(24), client: Some(peer.clone()), store: None };
+        let second = bob.request_user_verification(client.user_id().unwrap().as_str()).await.unwrap();
+        let second_id = second.snapshot().await.unwrap().flow_id;
+        assert_ne!(first.flow_id, second_id);
+        tokio::time::timeout(std::time::Duration::from_secs(12), async {
+            loop {
+                peer_sync(&peer).await;
+                if second.snapshot().await.unwrap().state == State::Cancelled { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }).await.expect("second request must be explicitly cancelled by the service");
+        assert_eq!(first_peer.snapshot().await.unwrap().state, State::Waiting);
+        tasks.iter().for_each(|t| t.abort());
+    });
+}
+
 /// «Verifica utente» from alice to bob; bob's request arrives only through the service's event handler.
 /// Returns both services at the comparison step (nothing confirmed yet).
 async fn services_at_comparison(
@@ -523,8 +567,9 @@ fn disposable_verification_user_request_mismatch_and_cancel_through_the_service(
         for route in [&mut a, &mut b] {
             let s = service_snapshot("mismatch", route, |s| *s == State::Mismatched).await;
             assert!(!s.device_verified);
+            route.0.send(Command::Release { target: s.target() }).await.unwrap_or_else(|_| panic!("command rejected"));
         }
-        // A terminal flow frees the service: a new request is accepted, then cancelled.
+        // Closing a terminal flow frees the service for a new request.
         a.0.send(Command::BeginUser { account_id: AccountId::new(23), user_id: "@bob:matrix-desktop.test".into() }).await.unwrap_or_else(|_| panic!("command rejected"));
         let again = service_snapshot("step 7 a", &mut a, |s| *s == State::Waiting).await;
         a.0.send(Command::Act { target: again.target(), action: Action::Cancel }).await.unwrap_or_else(|_| panic!("command rejected"));
