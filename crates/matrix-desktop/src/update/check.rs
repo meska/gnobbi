@@ -57,9 +57,12 @@ pub async fn check(
     let Some(running) = build_number(crate::build_info::BUILD_INFO.build) else {
         return Ok(Outcome::NoUpdate);
     };
+    // The scheduler's snapshot may already be stale before the network starts.
+    let current = Preferences::load_checked(dirs).map_err(|e| CheckError::Persist(e.kind()))?;
+    *prefs = current.clone();
     let result = run(
         dirs,
-        prefs,
+        &current,
         keys,
         running,
         platform,

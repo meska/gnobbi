@@ -272,6 +272,22 @@ impl Preferences {
         Self::from_map(&map)
     }
 
+    /// Strict read for automatic network operations; only a missing file uses defaults.
+    pub fn load_checked(dirs: &AppDirs) -> std::io::Result<Preferences> {
+        let bytes = match std::fs::read(dirs.config.join(FILE)) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(e),
+        };
+        match serde_json::from_slice::<Value>(&bytes) {
+            Ok(Value::Object(map)) => {
+                validate_update_settings(&map)?;
+                Ok(Self::from_map(&map))
+            },
+            _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid settings")),
+        }
+    }
+
     fn from_map(map: &serde_json::Map<String, Value>) -> Preferences {
         Preferences {
             theme: map
@@ -366,6 +382,15 @@ impl Preferences {
     }
 }
 
+fn validate_update_settings(map: &serde_json::Map<String, Value>) -> std::io::Result<()> {
+    let valid = map.get("update_check_enabled").is_none_or(Value::is_boolean)
+        && map.get("update_base").is_none_or(|v| v.is_null() || v.is_string())
+        && map.get("last_check").is_none_or(|v| v.is_null() || v.as_u64().is_some())
+        && map.get("max_build_seen").is_none_or(|v| v.as_u64().is_some())
+        && map.get("bad_builds").is_none_or(|v| v.as_array().is_some_and(|a| a.iter().all(|n| n.as_u64().is_some())));
+    if valid { Ok(()) } else { Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid update settings")) }
+}
+
 /// Reads `settings.json` as an object (empty when missing or corrupt).
 pub(crate) fn read_settings(dirs: &AppDirs) -> serde_json::Map<String, Value> {
     match std::fs::read(dirs.config.join(FILE)).map(|b| serde_json::from_slice::<Value>(&b)) {
@@ -413,6 +438,7 @@ pub(crate) fn update_settings(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
         Err(error) => return Err(error),
     };
+    validate_update_settings(&map)?;
     change(&mut map);
     static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let (tmp, mut file) = loop {

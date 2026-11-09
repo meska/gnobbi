@@ -35,13 +35,20 @@ fn due(channel: &Channel, prefs: &Preferences, now: u64, interval: Duration) -> 
 #[cfg_attr(not(feature = "live"), allow(dead_code))]
 /// Loads the settings fresh (the switch may have changed) and runs `work` only when due.
 fn tick(dirs: &AppDirs, channel: &Channel, interval: Duration, work: impl FnOnce(Preferences)) -> bool {
-    let prefs = Preferences::load(dirs);
+    let Ok(prefs) = Preferences::load_checked(dirs) else { return false };
     let now = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
     let go = due(channel, &prefs, now, interval);
     if go {
         work(prefs);
     }
     go
+}
+
+#[cfg_attr(not(feature = "live"), allow(dead_code))]
+fn download_allowed(dirs: &AppDirs, channel: &Channel, initial: &Preferences) -> bool {
+    let Ok(current) = Preferences::load_checked(dirs) else { return false };
+    channel.self_updates() && current.update_check_enabled
+        && super::effective_base(&current) == super::effective_base(initial)
 }
 
 #[cfg_attr(not(feature = "live"), allow(dead_code))]
@@ -112,6 +119,7 @@ mod online {
             Ok(c) => c,
             Err(e) => return eprintln!("update: client: {e}"),
         };
+        if !download_allowed(dirs, channel, prefs) { return; }
         match rt.block_on(client.get(&o.url).send()) {
             Ok(resp) if resp.status() == reqwest::StatusCode::OK => {
                 let _ = super::super::stage::stage_candidate(dirs, state, &c, Body { rt, resp, buf: Vec::new(), pos: 0 }, &staging);
@@ -186,6 +194,35 @@ mod tests {
         off.save(&dirs).unwrap();
         assert!(!tick(&dirs, &appimage(), h24, |_| { n.fetch_add(1, Ordering::SeqCst); }));
         assert_eq!(n.load(Ordering::SeqCst), 1);
+        let _ = std::fs::remove_dir_all(tmp);
+    }
+
+    #[test]
+    fn tick_rejects_corrupt_settings_without_work() {
+        let tmp = std::env::temp_dir().join(format!("gnobbi-sched-corrupt-{}", std::process::id()));
+        let dirs = AppDirs { config: tmp.join("c"), data: tmp.join("d"), cache: tmp.join("k") };
+        dirs.ensure().unwrap();
+        std::fs::write(dirs.config.join("settings.json"), b"{").unwrap();
+        assert!(!tick(&dirs, &appimage(), Duration::from_secs(0), |_| panic!("network work")));
+        assert_eq!(std::fs::read(dirs.config.join("settings.json")).unwrap(), b"{");
+        std::fs::write(dirs.config.join("settings.json"), br#"{"update_check_enabled":"false"}"#).unwrap();
+        assert!(!tick(&dirs, &appimage(), Duration::from_secs(0), |_| panic!("network work")));
+        let _ = std::fs::remove_dir_all(tmp);
+    }
+
+    #[test]
+    fn download_gate_rechecks_current_switch_and_base() {
+        let tmp = std::env::temp_dir().join(format!("gnobbi-sched-gate-{}", std::process::id()));
+        let dirs = AppDirs { config: tmp.join("c"), data: tmp.join("d"), cache: tmp.join("k") };
+        let initial = Preferences { update_base: Some("https://example.test/".into()), ..Preferences::default() };
+        initial.save(&dirs).unwrap();
+        assert!(download_allowed(&dirs, &appimage(), &initial));
+        Preferences::update(&dirs, |p| p.update_check_enabled = false).unwrap();
+        assert!(!download_allowed(&dirs, &appimage(), &initial));
+        Preferences::update(&dirs, |p| { p.update_check_enabled = true; p.update_base = Some("https://other.test/".into()); }).unwrap();
+        assert!(!download_allowed(&dirs, &appimage(), &initial));
+        std::fs::write(dirs.config.join("settings.json"), b"{").unwrap();
+        assert!(!download_allowed(&dirs, &appimage(), &initial));
         let _ = std::fs::remove_dir_all(tmp);
     }
 

@@ -299,6 +299,23 @@ fn a_switch_turned_off_during_the_fetch_keeps_off_and_offers_nothing() {
     );
 }
 
+#[test]
+fn malformed_switch_during_fetch_fails_closed_without_rewriting() {
+    let (base, _, arrived, release) = serve_gated("valid.minisig");
+    let d = store("malformed-switch", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    let check = go_blocking(d.clone(), p, 41);
+    arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+    let path = d.config.join("settings.json");
+    let mut raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    raw["update_check_enabled"] = serde_json::json!("false");
+    let bytes = raw.to_string();
+    std::fs::write(&path, &bytes).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(check.join().unwrap(), Err(CheckError::Persist(std::io::ErrorKind::InvalidData)));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), bytes);
+}
+
 /// Two real writers (a self-test failure and a newer max seen elsewhere) and the shared stores
 /// land while the fetch is suspended: the commit must not clobber them, and a banned or
 /// rolled-back build is never offered.
