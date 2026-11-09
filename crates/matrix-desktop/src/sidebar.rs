@@ -382,9 +382,15 @@ impl Sidebar {
         }
     }
 
-    /// Outcome of «Esci». Success changes nothing here: the next sync removes the room.
+    /// Outcome of «Esci». The engine confirmed the leave with the server (or the SDK no longer has the room joined:
+    /// the sync projection has dropped it), so the row goes now and the selection moves like a sync `Remove`.
     pub fn room_left(&mut self, scope: &RoomScope, result: Result<(), matrix_engine::operations::OperationError>) {
         use matrix_engine::operations::OperationError::{Forbidden, Unavailable};
+        if matches!(result, Ok(()) | Err(Unavailable)) && !self.rooms.iter().any(|r| r.scope == *scope && r.info.invited) {
+            self.leave_error = None;
+            self.apply_diff(RoomListDiff::Remove(scope.clone()));
+            return;
+        }
         self.leave_error = result.err().map(|e| {
             let text = match e {
                 Forbidden => "Non consentito dal server",
@@ -1122,8 +1128,31 @@ mod invite_tests {
     }
 
     #[test]
+    fn successful_leave_removes_the_row_without_waiting_for_sync() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let room = scope(account, "!a:t.invalid");
+        upsert(&mut sidebar, account, "!a:t.invalid", "a", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        assert_eq!(sidebar.selected().map(|r| &r.scope), Some(&room));
+        sidebar.room_left(&room, Ok(()));
+        assert!(sidebar.rooms().iter().all(|r| r.scope != room));
+        assert!(sidebar.selected().is_none());
+    }
+
+    #[test]
+    fn a_room_the_sdk_no_longer_has_joined_is_dropped_not_reported_as_not_found() {
+        use matrix_engine::operations::OperationError::Unavailable;
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let a = scope(account, "!a:t.invalid");
+        upsert(&mut sidebar, account, "!a:t.invalid", "a", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        sidebar.room_left(&a, Err(Unavailable));
+        assert!(sidebar.rooms().is_empty() && sidebar.leave_error(&a).is_none());
+    }
+
+    #[test]
     fn a_failed_leave_shows_one_error_line_on_its_row_until_the_next_click() {
-        use matrix_engine::operations::OperationError::{Forbidden, Transport, Unavailable};
+        use matrix_engine::operations::OperationError::{Forbidden, Transport};
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         let (a, b) = (scope(account, "!a:t.invalid"), scope(account, "!b:t.invalid"));
@@ -1134,8 +1163,7 @@ mod invite_tests {
         assert_eq!(sidebar.leave_error(&b), None);
         sidebar.room_left(&a, Err(Forbidden));
         assert_eq!(sidebar.leave_error(&a), Some("Non consentito dal server"));
-        sidebar.room_left(&a, Err(Unavailable));
-        assert_eq!(sidebar.leave_error(&a), Some("Stanza non trovata"));
+        assert!(sidebar.rooms().iter().any(|r| r.scope == a), "a refused leave never removes the row");
         assert!(sidebar.select(&b));
         assert_eq!(sidebar.leave_error(&a), None);
         sidebar.room_left(&a, Err(Transport));
