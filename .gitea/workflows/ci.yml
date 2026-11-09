@@ -141,6 +141,29 @@ jobs:
         run: |
           mkdir -p "$HOME/ci-runners/gitea/out"
           printf '%s %s ios-mobile\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.ios-mobile.status"
+  macos-desktop:
+    needs: [debounce, linux]
+    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
+    runs-on: macos-arm64
+    steps:
+      - name: Checkout
+        run: |
+          git init -q .
+          git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
+          git checkout -q "${{ gitea.sha }}"
+          # Non-interactive runner PATH is /usr/bin:/bin:...; prepend the dedicated rustc 1.98.0
+          # toolchain (runner stable is older than rust-version 1.96) and brew.
+          echo "PATH=$HOME/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin:/opt/homebrew/bin:$PATH" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_DIR=$HOME/ci-runners/gitea/cargo-target" >> "$GITHUB_ENV"
+      - name: Build desktop (macos-arm64, live + mac-vault)
+        run: cargo build --locked -j4 -p matrix-desktop --features live,mac-vault
+      - name: Test desktop (logic, no display)
+        run: cargo test --locked -j4 -p matrix-desktop --features live
+      - name: Status
+        if: always()
+        run: |
+          mkdir -p "$HOME/ci-runners/gitea/out"
+          printf '%s %s macos-desktop\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.macos-desktop.status"
   publish:
     needs: [debounce, linux]
     if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
