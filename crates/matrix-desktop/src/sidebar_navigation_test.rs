@@ -1654,6 +1654,41 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 assert!(!this.prefs.debug, "debug mode defaults to off");
                 this.menu_focus.focus(window);
             }).unwrap();
+            matrix_desktop::Preferences::update(&dirs, |p| p.max_build_seen = 42).unwrap();
+            this.update_in(cx, |this, _, cx| this.choose_theme(Theme::Dark, cx)).unwrap();
+            assert_eq!(saved(&dirs).max_build_seen, 42, "theme selection must preserve concurrent update metadata");
+            this.update_in(cx, |this, _, cx| {
+                assert_eq!(this.prefs.theme, Some(Theme::Dark));
+                this.prefs_dirs = None;
+                let previous = this.prefs.debug;
+                this.toggle_debug(cx);
+                assert_ne!(this.prefs.debug, previous, "offline toggle stays in memory");
+                this.toggle_debug(cx);
+                this.prefs_dirs = Some(dirs.clone());
+            }).unwrap();
+            let path = dirs.config.join("settings.json");
+            let bytes = std::fs::read(&path).unwrap();
+            std::fs::write(&path, b"{invalid").unwrap();
+            this.update_in(cx, |this, _, cx| {
+                let previous = this.prefs.debug;
+                this.toggle_debug(cx);
+                assert_eq!(this.prefs.debug, previous, "failed save must not toggle the UI");
+                assert!(this.settings_error.is_some(), "failed save must be visible");
+            }).unwrap();
+            this.update_in(cx, |this, _, cx| {
+                this.install_offer.open = true;
+                this.choose_install(matrix_desktop::install_offer::Choice::Never, cx);
+                assert!(this.install_offer.open && this.install_offer.error.is_some(), "failed opt-out remains visible");
+                assert!(!this.prefs.desktop_entry_dont_ask);
+            }).unwrap();
+            assert_eq!(std::fs::read(&path).unwrap(), b"{invalid");
+            std::fs::write(path, bytes).unwrap();
+            this.update_in(cx, |this, _, cx| {
+                this.choose_install(matrix_desktop::install_offer::Choice::Never, cx);
+                assert!(!this.install_offer.open && this.prefs.desktop_entry_dont_ask);
+            }).unwrap();
+            assert!(saved(&dirs).desktop_entry_dont_ask);
+            assert_eq!(saved(&dirs).max_build_seen, 42);
             key!("enter");
             key!("enter");
             wait(500).await;

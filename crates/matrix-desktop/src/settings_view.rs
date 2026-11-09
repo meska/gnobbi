@@ -57,9 +57,12 @@ impl Shell {
             }
             SettingsAction::Set(row, on) => {
                 self.settings_row = row;
-                if self.semantic_settings().is_some_and(|s| s.on[row] != on) {
-                    self.toggle_setting(row, cx);
-                }
+                self.update_prefs(cx, |p| match row {
+                    0 => p.debug = on,
+                    1 => p.read_receipts = on,
+                    2 => p.hide_redacted = !on,
+                    _ => p.close_to_tray = on,
+                });
             }
         }
     }
@@ -75,32 +78,31 @@ impl Shell {
     }
 
     pub(crate) fn toggle_debug(&mut self, cx: &mut Context<Self>) {
-        self.prefs.debug = !self.prefs.debug;
-        self.save_prefs(cx);
+        self.update_prefs(cx, |p| p.debug = !p.debug);
     }
 
     pub(crate) fn choose_theme(&mut self, theme: matrix_desktop::Theme, cx: &mut Context<Self>) {
-        self.prefs.theme = Some(theme);
-        self.apply_theme(cx);
-        self.save_prefs(cx);
+        if self.update_prefs(cx, |p| p.theme = Some(theme)) {
+            self.apply_theme(cx);
+        }
     }
 
     pub(crate) fn choose_auto_night(&mut self, auto: matrix_desktop::AutoNight, cx: &mut Context<Self>) {
-        self.prefs.auto_night = auto;
-        self.apply_theme(cx);
-        self.save_prefs(cx);
+        if self.update_prefs(cx, |p| p.auto_night = auto) {
+            self.apply_theme(cx);
+        }
     }
 
     pub(crate) fn choose_font(&mut self, font: matrix_desktop::FontChoice, cx: &mut Context<Self>) {
-        self.prefs.font = font;
-        matrix_desktop::set_font(font);
-        self.save_prefs(cx);
+        if self.update_prefs(cx, |p| p.font = font) {
+            matrix_desktop::set_font(self.prefs.font);
+        }
     }
 
     pub(crate) fn choose_icon(&mut self, icon: matrix_desktop::IconChoice, window: &Window, cx: &mut Context<Self>) {
-        self.prefs.icon = icon;
-        matrix_desktop::app_icon::apply(icon, window);
-        self.save_prefs(cx);
+        if self.update_prefs(cx, |p| p.icon = icon) {
+            matrix_desktop::app_icon::apply(self.prefs.icon, window);
+        }
     }
 
     /// Three thumbnails in a row; the chosen one gets an accent border. No visible text.
@@ -163,10 +165,10 @@ impl Shell {
 
     /// `None` follows the OS accent. The accent is process-wide so every `tokens()` call sees it.
     pub(crate) fn choose_accent(&mut self, accent: Option<matrix_desktop::Accent>, cx: &mut Context<Self>) {
-        self.prefs.accent = accent;
-        matrix_desktop::set_accent(self.prefs.effective_accent());
-        self.set_theme(self.theme, cx);
-        self.save_prefs(cx);
+        if self.update_prefs(cx, |p| p.accent = accent) {
+            matrix_desktop::set_accent(self.prefs.effective_accent());
+            self.set_theme(self.theme, cx);
+        }
     }
 
     /// Mini window in the theme's own colours (rail, bubbles, accent); the chosen one gets an accent border.
@@ -227,27 +229,34 @@ impl Shell {
     }
 
     pub(crate) fn toggle_read_receipts(&mut self, cx: &mut Context<Self>) {
-        self.prefs.read_receipts = !self.prefs.read_receipts;
-        self.save_prefs(cx);
+        self.update_prefs(cx, |p| p.read_receipts = !p.read_receipts);
     }
 
     pub(crate) fn toggle_hide_redacted(&mut self, cx: &mut Context<Self>) {
-        self.prefs.hide_redacted = !self.prefs.hide_redacted;
-        self.save_prefs(cx);
+        self.update_prefs(cx, |p| p.hide_redacted = !p.hide_redacted);
     }
 
     pub(crate) fn toggle_close_to_tray(&mut self, cx: &mut Context<Self>) {
-        self.prefs.close_to_tray = !self.prefs.close_to_tray;
-        self.save_prefs(cx);
+        self.update_prefs(cx, |p| p.close_to_tray = !p.close_to_tray);
     }
 
-    pub(crate) fn save_prefs(&mut self, cx: &mut Context<Self>) {
-        if let Some(dirs) = &self.prefs_dirs
-            && let Err(error) = self.prefs.save(dirs)
-        {
-            eprintln!("Gnobbi: cannot save preferences: {error}");
-        }
+    pub(crate) fn update_prefs(&mut self, cx: &mut Context<Self>, change: impl FnOnce(&mut matrix_desktop::Preferences)) -> bool {
+        let result = if let Some(dirs) = &self.prefs_dirs {
+            matrix_desktop::Preferences::update(dirs, change)
+        } else {
+            change(&mut self.prefs);
+            Ok(self.prefs.clone())
+        };
+        let success = match result {
+            Ok(prefs) => { self.prefs = prefs; self.settings_error = None; true }
+            Err(error) => {
+                eprintln!("Gnobbi: cannot save preferences: {error}");
+                self.settings_error = Some("Impossibile salvare le impostazioni. Riprova.");
+                false
+            }
+        };
         cx.notify();
+        success
     }
 
     /// The drawer's account rows: none while offline; the shown account is marked current.
@@ -522,6 +531,9 @@ impl Shell {
                 .into_any_element();
         }
         div()
+            .when_some(self.settings_error, |d, error| {
+                d.child(div().px_4().text_color(rgb(t.error)).child(error))
+            })
             .child(
                 div()
                     .h(px(t.header))
@@ -588,8 +600,12 @@ impl Shell {
                     self.prefs.accent.is_none(), true, false, t,
                 )
                     .on_click(cx.listener(|this, _, _, cx| {
-                        let next = this.prefs.accent.map_or(Some(matrix_desktop::Accent::Blue), |_| None);
-                        this.choose_accent(next, cx)
+                        if this.update_prefs(cx, |p| {
+                            p.accent = p.accent.map_or(Some(matrix_desktop::Accent::Blue), |_| None);
+                        }) {
+                            matrix_desktop::set_accent(this.prefs.effective_accent());
+                            this.set_theme(this.theme, cx);
+                        }
                     })),
             )
             .child(self.icon_row(t, cx))
