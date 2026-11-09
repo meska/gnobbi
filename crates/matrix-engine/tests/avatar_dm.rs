@@ -209,6 +209,9 @@ fn dm_avatar_rules_hot_update_and_cache_reuse() {
         settle!(3);
         assert_eq!(av(&rooms, &o), Some(Some(mxc_own.to_string())), "(d) own avatar wins over the peer's change");
         if av(&rooms, &g) != Some(None) { defects.push(format!("(f) after the member's avatar change the group shows {:?}", av(&rooms, &g))); }
+        let group_room = alice.get_room(<&matrix_engine::sdk::ruma::RoomId>::try_from(g.as_str()).unwrap()).unwrap();
+        group_room.set_avatar_url(&mxc_own, None).await.unwrap();
+        until!("group's own avatar", |r: &BTreeMap<String, RoomSummary>| av(r, &g) == Some(Some(mxc_own.to_string())));
 
         step("(g) cache reuse");
         let dir = std::path::PathBuf::from(std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into())).join("avatar-dm-cache");

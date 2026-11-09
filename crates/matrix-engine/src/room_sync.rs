@@ -1441,8 +1441,20 @@ fn room_label(name: Option<matrix_sdk::RoomDisplayName>, id: &str) -> String {
 
 /// Avatar to show: the room's own, else for a 1:1 DM the other person's (as Element X does).
 async fn room_avatar(room: &matrix_sdk::Room) -> Option<String> {
-    if let Some(own) = nonempty(room.avatar_url().as_deref()) {
-        return Some(own);
+    // The sliding-sync avatar may be server-derived, so read the actual state event.
+    if let Ok(Some(event)) = room
+        .get_state_event_static::<matrix_sdk::ruma::events::room::avatar::RoomAvatarEventContent>()
+        .await
+    {
+        let own = serde_json::to_value(event).ok();
+        if let Some(url) = own
+            .as_ref()
+            .and_then(|e| e.pointer("/content/url"))
+            .and_then(|v| v.as_str())
+            .filter(|url| !url.is_empty())
+        {
+            return Some(url.to_owned());
+        }
     }
     let heroes = room.heroes().await;
     let [hero] = heroes.as_slice() else {
