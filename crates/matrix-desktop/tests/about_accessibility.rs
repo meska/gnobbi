@@ -42,8 +42,17 @@ fn info_page_is_a_named_dialog_with_named_rows_and_focus_on_back() {
     }
     find(&tree, "Sistema: Linux 6.1 (x86_64)");
     assert_eq!(tree.focus, find(&tree, "Indietro"));
-    for b in BUTTONS {
-        find(&tree, b);
+    assert_eq!(BUTTONS, ["Indietro", "Apri licenze", "Licenze di terze parti", "Copia informazioni", "Chiudi"]);
+    let buttons: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Button).collect();
+    assert_eq!(buttons.len(), BUTTONS.len());
+    for (row, ((id, node), label)) in buttons.iter().zip(BUTTONS).enumerate() {
+        assert_eq!(node.label(), Some(label));
+        assert!(node.supports_action(Action::Click));
+        assert!(node.supports_action(Action::Focus));
+        assert_eq!(snap.action(&req(Action::Click, *id)), Some(AboutAction::Activate(row)));
+        assert_eq!(snap.action(&req(Action::Focus, *id)), Some(AboutAction::Focus(row)));
+        let focused = AboutSnapshot { focus: row, system: String::new() }.tree();
+        assert_eq!(focused.focus, *id);
     }
 }
 
