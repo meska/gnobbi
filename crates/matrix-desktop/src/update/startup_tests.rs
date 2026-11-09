@@ -1,5 +1,5 @@
 use super::startup::*;
-use crate::AppDirs;
+use crate::{AppDirs, Preferences};
 use std::path::PathBuf;
 
 fn tmp(name: &str) -> PathBuf {
@@ -85,4 +85,67 @@ fn self_test_flag_is_pure() {
     assert_eq!(self_test_line(&a(&["--self-test"]), "42").as_deref(), Some("gnobbi build=42"));
     assert_eq!(self_test_line(&a(&["--signin"]), "42"), None);
     assert_eq!(self_test_line(&[], "42"), None);
+}
+
+#[test]
+fn add_bad_build_unions_and_keeps_the_other_keys() {
+    let e = env("bad-builds");
+    std::fs::create_dir_all(&e.dirs.config).unwrap();
+    let path = e.dirs.config.join("settings.json");
+    std::fs::write(&path, br#"{"bad_builds":[7],"update_outcome":{"result":"updated","build":31},"future":{"x":1}}"#).unwrap();
+    add_bad_build(&e.dirs, 42).unwrap();
+    add_bad_build(&e.dirs, 42).unwrap();
+    assert_eq!(bad_builds(&e.dirs), vec![7, 42], "union, once");
+    let data: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(data["update_outcome"]["build"], 31);
+    assert_eq!(data["future"]["x"], 1);
+    assert_eq!(update_outcome(&e.dirs), Some((OUTCOME_UPDATED.into(), 31)));
+}
+
+/// The union must read inside the transaction: with the lock busy on another writer,
+/// add_bad_build must not even look at settings.json, or it would read a snapshot and write it
+/// back over the one already committed. A filesystem that does not mark reads (atime) would make
+/// this check mute, so the test proves that first.
+#[test]
+fn add_bad_build_does_not_read_settings_while_the_lock_is_busy() {
+    use std::sync::mpsc;
+    use std::time::{Duration, SystemTime};
+    let e = env("bad-builds-lock");
+    std::fs::create_dir_all(&e.dirs.config).unwrap();
+    let path = e.dirs.config.join("settings.json");
+    std::fs::write(&path, br#"{"bad_builds":[7]}"#).unwrap();
+    let stamp = |p: &std::path::Path| std::fs::metadata(p).unwrap().accessed().unwrap();
+    // 2001: well before mtime, so even relatime marks the read.
+    let old = SystemTime::UNIX_EPOCH + Duration::from_secs(978_307_200);
+    let backdate = |p: &std::path::Path| {
+        std::fs::File::open(p).unwrap().set_times(std::fs::FileTimes::new().set_accessed(old)).unwrap();
+    };
+    backdate(&path);
+    let probe = stamp(&path);
+    std::fs::read(&path).unwrap();
+    assert!(stamp(&path) > probe, "this filesystem does not mark reads: check would be mute");
+
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let thread_dirs = e.dirs.clone();
+    let writer = std::thread::spawn(move || {
+        Preferences::update(&thread_dirs, |p| {
+            entered_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            p.max_build_seen = 99;
+        })
+    });
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    // The other writer read the file on entering its own transaction: take the mark after that.
+    backdate(&path);
+    let mark = stamp(&path);
+    assert_eq!(add_bad_build(&e.dirs, 42).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    assert_eq!(stamp(&path), mark, "settings.json read before the lock");
+    release_tx.send(()).unwrap();
+    writer.join().unwrap().unwrap();
+    assert_eq!(Preferences::load(&e.dirs).max_build_seen, 99);
+    add_bad_build(&e.dirs, 42).unwrap();
+    let after = Preferences::load(&e.dirs);
+    assert_eq!(after.bad_builds.iter().copied().collect::<Vec<_>>(), [7, 42]);
+    assert_eq!(after.max_build_seen, 99, "the other writer's key survives");
 }
