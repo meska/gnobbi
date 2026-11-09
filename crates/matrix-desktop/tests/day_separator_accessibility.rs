@@ -17,6 +17,7 @@ fn row(id: &str, timestamp_ms: u64) -> HistoryEvent {
         timestamp_ms,
         sender: HistorySender::new("@anna:test", None),
         video: None,
+        audio: None,
         attachment_name: None,
         attachment_size: None,
         styles: Vec::new(),

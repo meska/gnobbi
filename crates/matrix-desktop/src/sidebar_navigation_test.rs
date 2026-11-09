@@ -1568,6 +1568,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     timestamp_ms: 1_700_000_000_000 + n * 60_000,
                     sender: matrix_engine::history::HistorySender::new("@anna:gnobbi.test", None),
                     video: None,
+                    audio: None,
                     styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,

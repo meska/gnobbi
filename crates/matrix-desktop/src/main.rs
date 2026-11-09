@@ -77,6 +77,7 @@ mod timeline_view;
 mod tray_view;
 mod verification_view;
 mod video_player;
+mod audio_player;
 mod voice_recorder;
 use composer_view::{ComposerView, OpenPoll, Submitted};
 
@@ -204,6 +205,8 @@ struct Shell {
     notification_failed: bool,
     avatars: avatar_view::Avatars,
     media: matrix_desktop::LiveMedia,
+    /// The in-app player of one voice note: its message and its cpal output. Dropped to stop it.
+    audio: Option<(matrix_domain::EventId, crate::audio_player::AudioOutput)>,
     /// Channels to the shown account's worker.
     routes: matrix_desktop::AccountRoutes,
     /// Accounts running in the background, by catalog ID; only the shown one has its state in this struct.
@@ -1386,6 +1389,8 @@ impl Shell {
             if let Some(request) = self.history.select(scope.clone()) {
                 self.set_room_details_open(false);
                 self.media.clear();
+                // The note belongs to the room being left: stop the sound with it.
+                self.audio = None;
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
                 self.active_scope = request.tag.scope().clone();
@@ -1406,6 +1411,8 @@ impl Shell {
             } else if scope.is_none() {
                 self.set_room_details_open(false);
                 self.media.clear();
+                // The note belongs to the room being left: stop the sound with it.
+                self.audio = None;
                 self.operations.borrow_mut().clear_selection();
                 self.timeline = None;
                 self.pending_history = None;
@@ -3199,6 +3206,9 @@ fn main() {
                                             cx.notify();
                                         }
                                         this.drive_saves(cx);
+                                        if this.drive_audio() {
+                                            cx.notify();
+                                        }
                                         this.drive_recover_keys(cx);
                                         if this.drive_avatars(cx) {
                                             cx.notify();
@@ -3300,7 +3310,12 @@ fn main() {
                     cx.spawn_in(window, async move |this, cx| {
                         loop {
                             cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
-                            if this.update_in(cx, |this, window, cx| this.open_clicked_alert(window, cx)).is_err() {
+                            if this.update_in(cx, |this, window, cx| {
+                                if this.update_audio_progress() {
+                                    cx.notify();
+                                }
+                                this.open_clicked_alert(window, cx);
+                            }).is_err() {
                                 break;
                             }
                         }
@@ -3491,6 +3506,7 @@ fn main() {
                         notification_failed: false,
                         avatars: Default::default(),
                         media: matrix_desktop::LiveMedia::default(),
+                        audio: None,
                         // Before `routes` is taken: the queue control belongs to the delivery too.
                         delivery: std::rc::Rc::new(std::cell::RefCell::new(
                             matrix_desktop::LiveDelivery::with_control(routes.send_control.clone()),

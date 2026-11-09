@@ -232,6 +232,40 @@ pub async fn download_video(
     .await
 }
 
+/// Download the original of an exact scoped `m.audio` event through the SDK (auth and E2EE
+/// decryption included) and decode it once: the answer carries both the samples the player
+/// uses and the waveform of those same samples. Over `max_bytes` (declared or received) is
+/// `TooLarge`. Nothing is written to disk.
+pub async fn download_audio(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    tag: &RequestTag,
+    event: &EventId,
+    max_bytes: usize,
+) -> Result<crate::media::OpenedAudio, MediaError> {
+    let (source, size, _) = attachment(client, account, tag, event, false).await?;
+    if size.is_some_and(|size| size > max_bytes as u64) {
+        return Err(MediaError::TooLarge);
+    }
+    let bytes = fetch_bytes(client, source, max_bytes, tag, |_| ()).await?;
+    // Decoding is CPU-bound: keep it off the async worker's thread.
+    tokio::task::spawn_blocking(move || opened_audio(&bytes))
+        .await
+        .map_err(|_| MediaError::Failed)?
+}
+
+/// The single decode: player samples and the waveform of those same samples.
+fn opened_audio(bytes: &[u8]) -> Result<crate::media::OpenedAudio, MediaError> {
+    let decoded = crate::audio_file::decode_ogg_opus(bytes)?;
+    let waveform =
+        crate::audio_file::waveform(&decoded.samples, crate::audio_file::WAVEFORM_POINTS);
+    Ok(crate::media::OpenedAudio {
+        samples: decoded.samples,
+        sample_rate: decoded.sample_rate,
+        waveform,
+    })
+}
+
 /// Save the original of an exact scoped attachment (image, video, audio or file) to `dest`.
 /// Bytes are decrypted in memory and only `dest` is written (through `dest.part`, renamed
 /// when complete); no thumbnail and no temp file. Over `max_bytes` is `TooLarge`.

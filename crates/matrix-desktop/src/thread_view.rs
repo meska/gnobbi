@@ -380,6 +380,7 @@ mod tests {
             timestamp_ms: 0,
             sender: HistorySender::new("@a:t", None),
             video: None,
+            audio: None,
             attachment_name: None,
             attachment_size: None, media: None,
             styles: Vec::new(), mentions: Vec::new(), highlighted: false,

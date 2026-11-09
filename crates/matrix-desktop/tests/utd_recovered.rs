@@ -11,6 +11,7 @@ fn ev(body: &str, utd: bool) -> HistoryEvent {
         timestamp_ms: 1,
         sender: HistorySender::new("@a:test", Some("a")),
         video: None,
+        audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false, poll: None, media: None,
         thread: None,
         thread_root: None,
