@@ -79,7 +79,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         wait(500).await;
         let scale = cx.update(|window, _| window.scale_factor()).unwrap();
         let mut fails: Vec<String> = vec![];
-        macro_rules! check { ($c:expr, $($m:tt)+) => { if !$c { fails.push(format!("[x{scale}] {}", format!($($m)+))); } }; }
+        macro_rules! check { ($c:expr, $($m:tt)+) => {{ let ok = $c; if !ok { fails.push(format!("[x{scale}] {}", format!($($m)+))); } }}; }
         macro_rules! key { ($k:expr) => { { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap(); wait(150).await; } }; }
         let account = this.update_in(cx, |this, window, cx| {
             this.connected = true;
@@ -125,10 +125,9 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let (cl, cr, ct) = (f32::from(c.left()), f32::from(c.right()), f32::from(c.top()));
                 check!(cl >= dl - 0.5 && cr <= dr + 0.5 && f32::from(c.bottom()) <= db + 0.5, "{name}: emoji cell {i} leaves the dialog");
                 check!((ct - f32::from(cells[0].unwrap().top())).abs() < 0.5, "{name}: emoji cell {i} moved to another row");
-                if i > 0 {
-                    if let Some(previous) = cells[i - 1] {
-                        check!(f32::from(previous.right()) <= cl + 0.5, "{name}: emoji cells {} and {i} overlap in logical coordinates", i - 1);
-                    }
+                if i > 0
+                    && let Some(previous) = cells[i - 1] {
+                    check!(f32::from(previous.right()) <= cl + 0.5, "{name}: emoji cells {} and {i} overlap in logical coordinates", i - 1);
                 }
                 match ink(&img, k, t.surface, (cl, cr), (ct + crate::verification_view::EMOJI_LINE, f32::from(c.bottom()))) {
                     None => check!(false, "{name}: emoji name {i} not drawn"),

@@ -273,7 +273,7 @@ fn directory_search_end_to_end() {
         let spaces = public_rooms(&client, "", Some(&remote), None, PAGE, Some(DirectoryKind::Spaces)).await.expect("spaces");
         assert_eq!(spaces.hits.iter().map(|h| h.room_id.as_str()).collect::<Vec<_>>(), [s("space_id")]);
         let pick = page.hits.iter().find(|h| h.join_rule == "public" && !joined(&h.room_id)).expect("a public room not joined yet");
-        join_room(&client, account, &pick.room_id, &[pick.origin.clone()]).await.expect("join from a suggestion");
+        join_room(&client, account, &pick.room_id, std::slice::from_ref(&pick.origin)).await.expect("join from a suggestion");
         assert!(joined(&pick.room_id));
         report("suggestions", format!("{} rooms (more: {}), 1 space, join from a suggestion", page.hits.len(), page.next_batch.is_some()));
 

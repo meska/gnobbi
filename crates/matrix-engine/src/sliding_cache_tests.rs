@@ -58,7 +58,7 @@ fn disposable_sliding_cache_requires_live_response_after_restart() {
             .await
             .unwrap()
     });
-    let (mut worker, mut events) =
+    let (worker, mut events) =
         RoomListWorker::spawn(move || async move { Ok(session) }).unwrap();
     runtime().block_on(async {
         tokio::time::timeout(Duration::from_secs(30), async {
@@ -90,7 +90,7 @@ fn disposable_sliding_cache_requires_live_response_after_restart() {
                 .await
                 .unwrap()
         });
-        let (mut worker, mut events) =
+        let (worker, mut events) =
             RoomListWorker::spawn(move || async move { Ok(session) }).unwrap();
         runtime().block_on(async {
             let versions = http(&behind)
@@ -152,7 +152,7 @@ fn disposable_sliding_cache_requires_live_response_after_restart() {
             .await
             .unwrap()
     });
-    let (mut worker, mut events) =
+    let (worker, mut events) =
         RoomListWorker::spawn(move || async move { Ok(session) }).unwrap();
     runtime().block_on(async {
         tokio::time::timeout(Duration::from_secs(60), async {
