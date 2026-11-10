@@ -569,7 +569,7 @@ async fn busy_through_proxy(fault: bool, peer_cancels_meanwhile: bool) {
         }
     }).await.is_ok();
     println!("TRACE proxy {}", proxy_control(&config, "stats").await);
-    assert_eq!(proxy_control(&config, "stats").await.contains("\"errors\": []"), true, "harness: proxy error");
+    assert!(proxy_control(&config, "stats").await.contains("\"errors\": []"), "harness: proxy error");
     assert!(cancelled, "RED: after the route was restored the peer's second request never got an outcome");
     assert_eq!(first_peer.snapshot().await.unwrap().state, State::Waiting);
     // A new request after the closure is a new transaction and is refused on its own.

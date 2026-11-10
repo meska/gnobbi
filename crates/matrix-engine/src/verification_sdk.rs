@@ -558,9 +558,9 @@ const REJECT_MAX_ATTEMPTS: u32 = 30;
 async fn resend_rejects(unsent: &mut Vec<(VerificationFlow, u32)>) {
     let mut kept = Vec::new();
     for (flow, ticks) in std::mem::take(unsent) {
-        if ticks % REJECT_RETRY_EVERY != REJECT_RETRY_EVERY - 1 {
-            kept.push((flow, ticks + 1));
-        } else if flow.request.cancel().await.is_err() && ticks / REJECT_RETRY_EVERY + 1 < REJECT_MAX_ATTEMPTS {
+        if ticks % REJECT_RETRY_EVERY != REJECT_RETRY_EVERY - 1
+            || (flow.request.cancel().await.is_err() && ticks / REJECT_RETRY_EVERY + 1 < REJECT_MAX_ATTEMPTS)
+        {
             kept.push((flow, ticks + 1));
         }
     }
