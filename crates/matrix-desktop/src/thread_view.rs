@@ -72,6 +72,10 @@ struct Outgoing {
 /// How long a confirmed line waits for its event to show up in a snapshot (a server hole may never).
 const CONFIRMED_GRACE: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Minimum gap between two receipt attempts while the panel stays visible: the retry never runs
+/// per frame (the tick is 16 ms), and only one attempt is in flight at a time.
+const READ_CADENCE: std::time::Duration = std::time::Duration::from_millis(400);
+
 pub(crate) struct ThreadPanel {
     pub(crate) composer: Option<gpui::Entity<ComposerView>>,
     /// The event the next text answers (`send_reply`), with a one-line label for the bar.
@@ -90,6 +94,17 @@ pub(crate) struct ThreadPanel {
     failed: bool,
     /// The page request's lifecycle: a page from a closed or replaced visit is not applied.
     views: ViewRequests,
+    /// The receipt request's lifecycle, apart from the page: revoking it stops the send, dropping
+    /// the page does not. A tag of another visit or scope never clears the root.
+    read_views: ViewRequests,
+    /// The server accepted the receipt of this visit: the root is already down, do not re-send.
+    read_done: bool,
+    /// One receipt is in flight (or queued): send no equivalent until its outcome.
+    read_pending: bool,
+    /// The last receipt failed: one line in the panel until a later attempt succeeds or is no-op.
+    read_failed: bool,
+    /// Last attempt: with `loaded_at` it sets the retry cadence, never a per-frame loop.
+    read_at: Option<std::time::Instant>,
     /// The last older page brought nothing: the server holds no more of this thread.
     stalled: bool,
     at_start: bool,
@@ -106,7 +121,9 @@ impl ThreadPanel {
         Self {
             composer: None, reply_to: None, outgoing: Vec::new(),
             scope, root, root_row, replies: Vec::new(), total, want: STEP, pending: false, dirty: true,
-            loaded_at: None, failed: false, views: ViewRequests::new(), stalled: false, at_start: false, growing: None, anchor: None,
+            loaded_at: None, failed: false, views: ViewRequests::new(), read_views: ViewRequests::new(),
+            read_done: false, read_pending: false, read_failed: false, read_at: None,
+            stalled: false, at_start: false, growing: None, anchor: None,
             stick_bottom: true, scroll: ScrollHandle::new(),
         }
     }
@@ -119,6 +136,10 @@ impl ThreadPanel {
         self.pending = false;
         self.dirty = true;
         self.views = ViewRequests::new();
+        self.revoke_read();
+        self.read_done = false;
+        self.read_failed = false;
+        self.read_at = None;
         self.growing = None;
         self.anchor = None;
         self.stick_bottom = true;
@@ -128,6 +149,50 @@ impl ThreadPanel {
 
     pub(crate) fn activity(&mut self, scope: &RoomScope) {
         self.dirty |= self.scope == *scope;
+        if self.scope == *scope {
+            // A new response is not read by the previous receipt: drop its authorization and let
+            // the refreshed page produce a new intent on the target now shown.
+            self.read_done = false;
+            self.revoke_read();
+        }
+    }
+
+    /// Cancel the receipt authorization now: no new send and no retry after the visit changed.
+    /// `read_at` resets so a later visit (focus, scroll back, reopen) asks again at once.
+    pub(crate) fn revoke_read(&mut self) {
+        self.read_views.cancel();
+        self.read_pending = false;
+        self.read_at = None;
+    }
+
+    /// The newest server event the panel shows: the receipt points here, never at a hidden row.
+    fn receipt_target(&self) -> Option<EventId> {
+        self.replies.last().and_then(|r| r.id.clone()).or_else(|| self.root_row.id.clone())
+    }
+
+    /// Whether a receipt is due for the page as projected: one attempt per snapshot, a failed
+    /// attempt retried on the 400 ms cadence and a no-op only after a new snapshot.
+    fn receipt_due(&self) -> bool {
+        let Some(loaded) = self.loaded_at else { return false };
+        match self.read_at {
+            None => true,
+            Some(at) => at.elapsed() >= READ_CADENCE && (self.read_failed || at < loaded),
+        }
+    }
+
+    /// One receipt outcome for this visit. `None` when the tag is stale (another scope, a closed or
+    /// replaced visit): the caller applies nothing. `Some(true)` is the server ACK that clears the
+    /// root; `Some(false)` a handled no-op or error that leaves rows and unread untouched.
+    fn read_result(&mut self, tag: &RequestTag, root: &EventId, result: Result<bool, OperationError>) -> Option<bool> {
+        if self.root != *root || self.scope != *tag.scope() || !self.read_views.accepts(tag) {
+            return None;
+        }
+        self.read_pending = false;
+        match result {
+            Ok(true) => { self.read_done = true; self.read_failed = false; Some(true) }
+            Ok(false) => { self.read_failed = false; Some(false) }
+            Err(_) => { self.read_failed = true; Some(false) }
+        }
     }
 
     fn more(&self) -> bool {
@@ -179,7 +244,36 @@ impl Shell {
     }
 
     pub(crate) fn close_thread(&mut self) {
+        // The panel is kept for the next visit: revoke the receipt now, a stale tag must not send.
+        self.revoke_thread_read();
         self.thread_last = self.thread.take();
+    }
+
+    /// Cancel the thread receipt's authorization right now, wherever the visit is changing.
+    pub(crate) fn revoke_thread_read(&mut self) {
+        if let Some(p) = &mut self.thread {
+            p.revoke_read();
+        }
+    }
+
+    /// One receipt outcome from the engine: only a current `Ok(true)` clears the root.
+    pub(crate) fn thread_read_result(&mut self, tag: RequestTag, root: EventId, result: Result<bool, OperationError>, cx: &mut Context<Self>) {
+        let Some(p) = &mut self.thread else { return };
+        match p.read_result(&tag, &root, result) {
+            // A stale tag (other visit/scope) or a result for another root: nothing to apply.
+            None => return,
+            Some(ack) => {
+                if ack && let Some(t) = &self.timeline {
+                    t.thread_read(&root);
+                }
+                // ACK and no-op let the store projection settle; an error must not trigger a
+                // refresh (a failing receipt would then fetch the page on every retry).
+                if ack || !p.read_failed {
+                    self.history.settle_soon();
+                }
+            }
+        }
+        cx.notify();
     }
 
     /// Open the panel on the thread `id` belongs to; the composer is ready for the first text.
@@ -237,6 +331,7 @@ impl Shell {
         }
         let Some(p) = &mut self.thread else { return };
         if p.scope != self.active_scope {
+            p.revoke_read();
             self.thread_last = self.thread.take();
             cx.notify();
             return;
@@ -286,6 +381,31 @@ impl Shell {
             }
             cx.notify();
         }
+        // Separate receipt: only while the panel's tail is really on screen, at most one in flight.
+        let focused = cx.active_window().is_some();
+        let at_tail = p.scroll.offset().y <= -p.scroll.max_offset().height + gpui::px(4.);
+        if !(focused && at_tail) {
+            // Focus lost or scrolled away: revoke now, a later visit asks again with a fresh tag.
+            p.revoke_read();
+        } else if !p.read_done
+            && !p.read_pending
+            && !p.pending
+            && p.receipt_due()
+            && let Some(target) = p.receipt_target()
+            && let Some((sender, _)) = &mut self.routes.operation
+            && let Ok(tag) = p.read_views.start(p.scope.clone())
+        {
+            let public = self.prefs.read_receipts;
+            p.read_at = Some(std::time::Instant::now());
+            let command = OperationCommand::ThreadRead { tag, root: p.root.clone(), target, public };
+            match sender.try_send(command) {
+                Ok(()) => (p.read_pending, p.read_failed) = (true, false),
+                // Closed route or a full queue: not sent, so the panel says so; the cadence above
+                // keeps the retry at 400 ms, never per frame.
+                Err(_) => p.read_failed = true,
+            }
+            cx.notify();
+        }
     }
 
     pub(crate) fn render_thread(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -323,7 +443,7 @@ impl Shell {
                     }
                 })))
         };
-        let status = if p.failed { Some("Impossibile caricare · riprova più tardi") } else if p.pending && p.replies.is_empty() { Some("Caricamento…") } else { None };
+        let status = if p.failed { Some("Impossibile caricare · riprova più tardi") } else if p.pending && p.replies.is_empty() { Some("Caricamento…") } else if p.read_failed { Some("Lettura non confermata") } else { None };
         // Wide window: a column next to the chat. Narrow: a sheet over it (as the room sheet).
         let docked = window.viewport_size().width >= px(800.);
         let panel = div().id("thread-panel").occlude()
@@ -470,5 +590,93 @@ mod tests {
         p.outgoing.push(Outgoing { body: "ciao".into(), reply_to: None, delivery: Delivery::Failed });
         p.apply(Ok(page(2)));
         assert_eq!(p.outgoing.len(), 1);
+    }
+
+    /// A current-tag receipt intent, as `drive_thread` would start it.
+    fn read_tag(p: &mut ThreadPanel) -> RequestTag {
+        p.read_views.start(p.scope.clone()).unwrap()
+    }
+
+    #[test]
+    fn a_page_before_the_ack_projects_rows_without_clearing_the_root() {
+        let mut p = panel(3);
+        p.apply(Ok(page(2)));
+        assert_eq!(p.replies.len(), 2, "the page is shown at once");
+        assert!(!p.read_done, "a successful page proves nothing about the receipt");
+        assert!(!p.read_failed && !p.read_pending);
+    }
+
+    #[test]
+    fn only_a_current_ack_clears_the_root() {
+        let mut p = panel(3);
+        p.apply(Ok(page(2)));
+        let tag = read_tag(&mut p);
+        p.read_pending = true;
+        let root = p.root.clone();
+        assert_eq!(p.read_result(&tag, &root, Ok(true)), Some(true));
+        assert!(p.read_done && !p.read_pending && !p.read_failed);
+    }
+
+    #[test]
+    fn a_no_op_receipt_frees_the_intent_without_a_fake_confirmation() {
+        let mut p = panel(3);
+        p.apply(Ok(page(2)));
+        let tag = read_tag(&mut p);
+        p.read_pending = true;
+        let root = p.root.clone();
+        assert_eq!(p.read_result(&tag, &root, Ok(false)), Some(false));
+        assert!(!p.read_done, "Ok(false) is no send, not a confirmed read");
+        assert!(!p.read_pending && !p.read_failed);
+    }
+
+    #[test]
+    fn a_failed_receipt_keeps_the_rows_and_marks_one_line() {
+        let mut p = panel(3);
+        p.apply(Ok(page(2)));
+        let tag = read_tag(&mut p);
+        let root = p.root.clone();
+        assert_eq!(p.read_result(&tag, &root, Err(OperationError::Transport)), Some(false));
+        assert!(p.read_failed && !p.read_done);
+        assert_eq!(p.replies.len(), 2, "a receipt error never touches the page");
+    }
+
+    #[test]
+    fn an_ack_is_stale_after_activity_or_another_scope() {
+        let mut p = panel(3);
+        p.apply(Ok(page(2)));
+        let tag = read_tag(&mut p);
+        let scope = p.scope.clone();
+        p.activity(&scope);
+        assert!(!p.read_done && !p.read_views.accepts(&tag), "activity revokes the old tag");
+        let root = p.root.clone();
+        assert_eq!(p.read_result(&tag, &root, Ok(true)), None, "a revoked ACK applies nothing");
+        // A tag minted for another room is never accepted here, even at the same generation.
+        let foreign = ViewRequests::new()
+            .start(RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!other:t") })
+            .unwrap();
+        assert_eq!(p.read_result(&foreign, &root, Ok(true)), None);
+    }
+
+    #[test]
+    fn the_receipt_points_at_the_newest_shown_event() {
+        let mut p = panel(3);
+        assert_eq!(p.receipt_target(), None, "nothing projected: no target, no receipt");
+        p.apply(Ok(page(2)));
+        assert_eq!(p.receipt_target(), Some(EventId::new("$r2")));
+    }
+
+    #[test]
+    fn a_no_op_waits_for_a_new_page_and_an_error_retries_on_the_cadence() {
+        let mut p = panel(3);
+        p.apply(Ok(page(2)));
+        let base = std::time::Instant::now() - std::time::Duration::from_secs(5);
+        p.loaded_at = Some(base);
+        p.read_at = Some(base + std::time::Duration::from_secs(1)); // one attempt, after the snapshot
+        assert!(!p.receipt_due(), "a no-op waits for the next snapshot, never a per-frame loop");
+        p.read_failed = true;
+        assert!(p.receipt_due(), "a failed attempt retries once the 400 ms cadence passed");
+        p.read_failed = false;
+        p.apply(Ok(page(3)));
+        assert!(p.receipt_due(), "a new snapshot makes a fresh intent due");
     }
 }

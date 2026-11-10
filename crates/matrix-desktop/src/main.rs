@@ -1336,6 +1336,7 @@ impl Shell {
                 self.media.clear();
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
+                self.revoke_thread_read();
                 self.active_scope = request.tag.scope().clone();
                 self.note_seen();
                 let draft_scope = self.draft_scope();
@@ -1373,6 +1374,7 @@ impl Shell {
             previous.retire_selection();
             self.saved_timelines
                 .insert(self.active_scope.clone(), previous);
+            self.revoke_thread_read();
             self.active_scope = scope;
         }
     }
@@ -2925,8 +2927,8 @@ fn main() {
                                                 this.thread_found(tag, root, result, cx);
                                                 continue;
                                             }
-                                            if let matrix_engine::operations::OperationResult::ThreadRead { .. } = result {
-                                                // Segmento 2 collega il pannello: qui il checkpoint scarta l'esito.
+                                            if let matrix_engine::operations::OperationResult::ThreadRead { tag, root, result, .. } = result {
+                                                this.thread_read_result(tag, root, result, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::Profile { user_id, result } = result {
