@@ -394,3 +394,77 @@ fn install_and_restart_exits_zero_only_after_the_new_build_started() {
     assert_eq!(out.status.code(), Some(0), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     assert!(!String::from_utf8_lossy(&out.stdout).contains("returned:"));
 }
+
+// --- QA: gaps found against the task checklist -----------------------------
+
+#[test]
+fn missing_staging_is_refused_before_anything_is_written() {
+    let fx = fixture("no-staging");
+    std::fs::remove_file(&fx.paths.new).unwrap();
+    let err = install::install_staged(&fx.dirs, &fx.channel, &fx.ready).unwrap_err();
+    assert_eq!(err, "Aggiornamento non riuscito: staging non trovato");
+    assert_eq!(fx.read(&fx.paths.target), "old");
+    assert!(!fx.paths.prev.exists() && !fx.marker().exists());
+}
+
+#[test]
+fn the_order_is_marker_then_swap_then_relaunch_of_the_new_target() {
+    let fx = fixture("order-full");
+    let seen = Cell::new(false);
+    fx.run_with_spawn(|t| {
+        // At relaunch time the swap is done and the marker is on disk; the exit comes later.
+        assert_eq!(std::fs::read_to_string(t).unwrap(), "new");
+        assert!(fx.marker().exists() && fx.paths.prev.exists());
+        seen.set(true);
+        Ok(())
+    })
+    .unwrap();
+    assert!(seen.get());
+}
+
+#[cfg(unix)]
+#[test]
+fn the_installed_target_is_executable_0755_even_if_the_staging_was_not() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = fixture("mode");
+    std::fs::set_permissions(&fx.paths.new, std::fs::Permissions::from_mode(0o600)).unwrap();
+    fx.run_with_spawn(|_| Ok(())).unwrap();
+    let mode = std::fs::metadata(&fx.paths.target).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o755);
+}
+
+#[test]
+fn permission_denied_on_the_staging_rename_is_the_exact_line_and_cleans_up() {
+    let fx = fixture("perm-rename");
+    let calls = Cell::new(0);
+    let rename = |a: &Path, b: &Path| {
+        calls.set(calls.get() + 1);
+        if calls.get() == 1 { Err(std::io::ErrorKind::PermissionDenied.into()) } else { Fx::rename(a, b) }
+    };
+    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| panic!("must not spawn"), |p| std::fs::remove_file(p)).unwrap_err();
+    assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
+    assert_eq!(fx.read(&fx.paths.target), "old");
+    assert!(!fx.paths.prev.exists() && !fx.marker().exists(), "no orphan backup or marker");
+    assert!(fx.paths.new.exists(), "the staging is not consumed by a failed install");
+}
+
+#[test]
+fn a_failed_spawn_with_a_failed_cleanup_reports_it_and_keeps_the_marker() {
+    let fx = fixture("spawn-cleanup");
+    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, Fx::rename, |_| Err(std::io::Error::other("no start")), deny).unwrap_err();
+    assert!(err.starts_with("Aggiornamento non riuscito: no start (pulizia incompleta: "), "{err}");
+    assert_eq!(err.lines().count(), 1, "{err}");
+    assert_eq!(fx.read(&fx.paths.target), "old");
+    assert!(fx.marker().exists(), "the marker outlives a backup that could not be removed");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_as_backup_counts_as_a_preexisting_backup() {
+    let fx = fixture("prev-dangling");
+    std::os::unix::fs::symlink("/nonexistent/x", &fx.paths.prev).unwrap();
+    let err = install::install_staged(&fx.dirs, &fx.channel, &fx.ready).unwrap_err();
+    assert!(err.contains("backup precedente"), "{err}");
+    assert_eq!(fx.read(&fx.paths.target), "old");
+    assert!(fx.paths.prev.symlink_metadata().is_ok(), "the symlink is left alone");
+}
