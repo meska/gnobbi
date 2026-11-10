@@ -172,6 +172,10 @@ struct Shell {
     history_focus: FocusHandle,
     pending_sidebar_key: Option<filter_view::SidebarPress>,
     unread_focus: FocusHandle,
+    /// Button of the filter row the keyboard is on (roving cursor of the single tab stop).
+    filter_cursor: matrix_desktop::FilterId,
+    /// Open «Gruppi» menu: highlighted entry.
+    groups_menu: Option<usize>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_unread_bounds: Option<accesskit::Rect>,
     notification_focus: matrix_desktop::notifications::NotificationControl,
@@ -2307,6 +2311,7 @@ impl Shell {
                                         .child(list_name),
                                 ),
                         )
+                        .when(self.connected, |d| d.child(self.render_filter_row(window, cx)))
                         .child(
                             div()
                                 .mx_4()
@@ -2342,7 +2347,6 @@ impl Shell {
                                     format!("{}│", self.sidebar.query())
                                 }),
                         )
-                        .when(self.connected && !self.sidebar.group_entries().is_empty(), |d| d.child(self.render_groups(cx)))
                         .when(compact && self.connected && self.sidebar.spaces().next().is_some(), |d| d.child(self.render_spaces(window, cx)))
                         .child(
                             div().relative().flex_1().min_h_0().children({
@@ -2526,23 +2530,11 @@ impl Shell {
                                 .text_size(px(11.))
                                 .text_color(rgb(t.secondary))
                                 .flex().items_center().justify_between()
-                                .when(self.connected, |d| d.flex_wrap().gap_2())
-                                .child(div().when(self.connected, |d| d.w_full()).child(format!(
+                                .child(div().child(format!(
                                     "{}/{} conversazioni · {}",
                                     self.sidebar.visible_indices().iter().filter(|&&i| !self.sidebar.rooms()[i].info.invited).count(), self.sidebar.rooms().iter().filter(|r| !r.info.is_space && !r.info.invited).count() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
                                     if self.connected { connection_label } else { "fixture offline" }
                                 )))
-                                .when(self.connected && self.sidebar.hidden_empty_count() > 0, |d| d.child(
-                                    div().id("empty-rooms-filter").cursor_pointer().text_color(rgb(t.accent))
-                                        .flex().items_center().gap_2()
-                                        .child(format!("Vuote ({})", self.sidebar.hidden_empty_count()))
-                                        .child(crate::switch_row::switch_track(self.sidebar.show_empty(), true, t))
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.sidebar.set_filter(this.sidebar.filter().with_empty(!this.sidebar.show_empty()));
-                                            cx.notify();
-                                        })),
-                                ))
-                                .when(self.connected, |d| d.child(self.render_unread(window, cx))),
                         ),
                 )
             })
@@ -3455,6 +3447,8 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         history_focus: cx.focus_handle(),
                         unread_focus,
+                        filter_cursor: matrix_desktop::FilterId::All,
+                        groups_menu: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_unread_bounds: None,
                         notification_focus: Default::default(),

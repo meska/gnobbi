@@ -163,7 +163,7 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
     let control = match label {
         "list" => return this.list_focus.focus(window),
         "search" => return this.search_focus.focus(window),
-        "unread" => return this.unread_focus.focus(window),
+        "unread" => { this.filter_cursor = matrix_desktop::FilterId::Unread; return this.unread_focus.focus(window) }
         "devices" => Control::Devices,
         "notifications" => Control::Notifications,
         "lens" => Control::Search,
@@ -1064,7 +1064,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         if DYNAMIC.load(Ordering::SeqCst) == 7 {
             executor.timer(std::time::Duration::from_millis(250)).await;
             {
-                this.update_in(cx, |this, window, _| this.unread_focus.focus(window)).unwrap();
+                this.update_in(cx, |this, window, _| { this.filter_cursor = matrix_desktop::FilterId::Unread; this.unread_focus.focus(window) }).unwrap();
                 executor.timer(std::time::Duration::from_millis(120)).await;
                 for key in ["space", "enter"] {
                     let before = ACTIVATIONS[0].load(Ordering::SeqCst);
@@ -1116,6 +1116,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                             assert!(this.pending_sidebar_key.is_some(), "retain retired press until release");
                             eprintln!("real Configure away/back with paint suspended: {:?}", window.viewport_size());
                             navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                            this.filter_cursor = matrix_desktop::FilterId::Unread;
                             this.unread_focus.focus(window);
                             cx.notify();
                         }).unwrap();
@@ -1149,7 +1150,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     this.update_in(cx, |this, window, cx| { this.search_focus.focus(window); cx.notify(); }).unwrap();
                     executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, window, cx| { this.unread_focus.focus(window); cx.notify(); }).unwrap();
+                    this.update_in(cx, |this, window, cx| { this.filter_cursor = matrix_desktop::FilterId::Unread; this.unread_focus.focus(window); cx.notify(); }).unwrap();
                     executor.timer(std::time::Duration::from_millis(900)).await;
                     native_key(key, false);
                     executor.timer(std::time::Duration::from_millis(100)).await;
