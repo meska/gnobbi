@@ -225,7 +225,7 @@ pub async fn run(
     // Streams may only deliver changes: seed from the current values.
     let mut running = matches!(state.get(), State::Running);
     let mut loaded = matches!(loading.get(), RoomListLoadingState::Loaded { .. });
-    let (mut ready, mut warmed) = (false, false);
+    let (mut ready, mut warmed, mut live_seen) = (false, false, false);
     let mut gate = StatusGate::default();
     let mut cause = "";
     // Restart after Error/Terminated, with backoff, without blocking the loop.
@@ -236,6 +236,8 @@ pub async fn run(
             _ = tokio::time::sleep_until(gate.wake(Instant::now()).unwrap_or(far)) => {}
             _ = tokio::time::sleep_until(restart_at.unwrap_or(far)), if restart_at.is_some() => {
                 restart_at = None;
+                live_seen = false;
+                list_state = room_list.state();
                 service.start().await;
             }
             // An expired token is the one failure that must not retry; the SDK reports it itself.
@@ -274,9 +276,18 @@ pub async fn run(
                 }
             }
             Some(next) = list_state.next() => {
-                if !matches!(next, RoomListState::Error { .. } | RoomListState::Terminated { .. } | RoomListState::Init) {
-                    gate.succeed();
-                    backoff.reset();
+                match next {
+                    RoomListState::SettingUp | RoomListState::Recovering | RoomListState::Running
+                        if matches!(state.get(), State::Running) => {
+                        live_seen = true;
+                        gate.succeed();
+                        backoff.reset();
+                    }
+                    RoomListState::Error { .. } | RoomListState::Terminated { .. } => {
+                        live_seen = false;
+                        list_state = room_list.state();
+                    }
+                    _ => {}
                 }
             }
             Some(next) = state.next() => match next {
@@ -285,11 +296,14 @@ pub async fn run(
                     running = true;
                 }
                 State::Offline => {
-                    (running, cause) = (false, "sync_service_offline");
+                    (running, cause, live_seen) = (false, "sync_service_offline", false);
+                    list_state = room_list.state();
                     gate.fail(Instant::now());
                 }
                 State::Error(_) | State::Terminated => {
                     running = false;
+                    live_seen = false;
+                    list_state = room_list.state();
                     cause = if matches!(next, State::Error(_)) { "sync_service_error" } else { "sync_service_terminated" };
                     gate.fail(Instant::now());
                     restart_at = Some(Instant::now() + backoff.next_delay());
@@ -312,7 +326,7 @@ pub async fn run(
                 return;
             }
         }
-        if running && loaded && !ready && !gate.failed() {
+        if running && loaded && live_seen && !ready && !gate.failed() {
             ready = true;
             trace.change(
                 "ready",

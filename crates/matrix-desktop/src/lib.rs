@@ -63,6 +63,7 @@ pub mod quick_search;
 pub mod directory_servers;
 mod rail_layout;
 mod room_prefs;
+pub mod last_room_restore;
 pub use preferences::{
     AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font,
     ui_font,

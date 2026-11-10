@@ -56,11 +56,12 @@ impl Shell {
             return;
         }
         if focus_only {
-            self.a11y_rooms.focus_action(&intent, &self.sidebar);
+            self.a11y_rooms.focus_action(&intent, &mut self.sidebar);
         } else {
             if !self.sidebar.select(&intent.scope) {
                 return;
             }
+            self.restore.cancel();
             self.sync_room(cx);
             self.set_compact_chat(true);
         }

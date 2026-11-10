@@ -674,6 +674,7 @@ impl Shell {
             && self.sidebar.select(scope)
         {
             self.pending_open = None;
+            self.restore.cancel();
             self.sync_room(cx);
             self.set_compact_chat(true);
             cx.notify();

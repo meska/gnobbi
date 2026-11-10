@@ -125,6 +125,7 @@ struct Shell {
     room_edit: Option<room_edit_view::RoomEdit>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
+    restore: matrix_desktop::last_room_restore::LastRoomRestore,
     groups_edit: Option<groups_edit_view::GroupsEdit>,
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
     refocus_menu: bool,
@@ -1338,6 +1339,16 @@ impl Shell {
     }
 
     fn sync_room(&mut self, cx: &mut Context<Self>) {
+        // Arm before the first event: a slow sync must not open (and save) the first row.
+        if self.connected {
+            let (account, prefs) = (self.draft_scope().account_id, &self.room_prefs);
+            self.restore
+                .arm(account, || prefs.last_open_room(account));
+        }
+        // Waiting for the saved room: opening the auto-selected first row would mark it read.
+        if self.restore.waiting() {
+            return;
+        }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if !self
             .sidebar
@@ -1354,6 +1365,7 @@ impl Shell {
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
                 self.active_scope = request.tag.scope().clone();
+                self.remember_last_room();
                 self.note_seen();
                 let draft_scope = self.draft_scope();
                 self.composer
@@ -1391,6 +1403,48 @@ impl Shell {
             self.saved_timelines
                 .insert(self.active_scope.clone(), previous);
             self.active_scope = scope;
+            self.remember_last_room();
+        }
+    }
+
+    /// Reopens the saved room of the active account once listed. Compact layout: the list stays the
+    /// screen (no `set_compact_chat`), the room is only selected and scrolled into view.
+    fn restore_last_room(&mut self, cx: &mut Context<Self>) {
+        if !self.connected {
+            return;
+        }
+        let account = self.active_scope.account_id;
+        let saved = self.draft_scope().account_id;
+        let (prefs, sidebar) = (&self.room_prefs, &mut self.sidebar);
+        let opened = self.restore.poll(
+            saved,
+            || prefs.last_open_room(saved),
+            |room| {
+                let scope = RoomScope { account_id: account, room_id: room.clone() };
+                sidebar.is_joined(&scope) && sidebar.select(&scope)
+            },
+        );
+        if opened.is_none() && self.restore.waiting() {
+            self.sidebar.clear_selection();
+        }
+        if let Some(room) = opened {
+            self.sync_room(cx);
+            let scope = RoomScope { account_id: account, room_id: room };
+            if let Some(position) = self.sidebar.position_of(&scope) {
+                self.scroll.scroll_to_item(position, ScrollStrategy::Top);
+            }
+            cx.notify();
+        }
+    }
+
+    /// Called only when the user changes room; writes the file only if the value changed.
+    fn remember_last_room(&mut self) {
+        if !self.restore.waiting()
+            && self.room_prefs.set_last_open_room(&self.draft_scope())
+            && let Some(dirs) = &self.prefs_dirs
+            && let Err(error) = self.room_prefs.save(dirs)
+        {
+            eprintln!("Gnobbi: cannot save room preferences: {error}");
         }
     }
 
@@ -1429,16 +1483,31 @@ impl Shell {
         if self.room_search_typing(&key.modifiers, window, cx) {
             return;
         }
+        if self.connected {
+            let account = self.draft_scope().account_id;
+            self.restore.arm(account, || self.room_prefs.last_open_room(account));
+        }
         let searching = self.search_focus.is_focused(window);
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.list_focus.is_focused(window)
             && !key.modifiers.control
             && !key.modifiers.alt
             && !key.modifiers.platform
             && !key.modifiers.shift
-            && let Some(intent) = self.a11y_rooms.activation_key(&self.sidebar, &key.key)
+            && matches!(key.key.as_str(), "enter" | "space")
         {
-            self.apply_semantic_room(intent, false, window, cx);
+            let target = self.sidebar.focused_room()
+                .or_else(|| (!self.restore.waiting()).then(|| self.sidebar.selected()).flatten())
+                .map(|room| (room.scope.clone(), room.info.invited));
+            if let Some((scope, invited)) = target {
+                if invited {
+                    if key.key == "enter" { self.answer_invite(scope, true, cx); }
+                } else if self.sidebar.select(&scope) {
+                    self.restore.cancel();
+                    self.sync_room(cx);
+                    if window.viewport_size().width < px(800.) { self.set_compact_chat(true); }
+                    cx.notify();
+                }
+            }
             return;
         }
         if !searching
@@ -1456,6 +1525,7 @@ impl Shell {
                         .is_some_and(|selected| selected.scope == self.sidebar.rooms()[index].scope)
                 })
             {
+                self.restore.cancel();
                 self.sidebar.navigate(Navigation::First);
             }
             if !self.sidebar.visible_indices().is_empty() {
@@ -1514,10 +1584,18 @@ impl Shell {
             _ => None,
         };
         if let Some(direction) = direction {
-            if let Some(position) = self.sidebar.navigate(direction) {
+            let waiting = self.restore.waiting();
+            let position = if waiting {
+                self.sidebar.navigate_focus(direction)
+            } else {
+                self.sidebar.navigate(direction)
+            };
+            if let Some(position) = position {
                 self.scroll.scroll_to_item(position, ScrollStrategy::Top);
             }
-            self.sync_room(cx);
+            if !waiting {
+                self.sync_room(cx);
+            }
             cx.notify();
             return;
         }
@@ -2266,10 +2344,7 @@ impl Shell {
                                                     let source = &semantic_rooms[position];
                                                     this.room_observer(matrix_desktop::accessibility::RoomIntent { id: source.id, scope: source.scope.clone(), revision: source.revision }, cx)
                                                 };
-                                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                                                let focused = this.a11y_rooms.focused(&this.sidebar).map_or(selected, |target| *target == scope);
-                                                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-                                                let focused = selected;
+                                                let focused = this.sidebar.focused_room().map_or(selected, |target| target.scope == scope);
                                                 div()
                                             .id(i)
                                             .relative()
@@ -2304,6 +2379,7 @@ impl Shell {
                                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                                 let Some(scope) = callback(&this.a11y_rooms, &this.sidebar) else { return; };
                                                 if !this.sidebar.select(&scope) { return; }
+                                                this.restore.cancel();
                                                 this.sync_room(cx);
                                                 this.set_compact_chat(true);
                                                 this.list_focus.focus(window);
@@ -2878,23 +2954,10 @@ fn main() {
                         cx.spawn(async move |this, cx| {
                             loop {
                                 executor.timer(std::time::Duration::from_millis(16)).await;
-                                let Ok(matrix_desktop::Drained {
-                                    events,
-                                    media,
-                                    verifications,
-                                    operations,
-                                    deliveries,
-                                    pages,
-                                    closed,
-                                }) = this.update(cx, |this: &mut Shell, cx| {
-                                    this.pump_parked();
-                                    this.finish_removals(cx);
-                                    this.routes.drain()
-                                }) else {
-                                    break;
-                                };
                                 if this
                                     .update(cx, |this: &mut Shell, cx| {
+                                        this.pump_parked();
+                                        this.finish_removals(cx);
                                         #[cfg(feature = "live")]
                                         if let Some(signin) = &this.signin
                                             && let Some(account) = signin.update(cx, |view, cx| view.poll(cx)) {
@@ -2907,6 +2970,7 @@ fn main() {
                                             this.composer.update(cx, |editor, cx| editor.switch_room(this.active_scope.clone(), cx));
                                             cx.notify();
                                         }
+                                        let matrix_desktop::Drained { events, media, verifications, operations, deliveries, pages, closed } = this.routes.drain();
                                         let failed = this
                                             .notification_handle
                                             .as_ref()
@@ -3072,6 +3136,8 @@ fn main() {
                                         {
                                             this.status = RoomSyncStatus::SyncFailed;
                                         }
+                                        // After the diffs: the saved room is picked before any other opens.
+                                        this.restore_last_room(cx);
                                         if changed {
                                             this.sync_room(cx);
                                             this.read_dirty |= !pages.is_empty();
@@ -3123,9 +3189,9 @@ fn main() {
                                         if let Some((sender, _)) = &mut this.routes.send {
                                             this.delivery.borrow_mut().flush(sender);
                                         }
+                                        closed
                                     })
-                                    .is_err()
-                                    || closed
+                                    .unwrap_or(true)
                                 {
                                     break;
                                 }
@@ -3285,6 +3351,7 @@ fn main() {
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
                         pending_open: None,
+                        restore: Default::default(),
                         groups_edit: None,
                         refocus_menu: false,
                         refocus_list: false,
