@@ -344,7 +344,10 @@ fn a_banned_or_rolled_back_build_is_never_offered_over_concurrent_writes() {
     let check = go_blocking(d.clone(), p, 41);
     arrived.recv_timeout(Duration::from_secs(10)).unwrap();
     startup::add_bad_build(&d, 42).unwrap();
-    Preferences::update(&d, |p| p.max_build_seen = 100).unwrap();
+    Preferences::update(&d, |p| {
+        p.max_build_seen = 100;
+        p.last_check = Some(now_secs() + 60);
+    }).unwrap();
     release.send(()).unwrap();
     assert_eq!(
         check.join().unwrap().unwrap(),
@@ -358,7 +361,7 @@ fn a_banned_or_rolled_back_build_is_never_offered_over_concurrent_writes() {
         "bad_builds union kept"
     );
     assert_eq!(after.max_build_seen, 100, "max_build_seen only moves forward");
-    assert_eq!(after.last_check, Some(now_secs()));
+    assert_eq!(after.last_check, Some(now_secs() + 60), "last_check never moves backwards");
     let data: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(data["update_outcome"]["build"], 31);
     assert_eq!(data["future"]["x"], 1);
