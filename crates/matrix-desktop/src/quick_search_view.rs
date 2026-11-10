@@ -144,6 +144,15 @@ fn seen_label(name: &str) -> String {
     }
 }
 
+fn seen_display<'a>(recent: &'a Recent, sidebar: &'a matrix_desktop::Sidebar) -> (&'a str, Option<&'a str>) {
+    let room = sidebar.rooms().iter().find(|room| room.scope.room_id.as_str() == recent.id);
+    let name = room.map(|r| r.name.as_str()).filter(|name| !name.is_empty() && !name.starts_with('!'))
+        .or_else(|| (!recent.name.is_empty() && !recent.name.starts_with('!')).then_some(recent.name.as_str()))
+        .unwrap_or("Chat");
+    let avatar = room.and_then(|r| r.info.avatar.as_deref()).or(recent.avatar.as_deref());
+    (name, avatar)
+}
+
 /// Row subtitle; a raw room ID (`!abc:server`) is never shown (the screen-reader label keeps it).
 fn secondary_label(secondary: &str) -> &str {
     if secondary.starts_with('!') {
@@ -765,8 +774,9 @@ impl Shell {
         if lens[Zone::Seen.idx()] > 0 {
             let recents = self.recents.get(self.recents_account());
             for (i, r) in recents.seen().iter().enumerate() {
+                let (name, _) = seen_display(r, &self.sidebar);
                 items.push(item(
-                    format!("{}, {}", r.name, r.id),
+                    format!("{}, {}", name, r.id),
                     q.zone == Zone::Seen && q.active == i,
                 ));
             }
@@ -858,6 +868,9 @@ impl Shell {
     ) -> Option<gpui::AnyElement> {
         let q = self.quick.as_ref()?;
         q.field.update(cx, |f, _| f.theme = t);
+        if let Some(field) = &q.add_field {
+            field.update(cx, |f, _| f.theme = t);
+        }
         let typing = !q.term.is_empty();
         let recents = self.recents.get(self.recents_account());
         let lens = self.quick_lens();
@@ -883,6 +896,7 @@ impl Shell {
                         .overflow_x_scroll()
                         .track_scroll(&q.seen_scroll)
                         .children(recents.seen().iter().enumerate().map(|(i, r)| {
+                            let (name, avatar) = seen_display(r, &self.sidebar);
                             div()
                                 .id(("quick-seen-item", i))
                                 .flex()
@@ -895,7 +909,7 @@ impl Shell {
                                 .rounded_md()
                                 .cursor_pointer()
                                 .when(zone == Zone::Seen && active == i, |d| d.bg(rgb(t.input)))
-                                .child(self.quick_avatar(t, r.avatar.as_deref(), &r.name, 40.))
+                                .child(self.quick_avatar(t, avatar, name, 40.))
                                 .child(
                                     div()
                                         .w_full()
@@ -904,7 +918,7 @@ impl Shell {
                                         .text_center()
                                         .text_size(px(11.))
                                         .text_color(rgb(t.text))
-                                        .child(seen_label(&r.name)),
+                                        .child(seen_label(name)),
                                 )
                                 .on_mouse_move(cx.listener(move |this, _, _, cx| {
                                     this.quick_highlight(Zone::Seen, i, cx)
@@ -1360,6 +1374,27 @@ mod tests {
         assert_eq!(seen_label("017 Progetto lungo"), "017 Pro…");
         assert_eq!(seen_label("a\nb"), "a b");
         assert_eq!(seen_label("àèìòùàèìòù").chars().count(), 8);
+    }
+
+    #[test]
+    fn seen_uses_the_current_sidebar_name_after_resolution() {
+        let mut recents = matrix_desktop::quick_search::Recents::default();
+        recents.opened(Recent { id: "!room:server".into(), name: "!room:server".into(), avatar: None });
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
+        let mut sidebar = matrix_desktop::Sidebar::connected(AccountId::new(1));
+        let mut room = RoomSummary {
+            scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!room:server") },
+            name: "!room:server".into(), unread: 0, info: RoomInfo::default(),
+        };
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
+        assert_eq!(seen_display(&recents.seen()[0], &sidebar).0, "Chat");
+        room.name = "Dora Bianchi".into();
+        room.info.avatar = Some("mxc://server/avatar".into());
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room)));
+        let (name, avatar) = seen_display(&recents.seen()[0], &sidebar);
+        assert_eq!(seen_label(name), "Dora Bi…");
+        assert_eq!(avatar, Some("mxc://server/avatar"));
     }
 
     #[test]
