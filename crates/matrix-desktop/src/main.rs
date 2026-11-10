@@ -1667,6 +1667,7 @@ impl Shell {
     }
 
     /// Vote on option `ix`: the state comes from the Timeline, we only send the new answers.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     fn vote_poll(&mut self, id: &matrix_domain::ScopedTimelineId, ix: usize) {
         #[cfg(feature = "live")]
         if let matrix_domain::TimelineId::Server(target) = &id.id
@@ -2609,9 +2610,8 @@ impl Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
-            .children(self.poll_dialog.clone().map(|dialog| {
+            .children(self.poll_dialog.clone().inspect(|dialog| {
                 dialog.update(cx, |d, _| d.theme = t);
-                dialog
             }))
             .children(self.render_quick_search(t, cx))
             .children(self.render_room_edit(t, window, cx))

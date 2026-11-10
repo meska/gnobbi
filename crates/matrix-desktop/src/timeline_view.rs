@@ -48,6 +48,8 @@ type RowLayout = (
     bool,
 );
 
+/// Painted bounds of user mention pills, by message and start in its text.
+type PillBounds = Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, usize), Bounds<Pixels>>>>;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 type SemanticBounds = Rc<RefCell<std::collections::HashMap<ScopedTimelineId, Bounds<Pixels>>>>;
 
@@ -110,9 +112,10 @@ fn profile_target(
     base: gpui::Stateful<gpui::Div>,
     user_id: String,
     want: Rc<RefCell<Option<String>>>,
-    painted: impl Fn(Bounds<Pixels>) + 'static,
+    painted: &(impl Fn(Bounds<Pixels>) + Clone + 'static),
     child: impl IntoElement,
 ) -> gpui::Stateful<gpui::Div> {
+    let painted = painted.clone();
     base.relative().cursor_pointer()
         .on_click(move |_, window, _| {
             *want.borrow_mut() = Some(user_id.clone());
@@ -181,7 +184,7 @@ pub struct TimelineView {
     link_cursor: Rc<Cell<Option<u64>>>,
     /// Keyboard stop on a user mention pill: its message and the pill's start in the text.
     pill_cursor: Rc<RefCell<Option<(ScopedTimelineId, usize)>>>,
-    pill_bounds: Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, usize), Bounds<Pixels>>>>,
+    pill_bounds: PillBounds,
     link_hover: Rc<Cell<Option<u64>>>,
     /// Row whose user mention pill (the clickable kind) is under the mouse.
     pill_hover: Rc<RefCell<Option<ScopedTimelineId>>>,
@@ -339,6 +342,7 @@ impl TimelineView {
     }
 
     /// The key typed in the field, handed over once; the shell queues it and nothing keeps it.
+    #[cfg(any(feature = "live", all(test, feature = "linux-a11y", target_os = "linux")))]
     pub fn take_recovery_key(&self) -> Option<zeroize::Zeroizing<String>> {
         self.recover.borrow_mut().take_submitted()
     }
@@ -1810,7 +1814,7 @@ impl TimelineView {
                             None => div().flex().items_center().justify_center().size(px(SENDER_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(12.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
                         };
                         match &sender_user {
-                            Some(user) => profile_target(div().id(("sender-avatar", index)).flex_shrink_0(), user.clone(), want_profile.clone(), profile_bounds.clone(), avatar).into_any_element(),
+                            Some(user) => profile_target(div().id(("sender-avatar", index)).flex_shrink_0(), user.clone(), want_profile.clone(), &profile_bounds, avatar).into_any_element(),
                             None => avatar,
                         }
                     });
@@ -2076,7 +2080,7 @@ impl TimelineView {
                                 .when_some(sender_label, |d, name| d.child(div().flex().mb_1().child({
                                     let base = div().id(("sender-name", index)).text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent));
                                     match &sender_user {
-                                        Some(user) => profile_target(base, user.clone(), want_profile.clone(), profile_bounds.clone(), name),
+                                        Some(user) => profile_target(base, user.clone(), want_profile.clone(), &profile_bounds, name),
                                         None => base.child(name),
                                     }
                                 })))
@@ -3496,6 +3500,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "live")]
     fn poll_with(multiple: bool, ended: bool, own: &[&str]) -> matrix_domain::Poll {
         let a = |id: &str| matrix_domain::PollAnswer { id: id.into(), text: id.into(), votes: 1, own: own.contains(&id) };
         matrix_domain::Poll {

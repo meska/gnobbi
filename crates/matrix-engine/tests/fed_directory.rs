@@ -79,7 +79,7 @@ fn directory_search_end_to_end() {
             .build()
             .await
             .unwrap();
-        client.matrix_auth().login_username(&s("user"), &c["password"].as_str().unwrap()).send().await.unwrap();
+        client.matrix_auth().login_username(s("user"), c["password"].as_str().unwrap()).send().await.unwrap();
         let (home, remote, closed, down, run) = (s("home"), s("remote"), s("closed"), s("down"), s("run"));
         let calls = Arc::new(AtomicUsize::new(0));
         let make = |delay_for: Option<&'static str>| -> Rooms {
@@ -120,7 +120,7 @@ fn directory_search_end_to_end() {
         report("local", format!("{} hits, origin {home}", local.len()));
 
         // 3. Second server (federated): found there, not locally; origin = that server.
-        search.set_query(&format!("gnobbifed"), Some(remote.clone()));
+        search.set_query("gnobbifed", Some(remote.clone()));
         let st = settled(&mut rx, 30).await;
         let rem = hits(&st).to_vec();
         // pub, id, knock and, on Tuwunel, the invite-only room; Synapse lists only public/knock rooms.
@@ -235,7 +235,7 @@ fn directory_search_end_to_end() {
         // 9. Joins: result with via, pasted alias (no via), invite/knock refused in one error kind.
         let account = AccountId::new(1);
         let joined = |id: &str| client.get_room(<&matrix_engine::sdk::ruma::RoomId>::try_from(id).unwrap()).is_some_and(|r| r.state() == matrix_engine::sdk::RoomState::Joined);
-        join_room(&client, account, &pubr.room_id, &[pubr.origin.clone()]).await.expect("join by room_id + via");
+        join_room(&client, account, &pubr.room_id, std::slice::from_ref(&pubr.origin)).await.expect("join by room_id + via");
         assert!(joined(&pubr.room_id));
         join_room(&client, account, &s("pub_alias"), &[]).await.expect("join by pasted alias");
         assert!(!joined(&idr.room_id));
@@ -248,11 +248,11 @@ fn directory_search_end_to_end() {
         } else {
             bare.expect("server taken from the room id");
         }
-        join_room(&client, account, &idr.room_id, &[idr.origin.clone()]).await.expect("join by room_id + via");
+        join_room(&client, account, &idr.room_id, std::slice::from_ref(&idr.origin)).await.expect("join by room_id + via");
         assert!(joined(&idr.room_id));
         let mut refusals = Vec::new();
         for (label, id) in [("invite-only", s("invite_id")), ("knock", knock.room_id.clone())] {
-            let e = join_room(&client, account, &id, &[remote.clone()]).await.expect_err(label);
+            let e = join_room(&client, account, &id, std::slice::from_ref(&remote)).await.expect_err(label);
             refusals.push(format!("{label}: {e:?}"));
             assert_eq!(e, OperationError::Forbidden, "{label}");
             assert!(!joined(&id));
@@ -332,7 +332,7 @@ fn dead_server_answers_unreachable_not_timeout() {
             .build()
             .await
             .unwrap();
-        client.matrix_auth().login_username(&s("user"), c["password"].as_str().unwrap()).send().await.unwrap();
+        client.matrix_auth().login_username(s("user"), c["password"].as_str().unwrap()).send().await.unwrap();
         let mut bad = Vec::new();
         for name in [s("down"), "127.0.0.9:9".to_owned(), "gnobbi-test-nonexistent.invalid".to_owned()] {
             let t0 = std::time::Instant::now();

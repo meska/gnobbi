@@ -15,7 +15,7 @@ thread_local! {
 /// Paint hook of the timeline: bounds of each visible message text.
 pub(crate) fn bubble_painted(index: usize, bounds: Bounds<Pixels>) {
     if sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
-        BUBBLES.with_borrow_mut(|b| drop(b.insert(index, bounds)));
+        BUBBLES.with_borrow_mut(|b| { let _ = b.insert(index, bounds); });
     }
 }
 
@@ -56,7 +56,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     }
     macro_rules! key {
         ($k:expr) => {{
-            cx.update(|window, cx| drop(window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx))).unwrap();
+            cx.update(|window, cx| { let _ = window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap();
             wait(100).await;
         }};
     }
@@ -103,7 +103,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(this.room_details_open);
         assert!(this.composer.read(cx).is_focused(window), "opening the panel keeps composer focus");
     });
-    let base = shell!(|this, window, cx| composer_text(this, window, cx));
+    let base = shell!(composer_text);
     key!("h");
     key!("i");
     shell!(|this, window, cx| {

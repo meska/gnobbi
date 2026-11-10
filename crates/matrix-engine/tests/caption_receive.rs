@@ -147,7 +147,7 @@ fn caption_received_plain_and_encrypted() {
             let bob_link = format!("<a href=\"https://matrix.to/#/{bob}\">Bob</a>");
             // (name, event id)
             let mut sent: Vec<(&str, String)> = Vec::new();
-            let mut send = |name: &'static str, kind: &str, extra: Value| {
+            let send = |name: &'static str, kind: &str, extra: Value| {
                 let (ra, content) = (ra.clone(), media(kind, extra));
                 async move { (name, ra.send_raw("m.room.message", content).await.unwrap().response.event_id.to_string()) }
             };
@@ -264,7 +264,7 @@ fn caption_received_plain_and_encrypted() {
             check("edit_replaces_caption", e.body == "Dopo" && is(e, MediaKind::Image), summary(e));
 
             let e = find(&all, &rt_image.1);
-            check("round_trip_image", e.body == "Ecco i dati 😀" && is(e, MediaKind::Image) && e.attachment_name.as_deref() == Some(rt_image.0) && !e.body.contains("foto.png") && e.outgoing == false, summary(e));
+            check("round_trip_image", e.body == "Ecco i dati 😀" && is(e, MediaKind::Image) && e.attachment_name.as_deref() == Some(rt_image.0) && !e.body.contains("foto.png") && !e.outgoing, summary(e));
             let e = find(&all, &rt_file.1);
             check("round_trip_file", e.body == "Il contratto firmato" && is(e, MediaKind::File) && e.media.as_ref().unwrap().label.contains("nota.txt"), summary(e));
             let e = find(&all, &rt_bare.1);

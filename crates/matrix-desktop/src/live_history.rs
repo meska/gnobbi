@@ -29,6 +29,8 @@ impl HistoryStatus {
 /// How long after new rows a room with threads is read once more.
 pub const SETTLE: std::time::Duration = std::time::Duration::from_millis(1500);
 
+type SeenEvent = (String, Option<(u32, u32)>, Option<matrix_domain::Poll>);
+
 pub struct HistorySession {
     views: ViewRequests,
     pagination_tag: Option<matrix_engine::RequestTag>,
@@ -36,7 +38,7 @@ pub struct HistorySession {
     next: Option<String>,
     status: HistoryStatus,
     /// Body and thread reply count: a new reply must hand the root over again.
-    seen: HashMap<EventId, (String, Option<(u32, u32)>, Option<matrix_domain::Poll>)>,
+    seen: HashMap<EventId, SeenEvent>,
     live_views: ViewRequests,
     live_pending: bool,
     dirty: bool,

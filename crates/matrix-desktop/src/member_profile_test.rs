@@ -40,7 +40,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
     macro_rules! key {
         ($k:expr) => {{
-            cx.update(|window, cx| drop(window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx))).unwrap();
+            cx.update(|window, cx| { let _ = window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap();
             wait(80).await;
         }};
     }
@@ -190,7 +190,8 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         }
     }
     // Confirm: exactly the command of the act, with the events the question counted.
-    let expect: [(A, &str, fn(&OperationCommand) -> bool); 4] = [
+    type Expect = (A, &'static str, fn(&OperationCommand) -> bool);
+    let expect: [Expect; 4] = [
         (A::Kick, "Kick", |c| matches!(c, OperationCommand::Moderate { user_id, action: Moderation::Kick, .. } if user_id == ADA)),
         (A::Ban, "Ban", |c| matches!(c, OperationCommand::Moderate { action: Moderation::Ban, .. })),
         (A::Ignore, "Ignore", |c| matches!(c, OperationCommand::Ignore { user_id, ignore: true } if user_id == ADA)),

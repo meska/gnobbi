@@ -89,7 +89,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         let (w, t_classic, t_dark) = this.update_in(cx, |_, window, _| {
             (f32::from(window.viewport_size().width), Theme::Classic.tokens(), Theme::Dark.tokens())
         }).unwrap();
-        check!(w * scale >= 1900., "window is not fullscreen: {w} logical px");
+        check!(matches!((w * scale).partial_cmp(&1900.), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)), "window is not fullscreen: {w} logical px");
 
         // Set the three switches: (enabled, room muted or None for no room, count only).
         let set = |enabled: bool, room: Option<bool>, preview: bool| {

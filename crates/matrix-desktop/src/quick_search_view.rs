@@ -1405,12 +1405,10 @@ mod tests {
             avatar: None,
         };
         let mut r = matrix_desktop::quick_search::Recents::default();
-        (
-            r.opened(item("a")),
-            r.opened(item("b")),
-            r.picked(item("a")),
-            r.picked(item("b")),
-        );
+        r.opened(item("a"));
+        r.opened(item("b"));
+        r.picked(item("a"));
+        r.picked(item("b"));
         r.forget("a");
         assert_eq!(r.seen().len(), 1);
         assert_eq!(r.searched().len(), 1);

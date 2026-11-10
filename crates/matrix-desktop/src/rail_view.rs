@@ -679,9 +679,6 @@ impl Shell {
         let spaces: Vec<_> = self.rail_arranged().into_iter().skip(1).collect();
         let last = spaces.len().saturating_sub(1);
         let cursor = self.rail_ui.edit_cursor.min(last);
-        let action = |id: (&'static str, usize), label: &'static str, color: u32| {
-            div().id(id).px_2().py_1().rounded_md().text_size(px(12.)).text_color(rgb(color)).cursor_pointer().child(label)
-        };
         let header_button = |id: &'static str, label: &'static str| {
             div().id(id).px_2().py_1().rounded_md().cursor_pointer().text_size(px(14.)).text_color(rgb(t.accent)).child(label)
         };

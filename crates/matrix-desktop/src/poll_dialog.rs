@@ -10,7 +10,7 @@ use matrix_desktop::DesignTokens;
 use matrix_domain::{PollDraft, PollDraftError};
 
 pub(crate) enum PollDialogEvent {
-    Create(PollDraft),
+    Create(#[cfg(any(test, feature = "live"))] PollDraft),
     Cancel,
 }
 
@@ -178,7 +178,7 @@ impl PollDialog {
 
     fn create(&mut self, cx: &mut Context<Self>) {
         if self.valid(cx) {
-            cx.emit(PollDialogEvent::Create(self.draft(cx)));
+            cx.emit(PollDialogEvent::Create(#[cfg(any(test, feature = "live"))] self.draft(cx)));
         }
     }
 
@@ -460,7 +460,7 @@ mod tests {
     #[ignore = "requires private display"]
     fn escape_cancels_and_cancel_button_too() {
         run(vec![
-            Box::new(|d, w, cx, seen| {
+            Box::new(|d, w, cx, _| {
                 d.key(&key("escape"), w, cx);
             }),
             Box::new(|d, w, cx, seen| {
@@ -487,7 +487,7 @@ mod tests {
                 type_into(d, 1, "Pizza", cx);
                 type_into(d, 2, "Sushi", cx);
             }),
-            Box::new(|d, w, cx, seen| {
+            Box::new(|d, w, cx, _| {
                 assert!(d.valid(cx));
                 d.activate(Stop::Multiple, w, cx);
                 d.stops(cx).into_iter().find(|(s, _)| *s == Stop::Create).unwrap().1.focus(w);
