@@ -431,7 +431,6 @@ impl SemanticRoom {
 
 pub struct RoomNodes {
     bounds: std::collections::HashMap<NodeId, (u64, accesskit::Rect)>,
-    focused: Option<RoomIntent>,
     ids: std::collections::HashMap<matrix_domain::RoomScope, NodeId>,
     visible: std::collections::HashMap<NodeId, matrix_domain::RoomScope>,
     next_id: u64,
@@ -443,7 +442,6 @@ impl Default for RoomNodes {
             ids: Default::default(),
             visible: Default::default(),
             bounds: Default::default(),
-            focused: None,
             next_id: 100,
         }
     }
@@ -474,10 +472,7 @@ impl RoomNodes {
                         .get(&id)
                         .filter(|(revision, _)| *revision == sidebar.navigation_revision())
                         .map(|(_, bounds)| *bounds),
-                    focused: self.focused.as_ref().is_some_and(|intent| {
-                        intent.scope == room.scope
-                            && intent.revision == sidebar.navigation_revision()
-                    }),
+                    focused: sidebar.focused_room().is_some_and(|focused| focused.scope == room.scope),
                     revision: sidebar.navigation_revision(),
                     id,
                     scope: room.scope.clone(),
@@ -495,24 +490,26 @@ impl RoomNodes {
         self.visible.get(&id)
     }
 
-    pub fn focus_action(&mut self, intent: &RoomIntent, sidebar: &crate::Sidebar) -> bool {
+    pub fn focus_action(&mut self, intent: &RoomIntent, sidebar: &mut crate::Sidebar) -> bool {
         if self.resolve_action(intent, sidebar).is_none() {
             return false;
         }
-        self.focused = Some(intent.clone());
-        true
+        sidebar.focus_room(&intent.scope)
     }
 
-    pub fn focused(&self, sidebar: &crate::Sidebar) -> Option<&matrix_domain::RoomScope> {
-        self.resolve_action(self.focused.as_ref()?, sidebar)
+    pub fn focused<'a>(&self, sidebar: &'a crate::Sidebar) -> Option<&'a matrix_domain::RoomScope> {
+        sidebar.focused_room().map(|room| &room.scope)
     }
 
     pub fn activation_key(&self, sidebar: &crate::Sidebar, key: &str) -> Option<RoomIntent> {
         if !matches!(key, "enter" | "space") {
             return None;
         }
-        self.focused(sidebar)?;
-        self.focused.clone()
+        let scope = self.focused(sidebar)?.clone();
+        let id = *self.ids.get(&scope)?;
+        let intent = RoomIntent { id, scope, revision: sidebar.navigation_revision() };
+        self.resolve_action(&intent, sidebar)?;
+        Some(intent)
     }
 
     pub fn set_bounds(

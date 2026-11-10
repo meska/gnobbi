@@ -89,6 +89,7 @@ pub struct Sidebar {
     space: Option<RoomScope>,
     group: Option<String>,
     selected: Option<usize>,
+    keyboard_focus: Option<RoomScope>,
     /// Invitations whose answer is on its way, and those whose last answer failed.
     answering: std::collections::HashSet<RoomScope>,
     failed: std::collections::HashSet<RoomScope>,
@@ -112,6 +113,7 @@ impl Sidebar {
             show_empty: false,
             kept: Default::default(),
             selected: None,
+            keyboard_focus: None,
             space: None,
             group: None,
             answering: Default::default(),
@@ -233,6 +235,7 @@ impl Sidebar {
             show_empty: false,
             kept: Default::default(),
             selected: Some(0),
+            keyboard_focus: None,
             space: None,
             group: None,
             answering: Default::default(),
@@ -264,6 +267,7 @@ impl Sidebar {
     pub fn set_navigation_context(&mut self, account: AccountId, connected: bool) {
         let context = Some((account, connected));
         if self.navigation_context != context {
+            self.keyboard_focus = None;
             self.retire_navigation();
             self.navigation_context = context;
         }
@@ -272,6 +276,9 @@ impl Sidebar {
     pub fn set_navigation_visibility(&mut self, persistent: bool, visible: bool, menu_open: bool) {
         let visibility = (persistent, visible, !persistent && visible && menu_open);
         if self.navigation_visibility != visibility {
+            if !visible {
+                self.keyboard_focus = None;
+            }
             self.retire_navigation();
             self.navigation_visibility = visibility;
         }
@@ -598,6 +605,42 @@ impl Sidebar {
         // Invitations wait for an answer: first, whatever the order or the search.
         let rooms = &self.rooms;
         self.visible.sort_by_key(|&i| !rooms[i].info.invited);
+        if self.keyboard_focus.as_ref().is_some_and(|scope| self.position_of(scope).is_none()) {
+            self.keyboard_focus = None;
+        }
+    }
+
+    pub fn clear_focus(&mut self) {
+        self.keyboard_focus = None;
+    }
+
+    pub fn focus_room(&mut self, scope: &RoomScope) -> bool {
+        if self.position_of(scope).is_none() { return false; }
+        self.keyboard_focus = Some(scope.clone());
+        true
+    }
+
+    pub fn focused_room(&self) -> Option<&SidebarRoom> {
+        let position = self.position_of(self.keyboard_focus.as_ref()?)?;
+        Some(&self.rooms[self.visible[position]])
+    }
+
+    pub fn navigate_focus(&mut self, direction: Navigation) -> Option<usize> {
+        let last = self.visible.len().checked_sub(1)?;
+        let current = self.keyboard_focus.as_ref().and_then(|s| self.position_of(s));
+        let position = match direction {
+            Navigation::First => 0,
+            Navigation::Last => last,
+            Navigation::Next => current.map_or(0, |i| (i + 1).min(last)),
+            Navigation::Previous => current.map_or(last, |i| i.saturating_sub(1)),
+        };
+        self.keyboard_focus = Some(self.rooms[self.visible[position]].scope.clone());
+        Some(position)
+    }
+
+    /// Discard automatic selection without moving keyboard focus.
+    pub fn clear_selection(&mut self) {
+        self.selected = None;
     }
 
     /// Reject foreign account/room identities and rows outside the current filter.
@@ -612,6 +655,7 @@ impl Sidebar {
                 self.retire_navigation();
             }
             self.selected = Some(i);
+            self.keyboard_focus = Some(scope.clone());
             true
         } else {
             false
@@ -632,6 +676,7 @@ impl Sidebar {
             self.retire_navigation();
         }
         self.selected = Some(self.visible[position]);
+        self.keyboard_focus = Some(self.rooms[self.visible[position]].scope.clone());
         Some(position)
     }
 

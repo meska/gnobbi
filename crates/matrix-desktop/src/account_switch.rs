@@ -143,6 +143,17 @@ impl Shell {
         else {
             return;
         };
+        self.open_alert(id, scope, window, cx);
+    }
+
+    /// Dispatch of one already decoded click (the real wrapper above and the Shell tests share it).
+    pub(crate) fn open_alert(
+        &mut self,
+        id: Option<AccountId>,
+        scope: RoomScope,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         window.activate_window();
         match id.filter(|id| Some(*id) != self.active_id) {
             None => {
@@ -153,9 +164,8 @@ impl Shell {
                 }
             }
             Some(id) => {
-                if let Some(state) = self.parked.get_mut(&id) {
-                    state.open_room(&scope);
-                    self.switch_account(id, window, cx);
+                if self.parked.contains_key(&id) {
+                    self.switch_account_with_room(id, Some(&scope), window, cx);
                 }
             }
         }
@@ -228,6 +238,16 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.switch_account_with_room(id, None, window, cx);
+    }
+
+    fn switch_account_with_room(
+        &mut self,
+        id: AccountId,
+        room: Option<&RoomScope>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.active_id == Some(id) {
             self.set_menu_open(false, window, cx);
             return;
@@ -260,6 +280,9 @@ impl Shell {
         self.active_id = Some(id);
         self.clear_account_views(cx);
         self.restore.reset();
+        if let Some(room) = room && self.sidebar.select(room) {
+            self.restore.cancel();
+        }
         self.restore_last_room(cx); // arms for the new account; its room may already be listed
         self.sync_room(cx);
         cx.notify();

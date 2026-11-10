@@ -97,7 +97,7 @@ fn room_focus_translates_without_activating_the_conversation() {
     let Some(NavigationAction::FocusRoom(intent)) = intent else {
         panic!("room Focus must translate independently of Click");
     };
-    assert!(rooms.focus_action(&intent, &sidebar));
+    assert!(rooms.focus_action(&intent, &mut sidebar));
     let bounds = accesskit::Rect::new(72., 100., 400., 168.);
     assert!(rooms.set_bounds(&intent, &sidebar, bounds));
     assert_eq!(selected, sidebar.selected().unwrap().scope);
@@ -118,14 +118,14 @@ fn room_focus_translates_without_activating_the_conversation() {
     assert_eq!(rooms.focused(&sidebar), Some(&target.scope));
     sidebar.set_query("no matches");
     sidebar.set_query("");
-    assert!(!rooms.focus_action(&intent, &sidebar));
+    assert!(!rooms.focus_action(&intent, &mut sidebar));
     assert!(!rooms.set_bounds(&intent, &sidebar, bounds));
     assert!(rooms.focused(&sidebar).is_none());
 }
 
 #[test]
 fn room_keyboard_activation_uses_the_focused_not_selected_conversation() {
-    let sidebar = Sidebar::demo(AccountId::new(17));
+    let mut sidebar = Sidebar::demo(AccountId::new(17));
     let mut rooms = RoomNodes::default();
     let target = rooms.project(&sidebar)[1].clone();
     let intent = matrix_desktop::accessibility::RoomIntent {
@@ -133,7 +133,7 @@ fn room_keyboard_activation_uses_the_focused_not_selected_conversation() {
         scope: target.scope.clone(),
         revision: target.revision,
     };
-    assert!(rooms.focus_action(&intent, &sidebar));
+    assert!(rooms.focus_action(&intent, &mut sidebar));
     for key in ["enter", "space"] {
         let activation = rooms
             .activation_key(&sidebar, key)
@@ -211,7 +211,7 @@ fn queued_room_focus_rejects_removed_replaced_hidden_foreign_sources() {
             "scope" => intent.scope.room_id = RoomId::new("!other:test"),
             _ => unreachable!(),
         }
-        assert!(!rooms.focus_action(&intent, &sidebar), "{case}");
+        assert!(!rooms.focus_action(&intent, &mut sidebar), "{case}");
         if !matches!(case, "account" | "node" | "scope") {
             session.update(navigation(&sidebar, &mut rooms, &mut spaces, true, false));
             assert!(session.action(&request).is_none(), "retired path {case}");
@@ -230,8 +230,8 @@ fn queued_room_focus_rejects_removed_replaced_hidden_foreign_sources() {
             scope: current.scope,
             revision: current.revision,
         };
-        assert!(rooms.focus_action(&fresh, &sidebar));
-        assert!(!rooms.focus_action(&intent, &sidebar));
+        assert!(rooms.focus_action(&fresh, &mut sidebar));
+        assert!(!rooms.focus_action(&intent, &mut sidebar));
         assert_eq!(rooms.focused(&sidebar), Some(&room.scope));
     }
 }

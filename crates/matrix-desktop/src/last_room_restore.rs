@@ -1,18 +1,12 @@
 //! Reopening the saved room after start/sign-in/account switch, once the sync lists it.
 use matrix_domain::{AccountId, RoomId};
-use std::time::{Duration, Instant};
-
-/// How long a saved room that the sync has not listed yet is waited for; then no room is opened.
-pub const RESTORE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 pub struct LastRoomRestore {
     armed_for: Option<AccountId>,
-    pending: Option<(RoomId, Instant)>,
+    pending: Option<RoomId>,
     /// The user chose a room before the first arm: that arm must not wait for the saved one.
     manual: bool,
-    /// The sync has delivered rooms: the wait started then, not when the account was armed.
-    listed: bool,
 }
 
 impl LastRoomRestore {
@@ -33,23 +27,11 @@ impl LastRoomRestore {
     }
 
     /// Arms the wait for `account` (once). Call before anything may open or save a room.
-    pub fn arm(&mut self, account: AccountId, saved: impl FnOnce() -> Option<RoomId>, now: Instant) {
+    pub fn arm(&mut self, account: AccountId, saved: impl FnOnce() -> Option<RoomId>) {
         if self.armed_for != Some(account) {
             self.armed_for = Some(account);
-            self.listed = false;
             let manual = std::mem::take(&mut self.manual);
-            self.pending = saved()
-                .filter(|_| !manual)
-                .map(|room| (room, now + RESTORE_TIMEOUT));
-        }
-    }
-
-    /// The sync listed rooms for the first time: restart the timeout from now (slow sync must not eat it).
-    pub fn list_arrived(&mut self, now: Instant) {
-        if !std::mem::replace(&mut self.listed, true)
-            && let Some((_, deadline)) = &mut self.pending
-        {
-            *deadline = now + RESTORE_TIMEOUT;
+            self.pending = saved().filter(|_| !manual);
         }
     }
 
@@ -59,17 +41,14 @@ impl LastRoomRestore {
         &mut self,
         account: AccountId,
         saved: impl FnOnce() -> Option<RoomId>,
-        now: Instant,
         open: impl FnOnce(&RoomId) -> bool,
     ) -> Option<RoomId> {
-        self.arm(account, saved, now);
-        let (room, deadline) = self.pending.take()?;
+        self.arm(account, saved);
+        let room = self.pending.take()?;
         if open(&room) {
             Some(room)
         } else {
-            if now < deadline {
-                self.pending = Some((room, deadline));
-            }
+            self.pending = Some(room);
             None
         }
     }

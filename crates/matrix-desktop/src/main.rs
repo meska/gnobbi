@@ -1149,7 +1149,7 @@ impl Shell {
         if self.connected {
             let (account, prefs) = (self.draft_scope().account_id, &self.room_prefs);
             self.restore
-                .arm(account, || prefs.last_open_room(account), std::time::Instant::now());
+                .arm(account, || prefs.last_open_room(account));
         }
         // Waiting for the saved room: opening the auto-selected first row would mark it read.
         if self.restore.waiting() {
@@ -1222,19 +1222,17 @@ impl Shell {
         let account = self.active_scope.account_id;
         let saved = self.draft_scope().account_id;
         let (prefs, sidebar) = (&self.room_prefs, &mut self.sidebar);
-        // Ready = the live sync listed rooms; the cached list shown at start must not start the clock.
-        if self.status == RoomSyncStatus::Ready && !sidebar.rooms().is_empty() {
-            self.restore.list_arrived(std::time::Instant::now());
-        }
         let opened = self.restore.poll(
             saved,
             || prefs.last_open_room(saved),
-            std::time::Instant::now(),
             |room| {
                 let scope = RoomScope { account_id: account, room_id: room.clone() };
                 sidebar.is_joined(&scope) && sidebar.select(&scope)
             },
         );
+        if opened.is_none() && self.restore.waiting() {
+            self.sidebar.clear_selection();
+        }
         if let Some(room) = opened {
             self.sync_room(cx);
             let scope = RoomScope { account_id: account, room_id: room };
@@ -1288,16 +1286,31 @@ impl Shell {
             return;
         }
         let key = &event.keystroke;
+        if self.connected {
+            let account = self.draft_scope().account_id;
+            self.restore.arm(account, || self.room_prefs.last_open_room(account));
+        }
         let searching = self.search_focus.is_focused(window);
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.list_focus.is_focused(window)
             && !key.modifiers.control
             && !key.modifiers.alt
             && !key.modifiers.platform
             && !key.modifiers.shift
-            && let Some(intent) = self.a11y_rooms.activation_key(&self.sidebar, &key.key)
+            && matches!(key.key.as_str(), "enter" | "space")
         {
-            self.apply_semantic_room(intent, false, window, cx);
+            let target = self.sidebar.focused_room()
+                .or_else(|| (!self.restore.waiting()).then(|| self.sidebar.selected()).flatten())
+                .map(|room| (room.scope.clone(), room.info.invited));
+            if let Some((scope, invited)) = target {
+                if invited {
+                    if key.key == "enter" { self.answer_invite(scope, true, cx); }
+                } else if self.sidebar.select(&scope) {
+                    self.restore.cancel();
+                    self.sync_room(cx);
+                    if window.viewport_size().width < px(800.) { self.set_compact_chat(true); }
+                    cx.notify();
+                }
+            }
             return;
         }
         if !searching
@@ -1374,11 +1387,18 @@ impl Shell {
             _ => None,
         };
         if let Some(direction) = direction {
-            self.restore.cancel();
-            if let Some(position) = self.sidebar.navigate(direction) {
+            let waiting = self.restore.waiting();
+            let position = if waiting {
+                self.sidebar.navigate_focus(direction)
+            } else {
+                self.sidebar.navigate(direction)
+            };
+            if let Some(position) = position {
                 self.scroll.scroll_to_item(position, ScrollStrategy::Top);
             }
-            self.sync_room(cx);
+            if !waiting {
+                self.sync_room(cx);
+            }
             cx.notify();
             return;
         }
@@ -2014,10 +2034,7 @@ impl Render for Shell {
                                                     let source = &semantic_rooms[position];
                                                     this.room_observer(matrix_desktop::accessibility::RoomIntent { id: source.id, scope: source.scope.clone(), revision: source.revision }, cx)
                                                 };
-                                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                                                let focused = this.a11y_rooms.focused(&this.sidebar).map_or(selected, |target| *target == scope);
-                                                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-                                                let focused = selected;
+                                                let focused = this.sidebar.focused_room().map_or(selected, |target| target.scope == scope);
                                                 div()
                                             .id(i)
                                             .relative()
@@ -2614,23 +2631,10 @@ fn main() {
                         cx.spawn(async move |this, cx| {
                             loop {
                                 executor.timer(std::time::Duration::from_millis(16)).await;
-                                let Ok(matrix_desktop::Drained {
-                                    events,
-                                    media,
-                                    verifications,
-                                    operations,
-                                    deliveries,
-                                    pages,
-                                    closed,
-                                }) = this.update(cx, |this: &mut Shell, cx| {
-                                    this.pump_parked();
-                                    this.finish_removals(cx);
-                                    this.routes.drain()
-                                }) else {
-                                    break;
-                                };
                                 if this
                                     .update(cx, |this: &mut Shell, cx| {
+                                        this.pump_parked();
+                                        this.finish_removals(cx);
                                         #[cfg(feature = "live")]
                                         if let Some(signin) = &this.signin
                                             && let Some(account) = signin.update(cx, |view, cx| view.poll(cx)) {
@@ -2643,6 +2647,7 @@ fn main() {
                                             this.composer.update(cx, |editor, cx| editor.switch_room(this.active_scope.clone(), cx));
                                             cx.notify();
                                         }
+                                        let matrix_desktop::Drained { events, media, verifications, operations, deliveries, pages, closed } = this.routes.drain();
                                         let failed = this
                                             .notification_handle
                                             .as_ref()
@@ -2844,9 +2849,9 @@ fn main() {
                                         if let Some((sender, _)) = &mut this.routes.send {
                                             this.delivery.borrow_mut().flush(sender);
                                         }
+                                        closed
                                     })
-                                    .is_err()
-                                    || closed
+                                    .unwrap_or(true)
                                 {
                                     break;
                                 }
