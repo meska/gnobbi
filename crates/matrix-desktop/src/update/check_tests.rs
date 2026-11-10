@@ -83,12 +83,13 @@ fn serve_fixture(minisig: &'static str) -> (String, Arc<Mutex<Vec<String>>>) {
     })
 }
 
+/// (base URL, request log, "request arrived" receiver, "release reply" sender).
+type Gated = (String, Arc<Mutex<Vec<String>>>, mpsc::Receiver<()>, mpsc::Sender<()>);
+
 /// Like [`serve_fixture`], but holds the `latest.json` reply until the returned sender fires and
 /// reports on the returned receiver once that request has arrived: the caller can act while the
 /// fetch is suspended (barrier handshake, no sleep).
-fn serve_gated(
-    minisig: &'static str,
-) -> (String, Arc<Mutex<Vec<String>>>, mpsc::Receiver<()>, mpsc::Sender<()>) {
+fn serve_gated(minisig: &'static str) -> Gated {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}/dl", listener.local_addr().unwrap());
     let seen = Arc::new(Mutex::new(Vec::new()));
