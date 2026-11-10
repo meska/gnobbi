@@ -89,7 +89,7 @@ pub use offline_delivery::{OfflineDelivery, OfflineDeliveryTarget};
 mod event_id_copy;
 pub use event_id_copy::{EventIdCopies, EventIdCopyTarget};
 mod link_requests;
-pub use link_requests::{LinkMenu, MessageLinkRequests, MessageLinkTarget, link_at};
+pub use link_requests::{LinkMenu, LinkSource, MessageLinkRequests, MessageLinkTarget, link_at};
 mod links;
 pub mod mention_gaps;
 pub use links::{

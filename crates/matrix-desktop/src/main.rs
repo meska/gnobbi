@@ -89,7 +89,11 @@ use matrix_desktop::{
 };
 use matrix_domain::{AccountId, RoomScope};
 use matrix_engine::{RoomListEvent, RoomSyncStatus};
-use std::collections::HashMap;
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+};
 use timeline_view::TimelineView;
 
 // GPUI owns projections only. Optional live restore and sync run on a worker.
@@ -264,6 +268,11 @@ struct Shell {
     info_scrollbar: scrollbar_view::Scrollbar,
     topic_scroll: UniformListScrollHandle, // same trick as info_scroll: only its base ScrollHandle
     topic_scrollbar: scrollbar_view::Scrollbar,
+    // Links of the «Argomento» text: their own registry and confirmation, never the timeline's.
+    topic_links: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
+    topic_confirm: Rc<RefCell<matrix_desktop::LinkConfirmation>>,
+    topic_pressed: Rc<Cell<Option<u64>>>,
+    topic_hover: Rc<Cell<Option<u64>>>,
 }
 
 impl Shell {
@@ -373,12 +382,13 @@ impl Shell {
             if let matrix_desktop::accessibility::NavigationAction::LinkConfirmation(intent) =
                 &action
             {
-                if intent.request.source().event().scope == this.active_scope
+                if let Some(event) = intent.request.source().event()
+                    && event.scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
                     && this
                         .sidebar
                         .selected()
-                        .is_some_and(|room| room.scope == intent.request.source().event().scope)
+                        .is_some_and(|room| room.scope == event.scope)
                     && let Some(timeline) = &this.timeline
                 {
                     timeline.apply_confirmation(intent, window, cx);
@@ -470,12 +480,13 @@ impl Shell {
                 continue;
             }
             if let matrix_desktop::accessibility::NavigationAction::MessageLink(intent) = &action {
-                if intent.target.event().scope == this.active_scope
+                if let Some(event) = intent.target.event()
+                    && event.scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
                     && this
                         .sidebar
                         .selected()
-                        .is_some_and(|room| room.scope == intent.target.event().scope)
+                        .is_some_and(|room| room.scope == event.scope)
                     && let Some(timeline) = &this.timeline
                 {
                     timeline.apply_link(intent, window);
@@ -3101,6 +3112,7 @@ fn main() {
                                                     }
                                                     let anchor = this.reading_anchor();
                                                     this.sidebar.apply_diff(diff);
+                                                    this.reconcile_topic_links();
                                                     this.open_started_room(cx);
                                                     this.keep_reading_position(anchor);
                                                 }
@@ -3510,6 +3522,10 @@ fn main() {
                         info_scrollbar: Default::default(),
                         topic_scroll: UniformListScrollHandle::new(),
                         topic_scrollbar: Default::default(),
+                        topic_links: Default::default(),
+                        topic_confirm: Default::default(),
+                        topic_pressed: Default::default(),
+                        topic_hover: Default::default(),
                     }
                 });
                 let weak = shell.downgrade();

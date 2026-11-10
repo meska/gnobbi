@@ -1,5 +1,5 @@
 //! Read-only room sheet. Semantic actions never mutate homeserver state.
-use super::ROOT;
+use super::{ROOT, links};
 use accesskit::{Action, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 use matrix_domain::RoomScope;
 
@@ -36,6 +36,19 @@ pub enum DetailsAction {
         scope: RoomScope,
         control: DetailsControl,
     },
+    /// Focus/Click on a link of «Argomento»: a click only asks for the confirmation.
+    Link {
+        scope: RoomScope,
+        instance: u64,
+        focus_only: bool,
+    },
+    /// Cancel/Open control of the topic link confirmation (`generation` names the painted request).
+    LinkConfirmation {
+        scope: RoomScope,
+        generation: u64,
+        control: links::ConfirmationControl,
+        focus_only: bool,
+    },
     /// Screen-reader focus on a control of the opened profile (index in the keyboard ring: ‹, ✕, acts).
     FocusRing { scope: RoomScope, index: usize },
 }
@@ -43,6 +56,25 @@ impl DetailsView {
     pub fn action(&self, request: &accesskit::ActionRequest) -> Option<DetailsAction> {
         if request.target_tree != TreeId::ROOT || request.data.is_some() {
             return None;
+        }
+        if let Self::Open(panel) = self {
+            if let Some(link) = panel.links.iter().find(|l| l.id() == request.target_node)
+                && matches!(request.action, Action::Focus | Action::Click)
+            {
+                return Some(DetailsAction::Link {
+                    scope: panel.scope.clone(),
+                    instance: link.target.instance(),
+                    focus_only: request.action == Action::Focus,
+                });
+            }
+            if let Some(intent) = panel.confirmation.as_ref().and_then(|c| c.action(request)) {
+                return Some(DetailsAction::LinkConfirmation {
+                    scope: panel.scope.clone(),
+                    generation: intent.request.generation(),
+                    control: intent.control,
+                    focus_only: intent.focus_only,
+                });
+            }
         }
         match self {
             Self::Closed(scope)
@@ -111,6 +143,8 @@ impl DetailsView {
                 | DetailsAction::Members(scope)
                 | DetailsAction::Act { scope, .. }
                 | DetailsAction::Focus { scope, .. }
+                | DetailsAction::Link { scope, .. }
+                | DetailsAction::LinkConfirmation { scope, .. }
                 | DetailsAction::FocusRing { scope, .. },
             ) => panel.scope == *scope,
             _ => false,
@@ -169,6 +203,10 @@ pub struct DetailsSnapshot {
     /// Current values: the toggles' accessible names follow the visible labels.
     pub hide_status: bool,
     pub hide_redacted: bool,
+    /// Links of the topic text, in text order; children of the «Argomento» node.
+    pub links: Vec<links::Snapshot>,
+    /// Pending open-in-browser confirmation of a topic link.
+    pub confirmation: Option<links::ConfirmationSnapshot>,
 }
 impl DetailsSnapshot {
     /// User id behind a member row's node.
@@ -277,6 +315,12 @@ impl DetailsSnapshot {
             if let Some(bounds) = self.bounds[index] {
                 node.set_bounds(bounds);
             }
+            if topic {
+                for link in &self.links {
+                    node.push_child(link.id());
+                    nodes.push((link.id(), link.node()));
+                }
+            }
             root.push_child(control.id());
             nodes.push((control.id(), node));
         }
@@ -297,11 +341,15 @@ impl DetailsSnapshot {
             nodes.push((BACK, node));
         }
         nodes.insert(0, (ROOT, root));
-        TreeUpdate {
+        let mut tree = TreeUpdate {
             nodes,
             tree: Some(Tree::new(ROOT)),
             tree_id: TreeId::ROOT,
             focus: if self.back { self.ring_node(self.profile_focus) } else { self.focus.id() },
+        };
+        if let Some(confirmation) = &self.confirmation {
+            confirmation.append_to(&mut tree);
         }
+        tree
     }
 }

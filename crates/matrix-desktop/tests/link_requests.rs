@@ -23,7 +23,7 @@ fn replacement_even_with_same_url_retires_captured_confirmation() {
     assert!(sources.request(&targets[0], &mut confirmation));
     let current = confirmation.capture().unwrap();
     assert_ne!(old.generation(), current.generation());
-    assert_eq!(current.source().event(), &id);
+    assert_eq!(current.source().event(), Some(&id));
     assert_eq!(current.source().text(), text);
     assert_eq!(current.source().range(), targets[0].range());
     assert_eq!(current.url().as_str(), targets[0].url().as_str());
@@ -239,7 +239,7 @@ fn scoped_link_occurrences_only_request_validated_confirmation() {
     assert_eq!(links.len(), 2);
     assert_ne!(links[0].instance(), links[1].instance());
     assert_ne!(links[0].range(), links[1].range());
-    assert_eq!(links[1].event(), &id);
+    assert_eq!(links[1].event(), Some(&id));
     assert_eq!(links[1].text(), text);
     let mut confirmation = LinkConfirmation::default();
     assert!(sources.request(&links[1], &mut confirmation));
@@ -292,4 +292,69 @@ fn link_menu_offers_copy_and_open_and_open_still_needs_confirmation() {
         "https://example.invalid/a"
     );
     assert!(menu.copy().is_none());
+}
+
+fn room(n: &str) -> RoomScope {
+    RoomScope { account_id: AccountId::new(67), room_id: RoomId::new(n) }
+}
+
+#[test]
+fn topic_links_are_detected_like_message_links_and_bound_to_the_room() {
+    use matrix_desktop::LinkSource;
+    let scope = room("!topic:test");
+    let text = "Wiki caffè: https://example.invalid/a mail:x@y.z javascript:alert(1) https://example.invalid/a";
+    let mut sources = MessageLinkRequests::default();
+    let targets = sources.topic_targets(&scope, text);
+    // Same detector as the timeline: two http(s) occurrences, the other schemes are not links.
+    assert_eq!(targets.len(), 2);
+    assert_eq!(targets[0].url().as_str(), "https://example.invalid/a");
+    assert_ne!(targets[0].instance(), targets[1].instance());
+    assert_eq!(&text[targets[0].range()], "https://example.invalid/a");
+    assert_eq!(targets[0].source(), &LinkSource::RoomTopic(scope.clone()));
+    assert!(targets[0].event().is_none(), "a topic link has no timeline event");
+    assert_eq!(sources.topic_targets(&scope, text)[0].instance(), targets[0].instance(), "re-reading keeps the occurrence");
+}
+
+#[test]
+fn topic_link_confirmation_goes_stale_when_text_room_or_panel_change() {
+    let (a, b) = (room("!a:test"), room("!b:test"));
+    let text = "https://example.invalid/a";
+    for change in 0..4 {
+        let mut sources = MessageLinkRequests::default();
+        let mut confirmation = LinkConfirmation::default();
+        let target = sources.topic_targets(&a, text)[0].clone();
+        assert!(sources.request(&target, &mut confirmation));
+        let request = confirmation.capture().unwrap();
+        match change {
+            0 => drop(sources.topic_targets(&a, "new words https://example.invalid/a")),
+            1 => drop(sources.topic_targets(&b, text)),
+            2 => sources.clear(),
+            _ => {
+                // Away and back: the old occurrence does not come back.
+                drop(sources.topic_targets(&b, text));
+                drop(sources.topic_targets(&a, text));
+            }
+        }
+        assert!(!sources.is_current(&target), "case {change}");
+        assert!(confirmation.confirm_current(&request, &sources).is_none(), "case {change}");
+        assert!(confirmation.capture().is_some(), "case {change}: a stale callback leaves the pending request alone");
+    }
+    let mut sources = MessageLinkRequests::default();
+    let mut confirmation = LinkConfirmation::default();
+    let target = sources.topic_targets(&a, text)[0].clone();
+    assert!(sources.request(&target, &mut confirmation));
+    let request = confirmation.capture().unwrap();
+    assert_eq!(confirmation.confirm_current(&request, &sources).unwrap().as_str(), text);
+    assert!(confirmation.confirm_current(&request, &sources).is_none(), "consumed once");
+}
+
+#[test]
+fn topic_and_timeline_registries_do_not_share_sources() {
+    let mut sources = MessageLinkRequests::default();
+    let message = sources.targets(&event(), "https://example.invalid/m")[0].clone();
+    let topic = sources.topic_targets(&room("!t:test"), "https://example.invalid/t")[0].clone();
+    assert!(!sources.is_current(&message), "the topic registry holds only the topic");
+    assert!(sources.is_current(&topic));
+    sources.retain_event(&event());
+    assert!(!sources.is_current(&topic), "timeline retention never keeps a topic source");
 }

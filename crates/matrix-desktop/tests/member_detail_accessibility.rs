@@ -40,6 +40,8 @@ fn profile_panel(acts: Vec<A>) -> DetailsSnapshot {
         bounds: [None; 6],
         hide_status: false,
         hide_redacted: false,
+        links: vec![],
+        confirmation: None,
     }
 }
 

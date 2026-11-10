@@ -31,6 +31,25 @@ impl Shell {
                     .room_prefs
                     .hide_redacted(&room.scope)
                     .unwrap_or(self.prefs.hide_redacted),
+                links: {
+                    let pending = self.topic_confirm.borrow().capture();
+                    self.reconcile_topic_links()
+                        .into_iter()
+                        .map(|target| matrix_desktop::accessibility::links::Snapshot {
+                            requested: pending.as_ref().is_some_and(|p| p.source().instance() == target.instance()),
+                            target,
+                            bounds: None,
+                            focused: false,
+                        })
+                        .collect()
+                },
+                confirmation: self.topic_confirm.borrow().capture().map(|request| {
+                    matrix_desktop::accessibility::links::ConfirmationSnapshot {
+                        request,
+                        focused: None,
+                        bounds: [None; 3],
+                    }
+                }),
             }))
         } else if window.viewport_size().width >= px(800.) || self.compact_chat {
             DetailsView::Closed(room.scope.clone())
@@ -60,6 +79,39 @@ impl Shell {
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
+            DetailsAction::Link { instance, focus_only, .. } => {
+                self.details_focus = DetailsControl::Topic;
+                // Current links only: a node of an older topic text finds no target here.
+                let target = self.reconcile_topic_links().into_iter().find(|t| t.instance() == instance);
+                if let Some(target) = target
+                    && !focus_only
+                {
+                    self.topic_links.borrow_mut().request(&target, &mut self.topic_confirm.borrow_mut());
+                }
+            }
+            DetailsAction::LinkConfirmation { generation, control, focus_only, .. } => {
+                self.reconcile_topic_links();
+                let request = self.topic_confirm.borrow().capture().filter(|r| r.generation() == generation);
+                if let Some(request) = request
+                    && !focus_only
+                {
+                    let (cancel, confirm) = crate::timeline_view::confirmation_callbacks(
+                        self.topic_confirm.clone(),
+                        self.topic_links.clone(),
+                        request,
+                    );
+                    match control {
+                        matrix_desktop::accessibility::links::ConfirmationControl::Cancel => {
+                            cancel();
+                        }
+                        matrix_desktop::accessibility::links::ConfirmationControl::Open => {
+                            if let Some(url) = confirm() {
+                                cx.open_url(url.as_str());
+                            }
+                        }
+                    }
+                }
+            }
             DetailsAction::FocusRing { index, .. } => self.profile_focus = index,
             DetailsAction::Act { act, .. } => self.profile_act(act, window, cx),
             DetailsAction::Profile { user_id, .. } => self.open_profile(user_id, cx),
@@ -119,6 +171,44 @@ impl Shell {
             eprintln!("Gnobbi: cannot save room preferences: {error}");
         }
         cx.notify();
+    }
+
+    /// The topic a link may come from: only while the panel really shows it.
+    fn topic_source(&self) -> Option<(RoomScope, String)> {
+        if !self.connected
+            || !self.room_details_open
+            || self.profile.is_some()
+            || self.notifications_open
+            || self.verification_open
+        {
+            return None;
+        }
+        let room = self.sidebar.selected()?;
+        Some((room.scope.clone(), room.info.topic.clone()?))
+    }
+
+    /// Re-read the shown topic and drop every link and confirmation that no longer matches it.
+    /// Called on each state change and again before any effect, so a stale target never opens.
+    pub(crate) fn reconcile_topic_links(&self) -> Vec<matrix_desktop::MessageLinkTarget> {
+        let targets = match self.topic_source() {
+            Some((scope, text)) => self.topic_links.borrow_mut().topic_targets(&scope, &text),
+            None => {
+                self.topic_links.borrow_mut().clear();
+                Vec::new()
+            }
+        };
+        let stale = self
+            .topic_confirm
+            .borrow()
+            .capture()
+            .is_some_and(|r| !self.topic_links.borrow().is_current(r.source()));
+        if stale {
+            self.topic_confirm.borrow_mut().cancel();
+        }
+        if !targets.iter().any(|t| self.topic_hover.get() == Some(t.instance())) {
+            self.topic_hover.set(None);
+        }
+        targets
     }
 
     /// Up/Down/PageUp/PageDown scroll the focused «Argomento» area.
@@ -315,6 +405,64 @@ impl Shell {
         }
     }
 
+    /// The topic text; its links are drawn inline and open only through the confirmation.
+    fn topic_text(
+        &self,
+        topic: &Option<String>,
+        targets: &[matrix_desktop::MessageLinkTarget],
+        t: matrix_desktop::DesignTokens,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        let Some(text) = topic else {
+            return div().child("Nessun argomento").into_any_element();
+        };
+        if targets.is_empty() {
+            return div().child(text.clone()).into_any_element();
+        }
+        let body = gpui::StyledText::new(text.clone()).with_highlights(targets.iter().map(|l| {
+            let style = gpui::HighlightStyle {
+                color: Some(rgb(t.accent).into()),
+                underline: Some(gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
+                ..Default::default()
+            };
+            (l.range(), style)
+        }));
+        let (down_layout, up_layout, move_layout) = (body.layout().clone(), body.layout().clone(), body.layout().clone());
+        let (down_targets, up_targets, move_targets) = (targets.to_vec(), targets.to_vec(), targets.to_vec());
+        let at = |layout: &gpui::TextLayout, targets: &[matrix_desktop::MessageLinkTarget], position| {
+            layout
+                .index_for_position(position)
+                .ok()
+                .and_then(|ix| matrix_desktop::link_at(targets, ix).cloned())
+        };
+        div()
+            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                this.topic_confirm.borrow_mut().cancel();
+                this.topic_pressed.set(at(&down_layout, &down_targets, e.position).map(|l| l.instance()));
+                cx.notify();
+            }))
+            .on_mouse_up(gpui::MouseButton::Left, cx.listener(move |this, e: &gpui::MouseUpEvent, _, cx| {
+                let pressed = this.topic_pressed.take();
+                // Re-read the shown topic first: only a link of the current text, pressed and released on the same spot, asks for confirmation.
+                this.reconcile_topic_links();
+                if let Some(target) = at(&up_layout, &up_targets, e.position)
+                    && pressed == Some(target.instance())
+                    && this.topic_links.borrow_mut().request(&target, &mut this.topic_confirm.borrow_mut())
+                {
+                    cx.notify();
+                }
+            }))
+            .on_mouse_move(cx.listener(move |this, e: &gpui::MouseMoveEvent, _, cx| {
+                let over = at(&move_layout, &move_targets, e.position).map(|l| l.instance());
+                if over != this.topic_hover.get() {
+                    this.topic_hover.set(over);
+                    cx.notify();
+                }
+            }))
+            .child(body)
+            .into_any_element()
+    }
+
     pub(crate) fn render_room_details(
         &self,
         window: &Window,
@@ -333,6 +481,7 @@ impl Shell {
         let focused_control = Some(self.details_focus as usize);
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
+        let topic_links = self.reconcile_topic_links();
         let hide_status = self.room_prefs.hide_status(&room.scope);
         let hide_redacted = self.room_prefs.hide_redacted(&room.scope).unwrap_or(self.prefs.hide_redacted);
         div()
@@ -440,6 +589,12 @@ impl Shell {
                             div()
                                 .relative()
                                 .mt_2()
+                                .children({
+                                    #[cfg(test)]
+                                    { crate::sidebar_navigation_test::observe("room-topic".into()) }
+                                    #[cfg(not(test))]
+                                    { None::<gpui::AnyElement> }
+                                })
                                 .children(self.details_observer(1, cx))
                                 .when(focused_control == Some(1), |d| {
                                     d.border_1().border_color(rgb(t.accent))
@@ -450,12 +605,8 @@ impl Shell {
                                         .max_h((window.viewport_size().height - px(t.header)) / 3.)
                                         .overflow_y_scroll()
                                         .track_scroll(&self.topic_scroll.0.borrow().base_handle)
-                                        .child(
-                                            room.info
-                                                .topic
-                                                .clone()
-                                                .unwrap_or_else(|| "Nessun argomento".into()),
-                                        ),
+                                        .when(self.topic_hover.get().is_some(), |d| d.cursor_pointer())
+                                        .child(self.topic_text(&room.info.topic, &topic_links, t, cx)),
                                 )
                                 .child(self.topic_scrollbar.render(
                                     "room-topic-scrollbar",
@@ -550,6 +701,40 @@ impl Shell {
                     )
                     .child(self.render_people(cx)),
             )
+            .when_some(self.topic_confirm.borrow().capture(), |d, request| {
+                let (cancel, confirm) = crate::timeline_view::confirmation_callbacks(
+                    self.topic_confirm.clone(),
+                    self.topic_links.clone(),
+                    request.clone(),
+                );
+                // Same wording and the same two controls as the timeline's confirmation.
+                d.child(div().id("topic-link-confirmation").occlude().absolute().bottom_0().left_0().right_0()
+                    .px_4().py_3().bg(rgb(t.surface)).border_t_2().border_color(rgb(t.accent))
+                    .flex().flex_col().gap_2()
+                    .child("Aprire nel browser esterno? Controlla l'indirizzo.")
+                    .child(div().text_size(px(12.)).text_color(rgb(t.secondary)).whitespace_normal().child(request.url().as_str().to_owned()))
+                    .child(div().flex().justify_end().gap_4()
+                        .child(div().id("topic-link-cancel").relative().children({
+                                    #[cfg(test)]
+                                    { crate::sidebar_navigation_test::observe("topic-link-cancel".into()) }
+                                    #[cfg(not(test))]
+                                    { None::<gpui::AnyElement> }
+                                }).px_4().py_2().border_1().border_color(rgb(t.surface)).cursor_pointer().child("Annulla")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.reconcile_topic_links();
+                                cancel();
+                                cx.notify();
+                            })))
+                        .child(div().id("topic-link-open").px_4().py_2().border_1().border_color(rgb(t.accent)).rounded_lg().bg(rgb(t.accent)).text_color(rgb(t.on_accent)).cursor_pointer().child("Apri link")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                // Revalidate against the shown topic in this same turn, then open: no await in between.
+                                this.reconcile_topic_links();
+                                if let Some(url) = confirm() {
+                                    cx.open_url(url.as_str());
+                                }
+                                cx.notify();
+                            })))))
+            })
             .into_any_element()
     }
 }

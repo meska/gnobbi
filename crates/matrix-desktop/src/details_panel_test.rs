@@ -220,6 +220,44 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     click!(painted("details-close").center());
     shell!(|this, _, _| assert!(!this.room_details_open, "«Chiudi» closes the panel"));
 
+    // 6b. A link in «Argomento»: a real click asks for the confirmation (never opens), a changed topic retires it, «Annulla» dismisses it.
+    let topic = |text: &'static str| move |this: &mut Shell, _: &mut Window, cx: &mut Context<Shell>| {
+        let room = this.sidebar.selected().unwrap();
+        let summary = matrix_engine::RoomSummary {
+            scope: room.scope.clone(), name: room.name.clone(), unread: room.unread,
+            info: matrix_engine::RoomInfo { topic: Some(text.into()), ..room.info.clone() },
+        };
+        this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(summary)));
+        this.reconcile_topic_links();
+        cx.notify();
+    };
+    shell!(|this, window, cx| { open_panel(this, window, cx); topic("https://example.invalid/x")(this, window, cx); });
+    wait(500).await;
+    let spot = painted("room-topic");
+    click!(gpui::point(spot.left() + px(10.), spot.top() + px(8.)));
+    shell!(|this, _, _| {
+        let pending = this.topic_confirm.borrow().capture().expect("clicking the link asks for the confirmation");
+        assert_eq!(pending.url().as_str(), "https://example.invalid/x");
+    });
+    shell!(|this, window, cx| topic("altre parole https://example.invalid/x")(this, window, cx));
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_none(), "a changed topic retires the pending confirmation"));
+    wait(500).await;
+    let spot = painted("room-topic");
+    click!(gpui::point(spot.left() + px(5.), spot.top() + px(8.)));
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_none(), "words before the link are not a link"));
+    shell!(|this, window, cx| topic("https://example.invalid/x")(this, window, cx));
+    wait(500).await;
+    let spot = painted("room-topic");
+    click!(gpui::point(spot.left() + px(10.), spot.top() + px(8.)));
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_some()));
+    wait(400).await;
+    click!(painted("topic-link-cancel").center());
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_none(), "«Annulla» dismisses the confirmation"));
+    click!(gpui::point(spot.left() + px(10.), spot.top() + px(8.)));
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_some()));
+    shell!(|this, _, cx| { this.set_room_details_open(false); cx.notify(); });
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_none(), "closing the panel retires the confirmation"));
+
     // 7. Regression: drawers and dialogs stay modal (a click on the scrim closes them and goes nowhere else).
     for what in ["menu", "settings", "groups", "room-edit"] {
         let scope = shell!(|this, window, cx| {

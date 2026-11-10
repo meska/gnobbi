@@ -1113,7 +1113,7 @@ impl TimelineView {
                 .borrow()
                 .events()
                 .iter()
-                .any(|e| e.id == *request.source().event() && e.text == request.source().text())
+                .any(|e| Some(&e.id) == request.source().event() && e.text == request.source().text())
         {
             return false;
         }
@@ -1170,12 +1170,15 @@ impl TimelineView {
             .borrow()
             .events()
             .iter()
-            .any(|e| e.id == *intent.target.event() && e.text == intent.target.text())
+            .any(|e| Some(&e.id) == intent.target.event() && e.text == intent.target.text())
             || !self.link_sources.borrow_mut().focus(&intent.target)
         {
             return false;
         }
-        if !self.focus_semantic_message(intent.target.event(), window) {
+        let Some(event) = intent.target.event() else {
+            return false;
+        };
+        if !self.focus_semantic_message(event, window) {
             return false;
         }
         self.link_cursor.set(Some(intent.target.instance()));
@@ -2559,7 +2562,7 @@ fn event_id_copy_callback(
 }
 
 // Capture at paint, not dispatch: a queued callback must never read a newer request.
-fn confirmation_callbacks(
+pub(crate) fn confirmation_callbacks(
     confirmation: Rc<RefCell<LinkConfirmation>>,
     sources: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     request: matrix_desktop::LinkConfirmationRequest,
