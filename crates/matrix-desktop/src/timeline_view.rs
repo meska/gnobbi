@@ -3148,8 +3148,7 @@ mod tests {
                             video: Some(VideoInfo {
                                 duration_ms: Some(12_000),
                                 size: Some(1_468_006),
-                                #[cfg(feature = "live")]
-                                thumbnail: None,
+                                ..Default::default()
                             }),
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,

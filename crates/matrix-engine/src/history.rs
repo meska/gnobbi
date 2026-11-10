@@ -75,7 +75,7 @@ pub fn human_size(bytes: u64) -> String {
 }
 
 /// Video facts from the event `info`; the thumbnail is only a source to fetch later.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct VideoInfo {
     pub duration_ms: Option<u64>,
     pub size: Option<u64>,
