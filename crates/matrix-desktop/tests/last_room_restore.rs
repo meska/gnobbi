@@ -54,3 +54,28 @@ fn manual_choice_cancels() {
     s.cancel();
     assert_eq!(s.poll(acc(1), || None, |_| true), None);
 }
+
+#[test]
+fn saved_room_left_or_gone_never_opens_another_row() {
+    let mut s = LastRoomRestore::default();
+    // The list only has other rooms: nothing is opened, the caller keeps the selection empty while waiting.
+    for _ in 0..10 {
+        assert_eq!(s.poll(acc(1), || Some(r("!left:s")), |room| room != &r("!left:s")), None);
+        assert!(s.waiting());
+    }
+}
+
+#[test]
+fn restored_room_removed_by_first_sync_is_reported_once_until_the_user_chooses() {
+    let mut s = LastRoomRestore::default();
+    assert_eq!(s.poll(acc(1), || Some(r("!a:s")), |_| true), Some(r("!a:s")));
+    assert!(!s.lost(&r("!other:s")));
+    assert!(s.lost(&r("!a:s")), "the opened room was removed: no row may take over");
+    assert!(s.waiting(), "awaited again: a later sync may bring it back");
+    assert!(!s.lost(&r("!a:s")), "only once");
+    assert_eq!(s.poll(acc(1), || None, |_| true), Some(r("!a:s")));
+    let mut s = LastRoomRestore::default();
+    s.poll(acc(1), || Some(r("!a:s")), |_| true);
+    s.cancel();
+    assert!(!s.lost(&r("!a:s")), "after a manual choice the usual fallback applies");
+}

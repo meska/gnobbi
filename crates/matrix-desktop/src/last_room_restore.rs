@@ -7,6 +7,9 @@ pub struct LastRoomRestore {
     pending: Option<RoomId>,
     /// The user chose a room before the first arm: that arm must not wait for the saved one.
     manual: bool,
+    /// The room reopened by the restore, until the user chooses one: if the server then removes it
+    /// (left/banned while the app was closed, seen only on the first sync), no other row takes over.
+    opened: Option<RoomId>,
 }
 
 impl LastRoomRestore {
@@ -18,7 +21,19 @@ impl LastRoomRestore {
     /// The user chose a room by hand: the saved one no longer applies.
     pub fn cancel(&mut self) {
         self.pending = None;
+        self.opened = None;
         self.manual = self.armed_for.is_none();
+    }
+
+    /// True once, when `removed` is the room this restore opened and the user has not chosen since:
+    /// it is awaited again (it may come back with the next sync), so no other row takes over meanwhile.
+    pub fn lost(&mut self, removed: &RoomId) -> bool {
+        let lost = self.opened.take_if(|r| r == removed);
+        let found = lost.is_some();
+        if found {
+            self.pending = lost;
+        }
+        found
     }
 
     /// A different account is now shown: forget everything so the next arm waits for its room.
@@ -46,6 +61,7 @@ impl LastRoomRestore {
         self.arm(account, saved);
         let room = self.pending.take()?;
         if open(&room) {
+            self.opened = Some(room.clone());
             Some(room)
         } else {
             self.pending = Some(room);

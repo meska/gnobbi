@@ -77,3 +77,20 @@ fn room_version_12_id_without_server_part_is_stored() {
     p.save(&d).unwrap();
     assert_eq!(RoomPrefs::load(&d).last_open_room(AccountId::new(1)), Some(RoomId::new(id)), "and survive a reload");
 }
+
+#[test]
+fn composer_focus_flag_is_saved_per_account_and_legacy_files_have_none() {
+    let d = dirs("focus");
+    let mut p = RoomPrefs::default();
+    assert!(!p.composer_focused(AccountId::new(1)));
+    assert!(p.set_composer_focused(AccountId::new(1), true));
+    assert!(!p.set_composer_focused(AccountId::new(1), true), "same value: no write");
+    p.save(&d).unwrap();
+    let l = RoomPrefs::load(&d);
+    assert!(l.composer_focused(AccountId::new(1)));
+    assert!(!l.composer_focused(AccountId::new(2)), "other account untouched");
+    let mut l = l;
+    assert!(l.set_composer_focused(AccountId::new(1), false));
+    l.save(&d).unwrap();
+    assert!(!RoomPrefs::load(&d).composer_focused(AccountId::new(1)));
+}

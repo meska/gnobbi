@@ -143,6 +143,10 @@ struct Shell {
     prefs: matrix_desktop::Preferences,
     prefs_dirs: Option<matrix_desktop::AppDirs>,
     room_prefs: matrix_desktop::RoomPrefs,
+    /// Composer focus as of the last frame (saved with the room on change/close, not per event).
+    composer_focused: bool,
+    /// The saved room was just reopened and its composer had focus: take it on the next frame.
+    focus_composer_on_restore: bool,
     /// Catalog as last read; reloaded whenever the drawer opens or this window signs in.
     accounts: matrix_desktop::AccountCatalog,
     /// Profile folder and trust root this window was started with.
@@ -1358,8 +1362,9 @@ impl Shell {
                 .arm(account, || prefs.last_open_room(account));
         }
         // Waiting for the saved room: opening the auto-selected first row would mark it read.
+        // Selection stays empty meanwhile; the empty scope below also closes a room that was shown before it vanished.
         if self.restore.waiting() {
-            return;
+            self.sidebar.clear_selection();
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if !self
@@ -1440,6 +1445,9 @@ impl Shell {
             self.sidebar.clear_selection();
         }
         if let Some(room) = opened {
+            // Read before sync_room: changing room rewrites the saved flag from the (still unfocused) composer.
+            self.composer_focused = self.room_prefs.composer_focused(saved);
+            self.focus_composer_on_restore = self.composer_focused;
             self.sync_room(cx);
             let scope = RoomScope { account_id: account, room_id: room };
             if let Some(position) = self.sidebar.position_of(&scope) {
@@ -1451,8 +1459,10 @@ impl Shell {
 
     /// Called only when the user changes room; writes the file only if the value changed.
     fn remember_last_room(&mut self) {
+        let account = self.draft_scope().account_id;
+        let focus = self.composer_focused;
         if !self.restore.waiting()
-            && self.room_prefs.set_last_open_room(&self.draft_scope())
+            && (self.room_prefs.set_last_open_room(&self.draft_scope()) | self.room_prefs.set_composer_focused(account, focus))
             && let Some(dirs) = &self.prefs_dirs
             && let Err(error) = self.room_prefs.save(dirs)
         {
@@ -2042,6 +2052,10 @@ impl Render for Shell {
 
 impl Shell {
     fn render_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        // Whatever selected a row meanwhile (diff fallback), a still-awaited saved room means no row is selected.
+        if self.restore.waiting() {
+            self.sidebar.clear_selection();
+        }
         let pinned_picker = self.composer.read(cx).pinned_picker();
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
@@ -2087,6 +2101,14 @@ impl Shell {
         self.navigation_wide = !compact;
         self.refresh_navigation_visibility();
         self.reconcile_sidebar_focus(window, cx);
+        if self.focus_composer_on_restore {
+            self.focus_composer_on_restore = false;
+            if !compact {
+                self.composer.update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
+            }
+        } else if !self.focus_composer_on_restore {
+            self.composer_focused = self.composer.read(cx).is_focused(window);
+        }
         // Publish the same page that will actually be painted after resize.
         if compact && self.composer.read(cx).is_focused(window) {
             self.set_compact_chat(true);
@@ -3111,7 +3133,9 @@ fn main() {
                                                         handle.cancel_pending();
                                                     }
                                                     let anchor = this.reading_anchor();
+                                                    let gone = matches!(&diff, matrix_engine::RoomListDiff::Remove(s) if s.account_id == this.active_scope.account_id && this.restore.lost(&s.room_id));
                                                     this.sidebar.apply_diff(diff);
+                                                    if gone { this.sidebar.clear_selection(); }
                                                     this.reconcile_topic_links();
                                                     this.open_started_room(cx);
                                                     this.keep_reading_position(anchor);
@@ -3375,6 +3399,8 @@ fn main() {
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),
                         account_root: account_root.clone(),
                         room_prefs: prefs_dirs.as_ref().map(matrix_desktop::RoomPrefs::load).unwrap_or_default(),
+                        composer_focused: false,
+                        focus_composer_on_restore: false,
                         prefs_dirs,
                         prefs,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -3530,6 +3556,10 @@ fn main() {
                 });
                 let weak = shell.downgrade();
                 window.on_window_should_close(cx, move |window, cx| {
+                    let _ = weak.update(cx, |this, cx| {
+                        this.composer_focused = this.composer.read(cx).is_focused(window);
+                        this.remember_last_room();
+                    });
                     let hide = weak
                         .update(cx, |this, _| this.close_hides_to_tray())
                         .unwrap_or(false);
