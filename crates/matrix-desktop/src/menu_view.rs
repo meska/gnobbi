@@ -271,7 +271,8 @@ impl Shell {
                 // Settings keep one focus stop; Up/Down/Tab (Shift+Tab backwards) walk its four switches.
                 "up" | "down" | "tab" if self.settings_open => {
                     let back = key.key == "up" || m.shift;
-                    self.settings_row = (self.settings_row + if back { 3 } else { 1 }) % 4;
+                    let rows = 4 + usize::from(self.show_update_check());
+                    self.settings_row = (self.settings_row + if back { rows - 1 } else { 1 }) % rows;
                     self.settings_focus.focus(window);
                     cx.notify();
                 }

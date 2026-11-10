@@ -1813,7 +1813,22 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             key!("tab");
             key!("tab");
             key!("tab");
-            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "the ring wraps after four stops")).unwrap();
+            this.update_in(cx, |this, _, _| {
+                if this.show_update_check() {
+                    assert_eq!(this.settings_row, 4);
+                    assert!(this.prefs.update_check_enabled && saved(&dirs).update_check_enabled);
+                } else {
+                    assert_eq!(this.settings_row, 0, "the ring wraps after four stops");
+                }
+            }).unwrap();
+            if this.update_in(cx, |this, _, _| this.show_update_check()).unwrap() {
+                key!("space");
+                this.update_in(cx, |this, _, _| assert!(!this.prefs.update_check_enabled && !saved(&dirs).update_check_enabled)).unwrap();
+                key!("enter");
+                this.update_in(cx, |this, _, _| assert!(this.prefs.update_check_enabled && saved(&dirs).update_check_enabled)).unwrap();
+                key!("tab");
+                this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0)).unwrap();
+            }
             wait(300).await;
             shot("p242-receipts-off");
             key!("escape");

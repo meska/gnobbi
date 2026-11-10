@@ -32,6 +32,7 @@ impl Shell {
                     !self.prefs.hide_redacted,
                     self.prefs.close_to_tray,
                 ],
+                update_check: self.show_update_check().then_some(self.prefs.update_check_enabled),
             })
         } else {
             None
@@ -57,14 +58,21 @@ impl Shell {
             }
             SettingsAction::Set(row, on) => {
                 self.settings_row = row;
+                let update_check = self.show_update_check();
                 self.update_prefs(cx, |p| match row {
                     0 => p.debug = on,
                     1 => p.read_receipts = on,
                     2 => p.hide_redacted = !on,
-                    _ => p.close_to_tray = on,
+                    3 => p.close_to_tray = on,
+                    4 if update_check => p.update_check_enabled = on,
+                    _ => {}
                 });
             }
         }
+    }
+
+    pub(crate) fn show_update_check(&self) -> bool {
+        matrix_desktop::update::channel::detect_channel(&matrix_desktop::update::channel::Env::from_process()).self_updates()
     }
 
     /// Settings rows in screen order: 0 debug, 1 read receipts, 2 hide deleted messages, 3 close to tray.
@@ -73,7 +81,11 @@ impl Shell {
             0 => self.toggle_debug(cx),
             1 => self.toggle_read_receipts(cx),
             2 => self.toggle_hide_redacted(cx),
-            _ => self.toggle_close_to_tray(cx),
+            3 => self.toggle_close_to_tray(cx),
+            4 if self.show_update_check() => {
+                self.update_prefs(cx, |p| p.update_check_enabled = !p.update_check_enabled);
+            }
+            _ => {}
         }
     }
 
@@ -659,6 +671,12 @@ impl Shell {
                 )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_close_to_tray(cx))),
             )
+            .when(self.show_update_check(), |d| d.child(
+                switch_row(
+                    "settings-update-check", matrix_desktop::update::label::update_check_label(), self.prefs.update_check_enabled, true,
+                    input_modality::only_keys(self.settings_row == 4 && self.settings_focus.is_focused(window), cx), t,
+                ).on_click(cx.listener(|this, _, _, cx| this.toggle_setting(4, cx))),
+            ))
             .children({
                 #[cfg(target_os = "linux")]
                 {

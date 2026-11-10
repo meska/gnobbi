@@ -92,14 +92,14 @@ mod a11y {
         let mut seen = vec![];
         for bits in 0..16u8 {
             let on = [0, 1, 2, 3].map(|i| bits >> i & 1 == 1);
-            let tree = SettingsSnapshot { focus: 0, on }.tree();
+            let tree = SettingsSnapshot { focus: 0, on, update_check: None }.tree();
             let sw: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Switch).collect();
             let labels: Vec<_> = sw.iter().map(|(_, n)| n.label().unwrap().to_owned()).collect();
             assert_eq!(labels, LABELS, "state {bits:04b}");
             for (i, (id, n)) in sw.iter().enumerate() {
                 assert_eq!(n.toggled(), Some(if on[i] { Toggled::True } else { Toggled::False }));
                 // Click/Space/Enter all arrive as Click: explicit target = the opposite of what is shown.
-                let want = SettingsSnapshot { focus: 0, on }.action(&click(*id));
+                let want = SettingsSnapshot { focus: 0, on, update_check: None }.action(&click(*id));
                 assert_eq!(want, Some(SettingsAction::Set(i, !on[i])));
             }
             seen.push(labels);

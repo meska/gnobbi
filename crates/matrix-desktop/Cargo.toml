@@ -20,6 +20,7 @@ minisign-verify = "=0.3.0"
 reqwest = { version = "=0.13.5", optional = true, default-features = false, features = ["rustls"] }
 # Update scheduler runtime (check + download); same version as the dev-dependency, gated by `live`.
 tokio = { version = "=1.53.2", optional = true, default-features = false, features = ["rt", "time"] }
+sys-locale = "=0.3.2"
 unicode-segmentation = "=1.13.3"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock"] }
 
