@@ -7,12 +7,15 @@ pub mod verify;
 pub mod startup;
 pub mod stage;
 pub mod install;
+pub mod helper;
 #[cfg(all(test, unix))]
 mod stage_tests;
 #[cfg(test)]
 mod startup_tests;
 #[cfg(test)]
 mod install_tests;
+#[cfg(test)]
+mod helper_tests;
 
 
 use crate::Preferences;

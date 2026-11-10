@@ -26,6 +26,8 @@ pub enum StartupAction {
     Ignored,
     /// `.prev` is back in place and `to_build` is in `bad_builds`: relaunch the old binary.
     Restored { to_build: u64 },
+    /// Windows: the exe to put back is the running one, so only the helper can do it.
+    RestoreViaHelper { to_build: u64 },
 }
 
 /// `Some(line)` when the first argument is `--self-test`. Pure: touches no file.
@@ -93,6 +95,10 @@ fn save_outcome(dirs: &AppDirs, result: &str, build: u64) -> std::io::Result<()>
 
 /// Decision + file work of the startup marker. `build` is the running build already parsed.
 pub fn handle_marker(dirs: &AppDirs, build: u64, target: &Path, prev: &Path) -> StartupAction {
+    handle_marker_with(dirs, build, target, prev, cfg!(windows))
+}
+
+pub(super) fn handle_marker_with(dirs: &AppDirs, build: u64, target: &Path, prev: &Path, via_helper: bool) -> StartupAction {
     let pending = match read_pending(dirs) {
         None => return StartupAction::Continue,
         Some(Some(p)) if p.to_build == build => p,
@@ -110,15 +116,28 @@ pub fn handle_marker(dirs: &AppDirs, build: u64, target: &Path, prev: &Path) -> 
         return StartupAction::Continue;
     }
     // Third start without confirmation: put the old binary back.
+    if via_helper {
+        return StartupAction::RestoreViaHelper { to_build: pending.to_build };
+    }
     if let Err(e) = restore(target, prev) {
         eprintln!("update: restore failed: {e}");
         return StartupAction::Continue;
     }
+    finish_restore(dirs, &pending);
+    StartupAction::Restored { to_build: pending.to_build }
+}
+
+/// Bookkeeping after the old binary is back; the marker goes last.
+pub(super) fn finish_restore(dirs: &AppDirs, pending: &Pending) {
     if let Err(e) = add_bad_build(dirs, pending.to_build).and_then(|()| save_outcome(dirs, OUTCOME_RESTORED, pending.from_build)) {
         eprintln!("update: state not saved: {e}");
     }
     let _ = std::fs::remove_file(marker_path(dirs));
-    StartupAction::Restored { to_build: pending.to_build }
+}
+
+/// The readable marker, if any.
+pub(super) fn pending(dirs: &AppDirs) -> Option<Pending> {
+    read_pending(dirs).flatten()
 }
 
 /// Puts the backup back: a single rename over the target, so the executable name is never
@@ -197,12 +216,23 @@ pub fn run_at_start() {
     let Ok(build) = crate::build_info::BUILD_INFO.build.parse::<u64>() else { return };
     let (Some(dirs), Some(target)) = (dirs_real(), target_real(|k| std::env::var(k).ok())) else { return };
     let prev = prev_of(&target);
-    if let StartupAction::Restored { .. } = handle_marker(&dirs, build, &target, &prev) {
-        // The old build is back at `target`; this process is the rejected new one and leaves.
-        if let Err(e) = relaunch(&target) {
-            eprintln!("update: relaunch failed: {e}");
-            std::process::exit(1);
+    match handle_marker(&dirs, build, &target, &prev) {
+        StartupAction::Restored { .. } => {
+            // The old build is back at `target`; this process is the rejected new one and leaves.
+            if let Err(e) = relaunch(&target) {
+                eprintln!("update: relaunch failed: {e}");
+                std::process::exit(1);
+            }
+            std::process::exit(0);
         }
-        std::process::exit(0);
+        // The helper restores after this process is gone; if it cannot start, keep running.
+        StartupAction::RestoreViaHelper { .. } => match super::helper::start(&super::helper::Request::restore(target.clone())) {
+            Ok(()) => std::process::exit(0),
+            Err(e) => eprintln!("update: {e}"),
+        },
+        _ => {}
+    }
+    if cfg!(windows) {
+        super::helper::cleanup_stale(&target);
     }
 }

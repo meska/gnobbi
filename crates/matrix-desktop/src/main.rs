@@ -2551,6 +2551,11 @@ impl Shell {
 }
 
 fn main() {
+    // Before the marker and the UI: the update helper is this same exe in another mode.
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = matrix_desktop::update::helper::dispatch(&argv) {
+        std::process::exit(code);
+    }
     matrix_desktop::update::startup::run_at_start();
     #[cfg(all(feature = "perf-probe", feature = "live", target_os = "macos"))]
     if std::env::var_os("P115B_NATIVE").is_some() {

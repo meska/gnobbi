@@ -3,10 +3,9 @@
 //!
 //! Linux order: lock → re-hash and sync the staging → marker → `hard_link(target, prev)` →
 //! one `rename(staging, target)` → relaunch. The target is never moved out of the way first,
-//! so its name is never free in between. Windows replaces the running `gnobbi.exe` through an
-//! internal helper copy with a single `MoveFileExW`; that protocol is not written yet and
-//! [`paths_for`] refuses the channel rather than running the Linux step there, which would be
-//! a fake transaction (the exe cannot be renamed while it runs).
+//! so its name is never free in between. Windows cannot rename the running `gnobbi.exe`, so
+//! [`install_staged`] hands the same transaction to [`super::helper`] (a physical copy of this
+//! exe, a single `MoveFileExW`); the Linux step is never run there.
 //!
 //! [`swap`] and [`install_with`] take their file operations as arguments, so a test can force
 //! any failure without starting or terminating the process under test: the spawn and the exit
@@ -58,7 +57,7 @@ impl Lock {
 }
 
 /// Regular file: not a directory, not a symlink/reparse point.
-fn regular(path: &Path) -> bool {
+pub(super) fn regular(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file())
 }
 
@@ -67,14 +66,17 @@ fn regular(path: &Path) -> bool {
 pub fn paths_for(channel: &Channel, ready: &Ready) -> Result<Paths, String> {
     let target = match channel {
         Channel::AppImage { target } => target.clone(),
-        // The Windows helper protocol is not written yet; see the module doc.
-        Channel::WindowsPortable { .. } => return Err(failed("aggiornamento Windows non disponibile")),
+        Channel::WindowsPortable { exe } => exe.clone(),
         _ => return Err(failed("canale senza aggiornamento in-app")),
     };
+    check_paths(target, ready.path.clone())
+}
+
+/// The path rules shared with the Windows helper, which re-runs them on its own argv.
+pub(super) fn check_paths(target: PathBuf, new: PathBuf) -> Result<Paths, String> {
     if !regular(&target) {
         return Err(failed("binario da aggiornare non trovato"));
     }
-    let new = ready.path.clone();
     if !regular(&new) {
         return Err(failed("staging non trovato"));
     }
@@ -197,7 +199,7 @@ where
 /// same inode is a no-op on Unix, so `prev` can still be there with the old build back on the
 /// target. It is our own name and the bytes live on, so dropping it loses nothing and the next
 /// install is not refused.
-fn drop_backup(paths: &Paths) {
+pub(super) fn drop_backup(paths: &Paths) {
     if std::fs::symlink_metadata(&paths.prev).is_ok() {
         let _ = std::fs::remove_file(&paths.prev);
     }
@@ -206,6 +208,12 @@ fn drop_backup(paths: &Paths) {
 /// Production entry. Ends with the new binary started; the marker stays until that build
 /// confirms at the documented checkpoint.
 pub fn install_staged(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> Result<(), String> {
+    if matches!(channel, Channel::WindowsPortable { .. }) {
+        // Returns once the helper has confirmed it holds this process's handle: the caller
+        // must exit now, the swap happens after that.
+        let paths = paths_for(channel, ready)?;
+        return super::helper::start(&super::helper::Request::install(paths.target, ready));
+    }
     install_with(dirs, channel, ready, |a, b| std::fs::hard_link(a, b), |a, b| std::fs::rename(a, b), relaunch)
 }
 
@@ -219,7 +227,7 @@ pub fn install_and_restart(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> 
 }
 
 /// Size and hash again, immediately before the swap, then the bytes to the disk.
-fn reverify(paths: &Paths, ready: &Ready) -> Result<(), String> {
+pub(super) fn reverify(paths: &Paths, ready: &Ready) -> Result<(), String> {
     let candidate = Candidate {
         version: ready.version.clone(),
         build: ready.build,
@@ -239,12 +247,12 @@ fn describe(e: UpdateError) -> String {
     })
 }
 
-fn running_build() -> u64 {
+pub(super) fn running_build() -> u64 {
     super::build_number(crate::build_info::BUILD_INFO.build).unwrap_or(0)
 }
 
 /// Best effort: makes the rename itself durable where the filesystem supports it.
-fn sync_dir(target: &Path) {
+pub(super) fn sync_dir(target: &Path) {
     if let Some(dir) = target.parent()
         && let Ok(f) = std::fs::File::open(dir)
     {
@@ -264,13 +272,13 @@ fn relaunch(target: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn failed(cause: &str) -> String {
+pub(super) fn failed(cause: &str) -> String {
     let cause = cause.lines().next().unwrap_or_default().trim();
     format!("Aggiornamento non riuscito: {}", if cause.is_empty() { "errore" } else { cause })
 }
 
 /// One line, per INSTALL_STAGED_CONTRACT.md §8.
-fn message(e: &io::Error) -> String {
+pub(super) fn message(e: &io::Error) -> String {
     if e.kind() == io::ErrorKind::PermissionDenied {
         failed("cartella non scrivibile")
     } else {
