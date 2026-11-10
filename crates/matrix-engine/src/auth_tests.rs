@@ -2,6 +2,7 @@
 include!("receipt_tests.rs");
 include!("live_activity_tests.rs");
 include!("thread_tests.rs");
+include!("room_switch_tests.rs");
 
 use crate::auth::{AccountSession, AuthError};
 use crate::discovery::HomeserverUrl;
