@@ -1696,8 +1696,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             release.send(()).unwrap();
             assert!(second.join().unwrap().is_ok());
             let stamp = saved(&dirs).last_check;
-            this.update_in(cx, |this, _, cx| this.choose_theme(Theme::Light, cx)).unwrap();
-            assert_eq!((saved(&dirs).theme, saved(&dirs).max_build_seen, saved(&dirs).last_check), (Some(Theme::Light), 42, stamp));
+            this.update_in(cx, |this, _, cx| this.choose_theme(Theme::Night, cx)).unwrap();
+            assert_eq!((saved(&dirs).theme, saved(&dirs).max_build_seen, saved(&dirs).last_check), (Some(Theme::Night), 42, stamp));
             // 3. Contended lock: the action fails visibly and never shows a theme that was not saved.
             let (held_tx, held) = std::sync::mpsc::channel::<()>();
             let (free, free_rx) = std::sync::mpsc::channel::<()>();
@@ -1705,12 +1705,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             held.recv_timeout(std::time::Duration::from_secs(30)).unwrap();
             this.update_in(cx, |this, _, cx| {
                 this.choose_theme(Theme::Dark, cx);
-                assert_eq!(this.prefs.theme, Some(Theme::Light), "contention must not flip the UI");
+                assert_eq!(this.prefs.theme, Some(Theme::Night), "contention must not flip the UI");
                 assert!(this.settings_error.is_some(), "contention is visible");
             }).unwrap();
             free.send(()).unwrap();
             holder.join().unwrap().unwrap();
-            assert_eq!(saved(&dirs).theme, Some(Theme::Light));
+            assert_eq!(saved(&dirs).theme, Some(Theme::Night));
             this.update_in(cx, |this, _, cx| {
                 this.choose_theme(Theme::Dark, cx);
                 assert!(this.settings_error.is_none() && this.prefs.theme == Some(Theme::Dark));
