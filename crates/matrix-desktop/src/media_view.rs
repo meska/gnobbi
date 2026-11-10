@@ -92,12 +92,21 @@ pub(crate) fn save_icon(
             click(window, cx)
         })
         .child(if running { "…" } else { "↓" })
-        .child(gpui::canvas(|_, _, _| (), move |bounds, _, _, _| painted(bounds)).absolute().inset_0())
+        .child(
+            gpui::canvas(|_, _, _| (), move |bounds, _, _, _| painted(bounds))
+                .absolute()
+                .inset_0(),
+        )
         .into_any_element()
 }
 
 /// One line under the bubble footer: what went wrong and, unless it cannot change, «Riprova».
-pub(crate) fn save_failure(index: usize, error: MediaError, t: DesignTokens, retry: SaveClick) -> AnyElement {
+pub(crate) fn save_failure(
+    index: usize,
+    error: MediaError,
+    t: DesignTokens,
+    retry: SaveClick,
+) -> AnyElement {
     div()
         .flex()
         .justify_end()
@@ -225,8 +234,7 @@ pub(crate) fn audio_bubble(
     waveform: Vec<f32>,
     progress: f32,
     playing: bool,
-    duration: Option<String>,
-    size: Option<String>,
+    (duration, size): (Option<String>, Option<String>),
     error: Option<MediaError>,
     t: DesignTokens,
     painted: PaintedParts,
@@ -462,14 +470,18 @@ impl Shell {
         let scope = self.active_scope.clone();
         cx.spawn(async move |this, cx| {
             // No portal (or it failed): the same one-line error as a failed download, not silence.
-            let picked = picked.await.map_err(|_| MediaError::Failed).and_then(|r| r.map_err(|_| MediaError::Failed));
+            let picked = picked
+                .await
+                .map_err(|_| MediaError::Failed)
+                .and_then(|r| r.map_err(|_| MediaError::Failed));
             let path = picked.as_ref().ok().cloned().flatten();
             let _ = this.update(cx, |this, cx| {
                 let Some(timeline) = &this.timeline else {
                     return;
                 };
                 // Stopped while the picker was open, or the room changed: nothing to save.
-                let wanted = timeline.saves.borrow().state(&id) == Some(matrix_desktop::SaveState::Running)
+                let wanted = timeline.saves.borrow().state(&id)
+                    == Some(matrix_desktop::SaveState::Running)
                     && scope == this.active_scope;
                 let started = wanted
                     && path.is_some_and(|path| this.media.request_save(scope, id.clone(), path));
@@ -689,7 +701,10 @@ mod tests {
             super::failure_label(Some(MediaError::TooLarge), true),
             "File troppo grande"
         );
-        assert_eq!(super::failure_label(None, true), "Riproduzione non disponibile");
+        assert_eq!(
+            super::failure_label(None, true),
+            "Riproduzione non disponibile"
+        );
         for error in [
             None,
             Some(MediaError::Failed),

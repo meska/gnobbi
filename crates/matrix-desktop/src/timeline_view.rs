@@ -1923,7 +1923,7 @@ impl TimelineView {
                         };
                         let duration = facts.duration_ms.or(decoded_ms).map(matrix_engine::history::duration_label);
                         let size = facts.size.map(matrix_engine::history::human_size);
-                        let bubble = crate::media_view::audio_bubble(wave, progress, playing, duration, size, error, t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((painted_id.id.clone(), part), bounds); }));
+                        let bubble = crate::media_view::audio_bubble(wave, progress, playing, (duration, size), error, t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((painted_id.id.clone(), part), bounds); }));
                         match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => {
                                 let (id, want_audio, focus) = (id.clone(), want_audio.clone(), focus.clone());

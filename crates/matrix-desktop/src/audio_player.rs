@@ -164,7 +164,10 @@ mod tests {
         // Paused: silence, and the cursor does not move.
         assert_eq!(player.pull(&mut out), 0);
         assert_eq!(out, [0.0; 4]);
-        assert!((player.progress() - 0.4).abs() < f32::EPSILON, "the cursor did not move");
+        assert!(
+            (player.progress() - 0.4).abs() < f32::EPSILON,
+            "the cursor did not move"
+        );
         player.toggle();
         assert_eq!(player.pull(&mut out), 4);
         assert!((player.progress() - 0.8).abs() < f32::EPSILON);
@@ -180,7 +183,10 @@ mod tests {
         assert_eq!(player.progress(), 1.0);
         assert_eq!(player.pull(&mut out), 0);
         player.toggle();
-        assert!(player.is_playing(), "toggle after the end replays from the start");
+        assert!(
+            player.is_playing(),
+            "toggle after the end replays from the start"
+        );
         assert_eq!(player.progress(), 0.0);
     }
 
@@ -190,7 +196,11 @@ mod tests {
         assert_eq!(player.progress(), 0.0);
         let mut out = [0.0f32; 25];
         player.pull(&mut out);
-        assert!((player.progress() - 0.25).abs() < f32::EPSILON, "{}", player.progress());
+        assert!(
+            (player.progress() - 0.25).abs() < f32::EPSILON,
+            "{}",
+            player.progress()
+        );
         assert_eq!(player.duration_ms(), 100);
         for _ in 0..10 {
             player.pull(&mut out);
