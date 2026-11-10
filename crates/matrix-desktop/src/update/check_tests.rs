@@ -399,3 +399,82 @@ fn an_endpoint_change_during_the_fetch_discards_the_offer_and_its_metadata() {
         "no metadata from the old endpoint"
     );
 }
+
+/// The Settings action (`Shell::choose_theme` -> `update_prefs`) is exactly one
+/// `Preferences::update` on its own field: done while the fetch is suspended, both survive.
+#[test]
+fn a_ui_theme_write_during_the_fetch_and_the_commit_keep_each_other() {
+    let (base, _, arrived, release) = serve_gated("valid.minisig");
+    let d = store("theme-in-flight", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    let check = go_blocking(d.clone(), p, 41);
+    arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+    Preferences::update(&d, |p| p.theme = Some(crate::Theme::Dark)).unwrap();
+    release.send(()).unwrap();
+    assert!(matches!(check.join().unwrap().unwrap(), Outcome::Candidate(_)));
+    let after = Preferences::load(&d);
+    assert_eq!(after.theme, Some(crate::Theme::Dark), "UI choice kept");
+    assert_eq!((after.max_build_seen, after.last_check), (42, Some(now_secs())), "metadata kept");
+}
+
+/// Reverse order: the check is done, then the UI writes its field on the current values.
+#[test]
+fn a_ui_theme_write_after_the_check_keeps_every_metadata() {
+    let (base, _, arrived, release) = serve_gated("valid.minisig");
+    let d = store("theme-after", &base_prefs(&base));
+    startup::add_bad_build(&d, 7).unwrap();
+    let p = Preferences::load(&d);
+    let check = go_blocking(d.clone(), p, 41);
+    arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+    release.send(()).unwrap();
+    assert!(matches!(check.join().unwrap().unwrap(), Outcome::Candidate(_)));
+    Preferences::update(&d, |p| p.theme = Some(crate::Theme::Dark)).unwrap();
+    let after = Preferences::load(&d);
+    assert_eq!(after.theme, Some(crate::Theme::Dark));
+    assert_eq!(
+        (after.max_build_seen, after.last_check, after.bad_builds.iter().copied().collect::<Vec<_>>()),
+        (42, Some(now_secs()), vec![7]),
+        "check metadata intact"
+    );
+}
+
+/// Corrupt store before the check: no network, no overwrite.
+#[tokio::test]
+async fn a_corrupt_store_stops_the_check_before_the_network_and_is_not_rewritten() {
+    let (base, seen) = serve_fixture("valid.minisig");
+    let d = store("corrupt", &base_prefs(&base));
+    let path = d.config.join("settings.json");
+    std::fs::write(&path, b"{invalid").unwrap();
+    let mut p = Preferences::default();
+    let r = check_with(&d, &mut p, &keys(), LINUX_APPIMAGE, "41", UPDATE_HOST, now()).await;
+    assert!(matches!(r, Err(CheckError::Persist(_))), "{r:?}");
+    assert!(seen.lock().unwrap().is_empty(), "no request");
+    assert_eq!(std::fs::read(path).unwrap(), b"{invalid");
+}
+
+/// Another writer holds the settings lock when the verified answer lands: the commit fails
+/// at once (WouldBlock), nothing is written and no Candidate is offered.
+#[test]
+fn a_contended_lock_at_commit_persists_nothing_and_offers_nothing() {
+    let (base, _, arrived, release) = serve_gated("valid.minisig");
+    let d = store("contended", &base_prefs(&base));
+    let p = Preferences::load(&d);
+    let check = go_blocking(d.clone(), p, 41);
+    arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+    let (held_tx, held_rx) = mpsc::channel();
+    let (free_tx, free_rx) = mpsc::channel::<()>();
+    let dd = d.clone();
+    let holder = std::thread::spawn(move || {
+        Preferences::update(&dd, |_| {
+            held_tx.send(()).unwrap();
+            free_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+        })
+    });
+    held_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(check.join().unwrap(), Err(CheckError::Persist(std::io::ErrorKind::WouldBlock)));
+    free_tx.send(()).unwrap();
+    holder.join().unwrap().unwrap();
+    let after = Preferences::load(&d);
+    assert_eq!((after.max_build_seen, after.last_check), (0, None), "nothing persisted");
+}
