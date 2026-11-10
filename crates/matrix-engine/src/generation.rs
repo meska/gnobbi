@@ -22,6 +22,12 @@ impl RequestTag {
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
+    /// Same attempt: the shared cancellation flag. A duplicate command coalesces instead of restarting.
+    pub fn is_same(&self, other: &RequestTag) -> bool {
+        self.scope == other.scope
+            && self.generation == other.generation
+            && Arc::ptr_eq(&self.cancelled, &other.cancelled)
+    }
 }
 #[derive(Debug, PartialEq, Eq)]
 pub struct GenerationExhausted;

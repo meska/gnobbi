@@ -1702,9 +1702,15 @@ impl Shell {
                             root,
                             result: Err(OperationError::Unavailable),
                         },
-                        OperationCommand::Thread { scope, root, .. } => OperationResult::Thread {
-                            scope,
+                        OperationCommand::Thread { tag, root, .. } => OperationResult::Thread {
+                            tag,
                             root,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::ThreadRead { tag, root, target, .. } => OperationResult::ThreadRead {
+                            tag,
+                            root,
+                            target,
                             result: Err(OperationError::Unavailable),
                         },
                         OperationCommand::SetMuted { scope, .. } => OperationResult::RoomMarked {
@@ -2915,8 +2921,12 @@ fn main() {
                                                 this.thread_sent(scope, root, result, cx);
                                                 continue;
                                             }
-                                            if let matrix_engine::operations::OperationResult::Thread { scope, root, result } = result {
-                                                this.thread_found(scope, root, result, cx);
+                                            if let matrix_engine::operations::OperationResult::Thread { tag, root, result } = result {
+                                                this.thread_found(tag, root, result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::ThreadRead { .. } = result {
+                                                // Segmento 2 collega il pannello: qui il checkpoint scarta l'esito.
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::Profile { user_id, result } = result {

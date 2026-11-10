@@ -190,13 +190,20 @@ pub enum OperationCommand {
         muted: bool,
     },
     /// Read-only thread panel: the root and the newest `want` replies (SDK thread timeline).
+    /// The page proves nothing about the receipt; the panel asks for that separately with `ThreadRead`.
     Thread {
-        scope: RoomScope,
+        tag: crate::RequestTag,
         root: EventId,
         want: usize,
-        /// The panel is on screen in the focused window: also send the thread's read receipt
-        /// (`Some(public)`, the «Conferme di lettura» setting).
-        read: Option<bool>,
+    },
+    /// The thread's read receipt on one explicit event the panel already shows. The worker polls it
+    /// beside the commands (one in flight per account), so a frozen server never blocks a page.
+    ThreadRead {
+        tag: crate::RequestTag,
+        root: EventId,
+        target: EventId,
+        /// «Conferme di lettura»: `m.read` when public, `m.read.private` otherwise. Never no receipt.
+        public: bool,
     },
     /// «Verifica utente»: ask `user_id` for an interactive verification.
     VerifyUser { user_id: String },
@@ -236,10 +243,17 @@ pub enum OperationResult {
         result: Result<EventId, OperationError>,
     },
     Thread {
-        scope: RoomScope,
+        tag: crate::RequestTag,
         root: EventId,
         // Boxed: the page is far bigger than the other results.
         result: Result<Box<crate::history::ThreadPage>, OperationError>,
+    },
+    /// `Ok(true)` is the server ACK; `Ok(false)` is the SDK's no-op (no send, not a confirmed read).
+    ThreadRead {
+        tag: crate::RequestTag,
+        root: EventId,
+        target: EventId,
+        result: Result<bool, OperationError>,
     },
     Profile {
         user_id: String,

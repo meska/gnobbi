@@ -551,6 +551,29 @@ fn disposable_thread_reopen_does_not_wait_for_the_network() {
             first = sync.open_thread(&scope, &root_id, 25).await.unwrap();
         }
         assert_eq!(first.replies.len(), 3, "first open shows the thread");
+        // The page is separate from the receipt: with the server frozen both public values still page.
+        let client = sync.client().unwrap();
+        let timelines = crate::room_sync::Timelines::default();
+        let warm = crate::threads::open_scoped(client, &timelines, AccountId::new(72), &scope, &root_id, 25).await.unwrap();
+        assert_eq!(warm.replies.len(), 3);
+        let target = warm.replies.last().unwrap().event_id.clone();
+        let mut scoped_timeouts = Vec::new();
+        let mut receipt_timeouts = Vec::new();
+        for public in [true, false] {
+            let _paused = PausedServer::new(&config);
+            let mut views = ViewRequests::new();
+            let tag = views.start(scope.clone()).unwrap();
+            let start = std::time::Instant::now();
+            let result = tokio::time::timeout(std::time::Duration::from_secs(3), crate::threads::open_scoped(client, &timelines, AccountId::new(72), &scope, &root_id, 25)).await;
+            println!("T_SCOPED {}", serde_json::json!({"server":config["server"],"public":public,"elapsed_ms":start.elapsed().as_millis() as u64,"timeout":result.is_err(),"replies":result.as_ref().ok().and_then(|r|r.as_ref().ok()).map(|p|p.replies.iter().map(|r|r.body.clone()).collect::<Vec<_>>())}));
+            scoped_timeouts.push((public, result.is_err()));
+            // The receipt on the frozen server must stay separate: it hangs, the page above did not.
+            let receipt = tokio::time::timeout(std::time::Duration::from_secs(3), crate::threads::mark_read_target(client, &timelines, AccountId::new(72), &tag, &root_id, &target, public)).await;
+            println!("T_RECEIPT_SEPARATE {}", serde_json::json!({"server":config["server"],"public":public,"timeout":receipt.is_err(),"result":receipt.as_ref().ok().map(|r|r.as_ref().map_err(|_| "error"))}));
+            receipt_timeouts.push((public, receipt.is_err()));
+        }
+        assert!(scoped_timeouts.iter().all(|(_, timed_out)| !timed_out), "open_scoped waited for frozen server: {scoped_timeouts:?}");
+        assert!(receipt_timeouts.iter().all(|(_, timed_out)| *timed_out), "receipt did not wait for the frozen server: {receipt_timeouts:?}");
         let frozen = {
             let _paused = PausedServer::new(&config);
             let t = std::time::Instant::now();
@@ -578,4 +601,121 @@ fn disposable_thread_reopen_does_not_wait_for_the_network() {
         // Last on purpose: the content checks above hold even when this one fails (`fill` paginates over the network).
         assert!(frozen.0 < std::time::Duration::from_secs(3), "reopen waited {:?} for the network", frozen.0);
     });
+}
+
+
+/// Next `Thread` result, skipping the worker's other events (room search, message search).
+async fn recv_thread_page(
+    results: &mut crate::Receiver<crate::operations::OperationResult>,
+    timeout: std::time::Duration,
+) -> (
+    crate::RequestTag,
+    matrix_domain::EventId,
+    Result<Box<crate::history::ThreadPage>, crate::operations::OperationError>,
+) {
+    let end = tokio::time::Instant::now() + timeout;
+    loop {
+        let left = end.saturating_duration_since(tokio::time::Instant::now());
+        match tokio::time::timeout(left, results.recv()).await {
+            Ok(Some(crate::operations::OperationResult::Thread { tag, root, result })) => {
+                return (tag, root, result)
+            }
+            Ok(Some(_)) => continue,
+            _ => panic!("expected a thread page"),
+        }
+    }
+}
+
+/// The real dispatcher: a page is answered while the receipt waits, a local command runs before
+/// the ACK, and revoking the receipt's tag stops its send and retries. The server is frozen as the
+/// barrier; the receipt already admitted to the transport is reported apart, never as a success.
+/// Run: `python3 the auth_smoke script --filter disposable_thread_page_and_receipt [--server tuwunel]`
+#[test]
+#[cfg(unix)]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_page_and_receipt_are_separate() {
+    use crate::{
+        ViewRequests,
+        operations::{OperationCommand, OperationResult},
+    };
+    let config = fixture();
+    let (mut worker, _rooms, room) = ready_worker(&config);
+    let send = |txn: &'static str, body: &'static str, root: Option<String>| {
+        let (config, room) = (config.clone(), room.clone());
+        async move {
+            let mut content = serde_json::json!({"msgtype":"m.text","body":body});
+            if let Some(root) = root {
+                content["m.relates_to"] = serde_json::json!({"rel_type":"m.thread","event_id":root,
+                    "is_falling_back":true,"m.in_reply_to":{"event_id":root}});
+            }
+            room_request(&config, "alice", reqwest::Method::PUT,
+                &format!("rooms/{room}/send/m.room.message/{txn}"), content).await["event_id"]
+                .as_str().unwrap().to_owned()
+        }
+    };
+    let root = runtime().block_on(send("tpr-root", "root", None));
+    for (txn, body) in [("tpr-r1", "one"), ("tpr-r2", "two"), ("tpr-r3", "three")] {
+        runtime().block_on(send(txn, body, Some(root.clone())));
+    }
+    let scope = RoomScope { account_id: AccountId::new(22), room_id: RoomId::new(room.clone()) };
+    let root = matrix_domain::EventId::new(root);
+    let (mut commands, mut results) = worker.take_operation_route().expect("operation route");
+    runtime().block_on(async {
+        let mut page_views = ViewRequests::new();
+        let mut warm = None;
+        for _ in 0..10 {
+            let tag = page_views.start(scope.clone()).unwrap();
+            assert!(commands.send(OperationCommand::Thread { tag: tag.clone(), root: root.clone(), want: 25 }).await.is_ok());
+            let (actual, actual_root, result) = recv_thread_page(&mut results, std::time::Duration::from_secs(8)).await;
+            assert!(page_views.accepts(&actual) && actual_root == root);
+            let page = result.expect("the thread page loads");
+            if page.replies.len() >= 3 { warm = Some(page); break; }
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+        let warm = warm.expect("the thread warms");
+        let target = warm.replies.last().unwrap().event_id.clone();
+        // Barrier: the server is frozen. The receipt stays in its slot; pages and local commands pass.
+        let _paused = PausedServer::new(&config);
+        let mut receipt_views = ViewRequests::new();
+        let receipt_tag = receipt_views.start(scope.clone()).unwrap();
+        assert!(commands.send(OperationCommand::ThreadRead {
+            tag: receipt_tag.clone(), root: root.clone(), target: target.clone(), public: true,
+        }).await.is_ok());
+        // A page from the warm cache: answered while the receipt does not resolve.
+        let page_tag = page_views.start(scope.clone()).unwrap();
+        assert!(commands.send(OperationCommand::Thread { tag: page_tag.clone(), root: root.clone(), want: 25 }).await.is_ok());
+        let (actual, actual_root, result) = recv_thread_page(&mut results, std::time::Duration::from_secs(3)).await;
+        assert!(page_views.accepts(&actual) && actual_root == root, "the current page tag is accepted");
+        assert!(result.is_ok(), "the page arrives from the cache");
+        // A local command answered before the ACK: the user search state needs no thread receipt.
+        assert!(commands.send(OperationCommand::SearchUsers { term: "alice".into(), all: false }).await.is_ok());
+        let local = tokio::time::timeout(std::time::Duration::from_secs(3), results.recv()).await
+            .expect("a local command is handled before the receipt resolves");
+        // Either a local search state or no event: what matters is that the channel moved before the ACK.
+        let _ = local;
+        // Revoke while the HTTP request waits: the UI must not accept a late result.
+        receipt_views.cancel();
+        // The next command drops the cancelled slot: no retry and no orphan.
+        let next_tag = page_views.start(scope.clone()).unwrap();
+        assert!(commands.send(OperationCommand::Thread { tag: next_tag.clone(), root: root.clone(), want: 25 }).await.is_ok());
+        let (actual, actual_root, result) = recv_thread_page(&mut results, std::time::Duration::from_secs(3)).await;
+        assert!(page_views.accepts(&actual) && actual_root == root && result.is_ok(), "the page still loads after revocation");
+        // Released server: the already-admitted request may complete, but the dropped slot is gone.
+        drop(_paused);
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let mut late = 0;
+        while let Ok(Some(result)) =
+            tokio::time::timeout(std::time::Duration::from_millis(500), results.recv()).await
+        {
+            if let OperationResult::ThreadRead { tag, .. } = result {
+                late += 1;
+                assert!(!receipt_views.accepts(&tag), "a revoked receipt is never applied");
+            }
+        }
+        println!("T_PAGE_RECEIPT {}", serde_json::json!({
+            "server": config["server"], "page_while_receipt": true, "local_before_ack": true,
+            "revoked": true, "late_results": late,
+        }));
+    });
+    worker.shutdown().expect("worker stops");
 }

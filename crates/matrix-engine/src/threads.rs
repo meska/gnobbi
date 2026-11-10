@@ -49,7 +49,8 @@ pub(crate) async fn open(
     Ok(ThreadPage { root: root_row, replies: now.rows, reactions: now.reactions, at_start: now.at_start })
 }
 
-/// The thread panel's request: same as `open`, from the account client and a scope.
+/// The thread panel's request: same as `open`, from the account client and a scope. Page only:
+/// the receipt is a separate `ThreadRead`, so a frozen server cannot hold the page.
 pub(crate) async fn open_scoped(
     client: &matrix_sdk::Client,
     timelines: &Timelines,
@@ -57,7 +58,6 @@ pub(crate) async fn open_scoped(
     scope: &matrix_domain::RoomScope,
     root: &EventId,
     want: usize,
-    read: Option<bool>,
 ) -> Result<Box<ThreadPage>, crate::operations::OperationError> {
     use crate::operations::OperationError as E;
     if scope.account_id != account {
@@ -68,20 +68,65 @@ pub(crate) async fn open_scoped(
         .get_room(&id)
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
         .ok_or(E::Unavailable)?;
-    let mut page = open(timelines, &room, root, want).await.map_err(|e| match e {
+    let page = open(timelines, &room, root, want).await.map_err(|e| match e {
         HistoryError::Transport => E::Transport,
         HistoryError::Unavailable => E::Unavailable,
         _ => E::WrongScope,
     })?;
-    // Read after the load (the receipt points at the newest event the thread holds); a failed
-    // receipt is retried by the next request and does not hide the thread.
-    if let Some(public) = read
-        && mark_read_scoped(client, timelines, account, scope, root, public).await.is_ok()
-        && let Some(info) = page.root.as_mut().and_then(|r| r.thread.as_mut())
-    {
-        info.unread = 0;
-    }
     Ok(Box::new(page))
+}
+
+/// Receipt on one explicit event of the thread's own `Timeline` (the focus supplies
+/// `ReceiptThread::Thread(root)`), with the tag's revocation checked at every poll: a revoked tag
+/// never reaches the SDK's send or its retries. The admission point is the first poll.
+pub(crate) async fn mark_read_target(
+    client: &matrix_sdk::Client,
+    timelines: &Timelines,
+    account: matrix_domain::AccountId,
+    tag: &crate::RequestTag,
+    root: &EventId,
+    target: &EventId,
+    public: bool,
+) -> Result<bool, crate::operations::OperationError> {
+    use crate::operations::OperationError as E;
+    use matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType;
+    let scope = tag.scope();
+    if scope.account_id != account {
+        return Err(E::WrongScope);
+    }
+    if tag.is_cancelled() {
+        return Err(E::Unavailable);
+    }
+    let room_id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| E::WrongScope)?;
+    let root_id = matrix_sdk::ruma::EventId::parse(root.as_str()).map_err(|_| E::InvalidInput)?;
+    let target_id = matrix_sdk::ruma::EventId::parse(target.as_str()).map_err(|_| E::InvalidInput)?;
+    let room = client
+        .get_room(&room_id)
+        .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
+        .ok_or(E::Unavailable)?;
+    let timeline = timelines.thread(&room, &root_id).await.map_err(|_| E::Unavailable)?;
+    // Revocation is checked after each async preparation, not only once before the send.
+    if tag.is_cancelled() {
+        return Err(E::Unavailable);
+    }
+    // A receipt on another event would read another thread: the target must be in this timeline.
+    if !loaded(&room, &timeline).await.rows.iter().any(|r| r.event_id == *target) {
+        return Err(E::InvalidInput);
+    }
+    if tag.is_cancelled() {
+        return Err(E::Unavailable);
+    }
+    let kind = if public { ReceiptType::Read } else { ReceiptType::ReadPrivate };
+    let mut send = std::pin::pin!(timeline.send_single_receipt(kind, target_id));
+    std::future::poll_fn(|cx| {
+        if tag.is_cancelled() {
+            return std::task::Poll::Ready(Err(E::Unavailable));
+        }
+        send.as_mut()
+            .poll(cx)
+            .map(|result| result.map_err(|_| E::Transport))
+    })
+    .await
 }
 
 /// A text into the thread's own `Timeline`: the SDK adds `m.thread` (and the fallback) itself, and

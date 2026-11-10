@@ -390,6 +390,11 @@ impl RoomListWorker {
                             },
                         );
                         let mut rooms_rx = rooms.subscribe();
+                        // One receipt in flight per account, polled beside the commands: a page never waits for it.
+                        let mut receipt: Option<(
+                            crate::RequestTag,
+                            std::pin::Pin<Box<dyn std::future::Future<Output = OperationResult> + Send>>,
+                        )> = None;
                         loop {
                             let command = tokio::select! {
                                 command = shutdown_receive(&operation_stop, &mut operations) => {
@@ -437,7 +442,22 @@ impl RoomListWorker {
                                     clean &= matches!(sent, Some(Ok(())) | None);
                                     continue;
                                 }
+                                Some(done) = async {
+                                    match &mut receipt {
+                                        Some((_, future)) => Some(future.as_mut().await),
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    // The slot is freed before the result goes out: a revoked receipt is not retried.
+                                    receipt = None;
+                                    let _ = until_stopped(&operation_stop, operation_results.send(done)).await;
+                                    continue;
+                                }
                             };
+                            // A revoked slot is dropped at the next command: no retry, no orphan.
+                            if receipt.as_ref().is_some_and(|(tag, _)| tag.is_cancelled()) {
+                                receipt = None;
+                            }
                             let result = match command {
                                 OperationCommand::SearchMessages { scope, term } => {
                                     if messages.as_ref().is_none_or(|(s, _)| *s != scope) {
@@ -655,9 +675,47 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::InviteAnswered { scope, accept, result }
                                 }
-                                OperationCommand::Thread { scope, root, want, read } => {
-                                    let result = crate::threads::open_scoped(&operation_client, &operation_timelines, account, &scope, &root, want, read).await;
-                                    OperationResult::Thread { scope, root, result }
+                                OperationCommand::Thread { tag, root, want } => {
+                                    if tag.is_cancelled()
+                                        || operation_stop.load(std::sync::atomic::Ordering::Acquire)
+                                    {
+                                        continue;
+                                    }
+                                    let result = crate::threads::open_scoped(
+                                        &operation_client,
+                                        &operation_timelines,
+                                        account,
+                                        tag.scope(),
+                                        &root,
+                                        want,
+                                    )
+                                    .await;
+                                    OperationResult::Thread { tag, root, result }
+                                }
+                                OperationCommand::ThreadRead { tag, root, target, public } => {
+                                    if tag.is_cancelled()
+                                        || operation_stop.load(std::sync::atomic::Ordering::Acquire)
+                                    {
+                                        continue;
+                                    }
+                                    // A duplicate intent coalesces; a new one drops the old future first.
+                                    if receipt.as_ref().is_some_and(|(active, _)| active.is_same(&tag)) {
+                                        continue;
+                                    }
+                                    let client = operation_client.clone();
+                                    let timelines = operation_timelines.clone();
+                                    let guard = tag.clone();
+                                    receipt = Some((
+                                        tag,
+                                        Box::pin(async move {
+                                            let result = crate::threads::mark_read_target(
+                                                &client, &timelines, account, &guard, &root, &target, public,
+                                            )
+                                            .await;
+                                            OperationResult::ThreadRead { tag: guard, root, target, result }
+                                        }),
+                                    ));
+                                    continue;
                                 }
                                 OperationCommand::ThreadSend { scope, root, reply_to, body } => {
                                     let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body).await;

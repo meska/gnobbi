@@ -5,7 +5,7 @@ use crate::*;
 use gpui::ScrollHandle;
 use matrix_domain::{EventId, RoomScope};
 use matrix_engine::{
-    TrySendError,
+    RequestTag, TrySendError, ViewRequests,
     history::{HistoryEvent, ThreadPage},
     operations::{OperationCommand, OperationError},
 };
@@ -88,10 +88,8 @@ pub(crate) struct ThreadPanel {
     dirty: bool,
     loaded_at: Option<std::time::Instant>,
     failed: bool,
-    /// A request with the receipt succeeded since the last activity.
-    read_done: bool,
-    /// The request in flight asked the engine to send the thread's read receipt.
-    read_sent: bool,
+    /// The page request's lifecycle: a page from a closed or replaced visit is not applied.
+    views: ViewRequests,
     /// The last older page brought nothing: the server holds no more of this thread.
     stalled: bool,
     at_start: bool,
@@ -108,7 +106,7 @@ impl ThreadPanel {
         Self {
             composer: None, reply_to: None, outgoing: Vec::new(),
             scope, root, root_row, replies: Vec::new(), total, want: STEP, pending: false, dirty: true,
-            loaded_at: None, failed: false, read_done: false, read_sent: false, stalled: false, at_start: false, growing: None, anchor: None,
+            loaded_at: None, failed: false, views: ViewRequests::new(), stalled: false, at_start: false, growing: None, anchor: None,
             stick_bottom: true, scroll: ScrollHandle::new(),
         }
     }
@@ -120,8 +118,7 @@ impl ThreadPanel {
         self.outgoing.clear();
         self.pending = false;
         self.dirty = true;
-        self.read_done = false;
-        self.read_sent = false;
+        self.views = ViewRequests::new();
         self.growing = None;
         self.anchor = None;
         self.stick_bottom = true;
@@ -131,7 +128,6 @@ impl ThreadPanel {
 
     pub(crate) fn activity(&mut self, scope: &RoomScope) {
         self.dirty |= self.scope == *scope;
-        self.read_done &= self.scope != *scope;
     }
 
     fn more(&self) -> bool {
@@ -171,21 +167,13 @@ impl ThreadPanel {
 }
 
 impl Shell {
-    pub(crate) fn thread_found(&mut self, scope: RoomScope, root: EventId, result: Result<Box<ThreadPage>, OperationError>, cx: &mut Context<Self>) {
+    pub(crate) fn thread_found(&mut self, tag: RequestTag, root: EventId, result: Result<Box<ThreadPage>, OperationError>, cx: &mut Context<Self>) {
         if let Some(p) = &mut self.thread
-            && p.scope == scope
+            && p.scope == *tag.scope()
             && p.root == root
+            && p.views.accepts(&tag)
         {
-            let read = p.read_sent;
             p.apply(result.map(|page| *page));
-            // The engine sent the receipt with this read: the root's counter drops at once.
-            p.read_done |= read && !p.failed;
-            if read && !p.failed {
-                if let Some(t) = &self.timeline {
-                    t.thread_read(&root);
-                }
-                self.history.settle_soon();
-            }
             cx.notify();
         }
     }
@@ -244,14 +232,10 @@ impl Shell {
 
     /// One tick: open on a click on a summary, read when asked, load older at the top.
     pub(crate) fn drive_thread(&mut self, cx: &mut Context<Self>) {
-        let (public, focused) = (self.prefs.read_receipts, cx.active_window().is_some());
         if let Some(id) = self.timeline.as_ref().and_then(|t| t.want_thread.borrow_mut().take()) {
             self.open_thread(&id, None, cx);
         }
         let Some(p) = &mut self.thread else { return };
-        // Read receipts only while the window is the one in use; asked again until one went through.
-        let read = focused.then_some(public);
-        p.dirty |= focused && !p.read_done;
         if p.scope != self.active_scope {
             self.thread_last = self.thread.take();
             cx.notify();
@@ -290,9 +274,13 @@ impl Shell {
             && !p.pending
             && let Some((sender, _)) = &mut self.routes.operation
         {
-            let command = OperationCommand::Thread { scope: p.scope.clone(), root: p.root.clone(), want: p.want, read };
+            let Ok(tag) = p.views.start(p.scope.clone()) else {
+                p.failed = true;
+                return;
+            };
+            let command = OperationCommand::Thread { tag, root: p.root.clone(), want: p.want };
             match sender.try_send(command) {
-                Ok(()) => (p.pending, p.dirty, p.read_sent) = (true, false, read.is_some()),
+                Ok(()) => (p.pending, p.dirty) = (true, false),
                 Err(TrySendError::Closed(_)) => (p.failed, p.dirty) = (true, false),
                 Err(_) => (),
             }
