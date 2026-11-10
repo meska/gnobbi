@@ -230,6 +230,44 @@ fn a_failing_marker_write_is_reported_before_the_swap() {
 }
 
 #[test]
+fn changed_staging_is_removed_after_reverification_fails() {
+    let fx = fixture("changed-cleanup");
+    std::fs::write(&fx.paths.new, b"bad").unwrap();
+    let err = fx.run_with_spawn(|_| panic!("must not spawn")).unwrap_err();
+    assert_eq!(err, "Aggiornamento non riuscito: staging con hash diverso");
+    assert_eq!(fx.read(&fx.paths.target), "old");
+    assert!(!fx.paths.new.exists(), "invalid staging must be removed");
+    assert!(!fx.marker().exists());
+}
+
+#[test]
+fn pending_transaction_is_not_overwritten() {
+    let fx = fixture("pending-existing");
+    super::startup::write_pending(&fx.dirs, &super::startup::Pending { from_build: 1, to_build: 2, attempts: 1 }).unwrap();
+    let original = fx.read(&fx.marker());
+    let spawned = Cell::new(false);
+    let result = fx.run_with_spawn(|_| { spawned.set(true); Ok(()) });
+    assert_eq!(fx.read(&fx.marker()), original, "pending transaction must remain unchanged");
+    assert!(!spawned.get(), "must not spawn during an existing transaction");
+    assert!(result.is_err(), "existing transaction must be refused");
+    assert_eq!(fx.read(&fx.marker()), original);
+    assert_eq!(fx.read(&fx.paths.target), "old");
+}
+
+#[test]
+fn permission_denied_during_recovery_is_exact() {
+    let fx = fixture("recovery-perm");
+    let calls = Cell::new(0);
+    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, |a, b| {
+        calls.set(calls.get() + 1);
+        if calls.get() == 2 { Err(std::io::ErrorKind::PermissionDenied.into()) } else { Fx::rename(a, b) }
+    }, |_| Err(std::io::Error::other("spawn"))).unwrap_err();
+    assert_eq!(fx.read(&fx.paths.prev), "old");
+    assert!(fx.marker().exists());
+    assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
+}
+
+#[test]
 fn errors_are_always_one_line() {
     let fx = fixture("lines");
     let stale = Ready { sha256: "0".repeat(64), ..fx.ready.clone() };

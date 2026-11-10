@@ -35,7 +35,7 @@ pub fn self_test_line(args: &[String], build: &str) -> Option<String> {
     (args.first().map(String::as_str) == Some("--self-test")).then(|| format!("gnobbi build={build}"))
 }
 
-fn marker_path(dirs: &AppDirs) -> PathBuf {
+pub(super) fn marker_path(dirs: &AppDirs) -> PathBuf {
     dirs.data.join(MARKER)
 }
 

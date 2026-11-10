@@ -57,8 +57,13 @@ impl Lock {
 }
 
 /// Regular file: not a directory, not a symlink/reparse point.
-pub(super) fn regular(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_file())
+/// A metadata error other than "not found" (e.g. PermissionDenied) is reported, not hidden.
+pub(super) fn regular(path: &Path) -> Result<bool, String> {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) => Ok(m.file_type().is_file()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(message(&e)),
+    }
 }
 
 /// Channel and paths, validated before anything is written. Fails closed: external staging,
@@ -74,10 +79,10 @@ pub fn paths_for(channel: &Channel, ready: &Ready) -> Result<Paths, String> {
 
 /// The path rules shared with the Windows helper, which re-runs them on its own argv.
 pub(super) fn check_paths(target: PathBuf, new: PathBuf) -> Result<Paths, String> {
-    if !regular(&target) {
+    if !regular(&target)? {
         return Err(failed("binario da aggiornare non trovato"));
     }
-    if !regular(&new) {
+    if !regular(&new)? {
         return Err(failed("staging non trovato"));
     }
     if new.parent() != target.parent() {
@@ -89,8 +94,10 @@ pub(super) fn check_paths(target: PathBuf, new: PathBuf) -> Result<Paths, String
     }
     // An existing backup means an earlier transaction is still recoverable: stop without
     // overwriting or deleting anything.
-    if std::fs::symlink_metadata(&prev).is_ok() {
-        return Err(failed("backup precedente presente"));
+    match std::fs::symlink_metadata(&prev) {
+        Ok(_) => return Err(failed("backup precedente presente")),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(message(&e)),
     }
     Ok(Paths { target, new, prev })
 }
@@ -150,6 +157,10 @@ where
 {
     let paths = paths_for(channel, ready)?;
     let _lock = Lock::acquire(&paths.target)?;
+    // A pending marker is an unfinished transaction (and its `prev`): refuse, touch nothing.
+    if startup::marker_path(dirs).symlink_metadata().is_ok() {
+        return Err(failed("aggiornamento precedente in sospeso"));
+    }
     reverify(&paths, ready)?;
     // Before the swap and with this transaction's identity: attempts=0 is the first start.
     startup::write_pending(dirs, &Pending { from_build: running_build(), to_build: ready.build, attempts: 0 }).map_err(|e| message(&e))?;
@@ -168,7 +179,7 @@ where
                     message(&cause)
                 }
                 // Nothing is deleted: `prev` is the copy to recover from, the marker stays.
-                Undo::Lost(_) => failed("posizione non riuscita e ripristino non riuscito"),
+                Undo::Lost(e) => lost("posizione non riuscita e ripristino non riuscito", &e),
             });
         }
     }
@@ -189,7 +200,7 @@ where
                 startup::abort_pending(dirs);
                 message(&e)
             }
-            Err(_) => failed("avvio non riuscito e ripristino non riuscito"),
+            Err(e) => lost("avvio non riuscito e ripristino non riuscito", &e),
         });
     }
     Ok(())
@@ -235,7 +246,13 @@ pub(super) fn reverify(paths: &Paths, ready: &Ready) -> Result<(), String> {
         sha256: ready.sha256.clone(),
         size: ready.size,
     };
-    verify::verify_file(&paths.new, &candidate).map_err(describe)?;
+    if let Err(e) = verify::verify_file(&paths.new, &candidate) {
+        // Altered staging is useless and must not be reused; the target is the intact copy.
+        if matches!(e, UpdateError::SizeMismatch { .. } | UpdateError::Sha256Mismatch) {
+            let _ = std::fs::remove_file(&paths.new);
+        }
+        return Err(describe(e));
+    }
     std::fs::File::open(&paths.new).and_then(|f| f.sync_all()).map_err(|e| message(&e))
 }
 
@@ -243,6 +260,7 @@ fn describe(e: UpdateError) -> String {
     failed(match e {
         UpdateError::SizeMismatch { .. } => "staging di dimensione diversa",
         UpdateError::Sha256Mismatch => "staging con hash diverso",
+        UpdateError::Io(std::io::ErrorKind::PermissionDenied) => "cartella non scrivibile",
         _ => "staging non verificabile",
     })
 }
@@ -270,6 +288,11 @@ fn relaunch(target: &Path) -> io::Result<()> {
         .env_remove("ARGV0")
         .spawn()?;
     Ok(())
+}
+
+/// Failed rollback: PermissionDenied keeps the exact contract line, the rest stays generic.
+pub(super) fn lost(generic: &str, e: &io::Error) -> String {
+    if e.kind() == io::ErrorKind::PermissionDenied { message(e) } else { failed(generic) }
 }
 
 pub(super) fn failed(cause: &str) -> String {
