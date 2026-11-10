@@ -424,26 +424,11 @@ impl Room {
         let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
         let response = self.client.send(request).await;
 
-        // The server can return with an error that is acceptable to ignore. Let's find
-        // which one.
+        // Gnobbi: a refused leave (Forbidden) is returned to the caller. Upstream treats it as
+        // «left» and calls `room_left()`, turning a room the server still has us in into Left locally.
         if let Err(error) = response {
-            #[allow(clippy::collapsible_match)]
-            let ignore_error = if let Some(error) = error.client_api_error_kind() {
-                match error {
-                    // The user is trying to leave a room but doesn't have permissions to do so.
-                    // Let's consider the user has left the room.
-                    ErrorKind::Forbidden => true,
-                    _ => false,
-                }
-            } else {
-                false
-            };
-
-            error!(?error, ignore_error, should_forget, "Failed to leave the room");
-
-            if !ignore_error {
-                return (Err(error.into()), self);
-            }
+            error!(?error, should_forget, "Failed to leave the room");
+            return (Err(error.into()), self);
         }
 
         if let Err(e) = self.client.base_client().room_left(self.room_id()).await {

@@ -742,14 +742,16 @@ pub async fn leave_room(
         .get_room(&id)
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
         .ok_or(OperationError::Unavailable)?;
-    tokio::time::timeout(std::time::Duration::from_secs(30), room.leave())
+    let left = tokio::time::timeout(std::time::Duration::from_secs(30), room.leave())
         .await
-        .map_err(|_| OperationError::Transport)?
-        .map_err(|e| classify(&e))?;
-    if still_joined(client, &id).await {
-        return Err(OperationError::Forbidden);
+        .map_err(|_| OperationError::Transport)?;
+    // The vendored SDK returns Forbidden without touching the local state; only the server decides
+    // whether we are still in: already out (kicked/left elsewhere) counts as a completed leave.
+    match left {
+        Err(e) if !matches!(classify(&e), OperationError::Forbidden) => Err(classify(&e)),
+        _ if still_joined(client, &id).await => Err(OperationError::Forbidden),
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// Server-side check of our own `m.room.member` content. Any failure to ask counts as «not joined»:
