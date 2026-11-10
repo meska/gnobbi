@@ -81,7 +81,7 @@ fn an_existing_backup_is_refused_untouched() {
     let fx = fixture("prev");
     std::fs::write(&fx.paths.prev, b"older").unwrap();
     let err = install::install_staged(&fx.dirs, &fx.channel, &fx.ready).unwrap_err();
-    assert!(err.contains("backup precedente"), "{err}");
+    assert_eq!(err, "Aggiornamento non riuscito: rimuovi gnobbi.AppImage.prev");
     assert_eq!(fx.read(&fx.paths.prev), "older");
     assert_eq!(fx.read(&fx.paths.target), "old");
 }
@@ -320,7 +320,7 @@ fn failed_cleanup_after_a_rollback_is_reported_and_keeps_the_marker_with_the_bac
         if calls.get() == 1 { Err(std::io::Error::other("busy")) } else { Fx::rename(a, b) }
     };
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(()), deny).unwrap_err();
-    assert!(err.starts_with("Aggiornamento non riuscito: busy (pulizia incompleta: "), "{err}");
+    assert_eq!(err, "Aggiornamento non riuscito: busy", "the failed cleanup goes to the log, not into the line");
     assert_eq!(err.lines().count(), 1);
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert_eq!(fx.read(&fx.paths.prev), "old", "backup not removed, still reported");
@@ -452,8 +452,7 @@ fn permission_denied_on_the_staging_rename_is_the_exact_line_and_cleans_up() {
 fn a_failed_spawn_with_a_failed_cleanup_reports_it_and_keeps_the_marker() {
     let fx = fixture("spawn-cleanup");
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, Fx::rename, |_| Err(std::io::Error::other("no start")), deny).unwrap_err();
-    assert!(err.starts_with("Aggiornamento non riuscito: no start (pulizia incompleta: "), "{err}");
-    assert_eq!(err.lines().count(), 1, "{err}");
+    assert_eq!(err, "Aggiornamento non riuscito: no start");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(fx.marker().exists(), "the marker outlives a backup that could not be removed");
 }
@@ -464,7 +463,46 @@ fn a_dangling_symlink_as_backup_counts_as_a_preexisting_backup() {
     let fx = fixture("prev-dangling");
     std::os::unix::fs::symlink("/nonexistent/x", &fx.paths.prev).unwrap();
     let err = install::install_staged(&fx.dirs, &fx.channel, &fx.ready).unwrap_err();
-    assert!(err.contains("backup precedente"), "{err}");
+    assert!(err.contains("rimuovi"), "{err}");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(fx.paths.prev.symlink_metadata().is_ok(), "the symlink is left alone");
+}
+
+#[test]
+fn windows_parent_refuses_a_pending_marker_or_altered_staging_before_starting_the_helper() {
+    let fx = fixture("win-precheck");
+    let channel = Channel::WindowsPortable { exe: fx.paths.target.clone() };
+    // Without the pre-check the answer would be the helper's "aggiornamento Windows non disponibile".
+    super::startup::write_pending(&fx.dirs, &super::startup::Pending { from_build: 1, to_build: 9, attempts: 0 }).unwrap();
+    let err = install::install_staged(&fx.dirs, &channel, &fx.ready).unwrap_err();
+    assert_eq!(err, "Aggiornamento non riuscito: aggiornamento precedente in sospeso");
+    std::fs::remove_file(fx.marker()).unwrap();
+    std::fs::write(&fx.paths.new, b"bad").unwrap();
+    let err = install::install_staged(&fx.dirs, &channel, &fx.ready).unwrap_err();
+    assert_eq!(err, "Aggiornamento non riuscito: staging con hash diverso");
+    assert!(!fx.paths.new.exists(), "altered staging is dropped");
+    assert_eq!(fx.read(&fx.paths.target), "old");
+}
+
+#[cfg(unix)]
+#[test]
+fn an_orphan_backup_on_the_same_inode_is_dropped_and_the_install_proceeds() {
+    let fx = fixture("prev-orphan");
+    std::fs::hard_link(&fx.paths.target, &fx.paths.prev).unwrap();
+    install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, Fx::rename, |_| Ok(()), |p| std::fs::remove_file(p)).unwrap();
+    assert_eq!(fx.read(&fx.paths.target), "new");
+    assert_eq!(fx.read(&fx.paths.prev), "old", "a fresh backup of the old build");
+    assert!(fx.marker().exists());
+}
+
+#[test]
+fn permission_denied_stays_the_exact_line_even_when_the_cleanup_fails_too() {
+    let fx = fixture("perm-cleanup");
+    let calls = Cell::new(0);
+    let rename = |a: &Path, b: &Path| {
+        calls.set(calls.get() + 1);
+        if calls.get() == 1 { Err(std::io::ErrorKind::PermissionDenied.into()) } else { Fx::rename(a, b) }
+    };
+    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(()), deny).unwrap_err();
+    assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
 }

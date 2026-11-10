@@ -181,8 +181,7 @@ mod tests {
         let h24 = Duration::from_secs(24 * H);
         assert!(tick(&dirs, &appimage(), h24, |_| { n.fetch_add(1, Ordering::SeqCst); }));
         assert!(!tick(&dirs, &Channel::Unknown, h24, |_| { n.fetch_add(1, Ordering::SeqCst); }));
-        let mut off = Preferences::default();
-        off.update_check_enabled = false;
+        let off = Preferences { update_check_enabled: false, ..Default::default() };
         off.save(&dirs).unwrap();
         assert!(!tick(&dirs, &appimage(), h24, |_| { n.fetch_add(1, Ordering::SeqCst); }));
         assert_eq!(n.load(Ordering::SeqCst), 1);

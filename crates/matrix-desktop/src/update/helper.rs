@@ -100,6 +100,12 @@ fn is_exe(p: &Path) -> bool {
     p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"))
 }
 
+/// Same folder, compared canonicalized: `\\?\C:\x` and `C:\x` are one place.
+fn same_dir(a: &Path, b: &Path) -> bool {
+    let dir = |p: &Path| p.parent().map(|d| d.canonicalize().unwrap_or_else(|_| d.to_path_buf()));
+    dir(a) == dir(b)
+}
+
 fn name(p: &Path) -> &str {
     p.file_name().and_then(|n| n.to_str()).unwrap_or_default()
 }
@@ -121,7 +127,7 @@ pub fn validate(helper_exe: &Path, req: &Request) -> Result<Paths, String> {
     if !is_helper_name(name(helper_exe)) {
         return Err(bad("helper fuori posto"));
     }
-    if !absolute_plain(&req.target) || !is_exe(&req.target) || req.target == helper_exe || req.target.parent() != helper_exe.parent() {
+    if !absolute_plain(&req.target) || !is_exe(&req.target) || req.target == helper_exe || !same_dir(&req.target, helper_exe) {
         return Err(bad("binario da aggiornare non valido"));
     }
     match &req.job {
@@ -134,7 +140,7 @@ pub fn validate(helper_exe: &Path, req: &Request) -> Result<Paths, String> {
         }
         Job::Restore => {
             let prev = install::prev_of(&req.target);
-            if !install::regular(&req.target).unwrap_or(false) || !install::regular(&prev).unwrap_or(false) {
+            if !install::regular(&req.target)? || !install::regular(&prev)? {
                 return Err(bad("backup da ripristinare non trovato"));
             }
             Ok(Paths { target: req.target.clone(), new: PathBuf::new(), prev })
@@ -151,7 +157,17 @@ where
     S: Fn(&Path) -> io::Result<()>,
 {
     let early = validate(helper_exe, req)?;
-    let _lock = install::Lock::acquire(&early.target)?;
+    let lock = install::Lock::acquire(&early.target)?;
+    execute_locked(&lock, dirs, helper_exe, req, link, mv, spawn)
+}
+
+/// [`execute`] for a caller that already holds the lock (the helper takes it before `READY`).
+pub(super) fn execute_locked<L, M, S>(_lock: &install::Lock, dirs: &AppDirs, helper_exe: &Path, req: &Request, link: L, mv: M, spawn: S) -> Result<(), String>
+where
+    L: Fn(&Path, &Path) -> io::Result<()>,
+    M: Fn(&Path, &Path) -> io::Result<()>,
+    S: Fn(&Path) -> io::Result<()>,
+{
     // Validated again under the lock.
     let paths = validate(helper_exe, req)?;
     match &req.job {
@@ -246,13 +262,25 @@ fn run_helper(args: &[String]) -> Result<(), String> {
     let req = Request::parse(args)?;
     let me = std::env::current_exe().map_err(|e| install::message(&e))?;
     let dirs = crate::app_dirs(crate::Platform::CURRENT, |k| std::env::var(k).ok()).ok_or_else(|| install::failed("cartella dati non trovata"))?;
-    validate(&me, &req)?;
+    let early = validate(&me, &req)?;
+    // Taken before READY and held to the end: a second instance fails the handshake and its app stays alive.
+    let lock = install::Lock::acquire(&early.target)?;
     let parent = win::Parent::open(req.parent).map_err(|e| install::message(&e))?;
     // The parent leaves only after this line; from here on it is a waiting handle, not a pid.
     println!("{READY}");
     std::io::stdout().flush().map_err(|e| install::message(&e))?;
-    parent.wait(60_000).map_err(|e| install::message(&e))?;
-    execute(&dirs, &me, &req, |a, b| std::fs::hard_link(a, b), win::move_replace, |t| std::process::Command::new(t).spawn().map(drop))
+    let result = parent.wait(60_000).map_err(|e| install::message(&e)).and_then(|()| {
+        // No argv: ours are the helper's, not the app's.
+        let spawn = |t: &Path| std::process::Command::new(t).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().map(drop);
+        execute_locked(&lock, &dirs, &me, &req, |a, b| std::fs::hard_link(a, b), win::move_replace, spawn)
+    });
+    if let (Err(e), Job::Install { ready }) = (&result, &req.job) {
+        // The app is gone: the next start shows why nothing happened.
+        if let Err(io) = startup::save_outcome(&dirs, startup::OUTCOME_FAILED, ready.build) {
+            eprintln!("update: outcome not saved: {io} ({e})");
+        }
+    }
+    result
 }
 
 const READY: &str = "READY";
@@ -319,8 +347,10 @@ mod win {
     /// Copies this exe, starts the copy as helper and waits for `READY`. On any failure the
     /// copy is removed (after killing the child) and the caller keeps running.
     pub fn start(req: &Request) -> Result<(), String> {
-        let me = std::env::current_exe().and_then(std::fs::canonicalize).map_err(|e| install::message(&e))?;
-        if std::fs::canonicalize(&req.target).map_err(|e| install::message(&e))? != me {
+        // `me` keeps the form the OS gave: the copy must not get a `\\?\` path (see `validate`).
+        let me = std::env::current_exe().map_err(|e| install::message(&e))?;
+        let same = |a: &Path, b: &Path| Ok::<_, io::Error>(std::fs::canonicalize(a)? == std::fs::canonicalize(b)?);
+        if !same(&req.target, &me).map_err(|e| install::message(&e))? {
             return Err(install::failed("binario in esecuzione diverso dal target"));
         }
         let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());

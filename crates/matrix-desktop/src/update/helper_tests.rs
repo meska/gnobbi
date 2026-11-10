@@ -117,7 +117,7 @@ fn validation_pins_every_path_to_the_helper_folder_and_our_names() {
         assert!(e.starts_with("Aggiornamento non riuscito: ") && e.lines().count() == 1, "{what}: {e}");
     }
     std::fs::write(fx.prev(), b"older").unwrap();
-    assert!(helper::validate(&fx.helper, &fx.req).unwrap_err().contains("backup precedente"));
+    assert!(helper::validate(&fx.helper, &fx.req).unwrap_err().contains("rimuovi"));
 }
 
 #[test]
@@ -260,4 +260,16 @@ fn dispatch_ignores_everything_but_its_flag_and_self_test_stays_pure() {
 #[test]
 fn the_helper_mode_is_refused_off_windows() {
     assert_eq!(helper::dispatch(&[helper::FLAG.into(), "restore".into()]), Some(1));
+}
+
+#[test]
+fn restore_reports_an_unreadable_target_instead_of_hiding_it_as_missing_backup() {
+    let fx = fixture("restore-error");
+    let dir = fx.target().parent().unwrap().to_path_buf();
+    // A file where a folder should be: the metadata error is not "not found".
+    std::fs::write(dir.join("blocked.exe"), b"x").unwrap();
+    let target = dir.join("blocked.exe").join("gnobbi.exe");
+    let req = Request { target: target.clone(), job: Job::Restore, parent: 4242 };
+    let err = helper::validate(&dir.join("blocked.exe").join(".gnobbi-helper-4242-1.exe"), &req).unwrap_err();
+    assert!(err.starts_with("Aggiornamento non riuscito: ") && !err.contains("non trovato") && err.lines().count() == 1, "{err}");
 }

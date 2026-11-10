@@ -93,9 +93,11 @@ pub(super) fn check_paths(target: PathBuf, new: PathBuf) -> Result<Paths, String
         return Err(failed("staging non valido"));
     }
     // An existing backup means an earlier transaction is still recoverable: stop without
-    // overwriting or deleting anything.
+    // overwriting or deleting anything. Unix only: a backup that is the target's own inode
+    // is no copy at all; the installer drops it under the lock (see `install_with`).
     match std::fs::symlink_metadata(&prev) {
-        Ok(_) => return Err(failed("backup precedente presente")),
+        Ok(_) if cfg!(unix) && same_file(&prev, &target) => {}
+        Ok(_) => return Err(failed(&format!("rimuovi {}", prev.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()))),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(message(&e)),
     }
@@ -167,6 +169,8 @@ where
     // Everything checked before the lock is checked again: the state may have changed.
     let paths = paths_for(channel, ready)?;
     refuse_pending(dirs)?;
+    // No marker and a backup that is the same inode as the target: an orphan link, not a copy.
+    drop_backup(&paths, &remove).map_err(|e| message(&e))?;
     reverify(&paths, ready)?;
     // With this transaction's identity: attempts=0 is the first start.
     let mark = || startup::write_pending(dirs, &Pending { from_build: running_build(), to_build: ready.build, attempts: 0 });
@@ -218,7 +222,7 @@ fn same_file(a: &Path, b: &Path) -> bool {
     matches!((std::fs::symlink_metadata(a), std::fs::symlink_metadata(b)), (Ok(a), Ok(b)) if a.dev() == b.dev() && a.ino() == b.ino())
 }
 
-// Windows: a rolled-back `prev` was consumed by the move, so a survivor is ours to judge elsewhere.
+// Windows: no identity proof; relies on MoveFileExW being atomic (a rolled-back `prev` is consumed), not on a check.
 #[cfg(not(unix))]
 fn same_file(_: &Path, _: &Path) -> bool {
     true
@@ -238,11 +242,14 @@ pub(super) fn drop_backup(paths: &Paths, remove: impl Fn(&Path) -> io::Result<()
 }
 
 /// End of a failed transaction whose target is intact: backup first, then our marker, and the
-/// marker only if the backup is gone. A failure is appended to `base`, never swallowed.
+/// marker only if the backup is gone. A failed cleanup is logged; `base` stays the one-line message.
 pub(super) fn cleanup(dirs: &AppDirs, paths: &Paths, to_build: u64, remove: &impl Fn(&Path) -> io::Result<()>, base: String) -> String {
     match drop_backup(paths, remove).and_then(|()| startup::abort_pending(dirs, to_build, remove)) {
         Ok(()) => base,
-        Err(e) => format!("{base} (pulizia incompleta: {e})"),
+        Err(e) => {
+            eprintln!("update: cleanup incomplete: {e}");
+            base
+        }
     }
 }
 
@@ -253,6 +260,9 @@ pub fn install_staged(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> Resul
         // Returns once the helper has confirmed it holds this process's handle: the caller
         // must exit now, the swap happens after that.
         let paths = paths_for(channel, ready)?;
+        // The helper runs after this process is gone and cannot report: refuse here what it would.
+        refuse_pending(dirs)?;
+        reverify(&paths, ready)?;
         return super::helper::start(&super::helper::Request::install(paths.target, ready));
     }
     install_with(dirs, channel, ready, |a, b| std::fs::hard_link(a, b), |a, b| std::fs::rename(a, b), relaunch, |p| std::fs::remove_file(p))

@@ -3155,7 +3155,6 @@ mod tests {
                             video: Some(VideoInfo {
                                 duration_ms: Some(12_000),
                                 size: Some(1_468_006),
-                                ..Default::default()
                             }),
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,

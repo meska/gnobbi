@@ -11,6 +11,8 @@ use std::{io::Write, path::{Path, PathBuf}};
 pub const MARKER: &str = "update-pending.json";
 pub const OUTCOME_UPDATED: &str = "updated";
 pub const OUTCOME_RESTORED: &str = "restored";
+/// The Windows helper could not install after the app had exited; `build` is the wanted build.
+pub const OUTCOME_FAILED: &str = "failed";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pending {
@@ -88,7 +90,7 @@ pub fn update_outcome(dirs: &AppDirs) -> Option<(String, u64)> {
     Some((o.get("result")?.as_str()?.to_owned(), o.get("build")?.as_u64()?))
 }
 
-fn save_outcome(dirs: &AppDirs, result: &str, build: u64) -> std::io::Result<()> {
+pub(super) fn save_outcome(dirs: &AppDirs, result: &str, build: u64) -> std::io::Result<()> {
     update_settings(dirs, |m| {
         m.insert("update_outcome".into(), json!({ "result": result, "build": build }));
     })
