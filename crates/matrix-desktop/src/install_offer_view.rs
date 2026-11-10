@@ -78,7 +78,7 @@ impl Shell {
         #[cfg(feature = "linux-a11y")]
         {
             let entity = _cx.entity();
-            return Some(
+            Some(
                 gpui::canvas(
                     |_, _, _| (),
                     move |bounds, _, window, cx| {
@@ -104,7 +104,7 @@ impl Shell {
                 .absolute()
                 .inset_0()
                 .into_any_element(),
-            );
+            )
         }
         #[cfg(not(feature = "linux-a11y"))]
         None

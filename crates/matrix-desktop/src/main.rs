@@ -1014,11 +1014,12 @@ impl Shell {
                 cx.stop_propagation();
                 return;
             }
+            // Without the a11y ring «Argomento» is the only scrollable part of the panel, so it owns the arrows.
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-            if self.profile.is_none()
-                && self.details_focus == matrix_desktop::accessibility::details::DetailsControl::Topic
-                && self.topic_scroll_key(&key.key)
-            {
+            let topic_focused = self.details_focus == matrix_desktop::accessibility::details::DetailsControl::Topic;
+            #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+            let topic_focused = true;
+            if self.profile.is_none() && topic_focused && self.topic_scroll_key(&key.key) {
                 cx.notify();
                 cx.stop_propagation();
                 return;

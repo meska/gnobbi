@@ -3,10 +3,8 @@
 use super::ROOT;
 use super::search_list::{self, Ids};
 use crate::new_chat::{Entry, Status};
-use crate::search_list::{Hit, Row};
-use accesskit::{
-    Action, ActionRequest, Live, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate,
-};
+use crate::search_list::Row;
+use accesskit::{Action, ActionRequest, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
 pub const INPUT: NodeId = NodeId(100);
 pub const LIST: NodeId = NodeId(101);

@@ -50,6 +50,8 @@ impl Shell {
         if !self.semantic_details(window).allows(&action) {
             return;
         }
+        let focus_panel = matches!(action, DetailsAction::Focus { .. })
+            || self.details_zone.contains_focused(window, cx);
         match action {
             DetailsAction::Open(_) => {
                 self.set_room_details_open(true);
@@ -84,7 +86,11 @@ impl Shell {
                 ));
             }
         }
-        self.list_focus.focus(window);
+        if focus_panel && self.room_details_open {
+            self.details_zone.focus(window);
+        } else {
+            self.list_focus.focus(window);
+        }
         cx.notify();
     }
 
@@ -116,7 +122,6 @@ impl Shell {
     }
 
     /// Up/Down/PageUp/PageDown scroll the focused «Argomento» area.
-    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub(crate) fn topic_scroll_key(&self, key: &str) -> bool {
         let handle = self.topic_scroll.0.borrow().base_handle.clone();
         let page = f32::from(handle.bounds().size.height);

@@ -112,6 +112,56 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert_eq!(composer_text(this, window, cx), format!("{base}hi"), "keys reach the composer");
     });
 
+    #[cfg(target_os = "linux")]
+    {
+        #[cfg(feature = "linux-a11y")]
+        use matrix_desktop::accessibility::details::DetailsControl;
+        shell!(|this, _, cx| {
+            let room = this.sidebar.selected().unwrap();
+            let summary = matrix_engine::RoomSummary {
+                scope: room.scope.clone(), name: room.name.clone(), unread: room.unread,
+                info: matrix_engine::RoomInfo { topic: Some("Una lunga descrizione\n".repeat(100)), ..room.info.clone() },
+            };
+            this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(summary)));
+            cx.notify();
+        });
+        wait(400).await;
+        key!("f6");
+        #[cfg(feature = "linux-a11y")]
+        key!("tab");
+        let (scope, before) = shell!(|this, _, _| {
+            #[cfg(feature = "linux-a11y")]
+            assert_eq!(this.details_focus, DetailsControl::Topic);
+            let handle = this.topic_scroll.0.borrow().base_handle.clone();
+            assert!(handle.max_offset().height > px(0.), "topic must overflow");
+            (this.active_scope.clone(), handle.offset().y)
+        });
+        key!("down");
+        shell!(|this, _, _| {
+            assert!(this.room_details_open, "Down must not close the panel");
+            assert_eq!(this.active_scope, scope, "Down must not change room");
+            assert!(this.topic_scroll.0.borrow().base_handle.offset().y < before, "Down scrolls the topic");
+        });
+        for (key, forward) in [("pagedown", true), ("up", false), ("pageup", false)] {
+            let before = shell!(|this, _, _| this.topic_scroll.0.borrow().base_handle.offset().y);
+            key!(key);
+            shell!(|this, _, _| {
+                let after = this.topic_scroll.0.borrow().base_handle.offset().y;
+                assert!(this.room_details_open && this.active_scope == scope);
+                assert!(if forward { after < before } else { after > before }, "{key} scrolls the topic");
+            });
+        }
+        #[cfg(feature = "linux-a11y")]
+        {
+            key!("tab");
+            shell!(|this, window, cx| {
+                assert_eq!(this.details_focus, DetailsControl::Copy);
+                assert!(this.details_zone.contains_focused(window, cx));
+            });
+        }
+        key!("f6");
+    }
+
     // Ctrl+I closes without moving focus outside the panel, but restores list focus from inside it.
     key!("ctrl-i");
     shell!(|this, window, cx| assert!(!this.room_details_open && this.composer.read(cx).is_focused(window)));
