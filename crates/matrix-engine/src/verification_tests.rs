@@ -514,7 +514,7 @@ async fn proxy_control(config: &serde_json::Value, command: &str) -> String {
 /// first request is `Requested` and before bob's second one, the proxy fails the verification
 /// route (room send or sendToDevice, whichever alice's service uses first) with 503 until the
 /// client gives up, then restores it. Only sanitized routes and counters are printed.
-async fn busy_through_proxy(fault: bool) {
+async fn busy_through_proxy(fault: bool, peer_cancels_meanwhile: bool) {
     use crate::verification::VerificationState as State;
     let config = fixture();
     let mut via = config.clone();
@@ -545,13 +545,20 @@ async fn busy_through_proxy(fault: bool) {
         assert_eq!(proxy_control(&config, "arm").await, "ok armed", "harness: proxy not armed");
     }
     let bob = AccountSession { account_id: AccountId::new(24), client: Some(peer.clone()), store: None };
-    let second = bob.request_user_verification(client.user_id().unwrap().as_str()).await.unwrap();
+    let mut second = bob.request_user_verification(client.user_id().unwrap().as_str()).await.unwrap();
     assert_ne!(first.flow_id, second.snapshot().await.unwrap().flow_id);
     if fault {
         let hit = proxy_control(&config, "wait_hit 1").await;
         assert!(hit.starts_with("hit "), "harness: the service never reached the faulted route: {hit}");
         println!("TRACE first fault: {hit}");
-        println!("TRACE client gave up: {}", proxy_control(&config, "settle 8").await);
+        // The service re-sends the refusal: keep failing until it has retried, then restore the route.
+        let retried = proxy_control(&config, "wait_hit 3").await;
+        assert!(retried.starts_with("hit "), "harness: the service did not retry the refusal: {retried}");
+        println!("TRACE retried: {retried}");
+        if peer_cancels_meanwhile {
+            // The peer closes its own pending request while the refusal is still unsent: nothing may reopen or break.
+            second.perform(crate::verification::VerificationAction::Cancel).await.unwrap();
+        }
         println!("TRACE {}", proxy_control(&config, "disarm").await);
     }
     let cancelled = tokio::time::timeout(std::time::Duration::from_secs(if fault { 25 } else { 12 }), async {
@@ -562,22 +569,40 @@ async fn busy_through_proxy(fault: bool) {
         }
     }).await.is_ok();
     println!("TRACE proxy {}", proxy_control(&config, "stats").await);
-    tasks.iter().for_each(|t| t.abort());
     assert_eq!(proxy_control(&config, "stats").await.contains("\"errors\": []"), true, "harness: proxy error");
     assert!(cancelled, "RED: after the route was restored the peer's second request never got an outcome");
+    assert_eq!(first_peer.snapshot().await.unwrap().state, State::Waiting);
+    // A new request after the closure is a new transaction and is refused on its own.
+    let third = bob.request_user_verification(client.user_id().unwrap().as_str()).await.unwrap();
+    assert_ne!(third.snapshot().await.unwrap().flow_id, second.snapshot().await.unwrap().flow_id);
+    let third_closed = tokio::time::timeout(std::time::Duration::from_secs(12), async {
+        loop {
+            peer_sync(&peer).await;
+            if third.snapshot().await.unwrap().state == State::Cancelled { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }).await.is_ok();
+    tasks.iter().for_each(|t| t.abort());
+    assert!(third_closed, "a new request after the closure got no outcome");
     assert_eq!(first_peer.snapshot().await.unwrap().state, State::Waiting);
 }
 
 #[test]
 #[ignore = "requires disposable Synapse and the fault proxy; needs the external test harness (not in this repo)"]
 fn disposable_verification_busy_via_proxy_healthy_network() {
-    runtime().block_on(busy_through_proxy(false));
+    runtime().block_on(busy_through_proxy(false, false));
 }
 
 #[test]
 #[ignore = "requires disposable Synapse and the fault proxy; needs the external test harness (not in this repo)"]
 fn disposable_verification_busy_via_proxy_targeted_fault() {
-    runtime().block_on(busy_through_proxy(true));
+    runtime().block_on(busy_through_proxy(true, false));
+}
+
+#[test]
+#[ignore = "requires disposable Synapse and the fault proxy; needs the external test harness (not in this repo)"]
+fn disposable_verification_busy_via_proxy_targeted_fault_peer_cancels() {
+    runtime().block_on(busy_through_proxy(true, true));
 }
 
 /// «Verifica utente» from alice to bob; bob's request arrives only through the service's event handler.

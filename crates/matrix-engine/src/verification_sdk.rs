@@ -348,6 +348,8 @@ pub(crate) async fn run_service(
     };
     let mut active: Option<VerificationFlow> = None;
     let mut previous = None;
+    // Concurrent requests refused locally whose cancel did not reach the peer yet: re-sent, never reopened.
+    let mut unsent_rejects: Vec<(VerificationFlow, u32)> = Vec::new();
     // Requests from other people/devices: the SDK stores them, the handlers only tell us which one.
     let (incoming_tx, mut incoming) = tokio::sync::mpsc::unbounded_channel::<(matrix_sdk::ruma::OwnedUserId, String)>();
     let to_device = incoming_tx.clone();
@@ -494,8 +496,11 @@ pub(crate) async fn run_service(
                     Ok(())
                 } else if let Ok(mut flow) = session.receive_device_verification(sender.as_str(), &flow_id).await {
                     if active.is_some() {
-                        if let Err(error) = flow.perform(VerificationAction::Cancel).await {
-                            eprintln!("Failed to reject a concurrent verification request: {error:?}");
+                        if unsent_rejects.iter().any(|(f, _)| f.user_id == sender && f.request.flow_id() == flow_id) {
+                            // Duplicate delivery of a request we are already rejecting.
+                        } else if let Err(error) = flow.perform(VerificationAction::Cancel).await {
+                            eprintln!("Failed to reject a concurrent verification request, will retry: {error:?}");
+                            unsent_rejects.push((flow, 0));
                         }
                         Ok(())
                     } else {
@@ -509,6 +514,7 @@ pub(crate) async fn run_service(
                 }
             }
             _ = ticks.tick() => {
+                resend_rejects(&mut unsent_rejects).await;
                 match &mut active {
                     Some(flow) => flow.advance().await,
                     None => Ok(()),
@@ -541,6 +547,24 @@ pub(crate) async fn run_service(
     }
     client.remove_event_handler(to_device_handler);
     client.remove_event_handler(room_handler);
+}
+
+const REJECT_RETRY_EVERY: u32 = 5; // ticks of 200 ms
+const REJECT_MAX_ATTEMPTS: u32 = 30;
+
+/// The SDK already marked the request cancelled before the send failed; `request.cancel()` rebuilds
+/// that same cancel event, so re-sending reopens nothing. A request the peer closed meanwhile is
+/// simply cancelled twice; after the attempts are used up the peer's own expiry closes it.
+async fn resend_rejects(unsent: &mut Vec<(VerificationFlow, u32)>) {
+    let mut kept = Vec::new();
+    for (flow, ticks) in std::mem::take(unsent) {
+        if ticks % REJECT_RETRY_EVERY != REJECT_RETRY_EVERY - 1 {
+            kept.push((flow, ticks + 1));
+        } else if flow.request.cancel().await.is_err() && ticks / REJECT_RETRY_EVERY + 1 < REJECT_MAX_ATTEMPTS {
+            kept.push((flow, ticks + 1));
+        }
+    }
+    *unsent = kept;
 }
 
 const PROFILE_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);
