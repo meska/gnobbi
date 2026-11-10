@@ -1642,6 +1642,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // The real Settings action (choose_theme) while the real update check is suspended
             // on a loopback server (signed fixture, handshake, no sleep); then the reverse order
             // and a contended settings lock. Case 27 covers the switch-free persistence.
+            // Needs a numeric build number at compile time (GNOBBI_BUILD=7): without .git the build is "sconosciuto" and the check never opens a connection.
             use matrix_desktop::{Preferences, update::{check, verify::{LINUX_APPIMAGE, UpdateKeys}}};
             let root = std::env::temp_dir().join(format!("t-a6dc1048-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&root);
