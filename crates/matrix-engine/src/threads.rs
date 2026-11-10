@@ -33,11 +33,10 @@ pub(crate) async fn open(
             return Err(e);
         }
     } else {
-        let room = room.clone();
-        let thread = thread.clone();
-        tokio::spawn(async move {
-            let _ = fill(&room, &thread, want.max(PAGE)).await;
-        });
+        // The SDK loads only the newest saved chunk first: the older saved ones come with a pagination
+        // step. A step that has to leave the disk is dropped after 1 s, so a frozen server only delays it.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), fill(room, &thread, want.max(PAGE))).await;
+        now = loaded(room, &thread).await;
     }
     // No `annotate_unread` here: it paginates every thread in view (network) and the read below zeroes this one.
     let mut root_row = main.rows.into_iter().find(|r| r.event_id == *root);

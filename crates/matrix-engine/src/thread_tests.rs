@@ -874,11 +874,8 @@ fn disposable_thread_restart_offline_on_the_kept_store() {
         .unwrap();
         let page_ms = start.elapsed().as_millis() as u64;
         let cached: Vec<String> = page.replies.iter().map(|r| r.body.clone()).collect();
-        // shortcut: the SDK's initial thread load from the cache may stop short of the whole thread, as
-        // the room page does; the page being served offline with its newest reply is what this card fixes.
-        assert!(cached.contains(&"three".to_owned()), "the newest reply comes from the store: {cached:?}");
-        // The root row would come from the room's main timeline, which is not filled here on purpose:
-        // filling it would make the page wait for the network again. The panel keeps its previous root.
+        assert_eq!(cached, ["one", "two", "three"], "every reply seen before the restart comes from the store: {cached:?}");
+        assert!(page.root.is_some(), "the root comes from the store");
         // The receipt is separate: on the same frozen server it does not resolve.
         let mut views = ViewRequests::new();
         let tag = views.start(scope.clone()).unwrap();
