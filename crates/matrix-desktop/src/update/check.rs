@@ -53,8 +53,21 @@ pub async fn check(
     keys: &UpdateKeys,
     platform: &str,
 ) -> Result<Outcome, CheckError> {
+    check_with(dirs, prefs, keys, platform, crate::build_info::BUILD_INFO.build, UPDATE_HOST, SystemTime::now()).await
+}
+
+/// [`check`] with build, host and clock injected: the only body, so tests drive the same path.
+pub(super) async fn check_with(
+    dirs: &AppDirs,
+    prefs: &mut Preferences,
+    keys: &UpdateKeys,
+    platform: &str,
+    build: &str,
+    host: &str,
+    now: SystemTime,
+) -> Result<Outcome, CheckError> {
     // An unparsable build ("sconosciuto") never updates: 0 would offer everything.
-    let Some(running) = build_number(crate::build_info::BUILD_INFO.build) else {
+    let Some(running) = build_number(build) else {
         return Ok(Outcome::NoUpdate);
     };
     // The scheduler's snapshot may already be stale before the network starts.
@@ -66,8 +79,8 @@ pub async fn check(
         keys,
         running,
         platform,
-        UPDATE_HOST,
-        SystemTime::now(),
+        host,
+        now,
     )
     .await;
     if let Err(e) = &result {
