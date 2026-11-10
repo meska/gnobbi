@@ -1638,6 +1638,87 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 34 {
+            // The real Settings action (choose_theme) while the real update check is suspended
+            // on a loopback server (signed fixture, handshake, no sleep); then the reverse order
+            // and a contended settings lock. Case 27 covers the switch-free persistence.
+            use matrix_desktop::{Preferences, update::{check, verify::{LINUX_APPIMAGE, UpdateKeys}}};
+            let root = std::env::temp_dir().join(format!("t-a6dc1048-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            let dirs = matrix_desktop::AppDirs { config: root.join("config"), data: root.join("data"), cache: root.join("cache") };
+            let fx = |n: &str| std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/update").join(n)).unwrap();
+            let keys = || UpdateKeys::parse(&String::from_utf8(fx("keys.pub")).unwrap()).unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let base = format!("http://{}/dl", listener.local_addr().unwrap());
+            let (arrived_tx, arrived) = std::sync::mpsc::channel::<()>();
+            let (release, release_rx) = std::sync::mpsc::channel::<()>();
+            std::thread::spawn(move || {
+                use std::io::{Read, Write};
+                for mut s in listener.incoming().flatten() {
+                    let mut buf = vec![0u8; 4096];
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).into_owned();
+                    let path = req.split_whitespace().nth(1).unwrap_or("").to_owned();
+                    let body = match path.as_str() {
+                        "/dl/latest.json" => { arrived_tx.send(()).unwrap(); release_rx.recv_timeout(std::time::Duration::from_secs(30)).unwrap(); fx("valid.json") }
+                        "/dl/latest.json.minisig" => fx("valid.minisig"),
+                        _ => { let _ = s.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n"); continue; }
+                    };
+                    let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len()).as_bytes());
+                    let _ = s.write_all(&body);
+                }
+            });
+            Preferences { update_base: Some(base), ..Preferences::default() }.save(&dirs).unwrap();
+            let run_check = |dirs: matrix_desktop::AppDirs, keys: UpdateKeys| std::thread::spawn(move || {
+                let mut prefs = Preferences::load(&dirs);
+                tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+                    .block_on(check::check(&dirs, &mut prefs, &keys, LINUX_APPIMAGE))
+            });
+            let saved = Preferences::load;
+            this.update_in(cx, |this, _, _| this.prefs_dirs = Some(dirs.clone())).unwrap();
+            // 1. Settings action while the check is suspended.
+            let first = run_check(dirs.clone(), keys());
+            arrived.recv_timeout(std::time::Duration::from_secs(30)).unwrap();
+            this.update_in(cx, |this, _, cx| {
+                this.choose_theme(Theme::Dark, cx);
+                assert_eq!(this.prefs.theme, Some(Theme::Dark));
+                assert!(this.settings_error.is_none());
+            }).unwrap();
+            release.send(()).unwrap();
+            let outcome = first.join().unwrap();
+            assert!(outcome.is_ok(), "check result: {outcome:?}");
+            assert_eq!(saved(&dirs).theme, Some(Theme::Dark), "theme chosen during the fetch survives the commit");
+            assert_eq!(saved(&dirs).max_build_seen, 42, "the check metadata survives too");
+            assert!(saved(&dirs).last_check.is_some());
+            // 2. Reverse order: check done, then the UI action; every metadata intact.
+            let second = run_check(dirs.clone(), keys());
+            arrived.recv_timeout(std::time::Duration::from_secs(30)).unwrap();
+            release.send(()).unwrap();
+            assert!(second.join().unwrap().is_ok());
+            let stamp = saved(&dirs).last_check;
+            this.update_in(cx, |this, _, cx| this.choose_theme(Theme::Light, cx)).unwrap();
+            assert_eq!((saved(&dirs).theme, saved(&dirs).max_build_seen, saved(&dirs).last_check), (Some(Theme::Light), 42, stamp));
+            // 3. Contended lock: the action fails visibly and never shows a theme that was not saved.
+            let (held_tx, held) = std::sync::mpsc::channel::<()>();
+            let (free, free_rx) = std::sync::mpsc::channel::<()>();
+            let holder = { let dirs = dirs.clone(); std::thread::spawn(move || Preferences::update(&dirs, |_| { held_tx.send(()).unwrap(); free_rx.recv_timeout(std::time::Duration::from_secs(30)).unwrap(); })) };
+            held.recv_timeout(std::time::Duration::from_secs(30)).unwrap();
+            this.update_in(cx, |this, _, cx| {
+                this.choose_theme(Theme::Dark, cx);
+                assert_eq!(this.prefs.theme, Some(Theme::Light), "contention must not flip the UI");
+                assert!(this.settings_error.is_some(), "contention is visible");
+            }).unwrap();
+            free.send(()).unwrap();
+            holder.join().unwrap().unwrap();
+            assert_eq!(saved(&dirs).theme, Some(Theme::Light));
+            this.update_in(cx, |this, _, cx| {
+                this.choose_theme(Theme::Dark, cx);
+                assert!(this.settings_error.is_none() && this.prefs.theme == Some(Theme::Dark));
+                let _ = std::fs::remove_dir_all(&root);
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 27 {
             // Drawer entry opens Settings; Enter toggles the debug switch and persists it; Esc steps back out.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
@@ -3446,6 +3527,20 @@ fn settings_entry_opens_the_panel_and_the_debug_switch_persists() {
         Ok("1")
     );
     DYNAMIC.store(27, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn theme_action_keeps_update_metadata_while_the_real_check_is_suspended() {
+    assert_eq!(
+        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+        Ok("1")
+    );
+    DYNAMIC.store(34, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
