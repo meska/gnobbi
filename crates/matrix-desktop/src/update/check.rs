@@ -109,6 +109,20 @@ pub(super) async fn run(
     }
     let base = effective_base(prefs);
     let now_secs = now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    // The stamp is the ATTEMPT (B5): written before the network, so failures and restarts cannot
+    // retry within 24 h. A stamp in the future (clock moved back) is replaced by `now`.
+    // It never touches `max_build_seen`/`bad_builds`.
+    let mut go = false;
+    Preferences::update(dirs, |p| {
+        go = p.update_check_enabled && effective_base(p) == base;
+        if go {
+            p.last_check = Some(now_secs);
+        }
+    })
+    .map_err(|e| CheckError::Persist(e.kind()))?;
+    if !go {
+        return Ok(Outcome::NoUpdate);
+    }
     let verified = fetch(&base, keys, now).await?;
     let build = verified.build;
     // Every authenticated manifest raises the floor (B3), even without our artifact.
@@ -117,7 +131,7 @@ pub(super) async fn run(
         Err(UpdateError::NotNewer { .. } | UpdateError::NoArtifact) => (None, None),
         Err(e) => (None, Some(CheckError::Verify(e))),
     };
-    let outcome = commit(dirs, &base, build, candidate, now_secs)?;
+    let outcome = commit(dirs, &base, build, candidate)?;
     error.map_or(Ok(outcome), Err)
 }
 
@@ -162,15 +176,13 @@ async fn get_capped(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Chec
 
 /// Decide and persist in ONE transaction on the values the store holds NOW (R8 `max_build_seen`
 /// and `bad_builds` on top of the verification result). The fetched verdict is dropped whole —
-/// no metadata mixed in — when the effective base changed while fetching. `max_build_seen` and
-/// `last_check` only move forward; `bad_builds` is the current set, never replaced by the check.
+/// no metadata mixed in — when the effective base changed while fetching. `max_build_seen` only moves forward; `bad_builds` is the current set, never replaced by the check.
 /// A failed transaction is [`CheckError::Persist`] and offers no candidate.
 fn commit(
     dirs: &AppDirs,
     base: &str,
     build: u64,
     candidate: Option<Candidate>,
-    now_secs: u64,
 ) -> Result<Outcome, CheckError> {
     let mut outcome = Outcome::NoUpdate;
     Preferences::update(dirs, |prefs| {
@@ -179,7 +191,6 @@ fn commit(
         }
         let rollback = build < prefs.max_build_seen;
         prefs.max_build_seen = prefs.max_build_seen.max(build);
-        prefs.last_check = Some(prefs.last_check.unwrap_or(0).max(now_secs));
         // Switch off since the fetch, a rollback or a known-bad build: metadata only.
         if prefs.update_check_enabled
             && !rollback

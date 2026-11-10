@@ -193,7 +193,7 @@ async fn redirect_is_not_followed() {
     let p = Preferences::load(&d);
     assert_eq!(go(&d, &p, 41).await, Err(CheckError::Status(302)));
     assert_eq!(seen.lock().unwrap().len(), 1);
-    assert_eq!(Preferences::load(&d).last_check, None);
+    assert_eq!(Preferences::load(&d).last_check, Some(now_secs()), "a failed attempt is stamped");
 }
 
 #[tokio::test]
@@ -218,7 +218,7 @@ async fn wrong_signature_is_an_error_and_changes_nothing() {
         Err(CheckError::Verify(UpdateError::UnknownKey))
     );
     let after = Preferences::load(&d);
-    assert_eq!((after.max_build_seen, after.last_check), (0, None));
+    assert_eq!((after.max_build_seen, after.last_check), (0, Some(now_secs())), "attempt stamped, floor untouched");
 }
 
 #[tokio::test]
@@ -450,8 +450,8 @@ fn an_endpoint_change_during_the_fetch_discards_the_offer_and_its_metadata() {
     );
     assert_eq!(
         (after.max_build_seen, after.last_check),
-        (0, None),
-        "no metadata from the old endpoint"
+        (0, Some(now_secs())),
+        "only the attempt stamp, no metadata from the old endpoint"
     );
 }
 
@@ -531,5 +531,37 @@ fn a_contended_lock_at_commit_persists_nothing_and_offers_nothing() {
     free_tx.send(()).unwrap();
     holder.join().unwrap().unwrap();
     let after = Preferences::load(&d);
-    assert_eq!((after.max_build_seen, after.last_check), (0, None), "nothing persisted");
+    assert_eq!((after.max_build_seen, after.last_check), (0, Some(now_secs())), "only the attempt stamp persisted");
+}
+
+/// B5: a failed attempt counts. Restart within 24 h: the scheduler decision says "not due", so
+/// no connection is opened; a stamp in the future (clock moved back) is replaced by `now`.
+#[tokio::test]
+async fn a_failed_attempt_blocks_retries_for_24h_and_a_future_stamp_is_reset() {
+    use crate::update::{channel::Channel, scheduler::should_check};
+    let (base, seen) = serve_fixture("valid.other.minisig");
+    let d = store("attempt", &Preferences { last_check: Some(now_secs() + 999_999), max_build_seen: 7, ..base_prefs(&base) });
+    let p = Preferences::load(&d);
+    assert!(go(&d, &p, 41).await.is_err());
+    let after = Preferences::load(&d);
+    assert_eq!((after.last_check, after.max_build_seen), (Some(now_secs()), 7));
+    let ch = Channel::AppImage { target: "/x/g.AppImage".into() };
+    assert!(!should_check(&ch, &after, now_secs() + 3_600), "restart within 24 h opens no connection");
+    assert!(should_check(&ch, &after, now_secs() + 86_400));
+    assert_eq!(seen.lock().unwrap().len(), 2, "one attempt = manifest + signature, nothing more");
+}
+
+/// B5 + B2: the stamp is on disk before the network answers, and a switch turned off in the
+/// meantime stays off.
+#[test]
+fn the_attempt_is_stamped_before_the_network_answers() {
+    let (base, _, arrived, release) = serve_gated("valid.minisig");
+    let d = store("stamp-first", &base_prefs(&base));
+    let check = go_blocking(d.clone(), Preferences::load(&d), 41);
+    arrived.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(Preferences::load(&d).last_check, Some(now_secs()));
+    Preferences::update(&d, |p| p.update_check_enabled = false).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(check.join().unwrap().unwrap(), Outcome::NoUpdate);
+    assert!(!Preferences::load(&d).update_check_enabled);
 }

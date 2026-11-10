@@ -135,7 +135,7 @@ mod online {
 
     pub(super) fn check_and_stage_with(rt: &tokio::runtime::Runtime, dirs: &AppDirs, state: &Mutex<UpdateState>, channel: &Channel, prefs: &mut Preferences, seam: &Seam) {
         let Some(platform) = artifact_key(channel, std::env::consts::OS, std::env::consts::ARCH) else { return };
-        // check() logs its own errors and stamps/saves last_check only after a valid answer.
+        // check() logs its own errors and stamps last_check as an attempt before any connection.
         let Ok(Outcome::Candidate(o)) = rt.block_on(check::check_with(dirs, prefs, seam.keys, platform, seam.build, seam.host, seam.now)) else { return };
         if state.lock().unwrap_or_else(|p| p.into_inner()).bad_session.contains(&o.build) {
             return;
