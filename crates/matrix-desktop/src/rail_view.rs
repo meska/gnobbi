@@ -679,9 +679,6 @@ impl Shell {
         let spaces: Vec<_> = self.rail_arranged().into_iter().skip(1).collect();
         let last = spaces.len().saturating_sub(1);
         let cursor = self.rail_ui.edit_cursor.min(last);
-        let action = |id: (&'static str, usize), label: &'static str, color: u32| {
-            div().id(id).px_2().py_1().rounded_md().text_size(px(12.)).text_color(rgb(color)).cursor_pointer().child(label)
-        };
         let header_button = |id: &'static str, label: &'static str| {
             div().id(id).px_2().py_1().rounded_md().cursor_pointer().text_size(px(14.)).text_color(rgb(t.accent)).child(label)
         };
@@ -705,7 +702,12 @@ impl Shell {
                     .child(header_button("rail-edit-groups", "Crea").on_click(cx.listener(|this, _, window, cx| {
                         this.open_groups_edit(window, cx);
                     })))
-                    .child(header_button("rail-edit-close", "Chiudi").on_click(close_edit(cx))),
+                    .child(
+                        div().id("rail-edit-close").w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
+                            .hover(|s| s.bg(rgb(t.border)))
+                            .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
+                            .on_click(close_edit(cx)),
+                    ),
             )
             .child(
                 div()

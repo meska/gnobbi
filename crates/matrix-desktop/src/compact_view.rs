@@ -56,11 +56,12 @@ impl Shell {
             return;
         }
         if focus_only {
-            self.a11y_rooms.focus_action(&intent, &self.sidebar);
+            self.a11y_rooms.focus_action(&intent, &mut self.sidebar);
         } else {
             if !self.sidebar.select(&intent.scope) {
                 return;
             }
+            self.restore.cancel();
             self.sync_room(cx);
             self.set_compact_chat(true);
         }
@@ -119,6 +120,7 @@ impl Shell {
     }
 
     pub(crate) fn refresh_navigation_visibility(&mut self) {
+        self.reconcile_topic_links();
         self.sidebar
             .set_navigation_context(self.active_scope.account_id, self.connected);
         self.refresh_openers();
@@ -152,6 +154,7 @@ impl Shell {
     pub(crate) fn set_room_details_open(&mut self, open: bool) {
         self.room_details_open = open;
         self.profile = None;
+        self.reconcile_topic_links();
         self.refresh_navigation_visibility();
     }
 

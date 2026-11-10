@@ -89,7 +89,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         let (w, t_classic, t_dark) = this.update_in(cx, |_, window, _| {
             (f32::from(window.viewport_size().width), Theme::Classic.tokens(), Theme::Dark.tokens())
         }).unwrap();
-        check!(w * scale >= 1900., "window is not fullscreen: {w} logical px");
+        check!(matches!((w * scale).partial_cmp(&1900.), Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)), "window is not fullscreen: {w} logical px");
 
         // Set the three switches: (enabled, room muted or None for no room, count only).
         let set = |enabled: bool, room: Option<bool>, preview: bool| {
@@ -142,6 +142,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 {
                     let h = this.update_in(cx, |this, _, _| this.a11y_notification_bounds).unwrap();
+                    let close = h[3].map(|r| ((r.x1 - r.x0) / f64::from(scale), (r.y1 - r.y0) / f64::from(scale)));
+                    check!(close.is_some_and(|(w, h)| w >= 32. && h >= 32.), "{tname}/{sname} close bounds {close:?} < 32x32 logical px");
                     for (i, b) in h.iter().take(3).enumerate() {
                         let rows = b.map(|r| (r.y1 - r.y0) / f64::from(scale));
                         check!(rows.is_some_and(|h| h >= 40.), "{tname}/{sname} row {i}: height {rows:?} logical px < 40");
@@ -209,6 +211,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             check!(this.update_in(cx, |this, _, _| focus(this)).unwrap() == NotificationControl::Enabled, "Up should go back to Enabled");
             key!("shift-tab");
             check!(this.update_in(cx, |this, _, _| focus(this)).unwrap() == NotificationControl::Close, "Shift+Tab from Enabled should wrap to Close");
+            wait(400).await;
+            match Shot::take(&format!("ring-close-{scale}")) {
+                Err(e) => check!(false, "close ring: {e}"),
+                Ok(mut shot) => {
+                    shot.1 = shot.0.width() as f32 / w;
+                    let ring = (-2..=3).any(|d| near(shot.at(w - 48. + d as f32 / shot.1, 32.), t_classic.accent));
+                    check!(ring, "keyboard focus ring not painted on close button");
+                }
+            }
             // Ring painted on the focused row only.
             for (ctl, row) in [(NotificationControl::Enabled, 0usize), (NotificationControl::Mute, 1), (NotificationControl::Preview, 2)] {
                 this.update_in(cx, |this, _, cx| { this.notification_focus = ctl; cx.notify(); }).unwrap();
@@ -239,7 +250,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, _| this.notification_focus = NotificationControl::Close).unwrap();
             key!("enter");
             this.update_in(cx, |this, _, _| check!(!this.notifications_open, "Enter on the X did not close the panel")).unwrap();
-            this.update_in(cx, |this, window, cx| { this.set_notifications_open(true); this.list_focus.focus(window); cx.notify(); }).unwrap();
+            this.update_in(cx, |this, window, cx| { this.set_notifications_open(true); this.notification_focus = NotificationControl::Preview; this.list_focus.focus(window); cx.notify(); }).unwrap();
         }
         // Full-screen views return early from render (like sign-in): a key must still set keyboard modality (GPUI cannot inject a click here; the pointer listener is the same wrapper).
         cx.update(|_, cx| input_modality::set_pointer(cx)).unwrap();

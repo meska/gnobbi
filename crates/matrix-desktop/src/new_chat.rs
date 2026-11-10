@@ -49,20 +49,11 @@ pub use crate::search_list::Status;
 
 /// «Nuova chat» on the shared list. The engine's user state carries no term, so the list keeps
 /// the empty one: the dialog already clears it when the field changes.
+#[derive(Default)]
 pub struct Picker {
     list: SearchList<Entry>,
     all_available: bool,
     all: bool,
-}
-
-impl Default for Picker {
-    fn default() -> Self {
-        Self {
-            list: SearchList::default(),
-            all_available: false,
-            all: false,
-        }
-    }
 }
 
 impl Picker {

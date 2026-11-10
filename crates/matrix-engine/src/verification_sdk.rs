@@ -348,6 +348,8 @@ pub(crate) async fn run_service(
     };
     let mut active: Option<VerificationFlow> = None;
     let mut previous = None;
+    // Concurrent requests refused locally whose cancel did not reach the peer yet: re-sent, never reopened.
+    let mut unsent_rejects: Vec<(VerificationFlow, u32)> = Vec::new();
     // Requests from other people/devices: the SDK stores them, the handlers only tell us which one.
     let (incoming_tx, mut incoming) = tokio::sync::mpsc::unbounded_channel::<(matrix_sdk::ruma::OwnedUserId, String)>();
     let to_device = incoming_tx.clone();
@@ -389,7 +391,7 @@ pub(crate) async fn run_service(
                         }
                     }
                     VerificationCommand::Begin { account_id: requested, user_id, device_id } if requested == account_id => {
-                        if is_busy(&active).await {
+                        if active.is_some() {
                             if events.send(VerificationEvent::Error { account_id, error: VerificationError::Busy }).await.is_err() { break; }
                             continue;
                         }
@@ -399,7 +401,7 @@ pub(crate) async fn run_service(
                         }
                     }
                     VerificationCommand::BeginUser { account_id: requested, user_id } if requested == account_id => {
-                        if is_busy(&active).await {
+                        if active.is_some() {
                             if events.send(VerificationEvent::Error { account_id, error: VerificationError::Busy }).await.is_err() { break; }
                             continue;
                         }
@@ -413,6 +415,17 @@ pub(crate) async fn run_service(
                             Some(flow) if target.user_id == flow.user_id.as_str() && target.flow_id == flow.request.flow_id() => flow.perform(action).await,
                             _ => Err(VerificationError::UnknownFlow),
                         }
+                    }
+                    VerificationCommand::Release { target } if target.account_id == account_id => {
+                        if active.as_ref().is_some_and(|flow| target.user_id == flow.user_id.as_str() && target.flow_id == flow.request.flow_id()) {
+                            if let Some(mut flow) = active.take()
+                                && flow.snapshot().await.is_ok_and(|s| !matches!(s.state, VerificationState::Verified | VerificationState::Cancelled | VerificationState::Mismatched | VerificationState::Failed))
+                                && let Err(error) = flow.perform(VerificationAction::Cancel).await {
+                                eprintln!("Failed to cancel a closed verification request: {error:?}");
+                            }
+                            previous = None;
+                        }
+                        Ok(())
                     }
                     VerificationCommand::RenameOwnDevice { account_id: requested, display_name } if requested == account_id => {
                         match rename_own_device(&client, &display_name).await {
@@ -479,18 +492,29 @@ pub(crate) async fn run_service(
                 Ok(())
             }
             Some((sender, flow_id)) = incoming.recv() => {
-                // shortcut: la SDK fa scadere la richiesta, rivedere se serve un rifiuto esplicito
-                if !is_busy(&active).await {
-                    // Never accepted here: the snapshot is `Requested` and the user decides. A request
-                    // already cancelled or unknown is not an error worth showing.
-                    if let Ok(flow) = session.receive_device_verification(sender.as_str(), &flow_id).await {
+                if active.as_ref().is_some_and(|flow| flow.user_id == sender && flow.request.flow_id() == flow_id) {
+                    Ok(())
+                } else if let Ok(mut flow) = session.receive_device_verification(sender.as_str(), &flow_id).await {
+                    if active.is_some() {
+                        if unsent_rejects.iter().any(|(f, _)| f.user_id == sender && f.request.flow_id() == flow_id) {
+                            // Duplicate delivery of a request we are already rejecting.
+                        } else if let Err(error) = flow.perform(VerificationAction::Cancel).await {
+                            eprintln!("Failed to reject a concurrent verification request, will retry: {error:?}");
+                            unsent_rejects.push((flow, 0));
+                        }
+                        Ok(())
+                    } else {
                         active = Some(flow);
                         previous = None;
+                        Ok(())
                     }
+                } else {
+                    // Already cancelled, expired or unknown: there is nothing to present.
+                    Ok(())
                 }
-                Ok(())
             }
             _ = ticks.tick() => {
+                resend_rejects(&mut unsent_rejects).await;
                 match &mut active {
                     Some(flow) => flow.advance().await,
                     None => Ok(()),
@@ -525,11 +549,22 @@ pub(crate) async fn run_service(
     client.remove_event_handler(room_handler);
 }
 
-/// A flow that has not reached a terminal state blocks a new one.
-async fn is_busy(active: &Option<VerificationFlow>) -> bool {
-    let Some(flow) = active else { return false };
-    let state = flow.snapshot().await.map(|s| s.state);
-    !matches!(state, Ok(VerificationState::Verified | VerificationState::Cancelled | VerificationState::Mismatched | VerificationState::Failed))
+const REJECT_RETRY_EVERY: u32 = 5; // ticks of 200 ms
+const REJECT_MAX_ATTEMPTS: u32 = 30;
+
+/// The SDK already marked the request cancelled before the send failed; `request.cancel()` rebuilds
+/// that same cancel event, so re-sending reopens nothing. A request the peer closed meanwhile is
+/// simply cancelled twice; after the attempts are used up the peer's own expiry closes it.
+async fn resend_rejects(unsent: &mut Vec<(VerificationFlow, u32)>) {
+    let mut kept = Vec::new();
+    for (flow, ticks) in std::mem::take(unsent) {
+        if ticks % REJECT_RETRY_EVERY != REJECT_RETRY_EVERY - 1
+            || (flow.request.cancel().await.is_err() && ticks / REJECT_RETRY_EVERY + 1 < REJECT_MAX_ATTEMPTS)
+        {
+            kept.push((flow, ticks + 1));
+        }
+    }
+    *unsent = kept;
 }
 
 const PROFILE_REFRESH: std::time::Duration = std::time::Duration::from_secs(60);

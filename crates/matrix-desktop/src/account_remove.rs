@@ -90,6 +90,9 @@ impl Shell {
                         self.recents.remove(removal.id.as_u64());
                         self.rail_ui.layouts.remove(removal.id.as_u64());
                         if let Some(dirs) = &self.prefs_dirs {
+                            let mut servers = matrix_desktop::directory_servers::SavedServers::load(dirs);
+                            servers.remove_account(removal.id.as_u64());
+                            let _ = servers.save(dirs);
                             let _ = self.recents.save(dirs);
                             let _ = self.rail_ui.layouts.save(dirs);
                         }

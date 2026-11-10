@@ -59,7 +59,9 @@ fn stored_keys_and_defaults_are_unchanged_by_the_positive_ui() {
     let v = json(&d, "room-prefs.json");
     assert_eq!(v["hide_status"], serde_json::json!(["7|!a:test"]));
     assert_eq!(v["hide_redacted"], serde_json::json!({ "7|!b:test": false }));
-    assert_eq!(v.as_object().unwrap().len(), 2);
+    // Third key: the last open room per account — added, with the other two unrenamed.
+    assert_eq!(v.as_object().unwrap().len(), 3);
+    assert!(v.get("last_open_room").is_some());
 }
 
 #[test]

@@ -15,7 +15,7 @@ thread_local! {
 /// Paint hook of the timeline: bounds of each visible message text.
 pub(crate) fn bubble_painted(index: usize, bounds: Bounds<Pixels>) {
     if sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst) {
-        BUBBLES.with_borrow_mut(|b| drop(b.insert(index, bounds)));
+        BUBBLES.with_borrow_mut(|b| { let _ = b.insert(index, bounds); });
     }
 }
 
@@ -56,7 +56,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     }
     macro_rules! key {
         ($k:expr) => {{
-            cx.update(|window, cx| drop(window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx))).unwrap();
+            cx.update(|window, cx| { let _ = window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap();
             wait(100).await;
         }};
     }
@@ -103,7 +103,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(this.room_details_open);
         assert!(this.composer.read(cx).is_focused(window), "opening the panel keeps composer focus");
     });
-    let base = shell!(|this, window, cx| composer_text(this, window, cx));
+    let base = shell!(composer_text);
     key!("h");
     key!("i");
     shell!(|this, window, cx| {
@@ -111,6 +111,56 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(this.composer.read(cx).is_focused(window) && !this.details_zone.contains_focused(window, cx), "composer keeps the focus");
         assert_eq!(composer_text(this, window, cx), format!("{base}hi"), "keys reach the composer");
     });
+
+    #[cfg(target_os = "linux")]
+    {
+        #[cfg(feature = "linux-a11y")]
+        use matrix_desktop::accessibility::details::DetailsControl;
+        shell!(|this, _, cx| {
+            let room = this.sidebar.selected().unwrap();
+            let summary = matrix_engine::RoomSummary {
+                scope: room.scope.clone(), name: room.name.clone(), unread: room.unread,
+                info: matrix_engine::RoomInfo { topic: Some("Una lunga descrizione\n".repeat(100)), ..room.info.clone() },
+            };
+            this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(summary)));
+            cx.notify();
+        });
+        wait(400).await;
+        key!("f6");
+        #[cfg(feature = "linux-a11y")]
+        key!("tab");
+        let (scope, before) = shell!(|this, _, _| {
+            #[cfg(feature = "linux-a11y")]
+            assert_eq!(this.details_focus, DetailsControl::Topic);
+            let handle = this.topic_scroll.0.borrow().base_handle.clone();
+            assert!(handle.max_offset().height > px(0.), "topic must overflow");
+            (this.active_scope.clone(), handle.offset().y)
+        });
+        key!("down");
+        shell!(|this, _, _| {
+            assert!(this.room_details_open, "Down must not close the panel");
+            assert_eq!(this.active_scope, scope, "Down must not change room");
+            assert!(this.topic_scroll.0.borrow().base_handle.offset().y < before, "Down scrolls the topic");
+        });
+        for (key, forward) in [("pagedown", true), ("up", false), ("pageup", false)] {
+            let before = shell!(|this, _, _| this.topic_scroll.0.borrow().base_handle.offset().y);
+            key!(key);
+            shell!(|this, _, _| {
+                let after = this.topic_scroll.0.borrow().base_handle.offset().y;
+                assert!(this.room_details_open && this.active_scope == scope);
+                assert!(if forward { after < before } else { after > before }, "{key} scrolls the topic");
+            });
+        }
+        #[cfg(feature = "linux-a11y")]
+        {
+            key!("tab");
+            shell!(|this, window, cx| {
+                assert_eq!(this.details_focus, DetailsControl::Copy);
+                assert!(this.details_zone.contains_focused(window, cx));
+            });
+        }
+        key!("f6");
+    }
 
     // Ctrl+I closes without moving focus outside the panel, but restores list focus from inside it.
     key!("ctrl-i");
@@ -169,6 +219,44 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
     wait(400).await;
     click!(painted("details-close").center());
     shell!(|this, _, _| assert!(!this.room_details_open, "«Chiudi» closes the panel"));
+
+    // 6b. A link in «Argomento»: a real click asks for the confirmation (never opens), a changed topic retires it, «Annulla» dismisses it.
+    let topic = |text: &'static str| move |this: &mut Shell, _: &mut Window, cx: &mut Context<Shell>| {
+        let room = this.sidebar.selected().unwrap();
+        let summary = matrix_engine::RoomSummary {
+            scope: room.scope.clone(), name: room.name.clone(), unread: room.unread,
+            info: matrix_engine::RoomInfo { topic: Some(text.into()), ..room.info.clone() },
+        };
+        this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(summary)));
+        this.reconcile_topic_links();
+        cx.notify();
+    };
+    shell!(|this, window, cx| { open_panel(this, window, cx); topic("https://example.invalid/x")(this, window, cx); });
+    wait(500).await;
+    let spot = painted("room-topic");
+    click!(gpui::point(spot.left() + px(10.), spot.top() + px(8.)));
+    shell!(|this, _, _| {
+        let pending = this.topic_confirm.borrow().capture().expect("clicking the link asks for the confirmation");
+        assert_eq!(pending.url().as_str(), "https://example.invalid/x");
+    });
+    shell!(|this, window, cx| topic("altre parole https://example.invalid/x")(this, window, cx));
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_none(), "a changed topic retires the pending confirmation"));
+    wait(500).await;
+    let spot = painted("room-topic");
+    click!(gpui::point(spot.left() + px(5.), spot.top() + px(8.)));
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_none(), "words before the link are not a link"));
+    shell!(|this, window, cx| topic("https://example.invalid/x")(this, window, cx));
+    wait(500).await;
+    let spot = painted("room-topic");
+    click!(gpui::point(spot.left() + px(10.), spot.top() + px(8.)));
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_some()));
+    wait(400).await;
+    click!(painted("topic-link-cancel").center());
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_none(), "«Annulla» dismisses the confirmation"));
+    click!(gpui::point(spot.left() + px(10.), spot.top() + px(8.)));
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_some()));
+    shell!(|this, _, cx| { this.set_room_details_open(false); cx.notify(); });
+    shell!(|this, _, _| assert!(this.topic_confirm.borrow().capture().is_none(), "closing the panel retires the confirmation"));
 
     // 7. Regression: drawers and dialogs stay modal (a click on the scrim closes them and goes nowhere else).
     for what in ["menu", "settings", "groups", "room-edit"] {

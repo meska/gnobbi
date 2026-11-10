@@ -103,6 +103,7 @@ pub struct Sidebar {
     space: Option<RoomScope>,
     group: Option<String>,
     selected: Option<usize>,
+    keyboard_focus: Option<RoomScope>,
     /// Invitations whose answer is on its way, and those whose last answer failed.
     answering: std::collections::HashSet<RoomScope>,
     failed: std::collections::HashSet<RoomScope>,
@@ -126,6 +127,7 @@ impl Sidebar {
             show_empty: false,
             kept: Default::default(),
             selected: None,
+            keyboard_focus: None,
             space: None,
             group: None,
             answering: Default::default(),
@@ -247,6 +249,7 @@ impl Sidebar {
             show_empty: false,
             kept: Default::default(),
             selected: Some(0),
+            keyboard_focus: None,
             space: None,
             group: None,
             answering: Default::default(),
@@ -278,6 +281,7 @@ impl Sidebar {
     pub fn set_navigation_context(&mut self, account: AccountId, connected: bool) {
         let context = Some((account, connected));
         if self.navigation_context != context {
+            self.keyboard_focus = None;
             self.retire_navigation();
             self.navigation_context = context;
         }
@@ -286,6 +290,9 @@ impl Sidebar {
     pub fn set_navigation_visibility(&mut self, persistent: bool, visible: bool, menu_open: bool) {
         let visibility = (persistent, visible, !persistent && visible && menu_open);
         if self.navigation_visibility != visibility {
+            if !visible {
+                self.keyboard_focus = None;
+            }
             self.retire_navigation();
             self.navigation_visibility = visibility;
         }
@@ -382,9 +389,15 @@ impl Sidebar {
         }
     }
 
-    /// Outcome of «Esci». Success changes nothing here: the next sync removes the room.
+    /// Outcome of «Esci». The engine confirmed the leave with the server (or the SDK no longer has the room joined:
+    /// the sync projection has dropped it), so the row goes now and the selection moves like a sync `Remove`.
     pub fn room_left(&mut self, scope: &RoomScope, result: Result<(), matrix_engine::operations::OperationError>) {
         use matrix_engine::operations::OperationError::{Forbidden, Unavailable};
+        if matches!(result, Ok(()) | Err(Unavailable)) && !self.rooms.iter().any(|r| r.scope == *scope && r.info.invited) {
+            self.leave_error = None;
+            self.apply_diff(RoomListDiff::Remove(scope.clone()));
+            return;
+        }
         self.leave_error = result.err().map(|e| {
             let text = match e {
                 Forbidden => "Non consentito dal server",
@@ -612,6 +625,42 @@ impl Sidebar {
         // Invitations wait for an answer: first, whatever the order or the search.
         let rooms = &self.rooms;
         self.visible.sort_by_key(|&i| !rooms[i].info.invited);
+        if self.keyboard_focus.as_ref().is_some_and(|scope| self.position_of(scope).is_none()) {
+            self.keyboard_focus = None;
+        }
+    }
+
+    pub fn clear_focus(&mut self) {
+        self.keyboard_focus = None;
+    }
+
+    pub fn focus_room(&mut self, scope: &RoomScope) -> bool {
+        if self.position_of(scope).is_none() { return false; }
+        self.keyboard_focus = Some(scope.clone());
+        true
+    }
+
+    pub fn focused_room(&self) -> Option<&SidebarRoom> {
+        let position = self.position_of(self.keyboard_focus.as_ref()?)?;
+        Some(&self.rooms[self.visible[position]])
+    }
+
+    pub fn navigate_focus(&mut self, direction: Navigation) -> Option<usize> {
+        let last = self.visible.len().checked_sub(1)?;
+        let current = self.keyboard_focus.as_ref().and_then(|s| self.position_of(s));
+        let position = match direction {
+            Navigation::First => 0,
+            Navigation::Last => last,
+            Navigation::Next => current.map_or(0, |i| (i + 1).min(last)),
+            Navigation::Previous => current.map_or(last, |i| i.saturating_sub(1)),
+        };
+        self.keyboard_focus = Some(self.rooms[self.visible[position]].scope.clone());
+        Some(position)
+    }
+
+    /// Discard automatic selection without moving keyboard focus.
+    pub fn clear_selection(&mut self) {
+        self.selected = None;
     }
 
     /// Reject foreign account/room identities and rows outside the current filter.
@@ -626,6 +675,7 @@ impl Sidebar {
                 self.retire_navigation();
             }
             self.selected = Some(i);
+            self.keyboard_focus = Some(scope.clone());
             true
         } else {
             false
@@ -646,6 +696,7 @@ impl Sidebar {
             self.retire_navigation();
         }
         self.selected = Some(self.visible[position]);
+        self.keyboard_focus = Some(self.rooms[self.visible[position]].scope.clone());
         Some(position)
     }
 
@@ -1122,8 +1173,31 @@ mod invite_tests {
     }
 
     #[test]
+    fn successful_leave_removes_the_row_without_waiting_for_sync() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let room = scope(account, "!a:t.invalid");
+        upsert(&mut sidebar, account, "!a:t.invalid", "a", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        assert_eq!(sidebar.selected().map(|r| &r.scope), Some(&room));
+        sidebar.room_left(&room, Ok(()));
+        assert!(sidebar.rooms().iter().all(|r| r.scope != room));
+        assert!(sidebar.selected().is_none());
+    }
+
+    #[test]
+    fn a_room_the_sdk_no_longer_has_joined_is_dropped_not_reported_as_not_found() {
+        use matrix_engine::operations::OperationError::Unavailable;
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let a = scope(account, "!a:t.invalid");
+        upsert(&mut sidebar, account, "!a:t.invalid", "a", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
+        sidebar.room_left(&a, Err(Unavailable));
+        assert!(sidebar.rooms().is_empty() && sidebar.leave_error(&a).is_none());
+    }
+
+    #[test]
     fn a_failed_leave_shows_one_error_line_on_its_row_until_the_next_click() {
-        use matrix_engine::operations::OperationError::{Forbidden, Transport, Unavailable};
+        use matrix_engine::operations::OperationError::{Forbidden, Transport};
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         let (a, b) = (scope(account, "!a:t.invalid"), scope(account, "!b:t.invalid"));
@@ -1134,8 +1208,7 @@ mod invite_tests {
         assert_eq!(sidebar.leave_error(&b), None);
         sidebar.room_left(&a, Err(Forbidden));
         assert_eq!(sidebar.leave_error(&a), Some("Non consentito dal server"));
-        sidebar.room_left(&a, Err(Unavailable));
-        assert_eq!(sidebar.leave_error(&a), Some("Stanza non trovata"));
+        assert!(sidebar.rooms().iter().any(|r| r.scope == a), "a refused leave never removes the row");
         assert!(sidebar.select(&b));
         assert_eq!(sidebar.leave_error(&a), None);
         sidebar.room_left(&a, Err(Transport));

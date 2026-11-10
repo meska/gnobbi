@@ -19,7 +19,7 @@ fn server_names_follow_the_matrix_grammar() {
 
 #[test]
 fn request_carries_term_limit_since_and_server() {
-    let r = directory_request(" rust ", Some("remote.org:8448"), None, Some("tok".into()), 20).unwrap();
+    let r = directory_request(" rust ", Some("remote.org:8448"), None, Some("tok".into()), 20, None).unwrap();
     assert_eq!(r.server.as_deref().map(|s| s.as_str()), Some("remote.org:8448"));
     assert_eq!(r.filter.generic_search_term.as_deref(), Some("rust"));
     assert_eq!((r.limit.map(u64::from), r.since.as_deref()), (Some(20u64), Some("tok")));
@@ -29,10 +29,10 @@ fn request_carries_term_limit_since_and_server() {
 fn local_search_sends_no_server_and_no_empty_term() {
     let local = ServerName::parse("home.org").unwrap();
     for server in [None, Some("home.org")] {
-        let r = directory_request("  ", server, Some(&local), None, 20).unwrap();
+        let r = directory_request("  ", server, Some(&local), None, 20, None).unwrap();
         assert!(r.server.is_none() && r.filter.generic_search_term.is_none() && r.since.is_none());
     }
-    assert_eq!(directory_request("a", Some("not a server"), None, None, 20).err(), Some(InvalidServer));
+    assert_eq!(directory_request("a", Some("not a server"), None, None, 20, None).err(), Some(InvalidServer));
 }
 
 fn chunk(id: &str) -> matrix_sdk::ruma::directory::PublicRoomsChunk {
@@ -90,4 +90,20 @@ fn via_is_the_given_servers_else_the_room_id_server() {
     assert!(join_via(&alias, &[]).unwrap().is_empty());
     assert_eq!(names(join_via(&alias, &["via.org".into()]).unwrap()), ["via.org"]);
     assert_eq!(join_via(&id, &["bad server".into()]), Err(OperationError::InvalidInput));
+}
+
+#[test]
+fn kind_sets_the_room_types_filter_and_is_checked_on_each_chunk() {
+    use matrix_sdk::ruma::{directory::RoomTypeFilter, room::RoomType};
+    let filter = |k| directory_request("", None, None, None, 20, k).unwrap().filter.room_types;
+    assert!(filter(None).is_empty());
+    assert_eq!(filter(Some(DirectoryKind::Rooms)), vec![RoomTypeFilter::Default]);
+    assert_eq!(filter(Some(DirectoryKind::Spaces)), vec![RoomTypeFilter::Space]);
+    // A server that ignores the filter still gets its answer cut to the kind asked.
+    let (space, other) = (RoomType::Space, RoomType::from("org.example.x"));
+    assert!(kind_matches(None, Some(&space)) && kind_matches(None, None));
+    assert!(kind_matches(Some(DirectoryKind::Spaces), Some(&space)));
+    assert!(!kind_matches(Some(DirectoryKind::Spaces), None) && !kind_matches(Some(DirectoryKind::Spaces), Some(&other)));
+    assert!(kind_matches(Some(DirectoryKind::Rooms), None));
+    assert!(!kind_matches(Some(DirectoryKind::Rooms), Some(&space)) && !kind_matches(Some(DirectoryKind::Rooms), Some(&other)));
 }

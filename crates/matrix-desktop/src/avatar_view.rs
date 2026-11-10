@@ -118,7 +118,7 @@ impl crate::Shell {
             .filter_map(|room| room.info.avatar.as_deref());
         let people = self.people_avatars();
         let own = self.verification.profile_avatar();
-        let found = self.new_chat_avatars();
+        let found: Vec<String> = self.new_chat_avatars().into_iter().chain(self.quick_avatars()).collect();
         let mentions = self.composer.read(cx).mention_avatars();
         let wanted = mentions
             .iter()

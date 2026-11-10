@@ -325,7 +325,7 @@ impl Shell {
         let panel = side_panel("thread-panel", window, t)
             .child(div().h(px(t.header)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Thread"))
-                .child(div().id("thread-close").cursor_pointer().text_color(rgb(t.accent)).child("Chiudi")
+                .child(div().id("thread-close").w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer().hover(|s| s.bg(rgb(t.border))).child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
                     .on_click(cx.listener(|this, _, _, cx| { this.close_thread(); cx.notify(); }))))
             .child(div().id("thread-content").flex_1().min_h_0().overflow_y_scroll().track_scroll(&p.scroll)
                 .p_4().flex().flex_col().gap_4()

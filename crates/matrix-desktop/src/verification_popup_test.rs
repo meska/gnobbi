@@ -7,11 +7,12 @@
 use crate::*;
 use gpui::{Bounds, Keystroke, Pixels};
 use matrix_engine::verification::{VerificationAction, VerificationCommand, VerificationEvent, VerificationSnapshot, VerificationState};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 pub(crate) static ACTIVE: AtomicBool = AtomicBool::new(false);
 static FAILED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static SAMPLE: AtomicUsize = AtomicUsize::new(0);
 static CELLS: Mutex<[Option<Bounds<Pixels>>; 7]> = Mutex::new([None; 7]);
 static DIALOG: Mutex<Option<Bounds<Pixels>>> = Mutex::new(None);
 
@@ -29,9 +30,12 @@ pub(crate) fn observe_dialog() -> Option<gpui::AnyElement> {
     })
 }
 
-/// The seven emoji the SDK delivered on the disposable homeserver (names are the SDK's).
+/// Long names from the SDK's SAS table, exercised in two groups of seven.
 fn sample() -> Vec<(String, String)> {
-    [("💡", "Light Bulb"), ("🐱", "Cat"), ("🦋", "Butterfly"), ("🎅", "Santa"), ("🎧", "Headphone"), ("✏️", "Pencil"), ("✂️", "Scissors")]
+    [
+        [("💡", "Light Bulb"), ("🐱", "Cat"), ("🦋", "Butterfly"), ("🎅", "Santa"), ("🎧", "Headphones"), ("✏️", "Pencil"), ("✂️", "Scissors")],
+        [("☎️", "Telephone"), ("⌛", "Hourglass"), ("☂️", "Umbrella"), ("✈️", "Aeroplane"), ("🍄", "Mushroom"), ("📎", "Paperclip"), ("👍", "Thumbs Up")],
+    ][SAMPLE.load(Ordering::SeqCst)]
         .into_iter()
         .map(|(s, n)| (s.to_owned(), n.to_owned()))
         .collect()
@@ -75,7 +79,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         wait(500).await;
         let scale = cx.update(|window, _| window.scale_factor()).unwrap();
         let mut fails: Vec<String> = vec![];
-        macro_rules! check { ($c:expr, $($m:tt)+) => { if !$c { fails.push(format!("[x{scale}] {}", format!($($m)+))); } }; }
+        macro_rules! check { ($c:expr, $($m:tt)+) => {{ let ok = $c; if !ok { fails.push(format!("[x{scale}] {}", format!($($m)+))); } }}; }
         macro_rules! key { ($k:expr) => { { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap(); wait(150).await; } }; }
         let account = this.update_in(cx, |this, window, cx| {
             this.connected = true;
@@ -88,7 +92,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             (f32::from(s.width), f32::from(s.height))
         }).unwrap();
 
-        for (theme, name) in [(Theme::Classic, "light"), (Theme::Dark, "dark")] {
+        for (theme, name, group) in [(Theme::Classic, "light", 0), (Theme::Dark, "dark", 0), (Theme::Classic, "light", 1), (Theme::Dark, "dark", 1)] {
+            SAMPLE.store(group, Ordering::SeqCst);
             let t = theme.tokens();
             this.update_in(cx, |this, _, cx| {
                 this.set_theme(theme, cx);
@@ -100,7 +105,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             wait(600).await;
             let dir = std::env::var("SW_OUT").unwrap_or_else(|_| "/tmp/gui-out".into());
-            let path = format!("{dir}/popup-{name}-{scale}.png");
+            let path = format!("{dir}/popup-{name}-{scale}-{group}.png");
             let shot = std::process::Command::new("grim").arg(&path).status().map_err(|e| e.to_string()).and_then(|s| s.success().then_some(()).ok_or("grim failed".to_string()))
                 .and_then(|()| image::open(&path).map_err(|e| e.to_string())).map(|i| i.to_rgb8());
             let img = match shot {
@@ -112,11 +117,25 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let dialog = DIALOG.lock().unwrap().expect("dialog never painted");
             let (dl, dr, dt, db) = (f32::from(dialog.left()), f32::from(dialog.right()), f32::from(dialog.top()), f32::from(dialog.bottom()));
             check!(dl >= 0. && dt >= 0. && dr <= w + 0.5 && db <= h + 0.5, "{name}: dialog {dl},{dt}..{dr},{db} outside the {w}x{h} window");
+            // The canvas measures inside the one-pixel border on each side: 558 logical px, not physical screenshot pixels.
+            check!((dr - dl - 558.).abs() < 0.5, "{name}: expected 560 logical px popup including borders, inner width {} (physical screenshot scale {k})", dr - dl);
             let cells = *CELLS.lock().unwrap();
             for (i, cell) in cells.iter().enumerate() {
                 let Some(c) = cell else { check!(false, "{name}: emoji cell {i} never painted"); continue };
                 let (cl, cr, ct) = (f32::from(c.left()), f32::from(c.right()), f32::from(c.top()));
                 check!(cl >= dl - 0.5 && cr <= dr + 0.5 && f32::from(c.bottom()) <= db + 0.5, "{name}: emoji cell {i} leaves the dialog");
+                check!((ct - f32::from(cells[0].unwrap().top())).abs() < 0.5, "{name}: emoji cell {i} moved to another row");
+                if i > 0
+                    && let Some(previous) = cells[i - 1] {
+                    check!(f32::from(previous.right()) <= cl + 0.5, "{name}: emoji cells {} and {i} overlap in logical coordinates", i - 1);
+                }
+                match ink(&img, k, t.surface, (cl, cr), (ct + crate::verification_view::EMOJI_LINE, f32::from(c.bottom()))) {
+                    None => check!(false, "{name}: emoji name {i} not drawn"),
+                    Some((x0, x1, _, y1)) => {
+                        check!(x0 > cl && x1 < cr, "{name}: emoji name {i} touches cell edge (logical {x0}..{x1} in {cl}..{cr}; physical scale {k})");
+                        check!(y1 <= ct + crate::verification_view::EMOJI_LINE + 20., "{name}: {:?} paints below one line: logical bottom {y1}, cell top {ct}, physical scale {k}", sample()[i].1);
+                    }
+                }
                 // The glyph line of the cell: its ink must stay clear of the box edges, or the emoji is cut.
                 let (gt, gb) = (ct, ct + crate::verification_view::EMOJI_LINE);
                 match ink(&img, k, t.surface, (cl, cr), (gt, gb)) {

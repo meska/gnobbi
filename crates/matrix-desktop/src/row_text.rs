@@ -1,13 +1,15 @@
 //! One-line list text: shared by the chat list rows (and any other list that must not wrap).
 //! The row height comes from its content, so every row has the same height.
 
-pub const AVATAR_PX: f32 = 46.;
-pub const ROW_PAD_Y: f32 = 12.;
+pub const AVATAR_PX: f32 = 40.;
+pub const ROW_PAD_Y: f32 = matrix_domain::design::SPACING_LIST_ROW_PAD_Y;
+pub const LIST_PAD_X_PX: f32 = 10.;
+pub const AVATAR_GAP_PX: f32 = 10.;
 pub const NAME_PX: f32 = 15.;
 pub const NAME_LINE_PX: f32 = 20.;
 pub const PREVIEW_PX: f32 = 12.;
 pub const PREVIEW_LINE_PX: f32 = 16.;
-pub const TEXT_GAP_PX: f32 = 4.;
+pub const TEXT_GAP_PX: f32 = matrix_domain::design::SPACING_LIST_TEXT_GAP;
 /// Name row (badge or time sits inside it, never taller) + gap + preview row.
 pub const TEXT_BLOCK_PX: f32 = NAME_LINE_PX + TEXT_GAP_PX + PREVIEW_LINE_PX;
 pub const ROW_HEIGHT_PX: f32 = ROW_PAD_Y * 2.

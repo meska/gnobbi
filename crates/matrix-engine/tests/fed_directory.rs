@@ -7,7 +7,7 @@
 #![cfg(feature = "sdk")]
 use matrix_domain::AccountId;
 use matrix_engine::{
-    operations::{DirectoryRoom, OperationError, join_room, public_rooms},
+    operations::{DirectoryKind, DirectoryRoom, OperationError, join_room, public_rooms},
     sdk::{Client, reqwest::Certificate, sliding_sync::VersionBuilder},
     search::{DEBOUNCE, More, PAGE, Search, SearchError, SearchState, TIMEOUT},
 };
@@ -79,7 +79,7 @@ fn directory_search_end_to_end() {
             .build()
             .await
             .unwrap();
-        client.matrix_auth().login_username(&s("user"), &c["password"].as_str().unwrap()).send().await.unwrap();
+        client.matrix_auth().login_username(s("user"), c["password"].as_str().unwrap()).send().await.unwrap();
         let (home, remote, closed, down, run) = (s("home"), s("remote"), s("closed"), s("down"), s("run"));
         let calls = Arc::new(AtomicUsize::new(0));
         let make = |delay_for: Option<&'static str>| -> Rooms {
@@ -91,7 +91,7 @@ fn directory_search_end_to_end() {
                     if delay_for.is_some_and(|p| term.starts_with(p)) {
                         tokio::time::sleep(Duration::from_secs(2)).await;
                     }
-                    public_rooms(&client, &term, server.as_deref(), since, PAGE).await
+                    public_rooms(&client, &term, server.as_deref(), since, PAGE, None).await
                 }
             })
         };
@@ -120,7 +120,7 @@ fn directory_search_end_to_end() {
         report("local", format!("{} hits, origin {home}", local.len()));
 
         // 3. Second server (federated): found there, not locally; origin = that server.
-        search.set_query(&format!("gnobbifed"), Some(remote.clone()));
+        search.set_query("gnobbifed", Some(remote.clone()));
         let st = settled(&mut rx, 30).await;
         let rem = hits(&st).to_vec();
         // pub, id, knock and, on Tuwunel, the invite-only room; Synapse lists only public/knock rooms.
@@ -189,7 +189,7 @@ fn directory_search_end_to_end() {
         report("pagination", "20 + 5, no duplicates, more=None".into());
 
         // 7. Hits without name/alias/topic/avatar: the unnamed room is listed with a usable title.
-        let page = public_rooms(&client, "", Some(&remote), None, 100).await.expect("empty term list");
+        let page = public_rooms(&client, "", Some(&remote), None, 100, None).await.expect("empty term list");
         let bare = page.hits.iter().find(|h| h.room_id == s("bare_id")).expect("unnamed room listed");
         assert!(bare.alias.is_none() && bare.topic.is_none() && bare.avatar_url.is_none() && !bare.name.trim().is_empty());
         report("bare-hit", format!("name falls back to {:?}, members {}", bare.name, bare.members));
@@ -210,7 +210,7 @@ fn directory_search_end_to_end() {
             let before = calls.load(Ordering::SeqCst);
             let t0 = std::time::Instant::now();
             // 5 s is plenty for a relayed 502; longer = the SDK is retrying it (see the second test).
-            let Ok(r) = tokio::time::timeout(Duration::from_secs(5), public_rooms(&client, "gnobbi", Some(name), None, PAGE)).await else {
+            let Ok(r) = tokio::time::timeout(Duration::from_secs(5), public_rooms(&client, "gnobbi", Some(name), None, PAGE, None)).await else {
                 println!("ERRMAP {label}: still retrying after 5 s (expected {want:?}) -> dead_server_answers_unreachable_not_timeout");
                 continue;
             };
@@ -235,7 +235,7 @@ fn directory_search_end_to_end() {
         // 9. Joins: result with via, pasted alias (no via), invite/knock refused in one error kind.
         let account = AccountId::new(1);
         let joined = |id: &str| client.get_room(<&matrix_engine::sdk::ruma::RoomId>::try_from(id).unwrap()).is_some_and(|r| r.state() == matrix_engine::sdk::RoomState::Joined);
-        join_room(&client, account, &pubr.room_id, &[pubr.origin.clone()]).await.expect("join by room_id + via");
+        join_room(&client, account, &pubr.room_id, std::slice::from_ref(&pubr.origin)).await.expect("join by room_id + via");
         assert!(joined(&pubr.room_id));
         join_room(&client, account, &s("pub_alias"), &[]).await.expect("join by pasted alias");
         assert!(!joined(&idr.room_id));
@@ -248,11 +248,11 @@ fn directory_search_end_to_end() {
         } else {
             bare.expect("server taken from the room id");
         }
-        join_room(&client, account, &idr.room_id, &[idr.origin.clone()]).await.expect("join by room_id + via");
+        join_room(&client, account, &idr.room_id, std::slice::from_ref(&idr.origin)).await.expect("join by room_id + via");
         assert!(joined(&idr.room_id));
         let mut refusals = Vec::new();
         for (label, id) in [("invite-only", s("invite_id")), ("knock", knock.room_id.clone())] {
-            let e = join_room(&client, account, &id, &[remote.clone()]).await.expect_err(label);
+            let e = join_room(&client, account, &id, std::slice::from_ref(&remote)).await.expect_err(label);
             refusals.push(format!("{label}: {e:?}"));
             assert_eq!(e, OperationError::Forbidden, "{label}");
             assert!(!joined(&id));
@@ -264,6 +264,18 @@ fn directory_search_end_to_end() {
         for r in &refusals {
             println!("JOINERR {r}");
         }
+
+        // 9b. «Suggerimenti» of the quick search: one page of the second server with an empty term, rooms
+        // apart from spaces (the server's filter or ours), and a join straight from a suggestion.
+        let page = public_rooms(&client, "", Some(&remote), None, PAGE, Some(DirectoryKind::Rooms)).await.expect("suggestions");
+        assert_eq!(page.hits.len(), PAGE as usize, "one page");
+        assert!(page.next_batch.is_some() && page.hits.iter().all(|h| h.room_id != s("space_id") && h.origin == remote));
+        let spaces = public_rooms(&client, "", Some(&remote), None, PAGE, Some(DirectoryKind::Spaces)).await.expect("spaces");
+        assert_eq!(spaces.hits.iter().map(|h| h.room_id.as_str()).collect::<Vec<_>>(), [s("space_id")]);
+        let pick = page.hits.iter().find(|h| h.join_rule == "public" && !joined(&h.room_id)).expect("a public room not joined yet");
+        join_room(&client, account, &pick.room_id, std::slice::from_ref(&pick.origin)).await.expect("join from a suggestion");
+        assert!(joined(&pick.room_id));
+        report("suggestions", format!("{} rooms (more: {}), 1 space, join from a suggestion", page.hits.len(), page.next_batch.is_some()));
 
         // 10. Slow remote (SIGSTOP): our request gives up at TIMEOUT with Timeout, and recovers on SIGCONT.
         let pid = c["remote_pid"].as_u64().unwrap().to_string();
@@ -320,11 +332,11 @@ fn dead_server_answers_unreachable_not_timeout() {
             .build()
             .await
             .unwrap();
-        client.matrix_auth().login_username(&s("user"), c["password"].as_str().unwrap()).send().await.unwrap();
+        client.matrix_auth().login_username(s("user"), c["password"].as_str().unwrap()).send().await.unwrap();
         let mut bad = Vec::new();
         for name in [s("down"), "127.0.0.9:9".to_owned(), "gnobbi-test-nonexistent.invalid".to_owned()] {
             let t0 = std::time::Instant::now();
-            let r = tokio::time::timeout(TIMEOUT, public_rooms(&client, "gnobbi", Some(&name), None, PAGE)).await;
+            let r = tokio::time::timeout(TIMEOUT, public_rooms(&client, "gnobbi", Some(&name), None, PAGE, None)).await;
             println!("DEAD {name}: {:?} after {:?}", r.as_ref().map(|r| r.as_ref().err().copied()), t0.elapsed());
             bad.extend((!(matches!(r, Ok(Err(SearchError::Unreachable))) && t0.elapsed() < Duration::from_secs(10))).then_some(name));
         }

@@ -91,7 +91,6 @@ fn secondary_label_is_bridge_else_matrix_id() {
     assert_eq!(hit("b").secondary, "@b:s");
     assert_eq!(hit("b").avatar.as_deref(), Some("mxc://s/av"));
     assert_eq!(hit("c").secondary, "!c:s");
-    assert_eq!(index.section(), Section::Local);
 }
 
 #[test]
@@ -247,4 +246,92 @@ fn view_entries_find_dm_by_matrix_id_contact_and_room_by_alias_even_with_empty_s
     assert_eq!(names(&index, "bianchi"), ["Roberta Bianchi"]);
     assert_eq!(names(&index, "#officina:matrix-desktop.test"), ["Officina"]);
     assert_eq!(names(&index, "#bottega"), ["Officina"]);
+}
+
+#[test]
+fn chip_keys_and_user_requests() {
+    let chip = Some(Category::People);
+    assert_eq!(Category::People.chip_label(), "Filtro: Persone");
+    // Esc: chip first, then close. Backspace removes the chip only on an empty field.
+    assert!(!escape_closes(chip) && escape_closes(None));
+    assert!(backspace_removes_chip(chip, "") && !backspace_removes_chip(chip, "a"));
+    assert!(!backspace_removes_chip(None, ""));
+    // Empty field (with or without chip): no request until something was sent.
+    assert_eq!(user_request("", None), None);
+    assert_eq!(user_request("an", None).as_deref(), Some("an"));
+    assert_eq!(user_request("an", Some("an")), None);
+    assert_eq!(user_request("", Some("an")).as_deref(), Some(""));
+}
+
+#[test]
+fn users_are_capped_at_five_without_chip_and_complete_with_it() {
+    use matrix_desktop::new_chat::Entry as U;
+    let users = || {
+        (0..8)
+            .map(|i| U {
+                user_id: format!("@u{i}:s"),
+                name: (i % 2 == 0).then(|| format!("U{i}")),
+                avatar: None,
+                direct: false,
+            })
+            .collect::<Vec<_>>()
+    };
+    let capped = user_hits(users(), None);
+    assert_eq!(capped.len(), USERS_LIMIT);
+    assert_eq!(user_hits(users(), Some(Category::People)).len(), 8);
+    // Display name when there is one, else the ID; the ID is always the secondary label.
+    assert_eq!((capped[0].name.as_str(), capped[0].secondary.as_str()), ("U0", "@u0:s"));
+    assert_eq!(capped[1].name, "@u1:s");
+    assert_eq!(capped[1].id, "@u1:s");
+}
+
+fn dir_room(id: &str, n: u64) -> matrix_engine::operations::DirectoryRoom {
+    matrix_engine::operations::DirectoryRoom {
+        room_id: id.into(),
+        alias: Some(format!("#{id}:x.org")),
+        name: id.into(),
+        topic: None,
+        members: n,
+        avatar_url: None,
+        world_readable: false,
+        guest_can_join: false,
+        join_rule: "public".into(),
+        origin: "x.org".into(),
+    }
+}
+
+#[test]
+fn entries_follow_element_and_directory_ones_carry_a_kind() {
+    use matrix_engine::operations::DirectoryKind::{Rooms, Spaces};
+    let labels: Vec<_> = Category::ALL.iter().map(|c| c.label()).collect();
+    assert_eq!(labels, ["Spazi pubblici", "Stanze pubbliche", "Persone"]);
+    let kinds: Vec<_> = Category::ALL.iter().map(|c| c.kind()).collect();
+    assert_eq!(kinds, [Some(Spaces), Some(Rooms), None]);
+}
+
+#[test]
+fn directory_is_not_asked_before_a_category_or_a_typed_term() {
+    use matrix_engine::operations::DirectoryKind::{Rooms, Spaces};
+    // No chip: nothing for an empty or one-letter field.
+    assert_eq!(room_request(None, "", None), None);
+    assert_eq!(room_request(None, " a ", None), None);
+    // No chip, typed: the active account's server (never the selector's), rooms only.
+    assert_eq!(room_request(None, " rust ", Some("other.org".into())), Some(("rust".into(), None, Some(Rooms))));
+    // Chip: asks at once; an empty field is «Suggerimenti» (empty term) of the chosen server.
+    let other = Some("other.org".to_string());
+    assert_eq!(room_request(Some(Category::Spaces), "", other.clone()), Some((String::new(), other.clone(), Some(Spaces))));
+    assert_eq!(room_request(Some(Category::Rooms), "r", None), Some((String::new(), None, Some(Rooms))));
+    assert_eq!(room_request(Some(Category::Rooms), "rust", other.clone()), Some(("rust".into(), other, Some(Rooms))));
+    // People are the user search's business.
+    assert_eq!(room_request(Some(Category::People), "anna", None), None);
+}
+
+#[test]
+fn directory_rows_are_capped_and_show_alias_and_members() {
+    let rooms: Vec<_> = (0..8).map(|i| dir_room(&format!("r{i}"), 1 + i)).collect();
+    let five = room_hits(&rooms, ROOMS_LIMIT);
+    assert_eq!(five.len(), 5);
+    assert_eq!((five[0].id.as_str(), five[0].secondary.as_str()), ("r0", "#r0:x.org · 1 membro"));
+    assert_eq!(five[1].secondary, "#r1:x.org · 2 membri");
+    assert_eq!(room_hits(&rooms, usize::MAX).len(), 8);
 }

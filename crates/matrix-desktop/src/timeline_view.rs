@@ -48,6 +48,8 @@ type RowLayout = (
     bool,
 );
 
+/// Painted bounds of user mention pills, by message and start in its text.
+type PillBounds = Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, usize), Bounds<Pixels>>>>;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 type SemanticBounds = Rc<RefCell<std::collections::HashMap<ScopedTimelineId, Bounds<Pixels>>>>;
 
@@ -110,9 +112,10 @@ fn profile_target(
     base: gpui::Stateful<gpui::Div>,
     user_id: String,
     want: Rc<RefCell<Option<String>>>,
-    painted: impl Fn(Bounds<Pixels>) + 'static,
+    painted: &(impl Fn(Bounds<Pixels>) + Clone + 'static),
     child: impl IntoElement,
 ) -> gpui::Stateful<gpui::Div> {
+    let painted = painted.clone();
     base.relative().cursor_pointer()
         .on_click(move |_, window, _| {
             *want.borrow_mut() = Some(user_id.clone());
@@ -181,8 +184,10 @@ pub struct TimelineView {
     link_cursor: Rc<Cell<Option<u64>>>,
     /// Keyboard stop on a user mention pill: its message and the pill's start in the text.
     pill_cursor: Rc<RefCell<Option<(ScopedTimelineId, usize)>>>,
-    pill_bounds: Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, usize), Bounds<Pixels>>>>,
+    pill_bounds: PillBounds,
     link_hover: Rc<Cell<Option<u64>>>,
+    /// Row whose user mention pill (the clickable kind) is under the mouse.
+    pill_hover: Rc<RefCell<Option<ScopedTimelineId>>>,
     pub(crate) viewing: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Full-resolution picture of the open large view (loading, ready or failed).
     pub(crate) original:
@@ -337,6 +342,7 @@ impl TimelineView {
     }
 
     /// The key typed in the field, handed over once; the shell queues it and nothing keeps it.
+    #[cfg(any(feature = "live", all(test, feature = "linux-a11y", target_os = "linux")))]
     pub fn take_recovery_key(&self) -> Option<zeroize::Zeroizing<String>> {
         self.recover.borrow_mut().take_submitted()
     }
@@ -387,6 +393,7 @@ impl TimelineView {
             pill_cursor: Rc::default(),
             pill_bounds: Rc::default(),
             link_hover: Rc::default(),
+            pill_hover: Rc::default(),
             viewing: Rc::default(),
             original: Rc::default(),
             want_original: Rc::default(),
@@ -1106,7 +1113,7 @@ impl TimelineView {
                 .borrow()
                 .events()
                 .iter()
-                .any(|e| e.id == *request.source().event() && e.text == request.source().text())
+                .any(|e| Some(&e.id) == request.source().event() && e.text == request.source().text())
         {
             return false;
         }
@@ -1163,12 +1170,15 @@ impl TimelineView {
             .borrow()
             .events()
             .iter()
-            .any(|e| e.id == *intent.target.event() && e.text == intent.target.text())
+            .any(|e| Some(&e.id) == intent.target.event() && e.text == intent.target.text())
             || !self.link_sources.borrow_mut().focus(&intent.target)
         {
             return false;
         }
-        if !self.focus_semantic_message(intent.target.event(), window) {
+        let Some(event) = intent.target.event() else {
+            return false;
+        };
+        if !self.focus_semantic_message(event, window) {
             return false;
         }
         self.link_cursor.set(Some(intent.target.instance()));
@@ -1618,6 +1628,8 @@ impl TimelineView {
         operations: Option<Rc<RefCell<matrix_desktop::LiveOperations>>>,
         cx: &gpui::App,
     ) -> impl IntoElement {
+        // Width of a no-break space in the body font (14 px): the avatar gap is measured on this platform.
+        let space = window.text_system().advance(window.text_system().resolve_font(&window.text_style().font()), px(14.), '\u{a0}').map_or(0., |s| f32::from(s.width));
         let keys = input_modality::is_keyboard(cx); // rings only after a key; the cursors below also feed the a11y tree
         let history = self.history.clone();
         let live = self.live;
@@ -1701,6 +1713,7 @@ impl TimelineView {
         let pill_cursor = self.pill_cursor.clone();
         let self_pill_bounds = self.pill_bounds.clone();
         let link_hover = self.link_hover.clone();
+        let pill_hover = self.pill_hover.clone();
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
         let images = self.images.clone();
@@ -1804,7 +1817,7 @@ impl TimelineView {
                             None => div().flex().items_center().justify_center().size(px(SENDER_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(12.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
                         };
                         match &sender_user {
-                            Some(user) => profile_target(div().id(("sender-avatar", index)).flex_shrink_0(), user.clone(), want_profile.clone(), profile_bounds.clone(), avatar).into_any_element(),
+                            Some(user) => profile_target(div().id(("sender-avatar", index)).flex_shrink_0(), user.clone(), want_profile.clone(), &profile_bounds, avatar).into_any_element(),
                             None => avatar,
                         }
                     });
@@ -1915,7 +1928,7 @@ impl TimelineView {
                         let painted: crate::recover_keys_view::Painted = Rc::new(|_, _| ());
                         crate::recover_keys_view::row(index, &event.id, t, (&recover, &recover_field, &recover_focus), painted, cx)
                     }).flatten();
-                    let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions);
+                    let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions, &matrix_desktop::mention_gaps::avatar_gap(space));
                     let gaps = Rc::new(gaps);
                     let mut body = StyledText::new(drawn);
                     let pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions).collect();
@@ -2005,6 +2018,10 @@ impl TimelineView {
                     let (pill_bounds, pill_event, accent) = (self_pill_bounds.clone(), event.id.clone(), t.accent);
                     let up_pills: Vec<_> = pill_paint.iter().filter_map(|(r, _, _, _, uid, _)| uid.clone().map(|u| (r.clone(), u))).collect();
                     let up_want = want_profile.clone();
+                    let over_pill = pill_hover.borrow().as_ref() == Some(&event.id);
+                    let move_pills = up_pills.clone();
+                    let move_pill_hover = pill_hover.clone();
+                    let move_pill_id = event.id.clone();
                     let down_requested = requested_link.clone();
                     let up_requested = requested_link.clone();
                     let status = match event.send_state {
@@ -2066,12 +2083,12 @@ impl TimelineView {
                                 .when_some(sender_label, |d, name| d.child(div().flex().mb_1().child({
                                     let base = div().id(("sender-name", index)).text_size(px(12.)).line_height(px(16.)).font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent));
                                     match &sender_user {
-                                        Some(user) => profile_target(base, user.clone(), want_profile.clone(), profile_bounds.clone(), name),
+                                        Some(user) => profile_target(base, user.clone(), want_profile.clone(), &profile_bounds, name),
                                         None => base.child(name),
                                     }
                                 })))
                                 .child(div().id(("message-text", index))
-                                    .cursor(if hovered_url.is_some() { gpui::CursorStyle::PointingHand } else { gpui::CursorStyle::IBeam })
+                                    .cursor(if hovered_url.is_some() || over_pill { gpui::CursorStyle::PointingHand } else { gpui::CursorStyle::IBeam })
                                     .when_some(hovered_url, |d, url| d.tooltip(move |_, cx| cx.new(|_| LinkTooltip { url: url.clone(), surface: tip_surface, border: tip_border, text: tip_text }).into()))
                                     .on_mouse_down(MouseButton::Left, move |e, window, cx| {
                                         let ix = down_layout.index_for_position(e.position).unwrap_or_else(|ix| ix);
@@ -2159,8 +2176,14 @@ impl TimelineView {
                                         let targets = move_targets.clone();
                                         let hover = move_hover.clone();
                                         let hover_layout = move_layout.clone();
+                                        let (pills, pill_hover, pill_id) = (move_pills.clone(), move_pill_hover.clone(), move_pill_id.clone());
                                         window.on_mouse_event(move |e: &gpui::MouseMoveEvent, phase, window, _| {
                                             if phase == gpui::DispatchPhase::Bubble {
+                                                let on_pill = hover_layout.index_for_position(e.position).is_ok_and(|ix| pills.iter().any(|(r, _)| r.contains(&ix)));
+                                                if on_pill != (pill_hover.borrow().as_ref() == Some(&pill_id)) {
+                                                    *pill_hover.borrow_mut() = on_pill.then(|| pill_id.clone());
+                                                    window.refresh();
+                                                }
                                                 let over = hover_layout.index_for_position(e.position).ok().and_then(|ix| matrix_desktop::link_at(&targets, ix)).map(|t| t.instance());
                                                 if over != hover.get() && (over.is_some() || targets.iter().any(|t| hover.get() == Some(t.instance()))) {
                                                     hover.set(over);
@@ -2539,7 +2562,7 @@ fn event_id_copy_callback(
 }
 
 // Capture at paint, not dispatch: a queued callback must never read a newer request.
-fn confirmation_callbacks(
+pub(crate) fn confirmation_callbacks(
     confirmation: Rc<RefCell<LinkConfirmation>>,
     sources: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     request: matrix_desktop::LinkConfirmationRequest,
@@ -3132,8 +3155,7 @@ mod tests {
                             video: Some(VideoInfo {
                                 duration_ms: Some(12_000),
                                 size: Some(1_468_006),
-                                #[cfg(feature = "live")]
-                                thumbnail: None,
+                                ..Default::default()
                             }),
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
@@ -3481,6 +3503,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "live")]
     fn poll_with(multiple: bool, ended: bool, own: &[&str]) -> matrix_domain::Poll {
         let a = |id: &str| matrix_domain::PollAnswer { id: id.into(), text: id.into(), votes: 1, own: own.contains(&id) };
         matrix_domain::Poll {

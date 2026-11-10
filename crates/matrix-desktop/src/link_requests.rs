@@ -1,16 +1,23 @@
 //! Source-bound link occurrences, never an external-opening capability.
 use crate::{LinkConfirmation, SafeWebUrl, message_links};
-use matrix_domain::ScopedTimelineId;
+use matrix_domain::{RoomScope, ScopedTimelineId};
 use std::{
     collections::HashMap,
     ops::Range,
     sync::atomic::{AtomicU64, Ordering},
 };
 
+/// Where a link's text lives: a timeline message or the open room's topic.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum LinkSource {
+    Timeline(ScopedTimelineId),
+    RoomTopic(RoomScope),
+}
+
 #[derive(Clone)]
 pub struct MessageLinkTarget {
     instance: u64,
-    event: ScopedTimelineId,
+    source: LinkSource,
     text: String,
     range: Range<usize>,
     url: SafeWebUrl,
@@ -20,8 +27,15 @@ impl MessageLinkTarget {
     pub fn instance(&self) -> u64 {
         self.instance
     }
-    pub fn event(&self) -> &ScopedTimelineId {
-        &self.event
+    pub fn source(&self) -> &LinkSource {
+        &self.source
+    }
+    /// The timeline event; None for a room topic.
+    pub fn event(&self) -> Option<&ScopedTimelineId> {
+        match &self.source {
+            LinkSource::Timeline(event) => Some(event),
+            LinkSource::RoomTopic(_) => None,
+        }
     }
     pub fn text(&self) -> &str {
         &self.text
@@ -36,14 +50,25 @@ impl MessageLinkTarget {
 
 #[derive(Default)]
 pub struct MessageLinkRequests {
-    sources: HashMap<ScopedTimelineId, Vec<MessageLinkTarget>>,
+    sources: HashMap<LinkSource, Vec<MessageLinkTarget>>,
 }
 
 impl MessageLinkRequests {
     pub fn targets(&mut self, event: &ScopedTimelineId, text: &str) -> Vec<MessageLinkTarget> {
+        self.source_targets(LinkSource::Timeline(event.clone()), text)
+    }
+
+    /// The topic is the only source of a topic registry: any other source is dropped.
+    pub fn topic_targets(&mut self, scope: &RoomScope, text: &str) -> Vec<MessageLinkTarget> {
+        let source = LinkSource::RoomTopic(scope.clone());
+        self.sources.retain(|id, _| *id == source);
+        self.source_targets(source, text)
+    }
+
+    fn source_targets(&mut self, source: LinkSource, text: &str) -> Vec<MessageLinkTarget> {
         if self
             .sources
-            .get(event)
+            .get(&source)
             .is_none_or(|links| links.first().is_none_or(|l| l.text != text))
         {
             let links = message_links(text)
@@ -55,20 +80,21 @@ impl MessageLinkRequests {
                         .expect("link instance IDs exhausted");
                     MessageLinkTarget {
                         instance,
-                        event: event.clone(),
+                        source: source.clone(),
                         text: text.to_owned(),
                         range: link.range,
                         url: link.url,
                     }
                 })
                 .collect();
-            self.sources.insert(event.clone(), links);
+            self.sources.insert(source.clone(), links);
         }
-        self.sources[event].clone()
+        self.sources[&source].clone()
     }
 
     pub fn retain_event(&mut self, event: &ScopedTimelineId) {
-        self.sources.retain(|id, _| id == event);
+        self.sources
+            .retain(|id, _| matches!(id, LinkSource::Timeline(e) if e == event));
     }
 
     pub fn clear(&mut self) {
@@ -81,6 +107,9 @@ impl MessageLinkRequests {
     ) {
         let current: HashMap<_, _> = events.into_iter().collect();
         self.sources.retain(|id, links| {
+            let LinkSource::Timeline(id) = id else {
+                return false;
+            };
             current
                 .get(id)
                 .is_some_and(|text| links.first().is_some_and(|l| l.text == *text))
@@ -89,7 +118,7 @@ impl MessageLinkRequests {
 
     pub fn is_current(&self, target: &MessageLinkTarget) -> bool {
         self.sources
-            .get(&target.event)
+            .get(&target.source)
             .is_some_and(|links| links.iter().any(|l| l.instance == target.instance))
     }
 
@@ -97,7 +126,7 @@ impl MessageLinkRequests {
         if !self.is_current(target) {
             return false;
         }
-        self.retain_event(target.event());
+        self.sources.retain(|id, _| *id == target.source);
         true
     }
 

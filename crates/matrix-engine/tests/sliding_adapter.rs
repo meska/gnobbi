@@ -402,7 +402,7 @@ async fn reorder_probe(
                                     r.info.preview,
                                 );
                             }
-                            seen.rooms.insert(r.scope.room_id.as_str().to_owned(), r);
+                            seen.rooms.insert(r.scope.room_id.as_str().to_owned(), *r);
                         }
                         RoomListEvent::Diff(RoomListDiff::Remove(s)) => { seen.rooms.remove(s.room_id.as_str()); }
                         _ => {}

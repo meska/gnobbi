@@ -47,6 +47,8 @@ pub const LAYOUT: Layout = Layout {
 
 pub const SPACING_ROW_PAD_Y: f32 = 12.;
 pub const SPACING_TEXT_GAP: f32 = 4.;
+pub const SPACING_LIST_ROW_PAD_Y: f32 = 6.;
+pub const SPACING_LIST_TEXT_GAP: f32 = 2.;
 pub const SCRIM: u32 = 0x00000066;
 pub const AVATAR_FALLBACK: u32 = 0x53936b;
 pub const DEMO_NOTICE: &str = "DEMO OFFLINE · nessun account connesso";

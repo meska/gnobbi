@@ -57,6 +57,11 @@ pub(crate) fn start_background(
         let Some(store_id) = profile.active_account() else {
             continue;
         };
+        // Another window (the "Add account" process) holds the store: the unlock would fail
+        // as Storage and the row would claim the sign-in is lost. Leave it out instead.
+        if store_busy(&root, store_id) {
+            continue;
+        }
         let trust = trust.clone();
         let Ok((mut worker, events)) =
             matrix_engine::room_sync::RoomListWorker::spawn(move || async move {
@@ -84,6 +89,13 @@ pub(crate) fn start_background(
         workers.push(worker);
     }
     (workers, accounts, active)
+}
+
+/// Whether another window has this account's store open (its `.lock` is taken).
+#[cfg(feature = "live")]
+fn store_busy(root: &std::path::Path, id: AccountId) -> bool {
+    use matrix_engine::persistence::{AccountStore, StoreError};
+    matches!(AccountStore::open(root, id), Err(StoreError::Busy))
 }
 
 /// Why a switch to a parked account cannot happen, or None when it can.
@@ -143,18 +155,29 @@ impl Shell {
         else {
             return;
         };
+        self.open_alert(id, scope, window, cx);
+    }
+
+    /// Dispatch of one already decoded click (the real wrapper above and the Shell tests share it).
+    pub(crate) fn open_alert(
+        &mut self,
+        id: Option<AccountId>,
+        scope: RoomScope,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         window.activate_window();
         match id.filter(|id| Some(*id) != self.active_id) {
             None => {
                 if self.sidebar.select(&scope) {
+                    self.restore.cancel();
                     self.sync_room(cx);
                     cx.notify();
                 }
             }
             Some(id) => {
-                if let Some(state) = self.parked.get_mut(&id) {
-                    state.open_room(&scope);
-                    self.switch_account(id, window, cx);
+                if self.parked.contains_key(&id) {
+                    self.switch_account_with_room(id, Some(&scope), window, cx);
                 }
             }
         }
@@ -227,6 +250,16 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.switch_account_with_room(id, None, window, cx);
+    }
+
+    fn switch_account_with_room(
+        &mut self,
+        id: AccountId,
+        room: Option<&RoomScope>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.active_id == Some(id) {
             self.set_menu_open(false, window, cx);
             return;
@@ -258,6 +291,11 @@ impl Shell {
         self.put_state(next);
         self.active_id = Some(id);
         self.clear_account_views(cx);
+        self.restore.reset();
+        if let Some(room) = room && self.sidebar.select(room) {
+            self.restore.cancel();
+        }
+        self.restore_last_room(cx); // arms for the new account; its room may already be listed
         self.sync_room(cx);
         cx.notify();
     }
@@ -320,5 +358,26 @@ mod tests {
             assert!(!m.is_empty() && !m.contains('\n') && m.chars().count() <= 30);
         }
         assert_ne!(all[0], all[1]);
+    }
+
+    /// A store held by another window is reported busy; free or missing ones are not.
+    #[cfg(feature = "live")]
+    #[test]
+    fn store_held_by_another_window_is_busy() {
+        use std::os::unix::fs::DirBuilderExt;
+        let root = std::env::temp_dir().join(format!("gnobbi-busy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut dir = std::fs::DirBuilder::new();
+        dir.mode(0o700).recursive(true);
+        dir.create(root.join("account-5")).unwrap();
+        // The store insists on a canonical path (macOS temp is behind a symlink).
+        let root = root.canonicalize().unwrap();
+        let id = AccountId::new(5);
+        assert!(!store_busy(&root, id));
+        let held = matrix_engine::persistence::AccountStore::open(&root, id).unwrap();
+        assert!(store_busy(&root, id));
+        drop(held);
+        assert!(!store_busy(&root, id));
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

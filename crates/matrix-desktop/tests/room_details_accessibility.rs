@@ -80,6 +80,8 @@ fn panel() -> DetailsSnapshot {
         bounds: [None; 6],
         hide_status: false,
         hide_redacted: false,
+        links: vec![],
+        confirmation: None,
     }
 }
 
@@ -110,6 +112,11 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
             "missing readable label value: {label}"
         );
     }
+    let close = &tree.nodes.iter().find(|(id, _)| *id == DetailsControl::Close.id()).unwrap().1;
+    assert_eq!(close.role(), Role::Button);
+    assert_eq!(close.label(), Some("Chiudi informazioni stanza"));
+    assert!(close.supports_action(accesskit::Action::Click));
+    assert!(close.supports_action(accesskit::Action::Focus));
     let copy = &tree
         .nodes
         .iter()
@@ -405,4 +412,35 @@ fn details_switches_never_rename_and_show_on_when_the_content_is_visible() {
             "hide_status={hide_status} hide_redacted={hide_redacted}"
         );
     }
+}
+
+#[test]
+fn topic_links_are_link_children_of_the_unchanged_topic_node() {
+    use accesskit::{Action, ActionRequest, TreeId};
+    use matrix_desktop::{
+        MessageLinkRequests,
+        accessibility::{details::{DetailsAction, DetailsView}, links::Snapshot},
+    };
+    let mut panel = panel();
+    let text = "Vedi https://example.invalid/x";
+    panel.info.topic = Some(text.into());
+    let target = MessageLinkRequests::default().topic_targets(&panel.scope, text)[0].clone();
+    panel.links = vec![Snapshot { target: target.clone(), bounds: None, focused: false, requested: false }];
+    let scope = panel.scope.clone();
+    let tree = panel.tree();
+    let topic = &tree.nodes.iter().find(|(id, _)| *id == DetailsControl::Topic.id()).unwrap().1;
+    assert_eq!((topic.role(), topic.label(), topic.description()), (Role::ScrollView, Some("Argomento"), None));
+    assert!(topic.supports_action(Action::Focus) && !topic.supports_action(Action::Click));
+    let link_id = panel.links[0].id();
+    assert_eq!(topic.children(), [link_id]);
+    let link = &tree.nodes.iter().find(|(id, _)| *id == link_id).unwrap().1;
+    assert_eq!((link.role(), link.url()), (Role::Link, Some("https://example.invalid/x")));
+    let view = DetailsView::Open(Box::new(panel));
+    let request = |action, node| ActionRequest { action, target_tree: TreeId::ROOT, target_node: node, data: None };
+    let instance = target.instance();
+    assert_eq!(view.action(&request(Action::Click, link_id)), Some(DetailsAction::Link { scope: scope.clone(), instance, focus_only: false }));
+    assert_eq!(view.action(&request(Action::Focus, link_id)), Some(DetailsAction::Link { scope, instance, focus_only: true }));
+    // A node of a link the panel no longer lists leads nowhere.
+    let gone = DetailsView::Open(Box::new(crate::panel()));
+    assert_eq!(gone.action(&request(Action::Click, link_id)), None);
 }

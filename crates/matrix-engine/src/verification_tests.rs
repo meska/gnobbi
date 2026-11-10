@@ -86,8 +86,14 @@ fn disposable_verification_request_is_scoped_and_untrusted() {
 }
 
 async fn verification_pair(config: &serde_json::Value) -> (AccountSession, matrix_sdk::Client) {
+    verification_pair_via(config, config).await
+}
+
+/// `via` is the homeserver config the client under test (alice, account 23) logs in with: the
+/// fixture fault proxy for fault tests, otherwise the server itself. Every other client is direct.
+async fn verification_pair_via(config: &serde_json::Value, via: &serde_json::Value) -> (AccountSession, matrix_sdk::Client) {
     let (_room, _alice, peer) = encrypted_pair(config).await;
-    let session = login(config, "alice", 23).await;
+    let session = login(via, "alice", 23).await;
     let client = session.client.as_ref().unwrap();
     client
         .encryption()
@@ -444,6 +450,161 @@ fn serve(client: &matrix_sdk::Client, account: u64, tasks: &mut Vec<tokio::task:
     (command_tx, event_rx)
 }
 
+#[test]
+#[ignore = "requires disposable Synapse; needs the external test harness (not in this repo)"]
+fn disposable_verification_busy_rejects_the_second_request() {
+    use crate::verification::VerificationState as State;
+    runtime().block_on(async {
+        let config = fixture();
+        let (alice, peer) = verification_pair(&config).await;
+        let client = alice.client.as_ref().unwrap();
+        md_bootstrap(client, "alice", config["alice_password"].as_str().unwrap()).await;
+        md_bootstrap(&peer, "bob", config["bob_password"].as_str().unwrap()).await;
+        client.create_dm(peer.user_id().unwrap()).await.unwrap();
+        peer_sync(&peer).await;
+        for room in peer.invited_rooms() {
+            room.join().await.unwrap();
+        }
+        peer_sync(&peer).await;
+        verification_sync(client).await;
+        let other = login(&config, "alice", 25).await;
+        let other_client = other.client.as_ref().unwrap();
+        other_client.encryption().wait_for_e2ee_initialization_tasks().await;
+        peer_sync(other_client).await;
+        verification_sync(client).await;
+        peer_sync(other_client).await;
+        let mut tasks = Vec::new();
+        let mut route = serve(client, 23, &mut tasks);
+        let first_peer = other.request_device_verification(client.user_id().unwrap().as_str(), client.device_id().unwrap().as_str()).await.unwrap();
+        let first = service_snapshot("first active", &mut route, |s| *s == State::Requested).await;
+        assert_eq!(first.flow_id, first_peer.snapshot().await.unwrap().flow_id);
+        let bob = AccountSession { account_id: AccountId::new(24), client: Some(peer.clone()), store: None };
+        let second = bob.request_user_verification(client.user_id().unwrap().as_str()).await.unwrap();
+        let second_id = second.snapshot().await.unwrap().flow_id;
+        assert_ne!(first.flow_id, second_id);
+        tokio::time::timeout(std::time::Duration::from_secs(12), async {
+            loop {
+                peer_sync(&peer).await;
+                if second.snapshot().await.unwrap().state == State::Cancelled { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }).await.expect("second request must be explicitly cancelled by the service");
+        assert_eq!(first_peer.snapshot().await.unwrap().state, State::Waiting);
+        tasks.iter().for_each(|t| t.abort());
+    });
+}
+
+/// One command to the fixture fault proxy (see the fault_proxy script); blocking commands
+/// run off the runtime thread so the service and sync tasks keep going.
+async fn proxy_control(config: &serde_json::Value, command: &str) -> String {
+    let (port, command) = (config["proxy_control"].as_u64().unwrap() as u16, command.to_owned());
+    tokio::task::spawn_blocking(move || {
+        use std::io::{BufRead, Write};
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        writeln!(stream, "{command}").unwrap();
+        let mut reply = String::new();
+        std::io::BufReader::new(stream).read_line(&mut reply).unwrap();
+        reply.trim().to_owned()
+    })
+    .await
+    .unwrap()
+}
+
+/// The busy-rejection scenario with alice's client behind the fault proxy. With `fault`, after the
+/// first request is `Requested` and before bob's second one, the proxy fails the verification
+/// route (room send or sendToDevice, whichever alice's service uses first) with 503 until the
+/// client gives up, then restores it. Only sanitized routes and counters are printed.
+async fn busy_through_proxy(fault: bool, peer_cancels_meanwhile: bool) {
+    use crate::verification::VerificationState as State;
+    let config = fixture();
+    let mut via = config.clone();
+    via["url"] = config["proxy_url"].clone();
+    let (alice, peer) = verification_pair_via(&config, &via).await;
+    let client = alice.client.as_ref().unwrap();
+    md_bootstrap(client, "alice", config["alice_password"].as_str().unwrap()).await;
+    md_bootstrap(&peer, "bob", config["bob_password"].as_str().unwrap()).await;
+    client.create_dm(peer.user_id().unwrap()).await.unwrap();
+    peer_sync(&peer).await;
+    for room in peer.invited_rooms() {
+        room.join().await.unwrap();
+    }
+    peer_sync(&peer).await;
+    verification_sync(client).await;
+    let other = login(&config, "alice", 25).await;
+    let other_client = other.client.as_ref().unwrap();
+    other_client.encryption().wait_for_e2ee_initialization_tasks().await;
+    peer_sync(other_client).await;
+    verification_sync(client).await;
+    peer_sync(other_client).await;
+    let mut tasks = Vec::new();
+    let mut route = serve(client, 23, &mut tasks);
+    let first_peer = other.request_device_verification(client.user_id().unwrap().as_str(), client.device_id().unwrap().as_str()).await.unwrap();
+    let first = service_snapshot("first active", &mut route, |s| *s == State::Requested).await;
+    assert_eq!(first.flow_id, first_peer.snapshot().await.unwrap().flow_id);
+    if fault {
+        assert_eq!(proxy_control(&config, "arm").await, "ok armed", "harness: proxy not armed");
+    }
+    let bob = AccountSession { account_id: AccountId::new(24), client: Some(peer.clone()), store: None };
+    let mut second = bob.request_user_verification(client.user_id().unwrap().as_str()).await.unwrap();
+    assert_ne!(first.flow_id, second.snapshot().await.unwrap().flow_id);
+    if fault {
+        let hit = proxy_control(&config, "wait_hit 1").await;
+        assert!(hit.starts_with("hit "), "harness: the service never reached the faulted route: {hit}");
+        println!("TRACE first fault: {hit}");
+        // The service re-sends the refusal: keep failing until it has retried, then restore the route.
+        let retried = proxy_control(&config, "wait_hit 3").await;
+        assert!(retried.starts_with("hit "), "harness: the service did not retry the refusal: {retried}");
+        println!("TRACE retried: {retried}");
+        if peer_cancels_meanwhile {
+            // The peer closes its own pending request while the refusal is still unsent: nothing may reopen or break.
+            second.perform(crate::verification::VerificationAction::Cancel).await.unwrap();
+        }
+        println!("TRACE {}", proxy_control(&config, "disarm").await);
+    }
+    let cancelled = tokio::time::timeout(std::time::Duration::from_secs(if fault { 25 } else { 12 }), async {
+        loop {
+            peer_sync(&peer).await;
+            if second.snapshot().await.unwrap().state == State::Cancelled { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }).await.is_ok();
+    println!("TRACE proxy {}", proxy_control(&config, "stats").await);
+    assert!(proxy_control(&config, "stats").await.contains("\"errors\": []"), "harness: proxy error");
+    assert!(cancelled, "RED: after the route was restored the peer's second request never got an outcome");
+    assert_eq!(first_peer.snapshot().await.unwrap().state, State::Waiting);
+    // A new request after the closure is a new transaction and is refused on its own.
+    let third = bob.request_user_verification(client.user_id().unwrap().as_str()).await.unwrap();
+    assert_ne!(third.snapshot().await.unwrap().flow_id, second.snapshot().await.unwrap().flow_id);
+    let third_closed = tokio::time::timeout(std::time::Duration::from_secs(12), async {
+        loop {
+            peer_sync(&peer).await;
+            if third.snapshot().await.unwrap().state == State::Cancelled { break; }
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }).await.is_ok();
+    tasks.iter().for_each(|t| t.abort());
+    assert!(third_closed, "a new request after the closure got no outcome");
+    assert_eq!(first_peer.snapshot().await.unwrap().state, State::Waiting);
+}
+
+#[test]
+#[ignore = "requires disposable Synapse and the fault proxy; needs the external test harness (not in this repo)"]
+fn disposable_verification_busy_via_proxy_healthy_network() {
+    runtime().block_on(busy_through_proxy(false, false));
+}
+
+#[test]
+#[ignore = "requires disposable Synapse and the fault proxy; needs the external test harness (not in this repo)"]
+fn disposable_verification_busy_via_proxy_targeted_fault() {
+    runtime().block_on(busy_through_proxy(true, false));
+}
+
+#[test]
+#[ignore = "requires disposable Synapse and the fault proxy; needs the external test harness (not in this repo)"]
+fn disposable_verification_busy_via_proxy_targeted_fault_peer_cancels() {
+    runtime().block_on(busy_through_proxy(true, true));
+}
+
 /// «Verifica utente» from alice to bob; bob's request arrives only through the service's event handler.
 /// Returns both services at the comparison step (nothing confirmed yet).
 async fn services_at_comparison(
@@ -523,8 +684,9 @@ fn disposable_verification_user_request_mismatch_and_cancel_through_the_service(
         for route in [&mut a, &mut b] {
             let s = service_snapshot("mismatch", route, |s| *s == State::Mismatched).await;
             assert!(!s.device_verified);
+            route.0.send(Command::Release { target: s.target() }).await.unwrap_or_else(|_| panic!("command rejected"));
         }
-        // A terminal flow frees the service: a new request is accepted, then cancelled.
+        // Closing a terminal flow frees the service for a new request.
         a.0.send(Command::BeginUser { account_id: AccountId::new(23), user_id: "@bob:matrix-desktop.test".into() }).await.unwrap_or_else(|_| panic!("command rejected"));
         let again = service_snapshot("step 7 a", &mut a, |s| *s == State::Waiting).await;
         a.0.send(Command::Act { target: again.target(), action: Action::Cancel }).await.unwrap_or_else(|_| panic!("command rejected"));

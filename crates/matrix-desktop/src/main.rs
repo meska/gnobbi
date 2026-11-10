@@ -62,6 +62,8 @@ mod details_panel_test;
 #[cfg(test)]
 mod dialog_typing_test;
 #[cfg(test)]
+mod quick_answer_test;
+#[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;
@@ -87,7 +89,11 @@ use matrix_desktop::{
 };
 use matrix_domain::{AccountId, RoomScope};
 use matrix_engine::{RoomListEvent, RoomSyncStatus};
-use std::collections::HashMap;
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+};
 use timeline_view::TimelineView;
 
 // GPUI owns projections only. Optional live restore and sync run on a worker.
@@ -123,6 +129,7 @@ struct Shell {
     room_edit: Option<room_edit_view::RoomEdit>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
+    restore: matrix_desktop::last_room_restore::LastRoomRestore,
     groups_edit: Option<groups_edit_view::GroupsEdit>,
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
     refocus_menu: bool,
@@ -261,6 +268,11 @@ struct Shell {
     info_scrollbar: scrollbar_view::Scrollbar,
     topic_scroll: UniformListScrollHandle, // same trick as info_scroll: only its base ScrollHandle
     topic_scrollbar: scrollbar_view::Scrollbar,
+    // Links of the «Argomento» text: their own registry and confirmation, never the timeline's.
+    topic_links: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
+    topic_confirm: Rc<RefCell<matrix_desktop::LinkConfirmation>>,
+    topic_pressed: Rc<Cell<Option<u64>>>,
+    topic_hover: Rc<Cell<Option<u64>>>,
 }
 
 impl Shell {
@@ -370,12 +382,13 @@ impl Shell {
             if let matrix_desktop::accessibility::NavigationAction::LinkConfirmation(intent) =
                 &action
             {
-                if intent.request.source().event().scope == this.active_scope
+                if let Some(event) = intent.request.source().event()
+                    && event.scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
                     && this
                         .sidebar
                         .selected()
-                        .is_some_and(|room| room.scope == intent.request.source().event().scope)
+                        .is_some_and(|room| room.scope == event.scope)
                     && let Some(timeline) = &this.timeline
                 {
                     timeline.apply_confirmation(intent, window, cx);
@@ -467,12 +480,13 @@ impl Shell {
                 continue;
             }
             if let matrix_desktop::accessibility::NavigationAction::MessageLink(intent) = &action {
-                if intent.target.event().scope == this.active_scope
+                if let Some(event) = intent.target.event()
+                    && event.scope == this.active_scope
                     && (window.viewport_size().width >= px(800.) || this.compact_chat)
                     && this
                         .sidebar
                         .selected()
-                        .is_some_and(|room| room.scope == intent.target.event().scope)
+                        .is_some_and(|room| room.scope == event.scope)
                     && let Some(timeline) = &this.timeline
                 {
                     timeline.apply_link(intent, window);
@@ -1011,11 +1025,12 @@ impl Shell {
                 cx.stop_propagation();
                 return;
             }
+            // Without the a11y ring «Argomento» is the only scrollable part of the panel, so it owns the arrows.
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-            if self.profile.is_none()
-                && self.details_focus == matrix_desktop::accessibility::details::DetailsControl::Topic
-                && self.topic_scroll_key(&key.key)
-            {
+            let topic_focused = self.details_focus == matrix_desktop::accessibility::details::DetailsControl::Topic;
+            #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+            let topic_focused = true;
+            if self.profile.is_none() && topic_focused && self.topic_scroll_key(&key.key) {
                 cx.notify();
                 cx.stop_propagation();
                 return;
@@ -1336,6 +1351,16 @@ impl Shell {
     }
 
     fn sync_room(&mut self, cx: &mut Context<Self>) {
+        // Arm before the first event: a slow sync must not open (and save) the first row.
+        if self.connected {
+            let (account, prefs) = (self.draft_scope().account_id, &self.room_prefs);
+            self.restore
+                .arm(account, || prefs.last_open_room(account));
+        }
+        // Waiting for the saved room: opening the auto-selected first row would mark it read.
+        if self.restore.waiting() {
+            return;
+        }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if !self
             .sidebar
@@ -1352,6 +1377,7 @@ impl Shell {
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
                 self.active_scope = request.tag.scope().clone();
+                self.remember_last_room();
                 self.note_seen();
                 let draft_scope = self.draft_scope();
                 self.composer
@@ -1389,6 +1415,48 @@ impl Shell {
             self.saved_timelines
                 .insert(self.active_scope.clone(), previous);
             self.active_scope = scope;
+            self.remember_last_room();
+        }
+    }
+
+    /// Reopens the saved room of the active account once listed. Compact layout: the list stays the
+    /// screen (no `set_compact_chat`), the room is only selected and scrolled into view.
+    fn restore_last_room(&mut self, cx: &mut Context<Self>) {
+        if !self.connected {
+            return;
+        }
+        let account = self.active_scope.account_id;
+        let saved = self.draft_scope().account_id;
+        let (prefs, sidebar) = (&self.room_prefs, &mut self.sidebar);
+        let opened = self.restore.poll(
+            saved,
+            || prefs.last_open_room(saved),
+            |room| {
+                let scope = RoomScope { account_id: account, room_id: room.clone() };
+                sidebar.is_joined(&scope) && sidebar.select(&scope)
+            },
+        );
+        if opened.is_none() && self.restore.waiting() {
+            self.sidebar.clear_selection();
+        }
+        if let Some(room) = opened {
+            self.sync_room(cx);
+            let scope = RoomScope { account_id: account, room_id: room };
+            if let Some(position) = self.sidebar.position_of(&scope) {
+                self.scroll.scroll_to_item(position, ScrollStrategy::Top);
+            }
+            cx.notify();
+        }
+    }
+
+    /// Called only when the user changes room; writes the file only if the value changed.
+    fn remember_last_room(&mut self) {
+        if !self.restore.waiting()
+            && self.room_prefs.set_last_open_room(&self.draft_scope())
+            && let Some(dirs) = &self.prefs_dirs
+            && let Err(error) = self.room_prefs.save(dirs)
+        {
+            eprintln!("Gnobbi: cannot save room preferences: {error}");
         }
     }
 
@@ -1427,16 +1495,31 @@ impl Shell {
         if self.room_search_typing(&key.modifiers, window, cx) {
             return;
         }
+        if self.connected {
+            let account = self.draft_scope().account_id;
+            self.restore.arm(account, || self.room_prefs.last_open_room(account));
+        }
         let searching = self.search_focus.is_focused(window);
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if self.list_focus.is_focused(window)
             && !key.modifiers.control
             && !key.modifiers.alt
             && !key.modifiers.platform
             && !key.modifiers.shift
-            && let Some(intent) = self.a11y_rooms.activation_key(&self.sidebar, &key.key)
+            && matches!(key.key.as_str(), "enter" | "space")
         {
-            self.apply_semantic_room(intent, false, window, cx);
+            let target = self.sidebar.focused_room()
+                .or_else(|| (!self.restore.waiting()).then(|| self.sidebar.selected()).flatten())
+                .map(|room| (room.scope.clone(), room.info.invited));
+            if let Some((scope, invited)) = target {
+                if invited {
+                    if key.key == "enter" { self.answer_invite(scope, true, cx); }
+                } else if self.sidebar.select(&scope) {
+                    self.restore.cancel();
+                    self.sync_room(cx);
+                    if window.viewport_size().width < px(800.) { self.set_compact_chat(true); }
+                    cx.notify();
+                }
+            }
             return;
         }
         if !searching
@@ -1454,6 +1537,7 @@ impl Shell {
                         .is_some_and(|selected| selected.scope == self.sidebar.rooms()[index].scope)
                 })
             {
+                self.restore.cancel();
                 self.sidebar.navigate(Navigation::First);
             }
             if !self.sidebar.visible_indices().is_empty() {
@@ -1512,10 +1596,18 @@ impl Shell {
             _ => None,
         };
         if let Some(direction) = direction {
-            if let Some(position) = self.sidebar.navigate(direction) {
+            let waiting = self.restore.waiting();
+            let position = if waiting {
+                self.sidebar.navigate_focus(direction)
+            } else {
+                self.sidebar.navigate(direction)
+            };
+            if let Some(position) = position {
                 self.scroll.scroll_to_item(position, ScrollStrategy::Top);
             }
-            self.sync_room(cx);
+            if !waiting {
+                self.sync_room(cx);
+            }
             cx.notify();
             return;
         }
@@ -1587,6 +1679,7 @@ impl Shell {
     }
 
     /// Vote on option `ix`: the state comes from the Timeline, we only send the new answers.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     fn vote_poll(&mut self, id: &matrix_domain::ScopedTimelineId, ix: usize) {
         #[cfg(feature = "live")]
         if let matrix_domain::TimelineId::Server(target) = &id.id
@@ -1657,6 +1750,8 @@ impl Shell {
         self.flush_user_search();
         self.flush_room_search();
         self.flush_directory();
+        self.flush_quick_users();
+        self.flush_quick_rooms();
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
@@ -2262,10 +2357,7 @@ impl Shell {
                                                     let source = &semantic_rooms[position];
                                                     this.room_observer(matrix_desktop::accessibility::RoomIntent { id: source.id, scope: source.scope.clone(), revision: source.revision }, cx)
                                                 };
-                                                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                                                let focused = this.a11y_rooms.focused(&this.sidebar).map_or(selected, |target| *target == scope);
-                                                #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-                                                let focused = selected;
+                                                let focused = this.sidebar.focused_room().map_or(selected, |target| target.scope == scope);
                                                 div()
                                             .id(i)
                                             .relative()
@@ -2300,6 +2392,7 @@ impl Shell {
                                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                                 let Some(scope) = callback(&this.a11y_rooms, &this.sidebar) else { return; };
                                                 if !this.sidebar.select(&scope) { return; }
+                                                this.restore.cancel();
                                                 this.sync_room(cx);
                                                 this.set_compact_chat(true);
                                                 this.list_focus.focus(window);
@@ -2309,8 +2402,8 @@ impl Shell {
                                             .items_center()
                                             .h(px(matrix_desktop::row_text::ROW_HEIGHT_PX))
                                             .flex_shrink_0()
-                                            .px_4()
-                                            .gap_3()
+                                            .px(px(matrix_desktop::row_text::LIST_PAD_X_PX))
+                                            .gap(px(matrix_desktop::row_text::AVATAR_GAP_PX))
                                             .bg(rgb(background))
                                             .child(match this.avatars.get(room.info.avatar.as_deref()) {
                                                 Some(image) => avatar_view::round(image, matrix_desktop::row_text::AVATAR_PX),
@@ -2529,9 +2622,8 @@ impl Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
-            .children(self.poll_dialog.clone().map(|dialog| {
+            .children(self.poll_dialog.clone().inspect(|dialog| {
                 dialog.update(cx, |d, _| d.theme = t);
-                dialog
             }))
             .children(self.render_quick_search(t, cx))
             .children(self.render_room_edit(t, window, cx))
@@ -2885,23 +2977,10 @@ fn main() {
                         cx.spawn(async move |this, cx| {
                             loop {
                                 executor.timer(std::time::Duration::from_millis(16)).await;
-                                let Ok(matrix_desktop::Drained {
-                                    events,
-                                    media,
-                                    verifications,
-                                    operations,
-                                    deliveries,
-                                    pages,
-                                    closed,
-                                }) = this.update(cx, |this: &mut Shell, cx| {
-                                    this.pump_parked();
-                                    this.finish_removals(cx);
-                                    this.routes.drain()
-                                }) else {
-                                    break;
-                                };
                                 if this
                                     .update(cx, |this: &mut Shell, cx| {
+                                        this.pump_parked();
+                                        this.finish_removals(cx);
                                         #[cfg(feature = "live")]
                                         if let Some(signin) = &this.signin
                                             && let Some(account) = signin.update(cx, |view, cx| view.poll(cx)) {
@@ -2914,6 +2993,7 @@ fn main() {
                                             this.composer.update(cx, |editor, cx| editor.switch_room(this.active_scope.clone(), cx));
                                             cx.notify();
                                         }
+                                        let matrix_desktop::Drained { events, media, verifications, operations, deliveries, pages, closed } = this.routes.drain();
                                         let failed = this
                                             .notification_handle
                                             .as_ref()
@@ -3043,6 +3123,7 @@ fn main() {
                                                     }
                                                     let anchor = this.reading_anchor();
                                                     this.sidebar.apply_diff(diff);
+                                                    this.reconcile_topic_links();
                                                     this.open_started_room(cx);
                                                     this.keep_reading_position(anchor);
                                                 }
@@ -3079,6 +3160,8 @@ fn main() {
                                         {
                                             this.status = RoomSyncStatus::SyncFailed;
                                         }
+                                        // After the diffs: the saved room is picked before any other opens.
+                                        this.restore_last_room(cx);
                                         if changed {
                                             this.sync_room(cx);
                                             this.read_dirty |= !pages.is_empty();
@@ -3130,9 +3213,9 @@ fn main() {
                                         if let Some((sender, _)) = &mut this.routes.send {
                                             this.delivery.borrow_mut().flush(sender);
                                         }
+                                        closed
                                     })
-                                    .is_err()
-                                    || closed
+                                    .unwrap_or(true)
                                 {
                                     break;
                                 }
@@ -3292,6 +3375,7 @@ fn main() {
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
                         pending_open: None,
+                        restore: Default::default(),
                         groups_edit: None,
                         refocus_menu: false,
                         refocus_list: false,
@@ -3449,6 +3533,10 @@ fn main() {
                         info_scrollbar: Default::default(),
                         topic_scroll: UniformListScrollHandle::new(),
                         topic_scrollbar: Default::default(),
+                        topic_links: Default::default(),
+                        topic_confirm: Default::default(),
+                        topic_pressed: Default::default(),
+                        topic_hover: Default::default(),
                     }
                 });
                 let weak = shell.downgrade();

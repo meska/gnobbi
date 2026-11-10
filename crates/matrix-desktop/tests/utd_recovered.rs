@@ -28,7 +28,7 @@ fn undecryptable_row_becomes_readable_in_place() {
     let mut h = DemoHistory::new(scope, 0);
     h.append_server(vec![ev("Cifrato · chiavi non disponibili", true)]);
     assert!(h.events()[0].utd);
-    assert!(h.refresh_server(vec![ev("Cifrato · chiavi non disponibili", true)]) == false, "unchanged");
+    assert!(!h.refresh_server(vec![ev("Cifrato · chiavi non disponibili", true)]), "unchanged");
     assert!(h.refresh_server(vec![ev("recover old", false)]), "the body changed");
     assert_eq!(h.events().len(), 1);
     assert_eq!(h.events()[0].text, "recover old");

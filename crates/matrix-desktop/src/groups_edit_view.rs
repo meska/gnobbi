@@ -179,7 +179,16 @@ impl Shell {
                             }
                             cx.stop_propagation();
                         }))
-                        .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child("Gruppi"))
+                        .child(
+                            div().flex().items_center().justify_between()
+                                .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child("Gruppi"))
+                                .child(
+                                    div().id("groups-close").w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
+                                        .hover(|s| s.bg(rgb(t.border)))
+                                        .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
+                                        .on_click(cx.listener(|this, _, window, cx| this.close_groups_edit(window, cx))),
+                                ),
+                        )
                         .child(div().flex().flex_wrap().gap_1().children(tags.into_iter().enumerate().map(|(i, tag)| {
                             let on = tag == edit.selected;
                             let label = matrix_desktop::group_label(&tag);
@@ -225,12 +234,7 @@ impl Shell {
                                     }))
                             })),
                         )
-                        .when(edit.error, |d| d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child("Non riuscito. Riprova.")))
-                        .child(
-                            div().flex().justify_end().child(
-                                button("groups-close", "Chiudi", t.accent).on_click(cx.listener(|this, _, window, cx| this.close_groups_edit(window, cx))),
-                            ),
-                        ),
+                        .when(edit.error, |d| d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child("Non riuscito. Riprova."))),
                 )
                 .into_any_element(),
         )

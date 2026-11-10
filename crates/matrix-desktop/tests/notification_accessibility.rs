@@ -217,11 +217,11 @@ fn notification_dialog_exports_current_checkbox_states_and_privacy_text() {
         node.value()
             .is_some_and(|s| s.contains("Servizio OS non disponibile"))
     }));
-    assert!(
-        tree.nodes
-            .iter()
-            .any(|(id, node)| *id == CLOSE && node.supports_action(Action::Click))
-    );
+    let close = &tree.nodes.iter().find(|(id, _)| *id == CLOSE).unwrap().1;
+    assert_eq!(close.role(), Role::Button);
+    assert_eq!(close.label(), Some("Chiudi notifiche"));
+    assert!(close.supports_action(Action::Click));
+    assert!(close.supports_action(Action::Focus));
     assert!(matches!(
         panel().action(&request(ENABLED)),
         Some(NotificationAction::SetEnabled(true))

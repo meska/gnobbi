@@ -84,6 +84,11 @@ impl SavedServers {
         }
     }
 
+    /// The account is gone: its servers must not stay in `settings.json`.
+    pub fn remove_account(&mut self, account: u64) {
+        self.0.remove(&account);
+    }
+
     pub fn remove(&mut self, account: u64, server: &str) {
         if let Some(list) = self.0.get_mut(&account) {
             list.retain(|s| s != server);
@@ -352,6 +357,16 @@ mod tests {
             choices("a.org", &[], &v(&["A.org", "a.org:8448", "z.org", "z.org"])),
             v(&["a.org", "A.org", "a.org:8448", "z.org", "matrix.org"])
         );
+    }
+
+    #[test]
+    fn removing_an_account_drops_only_its_servers() {
+        let mut store = SavedServers::default();
+        store.add(1, "a.org");
+        store.add(2, "b.org");
+        store.remove_account(1);
+        assert!(store.for_account(1).is_empty());
+        assert_eq!(store.for_account(2), ["b.org"]);
     }
 
     fn picker(saved: &[&str]) -> ServerPicker {

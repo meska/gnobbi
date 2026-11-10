@@ -75,7 +75,9 @@ impl SendVisit {
 /// File or image waiting to be sent with the draft text as caption.
 struct Pending {
     filename: String,
+    #[cfg(feature = "live")]
     data: Vec<u8>,
+    #[cfg(feature = "live")]
     voice: Option<matrix_engine::sending::Voice>,
 }
 /// Bound on a file read into memory for the SDK upload, whatever the server allows.
@@ -118,6 +120,7 @@ pub struct ComposerView {
     picker_focus: FocusHandle,
     picker_selected: Rc<Cell<usize>>,
     /// The drawer's «Chiudi» focus, shared with `picker_view`.
+    #[cfg(any(test, all(feature = "linux-a11y", target_os = "linux")))]
     picker_close_focus: FocusHandle,
     /// Dropping the task cancels the pending hover close.
     hover_close: Option<Task<()>>,
@@ -171,6 +174,7 @@ impl ComposerView {
             picker: Picker::default(),
             picker_view,
             picker_focus,
+            #[cfg(any(test, all(feature = "linux-a11y", target_os = "linux")))]
             picker_close_focus,
             picker_selected,
             hover_close: None,
@@ -720,9 +724,13 @@ impl ComposerView {
                     Some((filename, Some(data))) => {
                         this.attachment = Some(Pending {
                             filename,
+                            #[cfg(feature = "live")]
                             data,
+                            #[cfg(feature = "live")]
                             voice: None,
                         });
+                        #[cfg(not(feature = "live"))]
+                        let _ = data;
                         this.attach_error = None;
                     }
                     _ => this.attach_error = Some("File non allegabile"),
@@ -744,7 +752,9 @@ impl ComposerView {
         let ext = ext.split('+').next().unwrap_or(ext);
         self.attachment = Some(Pending {
             filename: format!("immagine.{ext}"),
+            #[cfg(feature = "live")]
             data: image.bytes.clone(),
+            #[cfg(feature = "live")]
             voice: None,
         });
         self.attach_error = None;
@@ -793,7 +803,9 @@ impl ComposerView {
                 Some(note) => {
                     self.attachment = Some(Pending {
                         filename: note.filename,
+                        #[cfg(feature = "live")]
                         data: note.data,
+                        #[cfg(feature = "live")]
                         voice: note.voice,
                     });
                     self.submit(cx);
@@ -2807,7 +2819,7 @@ mod tests {
                         frame().await;
                     }};
                 }
-                with!(|v, _, cx| v.set_live(true));
+                with!(|v, _, _| v.set_live(true));
                 with!(|v, w, cx| v.picker_click(true, w, cx));
                 key!("right");
                 key!("enter");
@@ -2966,7 +2978,7 @@ mod tests {
                     }
                     v.draft.replace(None, text);
                     if std::env::var("COMPOSER_TEST_ATTACHMENT").as_deref() == Ok("1") {
-                        v.attachment = Some(Pending { filename: "a.txt".into(), data: vec![1], voice: None });
+                        v.attachment = Some(Pending { filename: "a.txt".into(), #[cfg(feature = "live")] data: vec![1], #[cfg(feature = "live")] voice: None });
                     }
                     v.changed(cx);
                     v.focus.focus(window);
@@ -3479,7 +3491,7 @@ mod tests {
     #[ignore = "requires private display"]
     fn removing_the_attachment_while_send_is_focused_returns_focus_to_the_field() {
         rendered_composer("", |v, window, cx| {
-            v.attachment = Some(Pending { filename: "a.txt".into(), data: vec![1], voice: None });
+            v.attachment = Some(Pending { filename: "a.txt".into(), #[cfg(feature = "live")] data: vec![1], #[cfg(feature = "live")] voice: None });
             v.send_focus.focus(window);
             assert!(v.send_visible() && v.send_focus.is_focused(window));
             v.attachment = None;

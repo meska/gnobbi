@@ -161,6 +161,8 @@ pub enum OperationCommand {
     SearchRooms {
         term: String,
         server: Option<String>,
+        /// Only rooms or only spaces; with an empty `term` the directory's first page («Suggerimenti»).
+        kind: Option<DirectoryKind>,
     },
     /// «Altri risultati» of the running room search.
     MoreRooms,
@@ -307,6 +309,24 @@ pub enum OperationResult {
         request: OperationRequest,
         result: Result<EventId, OperationError>,
     },
+}
+
+/// What a directory search lists: rooms (`room_types: [null]`) or spaces (`["m.space"]`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DirectoryKind {
+    Rooms,
+    Spaces,
+}
+
+/// Some servers ignore the `room_types` filter: the answer is checked on each chunk's own type too.
+#[cfg(feature = "sdk")]
+pub fn kind_matches(kind: Option<DirectoryKind>, room_type: Option<&matrix_sdk::ruma::room::RoomType>) -> bool {
+    use matrix_sdk::ruma::room::RoomType;
+    match kind {
+        None => true,
+        Some(DirectoryKind::Spaces) => room_type == Some(&RoomType::Space),
+        Some(DirectoryKind::Rooms) => room_type.is_none(),
+    }
 }
 
 /// One public-directory hit.
@@ -647,6 +667,7 @@ pub fn directory_request(
     local: Option<&matrix_sdk::ruma::ServerName>,
     since: Option<String>,
     limit: u32,
+    kind: Option<DirectoryKind>,
 ) -> Result<matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered::v3::Request, crate::search::SearchError> {
     let mut request = matrix_sdk::ruma::api::client::directory::get_public_rooms_filtered::v3::Request::new();
     request.server = match server.map(parse_server).transpose()? {
@@ -656,6 +677,11 @@ pub fn directory_request(
     request.limit = Some(limit.into());
     request.since = since;
     request.filter.generic_search_term = Some(term.trim().to_owned()).filter(|t| !t.is_empty());
+    request.filter.room_types = match kind {
+        None => Vec::new(),
+        Some(DirectoryKind::Rooms) => vec![matrix_sdk::ruma::directory::RoomTypeFilter::Default],
+        Some(DirectoryKind::Spaces) => vec![matrix_sdk::ruma::directory::RoomTypeFilter::Space],
+    };
     Ok(request)
 }
 
@@ -711,20 +737,25 @@ pub async fn public_rooms(
     server: Option<&str>,
     since: Option<String>,
     limit: u32,
+    kind: Option<DirectoryKind>,
 ) -> Result<crate::search::Page<DirectoryRoom>, crate::search::SearchError> {
     let local = client.user_id().map(|u| u.server_name().to_owned());
-    let request = directory_request(term, server, local.as_deref(), since, limit)?;
+    let request = directory_request(term, server, local.as_deref(), since, limit, kind)?;
     let origin = request.server.as_ref().map(ToString::to_string).or_else(|| local.map(|l| l.to_string())).unwrap_or_default();
     // The SDK retries 5xx; a home server's 502 for a dead remote must surface at once, not as a 20 s timeout.
     let response = client.send(request).with_request_config(matrix_sdk::config::RequestConfig::new().disable_retry()).await.map_err(|e| {
         let api = e.as_client_api_error();
         directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind())
     })?;
+    let mut response = response;
+    response.chunk.retain(|d| kind_matches(kind, d.room_type.as_ref()));
     Ok(directory_page(response, &origin))
 }
 
-/// Leave a joined room (`Room::leave`), then forget it (`Room::forget`) so the store drops it too.
-/// A failed forget does not undo the leave: the list already shows the room gone.
+/// Leave a joined room (`Room::leave`). No `forget`: the room stays in the store as Left (history kept) and the
+/// list projection skips Left rooms, also after a restart.
+/// SDK 0.19.1 `leave_impl` treats M_FORBIDDEN as a successful leave, so a refused leave would look done:
+/// after `Ok` the server is asked for our own membership and a still-`join` answer becomes `Forbidden`.
 #[cfg(feature = "sdk")]
 pub async fn leave_room(
     client: &matrix_sdk::Client,
@@ -740,12 +771,32 @@ pub async fn leave_room(
         .get_room(&id)
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
         .ok_or(OperationError::Unavailable)?;
-    tokio::time::timeout(std::time::Duration::from_secs(30), room.leave())
+    let left = tokio::time::timeout(std::time::Duration::from_secs(30), room.leave())
         .await
-        .map_err(|_| OperationError::Transport)?
-        .map_err(|e| classify(&e))?;
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), room.forget()).await;
-    Ok(())
+        .map_err(|_| OperationError::Transport)?;
+    // The vendored SDK returns Forbidden without touching the local state; only the server decides
+    // whether we are still in: already out (kicked/left elsewhere) counts as a completed leave.
+    match left {
+        Err(e) if !matches!(classify(&e), OperationError::Forbidden) => Err(classify(&e)),
+        _ if still_joined(client, &id).await => Err(OperationError::Forbidden),
+        _ => Ok(()),
+    }
+}
+
+/// Server-side check of our own `m.room.member` content. Any failure to ask counts as «not joined»:
+/// the SDK already reported the leave and a server that hides the state of a left room must not block it.
+#[cfg(feature = "sdk")]
+async fn still_joined(client: &matrix_sdk::Client, room: &matrix_sdk::ruma::RoomId) -> bool {
+    use matrix_sdk::ruma::{api::client::state::get_state_event_for_key::v3::Request, events::StateEventType};
+    let Some(me) = client.user_id() else { return false };
+    let request = Request::new(room.to_owned(), StateEventType::RoomMember, me.to_string());
+    let sent = tokio::time::timeout(std::time::Duration::from_secs(10), client.send(request)).await;
+    matches!(sent, Ok(Ok(r)) if content_is_join(r.event_or_content.get()))
+}
+
+#[cfg(feature = "sdk")]
+fn content_is_join(json: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(json).is_ok_and(|v| v["membership"] == "join")
 }
 
 /// Name, topic and avatar through the SDK state-event setters; the server decides on permissions.
@@ -1575,6 +1626,15 @@ async fn own_reaction(
 }
 #[cfg(all(test, feature = "sdk"))]
 mod tests {
+    #[cfg(feature = "sdk")]
+    #[test]
+    fn only_a_join_content_counts_as_still_joined() {
+        use super::content_is_join;
+        assert!(content_is_join(r#"{"membership":"join"}"#));
+        assert!(!content_is_join(r#"{"membership":"leave"}"#));
+        assert!(!content_is_join("not json"));
+    }
+
     use super::*;
 
     fn levels(users: &[(&str, i32)]) -> matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels {

@@ -196,13 +196,17 @@ fn about_actions_match_the_row_count_and_have_text_names() {
     let rows: usize = ABOUT.lines().find_map(|l| l.strip_prefix("const ABOUT_ROWS: usize = ")).unwrap().trim_end_matches(';').parse().unwrap();
     let render = &ABOUT[ABOUT.find("fn render_about").unwrap()..];
     let actions: Vec<&str> = render.lines().filter_map(|l| l.trim().strip_prefix(".child(action(")).collect();
-    assert_eq!(actions.len(), rows, "{actions:?}");
-    for (i, a) in actions.iter().enumerate() {
+    assert_eq!(rows, 5);
+    assert_eq!(actions.len(), rows - 1, "{actions:?}");
+    for (i, (a, label)) in actions.iter().zip(["‹ Indietro", "Apri licenze", "Licenze di terze parti", "Copia informazioni"]).enumerate() {
         assert!(a.starts_with(&format!("{i}, \"about-")), "row {i}: {a}");
+        assert!(a.contains(&format!("\"{label}\"")), "row {i}: {a}");
     }
-    for name in ["‹ Indietro", "Apri licenze", "Licenze di terze parti", "Copia informazioni", "Chiudi"] {
-        assert!(render.contains(&format!("\"{name}\"")), "{name} missing");
-    }
+    let close = render.split("div().id(\"about-close\")").nth(1).expect("close button").split(")),").next().unwrap();
+    assert!(close.contains("self.about_row == 4"));
+    assert!(close.contains("this.about_row = 4;"));
+    assert!(close.contains("this.activate_about(4, window, cx)"));
+    assert!(ABOUT.contains("_ => self.set_menu_open(false, window, cx)"));
     // Every information row gets its label as text (and element id) from one string.
     assert!(render.contains(".id(label)") && render.contains(".child(label)"));
 }

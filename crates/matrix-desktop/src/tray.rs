@@ -166,10 +166,10 @@ pub fn pictures_of<T>(
 
 /// Fallback when the account has no picture (yet): a plain disc whose colour follows the account.
 fn avatar(id: AccountId, pictures: &Pictures) -> Option<tray_icon::menu::Icon> {
-    if let Some((_, image)) = pictures.iter().find(|(owner, _)| *owner == id) {
-        if let Some(icon) = round_picture(image) {
-            return Some(icon);
-        }
+    if let Some((_, image)) = pictures.iter().find(|(owner, _)| *owner == id)
+        && let Some(icon) = round_picture(image)
+    {
+        return Some(icon);
     }
     const PALETTE: [[u8; 3]; 6] = [
         [229, 115, 115],
@@ -426,7 +426,7 @@ mod tests {
             row(3, Some("mxc://s/not-cached")),
             row(4, None),
         ];
-        let cached = |m: &str| (m != "mxc://s/not-cached").then(|| m.len());
+        let cached = |m: &str| (m != "mxc://s/not-cached").then_some(m.len());
         let got = pictures_of(&rows, cached);
         assert_eq!(got, vec![(AccountId::new(1), 9), (AccountId::new(2), 9)]);
     }

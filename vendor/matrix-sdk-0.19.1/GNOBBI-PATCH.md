@@ -3,10 +3,11 @@
 - Version: 0.19.1 (Apache-2.0).
 - Official archive: https://static.crates.io/crates/matrix-sdk/matrix-sdk-0.19.1.crate
 - Archive SHA-256: `2afc652a144822f6fbe24084e08bc59cb483fd0b504396d492131dec0749396e`, verified against the original Cargo.lock registry checksum before vendoring.
-- Upstream source files modified: `src/config/request.rs`, `src/error.rs`, `src/http_client/native.rs`, `src/media.rs`.
+- Upstream source files modified: `src/config/request.rs`, `src/error.rs`, `src/http_client/native.rs`, `src/media.rs`, `src/room/mod.rs`.
 - `DefaultMediaFetcher::fetch_media_content_with_request_config` exposes the existing endpoint/auth/decrypt algorithm with a caller-supplied configuration and no cache access. The unchanged `MediaFetcher` trait delegates with the client's configuration and the original unlimited download timeout.
 - Native-only `RequestConfig::max_response_size(Option<usize>)` defaults to `None`, preserving the original unbounded response converter. `Some(limit)` checks Content-Length as a prefilter and counts each received chunk before append, returning `HttpError::ResponseTooLarge { limit }` before parsing/decryption. The error remains permanent under the existing retry classification. The bound is on accumulated body bytes, not exact RSS or socket buffering.
 - Native-only `RequestConfig::response_progress(Option<&'static AtomicUsize>)` (default `None`): the bounded reader stores the accumulated body length after every chunk, so the caller can show download progress. `&'static` keeps `RequestConfig` `Copy`; the caller leaks one atomic per download.
+- `Room::leave`: a Forbidden answer from the server is returned to the caller instead of being ignored. Upstream treated it as «left» and called `base_client().room_left()`, so a leave refused by the server turned a still-joined room into Left in the local store (the room list dropped the row, no error shown). Other errors and the Invited+forget branch are unchanged.
 - `wasm.rs` is unchanged; the configuration field and setter do not exist on wasm. No dependency changes, custom auth or crypto.
 - Added distribution files only: this document and `LICENSE`.
 - The published archive omits LICENSE. The added license is copied from the exact upstream revision recorded in the archive's `.cargo_vcs_info.json`: https://raw.githubusercontent.com/matrix-org/matrix-rust-sdk/b18166c68bb958a21f0bca8b2d8320cb53583362/LICENSE

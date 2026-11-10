@@ -35,6 +35,24 @@ fn tab_order_wraps_and_skips_the_room_switch_without_a_room() {
     assert_eq!(walk(false, true), [Close, Preview, Enabled, Close]);
 }
 
+/// Panel headers close with the shared X icon, never a visible «Chiudi» word.
+#[test]
+fn panel_headers_close_with_the_x_icon() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    for file in ["verification_view.rs", "notification_view.rs", "room_details_view.rs", "thread_view.rs", "rail_view.rs", "groups_edit_view.rs", "about_view.rs"] {
+        let src = std::fs::read_to_string(dir.join(file)).unwrap();
+        assert!(!src.contains(".child(\"Chiudi\")"), "{file}: visible «Chiudi» text");
+        assert!(src.contains("Icon::Close"), "{file}: no close icon");
+    }
+    for (file, id) in [("verification_view.rs", "verification-close"), ("notification_view.rs", "notifications-close"), ("room_details_view.rs", "room-details-close"), ("thread_view.rs", "thread-close"), ("rail_view.rs", "rail-edit-close"), ("groups_edit_view.rs", "groups-close"), ("about_view.rs", "about-close")] {
+        let src = std::fs::read_to_string(dir.join(file)).unwrap();
+        let button = src.split(&format!(".id(\"{id}\")")).nth(1).expect(id).split(".on_click").next().unwrap();
+        assert!(button.contains(".w(px(32.))") && button.contains(".h(px(32.))"), "{id}: incorrect size");
+        assert!(button.contains("Icon::Close"), "{id}: no close icon");
+        assert!(!button.contains("Chiudi"), "{id}: visible close text");
+    }
+}
+
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 mod tree {
     use accesskit::{Action, ActionRequest, Toggled, TreeId};

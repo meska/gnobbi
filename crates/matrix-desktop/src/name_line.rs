@@ -1,5 +1,5 @@
 //! Name line of a chat-list row: the name takes what is left and ends with «…», the stamp is never shortened.
-use gpui::{Div, IntoElement, ParentElement, StyledText, Styled, div, px, rgb};
+use gpui::{Div, ParentElement, StyledText, Styled, div, px, rgb};
 
 pub(crate) fn name_line(name: StyledText, stamp: Option<StyledText>, stamp_color: u32) -> Div {
     use matrix_desktop::row_text::{NAME_LINE_PX, NAME_PX};
@@ -27,11 +27,12 @@ pub(crate) fn name_line(name: StyledText, stamp: Option<StyledText>, stamp_color
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui::{AppContext, Context, Render, TextLayout, Window};
+    use gpui::{AppContext, Context, IntoElement, Render, TextLayout, Window};
 
     const STAMP: &str = "25/09/26";
     const ROW_WIDTH_PX: f32 = 240.;
-    static SEEN: std::sync::Mutex<Option<(String, String, f32, f32, f32)>> = std::sync::Mutex::new(None);
+    type Seen = (String, String, f32, f32, f32);
+    static SEEN: std::sync::Mutex<Option<Seen>> = std::sync::Mutex::new(None);
 
     const LONG: &str = "Gruppo coordinamento progetti e forniture di lunghezza esagerata";
     // Layouts of the last render (every render builds new text elements).

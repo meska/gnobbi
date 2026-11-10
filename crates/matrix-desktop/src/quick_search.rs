@@ -2,6 +2,7 @@
 //! «Visti di recente» / «Ricerche recenti». No UI, no network. Stored locally in the config dir
 //! (`quick-search.json`, like `rail-layout.json`), never sent to the server.
 use crate::AppDirs;
+use matrix_engine::operations::{DirectoryKind, DirectoryRoom};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -10,14 +11,6 @@ use unicode_normalization::UnicodeNormalization;
 pub const SEEN_LIMIT: usize = 10;
 pub const SEARCHED_LIMIT: usize = 8;
 const FILE: &str = "quick-search.json";
-
-/// Result groups. Only `Local` is filled here; the others are for server-backed sources.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Section {
-    Local,
-    Users,
-    PublicRooms,
-}
 
 /// Row shown by the UI. `avatar` is the mxc reference for the `Avatars` cache.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,11 +22,106 @@ pub struct Hit {
     pub secondary: String,
 }
 
-/// A source of hits for one section. The local `Index` is the only implementor for now;
-/// «Utenti» and «Stanze pubbliche» (server directory) will implement it too.
-pub trait Source {
-    fn section(&self) -> Section;
-    fn search(&self, query: &str, limit: usize) -> Vec<Hit>;
+/// «Cerca» entries (order as Element): each one becomes a chip in the field and limits the
+/// results to its kind. The two directory kinds also show the server selector.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Category {
+    Spaces,
+    Rooms,
+    People,
+}
+
+impl Category {
+    pub const ALL: [Category; 3] = [Category::Spaces, Category::Rooms, Category::People];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Category::Spaces => "Spazi pubblici",
+            Category::Rooms => "Stanze pubbliche",
+            Category::People => "Persone",
+        }
+    }
+
+    /// Screen-reader name of the chip.
+    pub fn chip_label(self) -> String {
+        format!("Filtro: {}", self.label())
+    }
+
+    /// What the public directory is asked for; `None` for people.
+    pub fn kind(self) -> Option<DirectoryKind> {
+        match self {
+            Category::Spaces => Some(DirectoryKind::Spaces),
+            Category::Rooms => Some(DirectoryKind::Rooms),
+            Category::People => None,
+        }
+    }
+}
+
+/// `(term, server, kind)` of a directory search.
+pub type DirectoryRequest = (String, Option<String>, Option<DirectoryKind>);
+
+/// Public rooms shown under the local results when no chip is active.
+pub const ROOMS_LIMIT: usize = 5;
+
+/// The directory request the overlay wants now: `(term, server, kind)`, or `None` for no request
+/// at all. A directory chip asks at once (empty term = «Suggerimenti», one page of `server`); no
+/// chip asks only for a typed term, always the active account's server; people ask nothing here.
+pub fn room_request(
+    chip: Option<Category>,
+    term: &str,
+    server: Option<String>,
+) -> Option<DirectoryRequest> {
+    let term = term.trim();
+    let typed = term.chars().count() >= matrix_engine::search::MIN_CHARS;
+    let term = if typed { term.to_owned() } else { String::new() };
+    match chip {
+        Some(c) => c.kind().map(|k| (term, server, Some(k))),
+        None => typed.then_some((term, None, Some(DirectoryKind::Rooms))),
+    }
+}
+
+/// Directory rows as overlay rows: the shared list's detail line (alias, members) is the secondary.
+pub fn room_hits<'a>(rooms: impl IntoIterator<Item = &'a DirectoryRoom>, limit: usize) -> Vec<Hit> {
+    use crate::search_list::Hit as _;
+    rooms
+        .into_iter()
+        .take(limit)
+        .map(|r| Hit { id: r.room_id.clone(), name: r.name.clone(), avatar: r.avatar_url.clone(), secondary: r.detail() })
+        .collect()
+}
+
+/// Server users shown under the local results when no chip is active.
+pub const USERS_LIMIT: usize = 5;
+
+/// Esc: first press removes the chip, the next closes the overlay.
+pub fn escape_closes(chip: Option<Category>) -> bool {
+    chip.is_none()
+}
+
+/// Backspace on an empty field removes the chip.
+pub fn backspace_removes_chip(chip: Option<Category>, term: &str) -> bool {
+    chip.is_some() && term.is_empty()
+}
+
+/// The term to send to the user search, if it differs from what was last sent. Nothing goes out
+/// for an empty field that never searched (chip or not); clearing a sent term cancels it.
+pub fn user_request(term: &str, sent: Option<&str>) -> Option<String> {
+    (term != sent.unwrap_or("")).then(|| term.to_owned())
+}
+
+/// «Utenti» rows: capped at `USERS_LIMIT` without a chip, all of them with the chip.
+pub fn user_hits(entries: Vec<crate::new_chat::Entry>, chip: Option<Category>) -> Vec<Hit> {
+    let limit = if chip.is_some() { usize::MAX } else { USERS_LIMIT };
+    entries
+        .into_iter()
+        .take(limit)
+        .map(|e| Hit {
+            name: e.name.filter(|n| !n.is_empty()).unwrap_or_else(|| e.user_id.clone()),
+            id: e.user_id.clone(),
+            avatar: e.avatar,
+            secondary: e.user_id,
+        })
+        .collect()
 }
 
 /// A room or DM known locally.
@@ -147,14 +235,10 @@ impl Index {
     }
 }
 
-impl Source for Index {
-    fn section(&self) -> Section {
-        Section::Local
-    }
-
+impl Index {
     /// Best field match decides relevance; ties: most recent activity, then name, then id.
     /// An empty query yields nothing (the UI shows the recent lists instead).
-    fn search(&self, query: &str, limit: usize) -> Vec<Hit> {
+    pub fn search(&self, query: &str, limit: usize) -> Vec<Hit> {
         let q = normalize(query.trim());
         if q.is_empty() {
             return Vec::new();

@@ -470,6 +470,106 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let other_scope = scopes[1].clone();
             move |this: &Shell| active(this.timeline.as_ref().unwrap()) && saved(&this.saved_timelines[&other_scope])
         }).unwrap();
+        if matches!(DYNAMIC.load(Ordering::SeqCst), 35 | 36) {
+            // Catalog accounts 11/22, both workers report local id 1 and both list the same RoomId.
+            let valid_click = DYNAMIC.load(Ordering::SeqCst) == 35;
+            let root = std::env::temp_dir().join(format!("cross-alert-{}", std::process::id()));
+            let dirs = matrix_desktop::AppDirs { config: root.join("config"), data: root.join("data"), cache: root.join("cache") };
+            std::fs::create_dir_all(&dirs.config).unwrap();
+            std::fs::write(dirs.config.join("accounts.json"), r#"{"version":1,"next_id":23,"accounts":[
+                {"id":11,"dir":"accounts/11","user_id":"@a:fixture","label":"A"},
+                {"id":22,"dir":"accounts/22","user_id":"@b:fixture","label":"B"}]}"#).unwrap();
+            let (w, a11, a22) = (matrix_domain::AccountId::new(1), matrix_domain::AccountId::new(11), matrix_domain::AccountId::new(22));
+            let room = |id: &str| RoomScope { account_id: w, room_id: matrix_domain::RoomId::new(id) };
+            let listed = |ids: &[&str]| {
+                let mut sidebar = Sidebar::connected(w);
+                for id in ids {
+                    sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary { scope: room(id), name: (*id).into(), unread: 0, info: Default::default() })));
+                }
+                sidebar.clear_selection();
+                sidebar
+            };
+            let (n, saved22) = (room("!n:fixture"), room("!saved22:fixture"));
+            let on_disk = |dirs: &matrix_desktop::AppDirs| matrix_desktop::RoomPrefs::load(dirs);
+            this.update_in(cx, |this, _, _| {
+                let mut prefs = matrix_desktop::RoomPrefs::default();
+                prefs.set_last_open_room(&RoomScope { account_id: a11, room_id: matrix_domain::RoomId::new("!saved11:fixture") });
+                prefs.set_last_open_room(&RoomScope { account_id: a22, room_id: saved22.room_id.clone() });
+                prefs.save(&dirs).unwrap();
+                this.prefs_dirs = Some(dirs.clone());
+                this.room_prefs = prefs;
+                this.accounts = matrix_desktop::AccountCatalog::load(&dirs);
+                assert_eq!(this.accounts.accounts().len(), 2);
+                this.connected = true;
+                this.active_id = Some(a11);
+                this.active_scope = RoomScope { account_id: w, room_id: matrix_domain::RoomId::new("!not-selected:local.invalid") };
+                this.timeline = None;
+                this.pending_history = None;
+                this.history = HistorySession::new();
+                // 11: saved room absent => restore pending. 22 (parked): lists the notified room AND its own saved room.
+                this.sidebar = listed(&["!n:fixture", "!other:fixture"]);
+                let mut parked = matrix_desktop::AccountState::new(w, None, Default::default());
+                parked.sidebar = listed(&["!n:fixture", "!saved22:fixture"]);
+                this.parked.clear();
+                this.parked.insert(a22, parked);
+                this.restore.reset();
+                this.restore.arm(a11, || this.room_prefs.last_open_room(a11));
+                assert!(this.restore.waiting() && this.sidebar.selected().is_none());
+            }).unwrap();
+            if valid_click {
+                this.update_in(cx, |this, window, cx| this.open_alert(Some(a22), n.clone(), window, cx)).unwrap();
+                this.update_in(cx, |this, _, cx| {
+                    assert_eq!(this.active_id, Some(a22), "valid click shows account 22");
+                    assert_eq!(this.sidebar.selected().map(|r| r.scope.clone()), Some(n.clone()), "notified room selected");
+                    assert_eq!(this.active_scope, n, "history route points at the notified room of account 22");
+                    assert!(this.timeline.is_some() && this.pending_history.is_some(), "history requested for the notified room");
+                    assert!(!this.restore.waiting(), "valid click consumes the restore");
+                    this.restore_last_room(cx); // next tick poll: saved22 is listed but must not win
+                    assert_eq!(this.sidebar.selected().map(|r| r.scope.clone()), Some(n.clone()), "poll must not open the saved room");
+                    assert_eq!(this.active_scope, n);
+                    let disk = on_disk(&dirs);
+                    assert_eq!(disk.last_open_room(a22), Some(n.room_id.clone()), "prefs: catalog key 22 = notified room");
+                    assert_eq!(disk.last_open_room(a11), Some(matrix_domain::RoomId::new("!saved11:fixture")), "prefs: key 11 untouched");
+                    assert_eq!(disk.last_open_room(w), None, "prefs: worker-local key never written");
+                    cx.quit();
+                }).unwrap();
+            } else {
+                let stale = room("!gone:fixture");
+                let foreign = RoomScope { account_id: matrix_domain::AccountId::new(77), room_id: n.room_id.clone() };
+                this.update_in(cx, |this, window, cx| {
+                    let before = std::fs::read(dirs.config.join("room-prefs.json")).unwrap();
+                    // unknown catalog account, stale room on the shown account, foreign scope on the shown account
+                    for (id, scope) in [(Some(matrix_domain::AccountId::new(33)), n.clone()), (None, stale.clone()), (Some(a11), stale.clone()), (None, foreign.clone())] {
+                        this.open_alert(id, scope, window, cx);
+                        assert_eq!(this.active_id, Some(a11), "refused click must not switch");
+                        assert!(this.restore.waiting(), "refused click must not consume the pending restore");
+                        assert!(this.sidebar.selected().is_none() && this.timeline.is_none());
+                    }
+                    // switch to 22 with a room 22 does not list: destination restore (saved22, listed) is not cancelled by the bad click
+                    this.open_alert(Some(a22), foreign, window, cx);
+                    assert_eq!(this.active_id, Some(a22));
+                    assert_eq!(this.sidebar.selected().map(|r| r.scope.clone()), Some(saved22.clone()), "bad click leaves the destination restore to open its saved room");
+                    assert_eq!(std::fs::read(dirs.config.join("room-prefs.json")).unwrap(), before, "prefs untouched except by the legitimate restore");
+                    cx.quit();
+                }).unwrap();
+            }
+            return;
+        }
+        if DYNAMIC.load(Ordering::SeqCst) == 34 {
+            this.update_in(cx, |this, window, _| {
+                this.restore.reset();
+                this.restore.arm(scopes[0].account_id, || Some(matrix_domain::RoomId::new("!pending:fixture")));
+                this.sidebar.clear_selection();
+                this.list_focus.focus(window);
+            }).unwrap();
+            cx.update(|window, cx| window.dispatch_keystroke(Keystroke::parse("down").unwrap(), cx)).unwrap();
+            this.update_in(cx, |this, _, cx| {
+                assert!(this.restore.waiting(), "focus-only arrow must preserve pending restore");
+                assert!(this.sidebar.selected().is_none(), "focus-only arrow must not select a room");
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if matches!(DYNAMIC.load(Ordering::SeqCst), 8 | 9) {
             {
                 for transition in ["query", "unread", "details", "notifications", "devices", "account", "offline", "compact-chat"] {
@@ -1773,6 +1873,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             crate::dialog_typing_test::scenario(n, this, cx, executor).await;
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 96 {
+            crate::quick_answer_test::scenario(this, cx, executor).await;
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 91 {
             crate::member_profile_test::scenario(this, cx, executor).await;
             return;
@@ -1944,7 +2048,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     let room = this.sidebar.selected().unwrap();
                     matrix_desktop::accessibility::details::DetailsSnapshot {
                         scope: room.scope.clone(), name: room.name.clone(), info: room.info.clone(),
-                        people: this.people_labels(), back: false, acts: vec![], focus: Default::default(), profile_focus: 0, bounds: [None; 6], hide_status: false, hide_redacted: false,
+                        people: this.people_labels(), back: false, acts: vec![], focus: Default::default(), profile_focus: 0, bounds: [None; 6], hide_status: false, hide_redacted: false, links: vec![], confirmation: None,
                     }.tree().nodes.len()
                 }).unwrap();
                 println!("AFTER a11y nodes in sheet tree: {nodes}");
@@ -3494,9 +3598,39 @@ fn non_modal_room_details_panel_keeps_list_composer_and_timeline_live() {
 
 #[test]
 #[ignore = "requires private display"]
+fn pending_restore_arrow_preserves_wait_and_selection() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(34, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
 fn member_detail_profile_actions_and_keyboard() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(91, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn quick_search_join_dm_answer() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(96, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn pending_restore_cross_account_alert_wins_over_restore() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(35, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
@@ -3519,3 +3653,13 @@ dialog_typing_test!(dialog_typing_modifica_stanza, 92);
 dialog_typing_test!(dialog_typing_nuova_stanza, 93);
 dialog_typing_test!(dialog_typing_rinomina_dispositivo, 94);
 dialog_typing_test!(dialog_typing_crea_sondaggio, 95);
+
+#[test]
+#[ignore = "requires private display"]
+fn pending_restore_stale_or_foreign_alert_keeps_pending() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(36, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
