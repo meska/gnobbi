@@ -153,6 +153,7 @@ pub struct DeviceVerification {
     snapshot: Option<VerificationSnapshot>,
     pending: Option<VerificationCommand>,
     release: Option<matrix_engine::verification::VerificationTarget>,
+    refresh_after_verification: bool,
     deciding: bool,
     devices: Vec<matrix_engine::verification::VerificationDevice>,
     failed: bool,
@@ -179,6 +180,7 @@ impl DeviceVerification {
             snapshot: None,
             pending: None,
             release: None,
+            refresh_after_verification: false,
             deciding: false,
             devices: Vec::new(),
             failed: false,
@@ -633,6 +635,9 @@ impl DeviceVerification {
     fn close_now(&mut self) {
         let live = !self.failed && self.snapshot.as_ref().map_or(self.deciding, |s| !is_final(s.state));
         self.closed_flow = self.snapshot.as_ref().map(|s| s.target());
+        if !self.failed && self.snapshot.as_ref().is_some_and(|s| s.state == VerificationState::Verified) {
+            self.refresh_after_verification = true;
+        }
         if let Some(snapshot) = self.snapshot.as_ref().filter(|s| self.failed || is_final(s.state)) {
             self.release = Some(snapshot.target());
         }
@@ -672,6 +677,9 @@ impl DeviceVerification {
                 }
                 Err(_) => { self.failed = true; return; }
             }
+        }
+        if self.refresh_after_verification && self.refresh() {
+            self.refresh_after_verification = false;
         }
         if let Some(command) = self.pending.take() {
             match sender.try_send(command) {

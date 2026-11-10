@@ -53,6 +53,8 @@ fn initiation_availability_tracks_pending_active_and_terminal_flows() {
     panel.popup_close();
     panel.flush(&mut sender);
     assert!(matches!(receiver.try_recv(), Ok(matrix_engine::verification::VerificationCommand::Release { .. })));
+    panel.flush(&mut sender);
+    assert!(matches!(receiver.try_recv(), Ok(matrix_engine::verification::VerificationCommand::List { .. })), "Verified also refreshes the list");
     assert!(panel.can_begin());
 }
 
@@ -344,6 +346,7 @@ fn leaving_a_comparison_asks_first_and_other_states_leave_at_once() {
     panel.popup_close();
     assert!(!panel.popup_open());
     assert!(matches!(drain(&mut panel), Some(matrix_engine::verification::VerificationCommand::Release { target }) if target.flow_id == "flow-one"));
+    assert!(matches!(drain(&mut panel), Some(matrix_engine::verification::VerificationCommand::List { .. })), "after the release, the device list is refreshed");
 }
 
 #[test]
