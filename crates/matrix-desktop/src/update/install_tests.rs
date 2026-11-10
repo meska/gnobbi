@@ -54,7 +54,7 @@ impl Fx {
     }
     /// Real file operations, only the spawn injected.
     fn run_with_spawn(&self, spawn: impl Fn(&Path) -> std::io::Result<()>) -> Result<(), String> {
-        install::install_with(&self.dirs, &self.channel, &self.ready, Fx::link, Fx::rename, spawn)
+        install::install_with(&self.dirs, &self.channel, &self.ready, Fx::link, Fx::rename, spawn, |p| std::fs::remove_file(p))
     }
     fn link(a: &Path, b: &Path) -> std::io::Result<()> {
         std::fs::hard_link(a, b)
@@ -98,7 +98,7 @@ fn windows_channel_is_refused_instead_of_running_the_linux_step() {
 #[test]
 fn swap_puts_the_staging_in_place_and_consumes_it() {
     let fx = fixture("swap-ok");
-    install::swap(&fx.paths, Fx::link, Fx::rename).unwrap();
+    install::swap(&fx.paths, Fx::link, || Ok(()), Fx::rename).unwrap();
     assert_eq!(fx.read(&fx.paths.target), "new");
     assert_eq!(fx.read(&fx.paths.prev), "old");
     assert!(!fx.paths.new.exists(), "the staging path is gone: it was renamed onto the target");
@@ -107,7 +107,7 @@ fn swap_puts_the_staging_in_place_and_consumes_it() {
 #[test]
 fn backup_failure_leaves_the_target_untouched() {
     let fx = fixture("swap-link");
-    let err = install::swap(&fx.paths, |_, _| Err(std::io::Error::other("no link")), Fx::rename).unwrap_err();
+    let err = install::swap(&fx.paths, |_, _| Err(std::io::Error::other("no link")), || Ok(()), Fx::rename).unwrap_err();
     assert!(matches!(err, SwapError::Backup(_)), "{err:?}");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(!fx.paths.prev.exists() && fx.paths.new.exists());
@@ -121,7 +121,7 @@ fn failed_staging_rename_restores_the_old_binary() {
         calls.set(calls.get() + 1);
         if calls.get() == 1 { Err(std::io::Error::other("busy")) } else { std::fs::rename(a, b) }
     };
-    let err = install::swap(&fx.paths, Fx::link, rename).unwrap_err();
+    let err = install::swap(&fx.paths, Fx::link, || Ok(()), rename).unwrap_err();
     match err {
         SwapError::Place { undo: Undo::Restored, .. } => {}
         other => panic!("{other:?}"),
@@ -143,7 +143,7 @@ fn a_failed_staging_rename_aborts_cleanly() {
         calls.set(calls.get() + 1);
         if calls.get() == 1 { Err(std::io::Error::other("busy")) } else { std::fs::rename(a, b) }
     };
-    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(())).unwrap_err();
+    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(()), |p| std::fs::remove_file(p)).unwrap_err();
     assert_eq!(err, "Aggiornamento non riuscito: busy");
     assert_eq!(fx.read(&fx.paths.target), "old");
     assert!(!fx.paths.prev.exists(), "the aborted transaction left no orphan backup");
@@ -153,7 +153,7 @@ fn a_failed_staging_rename_aborts_cleanly() {
 #[test]
 fn failed_rollback_keeps_the_recoverable_copy() {
     let fx = fixture("swap-lost");
-    let err = install::swap(&fx.paths, Fx::link, |_, _| Err(std::io::Error::other("busy"))).unwrap_err();
+    let err = install::swap(&fx.paths, Fx::link, || Ok(()), |_, _| Err(std::io::Error::other("busy"))).unwrap_err();
     match err {
         SwapError::Place { undo: Undo::Lost(_), .. } => {}
         other => panic!("{other:?}"),
@@ -191,7 +191,7 @@ fn install_keeps_backup_and_marker_when_that_rollback_also_fails() {
         calls.set(calls.get() + 1);
         if calls.get() >= 2 { Err(std::io::Error::other("busy")) } else { std::fs::rename(a, b) }
     };
-    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Err(std::io::Error::other("no start"))).unwrap_err();
+    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Err(std::io::Error::other("no start")), |p| std::fs::remove_file(p)).unwrap_err();
     assert_eq!(err, "Aggiornamento non riuscito: avvio non riuscito e ripristino non riuscito");
     assert_eq!(fx.read(&fx.paths.prev), "old");
     assert!(fx.marker().exists(), "transaction data stays next to the only recoverable copy");
@@ -212,7 +212,7 @@ fn a_second_install_is_refused_while_the_first_holds_the_lock() {
 #[test]
 fn permission_denied_is_the_exact_contract_line() {
     let fx = fixture("perm");
-    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, |_, _| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)), Fx::rename, |_| Ok(())).unwrap_err();
+    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, |_, _| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)), Fx::rename, |_| Ok(()), |p| std::fs::remove_file(p)).unwrap_err();
     assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
     assert!(!fx.marker().exists() && !fx.paths.prev.exists());
 }
@@ -261,7 +261,7 @@ fn permission_denied_during_recovery_is_exact() {
     let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, |a, b| {
         calls.set(calls.get() + 1);
         if calls.get() == 2 { Err(std::io::ErrorKind::PermissionDenied.into()) } else { Fx::rename(a, b) }
-    }, |_| Err(std::io::Error::other("spawn"))).unwrap_err();
+    }, |_| Err(std::io::Error::other("spawn")), |p| std::fs::remove_file(p)).unwrap_err();
     assert_eq!(fx.read(&fx.paths.prev), "old");
     assert!(fx.marker().exists());
     assert_eq!(err, "Aggiornamento non riuscito: cartella non scrivibile");
@@ -273,9 +273,124 @@ fn errors_are_always_one_line() {
     let stale = Ready { sha256: "0".repeat(64), ..fx.ready.clone() };
     for err in [
         install::install_staged(&fx.dirs, &fx.channel, &stale).unwrap_err(),
-        install::install_with(&fx.dirs, &fx.channel, &fx.ready, |_, _| Err(std::io::Error::other("a\nb")), Fx::rename, |_| Ok(())).unwrap_err(),
+        install::install_with(&fx.dirs, &fx.channel, &fx.ready, |_, _| Err(std::io::Error::other("a\nb")), Fx::rename, |_| Ok(()), |p| std::fs::remove_file(p)).unwrap_err(),
     ] {
         assert!(err.starts_with("Aggiornamento non riuscito: "), "{err}");
         assert_eq!(err.lines().count(), 1, "{err}");
     }
+}
+
+#[test]
+fn order_is_backup_then_marker_then_the_single_rename() {
+    let fx = fixture("order");
+    let log = std::cell::RefCell::new(Vec::new());
+    install::swap(
+        &fx.paths,
+        |a, b| { log.borrow_mut().push("link"); Fx::link(a, b) },
+        || { log.borrow_mut().push("mark"); assert!(fx.paths.prev.exists(), "no marker without its backup"); Ok(()) },
+        |a, b| { log.borrow_mut().push("rename"); Fx::rename(a, b) },
+    )
+    .unwrap();
+    assert_eq!(*log.borrow(), ["link", "mark", "rename"]);
+}
+
+#[test]
+fn install_is_refused_while_another_process_holds_the_lock() {
+    // A marker that appears between the first check and the swap is caught by the check
+    // under the lock: the spawn-time marker is the only one this install may leave.
+    let fx = fixture("pending-under-lock");
+    let _held = install::Lock::acquire(&fx.paths.target).unwrap();
+    let err = fx.run_with_spawn(|_| panic!("must not spawn")).unwrap_err();
+    assert_eq!(err, "Aggiornamento non riuscito: altra installazione in corso");
+    assert!(!fx.paths.prev.exists() && !fx.marker().exists());
+    assert_eq!(fx.read(&fx.paths.target), "old");
+}
+
+fn deny(_: &Path) -> std::io::Result<()> {
+    Err(std::io::ErrorKind::PermissionDenied.into())
+}
+
+#[test]
+fn failed_cleanup_after_a_rollback_is_reported_and_keeps_the_marker_with_the_backup() {
+    let fx = fixture("cleanup-fail");
+    let calls = Cell::new(0);
+    // Place fails, the rollback rename "succeeds" as a no-op on the same inode: prev stays.
+    let rename = |a: &Path, b: &Path| {
+        calls.set(calls.get() + 1);
+        if calls.get() == 1 { Err(std::io::Error::other("busy")) } else { Fx::rename(a, b) }
+    };
+    let err = install::install_with(&fx.dirs, &fx.channel, &fx.ready, Fx::link, rename, |_| Ok(()), deny).unwrap_err();
+    assert!(err.starts_with("Aggiornamento non riuscito: busy (pulizia incompleta: "), "{err}");
+    assert_eq!(err.lines().count(), 1);
+    assert_eq!(fx.read(&fx.paths.target), "old");
+    assert_eq!(fx.read(&fx.paths.prev), "old", "backup not removed, still reported");
+    assert!(fx.marker().exists(), "the marker is dropped only after the backup is gone");
+}
+
+#[test]
+fn a_backup_that_is_not_the_target_is_never_deleted_by_cleanup() {
+    let fx = fixture("cleanup-other");
+    std::fs::write(&fx.paths.prev, b"different").unwrap();
+    let paths = fx.paths.clone();
+    let err = install::drop_backup(&paths, |_| panic!("must not remove")).unwrap_err();
+    assert!(err.to_string().contains("conservato"), "{err}");
+    assert_eq!(fx.read(&paths.prev), "different");
+}
+
+#[test]
+fn cleanup_leaves_a_marker_of_another_transaction_alone() {
+    let fx = fixture("cleanup-foreign");
+    super::startup::write_pending(&fx.dirs, &super::startup::Pending { from_build: 1, to_build: 77, attempts: 1 }).unwrap();
+    let msg = install::cleanup(&fx.dirs, &fx.paths, 9, &|_: &Path| panic!("must not remove"), "base".into());
+    assert_eq!(msg, "base");
+    assert!(fx.marker().exists());
+}
+
+// --- install_and_restart in a child process: the test binary re-runs itself ---------------
+
+const CHILD_ENV: &str = "GNOBBI_INSTALL_CHILD";
+
+/// Runs only as the child of `run_child`; in the parent run it is a no-op.
+#[cfg(unix)]
+#[test]
+fn child_entry() {
+    let Ok(mode) = std::env::var(CHILD_ENV) else { return };
+    let fx = fixture(&format!("child-{mode}"));
+    if mode == "ok" {
+        // A target that is a real, executable, harmless program: the relaunch really starts it.
+        std::fs::write(&fx.paths.new, b"#!/bin/sh\nexit 0\n").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&fx.paths.new, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let ready = if mode == "ok" { Ready { size: 17, sha256: sha256(b"#!/bin/sh\nexit 0\n"), ..fx.ready.clone() } } else { Ready { sha256: "0".repeat(64), ..fx.ready.clone() } };
+    // On success the process exits 0 inside the call; reaching the next line means it did not.
+    let err = install::install_and_restart(&fx.dirs, &fx.channel, &ready).unwrap_err();
+    println!("returned: {err}");
+    std::process::exit(42);
+}
+
+#[cfg(unix)]
+fn run_child(mode: &str) -> std::process::Output {
+    std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "update::install_tests::child_entry", "--nocapture", "--test-threads=1"])
+        .env(CHILD_ENV, mode)
+        .output()
+        .unwrap()
+}
+
+#[cfg(unix)]
+#[test]
+fn install_and_restart_returns_the_error_and_does_not_exit() {
+    let out = run_child("fail");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(out.status.code(), Some(42), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
+    assert!(stdout.contains("returned: Aggiornamento non riuscito: staging con hash diverso"), "{stdout}");
+}
+
+#[cfg(unix)]
+#[test]
+fn install_and_restart_exits_zero_only_after_the_new_build_started() {
+    let out = run_child("ok");
+    assert_eq!(out.status.code(), Some(0), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains("returned:"));
 }

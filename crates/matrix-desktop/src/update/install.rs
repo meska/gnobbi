@@ -113,21 +113,26 @@ pub enum Undo {
 
 #[derive(Debug)]
 pub enum SwapError {
-    /// The backup link failed: the target was never touched.
+    /// The backup link failed: nothing was created, the target was never touched.
     Backup(io::Error),
+    /// The marker could not be written: the backup link exists, the target is untouched.
+    Mark(io::Error),
     /// The staging could not be put in place.
     Place { cause: io::Error, undo: Undo },
 }
 
-/// The file-level half of the transaction: no marker, no spawn, no exit, no process state.
-/// `link` makes the backup (a hard link: same bytes, no copy), `rename` is the single atomic
-/// step that puts the staging in place. Preconditions: [`paths_for`] passed, `dirs` untouched.
-pub fn swap<L, R>(paths: &Paths, link: L, rename: R) -> Result<(), SwapError>
+/// The file-level half of the transaction: no spawn, no exit, no process state. Contract
+/// order: `link` makes the backup (a hard link: same bytes, no copy), `mark` writes the
+/// marker, `rename` is the single atomic step that puts the staging in place. A crash between
+/// two steps never leaves a marker without its backup. Precondition: [`paths_for`] passed.
+pub fn swap<L, K, R>(paths: &Paths, link: L, mark: K, rename: R) -> Result<(), SwapError>
 where
     L: Fn(&Path, &Path) -> io::Result<()>,
+    K: FnOnce() -> io::Result<()>,
     R: Fn(&Path, &Path) -> io::Result<()>,
 {
     link(&paths.target, &paths.prev).map_err(SwapError::Backup)?;
+    mark().map_err(SwapError::Mark)?;
     if let Err(cause) = rename(&paths.new, &paths.target) {
         // A successful rollback rename consumes `prev`, so no backup is left behind; on
         // failure `prev` is the only copy still worth keeping, and nothing is deleted.
@@ -142,42 +147,37 @@ where
 
 /// The whole transaction with injected operations: `spawn` starts the new binary, and nothing
 /// here terminates the current process.
-pub(crate) fn install_with<L, R, S>(
+pub(crate) fn install_with<L, R, S, D>(
     dirs: &AppDirs,
     channel: &Channel,
     ready: &Ready,
     link: L,
     rename: R,
     spawn: S,
+    remove: D,
 ) -> Result<(), String>
 where
     L: Fn(&Path, &Path) -> io::Result<()>,
     R: Fn(&Path, &Path) -> io::Result<()>,
     S: Fn(&Path) -> io::Result<()>,
+    D: Fn(&Path) -> io::Result<()>,
 {
+    let early = paths_for(channel, ready)?;
+    let _lock = Lock::acquire(&early.target)?;
+    // Everything checked before the lock is checked again: the state may have changed.
     let paths = paths_for(channel, ready)?;
-    let _lock = Lock::acquire(&paths.target)?;
-    // A pending marker is an unfinished transaction (and its `prev`): refuse, touch nothing.
-    if startup::marker_path(dirs).symlink_metadata().is_ok() {
-        return Err(failed("aggiornamento precedente in sospeso"));
-    }
+    refuse_pending(dirs)?;
     reverify(&paths, ready)?;
-    // Before the swap and with this transaction's identity: attempts=0 is the first start.
-    startup::write_pending(dirs, &Pending { from_build: running_build(), to_build: ready.build, attempts: 0 }).map_err(|e| message(&e))?;
-    match swap(&paths, &link, &rename) {
+    // With this transaction's identity: attempts=0 is the first start.
+    let mark = || startup::write_pending(dirs, &Pending { from_build: running_build(), to_build: ready.build, attempts: 0 });
+    match swap(&paths, &link, mark, &rename) {
         Ok(()) => {}
-        // The target is untouched: only our own marker goes away.
-        Err(SwapError::Backup(e)) => {
-            startup::abort_pending(dirs);
-            return Err(message(&e));
-        }
+        Err(SwapError::Backup(e)) => return Err(message(&e)),
+        // The target is untouched: our backup link and (if written) our marker go away.
+        Err(SwapError::Mark(e)) => return Err(cleanup(dirs, &paths, ready.build, &remove, message(&e))),
         Err(SwapError::Place { cause, undo }) => {
             return Err(match undo {
-                Undo::Restored => {
-                    drop_backup(&paths);
-                    startup::abort_pending(dirs);
-                    message(&cause)
-                }
+                Undo::Restored => cleanup(dirs, &paths, ready.build, &remove, message(&cause)),
                 // Nothing is deleted: `prev` is the copy to recover from, the marker stays.
                 Undo::Lost(e) => lost("posizione non riuscita e ripristino non riuscito", &e),
             });
@@ -195,24 +195,54 @@ where
     if let Err(e) = spawn(&paths.target) {
         // The new binary did not start: put the old one back, and only then drop the marker.
         return Err(match rename(&paths.prev, &paths.target) {
-            Ok(()) => {
-                drop_backup(&paths);
-                startup::abort_pending(dirs);
-                message(&e)
-            }
+            Ok(()) => cleanup(dirs, &paths, ready.build, &remove, message(&e)),
             Err(e) => lost("avvio non riuscito e ripristino non riuscito", &e),
         });
     }
     Ok(())
 }
 
+/// A pending marker is an unfinished transaction (and its `prev`): refuse, touch nothing.
+/// Call under the lock; an unreadable state also refuses.
+pub(super) fn refuse_pending(dirs: &AppDirs) -> Result<(), String> {
+    match startup::marker_path(dirs).symlink_metadata() {
+        Ok(_) => Err(failed("aggiornamento precedente in sospeso")),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(message(&e)),
+    }
+}
+
+#[cfg(unix)]
+fn same_file(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    matches!((std::fs::symlink_metadata(a), std::fs::symlink_metadata(b)), (Ok(a), Ok(b)) if a.dev() == b.dev() && a.ino() == b.ino())
+}
+
+// Windows: a rolled-back `prev` was consumed by the move, so a survivor is ours to judge elsewhere.
+#[cfg(not(unix))]
+fn same_file(_: &Path, _: &Path) -> bool {
+    true
+}
+
 /// Removes a backup that a successful rollback left behind: a rename between two names of the
 /// same inode is a no-op on Unix, so `prev` can still be there with the old build back on the
-/// target. It is our own name and the bytes live on, so dropping it loses nothing and the next
-/// install is not refused.
-pub(super) fn drop_backup(paths: &Paths) {
-    if std::fs::symlink_metadata(&paths.prev).is_ok() {
-        let _ = std::fs::remove_file(&paths.prev);
+/// target. Only that link is dropped; a `prev` that is a different file is the one recoverable
+/// copy and is kept, reported as an error.
+pub(super) fn drop_backup(paths: &Paths, remove: impl Fn(&Path) -> io::Result<()>) -> io::Result<()> {
+    match std::fs::symlink_metadata(&paths.prev) {
+        Ok(_) if same_file(&paths.prev, &paths.target) => remove(&paths.prev),
+        Ok(_) => Err(io::Error::other("backup diverso dal binario, conservato")),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// End of a failed transaction whose target is intact: backup first, then our marker, and the
+/// marker only if the backup is gone. A failure is appended to `base`, never swallowed.
+pub(super) fn cleanup(dirs: &AppDirs, paths: &Paths, to_build: u64, remove: &impl Fn(&Path) -> io::Result<()>, base: String) -> String {
+    match drop_backup(paths, remove).and_then(|()| startup::abort_pending(dirs, to_build, remove)) {
+        Ok(()) => base,
+        Err(e) => format!("{base} (pulizia incompleta: {e})"),
     }
 }
 
@@ -225,15 +255,13 @@ pub fn install_staged(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> Resul
         let paths = paths_for(channel, ready)?;
         return super::helper::start(&super::helper::Request::install(paths.target, ready));
     }
-    install_with(dirs, channel, ready, |a, b| std::fs::hard_link(a, b), |a, b| std::fs::rename(a, b), relaunch)
+    install_with(dirs, channel, ready, |a, b| std::fs::hard_link(a, b), |a, b| std::fs::rename(a, b), relaunch, |p| std::fs::remove_file(p))
 }
 
-/// Production entry for the UI: this process is gone once the new build has started.
-pub fn install_and_restart(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> ! {
-    if let Err(e) = install_staged(dirs, channel, ready) {
-        eprintln!("update: {e}");
-        std::process::exit(1);
-    }
+/// Production entry for the UI: on failure it returns the error and the process stays alive;
+/// it exits only once the new build has started.
+pub fn install_and_restart(dirs: &AppDirs, channel: &Channel, ready: &Ready) -> Result<std::convert::Infallible, String> {
+    install_staged(dirs, channel, ready)?;
     std::process::exit(0)
 }
 

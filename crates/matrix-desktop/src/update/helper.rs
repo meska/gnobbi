@@ -134,7 +134,7 @@ pub fn validate(helper_exe: &Path, req: &Request) -> Result<Paths, String> {
         }
         Job::Restore => {
             let prev = install::prev_of(&req.target);
-            if !install::regular(&req.target) || !install::regular(&prev) {
+            if !install::regular(&req.target).unwrap_or(false) || !install::regular(&prev).unwrap_or(false) {
                 return Err(bad("backup da ripristinare non trovato"));
             }
             Ok(Paths { target: req.target.clone(), new: PathBuf::new(), prev })
@@ -150,8 +150,10 @@ where
     M: Fn(&Path, &Path) -> io::Result<()>,
     S: Fn(&Path) -> io::Result<()>,
 {
+    let early = validate(helper_exe, req)?;
+    let _lock = install::Lock::acquire(&early.target)?;
+    // Validated again under the lock.
     let paths = validate(helper_exe, req)?;
-    let _lock = install::Lock::acquire(&paths.target)?;
     match &req.job {
         Job::Install { ready } => install_job(dirs, &paths, ready, link, mv, spawn),
         Job::Restore => restore_job(dirs, &paths, mv, spawn),
@@ -159,19 +161,20 @@ where
 }
 
 fn install_job(dirs: &AppDirs, paths: &Paths, ready: &Ready, link: impl Fn(&Path, &Path) -> io::Result<()>, mv: impl Fn(&Path, &Path) -> io::Result<()>, spawn: impl Fn(&Path) -> io::Result<()>) -> Result<(), String> {
+    let rm = |p: &Path| std::fs::remove_file(p);
+    let to = ready.build;
+    install::refuse_pending(dirs)?;
     install::reverify(paths, ready)?;
-    startup::write_pending(dirs, &Pending { from_build: install::running_build(), to_build: ready.build, attempts: 0 }).map_err(|e| install::message(&e))?;
-    if let Err(e) = link(&paths.target, &paths.prev) {
-        startup::abort_pending(dirs);
-        return Err(install::message(&e));
+    // Contract order: backup link, marker, one move.
+    link(&paths.target, &paths.prev).map_err(|e| install::message(&e))?;
+    if let Err(e) = startup::write_pending(dirs, &Pending { from_build: install::running_build(), to_build: to, attempts: 0 }) {
+        return Err(install::cleanup(dirs, paths, to, &rm, install::message(&e)));
     }
     if let Err(e) = mv(&paths.new, &paths.target) {
         // The move is one rename: a failure leaves the target as it was. Only if the name is
         // gone is `prev` the sole copy, and then it and the marker stay.
-        if install::regular(&paths.target) {
-            install::drop_backup(paths);
-            startup::abort_pending(dirs);
-            return Err(install::message(&e));
+        if install::regular(&paths.target).unwrap_or(false) {
+            return Err(install::cleanup(dirs, paths, to, &rm, install::message(&e)));
         }
         return Err(install::failed("posizione non riuscita e ripristino non riuscito"));
     }
@@ -179,11 +182,7 @@ fn install_job(dirs: &AppDirs, paths: &Paths, ready: &Ready, link: impl Fn(&Path
     if let Err(e) = spawn(&paths.target) {
         // New build did not start: `prev` moves back (and is consumed), then the marker goes.
         return Err(match mv(&paths.prev, &paths.target) {
-            Ok(()) => {
-                install::drop_backup(paths);
-                startup::abort_pending(dirs);
-                install::message(&e)
-            }
+            Ok(()) => install::cleanup(dirs, paths, to, &rm, install::message(&e)),
             Err(_) => install::failed("avvio non riuscito e ripristino non riuscito"),
         });
     }
@@ -208,7 +207,7 @@ pub fn cleanup_stale(target: &Path) {
     let me = std::env::current_exe().ok();
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let p = entry.path();
-        if is_helper_name(name(&p)) && Some(&p) != me.as_ref() && install::regular(&p) {
+        if is_helper_name(name(&p)) && Some(&p) != me.as_ref() && install::regular(&p).unwrap_or(false) {
             let _ = std::fs::remove_file(&p);
         }
     }

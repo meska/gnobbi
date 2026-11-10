@@ -3,6 +3,7 @@
 //! Persistence (not fixed by the plan, simplest choice): marker in `dirs.data`; `bad_builds` (u64 list)
 //! and `update_outcome` ({"result": "updated"|"restored", "build": n}) are keys of `settings.json`
 //! via `update_settings`, the store `Preferences` already shares. The UI shows the outcome once and clears it.
+use super::install::{self, Lock};
 use crate::{AppDirs, preferences::{read_settings, update_settings}};
 use serde_json::{Value, json};
 use std::{io::Write, path::{Path, PathBuf}};
@@ -99,14 +100,26 @@ pub fn handle_marker(dirs: &AppDirs, build: u64, target: &Path, prev: &Path) -> 
 }
 
 pub(super) fn handle_marker_with(dirs: &AppDirs, build: u64, target: &Path, prev: &Path, via_helper: bool) -> StartupAction {
+    if read_pending(dirs).is_none() {
+        return StartupAction::Continue;
+    }
+    // Same lock as the installer: while another process owns the transaction, nothing here
+    // may count, restore or delete. On Windows it is released on return, before the helper runs.
+    let Ok(_lock) = Lock::acquire(target) else { return StartupAction::Continue };
+    // Read again under the lock: the first read proved nothing.
     let pending = match read_pending(dirs) {
         None => return StartupAction::Continue,
         Some(Some(p)) if p.to_build == build => p,
-        // Different build or unparsable: obsolete.
-        Some(_) => {
-            let _ = std::fs::remove_file(marker_path(dirs));
+        // Provably obsolete: this build is newer than the one the marker waits for.
+        Some(Some(p)) if p.to_build < build => {
+            if let Err(e) = std::fs::remove_file(marker_path(dirs)) {
+                eprintln!("update: obsolete marker not removed: {e}");
+            }
             return StartupAction::Ignored;
         }
+        // Another build's transaction (an older instance) or an unreadable marker: not ours,
+        // not provably dead, so nothing is deleted.
+        Some(_) => return StartupAction::Ignored,
     };
     let attempts = pending.attempts.saturating_add(1);
     if attempts <= 2 {
@@ -118,6 +131,11 @@ pub(super) fn handle_marker_with(dirs: &AppDirs, build: u64, target: &Path, prev
     // Third start without confirmation: put the old binary back.
     if via_helper {
         return StartupAction::RestoreViaHelper { to_build: pending.to_build };
+    }
+    // Revalidated under the lock: restoring needs both files to be plain files.
+    if !matches!((install::regular(target), install::regular(prev)), (Ok(true), Ok(true))) {
+        eprintln!("update: restore skipped: target or backup missing");
+        return StartupAction::Continue;
     }
     if let Err(e) = restore(target, prev) {
         eprintln!("update: restore failed: {e}");
@@ -147,21 +165,51 @@ fn restore(target: &Path, prev: &Path) -> std::io::Result<()> {
     std::fs::rename(prev, target)
 }
 
-/// Deletes the marker of a transaction this process abandoned before confirming it: the
-/// marker only. `prev` and the staging stay where they are, so a failed install remains
-/// recoverable (INSTALL_STAGED_CONTRACT.md §5).
-pub fn abort_pending(dirs: &AppDirs) {
-    let _ = std::fs::remove_file(marker_path(dirs));
+/// Deletes the marker of the transaction this process abandoned (`to_build` is its identity):
+/// the marker only, with the caller holding the install lock. Another build's marker, or
+/// none, is left alone. `prev` and the staging stay (INSTALL_STAGED_CONTRACT.md §5).
+pub(super) fn abort_pending(dirs: &AppDirs, to_build: u64, remove: impl Fn(&Path) -> std::io::Result<()>) -> std::io::Result<()> {
+    match read_pending(dirs) {
+        Some(Some(p)) if p.to_build == to_build => remove(&marker_path(dirs)),
+        _ => Ok(()),
+    }
 }
 
-/// Called after the first frame or the sign-in screen: the new build works.
+/// Called after the first frame or the sign-in screen: the new build works. Facade of
+/// [`confirm_update_for`] with this process's build; the target is `prev` minus `.prev`.
 pub fn confirm_update_at(dirs: &AppDirs, prev: &Path) {
-    let Some(pending) = read_pending(dirs) else { return };
-    if let Some(Err(e)) = pending.map(|p| save_outcome(dirs, OUTCOME_UPDATED, p.to_build)) {
+    let Some(target) = prev.to_str().and_then(|p| p.strip_suffix(".prev")).map(PathBuf::from) else { return };
+    confirm_update_for(dirs, install::running_build(), &target);
+}
+
+/// Confirms the transaction of `build` under the install lock. Only a readable marker of that
+/// very build confirms: a missing, malformed or foreign marker leaves `prev` where it is. The
+/// marker goes before `prev`, and `prev` stays if the marker could not be removed.
+pub fn confirm_update_for(dirs: &AppDirs, build: u64, target: &Path) {
+    // The old process may still be exiting and holding the lock: wait a little, not forever.
+    let mut lock = Lock::acquire(target);
+    for _ in 0..40 {
+        if lock.is_ok() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        lock = Lock::acquire(target);
+    }
+    let Ok(_lock) = lock else { return eprintln!("update: confirm skipped, install lock busy") };
+    let Some(Some(pending)) = read_pending(dirs) else { return };
+    if pending.to_build != build {
+        return;
+    }
+    if let Err(e) = save_outcome(dirs, OUTCOME_UPDATED, build) {
         eprintln!("update: outcome not saved: {e}");
     }
-    let _ = std::fs::remove_file(marker_path(dirs));
-    let _ = std::fs::remove_file(prev);
+    if let Err(e) = std::fs::remove_file(marker_path(dirs)) {
+        return eprintln!("update: marker not removed, backup kept: {e}");
+    }
+    let prev = install::prev_of(target);
+    if let Err(e) = std::fs::remove_file(&prev).or_else(|e| if e.kind() == std::io::ErrorKind::NotFound { Ok(()) } else { Err(e) }) {
+        eprintln!("update: backup not removed: {e}");
+    }
 }
 
 /// Update target: Linux `~/Applications/gnobbi.AppImage` if present, else `$APPIMAGE`; Windows the running exe.
@@ -176,12 +224,6 @@ fn target_real(env: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     fixed.or_else(|| env("APPIMAGE").filter(|a| !a.is_empty()).map(PathBuf::from))
 }
 
-fn prev_of(target: &Path) -> PathBuf {
-    let mut s = target.as_os_str().to_owned();
-    s.push(".prev");
-    PathBuf::from(s)
-}
-
 fn dirs_real() -> Option<AppDirs> {
     crate::app_dirs(crate::Platform::CURRENT, |k| std::env::var(k).ok())
 }
@@ -189,7 +231,7 @@ fn dirs_real() -> Option<AppDirs> {
 /// Public entry for the UI: call once after the first frame or the sign-in screen.
 pub fn confirm_update() {
     if let (Some(dirs), Some(target)) = (dirs_real(), target_real(|k| std::env::var(k).ok())) {
-        confirm_update_at(&dirs, &prev_of(&target));
+        confirm_update_for(&dirs, install::running_build(), &target);
     }
 }
 
@@ -205,6 +247,17 @@ fn relaunch(target: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// `Some(exit code)` when the restored build was started; `None` keeps this process alive.
+pub(super) fn leave_after_restore(target: &Path, spawn: impl Fn(&Path) -> std::io::Result<()>) -> Option<i32> {
+    match spawn(target) {
+        Ok(()) => Some(0),
+        Err(e) => {
+            eprintln!("update: relaunch failed: {e}");
+            None
+        }
+    }
+}
+
 /// First call of `main()`. Ordine fisso (N1): `--self-test` esce senza toccare nulla, poi il marcatore.
 pub fn run_at_start() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -215,15 +268,15 @@ pub fn run_at_start() {
     // Non-numeric build = development build: no action.
     let Ok(build) = crate::build_info::BUILD_INFO.build.parse::<u64>() else { return };
     let (Some(dirs), Some(target)) = (dirs_real(), target_real(|k| std::env::var(k).ok())) else { return };
-    let prev = prev_of(&target);
+    let prev = install::prev_of(&target);
     match handle_marker(&dirs, build, &target, &prev) {
         StartupAction::Restored { .. } => {
-            // The old build is back at `target`; this process is the rejected new one and leaves.
-            if let Err(e) = relaunch(&target) {
-                eprintln!("update: relaunch failed: {e}");
-                std::process::exit(1);
+            // The old build is back at `target`; this process is the rejected new one and leaves,
+            // but only once the old one has started. If it did not, stay up: closing here would
+            // leave the user with no running build.
+            if let Some(code) = leave_after_restore(&target, relaunch) {
+                std::process::exit(code);
             }
-            std::process::exit(0);
         }
         // The helper restores after this process is gone; if it cannot start, keep running.
         StartupAction::RestoreViaHelper { .. } => match super::helper::start(&super::helper::Request::restore(target.clone())) {
