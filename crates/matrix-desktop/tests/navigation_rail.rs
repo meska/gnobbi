@@ -37,7 +37,7 @@ fn rail_counts_direct_joined_rooms_once_without_search_or_unread_filter_bias() {
         },
     );
     sidebar.set_query("no result");
-    sidebar.set_unread_only(true);
+    sidebar.set_filter(sidebar.filter().with_unread(true));
     let entries = sidebar.navigation_entries();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].scope, None);

@@ -33,9 +33,9 @@ fn rail_label(name: &str) -> String {
     format!("{}…", out.trim_end())
 }
 
-struct RailTooltip {
-    label: String,
-    theme: Theme,
+pub(crate) struct RailTooltip {
+    pub(crate) label: String,
+    pub(crate) theme: Theme,
 }
 impl Render for RailTooltip {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

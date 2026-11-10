@@ -63,7 +63,7 @@ fn painted_callback_rejects_eligibility_replacement_and_same_scope_return() {
         let mut sidebar = Sidebar::connected(AccountId::new(17));
         let original = room();
         sidebar.apply_diff(RoomListDiff::Upsert(Box::new(original.clone())));
-        sidebar.set_unread_only(true);
+        sidebar.set_filter(sidebar.filter().with_unread(true));
         let mut space = original.clone();
         space.scope.room_id = RoomId::new("!space:test");
         space.info.is_space = true;

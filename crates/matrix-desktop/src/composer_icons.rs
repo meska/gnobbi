@@ -14,6 +14,12 @@ pub enum Icon {
     Check,
     Search,
     Poll,
+    FilterAll,
+    Star,
+    LowPriority,
+    Folder,
+    Dot,
+    Ring,
 }
 
 fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
@@ -60,6 +66,32 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
             vec![(4., 10.), (16., 10.)],
             vec![(4., 15.), (10., 15.)],
         ],
+        Icon::FilterAll => vec![
+            vec![(8., 5.), (16., 5.)],
+            vec![(8., 10.), (16., 10.)],
+            vec![(8., 15.), (16., 15.)],
+            vec![(4., 5.), (4.5, 5.)],
+            vec![(4., 10.), (4.5, 10.)],
+            vec![(4., 15.), (4.5, 15.)],
+        ],
+        Icon::Star => {
+            let pts: Vec<(f32, f32)> = (0..=10)
+                .map(|i| {
+                    let (r, a) = (if i % 2 == 0 { 7.5 } else { 3.2 }, -PI / 2. + i as f32 * PI / 5.);
+                    (10. + r * a.cos(), 10.5 + r * a.sin())
+                })
+                .collect();
+            vec![pts]
+        }
+        Icon::LowPriority => vec![
+            vec![(10., 3.), (10., 13.)],
+            vec![(5.5, 8.5), (10., 13.), (14.5, 8.5)],
+            vec![(4., 17.), (16., 17.)],
+        ],
+        Icon::Folder => vec![vec![(3., 6.), (8., 6.), (10., 8.), (17., 8.), (17., 16.), (3., 16.), (3., 6.)]],
+        // Strokes only: a filled dot is concentric rings one stroke apart.
+        Icon::Dot => (1..=4).map(|r| arc((10., 10.), r as f32, 0., 2. * PI)).collect(),
+        Icon::Ring => vec![arc((10., 10.), 5.5, 0., 2. * PI)],
         Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![
             arc((10., 10.), 7.5, 0., 2. * PI),

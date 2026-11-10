@@ -36,12 +36,12 @@ fn space_filter_uses_direct_joined_children_without_changing_selection() {
     assert_eq!(sidebar.selected().unwrap().scope, scope("!other:test"));
     sidebar.set_query("alpha");
     assert_eq!(sidebar.visible_indices(), &[0]);
-    sidebar.set_unread_only(true);
+    sidebar.set_filter(sidebar.filter().with_unread(true));
     assert_eq!(sidebar.visible_indices(), &[0]);
     assert!(!sidebar.set_space(Some(scope("!other:test"))));
     assert_eq!(sidebar.active_space(), Some(&scope("!space:test")));
     sidebar.set_query("");
-    sidebar.set_unread_only(false);
+    sidebar.set_filter(sidebar.filter().with_unread(false));
     assert!(sidebar.set_space(None));
     assert_eq!(sidebar.visible_indices(), &[0, 1]);
     assert_eq!(sidebar.rooms()[2].info.children.len(), 2);
@@ -103,7 +103,7 @@ fn unread_filter_reacts_to_live_diffs_without_changing_hidden_selection() {
     let mut sidebar = Sidebar::connected(AccountId::new(18));
     sidebar.apply_diff(upsert("!one:fixture.invalid", "Alpha", 0));
     sidebar.apply_diff(upsert("!two:fixture.invalid", "Beta", 3));
-    sidebar.set_unread_only(true);
+    sidebar.set_filter(sidebar.filter().with_unread(true));
     assert_eq!(sidebar.visible_indices(), &[1]);
     assert_eq!(
         sidebar.selected().unwrap().scope,
@@ -118,7 +118,7 @@ fn unread_filter_reacts_to_live_diffs_without_changing_hidden_selection() {
     assert_eq!(sidebar.selected().unwrap().name, "Renamed");
     assert_eq!(sidebar.rooms().len(), 2);
     sidebar.set_query("");
-    sidebar.set_unread_only(false);
+    sidebar.set_filter(sidebar.filter().with_unread(false));
     // Plain list: idle rooms by name, so Beta (index 1) precedes Renamed (index 0).
     assert_eq!(sidebar.visible_indices(), &[1, 0]);
 }
@@ -166,7 +166,7 @@ fn public_peer_marker_survives_scoped_client_route_without_becoming_unread_count
 fn upsert_retires_navigation_when_unread_eligibility_leaves_and_returns_unobserved() {
     let mut sidebar = Sidebar::connected(AccountId::new(18));
     sidebar.apply_diff(upsert("!one:test", "Alpha", 2));
-    sidebar.set_unread_only(true);
+    sidebar.set_filter(sidebar.filter().with_unread(true));
     let before = sidebar.navigation_revision();
     sidebar.apply_diff(upsert("!one:test", "Alpha", 0));
     sidebar.apply_diff(upsert("!one:test", "Alpha", 2));
@@ -246,11 +246,11 @@ fn rooms_with_only_me_and_no_messages_are_hidden_until_shown() {
         ["!peer:test", "!talk:test", "!unknown:test", "!unread:test"]
     );
     assert_eq!(sidebar.hidden_empty_count(), 1);
-    sidebar.set_show_empty(true);
+    sidebar.set_filter(sidebar.filter().with_empty(true));
     assert_eq!(sidebar.visible_indices().len(), 5);
     assert_eq!(sidebar.hidden_empty_count(), 1);
     // a deleted last message leaves the room empty again
-    sidebar.set_show_empty(false);
+    sidebar.set_filter(sidebar.filter().with_empty(false));
     sidebar.apply_diff(upsert_info("!talk:test", 0, 1, None));
     assert_eq!(sidebar.hidden_empty_count(), 2);
     assert_eq!(sidebar.visible_indices().len(), 3);

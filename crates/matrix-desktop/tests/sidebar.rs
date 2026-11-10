@@ -105,10 +105,10 @@ fn navigation_revision_retires_actions_after_filter_away_back() {
     assert_ne!(sidebar.navigation_revision(), initial);
     let current = sidebar.navigation_revision();
     sidebar.set_query("");
-    sidebar.set_unread_only(false);
+    sidebar.set_filter(sidebar.filter().with_unread(false));
     assert_eq!(sidebar.navigation_revision(), current);
-    sidebar.set_unread_only(true);
-    sidebar.set_unread_only(false);
+    sidebar.set_filter(sidebar.filter().with_unread(true));
+    sidebar.set_filter(sidebar.filter().with_unread(false));
     assert_ne!(sidebar.navigation_revision(), current);
 }
 

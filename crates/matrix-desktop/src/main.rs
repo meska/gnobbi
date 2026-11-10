@@ -10,6 +10,9 @@ mod composer_view;
 mod editing_command;
 mod emoji_font;
 mod directory_servers_view;
+// Unused until the filter row card wires it in.
+#[allow(dead_code)]
+mod filter_icon;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;
@@ -2535,7 +2538,7 @@ impl Shell {
                                         .child(format!("Vuote ({})", self.sidebar.hidden_empty_count()))
                                         .child(crate::switch_row::switch_track(self.sidebar.show_empty(), true, t))
                                         .on_click(cx.listener(|this, _, _, cx| {
-                                            this.sidebar.set_show_empty(!this.sidebar.show_empty());
+                                            this.sidebar.set_filter(this.sidebar.filter().with_empty(!this.sidebar.show_empty()));
                                             cx.notify();
                                         })),
                                 ))

@@ -35,7 +35,7 @@ impl Shell {
     fn toggle_unread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         #[cfg(test)]
         sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.sidebar.set_unread_only(!self.sidebar.unread_only());
+        self.sidebar.set_filter(self.sidebar.filter().with_unread(!self.sidebar.unread_only()));
         self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
         self.unread_focus.focus(window);
         cx.notify();
@@ -339,7 +339,7 @@ impl Shell {
             #[cfg(test)]
             sidebar_navigation_test::ACTIVATIONS[0]
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            self.sidebar.set_unread_only(checked);
+            self.sidebar.set_filter(self.sidebar.filter().with_unread(checked));
             self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
         }
         self.unread_focus.focus(window);
@@ -382,7 +382,7 @@ impl Shell {
                         )
                     })
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.sidebar.set_group(tag.clone());
+                        this.sidebar.set_filter(this.sidebar.filter().with_group(tag.clone()));
                         this.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
                         cx.notify();
                     }))
