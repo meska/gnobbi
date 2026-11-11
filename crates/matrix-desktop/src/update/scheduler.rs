@@ -176,6 +176,10 @@ mod online {
     }
 }
 
+#[cfg(all(test, feature = "live", target_os = "linux", target_arch = "x86_64"))]
+#[path = "e2e_tests.rs"]
+mod e2e_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
