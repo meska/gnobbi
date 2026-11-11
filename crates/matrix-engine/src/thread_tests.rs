@@ -1169,9 +1169,6 @@ fn disposable_thread_receipt_privacy_gate() {
             "off records the private receipt under the thread's root, on the exact event");
         assert_ne!(public_after_private.as_deref(), Some(target3.as_str()), "a private receipt never moves the public marker");
         // 4. No-op: a second intent whose marker already covers the target sends nothing.
-        // The SDK judges a no-op against the worker's own store, which only learns the markers from its
-        // sync echo (Tuwunel can deliver it late): give it time, or the "no-op" is a real send.
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         let mut read5 = ViewRequests::new();
         let tag5 = read5.start(scope.clone()).unwrap();
         assert!(
@@ -1183,12 +1180,15 @@ fn disposable_thread_receipt_privacy_gate() {
                 .is_ok()
         );
         let noop_private = recv_receipt(&mut results, &tag5, std::time::Duration::from_secs(10)).await;
+        // The public no-op targets the public marker the server really holds: Synapse moved it to target2 in
+        // step 2, Tuwunel kept target1, and a public intent on target2 there is a genuine send, not a no-op.
+        let public_held = matrix_domain::EventId::new(public_after_private.clone().expect("a public marker"));
         let mut read6 = ViewRequests::new();
         let tag6 = read6.start(scope.clone()).unwrap();
         assert!(
             commands
                 .send(OperationCommand::ThreadRead {
-                    tag: tag6.clone(), root: root_id.clone(), target: target2.clone(), public: true,
+                    tag: tag6.clone(), root: root_id.clone(), target: public_held, public: true,
                 })
                 .await
                 .is_ok()
