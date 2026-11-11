@@ -59,6 +59,60 @@ pub struct GroupEntry {
     pub selected: bool,
 }
 
+/// Filters of the room list, session only. `group` is an exclusive scope (None = «Tutte»,
+/// `m.favourite`, `m.lowpriority` or a `u.*` tag); the two switches combine with it and with each other.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct ListFilter {
+    pub group: Option<String>,
+    pub unread_only: bool,
+    pub show_empty: bool,
+}
+
+impl ListFilter {
+    pub fn with_group(&self, group: Option<String>) -> Self {
+        Self { group, ..self.clone() }
+    }
+    pub fn with_unread(&self, unread_only: bool) -> Self {
+        Self { unread_only, ..self.clone() }
+    }
+    pub fn with_empty(&self, show_empty: bool) -> Self {
+        Self { show_empty, ..self.clone() }
+    }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum FilterId {
+    All,
+    Group(String),
+    /// The «Gruppi» button: opens the menu of `u.*` groups, it never changes the filter by itself.
+    GroupsMenu,
+    Unread,
+    Empty,
+}
+
+/// One button of the filter row, in drawing order.
+pub struct FilterButton {
+    pub id: FilterId,
+    /// Accessible name and hover text (one word or two, never a sentence).
+    pub name: String,
+    /// Data shown next to the icon; None when 0.
+    pub count: Option<u64>,
+    pub selected: bool,
+}
+
+impl FilterButton {
+    /// Name for assistive technology: «Non lette, 12».
+    pub fn accessible_name(&self) -> String {
+        match self.count {
+            Some(n) => format!("{}, {n}", self.name),
+            None => self.name.clone(),
+        }
+    }
+}
+
+const FAVOURITE: &str = "m.favourite";
+const LOW_PRIORITY: &str = "m.lowpriority";
+
 /// Label of a tag: the part after `u.`, or the Italian name of the two standard ones.
 pub fn group_label(tag: &str) -> String {
     match tag {
@@ -96,12 +150,10 @@ pub struct Sidebar {
     order: std::collections::HashMap<RoomScope, usize>,
     visible: Vec<usize>,
     query: String,
-    unread_only: bool,
-    show_empty: bool,
+    filter: ListFilter,
     /// Rooms the user just created: shown although still empty.
     kept: std::collections::HashSet<RoomScope>,
     space: Option<RoomScope>,
-    group: Option<String>,
     selected: Option<usize>,
     keyboard_focus: Option<RoomScope>,
     /// Invitations whose answer is on its way, and those whose last answer failed.
@@ -123,13 +175,11 @@ impl Sidebar {
             order: std::collections::HashMap::new(),
             visible: Vec::new(),
             query: String::new(),
-            unread_only: false,
-            show_empty: false,
+            filter: ListFilter::default(),
             kept: Default::default(),
             selected: None,
             keyboard_focus: None,
             space: None,
-            group: None,
             answering: Default::default(),
             failed: Default::default(),
             reject_armed: None,
@@ -245,13 +295,11 @@ impl Sidebar {
             order: Default::default(),
             visible: (0..300).collect(),
             query: String::new(),
-            unread_only: false,
-            show_empty: false,
+            filter: ListFilter::default(),
             kept: Default::default(),
             selected: Some(0),
             keyboard_focus: None,
             space: None,
-            group: None,
             answering: Default::default(),
             failed: Default::default(),
             reject_armed: None,
@@ -306,24 +354,81 @@ impl Sidebar {
             .expect("navigation revision exhausted");
     }
 
-    pub fn set_unread_only(&mut self, enabled: bool) {
-        if self.unread_only != enabled {
+    pub fn filter(&self) -> &ListFilter {
+        &self.filter
+    }
+
+    /// The only way to change the list filters. Never changes the open conversation.
+    pub fn set_filter(&mut self, filter: ListFilter) {
+        if self.filter != filter {
             self.retire_navigation();
         }
-        self.unread_only = enabled;
+        self.filter = filter;
         self.set_query(&self.query.clone());
     }
 
-    pub fn set_show_empty(&mut self, enabled: bool) {
-        if self.show_empty != enabled {
-            self.retire_navigation();
+    /// A scope replaces the current one; a switch flips.
+    pub fn activate(&mut self, id: &FilterId) {
+        let f = &self.filter;
+        let next = match id {
+            FilterId::All => f.with_group(None),
+            FilterId::Group(tag) => f.with_group(Some(tag.clone())),
+            FilterId::GroupsMenu => return,
+            FilterId::Unread => f.with_unread(!f.unread_only),
+            FilterId::Empty => f.with_empty(!f.show_empty),
+        };
+        self.set_filter(next);
+    }
+
+    /// Rooms that count for the row: no spaces, no invitations.
+    fn listed(&self) -> impl Iterator<Item = &SidebarRoom> {
+        self.rooms.iter().filter(|r| !r.info.is_space && !r.info.invited)
+    }
+
+    /// The filter row: scopes first, then the switches. Favourites and low priority are always there;
+    /// «Vuote» only while there is something to show or it is on.
+    pub fn filter_buttons(&self) -> Vec<FilterButton> {
+        let f = &self.filter;
+        let count = |n: usize| (n > 0).then_some(n as u64);
+        let scope = |id, name: &str, selected| FilterButton { id, name: name.into(), count: None, selected };
+        let mut buttons = vec![
+            scope(FilterId::All, "Tutte", f.group.is_none()),
+            scope(FilterId::Group(FAVOURITE.into()), "Preferiti", f.group.as_deref() == Some(FAVOURITE)),
+            scope(FilterId::Group(LOW_PRIORITY.into()), "Bassa priorità", f.group.as_deref() == Some(LOW_PRIORITY)),
+            scope(
+                FilterId::GroupsMenu,
+                "Gruppi",
+                f.group.as_deref().is_some_and(|g| g != FAVOURITE && g != LOW_PRIORITY),
+            ),
+            FilterButton {
+                id: FilterId::Unread,
+                name: "Non lette".into(),
+                count: count(self.listed().filter(|r| r.unread > 0).count()),
+                selected: f.unread_only,
+            },
+        ];
+        let empty = self.listed().filter(|r| r.is_empty() && !self.kept.contains(&r.scope)).count();
+        if empty > 0 || f.show_empty {
+            buttons.push(FilterButton {
+                id: FilterId::Empty,
+                name: "Vuote".into(),
+                count: count(empty),
+                selected: f.show_empty,
+            });
         }
-        self.show_empty = enabled;
-        self.set_query(&self.query.clone());
+        buttons
+    }
+
+    /// The `u.*` groups for the «Gruppi» menu, with their unread count.
+    pub fn group_menu(&self) -> Vec<GroupEntry> {
+        self.group_entries()
+            .into_iter()
+            .filter(|e| e.tag.as_deref().is_some_and(|t| t.starts_with("u.")))
+            .collect()
     }
 
     pub fn show_empty(&self) -> bool {
-        self.show_empty
+        self.filter.show_empty
     }
 
     /// Keeps a just-created room in the list while it has no message yet.
@@ -341,7 +446,7 @@ impl Sidebar {
     }
 
     pub fn unread_only(&self) -> bool {
-        self.unread_only
+        self.filter.unread_only
     }
 
     pub fn spaces(&self) -> impl Iterator<Item = &SidebarRoom> {
@@ -510,7 +615,7 @@ impl Sidebar {
             tag: None,
             name: "Tutte".into(),
             unread: 0,
-            selected: self.group.is_none(),
+            selected: self.filter.group.is_none(),
         }];
         entries.extend(tags.into_iter().map(|tag| GroupEntry {
             tag: Some(tag.to_owned()),
@@ -520,22 +625,13 @@ impl Sidebar {
                 .iter()
                 .filter(|room| !room.info.is_space && room.info.tags.iter().any(|t| t == tag))
                 .fold(0, |sum, room| sum.saturating_add(room.unread)),
-            selected: self.group.as_deref() == Some(tag),
+            selected: self.filter.group.as_deref() == Some(tag),
         }));
         entries
     }
 
     pub fn active_group(&self) -> Option<&str> {
-        self.group.as_deref()
-    }
-
-    /// Filters the list by one group tag; None shows every room. Never changes the open conversation.
-    pub fn set_group(&mut self, tag: Option<String>) {
-        if self.group != tag {
-            self.retire_navigation();
-        }
-        self.group = tag;
-        self.set_query(&self.query.clone());
+        self.filter.group.as_deref()
     }
 
     /// Optimistic drop once the read receipt is sent: zero this room's counters now,
@@ -588,8 +684,11 @@ impl Sidebar {
             self.space = None;
         }
         // A group nobody carries any more is dropped, like a vanished space.
-        if self.group.as_ref().is_some_and(|g| !self.rooms.iter().any(|r| r.info.tags.contains(g))) {
-            self.group = None;
+        // The two standard groups have a fixed button, so they stay selectable while empty.
+        if self.filter.group.as_ref().is_some_and(|g| {
+            g != FAVOURITE && g != LOW_PRIORITY && !self.rooms.iter().any(|r| r.info.tags.contains(g))
+        }) {
+            self.filter.group = None;
         }
         let needle = query.trim().to_lowercase();
         let space = self
@@ -605,9 +704,9 @@ impl Sidebar {
                 (room.info.invited || !room.info.is_space)
                     && room.name.to_lowercase().contains(&needle)
                     && (room.info.invited
-                        || ((!self.unread_only || room.unread > 0)
-                            && (self.show_empty || !room.is_empty() || self.kept.contains(&room.scope))
-                            && self.group.as_ref().is_none_or(|g| room.info.tags.contains(g))
+                        || ((!self.filter.unread_only || room.unread > 0)
+                            && (self.filter.show_empty || !room.is_empty() || self.kept.contains(&room.scope))
+                            && self.filter.group.as_ref().is_none_or(|g| room.info.tags.contains(g))
                             && space.is_none_or(|s| s.info.children.contains(&room.scope.room_id))))
             })
             .map(|(i, _)| i)
@@ -860,7 +959,7 @@ mod tests {
         );
         let open = scope(&account, "c");
         assert!(sidebar.select(&open));
-        sidebar.set_unread_only(false);
+        sidebar.set_filter(sidebar.filter().with_unread(false));
         // another room gets the newest message, the open one is pushed down
         fill(&mut sidebar, &account, &[("b", Some(50))]);
         assert_eq!(names(&sidebar), ["b", "a", "c"]);
@@ -901,7 +1000,7 @@ mod tests {
             ["x", "y", "space"][..names(&sidebar).len()]
         );
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
-        sidebar.set_unread_only(true);
+        sidebar.set_filter(sidebar.filter().with_unread(true));
         sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: scope(&account, "y"),
             name: "y".into(),
@@ -1006,7 +1105,7 @@ mod tests {
         upsert(&mut sidebar, "a", 3, 2, &[]);
         upsert(&mut sidebar, "b", 4, 1, &[]);
         upsert(&mut sidebar, "s", 0, 0, &["a"]);
-        sidebar.set_unread_only(true);
+        sidebar.set_filter(sidebar.filter().with_unread(true));
         assert_eq!(names(&sidebar), ["a", "b"]);
         let counts = |s: &Sidebar| {
             s.navigation_entries()
@@ -1065,18 +1164,18 @@ mod tests {
             ]
         );
         assert_eq!(names(&sidebar).len(), 4);
-        sidebar.set_group(Some("u.work".into()));
+        sidebar.activate(&FilterId::Group("u.work".into()));
         let mut got = names(&sidebar);
         got.sort();
         assert_eq!(got, ["a", "b"]);
         assert!(sidebar.group_entries()[3].selected);
         // Counters ignore the group, search and unread filters; the unread filter still applies on top.
-        sidebar.set_unread_only(true);
+        sidebar.set_filter(sidebar.filter().with_unread(true));
         sidebar.set_query("b");
         assert_eq!(names(&sidebar), ["b"]);
         assert_eq!(summary(&sidebar)[1], ("Preferiti".into(), 2, false));
         sidebar.set_query("");
-        sidebar.set_unread_only(false);
+        sidebar.set_filter(sidebar.filter().with_unread(false));
         // A new message lifts the counter; read rooms drop out of it.
         tagged(&mut sidebar, &account, "b", 10, &["u.work"]);
         assert_eq!(sidebar.group_entries()[3].unread, 12);
@@ -1087,6 +1186,59 @@ mod tests {
         tagged(&mut sidebar, &account, "b", 0, &[]);
         assert_eq!(sidebar.active_group(), None);
         assert_eq!(names(&sidebar).len(), 4);
+    }
+
+    #[test]
+    fn filter_row_scope_is_exclusive_and_switches_combine() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let row = |s: &Sidebar| {
+            s.filter_buttons().into_iter().map(|b| (b.accessible_name(), b.selected)).collect::<Vec<_>>()
+        };
+        // Favourites and low priority are there with no tagged room; «Vuote» is not.
+        tagged(&mut sidebar, &account, "a", 2, &["m.favourite", "u.work"]);
+        tagged(&mut sidebar, &account, "b", 0, &["u.work"]);
+        tagged(&mut sidebar, &account, "c", 3, &[]);
+        assert_eq!(
+            row(&sidebar),
+            [
+                ("Tutte".into(), true),
+                ("Preferiti".into(), false),
+                ("Bassa priorità".into(), false),
+                ("Gruppi".into(), false),
+                ("Non lette, 2".into(), false),
+            ]
+        );
+        // Scopes replace each other; the switch stays on across scopes.
+        sidebar.activate(&FilterId::Group("u.work".into()));
+        sidebar.activate(&FilterId::Unread);
+        assert_eq!(sidebar.filter(), &ListFilter { group: Some("u.work".into()), unread_only: true, show_empty: false });
+        assert_eq!(names(&sidebar), ["a"]);
+        assert!(row(&sidebar)[3].1 && !row(&sidebar)[1].1 && row(&sidebar)[4].1);
+        sidebar.activate(&FilterId::Group("m.lowpriority".into()));
+        assert_eq!(sidebar.filter().group.as_deref(), Some("m.lowpriority"));
+        assert!(!row(&sidebar)[3].1 && row(&sidebar)[2].1);
+        // A standard group with no room keeps its button selected (empty list); the menu button does nothing.
+        assert!(names(&sidebar).is_empty());
+        let before = sidebar.filter().clone();
+        sidebar.activate(&FilterId::GroupsMenu);
+        assert_eq!(sidebar.filter(), &before);
+        // «Tutte» clears the scope only; set_filter is the single entry and bumps the revision once per change.
+        let revision = sidebar.navigation_revision();
+        sidebar.activate(&FilterId::All);
+        assert_eq!(sidebar.filter(), &ListFilter { unread_only: true, ..Default::default() });
+        assert_eq!(sidebar.navigation_revision(), revision + 1);
+        sidebar.set_filter(sidebar.filter().clone());
+        assert_eq!(sidebar.navigation_revision(), revision + 1);
+        // The menu lists only u.* groups, with their unread count.
+        let menu = sidebar.group_menu();
+        assert_eq!(menu.len(), 1);
+        assert_eq!((menu[0].name.as_str(), menu[0].unread), ("work", 2));
+        // A u.* group nobody carries any more falls back to «Tutte».
+        sidebar.activate(&FilterId::Group("u.work".into()));
+        tagged(&mut sidebar, &account, "a", 2, &["m.favourite"]);
+        tagged(&mut sidebar, &account, "b", 0, &[]);
+        assert_eq!(sidebar.filter().group, None);
     }
 }
 #[cfg(test)]
@@ -1140,7 +1292,7 @@ mod invite_tests {
         upsert(&mut sidebar, account, "!dm:t.invalid", "Anna", lonely);
         let space = RoomInfo { invited: true, is_space: true, ..Default::default() };
         upsert(&mut sidebar, account, "!sp:t.invalid", "Spazio", space);
-        sidebar.set_unread_only(true);
+        sidebar.set_filter(sidebar.filter().with_unread(true));
         assert_eq!(names(&sidebar), ["Anna", "Spazio"]);
         assert_eq!(sidebar.spaces().count(), 0, "an invited space is not in the rail");
         assert_eq!(sidebar.hidden_empty_count(), 0);

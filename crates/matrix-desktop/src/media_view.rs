@@ -92,12 +92,21 @@ pub(crate) fn save_icon(
             click(window, cx)
         })
         .child(if running { "…" } else { "↓" })
-        .child(gpui::canvas(|_, _, _| (), move |bounds, _, _, _| painted(bounds)).absolute().inset_0())
+        .child(
+            gpui::canvas(|_, _, _| (), move |bounds, _, _, _| painted(bounds))
+                .absolute()
+                .inset_0(),
+        )
         .into_any_element()
 }
 
 /// One line under the bubble footer: what went wrong and, unless it cannot change, «Riprova».
-pub(crate) fn save_failure(index: usize, error: MediaError, t: DesignTokens, retry: SaveClick) -> AnyElement {
+pub(crate) fn save_failure(
+    index: usize,
+    error: MediaError,
+    t: DesignTokens,
+    retry: SaveClick,
+) -> AnyElement {
     div()
         .flex()
         .justify_end()
@@ -122,18 +131,15 @@ pub(crate) fn save_failure(index: usize, error: MediaError, t: DesignTokens, ret
 pub(crate) type PaintedParts = std::rc::Rc<dyn Fn(&'static str, gpui::Bounds<gpui::Pixels>)>;
 
 /// Video bubble: the thumbnail, or a neutral box when there is none, with a play symbol over it and
-/// the duration and size in the corners. Nothing plays and no text explains it.
+/// the duration and size in the corners. A play that failed shows its own one line instead.
 pub(crate) fn video_picture(
     state: Option<InlineImage>,
     duration: Option<String>,
     size: Option<String>,
+    play_error: Option<MediaError>,
     t: DesignTokens,
     painted: PaintedParts,
 ) -> AnyElement {
-    let base = match state {
-        Some(ready @ InlineImage::Ready(_)) => inline_picture(Some(ready), t),
-        _ => inline_picture(None, t),
-    };
     let probe = {
         let painted = painted.clone();
         move |part: &'static str| {
@@ -142,6 +148,27 @@ pub(crate) fn video_picture(
                 .absolute()
                 .inset_0()
         }
+    };
+    // A play that failed: one line, no picture to open and no play symbol that cannot work.
+    if let Some(error) = play_error {
+        return div()
+            .relative()
+            .w(px(200.))
+            .h(px(60.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_md()
+            .bg(rgb(t.timeline))
+            .text_size(px(12.))
+            .text_color(rgb(t.error))
+            .child(failure_label(Some(error), true))
+            .child(probe("failed"))
+            .into_any_element();
+    }
+    let base = match state {
+        Some(ready @ InlineImage::Ready(_)) => inline_picture(Some(ready), t),
+        _ => inline_picture(None, t),
     };
     let chip = |part: &'static str, text: String| {
         div()
@@ -196,6 +223,116 @@ pub(crate) fn video_picture(
                         .children(duration.map(|d| chip("duration", d)))
                         .children(size.map(|s| chip("size", s))),
                 ),
+        )
+        .into_any_element()
+}
+
+/// Audio bubble: a round Play/Pause button, the waveform with the played part filled in, and
+/// the duration and size beside it. The message's own time stays in the bubble footer.
+/// A note whose playback failed shows its one line instead of a dead button.
+pub(crate) fn audio_bubble(
+    waveform: Vec<f32>,
+    progress: f32,
+    playing: bool,
+    (duration, size): (Option<String>, Option<String>),
+    error: Option<MediaError>,
+    t: DesignTokens,
+    painted: PaintedParts,
+) -> AnyElement {
+    let probe = {
+        let painted = painted.clone();
+        move |part: &'static str| {
+            let painted = painted.clone();
+            gpui::canvas(|_, _, _| (), move |bounds, _, _, _| painted(part, bounds))
+                .absolute()
+                .inset_0()
+        }
+    };
+    if let Some(error) = error {
+        return div()
+            .relative()
+            .h(px(44.))
+            .px_2()
+            .flex()
+            .items_center()
+            .rounded_md()
+            .bg(rgb(t.timeline))
+            .text_size(px(12.))
+            .text_color(rgb(t.error))
+            .child(failure_label(Some(error), true))
+            .child(probe("failed"))
+            .into_any_element();
+    }
+    let played = if waveform.is_empty() {
+        0
+    } else {
+        ((progress.clamp(0.0, 1.0) * waveform.len() as f32).round() as usize).min(waveform.len())
+    };
+    // A sent waveform can be any length: draw at most 60 bars, one per shown point.
+    let step = waveform.len().div_ceil(60).max(1);
+    let bars = waveform.iter().step_by(step).enumerate().map(|(i, peak)| {
+        let played = i * step < played;
+        let colour = if played { t.accent } else { t.border };
+        div()
+            .w(px(2.))
+            .h(px(2. + peak.clamp(0.0, 1.0) * 22.))
+            .rounded_sm()
+            .bg(rgb(colour))
+    });
+    let button = div()
+        .relative()
+        .flex()
+        .items_center()
+        .justify_center()
+        .size(px(40.))
+        .flex_shrink_0()
+        .rounded_full()
+        .bg(rgb(t.accent))
+        .text_color(rgb(t.surface))
+        .text_size(px(16.))
+        .child(if playing {
+            div()
+                .flex()
+                .gap(px(3.))
+                .child(div().w(px(4.)).h(px(14.)).bg(rgb(t.surface)))
+                .child(div().w(px(4.)).h(px(14.)).bg(rgb(t.surface)))
+                .into_any_element()
+        } else {
+            "▶".into_any_element()
+        })
+        .child(probe("play"));
+    div()
+        .relative()
+        .flex()
+        .items_center()
+        .gap_3()
+        .h(px(44.))
+        .child(button)
+        .child(
+            div()
+                .relative()
+                .flex()
+                .flex_1()
+                .min_w_0()
+                .items_center()
+                .gap(px(1.))
+                .h(px(24.))
+                .children(bars)
+                .child(probe("waveform")),
+        )
+        .child(
+            div()
+                .relative()
+                .flex_shrink_0()
+                .text_size(px(12.))
+                .text_color(rgb(t.secondary))
+                .child(match (duration, size) {
+                    (Some(duration), Some(size)) => format!("{duration} · {size}"),
+                    (Some(duration), None) => duration,
+                    (None, Some(size)) => size,
+                    (None, None) => String::new(),
+                })
+                .child(probe("duration")),
         )
         .into_any_element()
 }
@@ -333,14 +470,18 @@ impl Shell {
         let scope = self.active_scope.clone();
         cx.spawn(async move |this, cx| {
             // No portal (or it failed): the same one-line error as a failed download, not silence.
-            let picked = picked.await.map_err(|_| MediaError::Failed).and_then(|r| r.map_err(|_| MediaError::Failed));
+            let picked = picked
+                .await
+                .map_err(|_| MediaError::Failed)
+                .and_then(|r| r.map_err(|_| MediaError::Failed));
             let path = picked.as_ref().ok().cloned().flatten();
             let _ = this.update(cx, |this, cx| {
                 let Some(timeline) = &this.timeline else {
                     return;
                 };
                 // Stopped while the picker was open, or the room changed: nothing to save.
-                let wanted = timeline.saves.borrow().state(&id) == Some(matrix_desktop::SaveState::Running)
+                let wanted = timeline.saves.borrow().state(&id)
+                    == Some(matrix_desktop::SaveState::Running)
                     && scope == this.active_scope;
                 let started = wanted
                     && path.is_some_and(|path| this.media.request_save(scope, id.clone(), path));
@@ -357,28 +498,76 @@ impl Shell {
     }
 
     /// Store the answer of the finished read under its message.
-    pub(crate) fn update_media_image(&mut self) {
+    pub(crate) fn update_media_image(&mut self, cx: &mut gpui::Context<Self>) {
         if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_saved()) {
             timeline.finish_save(&id, result);
             return;
         }
+        if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_audio()) {
+            let (waveform, duration_ms, error, playing) = match result {
+                Ok(opened) => {
+                    let player =
+                        crate::audio_player::Player::new(opened.samples, opened.sample_rate);
+                    let duration_ms = player.duration_ms();
+                    match crate::audio_player::AudioOutput::start(player) {
+                        Ok(output) => {
+                            self.audio = Some((id.clone(), output));
+                            (opened.waveform, Some(duration_ms), None, true)
+                        }
+                        // No output device: the waveform still lands, with its one line.
+                        Err(_) => (
+                            opened.waveform,
+                            Some(duration_ms),
+                            Some(MediaError::Failed),
+                            false,
+                        ),
+                    }
+                }
+                Err(error) => (Vec::new(), None, Some(error), false),
+            };
+            {
+                let mut ui = timeline.audio.borrow_mut();
+                ui.event = Some(id.clone());
+                ui.waveform = waveform;
+                ui.duration_ms = duration_ms;
+                ui.playing = playing;
+                ui.progress = 0.0;
+                ui.error = error;
+            }
+            timeline.image_changed(&id);
+            return;
+        }
         if let (Some(timeline), Some((id, result))) = (&self.timeline, self.media.take_video()) {
-            let opened = result.and_then(|file| {
-                crate::video_player::open(file.path()).map_err(|_| MediaError::Failed)?;
-                Ok(file)
-            });
-            match opened {
+            match result {
                 Ok(file) => {
                     // The player has its own window: the large view has done its job.
-                    self.media.hold_playing(file);
+                    timeline.video_play_state(&id, None);
                     if timeline.viewing().as_ref() == Some(&id) {
                         *timeline.viewing.borrow_mut() = None;
                     }
+                    // Held until the next video replaces it: the player reads this file meanwhile.
+                    let (path, scope) = (file.path().to_owned(), self.active_scope.clone());
+                    self.media.hold_playing(file);
+                    // A launch is not a play: the opener's own exit is the result, waited off the UI
+                    // thread and applied only to the message it was asked for.
+                    let opened = cx
+                        .background_executor()
+                        .spawn(async move { crate::video_player::open(&path) });
+                    cx.spawn(async move |this, cx| {
+                        if opened.await.is_err() {
+                            let _ =
+                                this.update(cx, |this, cx| this.video_open_failed(&scope, &id, cx));
+                        }
+                    })
+                    .detach();
                 }
-                Err(error) if timeline.viewing().as_ref() == Some(&id) => {
-                    *timeline.original.borrow_mut() = Some((id, InlineImage::Failed(Some(error))));
+                Err(error) => {
+                    timeline.video_play_state(&id, Some(error));
+                    if timeline.viewing().as_ref() == Some(&id) {
+                        *timeline.original.borrow_mut() =
+                            Some((id, InlineImage::Failed(Some(error))));
+                    }
                 }
-                Err(_) => {}
             }
             return;
         }
@@ -402,6 +591,77 @@ impl Shell {
         };
         timeline.images.borrow_mut().insert(id.clone(), state);
         timeline.image_changed(&id);
+    }
+
+    /// A click on a note's bubble: toggle the loaded note, or ask the engine for a new one.
+    pub(crate) fn drive_audio(&mut self) -> bool {
+        let Some(timeline) = &self.timeline else {
+            return false;
+        };
+        let Some(id) = timeline.want_audio.borrow_mut().take() else {
+            return false;
+        };
+        if let Some((loaded, output)) = &self.audio
+            && loaded == &id
+        {
+            let (playing, progress) = {
+                let shared = output.player();
+                let mut player = shared.lock().unwrap_or_else(|e| e.into_inner());
+                player.toggle();
+                (player.is_playing(), player.progress())
+            };
+            {
+                let mut ui = timeline.audio.borrow_mut();
+                ui.playing = playing;
+                ui.progress = progress;
+            }
+            timeline.image_changed(&id);
+            return true;
+        }
+        // Another note (or none): stop the sound and read this one.
+        self.audio = None;
+        self.media.request_audio(self.active_scope.clone(), id);
+        true
+    }
+
+    /// Keep the bubble's playhead in step with the player; true when the view changed.
+    pub(crate) fn update_audio_progress(&mut self) -> bool {
+        let (Some(timeline), Some((id, output))) = (&self.timeline, &self.audio) else {
+            return false;
+        };
+        let (playing, progress) = {
+            let shared = output.player();
+            let player = shared.lock().unwrap_or_else(|e| e.into_inner());
+            (player.is_playing(), player.progress())
+        };
+        {
+            let mut ui = timeline.audio.borrow_mut();
+            if ui.event.as_ref() != Some(id)
+                || (ui.playing == playing && (ui.progress - progress).abs() < 0.002)
+            {
+                return false;
+            }
+            ui.playing = playing;
+            ui.progress = progress;
+        }
+        timeline.image_changed(id);
+        true
+    }
+
+    /// A video opener that failed: one line in the bubble of that message, if its room is open.
+    fn video_open_failed(
+        &mut self,
+        scope: &matrix_domain::RoomScope,
+        id: &matrix_domain::EventId,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if &self.active_scope != scope {
+            return;
+        }
+        if let Some(timeline) = &self.timeline {
+            timeline.video_play_state(id, Some(MediaError::Failed));
+        }
+        cx.notify();
     }
 }
 
@@ -441,7 +701,10 @@ mod tests {
             super::failure_label(Some(MediaError::TooLarge), true),
             "File troppo grande"
         );
-        assert_eq!(super::failure_label(None, true), "Riproduzione non disponibile");
+        assert_eq!(
+            super::failure_label(None, true),
+            "Riproduzione non disponibile"
+        );
         for error in [
             None,
             Some(MediaError::Failed),

@@ -62,6 +62,7 @@ fn history() -> DemoHistory {
         timestamp_ms: 0,
         sender: matrix_engine::history::HistorySender::new("@peer:test", None),
         video: None,
+        audio: None,
         styles: Vec::new(),
         thread: None,
         thread_root: None,

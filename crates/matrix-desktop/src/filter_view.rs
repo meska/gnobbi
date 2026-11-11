@@ -1,5 +1,6 @@
 //! Keyboard and assistive entry to the existing session-only unread filter.
 use crate::*;
+use matrix_desktop::FilterId;
 
 /// Control that received the key-down; the release only activates the same, still current source.
 #[derive(PartialEq)]
@@ -28,17 +29,57 @@ impl Shell {
             if !source(&this.sidebar) {
                 return;
             }
-            this.toggle_unread(window, cx);
+            this.activate_filter(FilterId::Unread, window, cx);
         }
     }
 
-    fn toggle_unread(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// One button of the row: a scope or a switch, or the «Gruppi» menu. The row keeps focus.
+    fn activate_filter(&mut self, id: FilterId, window: &mut Window, cx: &mut Context<Self>) {
         #[cfg(test)]
         sidebar_navigation_test::ACTIVATIONS[0].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        self.sidebar.set_unread_only(!self.sidebar.unread_only());
-        self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
+        if id == FilterId::GroupsMenu {
+            self.groups_menu = if self.groups_menu.is_some() { None } else { Some(0) };
+        } else {
+            self.groups_menu = None;
+            self.sidebar.activate(&id);
+            self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
+        }
+        self.filter_cursor = id;
         self.unread_focus.focus(window);
         cx.notify();
+    }
+
+    /// Space/Enter on the row: the highlighted group while the menu is open, else the button under the cursor.
+    fn activate_cursor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let group = self.groups_menu.and_then(|i| self.sidebar.group_menu().into_iter().nth(i));
+        match group.and_then(|g| g.tag) {
+            Some(tag) if self.filter_cursor == FilterId::GroupsMenu => {
+                self.activate_filter(FilterId::Group(tag), window, cx);
+                self.filter_cursor = FilterId::GroupsMenu;
+            }
+            _ => self.activate_filter(self.filter_cursor.clone(), window, cx),
+        }
+    }
+
+    /// Arrows walk the row (one tab stop) or, with the menu open, its entries; Escape closes the menu.
+    fn filter_arrow(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
+        let step = |n: usize, i: usize, back: bool| if back { (i + n - 1) % n } else { (i + 1) % n };
+        if let Some(i) = self.groups_menu {
+            let n = self.sidebar.group_menu().len().max(1);
+            match key {
+                "up" | "down" => self.groups_menu = Some(step(n, i, key == "up")),
+                "escape" => self.groups_menu = None,
+                _ => return false,
+            }
+        } else if matches!(key, "left" | "right") {
+            let ids: Vec<_> = self.sidebar.filter_buttons().into_iter().map(|b| b.id).collect();
+            let at = ids.iter().position(|id| *id == self.filter_cursor).unwrap_or(0);
+            self.filter_cursor = ids[step(ids.len(), at, key == "left")].clone();
+        } else {
+            return false;
+        }
+        cx.notify();
+        true
     }
 
     pub(crate) fn sidebar_activation_down(
@@ -152,7 +193,7 @@ impl Shell {
             }
         {
             match press.kind {
-                PressKind::Unread => self.toggle_unread(window, cx),
+                PressKind::Unread => self.activate_cursor(window, cx),
                 PressKind::Rail(_) => self.rail_activate(cx),
                 PressKind::Spaces(_) => self.spaces_activate(window, cx),
             }
@@ -259,6 +300,14 @@ impl Shell {
         let key = &event.keystroke;
         let compact = window.viewport_size().width < px(800.);
         let spaces = compact && self.connected && self.sidebar.spaces().next().is_some();
+        if self.connected
+            && !(compact && self.compact_chat)
+            && self.unread_focus.is_focused(window)
+            && !key.modifiers.modified()
+            && self.filter_arrow(&key.key, cx)
+        {
+            return true;
+        }
         if (compact && self.compact_chat)
             || key.key != "tab"
             || key.modifiers.control
@@ -335,100 +384,120 @@ impl Shell {
         {
             return;
         }
-        if let FilterAction::SetUnread { checked, .. } = action {
-            #[cfg(test)]
-            sidebar_navigation_test::ACTIVATIONS[0]
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            self.sidebar.set_unread_only(checked);
-            self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
+        if let FilterAction::SetUnread { checked, .. } = action
+            && checked != self.sidebar.unread_only()
+        {
+            self.activate_filter(FilterId::Unread, window, cx);
         }
         self.unread_focus.focus(window);
         cx.notify();
     }
 
-    /// Personal groups as chips under the search field; pointer only (no tab stop yet).
-    pub(crate) fn render_groups(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
+    /// The single filter row: scopes on the left, switches fixed on the right; never wraps.
+    /// One tab stop (`unread_focus`): arrows move `filter_cursor`, Space/Enter activates.
+    pub(crate) fn render_filter_row(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = self.theme.tokens();
+        let focused = self.unread_focus.is_focused(window);
+        let ring = input_modality::only_keys(focused, cx);
+        let button = |i: usize, b: &matrix_desktop::FilterButton, cx: &mut Context<Self>| {
+            let id = b.id.clone();
+            let mut el = crate::filter_icon::filter_icon(("filter", i), b, self.theme, ring && id == self.filter_cursor);
+            if id == FilterId::Unread {
+                el = el
+                    .relative()
+                    .children(self.unread_observer(cx))
+                    .children({
+                        #[cfg(test)]
+                        {
+                            sidebar_navigation_test::observe("unread".into())
+                        }
+                        #[cfg(not(test))]
+                        {
+                            None::<gpui::AnyElement>
+                        }
+                    })
+                    .on_click({
+                        let callback = self.sidebar_pointer_callback();
+                        #[cfg(test)]
+                        let callback = sidebar_navigation_test::capture_pointer(callback);
+                        cx.listener(move |this, _, window, cx| callback(this, window, cx))
+                    });
+            } else {
+                el = el.on_click(cx.listener(move |this, _, window, cx| this.activate_filter(id.clone(), window, cx)));
+            }
+            el
+        };
+        let buttons = self.sidebar.filter_buttons();
+        let split = buttons.iter().position(|b| matches!(b.id, FilterId::Unread | FilterId::Empty)).unwrap_or(buttons.len());
+        let (scopes, switches) = buttons.split_at(split);
         div()
-            .id("room-groups")
+            .id("filter-row")
+            .relative()
             .flex()
-            .flex_wrap()
-            .gap_2()
+            .items_center()
+            .gap_1()
             .mx_4()
             .mb_3()
-            .children(self.sidebar.group_entries().into_iter().enumerate().map(|(i, entry)| {
-                let tag = entry.tag.clone();
-                div()
-                    .id(("room-group", i))
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .px_3()
-                    .py_1()
-                    .rounded_full()
-                    .cursor_pointer()
-                    .text_size(px(12.))
-                    .bg(rgb(if entry.selected { t.accent } else { t.input }))
-                    .text_color(rgb(if entry.selected { t.on_accent } else { t.secondary }))
-                    .child(entry.name)
-                    .when(entry.unread > 0, |d| {
-                        d.child(
-                            div()
-                                .px_1()
-                                .rounded_full()
-                                .bg(rgb(if entry.selected { t.on_accent } else { t.accent }))
-                                .text_color(rgb(if entry.selected { t.accent } else { t.on_accent }))
-                                .child(entry.unread.to_string()),
-                        )
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.sidebar.set_group(tag.clone());
-                        this.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
-                        cx.notify();
-                    }))
-            }))
+            .track_focus(&self.unread_focus)
+            .child(div().flex().items_center().gap_1().min_w_0().overflow_hidden().children(
+                scopes.iter().enumerate().map(|(i, b)| button(i, b, cx)),
+            ))
+            .child(div().w(px(1.)).h(px(16.)).flex_shrink_0().bg(rgb(t.border)))
+            .child(div().flex().items_center().gap_1().flex_shrink_0().children(
+                switches.iter().enumerate().map(|(i, b)| button(scopes.len() + i, b, cx)),
+            ))
+            .children(self.groups_menu.map(|open| self.render_groups_menu(open, cx)))
             .into_any_element()
     }
 
-    pub(crate) fn render_unread(
-        &self,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
+    /// The `u.*` groups with their unread count, under the row; closes on a click outside or Escape.
+    fn render_groups_menu(&self, highlighted: usize, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = self.theme.tokens();
-        let focused = self.unread_focus.is_focused(window);
-        let control = div()
-            .id("unread-filter")
-            .relative()
-            .flex_shrink_0()
-            .cursor_pointer()
-            .text_color(rgb(t.accent))
-            .border_1()
-            .border_color(rgb(if input_modality::only_keys(focused, cx) { t.accent } else { t.surface }))
-            .flex()
-            .items_center()
-            .gap_2()
-            .child("Non lette")
-            .child(crate::switch_row::switch_track(self.sidebar.unread_only(), true, t))
-            .children(self.unread_observer(cx))
-            .children({
-                #[cfg(test)]
-                {
-                    sidebar_navigation_test::observe("unread".into())
-                }
-                #[cfg(not(test))]
-                {
-                    None::<gpui::AnyElement>
-                }
-            })
-            .on_click({
-                let callback = self.sidebar_pointer_callback();
-                #[cfg(test)]
-                let callback = sidebar_navigation_test::capture_pointer(callback);
-                cx.listener(move |this, _, window, cx| callback(this, window, cx))
-            });
-        let control = control.track_focus(&self.unread_focus);
-        control.into_any_element()
+        let entries = self.sidebar.group_menu();
+        gpui::deferred(
+            div()
+                .id("groups-menu")
+                .absolute()
+                .top(px(crate::filter_icon::TARGET + 4.))
+                .left_0()
+                .min_w(px(160.))
+                .max_h(px(240.))
+                .overflow_y_scroll()
+                .py_1()
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(t.border))
+                .bg(rgb(t.surface))
+                .text_size(px(12.))
+                .text_color(rgb(t.text))
+                .occlude()
+                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    this.groups_menu = None;
+                    cx.notify();
+                }))
+                .children(entries.into_iter().enumerate().map(|(i, e)| {
+                    let tag = e.tag.clone().unwrap_or_default();
+                    div()
+                        .id(("groups-menu-item", i))
+                        .flex()
+                        .justify_between()
+                        .gap_3()
+                        .px_3()
+                        .h(px(crate::filter_icon::TARGET))
+                        .items_center()
+                        .cursor_pointer()
+                        .when(e.selected, |d| d.bg(rgb(t.accent)).text_color(rgb(t.on_accent)))
+                        .when(i == highlighted && !e.selected, |d| d.bg(rgb(t.input)))
+                        .child(e.name)
+                        .children((e.unread > 0).then(|| e.unread.to_string()))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.activate_filter(FilterId::Group(tag.clone()), window, cx);
+                            this.filter_cursor = FilterId::GroupsMenu;
+                        }))
+                })),
+        )
+        .with_priority(1)
+        .into_any_element()
     }
 
     fn unread_observer(&self, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {

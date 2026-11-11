@@ -16,6 +16,7 @@ sdk = ["dep:tracing", "dep:matrix-sdk", "dep:tokio", "dep:url", "dep:reqwest", "
 
 [dependencies]
 matrix-sdk-crypto = { version = "=0.19.1", optional = true, default-features = false }
+opus-pure = "=0.2.3"
 mime_guess = { version = "=2.0.5", optional = true, default-features = false }
 image = { version = "=0.25.10", optional = true, default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 zeroize = "=1.9.1"

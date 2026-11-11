@@ -26,6 +26,7 @@ fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
         timestamp_ms: ts,
         sender: HistorySender::new(sender, Some(sender)),
         video: None,
+        audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,

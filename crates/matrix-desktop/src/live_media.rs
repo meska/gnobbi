@@ -2,7 +2,7 @@
 use matrix_domain::{EventId, RoomScope};
 use matrix_engine::{
     ViewRequests,
-    media::{MediaCommand, MediaError, MediaEvent, Preview, VideoFile},
+    media::{MediaCommand, MediaError, MediaEvent, OpenedAudio, Preview, VideoFile},
 };
 use std::collections::HashSet;
 
@@ -31,6 +31,11 @@ pub struct LiveMedia {
     saving: Option<EventId>,
     save_command: Option<MediaCommand>,
     save_done: Option<(EventId, Result<(), MediaError>)>,
+    /// The in-app audio player: its own lane, so a video or a save never cancels the note.
+    audio_views: ViewRequests,
+    audio: Option<EventId>,
+    audio_command: Option<MediaCommand>,
+    audio_done: Option<(EventId, Result<OpenedAudio, MediaError>)>,
 }
 impl LiveMedia {
     pub fn clear(&mut self) {
@@ -44,6 +49,27 @@ impl LiveMedia {
         self.videos.clear();
         self.cancel_original();
         self.cancel_save();
+        self.cancel_audio();
+    }
+    /// Download and decode the note of `event` for the in-app player, on its own lane.
+    pub fn request_audio(&mut self, scope: RoomScope, event: EventId) {
+        let Ok(tag) = self.audio_views.start(scope) else {
+            return;
+        };
+        self.audio = Some(event.clone());
+        self.audio_done = None;
+        self.audio_command = Some(MediaCommand::OpenAudio { tag, event });
+    }
+    /// Stop a read that is still running: its answer, if it comes, is dropped.
+    pub fn cancel_audio(&mut self) {
+        self.audio_views.cancel();
+        self.audio = None;
+        self.audio_command = None;
+        self.audio_done = None;
+    }
+    /// The finished decode (samples and waveform, or the error), once.
+    pub fn take_audio(&mut self) -> Option<(EventId, Result<OpenedAudio, MediaError>)> {
+        self.audio_done.take()
     }
     /// Save the original of `event` to `path`; false while another save runs.
     pub fn request_save(&mut self, scope: RoomScope, event: EventId, path: std::path::PathBuf) -> bool {
@@ -167,8 +193,18 @@ impl LiveMedia {
                 Err(
                     matrix_engine::TrySendError::Full(c) | matrix_engine::TrySendError::Busy(c),
                 ) => self.large_command = Some(c),
-                Err(matrix_engine::TrySendError::Closed(_)) => {
-                    self.large_done = self.large.take().map(|e| (e, Err(MediaError::Failed)));
+                Err(matrix_engine::TrySendError::Closed(command)) => {
+                    // A video that never reached the engine failed to play: it belongs to the
+                    // bubble's play lane, not to the large view's picture lane.
+                    match (command, self.large.take()) {
+                        (MediaCommand::OpenVideo { .. }, Some(event)) => {
+                            self.video_done = Some((event, Err(MediaError::Failed)));
+                        }
+                        (_, Some(event)) => {
+                            self.large_done = Some((event, Err(MediaError::Failed)));
+                        }
+                        (_, None) => {}
+                    }
                 }
             }
         }
@@ -180,6 +216,17 @@ impl LiveMedia {
                 ) => self.save_command = Some(c),
                 Err(matrix_engine::TrySendError::Closed(_)) => {
                     self.save_done = self.saving.take().map(|e| (e, Err(MediaError::Failed)));
+                }
+            }
+        }
+        if let Some(command) = self.audio_command.take() {
+            match sender.try_send(command) {
+                Ok(()) => (),
+                Err(
+                    matrix_engine::TrySendError::Full(c) | matrix_engine::TrySendError::Busy(c),
+                ) => self.audio_command = Some(c),
+                Err(matrix_engine::TrySendError::Closed(_)) => {
+                    self.audio_done = self.audio.take().map(|e| (e, Err(MediaError::Failed)));
                 }
             }
         }
@@ -214,6 +261,14 @@ impl LiveMedia {
                 }
                 self.saving = None;
                 self.save_done = Some((event, result));
+                return true;
+            }
+            MediaEvent::AudioOpened { tag, event, result } => {
+                if self.audio.as_ref() != Some(&event) || !self.audio_views.accepts(&tag) {
+                    return false;
+                }
+                self.audio = None;
+                self.audio_done = Some((event, result));
                 return true;
             }
             _ => return false,
@@ -285,6 +340,25 @@ mod tests {
         assert!(media.take_video().is_none());
     }
 
+    #[test]
+    fn a_closed_channel_reports_a_video_that_never_started_on_its_own_lane() {
+        let (mut media, tag, event) = video_request();
+        // The helper hands over the tag; the command goes back on the lane it belongs to.
+        media.large_command = Some(MediaCommand::OpenVideo {
+            tag,
+            event: event.clone(),
+        });
+        let (mut sender, receiver) =
+            matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
+        drop(receiver);
+        media.flush(&mut sender);
+        assert!(matches!(
+            media.take_video(),
+            Some((e, Err(MediaError::Failed))) if e == event
+        ));
+        assert!(media.take_original().is_none());
+    }
+
     fn save_request(media: &mut LiveMedia) -> (matrix_engine::RequestTag, EventId) {
         let event = EventId::new("$file:fixture.invalid");
         let scope = RoomScope {
@@ -319,5 +393,63 @@ mod tests {
         assert!(!media.apply(MediaEvent::Saved { tag, event, result: Ok(()) }));
         assert!(media.take_saved().is_none());
         assert!(media.request_save(scope, EventId::new("$again"), "/tmp/z".into()));
+    }
+
+    fn audio_request() -> (LiveMedia, matrix_engine::RequestTag, EventId) {
+        let mut media = LiveMedia::default();
+        let event = EventId::new("$note:fixture.invalid");
+        let scope = RoomScope {
+            account_id: AccountId::new(1),
+            room_id: RoomId::new("!r:fixture.invalid"),
+        };
+        media.request_audio(scope, event.clone());
+        let Some(MediaCommand::OpenAudio { tag, .. }) = media.audio_command.take() else {
+            panic!("an audio request asks the engine to open and decode the note");
+        };
+        (media, tag, event)
+    }
+
+    #[test]
+    fn a_finished_note_keeps_its_samples_and_a_cancelled_one_drops_them() {
+        let (mut media, tag, event) = audio_request();
+        assert!(media.apply(MediaEvent::AudioOpened {
+            tag,
+            event: event.clone(),
+            result: Ok(OpenedAudio {
+                samples: vec![0.0; 8],
+                sample_rate: 48_000,
+                waveform: vec![0.5; 4],
+            }),
+        }));
+        assert!(media
+            .take_audio()
+            .is_some_and(|(e, result)| e == event && result.is_ok()));
+        assert!(media.take_audio().is_none());
+
+        let (mut media, tag, event) = audio_request();
+        media.cancel_audio();
+        assert!(!media.apply(MediaEvent::AudioOpened {
+            tag,
+            event,
+            result: Err(MediaError::Cancelled),
+        }));
+        assert!(media.take_audio().is_none());
+    }
+
+    #[test]
+    fn a_closed_channel_reports_a_note_that_never_loaded() {
+        let (mut media, tag, event) = audio_request();
+        media.audio_command = Some(MediaCommand::OpenAudio {
+            tag,
+            event: event.clone(),
+        });
+        let (mut sender, receiver) =
+            matrix_engine::bounded(std::num::NonZeroUsize::new(1).unwrap());
+        drop(receiver);
+        media.flush(&mut sender);
+        assert!(matches!(
+            media.take_audio(),
+            Some((e, Err(MediaError::Failed))) if e == event
+        ));
     }
 }

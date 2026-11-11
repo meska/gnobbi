@@ -350,6 +350,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     timestamp_ms: 0,
                     sender: matrix_engine::history::HistorySender::new("@peer:test", None),
                     video: None,
+                    audio: None,
                     styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,

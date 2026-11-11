@@ -10,6 +10,9 @@ mod composer_view;
 mod editing_command;
 mod emoji_font;
 mod directory_servers_view;
+// Unused until the filter row card wires it in.
+#[allow(dead_code)]
+mod filter_icon;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;
@@ -74,6 +77,7 @@ mod timeline_view;
 mod tray_view;
 mod verification_view;
 mod video_player;
+mod audio_player;
 mod voice_recorder;
 use composer_view::{ComposerView, OpenPoll, Submitted};
 
@@ -143,6 +147,10 @@ struct Shell {
     prefs: matrix_desktop::Preferences,
     prefs_dirs: Option<matrix_desktop::AppDirs>,
     room_prefs: matrix_desktop::RoomPrefs,
+    /// Composer focus as of the last frame (saved with the room on change/close, not per event).
+    composer_focused: bool,
+    /// The saved room was just reopened and its composer had focus: take it on the next frame.
+    focus_composer_on_restore: bool,
     /// Catalog as last read; reloaded whenever the drawer opens or this window signs in.
     accounts: matrix_desktop::AccountCatalog,
     /// Profile folder and trust root this window was started with.
@@ -165,6 +173,10 @@ struct Shell {
     history_focus: FocusHandle,
     pending_sidebar_key: Option<filter_view::SidebarPress>,
     unread_focus: FocusHandle,
+    /// Button of the filter row the keyboard is on (roving cursor of the single tab stop).
+    filter_cursor: matrix_desktop::FilterId,
+    /// Open «Gruppi» menu: highlighted entry.
+    groups_menu: Option<usize>,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_unread_bounds: Option<accesskit::Rect>,
     notification_focus: matrix_desktop::notifications::NotificationControl,
@@ -193,6 +205,8 @@ struct Shell {
     notification_failed: bool,
     avatars: avatar_view::Avatars,
     media: matrix_desktop::LiveMedia,
+    /// The in-app player of one voice note: its message and its cpal output. Dropped to stop it.
+    audio: Option<(matrix_domain::EventId, crate::audio_player::AudioOutput)>,
     /// Channels to the shown account's worker.
     routes: matrix_desktop::AccountRoutes,
     /// Accounts running in the background, by catalog ID; only the shown one has its state in this struct.
@@ -1358,8 +1372,9 @@ impl Shell {
                 .arm(account, || prefs.last_open_room(account));
         }
         // Waiting for the saved room: opening the auto-selected first row would mark it read.
+        // Selection stays empty meanwhile; the empty scope below also closes a room that was shown before it vanished.
         if self.restore.waiting() {
-            return;
+            self.sidebar.clear_selection();
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if !self
@@ -1374,6 +1389,8 @@ impl Shell {
             if let Some(request) = self.history.select(scope.clone()) {
                 self.set_room_details_open(false);
                 self.media.clear();
+                // The note belongs to the room being left: stop the sound with it.
+                self.audio = None;
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
                 self.active_scope = request.tag.scope().clone();
@@ -1394,6 +1411,8 @@ impl Shell {
             } else if scope.is_none() {
                 self.set_room_details_open(false);
                 self.media.clear();
+                // The note belongs to the room being left: stop the sound with it.
+                self.audio = None;
                 self.operations.borrow_mut().clear_selection();
                 self.timeline = None;
                 self.pending_history = None;
@@ -1440,6 +1459,9 @@ impl Shell {
             self.sidebar.clear_selection();
         }
         if let Some(room) = opened {
+            // Read before sync_room: changing room rewrites the saved flag from the (still unfocused) composer.
+            self.composer_focused = self.room_prefs.composer_focused(saved);
+            self.focus_composer_on_restore = self.composer_focused;
             self.sync_room(cx);
             let scope = RoomScope { account_id: account, room_id: room };
             if let Some(position) = self.sidebar.position_of(&scope) {
@@ -1451,8 +1473,10 @@ impl Shell {
 
     /// Called only when the user changes room; writes the file only if the value changed.
     fn remember_last_room(&mut self) {
+        let account = self.draft_scope().account_id;
+        let focus = self.composer_focused;
         if !self.restore.waiting()
-            && self.room_prefs.set_last_open_room(&self.draft_scope())
+            && (self.room_prefs.set_last_open_room(&self.draft_scope()) | self.room_prefs.set_composer_focused(account, focus))
             && let Some(dirs) = &self.prefs_dirs
             && let Err(error) = self.room_prefs.save(dirs)
         {
@@ -2042,6 +2066,10 @@ impl Render for Shell {
 
 impl Shell {
     fn render_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        // Whatever selected a row meanwhile (diff fallback), a still-awaited saved room means no row is selected.
+        if self.restore.waiting() {
+            self.sidebar.clear_selection();
+        }
         let pinned_picker = self.composer.read(cx).pinned_picker();
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
@@ -2087,6 +2115,14 @@ impl Shell {
         self.navigation_wide = !compact;
         self.refresh_navigation_visibility();
         self.reconcile_sidebar_focus(window, cx);
+        if self.focus_composer_on_restore {
+            self.focus_composer_on_restore = false;
+            if !compact {
+                self.composer.update(cx, |editor, cx| editor.focus_from_accessibility(window, cx));
+            }
+        } else if !self.focus_composer_on_restore {
+            self.composer_focused = self.composer.read(cx).is_focused(window);
+        }
         // Publish the same page that will actually be painted after resize.
         if compact && self.composer.read(cx).is_focused(window) {
             self.set_compact_chat(true);
@@ -2282,6 +2318,7 @@ impl Shell {
                                         .child(list_name),
                                 ),
                         )
+                        .when(self.connected, |d| d.child(self.render_filter_row(window, cx)))
                         .child(
                             div()
                                 .mx_4()
@@ -2317,7 +2354,6 @@ impl Shell {
                                     format!("{}│", self.sidebar.query())
                                 }),
                         )
-                        .when(self.connected && !self.sidebar.group_entries().is_empty(), |d| d.child(self.render_groups(cx)))
                         .when(compact && self.connected && self.sidebar.spaces().next().is_some(), |d| d.child(self.render_spaces(window, cx)))
                         .child(
                             div().relative().flex_1().min_h_0().children({
@@ -2501,23 +2537,11 @@ impl Shell {
                                 .text_size(px(11.))
                                 .text_color(rgb(t.secondary))
                                 .flex().items_center().justify_between()
-                                .when(self.connected, |d| d.flex_wrap().gap_2())
-                                .child(div().when(self.connected, |d| d.w_full()).child(format!(
+                                .child(div().child(format!(
                                     "{}/{} conversazioni · {}",
                                     self.sidebar.visible_indices().iter().filter(|&&i| !self.sidebar.rooms()[i].info.invited).count(), self.sidebar.rooms().iter().filter(|r| !r.info.is_space && !r.info.invited).count() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
                                     if self.connected { connection_label } else { "fixture offline" }
                                 )))
-                                .when(self.connected && self.sidebar.hidden_empty_count() > 0, |d| d.child(
-                                    div().id("empty-rooms-filter").cursor_pointer().text_color(rgb(t.accent))
-                                        .flex().items_center().gap_2()
-                                        .child(format!("Vuote ({})", self.sidebar.hidden_empty_count()))
-                                        .child(crate::switch_row::switch_track(self.sidebar.show_empty(), true, t))
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.sidebar.set_show_empty(!this.sidebar.show_empty());
-                                            cx.notify();
-                                        })),
-                                ))
-                                .when(self.connected, |d| d.child(self.render_unread(window, cx))),
                         ),
                 )
             })
@@ -3090,7 +3114,7 @@ fn main() {
                                         }
                                         for event in media {
                                             if this.media.apply(event) {
-                                                this.update_media_image();
+                                                this.update_media_image(cx);
                                             }
                                         }
                                         for event in verifications {
@@ -3122,7 +3146,9 @@ fn main() {
                                                         handle.cancel_pending();
                                                     }
                                                     let anchor = this.reading_anchor();
+                                                    let gone = matches!(&diff, matrix_engine::RoomListDiff::Remove(s) if s.account_id == this.active_scope.account_id && this.restore.lost(&s.room_id));
                                                     this.sidebar.apply_diff(diff);
+                                                    if gone { this.sidebar.clear_selection(); }
                                                     this.reconcile_topic_links();
                                                     this.open_started_room(cx);
                                                     this.keep_reading_position(anchor);
@@ -3191,6 +3217,9 @@ fn main() {
                                             cx.notify();
                                         }
                                         this.drive_saves(cx);
+                                        if this.drive_audio() {
+                                            cx.notify();
+                                        }
                                         this.drive_recover_keys(cx);
                                         if this.drive_avatars(cx) {
                                             cx.notify();
@@ -3292,7 +3321,12 @@ fn main() {
                     cx.spawn_in(window, async move |this, cx| {
                         loop {
                             cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
-                            if this.update_in(cx, |this, window, cx| this.open_clicked_alert(window, cx)).is_err() {
+                            if this.update_in(cx, |this, window, cx| {
+                                if this.update_audio_progress() {
+                                    cx.notify();
+                                }
+                                this.open_clicked_alert(window, cx);
+                            }).is_err() {
                                 break;
                             }
                         }
@@ -3386,6 +3420,8 @@ fn main() {
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),
                         account_root: account_root.clone(),
                         room_prefs: prefs_dirs.as_ref().map(matrix_desktop::RoomPrefs::load).unwrap_or_default(),
+                        composer_focused: false,
+                        focus_composer_on_restore: false,
                         prefs_dirs,
                         prefs,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -3437,6 +3473,8 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         history_focus: cx.focus_handle(),
                         unread_focus,
+                        filter_cursor: matrix_desktop::FilterId::All,
+                        groups_menu: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_unread_bounds: None,
                         notification_focus: Default::default(),
@@ -3479,6 +3517,7 @@ fn main() {
                         notification_failed: false,
                         avatars: Default::default(),
                         media: matrix_desktop::LiveMedia::default(),
+                        audio: None,
                         // Before `routes` is taken: the queue control belongs to the delivery too.
                         delivery: std::rc::Rc::new(std::cell::RefCell::new(
                             matrix_desktop::LiveDelivery::with_control(routes.send_control.clone()),
@@ -3541,6 +3580,10 @@ fn main() {
                 });
                 let weak = shell.downgrade();
                 window.on_window_should_close(cx, move |window, cx| {
+                    let _ = weak.update(cx, |this, cx| {
+                        this.composer_focused = this.composer.read(cx).is_focused(window);
+                        this.remember_last_room();
+                    });
                     let hide = weak
                         .update(cx, |this, _| this.close_hides_to_tray())
                         .unwrap_or(false);

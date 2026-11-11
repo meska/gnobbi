@@ -32,7 +32,7 @@ fn private_dir(profile: &Path) -> std::io::Result<PathBuf> {
 }
 
 fn extension(mime: Option<&str>) -> &'static str {
-    match mime {
+    match mime.map(|value| value.split(';').next().unwrap_or_default().trim()) {
         Some("video/webm") => "webm",
         Some("video/quicktime") => "mov",
         Some("video/x-matroska") => "mkv",
@@ -116,6 +116,10 @@ pub(crate) async fn fetch_to_file(
 ) -> Result<VideoFile, MediaError> {
     static NAMES: AtomicU64 = AtomicU64::new(0);
     let bytes = fetch_bytes(client, source, max_bytes, tag, progress).await?;
+    // A zero-byte body is a broken attachment: no player can open an empty file.
+    if bytes.is_empty() {
+        return Err(MediaError::Failed);
+    }
     let dir = private_dir(profile).map_err(|_| MediaError::Failed)?;
     let path = dir.join(format!(
         "{}-{}.{}",
@@ -228,6 +232,40 @@ pub async fn download_video(
     .await
 }
 
+/// Download the original of an exact scoped `m.audio` event through the SDK (auth and E2EE
+/// decryption included) and decode it once: the answer carries both the samples the player
+/// uses and the waveform of those same samples. Over `max_bytes` (declared or received) is
+/// `TooLarge`. Nothing is written to disk.
+pub async fn download_audio(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    tag: &RequestTag,
+    event: &EventId,
+    max_bytes: usize,
+) -> Result<crate::media::OpenedAudio, MediaError> {
+    let (source, size, _) = attachment(client, account, tag, event, false).await?;
+    if size.is_some_and(|size| size > max_bytes as u64) {
+        return Err(MediaError::TooLarge);
+    }
+    let bytes = fetch_bytes(client, source, max_bytes, tag, |_| ()).await?;
+    // Decoding is CPU-bound: keep it off the async worker's thread.
+    tokio::task::spawn_blocking(move || opened_audio(&bytes))
+        .await
+        .map_err(|_| MediaError::Failed)?
+}
+
+/// The single decode: player samples and the waveform of those same samples.
+fn opened_audio(bytes: &[u8]) -> Result<crate::media::OpenedAudio, MediaError> {
+    let decoded = crate::audio_file::decode_ogg_opus(bytes)?;
+    let waveform =
+        crate::audio_file::waveform(&decoded.samples, crate::audio_file::WAVEFORM_POINTS);
+    Ok(crate::media::OpenedAudio {
+        samples: decoded.samples,
+        sample_rate: decoded.sample_rate,
+        waveform,
+    })
+}
+
 /// Save the original of an exact scoped attachment (image, video, audio or file) to `dest`.
 /// Bytes are decrypted in memory and only `dest` is written (through `dest.part`, renamed
 /// when complete); no thumbnail and no temp file. Over `max_bytes` is `TooLarge`.
@@ -273,6 +311,11 @@ mod tests {
     use matrix_domain::{AccountId, RoomId, RoomScope};
     use matrix_sdk::ruma::{api::MatrixVersion, owned_mxc_uri};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn parameterized_audio_mime_keeps_ogg_extension() {
+        assert_eq!(extension(Some("audio/ogg; codecs=opus")), "ogg");
+    }
 
     const CHUNK: usize = 1024;
     const CHUNKS: usize = 8;
@@ -426,6 +469,18 @@ mod tests {
             )
             .await;
             assert!(matches!(result, Err(MediaError::Cancelled)), "{result:?}");
+            assert_eq!(files(&profile), 0);
+            std::fs::remove_dir_all(profile).unwrap();
+        });
+    }
+
+    #[test]
+    fn an_empty_body_is_a_failure_and_leaves_no_temp_file() {
+        runtime().block_on(async {
+            let (client, (_views, tag), profile) =
+                (body_client(Vec::new()).await, tag(), temp_profile());
+            let result = fetch_to_file(&client, source(), None, &profile, CHUNK, &tag, |_| ()).await;
+            assert!(matches!(result, Err(MediaError::Failed)), "{result:?}");
             assert_eq!(files(&profile), 0);
             std::fs::remove_dir_all(profile).unwrap();
         });

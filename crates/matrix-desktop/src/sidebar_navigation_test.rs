@@ -163,7 +163,7 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
     let control = match label {
         "list" => return this.list_focus.focus(window),
         "search" => return this.search_focus.focus(window),
-        "unread" => return this.unread_focus.focus(window),
+        "unread" => { this.filter_cursor = matrix_desktop::FilterId::Unread; return this.unread_focus.focus(window) }
         "devices" => Control::Devices,
         "notifications" => Control::Notifications,
         "lens" => Control::Search,
@@ -251,7 +251,7 @@ fn pointer_transition(this: &mut Shell, transition: &str, away: bool) {
         "query" => this
             .sidebar
             .set_query(if away { "retire pointer" } else { "" }),
-        "unread" => this.sidebar.set_unread_only(away),
+        "unread" => this.sidebar.set_filter(this.sidebar.filter().with_unread(away)),
         "details" => this.set_room_details_open(away),
         "notifications" => this.set_notifications_open(away),
         "devices" => this.set_verification_open(away),
@@ -599,7 +599,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "fresh paint resurrected old pointer");
                         activation_callback(this, window)(this, window, cx);
                         assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before + 1, "reacquired painted callback must activate exactly once");
-                        this.sidebar.set_unread_only(false);
+                        this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
                         assert!(history(this));
                         preserve_drafts_and_capture(this, &scopes, window, cx, &format!("pointer-{transition}"));
                         cx.notify();
@@ -906,7 +906,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 if empty {
                     this.sidebar.set_query("no matches ");
                 } else {
-                    this.sidebar.set_unread_only(true);
+                    this.sidebar.set_filter(this.sidebar.filter().with_unread(true));
                 }
                 assert_eq!(this.sidebar.visible_indices().len(), if empty { 0 } else { 1 });
                 this.list_focus.focus(window);
@@ -1064,7 +1064,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         if DYNAMIC.load(Ordering::SeqCst) == 7 {
             executor.timer(std::time::Duration::from_millis(250)).await;
             {
-                this.update_in(cx, |this, window, _| this.unread_focus.focus(window)).unwrap();
+                this.update_in(cx, |this, window, _| { this.filter_cursor = matrix_desktop::FilterId::Unread; this.unread_focus.focus(window) }).unwrap();
                 executor.timer(std::time::Duration::from_millis(120)).await;
                 for key in ["space", "enter"] {
                     let before = ACTIVATIONS[0].load(Ordering::SeqCst);
@@ -1090,7 +1090,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before + 1, "exactly one actual callback activation per gesture");
                         eprintln!("current release {key}: exact callback count {} -> {}", before, before+1);
                         assert!(this.sidebar.unread_only(), "completed gesture must activate Unread once");
-                        this.sidebar.set_unread_only(false);
+                        this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
                         preserve_drafts_and_capture(this, &scopes, window, cx, &format!("release-{key}"));
                         cx.notify();
                     }).unwrap();
@@ -1116,6 +1116,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                             assert!(this.pending_sidebar_key.is_some(), "retain retired press until release");
                             eprintln!("real Configure away/back with paint suspended: {:?}", window.viewport_size());
                             navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
+                            this.filter_cursor = matrix_desktop::FilterId::Unread;
                             this.unread_focus.focus(window);
                             cx.notify();
                         }).unwrap();
@@ -1149,7 +1150,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     executor.timer(std::time::Duration::from_millis(100)).await;
                     this.update_in(cx, |this, window, cx| { this.search_focus.focus(window); cx.notify(); }).unwrap();
                     executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, window, cx| { this.unread_focus.focus(window); cx.notify(); }).unwrap();
+                    this.update_in(cx, |this, window, cx| { this.filter_cursor = matrix_desktop::FilterId::Unread; this.unread_focus.focus(window); cx.notify(); }).unwrap();
                     executor.timer(std::time::Duration::from_millis(900)).await;
                     native_key(key, false);
                     executor.timer(std::time::Duration::from_millis(100)).await;
@@ -1230,8 +1231,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(300).await;
             this.update_in(cx, |this, window, cx| {
                 let click = translate(this, window, accesskit::Action::Click, false, &beta);
-                this.sidebar.set_unread_only(true);
-                this.sidebar.set_unread_only(false);
+                this.sidebar.set_filter(this.sidebar.filter().with_unread(true));
+                this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
                 this.apply_semantic_spaces(click, window, cx);
                 assert!(this.sidebar.active_space().is_none(), "choice translated before a revision change activated");
                 let stale = translate(this, window, accesskit::Action::Click, false, &beta);
@@ -1291,8 +1292,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, window, cx| {
                 let id = choice_id(this, window, &beta);
                 let (toggle, choice) = (painted_space(TOGGLE), painted_space(id));
-                this.sidebar.set_unread_only(true);
-                this.sidebar.set_unread_only(false);
+                this.sidebar.set_filter(this.sidebar.filter().with_unread(true));
+                this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
                 toggle(this, window, cx);
                 assert!(this.spaces_open, "retired toggle changed the menu");
                 choice(this, window, cx);
@@ -1390,8 +1391,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 painted(this, window, cx);
                 assert_eq!(this.sidebar.active_space(), beta.as_ref(), "current painted rail callback must activate its Space once");
                 this.sidebar.set_space(None);
-                this.sidebar.set_unread_only(true);
-                this.sidebar.set_unread_only(false);
+                this.sidebar.set_filter(this.sidebar.filter().with_unread(true));
+                this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
                 painted(this, window, cx);
                 assert!(this.sidebar.active_space().is_none(), "rail callback from an older navigation revision activated");
                 cx.notify();
@@ -1468,7 +1469,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     }
                     assert!(KEYDOWNS.load(Ordering::SeqCst) >= downs + 2, "private X server must deliver held-repeat keydowns");
                     match retire {
-                        Some("revision") => this.update_in(cx, |this, _, _| { this.sidebar.set_unread_only(true); this.sidebar.set_unread_only(false); }).unwrap(),
+                        Some("revision") => this.update_in(cx, |this, _, _| { this.sidebar.set_filter(this.sidebar.filter().with_unread(true)); this.sidebar.set_filter(this.sidebar.filter().with_unread(false)); }).unwrap(),
                         Some("removed") => this.update_in(cx, |this, _, cx| {
                             this.sidebar.apply_diff(matrix_engine::RoomListDiff::Remove(beta.clone().unwrap()));
                             cx.notify();
@@ -1567,6 +1568,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     timestamp_ms: 1_700_000_000_000 + n * 60_000,
                     sender: matrix_engine::history::HistorySender::new("@anna:gnobbi.test", None),
                     video: None,
+                    audio: None,
                     styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
@@ -1980,7 +1982,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(700).await;
             shot("p182-hidden");
             let shown = this.update_in(cx, |this, _, cx| {
-                this.sidebar.set_show_empty(true);
+                this.sidebar.set_filter(this.sidebar.filter().with_empty(true));
                 cx.notify();
                 visible(this)
             }).unwrap();
@@ -2567,7 +2569,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     this.update_in(cx, |this, _, cx| {
                         if this.theme.is_dark() != dark { this.toggle_theme(cx); }
                         this.sidebar.set_query(query);
-                        this.sidebar.set_unread_only(unread);
+                        this.sidebar.set_filter(this.sidebar.filter().with_unread(unread));
                         this.sidebar.set_space(group.then(|| space.clone()));
                         PAINTED.lock().unwrap().clear();
                         cx.notify();

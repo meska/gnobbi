@@ -19,6 +19,12 @@ pub enum MediaCommand {
         tag: crate::RequestTag,
         event: EventId,
     },
+    /// Download an `m.audio` event through the SDK and decode it once for the in-app player:
+    /// the answer carries both the samples and the waveform of those same samples.
+    OpenAudio {
+        tag: crate::RequestTag,
+        event: EventId,
+    },
     /// Save the original of any attachment to `path` (chosen by the user); runs beside the other reads.
     Save {
         tag: crate::RequestTag,
@@ -48,11 +54,36 @@ pub enum MediaEvent {
         event: EventId,
         result: Result<VideoFile, MediaError>,
     },
+    /// The decoded audio of an `m.audio` event, ready to play and to draw as a waveform.
+    AudioOpened {
+        tag: crate::RequestTag,
+        event: EventId,
+        result: Result<OpenedAudio, MediaError>,
+    },
     Saved {
         tag: crate::RequestTag,
         event: EventId,
         result: Result<(), MediaError>,
     },
+}
+
+/// Decoded mono audio for the in-app player, plus the waveform of those same samples:
+/// one decode feeds both, never a second pass.
+pub struct OpenedAudio {
+    pub samples: Vec<f32>,
+    pub sample_rate: u32,
+    pub waveform: Vec<f32>,
+}
+
+impl std::fmt::Debug for OpenedAudio {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never the samples themselves: user content.
+        f.debug_struct("OpenedAudio")
+            .field("samples", &self.samples.len())
+            .field("sample_rate", &self.sample_rate)
+            .field("waveform", &self.waveform.len())
+            .finish()
+    }
 }
 
 /// A plaintext video in the account's private temp dir; the file is removed on drop.

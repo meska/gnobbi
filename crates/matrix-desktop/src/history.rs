@@ -34,7 +34,7 @@ fn video_facts(v: matrix_engine::history::VideoInfo) -> VideoFacts {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct DemoEvent {
     /// Observed server event/ACK, never a peer read receipt or fixture inference.
     pub server_confirmed: bool,
@@ -57,6 +57,8 @@ pub struct DemoEvent {
     pub timestamp_ms: u64,
     /// Set for an `m.video` row: the bubble paints a picture with play symbol instead of `text`.
     pub video: Option<VideoFacts>,
+    /// Set for an `m.audio` row: the bubble paints its own player (waveform, Play/Pause).
+    pub audio: Option<matrix_engine::history::AudioInfo>,
     /// Set on an image, video, audio or file row: `text` (with `styles`, `mentions`) is then its caption, empty when none.
     pub media: Option<matrix_engine::history::Media>,
     /// Set on a poll start: the bubble paints the poll instead of `text`. Private user data: never log.
@@ -191,6 +193,7 @@ impl DemoHistory {
                     status: false,
                     utd: false,
                     video: None,
+                    audio: None,
                     poll: None,
                     attachment_name: None,
                     attachment_size: None, media: None,
@@ -273,6 +276,7 @@ impl DemoHistory {
             status: false,
             utd: false,
             video: None,
+            audio: None,
             poll: None,
             attachment_name: None,
             attachment_size: None, media: None,
@@ -425,6 +429,7 @@ impl DemoHistory {
                 attachment_size: event.attachment_size,
                 media: event.media,
                 video: event.video.map(video_facts),
+                audio: event.audio,
                 poll: event.poll,
             })
             .collect::<Vec<_>>();
@@ -568,6 +573,7 @@ impl DemoHistory {
                     status: false,
                     utd: false,
                     video: None,
+                    audio: None,
                     poll: None,
                     attachment_name: None,
                     attachment_size: None, media: None,
@@ -657,6 +663,7 @@ impl DemoHistory {
                     status: false,
                     utd: false,
                     video: None,
+                    audio: None,
                     poll: None,
                     attachment_name: None,
                     attachment_size: None, media: None,

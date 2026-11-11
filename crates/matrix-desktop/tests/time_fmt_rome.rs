@@ -85,7 +85,7 @@ fn accessible_node_has_local_time() {
     rows.prepend_server(vec![HistoryEvent {
         poll: None,
         event_id: matrix_domain::EventId::new("$a"), body: "ciao".into(), outgoing: false, redacted: false, timestamp_ms: ts,
-        sender: HistorySender::new("@anna:test", None), video: None, attachment_name: None, attachment_size: None, media: None,
+        sender: HistorySender::new("@anna:test", None), video: None, audio: None, attachment_name: None, attachment_size: None, media: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false, thread: None, thread_root: None, status: false, utd: false,
     }]);
     let d = HistoryNodes::default().project(&rows, 0, true).messages[0].description.clone();

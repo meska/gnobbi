@@ -20,6 +20,7 @@ fn row(id: &str, kind: Option<MediaKind>, label: &str, caption: &str) -> History
         timestamp_ms: 1,
         sender: HistorySender::new("@peer:test", None),
         video: None,
+        audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None,

@@ -474,7 +474,7 @@ impl Shell {
             // Hidden by an empty-room, unread or text filter: lift them rather than not opening.
             self.sidebar.keep_visible(scope.clone());
             if !self.sidebar.select(&scope) {
-                self.sidebar.set_unread_only(false);
+                self.sidebar.set_filter(self.sidebar.filter().with_unread(false));
                 self.sidebar.set_query("");
                 self.sidebar.select(&scope);
             }

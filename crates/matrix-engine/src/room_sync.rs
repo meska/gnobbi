@@ -316,6 +316,29 @@ impl RoomListWorker {
                                     };
                                     MediaEvent::VideoDownloaded { tag, event, result }
                                 }
+                                MediaCommand::OpenAudio { tag, event } => {
+                                    if tag.is_cancelled()
+                                        || media_stop.load(std::sync::atomic::Ordering::Acquire)
+                                    {
+                                        continue;
+                                    }
+                                    let read = async {
+                                        // Decoded in memory: the same cap images already use.
+                                        crate::video_file::download_audio(
+                                            &media_client,
+                                            account,
+                                            &tag,
+                                            &event,
+                                            crate::media::MAX_MEDIA_BYTES,
+                                        )
+                                        .await
+                                    };
+                                    let Some(result) = until_stopped(&media_stop, read).await
+                                    else {
+                                        continue;
+                                    };
+                                    MediaEvent::AudioOpened { tag, event, result }
+                                }
                                 MediaCommand::Save { tag, event, path } => {
                                     if !tag.is_cancelled() {
                                         spawn_save(&media_client, account, &media_stop, &saved_tx, tag, event, path);
@@ -1696,7 +1719,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             }
             continue;
         };
-        let (mut video, mut styles, mut attachment_name, mut attachment_size) = (None, Vec::new(), None, None);
+        let (mut video, mut audio, mut styles, mut attachment_name, mut attachment_size) = (None, None, Vec::new(), None, None);
         let mut mentions = Vec::new();
         let mut poll = None;
         let mut media = None;
@@ -1720,7 +1743,18 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
                 .map(u64::from);
                 video = match msgtype {
                     MessageType::Video(v) => Some(video_info(v)),
-                    MessageType::Audio(a) => Some(audio_info(a)),
+                    _ => None,
+                };
+                // The waveform is what the sender attached; a decode fills it in when it sent none.
+                audio = match msgtype {
+                    MessageType::Audio(a) => {
+                        let waveform = event
+                            .original_json()
+                            .and_then(|raw| raw.get_field::<serde_json::Value>("content").ok().flatten())
+                            .map(|content| crate::history::waveform_of(&content))
+                            .unwrap_or_default();
+                        Some(audio_info(a, waveform))
+                    }
                     _ => None,
                 };
                 let at_room = message.mentions().is_some_and(|m| m.room);
@@ -1765,6 +1799,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             timestamp_ms: event.timestamp().0.into(),
             sender: history_sender(room, event.sender()).await,
             video,
+            audio,
             media,
             styles,
             mentions,
@@ -1899,6 +1934,7 @@ async fn status_row(
         timestamp_ms: event.timestamp().0.into(),
         sender: shown,
         video: None,
+        audio: None,
         media: None,
         styles: Vec::new(),
         mentions: Vec::new(),
@@ -2160,15 +2196,17 @@ fn video_info(
     }
 }
 
-/// Audio and voice notes play through the video path: same facts, never a thumbnail.
+/// Audio facts of an `m.audio` row: duration, size, the voice marker and the waveform.
 fn audio_info(
     a: &matrix_sdk::ruma::events::room::message::AudioMessageEventContent,
-) -> crate::history::VideoInfo {
+    waveform: Vec<f32>,
+) -> crate::history::AudioInfo {
     let info = a.info.as_deref();
-    crate::history::VideoInfo {
+    crate::history::AudioInfo {
         duration_ms: info.and_then(|i| i.duration).map(|d| d.as_millis() as u64),
         size: info.and_then(|i| i.size).map(Into::into),
-        thumbnail: None,
+        voice: a.voice.is_some(),
+        waveform,
     }
 }
 

@@ -16,11 +16,17 @@ fn opener() -> String {
     })
 }
 
-/// Start `program <path>` without waiting; the child is reaped on its own thread.
+/// Run `program <path>` and wait for it: only a clean exit means the media was opened. The caller
+/// runs this off the UI thread, because the wait lasts as long as the player.
 pub(crate) fn open_with(program: &str, path: &Path) -> std::io::Result<()> {
-    let mut child = std::process::Command::new(program).arg(path).spawn()?;
-    std::thread::spawn(move || child.wait());
-    Ok(())
+    let status = std::process::Command::new(program).arg(path).status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "{program} exited with {status}"
+        )))
+    }
 }
 
 pub(crate) fn open(path: &Path) -> std::io::Result<()> {
@@ -30,6 +36,11 @@ pub(crate) fn open(path: &Path) -> std::io::Result<()> {
 #[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn failed_opener_must_not_report_success() {
+        assert!(super::open_with("/bin/false", std::path::Path::new("clip.mp4")).is_err());
+    }
 
     #[test]
     fn the_opener_gets_the_file_path_as_its_only_argument() {

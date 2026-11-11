@@ -164,7 +164,7 @@ fn queued_room_focus_rejects_removed_replaced_hidden_foreign_sources() {
         sidebar.apply_diff(RoomListDiff::Upsert(Box::new(summary("!other:test", false))));
         sidebar.set_navigation_visibility(true, true, false);
         if case == "unread-return" {
-            sidebar.set_unread_only(true);
+            sidebar.set_filter(sidebar.filter().with_unread(true));
         }
         let selected = sidebar.selected().unwrap().scope.clone();
         let mut rooms = RoomNodes::default();

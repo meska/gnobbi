@@ -15,6 +15,8 @@ pub struct RoomPrefs {
     hide_redacted: BTreeMap<String, bool>,
     /// Last room the user opened, per account id; absent = none (old files have no such key).
     last_open_room: BTreeMap<u64, String>,
+    /// Accounts whose composer had focus when the last room was left/closed; absent = no.
+    composer_focus: BTreeSet<u64>,
 }
 
 /// Matrix room id: `!` + non-empty rest, with or without `:server` (room v12 has none); never logged.
@@ -34,7 +36,9 @@ impl RoomPrefs {
         let list = v.as_ref().and_then(|v| v.get("hide_status")?.as_array().cloned()).unwrap_or_default();
         let redacted = v.as_ref().and_then(|v| v.get("hide_redacted")?.as_object().cloned()).unwrap_or_default();
         let last = v.as_ref().and_then(|v| v.get("last_open_room")?.as_object().cloned()).unwrap_or_default();
+        let focus = v.as_ref().and_then(|v| v.get("composer_focus")?.as_array().cloned()).unwrap_or_default();
         Self {
+            composer_focus: focus.iter().filter_map(|v| v.as_u64()).collect(),
             last_open_room: last
                 .iter()
                 .filter_map(|(k, v)| Some((k.parse().ok()?, v.as_str().filter(|s| valid_room_id(s))?.to_owned())))
@@ -71,6 +75,15 @@ impl RoomPrefs {
         true
     }
 
+    pub fn composer_focused(&self, account: AccountId) -> bool {
+        self.composer_focus.contains(&account.as_u64())
+    }
+
+    /// Returns true only when the stored value changed.
+    pub fn set_composer_focused(&mut self, account: AccountId, focused: bool) -> bool {
+        if focused { self.composer_focus.insert(account.as_u64()) } else { self.composer_focus.remove(&account.as_u64()) }
+    }
+
     pub fn toggle_hide_status(&mut self, scope: &RoomScope) {
         let k = key(scope);
         if !self.hide_status.remove(&k) {
@@ -90,7 +103,7 @@ impl RoomPrefs {
         #[cfg(unix)]
         std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
         opts.open(&tmp)?
-            .write_all(json!({ "hide_status": self.hide_status, "hide_redacted": self.hide_redacted, "last_open_room": self.last_open_room }).to_string().as_bytes())?;
+            .write_all(json!({ "hide_status": self.hide_status, "hide_redacted": self.hide_redacted, "last_open_room": self.last_open_room, "composer_focus": self.composer_focus }).to_string().as_bytes())?;
         std::fs::rename(tmp, dirs.config.join(FILE))
     }
 }

@@ -99,6 +99,21 @@ fn close_viewer(
 type VideoParts =
     std::collections::HashMap<(matrix_domain::TimelineId, &'static str), Bounds<Pixels>>;
 
+/// What the audio bubble draws for the note the player holds, whichever room it came from.
+/// The waveform comes from the note itself when the sender attached one, else from the decode.
+#[derive(Default)]
+pub(crate) struct AudioUi {
+    pub(crate) event: Option<matrix_domain::EventId>,
+    pub(crate) waveform: Vec<f32>,
+    /// Length of the decoded note, shown when the event declares none.
+    pub(crate) duration_ms: Option<u64>,
+    pub(crate) playing: bool,
+    /// Along the note, 0..=1.
+    pub(crate) progress: f32,
+    /// One line in the bubble of the note whose playback failed.
+    pub(crate) error: Option<matrix_engine::media::MediaError>,
+}
+
 type PollParts = std::collections::HashMap<(matrix_domain::TimelineId, crate::poll_view::PollPart), Bounds<Pixels>>;
 
 /// Painted «Recupera chiavi» control (`false`) and key field (`true`) by message.
@@ -196,6 +211,18 @@ pub struct TimelineView {
     pub(crate) want_original: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// A video whose download for the system player was asked for and not yet sent.
     pub(crate) want_video: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// An `m.audio` note whose in-app playback was asked for and not yet sent.
+    pub(crate) want_audio: Rc<RefCell<Option<matrix_domain::EventId>>>,
+    /// The note the in-app player holds: waveform, playhead and the last failure.
+    pub(crate) audio: Rc<RefCell<AudioUi>>,
+    /// Last painted bounds of each audio bubble part, by event and part name.
+    pub(crate) audio_painted: Rc<RefCell<VideoParts>>,
+    /// Play attempts that failed, by message: one line in its bubble instead of a play symbol.
+    pub(crate) video_errors: Rc<
+        RefCell<
+            std::collections::HashMap<matrix_domain::EventId, matrix_engine::media::MediaError>,
+        >,
+    >,
     /// Set by a click on a thread summary; the shell opens the panel.
     pub(crate) want_thread: Rc<RefCell<Option<matrix_domain::EventId>>>,
     /// Click on a bubble's avatar or name: the shell opens that member's profile in the room sheet.
@@ -398,6 +425,10 @@ impl TimelineView {
             original: Rc::default(),
             want_original: Rc::default(),
             want_video: Rc::default(),
+            want_audio: Rc::default(),
+            audio: Rc::default(),
+            audio_painted: Rc::default(),
+            video_errors: Rc::default(),
             want_thread: Rc::default(),
             want_profile: Rc::default(),
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1318,6 +1349,26 @@ impl TimelineView {
         unique.into_iter().map(str::to_owned).collect()
     }
 
+    /// The outcome of the last play attempt for `id`: `Some` shows one line in its bubble.
+    pub(crate) fn video_play_state(
+        &self,
+        id: &matrix_domain::EventId,
+        error: Option<matrix_engine::media::MediaError>,
+    ) {
+        {
+            let mut errors = self.video_errors.borrow_mut();
+            match error {
+                Some(error) => {
+                    errors.insert(id.clone(), error);
+                }
+                None => {
+                    errors.remove(id);
+                }
+            }
+        }
+        self.image_changed(id);
+    }
+
     /// Video rows of this room: their picture is the thumbnail, when there is one.
     pub(crate) fn video_events(&self) -> Vec<matrix_domain::EventId> {
         self.history
@@ -1717,12 +1768,15 @@ impl TimelineView {
         let link_menu = self.link_menu.clone();
         let link_menu_at = self.link_menu_at.clone();
         let images = self.images.clone();
+        let video_errors = self.video_errors.clone();
         let sender_pictures = self.sender_pictures.clone();
         let video_painted = self.video_painted.clone();
         let poll_painted = self.poll_painted.clone();
         let viewing = self.viewing.clone();
         let (original, want_original) = (self.original.clone(), self.want_original.clone());
         let want_video = self.want_video.clone();
+        let (want_audio, audio, audio_painted) =
+            (self.want_audio.clone(), self.audio.clone(), self.audio_painted.clone());
         let want_thread = self.want_thread.clone();
         let want_profile = self.want_profile.clone();
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1830,8 +1884,12 @@ impl TimelineView {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
                         };
+                        let play_error = match &event.id.id {
+                            matrix_domain::TimelineId::Server(id) => video_errors.borrow().get(id).copied(),
+                            _ => None,
+                        };
                         let (parts, id) = (video_painted.clone(), event.id.clone());
-                        let picture = crate::media_view::video_picture(state, facts.duration.clone(), facts.size.clone(), t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.id.clone(), part), bounds); }));
+                        let picture = crate::media_view::video_picture(state, facts.duration.clone(), facts.size.clone(), play_error, t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.id.clone(), part), bounds); }));
                         match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => {
                                 let (id, viewing, focus) = (id.clone(), viewing.clone(), focus.clone());
@@ -1847,6 +1905,37 @@ impl TimelineView {
                                     .child(picture).into_any_element()
                             }
                             _ => picture,
+                        }
+                    });
+                    let audio_picture = event.audio.as_ref().map(|facts| {
+                        let (parts, painted_id) = (audio_painted.clone(), event.id.clone());
+                        let (wave, progress, playing, error, decoded_ms) = match &event.id.id {
+                            matrix_domain::TimelineId::Server(id) => {
+                                let (open, progress, playing, error, decoded, decoded_ms) = {
+                                    let ui = audio.borrow();
+                                    (ui.event.as_ref() == Some(id), ui.progress, ui.playing, ui.error, ui.waveform.clone(), ui.duration_ms)
+                                };
+                                // The sender's waveform shows at once; the decode fills in a missing one.
+                                let wave = if facts.waveform.is_empty() && open { decoded } else { facts.waveform.clone() };
+                                (wave, if open { progress } else { 0.0 }, open && playing, if open { error } else { None }, if open { decoded_ms } else { None })
+                            }
+                            _ => (facts.waveform.clone(), 0.0, false, None, None),
+                        };
+                        let duration = facts.duration_ms.or(decoded_ms).map(matrix_engine::history::duration_label);
+                        let size = facts.size.map(matrix_engine::history::human_size);
+                        let bubble = crate::media_view::audio_bubble(wave, progress, playing, (duration, size), error, t, std::rc::Rc::new(move |part, bounds| { parts.borrow_mut().insert((painted_id.id.clone(), part), bounds); }));
+                        match &event.id.id {
+                            matrix_domain::TimelineId::Server(id) => {
+                                let (id, want_audio, focus) = (id.clone(), want_audio.clone(), focus.clone());
+                                div().id(gpui::SharedString::from(format!("audio-{}", id.as_str()))).cursor_pointer()
+                                    .on_click(move |_, window, _| {
+                                        *want_audio.borrow_mut() = Some(id.clone());
+                                        focus.focus(window);
+                                        window.refresh();
+                                    })
+                                    .child(bubble).into_any_element()
+                            }
+                            _ => bubble,
                         }
                     });
                     let poll_bubble = event.poll.as_ref().map(|poll| {
@@ -1867,7 +1956,7 @@ impl TimelineView {
                         };
                         crate::poll_view::poll_bubble(poll, t, index, focus_ix, failed, on_vote, Rc::new(move |part, bounds| { parts.borrow_mut().insert((id.clone(), part), bounds); }))
                     });
-                    let picture = poll_bubble.or(video_picture).or_else(|| event.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image).then(|| {
+                    let picture = poll_bubble.or(audio_picture).or(video_picture).or_else(|| event.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image).then(|| {
                         let state = match &event.id.id {
                             matrix_domain::TimelineId::Server(id) => images.borrow().get(id).cloned(),
                             _ => None,
@@ -2891,6 +2980,7 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
+                            audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
@@ -3034,6 +3124,7 @@ mod tests {
                             timestamp_ms: n,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
+                            audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
@@ -3122,8 +3213,9 @@ mod tests {
         );
     }
 
-    /// Paints one video row (with or without a ready thumbnail) and checks what reached the screen.
-    fn video_bubble_shot(thumbnail: bool) {
+    /// Paints one video row (with or without a ready thumbnail, or after a failed play) and checks
+    /// what reached the screen.
+    fn video_bubble_shot(thumbnail: bool, failed: bool) {
         use matrix_engine::history::{HistoryEvent, HistorySender, VideoInfo};
         assert_eq!(
             std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
@@ -3156,6 +3248,7 @@ mod tests {
                                 duration_ms: Some(12_000),
                                 size: Some(1_468_006),
                             }),
+                            audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
@@ -3175,6 +3268,9 @@ mod tests {
                                 )),
                             );
                         }
+                        if failed {
+                            v.video_play_state(&id, Some(matrix_engine::media::MediaError::Failed));
+                        }
                         ShotHost(v)
                     })
                 })
@@ -3193,6 +3289,22 @@ mod tests {
                             .copied()
                             .unwrap_or_else(|| panic!("{name} was not painted"))
                     };
+                    if failed {
+                        // One line where the picture was, and nothing that would invite a play.
+                        let line = part("failed");
+                        assert_eq!(f32::from(line.size.width), 200., "the failure line");
+                        for name in ["picture", "play", "duration", "size"] {
+                            assert!(
+                                !parts.contains_key(&(
+                                    TimelineId::Server(EventId::new("$video:fixture.invalid")),
+                                    name
+                                )),
+                                "{name} painted though the video cannot play"
+                            );
+                        }
+                        cx.quit();
+                        return;
+                    }
                     let (picture, play, duration, size) = (
                         part("picture"),
                         part("play"),
@@ -3242,13 +3354,142 @@ mod tests {
     #[test]
     #[ignore = "requires private display"]
     fn painted_video_bubble_with_thumbnail() {
-        video_bubble_shot(true);
+        video_bubble_shot(true, false);
     }
 
     #[test]
     #[ignore = "requires private display"]
     fn painted_video_bubble_without_thumbnail_is_a_neutral_box() {
-        video_bubble_shot(false);
+        video_bubble_shot(false, false);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_video_bubble_after_a_failed_play_has_one_line_and_no_play_symbol() {
+        video_bubble_shot(true, true);
+    }
+
+    /// Paints one audio row and checks what reached the screen: a round play button, the
+    /// waveform beside it and the duration on the right; after a failed load, one line only.
+    fn audio_bubble_shot(failed: bool) {
+        use matrix_engine::history::{AudioInfo, HistoryEvent, HistorySender};
+        assert_eq!(
+            std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
+            Ok("1")
+        );
+        gpui::Application::new().run(move |cx| {
+            let id = EventId::new("$note:fixture.invalid");
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi audio bubble");
+                    cx.new(|cx| {
+                        let scope = RoomScope {
+                            account_id: AccountId::new(1),
+                            room_id: RoomId::new("!note:fixture.invalid"),
+                        };
+                        let v = TimelineView::with_history(
+                            DemoHistory::new(scope, 0),
+                            cx.focus_handle(),
+                            false,
+                        );
+                        v.append_server(vec![HistoryEvent {
+                            poll: None,
+                            redacted: false,
+                            event_id: id.clone(),
+                            body: String::new(),
+                            outgoing: false,
+                            timestamp_ms: 0,
+                            sender: HistorySender::new("@a:fixture.invalid", None),
+                            video: None,
+                            audio: Some(AudioInfo {
+                                duration_ms: Some(12_000),
+                                size: Some(1_468_006),
+                                voice: true,
+                                waveform: (0..100).map(|i| (i % 10) as f32 / 10.0).collect(),
+                            }),
+                            media: Some(matrix_engine::history::Media {
+                                kind: matrix_engine::history::MediaKind::Audio,
+                                label: "Nota vocale · 0:12".into(),
+                            }),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false,
+                            thread: None,
+                            thread_root: None,
+                            status: false,
+                            utd: false,
+                            attachment_name: Some("nota-vocale.ogg".into()),
+                            attachment_size: Some(1_468_006),
+                        }]);
+                        if failed {
+                            let mut ui = v.audio.borrow_mut();
+                            ui.event = Some(id.clone());
+                            ui.error = Some(matrix_engine::media::MediaError::Failed);
+                        }
+                        ShotHost(v)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(500)).await;
+                view.update(cx, |host, _, cx| {
+                    let parts = host.0.audio_painted.borrow();
+                    let part = |name| {
+                        parts
+                            .get(&(
+                                TimelineId::Server(EventId::new("$note:fixture.invalid")),
+                                name,
+                            ))
+                            .copied()
+                            .unwrap_or_else(|| panic!("{name} was not painted"))
+                    };
+                    if failed {
+                        assert!(f32::from(part("failed").size.width) > 0.);
+                        assert!(
+                            !parts.contains_key(&(
+                                TimelineId::Server(EventId::new("$note:fixture.invalid")),
+                                "play"
+                            )),
+                            "a note that cannot play has no button"
+                        );
+                        cx.quit();
+                        return;
+                    }
+                    let (play, waveform, duration) =
+                        (part("play"), part("waveform"), part("duration"));
+                    assert!(
+                        f32::from(play.size.width) > 24. && f32::from(play.size.height) > 24.,
+                        "a round Play/Pausa button: {play:?}"
+                    );
+                    assert!(
+                        waveform.left() >= play.right() - px(1.),
+                        "the waveform sits beside the button"
+                    );
+                    assert!(
+                        duration.left() >= waveform.right() - px(1.),
+                        "the duration sits on the right"
+                    );
+                    assert!(
+                        f32::from(waveform.size.height) > 0. && f32::from(duration.size.width) > 0.,
+                        "both painted with a real size"
+                    );
+                    cx.quit();
+                })
+                .unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_audio_bubble_has_a_play_button_a_waveform_and_a_duration() {
+        audio_bubble_shot(false);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_audio_bubble_after_a_failed_load_has_one_line_and_no_button() {
+        audio_bubble_shot(true);
     }
 
     /// Paints a row with a pill for me, one for another person, «@room» and a room, then clicks them for real
@@ -3271,7 +3512,7 @@ mod tests {
                         let user = |who: &str, name: &str, me| MentionKind::User { sender: HistorySender::new(who, Some(name)), me };
                         v.append_server(vec![HistoryEvent {
                             poll: None, redacted: false, event_id: id.clone(), body: body.into(), outgoing: false, timestamp_ms: 0, utd: false,
-                            sender: HistorySender::new("@z:fixture.invalid", Some("Zeno")), video: None, styles: Vec::new(),
+                            sender: HistorySender::new("@z:fixture.invalid", Some("Zeno")), video: None, audio: None, styles: Vec::new(),
                             mentions: vec![
                                 MentionSpan { range: at("Anna"), kind: user(me, "Anna", true) },
                                 MentionSpan { range: at("Bea"), kind: user(bea, "Bea", false) },
@@ -3350,6 +3591,7 @@ mod tests {
                             timestamp_ms: 0,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
+                            audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
@@ -3458,6 +3700,7 @@ mod tests {
                             timestamp_ms: 0,
                             sender: HistorySender::new("@a:fixture.invalid", None),
                             video: None,
+                            audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
                             thread_root: None,
@@ -3586,6 +3829,7 @@ mod tests {
                 timestamp_ms: ms,
                 sender: HistorySender::new(if outgoing { "@me:fixture.invalid" } else { "@a:fixture.invalid" }, None),
                 video: None,
+                audio: None,
                 styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                 thread: None,
                 thread_root: None,
@@ -3701,6 +3945,7 @@ mod tests {
                 timestamp_ms: ms,
                 sender: HistorySender::new("@a:fixture.invalid", None),
                 video: None,
+                audio: None,
                 styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                 thread: None,
                 thread_root: None,
@@ -3778,6 +4023,7 @@ mod tests {
                 timestamp_ms: ms,
                 sender: HistorySender::new("@a:fixture.invalid", None),
                 video: None,
+                audio: None,
                 styles: Vec::new(),
                 thread: None,
                 thread_root: None,

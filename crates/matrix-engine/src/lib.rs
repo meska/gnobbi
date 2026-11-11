@@ -115,6 +115,7 @@ pub enum RoomSyncStatus {
 #[cfg(feature = "sdk")]
 pub mod discovery;
 mod generation;
+pub mod audio_file;
 pub mod history;
 pub mod status_line;
 #[cfg(any(
