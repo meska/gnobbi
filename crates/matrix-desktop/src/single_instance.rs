@@ -54,6 +54,16 @@ pub enum Claim {
     Delivered,
 }
 
+/// What the gate sends for a link found in argv: it as is, or (oversized/multi-line) a marker that
+/// fails `parse_matrix_link`, so the live instance shows «Link non valido» instead of staying silent.
+pub fn outgoing(link: Option<String>) -> String {
+    match link {
+        Some(l) if l.len() <= MAX_LINK && !l.contains('\n') => l,
+        Some(_) => "matrix:".to_owned(),
+        None => String::new(),
+    }
+}
+
 /// Connects to a live instance and delivers `link` (empty = raise only), else becomes the first.
 /// The directory must be private to us and the path nothing but our own socket; a stale socket
 /// (crash of the first instance) is removed and replaced. A lock file serializes concurrent launches,
@@ -132,6 +142,17 @@ mod tests {
 
     fn receive(l: &UnixListener) -> Option<String> {
         read_message(l.accept().unwrap().0)
+    }
+
+    #[test]
+    fn rejected_link_becomes_a_short_marker() {
+        assert_eq!(outgoing(None), "");
+        assert_eq!(outgoing(Some("matrix:u/a:b".into())), "matrix:u/a:b");
+        for bad in ["matrix:u/".to_owned() + &"a".repeat(MAX_LINK), "matrix:u/a\nb".to_owned()] {
+            let m = outgoing(Some(bad));
+            assert_eq!(m, "matrix:");
+            assert!(m.len() <= MAX_LINK && !m.contains('\n'));
+        }
     }
 
     #[test]
