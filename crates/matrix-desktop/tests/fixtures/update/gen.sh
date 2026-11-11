@@ -33,6 +33,7 @@ sign() {
 }
 
 mk valid;                      sign valid current
+mk lower 41;                   sign lower current "gnobbi build=41"
 sign valid next "gnobbi build=42" valid.next.minisig     # rotation: next key signs
 sign valid other "gnobbi build=42" valid.other.minisig   # unknown key
 minisign -S -l -s "$T/current.key" -m valid.json -x valid.legacy.minisig -t "gnobbi build=42" >/dev/null </dev/null
@@ -49,4 +50,7 @@ printf 'this is not json\n' > notjson.json;                       sign notjson c
 mk comment_mismatch;           sign comment_mismatch current "gnobbi build=43"
 mk comment_format;             sign comment_format current "build=42"
 mk comment_zero;               sign comment_zero current "gnobbi build=042"
+cp current.pub floor.pub
+cp noartifact.json floor-high.json
+cp noartifact.minisig floor-high.minisig
 echo ok
