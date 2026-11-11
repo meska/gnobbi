@@ -30,6 +30,11 @@ pub fn default_socket_path() -> PathBuf {
     socket_path(var("XDG_RUNTIME_DIR").as_deref(), var("XDG_STATE_HOME").as_deref(), uid)
 }
 
+/// `--signin <root>` (the menu's "Add account") is its own process and window, not a second launch.
+pub fn is_account_window(args: &[String]) -> bool {
+    matches!(args, [flag, root, ..] if flag == "--signin" && root != "--ca-file")
+}
+
 pub enum Claim {
     /// No live instance: we are the first and own the listener.
     First(UnixListener),
@@ -112,6 +117,15 @@ mod tests {
 
     fn receive(l: &UnixListener) -> Option<String> {
         read_message(l.accept().unwrap().0)
+    }
+
+    #[test]
+    fn signin_with_a_root_is_not_a_second_launch() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(is_account_window(&v(&["--signin", "/d/accounts/2", "--ca-file", "x.pem"])));
+        assert!(!is_account_window(&v(&["--signin"])));
+        assert!(!is_account_window(&v(&["--signin", "--ca-file", "x.pem"])));
+        assert!(!is_account_window(&v(&["matrix:u/ada:x.test"])));
     }
 
     #[test]

@@ -2700,7 +2700,9 @@ impl Shell {
 fn single_instance_gate(argv: &[String]) {
     use matrix_desktop::single_instance::{Claim, MAX_LINK, claim, default_socket_path, serve};
     let (rest, link) = matrix_desktop::take_matrix_link(argv.to_vec());
-    if rest.first().is_some_and(|a| a == "--install-desktop-entry") {
+    if rest.first().is_some_and(|a| a == "--install-desktop-entry")
+        || matrix_desktop::single_instance::is_account_window(&rest)
+    {
         return;
     }
     // An oversized link is invalid anyway: the live instance is only raised.
