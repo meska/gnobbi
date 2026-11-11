@@ -2714,6 +2714,19 @@ fn single_instance_gate(argv: &[String]) {
     }
 }
 
+/// Windows twin of the gate above: named mutex + pipe, same behaviour.
+#[cfg(all(windows, feature = "live"))]
+fn single_instance_gate(argv: &[String]) {
+    use matrix_desktop::windows_link::{Claim, MAX_LINK, claim, register_for_current_user};
+    let (_, link) = matrix_desktop::take_matrix_link(argv.to_vec());
+    let link = link.filter(|l| l.len() <= MAX_LINK && !l.contains('\n')).unwrap_or_default();
+    match claim(&link) {
+        Ok(Claim::First) => register_for_current_user(),
+        Ok(Claim::Delivered) => std::process::exit(0),
+        Err(error) => eprintln!("Gnobbi: single instance off ({error})"),
+    }
+}
+
 fn main() {
     // Before the marker and the UI: the update helper is this same exe in another mode.
     let argv: Vec<String> = std::env::args().skip(1).collect();
@@ -2721,7 +2734,7 @@ fn main() {
         std::process::exit(code);
     }
     // A second launch hands its link to the live instance and exits before anything else starts.
-    #[cfg(all(target_os = "linux", feature = "live"))]
+    #[cfg(all(any(target_os = "linux", windows), feature = "live"))]
     single_instance_gate(&argv);
     matrix_desktop::update::startup::run_at_start();
     #[cfg(all(feature = "perf-probe", feature = "live", target_os = "macos"))]
@@ -3392,7 +3405,7 @@ fn main() {
                                     cx.notify();
                                 }
                                 this.open_clicked_alert(window, cx);
-                                #[cfg(target_os = "linux")]
+                                #[cfg(any(target_os = "linux", windows))]
                                 for link in matrix_desktop::single_instance::take_incoming() {
                                     window.activate_window();
                                     if !link.is_empty() {

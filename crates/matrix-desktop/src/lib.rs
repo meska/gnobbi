@@ -54,6 +54,9 @@ mod app_dirs;
 pub mod desktop_entry;
 #[cfg(unix)]
 pub mod single_instance;
+pub mod windows_link;
+#[cfg(windows)]
+pub use windows_link as single_instance;
 pub mod install_offer;
 pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use account_list::{AccountRow, account_rows, initials};
