@@ -270,7 +270,9 @@ mod tests {
 
     /// Entry-point example for QA: the production `check_and_stage_with` fed a signed fixture,
     /// build/clock and a deterministic hook that runs between the Candidate and the download gate.
-    #[cfg(feature = "live")]
+    /// Only on linux-x86_64: `artifact_key` resolves an AppImage artifact nowhere else, so the
+    /// check would return before any request.
+    #[cfg(all(feature = "live", target_os = "linux", target_arch = "x86_64"))]
     fn drive(name: &str, minisig: &'static str, hook: &dyn Fn(&AppDirs)) -> (Vec<String>, std::path::PathBuf) {
         use std::io::{Read, Write};
         let root = std::env::temp_dir().join(format!("gnobbi-seam-{name}-{}", std::process::id()));
@@ -303,7 +305,7 @@ mod tests {
         (got, root)
     }
 
-    #[cfg(feature = "live")]
+    #[cfg(all(feature = "live", target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn scheduler_requests_the_artifact_only_while_the_switch_is_on() {
         const ART: &str = "/dl/Gnobbi-x86_64-42.AppImage";

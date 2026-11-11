@@ -1859,6 +1859,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 assert_eq!(this.prefs.debug, previous, "failed save must not toggle the UI");
                 assert!(this.settings_error.is_some(), "failed save must be visible");
             }).unwrap();
+            // The install offer is a Linux-only surface (`Shell::install_offer` is `cfg(target_os = "linux")`).
+            #[cfg(target_os = "linux")]
             this.update_in(cx, |this, _, cx| {
                 this.install_offer.open = true;
                 this.choose_install(matrix_desktop::install_offer::Choice::Never, cx);
@@ -1867,10 +1869,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             assert_eq!(std::fs::read(&path).unwrap(), b"{invalid");
             std::fs::write(path, bytes).unwrap();
+            #[cfg(target_os = "linux")]
             this.update_in(cx, |this, _, cx| {
                 this.choose_install(matrix_desktop::install_offer::Choice::Never, cx);
                 assert!(!this.install_offer.open && this.prefs.desktop_entry_dont_ask);
             }).unwrap();
+            #[cfg(target_os = "linux")]
             assert!(saved(&dirs).desktop_entry_dont_ask);
             assert_eq!(saved(&dirs).max_build_seen, 42);
             key!("enter");
