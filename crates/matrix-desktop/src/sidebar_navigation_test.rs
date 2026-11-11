@@ -379,7 +379,7 @@ fn activation_callback(this: &Shell, window: &Window) -> PointerCallback {
             .tree()
             .nodes
             .into_iter()
-            .find(|(_, n)| n.label() == Some("Solo stanze non lette"))
+            .find(|(_, n)| n.label() == Some("Non lette"))
             .unwrap()
             .0;
         let intents = [accesskit::Action::Focus, accesskit::Action::Click].map(|action| {

@@ -45,13 +45,15 @@ fn unread_handle_retires_when_the_sidebar_revision_changes() {
         checked: false,
         focused: false,
         bounds: None,
+        name: "Non lette".into(),
+        buttons: vec![],
     });
     let mut session = SemanticSession::new(view.clone());
     let id = session
         .tree()
         .nodes
         .into_iter()
-        .find(|(_, n)| n.label() == Some("Solo stanze non lette"))
+        .find(|(_, n)| n.label() == Some("Non lette"))
         .unwrap()
         .0;
     view.navigation_revision += 1;
@@ -78,7 +80,7 @@ fn unread_handle_retires_when_the_sidebar_revision_changes() {
             .tree()
             .nodes
             .into_iter()
-            .find(|(_, n)| n.label() == Some("Solo stanze non lette"))
+            .find(|(_, n)| n.label() == Some("Non lette"))
             .unwrap()
             .0,
         id

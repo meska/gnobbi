@@ -359,12 +359,14 @@ impl Shell {
             && !self.notifications_open
             && !self.verification_open
             && (window.viewport_size().width >= px(800.) || !self.compact_chat))
-            .then_some(matrix_desktop::accessibility::filters::UnreadFilter {
-                account: self.active_scope.account_id,
-                revision: self.sidebar.navigation_revision(),
-                checked: self.sidebar.unread_only(),
-                focused: self.unread_focus.is_focused(window),
-                bounds: self.a11y_unread_bounds,
+            .then(|| {
+                matrix_desktop::accessibility::filters::UnreadFilter::from_buttons(
+                    self.active_scope.account_id,
+                    self.sidebar.navigation_revision(),
+                    self.unread_focus.is_focused(window),
+                    self.a11y_unread_bounds,
+                    &self.sidebar.filter_buttons(),
+                )
             })
     }
 
@@ -384,10 +386,16 @@ impl Shell {
         {
             return;
         }
-        if let FilterAction::SetUnread { checked, .. } = action
-            && checked != self.sidebar.unread_only()
-        {
-            self.activate_filter(FilterId::Unread, window, cx);
+        match action {
+            FilterAction::SetUnread { checked, .. } if checked != self.sidebar.unread_only() => {
+                self.activate_filter(FilterId::Unread, window, cx);
+            }
+            FilterAction::Activate { index, .. } => {
+                if let Some(button) = self.sidebar.filter_buttons().into_iter().nth(index) {
+                    self.activate_filter(button.id, window, cx);
+                }
+            }
+            _ => {}
         }
         self.unread_focus.focus(window);
         cx.notify();
