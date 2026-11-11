@@ -46,4 +46,29 @@ impl SerialTracker {
             .map(|serial_data| serial_data.serial)
             .unwrap_or(0)
     }
+
+    /// Serial of the latest key or button event: `set_selection` accepts either,
+    /// a pointer click must not be rejected for an older key serial.
+    pub fn latest_input(&self) -> u32 {
+        let (key, mouse) = (self.get(SerialKind::KeyPress), self.get(SerialKind::MousePress));
+        if (mouse.wrapping_sub(key) as i32) > 0 { mouse } else { key }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn latest_input_is_newest_of_key_and_mouse_even_across_wraparound() {
+        let mut t = SerialTracker::new();
+        t.update(SerialKind::KeyPress, 5);
+        t.update(SerialKind::MousePress, 9);
+        assert_eq!(t.latest_input(), 9);
+        t.update(SerialKind::KeyPress, 12);
+        assert_eq!(t.latest_input(), 12);
+        t.update(SerialKind::KeyPress, u32::MAX - 1);
+        t.update(SerialKind::MousePress, 3);
+        assert_eq!(t.latest_input(), 3);
+    }
 }

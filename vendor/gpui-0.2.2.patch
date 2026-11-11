@@ -1,6 +1,6 @@
 diff -ruN a/Cargo.toml b/Cargo.toml
 --- a/Cargo.toml	1970-01-01 01:00:01
-+++ b/Cargo.toml	2026-11-09 01:39:56
++++ b/Cargo.toml	2026-11-11 21:18:50
 @@ -487,6 +487,12 @@
  version = "0.14.0"
  optional = true
@@ -16,7 +16,7 @@ diff -ruN a/Cargo.toml b/Cargo.toml
  optional = true
 diff -ruN a/src/elements/text.rs b/src/elements/text.rs
 --- a/src/elements/text.rs	2006-07-24 03:21:28
-+++ b/src/elements/text.rs	2026-11-09 01:39:56
++++ b/src/elements/text.rs	2026-11-11 21:18:50
 @@ -316,6 +316,7 @@
      lines: SmallVec<[WrappedLine; 1]>,
      line_height: Pixels,
@@ -54,7 +54,7 @@ diff -ruN a/src/elements/text.rs b/src/elements/text.rs
                  });
 diff -ruN a/src/platform/linux/text_system.rs b/src/platform/linux/text_system.rs
 --- a/src/platform/linux/text_system.rs	2006-07-24 03:21:28
-+++ b/src/platform/linux/text_system.rs	2026-11-09 01:39:56
++++ b/src/platform/linux/text_system.rs	2026-11-11 21:18:50
 @@ -371,8 +371,54 @@
          }
      }
@@ -112,7 +112,25 @@ diff -ruN a/src/platform/linux/text_system.rs b/src/platform/linux/text_system.r
          for run in font_runs {
 diff -ruN a/src/platform/linux/wayland/client.rs b/src/platform/linux/wayland/client.rs
 --- a/src/platform/linux/wayland/client.rs	2006-07-24 03:21:28
-+++ b/src/platform/linux/wayland/client.rs	2026-11-09 01:39:56
++++ b/src/platform/linux/wayland/client.rs	2026-11-11 21:18:50
+@@ -809,7 +809,7 @@
+         };
+         if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
+             state.clipboard.set_primary(item);
+-            let serial = state.serial_tracker.get(SerialKind::KeyPress);
++            let serial = state.serial_tracker.latest_input();
+             let data_source = primary_selection_manager.create_source(&state.globals.qh, ());
+             for mime_type in TEXT_MIME_TYPES {
+                 data_source.offer(mime_type.to_string());
+@@ -829,7 +829,7 @@
+         };
+         if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
+             state.clipboard.set(item);
+-            let serial = state.serial_tracker.get(SerialKind::KeyPress);
++            let serial = state.serial_tracker.latest_input();
+             let data_source = data_device_manager.create_data_source(&state.globals.qh, ());
+             for mime_type in TEXT_MIME_TYPES {
+                 data_source.offer(mime_type.to_string());
 @@ -1264,13 +1264,17 @@
              } => {
                  let focused_window = state.keyboard_focused_window.clone();
@@ -146,9 +164,42 @@ diff -ruN a/src/platform/linux/wayland/client.rs b/src/platform/linux/wayland/cl
                  let keycode = Keycode::from(key + MIN_KEYCODE);
                  let keysym = keymap_state.key_get_one_sym(keycode);
  
+diff -ruN a/src/platform/linux/wayland/serial.rs b/src/platform/linux/wayland/serial.rs
+--- a/src/platform/linux/wayland/serial.rs	2006-07-24 03:21:28
++++ b/src/platform/linux/wayland/serial.rs	2026-11-11 21:18:50
+@@ -46,4 +46,29 @@
+             .map(|serial_data| serial_data.serial)
+             .unwrap_or(0)
+     }
++
++    /// Serial of the latest key or button event: `set_selection` accepts either,
++    /// a pointer click must not be rejected for an older key serial.
++    pub fn latest_input(&self) -> u32 {
++        let (key, mouse) = (self.get(SerialKind::KeyPress), self.get(SerialKind::MousePress));
++        if (mouse.wrapping_sub(key) as i32) > 0 { mouse } else { key }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn latest_input_is_newest_of_key_and_mouse_even_across_wraparound() {
++        let mut t = SerialTracker::new();
++        t.update(SerialKind::KeyPress, 5);
++        t.update(SerialKind::MousePress, 9);
++        assert_eq!(t.latest_input(), 9);
++        t.update(SerialKind::KeyPress, 12);
++        assert_eq!(t.latest_input(), 12);
++        t.update(SerialKind::KeyPress, u32::MAX - 1);
++        t.update(SerialKind::MousePress, 3);
++        assert_eq!(t.latest_input(), 3);
++    }
+ }
 diff -ruN a/src/platform/linux/x11/client.rs b/src/platform/linux/x11/client.rs
 --- a/src/platform/linux/x11/client.rs	2006-07-24 03:21:28
-+++ b/src/platform/linux/x11/client.rs	2026-11-09 01:39:56
++++ b/src/platform/linux/x11/client.rs	2026-11-11 21:18:50
 @@ -392,6 +392,23 @@
              ),
          )?;
@@ -175,7 +226,7 @@ diff -ruN a/src/platform/linux/x11/client.rs b/src/platform/linux/x11/client.rs
          let xkb_state = {
 diff -ruN a/src/platform/windows/window.rs b/src/platform/windows/window.rs
 --- a/src/platform/windows/window.rs	2006-07-24 03:21:28
-+++ b/src/platform/windows/window.rs	2026-11-09 01:39:56
++++ b/src/platform/windows/window.rs	2026-11-11 21:18:50
 @@ -28,6 +28,9 @@
  
  use crate::*;
@@ -226,7 +277,7 @@ diff -ruN a/src/platform/windows/window.rs b/src/platform/windows/window.rs
  
 diff -ruN a/src/platform/windows/work_area.rs b/src/platform/windows/work_area.rs
 --- a/src/platform/windows/work_area.rs	1970-01-01 01:00:00
-+++ b/src/platform/windows/work_area.rs	2026-11-09 01:39:56
++++ b/src/platform/windows/work_area.rs	2026-11-11 21:18:50
 @@ -0,0 +1,75 @@
 +pub(crate) fn fit_window(rect: [i32; 4], monitor: [i32; 4], work: [i32; 4]) -> [i32; 4] {
 +    let mut result = rect;
