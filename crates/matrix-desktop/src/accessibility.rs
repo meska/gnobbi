@@ -1184,7 +1184,10 @@ impl NavigationSnapshot {
         tree.nodes[0].1.set_label(self.title.clone());
         if self.visible {
             let mut menu = Node::new(Role::Button);
-            menu.set_label("Menu");
+            menu.set_label(match crate::update::announced() {
+                Some(v) => format!("Menu, {}", crate::update::indicator_label(&v)),
+                None => "Menu".into(),
+            });
             menu.add_action(Action::Click);
             menu.add_action(Action::Focus);
             let mut children = tree.nodes[0].1.children().to_vec();

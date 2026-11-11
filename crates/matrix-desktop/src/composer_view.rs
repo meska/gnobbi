@@ -442,6 +442,11 @@ impl ComposerView {
         cx.notify();
     }
 
+    /// Text or an attachment waiting to be sent.
+    pub(crate) fn has_unsent(&self) -> bool {
+        !self.draft.text().is_empty() || self.attachment.is_some() || self.rooms.has_unsent()
+    }
+
     #[cfg(test)]
     pub(crate) fn draft_state(&self) -> (String, usize, usize) {
         (self.draft.text().to_owned(), self.anchor, self.cursor)

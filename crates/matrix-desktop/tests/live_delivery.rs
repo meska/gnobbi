@@ -7,6 +7,24 @@ fn scope() -> RoomScope {
     }
 }
 #[test]
+fn queued_or_failed_send_counts_as_unsent_until_acknowledged() {
+    use matrix_engine::sending::{SendError, SendResult};
+    let mut delivery = LiveDelivery::new();
+    assert!(!delivery.has_unsent());
+    let mut draft = Composer::default();
+    draft.replace(None, "queued");
+    let tx = TransactionId::new("queued");
+    assert!(delivery.submit(scope(), tx.clone(), &mut draft));
+    assert!(delivery.has_unsent(), "staged");
+    delivery.take_request().unwrap();
+    assert!(delivery.has_unsent(), "handed to the worker, not acknowledged");
+    delivery.apply(SendResult { scope: scope(), transaction_id: tx.clone(), result: Err(SendError::Unavailable) });
+    assert!(delivery.has_unsent(), "failed: still the user's text");
+    delivery.apply(SendResult { scope: scope(), transaction_id: tx, result: Ok(matrix_domain::EventId::new("$ok:fixture.invalid")) });
+    assert!(!delivery.has_unsent());
+}
+
+#[test]
 fn encryption_failure_has_a_distinct_visible_label_until_retry() {
     use matrix_engine::sending::{SendError, SendResult};
     let mut delivery = LiveDelivery::new();

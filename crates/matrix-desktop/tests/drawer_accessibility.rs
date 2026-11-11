@@ -38,6 +38,7 @@ fn account_rows_are_buttons_with_name_unread_and_click() {
         ],
         confirm: None,
         connected: true,
+        update: None,
     };
     let tree = snap.tree();
     let bob = find(&tree, "bob, @bob:s.org, 3 messaggi non letti");
@@ -64,6 +65,7 @@ fn removal_prompt_is_readable_and_hides_the_rows() {
         rows: vec![row(2, "bob", 0, false, true)],
         confirm: Some((AccountId::new(2), "bob".into())),
         connected: true,
+        update: None,
     };
     let tree = snap.tree();
     assert!(tree.nodes.iter().any(|(_, n)| {
@@ -95,4 +97,18 @@ fn offline_drawer_offers_only_settings() {
             .iter()
             .any(|(_, n)| n.label() == Some("Nuova chat"))
     );
+}
+
+#[test]
+fn staged_update_is_labelled_and_actionable_until_dismissed() {
+    let mut snap = DrawerSnapshot { update: Some("1.2.3".into()), connected: true, ..Default::default() };
+    let tree = snap.tree();
+    assert!(tree.nodes.iter().any(|(_, n)| n.value() == Some("Aggiornamento disponibile, versione 1.2.3")));
+    let now = find(&tree, "Aggiorna ora");
+    let later = find(&tree, "Più tardi");
+    assert_eq!(snap.action(&click(now)), Some(DrawerAction::UpdateNow));
+    assert_eq!(snap.action(&click(later)), Some(DrawerAction::UpdateLater));
+    snap.update = None;
+    assert!(!snap.tree().nodes.iter().any(|(_, n)| n.label() == Some("Aggiorna ora")));
+    assert_eq!(snap.action(&click(now)), None);
 }
