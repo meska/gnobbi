@@ -86,6 +86,8 @@ fn an_existing_backup_is_refused_untouched() {
     assert_eq!(fx.read(&fx.paths.target), "old");
 }
 
+// On Windows the same call starts the real helper (covered by the next test's pre-checks).
+#[cfg(not(windows))]
 #[test]
 fn windows_channel_is_refused_instead_of_running_the_linux_step() {
     let fx = fixture("windows");
@@ -327,6 +329,8 @@ fn failed_cleanup_after_a_rollback_is_reported_and_keeps_the_marker_with_the_bac
     assert!(fx.marker().exists(), "the marker is dropped only after the backup is gone");
 }
 
+// Windows has no file-identity proof (`same_file` is always true there, see install.rs).
+#[cfg(unix)]
 #[test]
 fn a_backup_that_is_not_the_target_is_never_deleted_by_cleanup() {
     let fx = fixture("cleanup-other");

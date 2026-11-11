@@ -25,7 +25,7 @@ fn marker(e: &Env) -> PathBuf { e.dirs.data.join(MARKER) }
 fn pend(e: &Env, to: u64, attempts: u64) {
     write_pending(&e.dirs, &Pending { from_build: 10, to_build: to, attempts }).unwrap();
 }
-fn start(e: &Env, build: u64) -> StartupAction { handle_marker(&e.dirs, build, &e.target, &e.prev) }
+fn start(e: &Env, build: u64) -> StartupAction { handle_marker_with(&e.dirs, build, &e.target, &e.prev, false) }
 
 #[test]
 fn confirmed_start_clears_marker_and_prev() {
@@ -184,6 +184,8 @@ fn add_bad_build_unions_and_keeps_the_other_keys() {
 /// add_bad_build must not even look at settings.json, or it would read a snapshot and write it
 /// back over the one already committed. A filesystem that does not mark reads (atime) would make
 /// this check mute, so the test proves that first.
+// NTFS does not reliably update access times, so the "reads are marked" probe is mute there.
+#[cfg(unix)]
 #[test]
 fn add_bad_build_does_not_read_settings_while_the_lock_is_busy() {
     use std::sync::mpsc;

@@ -262,6 +262,8 @@ fn the_helper_mode_is_refused_off_windows() {
     assert_eq!(helper::dispatch(&[helper::FLAG.into(), "restore".into()]), Some(1));
 }
 
+// Windows answers NotFound (not NotADirectory) for a path under a file: no such error to provoke.
+#[cfg(unix)]
 #[test]
 fn restore_reports_an_unreadable_target_instead_of_hiding_it_as_missing_backup() {
     let fx = fixture("restore-error");

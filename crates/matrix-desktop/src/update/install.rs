@@ -291,7 +291,8 @@ pub(super) fn reverify(paths: &Paths, ready: &Ready) -> Result<(), String> {
         }
         return Err(describe(e));
     }
-    std::fs::File::open(&paths.new).and_then(|f| f.sync_all()).map_err(|e| message(&e))
+    // write(true) without truncate: Windows FlushFileBuffers is denied on a read-only handle.
+    std::fs::OpenOptions::new().write(true).open(&paths.new).and_then(|f| f.sync_all()).map_err(|e| message(&e))
 }
 
 fn describe(e: UpdateError) -> String {

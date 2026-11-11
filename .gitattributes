@@ -1,0 +1,3 @@
+# Minisign signs exact bytes: no CRLF conversion on Windows checkouts.
+crates/matrix-desktop/tests/fixtures/** -text
+crates/matrix-desktop/update-keys.pub -text
