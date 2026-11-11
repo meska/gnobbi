@@ -228,6 +228,8 @@ impl Shell {
 
     pub(crate) fn toggle_read_receipts(&mut self, cx: &mut Context<Self>) {
         self.prefs.read_receipts = !self.prefs.read_receipts;
+        // Revoke before the new preference applies: the old tag must not send public/private.
+        self.revoke_thread_read();
         self.save_prefs(cx);
     }
 

@@ -217,6 +217,8 @@ impl Shell {
     }
 
     fn put_state(&mut self, state: AccountState) {
+        // Another account's store: the open panel's receipt authorization does not cross over.
+        self.revoke_thread_read();
         self.active_scope = RoomScope {
             account_id: state.account_id,
             room_id: matrix_domain::RoomId::new("!not-selected:local.invalid"),

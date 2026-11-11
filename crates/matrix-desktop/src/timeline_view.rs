@@ -1398,6 +1398,28 @@ impl TimelineView {
             .collect()
     }
 
+    /// The picture of an image row as the bubbles draw it: thumbnail state, click opens the large view.
+    pub(crate) fn picture_for(&self, id: &matrix_domain::EventId, t: DesignTokens) -> Option<gpui::AnyElement> {
+        // Not asked for yet (root outside the loaded history): None, the caller shows the label.
+        let state = self.images.borrow().get(id).cloned()?;
+        let opened = matches!(state, crate::media_view::InlineImage::Ready(_));
+        let picture = crate::media_view::inline_picture(Some(state), t);
+        if !opened {
+            return Some(picture);
+        }
+        let (id, viewing, focus) = (id.clone(), self.viewing.clone(), self.focus.clone());
+        let (original, want_original) = (self.original.clone(), self.want_original.clone());
+        div().id(gpui::SharedString::from(format!("thread-picture-{}", id.as_str()))).cursor_pointer()
+            .on_click(move |_, window, _| {
+                *viewing.borrow_mut() = Some(id.clone());
+                *original.borrow_mut() = None;
+                *want_original.borrow_mut() = Some(id.clone());
+                focus.focus(window);
+                window.refresh();
+            })
+            .child(picture).into_any_element().into()
+    }
+
     /// The thread an event belongs to: its root (the event itself when it is no reply), the root's
     /// row as the room timeline holds it (empty when not loaded) and the reply count.
     pub(crate) fn thread_target(&self, id: &matrix_domain::EventId) -> Option<(matrix_domain::EventId, crate::thread_view::ThreadRow, u32)> {

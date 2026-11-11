@@ -261,6 +261,7 @@ impl LiveOperations {
             | OperationResult::MemberRights { .. }
             | OperationResult::Moderated { .. }
             | OperationResult::Thread { .. }
+            | OperationResult::ThreadRead { .. }
             | OperationResult::ThreadSent { .. }
             | OperationResult::Members { .. }
             | OperationResult::MessageSearch { .. }

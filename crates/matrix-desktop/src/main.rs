@@ -266,6 +266,8 @@ struct Shell {
     composer_visit: std::rc::Rc<composer_view::SendVisit>,
     timeline: Option<TimelineView>,
     thread: Option<thread_view::ThreadPanel>,
+    /// The panel closed last: reopening that thread shows its replies at once, then refreshes.
+    thread_last: Option<thread_view::ThreadPanel>,
     saved_timelines: HashMap<RoomScope, TimelineView>,
     history: HistorySession,
     pending_history: Option<matrix_engine::history::HistoryRequest>,
@@ -1393,6 +1395,7 @@ impl Shell {
                 self.audio = None;
                 self.operations.borrow_mut().clear_selection();
                 self.confirm_redaction = None;
+                self.revoke_thread_read();
                 self.active_scope = request.tag.scope().clone();
                 self.remember_last_room();
                 self.note_seen();
@@ -1433,6 +1436,7 @@ impl Shell {
             previous.retire_selection();
             self.saved_timelines
                 .insert(self.active_scope.clone(), previous);
+            self.revoke_thread_read();
             self.active_scope = scope;
             self.remember_last_room();
         }
@@ -1832,9 +1836,15 @@ impl Shell {
                             root,
                             result: Err(OperationError::Unavailable),
                         },
-                        OperationCommand::Thread { scope, root, .. } => OperationResult::Thread {
-                            scope,
+                        OperationCommand::Thread { tag, root, .. } => OperationResult::Thread {
+                            tag,
                             root,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::ThreadRead { tag, root, target, .. } => OperationResult::ThreadRead {
+                            tag,
+                            root,
+                            target,
                             result: Err(OperationError::Unavailable),
                         },
                         OperationCommand::SetMuted { scope, .. } => OperationResult::RoomMarked {
@@ -3050,8 +3060,12 @@ fn main() {
                                                 this.thread_sent(scope, root, result, cx);
                                                 continue;
                                             }
-                                            if let matrix_engine::operations::OperationResult::Thread { scope, root, result } = result {
-                                                this.thread_found(scope, root, result, cx);
+                                            if let matrix_engine::operations::OperationResult::Thread { tag, root, result } = result {
+                                                this.thread_found(tag, root, result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::ThreadRead { tag, root, result, .. } = result {
+                                                this.thread_read_result(tag, root, result, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::Profile { user_id, result } = result {
@@ -3556,6 +3570,7 @@ fn main() {
                             .then(|| TimelineView::new(active_scope.clone(), cx.focus_handle())),
                         active_scope,
                         thread: None,
+                        thread_last: None,
                         saved_timelines: HashMap::new(),
                         history: HistorySession::new(),
                         pending_history: None,

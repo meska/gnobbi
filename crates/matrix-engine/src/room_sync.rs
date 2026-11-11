@@ -413,6 +413,11 @@ impl RoomListWorker {
                             },
                         );
                         let mut rooms_rx = rooms.subscribe();
+                        // One receipt in flight per account, polled beside the commands: a page never waits for it.
+                        let mut receipt: Option<(
+                            crate::RequestTag,
+                            std::pin::Pin<Box<dyn std::future::Future<Output = OperationResult> + Send>>,
+                        )> = None;
                         loop {
                             let command = tokio::select! {
                                 command = shutdown_receive(&operation_stop, &mut operations) => {
@@ -460,7 +465,22 @@ impl RoomListWorker {
                                     clean &= matches!(sent, Some(Ok(())) | None);
                                     continue;
                                 }
+                                Some(done) = async {
+                                    match &mut receipt {
+                                        Some((_, future)) => Some(future.as_mut().await),
+                                        None => std::future::pending().await,
+                                    }
+                                } => {
+                                    // The slot is freed before the result goes out: a revoked receipt is not retried.
+                                    receipt = None;
+                                    let _ = until_stopped(&operation_stop, operation_results.send(done)).await;
+                                    continue;
+                                }
                             };
+                            // A revoked slot is dropped at the next command: no retry, no orphan.
+                            if receipt.as_ref().is_some_and(|(tag, _)| tag.is_cancelled()) {
+                                receipt = None;
+                            }
                             let result = match command {
                                 OperationCommand::SearchMessages { scope, term } => {
                                     if messages.as_ref().is_none_or(|(s, _)| *s != scope) {
@@ -672,9 +692,47 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::InviteAnswered { scope, accept, result }
                                 }
-                                OperationCommand::Thread { scope, root, want, read } => {
-                                    let result = crate::threads::open_scoped(&operation_client, &operation_timelines, account, &scope, &root, want, read).await;
-                                    OperationResult::Thread { scope, root, result }
+                                OperationCommand::Thread { tag, root, want } => {
+                                    if tag.is_cancelled()
+                                        || operation_stop.load(std::sync::atomic::Ordering::Acquire)
+                                    {
+                                        continue;
+                                    }
+                                    let result = crate::threads::open_scoped(
+                                        &operation_client,
+                                        &operation_timelines,
+                                        account,
+                                        tag.scope(),
+                                        &root,
+                                        want,
+                                    )
+                                    .await;
+                                    OperationResult::Thread { tag, root, result }
+                                }
+                                OperationCommand::ThreadRead { tag, root, target, public } => {
+                                    if tag.is_cancelled()
+                                        || operation_stop.load(std::sync::atomic::Ordering::Acquire)
+                                    {
+                                        continue;
+                                    }
+                                    // A duplicate intent coalesces; a new one drops the old future first.
+                                    if receipt.as_ref().is_some_and(|(active, _)| active.is_same(&tag)) {
+                                        continue;
+                                    }
+                                    let client = operation_client.clone();
+                                    let timelines = operation_timelines.clone();
+                                    let guard = tag.clone();
+                                    receipt = Some((
+                                        tag,
+                                        Box::pin(async move {
+                                            let result = crate::threads::mark_read_target(
+                                                &client, &timelines, account, &guard, &root, &target, public,
+                                            )
+                                            .await;
+                                            OperationResult::ThreadRead { tag: guard, root, target, result }
+                                        }),
+                                    ));
+                                    continue;
                                 }
                                 OperationCommand::ThreadSend { scope, root, reply_to, body } => {
                                     let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body).await;
@@ -2010,8 +2068,9 @@ fn joined(
         .ok_or(HistoryError::Unavailable)
 }
 
-/// Saved messages of one room, as the room's Timeline holds them. Answers from disk; a pagination
-/// step that would need the network is dropped after 1 s, so an unreachable server only delays it.
+/// Saved messages of one room, as the room's Timeline holds them. With fewer than a PAGE of visible
+/// saved rows the loop also takes network pagination steps, each cut at 1 s and at most 10, before
+/// the first emission; an unreachable server only delays it.
 async fn saved_page(
     client: &matrix_sdk::Client,
     timelines: &Timelines,
@@ -2021,11 +2080,11 @@ async fn saved_page(
     let room = joined(client, &tag, account_id)?;
     let timeline = timelines.get(&room).await?;
     let mut now = loaded(&room, &timeline).await;
-    // The timeline starts from the newest saved chunk only. When that one holds nothing visible
-    // (only status rows, e.g. the join), step back through the older saved chunks; the SDK reads the disk first.
+    // The timeline starts from the newest saved chunk only (the reply may sit there while its root is in
+    // an older one): step back through the older saved chunks until a page is full; the SDK reads the disk first.
     // shortcut: a step that has to leave the disk is dropped after 1 s, and at most 10 steps.
     for _ in 0..10 {
-        if now.rows.iter().any(|r| !r.status) || now.at_start {
+        if now.rows.iter().filter(|r| !r.status).count() >= PAGE || now.at_start {
             break;
         }
         let step = tokio::time::timeout(
