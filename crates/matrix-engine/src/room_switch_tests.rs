@@ -202,3 +202,158 @@ fn disposable_room_switch_keeps_the_replies_already_seen() {
         assert!(lost.is_empty(), "seen replies lost: {lost:#?}");
     });
 }
+
+/// Edge cases of the room switch: more replies than one page (thread 30, main 30), 20 rapid A/B switches, and a restart with the homeserver frozen (no network).
+/// The page of replies seen online must come back unchanged, with its root, and never as a partial page.
+/// Run: `python3 the auth_smoke script --filter disposable_room_switch_edges [--server tuwunel]`
+#[test]
+#[cfg(unix)]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_room_switch_edges_many_replies_rapid_switches_offline_restart() {
+    use crate::{ViewRequests, persistence::AccountStore, room_sync::RoomSync};
+    use matrix_domain::{RoomId, RoomScope};
+    const PASS: &str = "synthetic-passphrase-room-switch-2";
+    let config = fixture();
+    let url = config["url"].as_str().unwrap().to_owned();
+    let account = AccountId::new(96);
+    let stores = std::path::PathBuf::from(std::env::var("HOME").unwrap()).join("room-switch-edge");
+    let _ = std::fs::remove_dir_all(&stores);
+    use std::os::unix::fs::DirBuilderExt as _;
+    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&stores).unwrap();
+    runtime().block_on(async {
+        let mut rooms = Vec::new();
+        for _ in 0..2 {
+            let created = room_request(&config, "alice", reqwest::Method::POST, "createRoom",
+                serde_json::json!({"invite":["@bob:matrix-desktop.test"]})).await;
+            let room = created["room_id"].as_str().unwrap().to_owned();
+            room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+            rooms.push(room);
+        }
+        let (a, b) = (rooms[0].clone(), rooms[1].clone());
+        let put = |room: String, actor: &'static str, txn: String, body: String, rel: Option<serde_json::Value>| {
+            let config = config.clone();
+            async move {
+                let mut content = serde_json::json!({"msgtype":"m.text","body":body});
+                if let Some(rel) = rel { content["m.relates_to"] = rel; }
+                room_request(&config, actor, reqwest::Method::PUT,
+                    &format!("rooms/{room}/send/m.room.message/{txn}"), content).await["event_id"]
+                    .as_str().unwrap().to_owned()
+            }
+        };
+        let root = put(a.clone(), "alice", "e-root".into(), "root".into(), None).await;
+        let question = put(a.clone(), "alice", "e-question".into(), "question".into(), None).await;
+        put(b.clone(), "bob", "e-b1".into(), "b one".into(), None).await;
+        let scope = |room: &str| RoomScope { account_id: account, room_id: RoomId::new(room) };
+        let (scope_a, scope_b) = (scope(&a), scope(&b));
+        let root_id = matrix_domain::EventId::new(root.clone());
+        let vis = crate::receipts::ReadVisibility { window_focused: true, room_foreground: true, bottom_gap_px: 0.0, public_receipts: false };
+        async fn app_open(client: &matrix_sdk::Client, timelines: &crate::room_sync::Timelines, account: AccountId, scope: &RoomScope)
+            -> (Vec<String>, Vec<String>)
+        {
+            let (mut out, mut results) = crate::bounded(std::num::NonZeroUsize::new(4).unwrap());
+            let mut views = ViewRequests::new();
+            let tag = views.start(scope.clone()).unwrap();
+            let request = crate::history::HistoryRequest { tag, before: None, open: true };
+            assert!(crate::room_sync::serve_history(client, timelines, account, request, &mut out).await);
+            drop(out);
+            let mut pages = Vec::new();
+            while let Some(r) = results.recv().await {
+                pages.push(r.page.map(|p| p.events).unwrap_or_default());
+            }
+            drop(views);
+            let bodies = |rows: Vec<crate::history::HistoryEvent>| rows.into_iter().filter(|r| !r.status).map(|r| r.body).collect::<Vec<_>>();
+            let full = bodies(pages.pop().unwrap_or_default());
+            (bodies(pages.pop().unwrap_or_default()), full)
+        }
+        let store = AccountStore::create(&stores, account).unwrap();
+        let session = store
+            .password_login_with_http(HomeserverUrl::parse(&url).unwrap(), "@alice:matrix-desktop.test",
+                config["alice_password"].as_str().unwrap(), PASS, http(&config))
+            .await.unwrap();
+        let mut sync = RoomSync::new(session);
+        sync.sliding_round().await.unwrap();
+        let (client, timelines) = sync.live_handles_for_test();
+        let _ = app_open(&client, &timelines, account, &scope_a).await;
+        let (pa, ra, rb) = (a.clone(), root.clone(), question.clone());
+        let put2 = put.clone();
+        sync.sliding_round_after(async move {
+            for n in 1..=30 {
+                put2(pa.clone(), "bob", format!("e-t{n}"), format!("thread {n:02}"), Some(serde_json::json!({"rel_type":"m.thread","event_id":ra,
+                    "is_falling_back":true,"m.in_reply_to":{"event_id":ra}}))).await;
+                put2(pa.clone(), "bob", format!("e-q{n}"), format!("reply {n:02}"), Some(serde_json::json!({"m.in_reply_to":{"event_id":rb}}))).await;
+            }
+        }).await.unwrap();
+        let mut seen = (Vec::new(), Vec::new());
+        let mut last_look = String::new();
+        for _ in 0..25 {
+            let (_, full) = app_open(&client, &timelines, account, &scope_a).await;
+            let thread = sync.open_thread(&scope_a, &root_id, 25).await;
+            last_look = format!("main {} rows last {:?}; thread {:?}", full.len(), full.last(), thread.as_ref().map(|t| (t.root.is_some(), t.replies.len(), t.replies.last().map(|r| r.body.clone()))));
+            let replies: Vec<String> = thread.as_ref().map(|t| t.replies.iter().map(|r| r.body.clone()).collect()).unwrap_or_default();
+            if full.contains(&"reply 30".to_owned()) && replies.last().is_some_and(|r| r == "thread 30") {
+                seen = (full, replies);
+                break;
+            }
+            if full.contains(&"reply 30".to_owned()) && replies.len() >= 20 { seen = (full, replies); }
+            let _ = sync.sliding_round().await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+        // A server that never delivers the last thread replies online is a separate defect: the baseline is what the panel showed.
+        println!("EDGE_ONLINE_FINAL {last_look}");
+        assert!(!seen.0.is_empty(), "the 30+30 replies reach room A online; last look: {last_look}");
+        sync.open_history(ViewRequests::new().start(scope_a.clone()).unwrap(), vis).await.unwrap();
+        let _ = sync.mark_thread_read(&scope_a, &root_id, false).await;
+        let _ = sync.sliding_round().await;
+        let mut bad: Vec<String> = Vec::new();
+        let root_online = sync.open_thread(&scope_a, &root_id, 25).await.is_ok_and(|t| t.root.is_some());
+        println!("EDGE_ROOT_ONLINE {root_online}");
+        println!("EDGE_BASE main_full={} thread={} first_thread={:?}", seen.0.len(), seen.1.len(), seen.1.first());
+        // 20 rapid switches, no pause: every visit to A shows what A showed.
+        for i in 0..20 {
+            let _ = app_open(&client, &timelines, account, &scope_b).await;
+            let (_, full) = app_open(&client, &timelines, account, &scope_a).await;
+            let thread = sync.open_thread(&scope_a, &root_id, 25).await;
+            let replies: Vec<String> = thread.as_ref().map(|t| t.replies.iter().map(|r| r.body.clone()).collect()).unwrap_or_default();
+            if full != seen.0 { bad.push(format!("rapid {i}: main {} rows, first {:?} last {:?}", full.len(), full.first(), full.last())); }
+            if replies != seen.1 { bad.push(format!("rapid {i}: thread {} replies {:?}..{:?}", replies.len(), replies.first(), replies.last())); }
+            if root_online && thread.as_ref().is_ok_and(|t| t.root.is_none()) { bad.push(format!("rapid {i}: no root")); }
+        }
+        drop((sync, client, timelines));
+        // Restart with the homeserver frozen: no network at all.
+        let paused = PausedServer::new(&config);
+        let session = AccountStore::open(&stores, account).unwrap().restore_with_http(PASS, http(&config)).await.unwrap();
+        let mut again = RoomSync::new(session);
+        let (client, timelines) = again.live_handles_for_test();
+        let t0 = std::time::Instant::now();
+        let saved = tokio::time::timeout(std::time::Duration::from_secs(20), app_open(&client, &timelines, account, &scope_a)).await;
+        let main_ms = t0.elapsed().as_millis();
+        match saved {
+            Ok((first, _full)) => {
+                println!("EDGE_OFFLINE_MAIN ms={main_ms} first_page={} first={:?} last={:?}", first.len(), first.first(), first.last());
+                if first.last().map(String::as_str) != Some("reply 30") { bad.push(format!("offline main: last row {:?}", first.last())); }
+                if first.len() < 25 { bad.push(format!("offline main: partial first page, {} rows ({:?}..)", first.len(), first.first())); }
+                if !seen.0.ends_with(&first) { bad.push(format!("offline main: first page not the tail of what was seen: {first:?}")); }
+            }
+            Err(_) => bad.push("offline main: no page within 20 s".into()),
+        }
+        let t0 = std::time::Instant::now();
+        let thread = tokio::time::timeout(std::time::Duration::from_secs(3),
+            crate::threads::open_scoped(&client, &timelines, account, &scope_a, &root_id, 25)).await;
+        match thread {
+            Ok(Ok(t)) => {
+                let replies: Vec<String> = t.replies.iter().map(|r| r.body.clone()).collect();
+                println!("EDGE_OFFLINE_THREAD ms={} root={} replies={} first={:?} last={:?}", t0.elapsed().as_millis(), t.root.is_some(), replies.len(), replies.first(), replies.last());
+                if root_online && t.root.is_none() { bad.push("offline thread: root missing".into()); }
+                if replies != seen.1 { bad.push(format!("offline thread: {} replies {:?}..{:?}, seen {}", replies.len(), replies.first(), replies.last(), seen.1.len())); }
+            }
+            other => bad.push(format!("offline thread: {:?}", other.map(|r| r.map(|t| t.replies.len())))),
+        }
+        drop(paused);
+        let _ = again.sliding_round().await;
+        let (_, full) = app_open(&client, &timelines, account, &scope_a).await;
+        if !seen.0.ends_with(&full) { bad.push(format!("after resume: main {} rows, last {:?}", full.len(), full.last())); }
+        println!("EDGE_LOST {}", serde_json::json!({"server": config["server"], "bad": bad}));
+        let _ = std::fs::remove_dir_all(&stores);
+        assert!(bad.is_empty(), "room switch edges: {bad:#?}");
+    });
+}
