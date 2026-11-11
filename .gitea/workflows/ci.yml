@@ -98,7 +98,7 @@ jobs:
       - name: Test engine
         run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
       - name: Test desktop update
-        run: cargo test --locked -j4 -p matrix-desktop --features windows-vault --lib update::
+        run: cargo test --locked -j4 -p matrix-desktop --features windows-vault --lib "update::"
       - name: Package zip
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\make-tester-package.ps1
       - name: Upload zip artifact
