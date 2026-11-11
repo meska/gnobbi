@@ -134,6 +134,15 @@ pub(crate) fn side_panel(id: &'static str, window: &Window, t: matrix_desktop::D
         .flex().flex_col().bg(rgb(t.surface)).border_l_1().border_color(rgb(t.border))
 }
 
+/// The thread to reopen now: the one a room change parked, once its room is active again and no
+/// panel is open (an open panel, even another thread, cancels the resume).
+fn resume_due(resume: &mut Option<(RoomScope, EventId)>, active: &RoomScope, open: bool) -> Option<EventId> {
+    if open {
+        *resume = None;
+    }
+    resume.as_ref().filter(|(scope, _)| scope == active).map(|(_, root)| root.clone())
+}
+
 impl ThreadPanel {
     pub(crate) fn new(scope: RoomScope, root: EventId, root_row: ThreadRow, total: u32) -> Self {
         Self {
@@ -347,9 +356,16 @@ impl Shell {
         if let Some(id) = self.timeline.as_ref().and_then(|t| t.want_thread.borrow_mut().take()) {
             self.open_thread(&id, None, cx);
         }
+        // Back on the room whose panel a room change parked: reopen it (an explicit close never parks).
+        if let Some(root) = resume_due(&mut self.thread_resume, &self.active_scope, self.thread.is_some()) {
+            self.open_thread(&root, None, cx);
+            // The room's timeline may not hold the thread yet: stay armed until the panel is up.
+            if self.thread.is_some() { self.thread_resume = None; }
+        }
         let Some(p) = &mut self.thread else { return };
         if p.scope != self.active_scope {
             p.revoke_read();
+            self.thread_resume = Some((p.scope.clone(), p.root.clone()));
             self.thread_last = self.thread.take();
             cx.notify();
             return;
@@ -585,6 +601,23 @@ mod tests {
         let p = p.reopened();
         assert_eq!(p.replies.len(), 2, "shown at once, before any read");
         assert!(p.dirty && !p.pending && p.outgoing.is_empty());
+    }
+
+    #[test]
+    fn a_thread_parked_by_a_room_change_resumes_on_return_only() {
+        let (a, b) = (RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:t") }, RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!b:t") });
+        let mut resume = Some((a.clone(), EventId::new("$root")));
+        assert_eq!(resume_due(&mut resume, &b, false), None, "in another room nothing opens");
+        assert_eq!(resume_due(&mut resume, &a, false), Some(EventId::new("$root")), "back in A the parked thread is due");
+        assert_eq!(resume_due(&mut resume, &a, true), None, "a panel already open cancels it");
+        assert!(resume.is_none());
+    }
+
+    #[test]
+    fn an_explicit_close_leaves_nothing_to_resume() {
+        let a = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!a:t") };
+        let mut shell_resume = None; // close_thread never sets it: only the room-change park does
+        assert_eq!(resume_due(&mut shell_resume, &a, false), None);
     }
 
     #[test]

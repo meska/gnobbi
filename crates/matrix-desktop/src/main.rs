@@ -269,6 +269,8 @@ struct Shell {
     thread: Option<thread_view::ThreadPanel>,
     /// The panel closed last: reopening that thread shows its replies at once, then refreshes.
     thread_last: Option<thread_view::ThreadPanel>,
+    /// A room change parked this thread's panel: reopen it when that room is active again.
+    thread_resume: Option<(RoomScope, matrix_domain::EventId)>,
     saved_timelines: HashMap<RoomScope, TimelineView>,
     history: HistorySession,
     pending_history: Option<matrix_engine::history::HistoryRequest>,
@@ -3574,6 +3576,7 @@ fn main() {
                         active_scope,
                         thread: None,
                         thread_last: None,
+                        thread_resume: None,
                         saved_timelines: HashMap::new(),
                         history: HistorySession::new(),
                         pending_history: None,
