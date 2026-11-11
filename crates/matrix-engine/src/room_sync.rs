@@ -2026,8 +2026,9 @@ fn joined(
         .ok_or(HistoryError::Unavailable)
 }
 
-/// Saved messages of one room, as the room's Timeline holds them. Answers from disk; a pagination
-/// step that would need the network is dropped after 1 s, so an unreachable server only delays it.
+/// Saved messages of one room, as the room's Timeline holds them. With fewer than a PAGE of visible
+/// saved rows the loop also takes network pagination steps, each cut at 1 s and at most 10, before
+/// the first emission; an unreachable server only delays it.
 async fn saved_page(
     client: &matrix_sdk::Client,
     timelines: &Timelines,

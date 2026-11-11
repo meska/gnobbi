@@ -181,6 +181,9 @@ fn disposable_room_switch_keeps_the_replies_already_seen() {
             // What the panel showed before the switch is the baseline: a reply Tuwunel never delivered to the
             // thread timeline is a separate defect, not a reply that disappeared.
             let seen = snaps[0].1["thread"]["replies"].as_array().cloned().unwrap_or_default();
+            if seen.is_empty() {
+                lost.push(format!("{step}: no thread replies seen before the switch, check is vacuous"));
+            }
             for body in &seen {
                 if !replies.contains(body) {
                     lost.push(format!("{step}: thread lost \"{body}\" (has {replies:?})"));

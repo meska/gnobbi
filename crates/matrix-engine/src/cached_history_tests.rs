@@ -171,7 +171,13 @@ fn seen_room_opens_from_the_cache_after_restart_with_the_homeserver_unreachable(
             .await
             .unwrap();
         println!("OFFLINE_OPEN_MS {}", started.elapsed().as_millis());
-        let bodies: Vec<&str> = page.events.iter().map(|e| e.body.as_str()).collect();
+        // Status rows ("alice è entrato/a…") are not messages: they trail the last one.
+        let bodies: Vec<&str> = page
+            .events
+            .iter()
+            .map(|e| e.body.as_str())
+            .filter(|b| b.starts_with('m') && b[1..].chars().all(|c| c.is_ascii_digit()))
+            .collect();
         let expect: Vec<String> = (0..COUNT).map(|n| format!("m{n}")).collect();
         assert!(
             bodies.len() >= COUNT
@@ -1201,12 +1207,12 @@ fn edge_offline_fewer_than_a_page_of_messages_under_hidden_events() {
 #[test]
 #[ignore = "requires the cached_history_probe script"]
 fn edge_offline_messages_spread_over_several_chunks() {
-    // Declared limit: stepping back stops at the first chunk with a message, so the first page
-    // holds that chunk's 20 messages (fewer than a PAGE); older ones come by scrolling back.
+    // Stepping back through the saved chunks continues until a page is full (PAGE = 25 non-status
+    // rows): the newest chunk's 20 messages are not enough, so the page reaches into the next one.
     let (bodies, ms) = offline_first_page(312, &[(20, 150), (20, 150), (20, 150)]);
     println!("EDGE spread first_page_ms={ms} got={}", bodies.len());
-    let want: Vec<String> = (40..60).map(|n| format!("m{n}")).collect();
-    assert_eq!(bodies, want, "the newest chunk's messages, in order");
+    let want: Vec<String> = (20..60).map(|n| format!("m{n}")).collect();
+    assert_eq!(bodies, want, "the newest 40 messages (two chunks), in order");
 }
 
 #[test]
