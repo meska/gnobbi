@@ -1208,30 +1208,20 @@ impl Render for ComposerView {
         } else {
             format!("{}\u{200b}", self.draft.text())
         };
-        let mut highlights = Vec::new();
-        let selected = self.draft.selection();
-        if !selected.is_empty() {
-            highlights.push((
-                selected,
-                HighlightStyle {
-                    background_color: Some(rgb(t.selection).into()),
-                    ..Default::default()
-                },
-            ));
-        }
-        if let Some(marked) = self.draft.marked() {
-            highlights.push((
-                marked,
-                HighlightStyle {
-                    underline: Some(UnderlineStyle {
-                        color: Some(rgb(t.accent).into()),
-                        thickness: px(1.),
-                        wavy: false,
-                    }),
-                    ..Default::default()
-                },
-            ));
-        }
+        let highlights = self.draft.highlights().into_iter().map(|(range, selected, marked)| {
+            let mut style = HighlightStyle::default();
+            if selected {
+                style.background_color = Some(rgb(t.selection).into());
+            }
+            if marked {
+                style.underline = Some(UnderlineStyle {
+                    color: Some(rgb(t.accent).into()),
+                    thickness: px(1.),
+                    wavy: false,
+                });
+            }
+            (range, style)
+        });
         let send_visible = self.send_visible();
         // Send left (e.g. «×» on the attachment) while focused: hand the focus back to the field.
         if !send_visible && self.send_focus.is_focused(window) {
