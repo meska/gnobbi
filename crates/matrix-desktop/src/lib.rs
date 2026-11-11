@@ -79,6 +79,7 @@ pub use composer::{
 pub use connection_options::create_private_dir;
 pub use connection_options::{
     RestoreOptions, SignInOptions, bundle_launch_args, default_signin_args, linux_launch_args,
+    take_matrix_link,
 };
 mod drafts;
 pub use drafts::RoomDrafts;

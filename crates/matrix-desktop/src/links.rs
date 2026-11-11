@@ -131,7 +131,7 @@ impl SafeWebUrl {
         if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
             return None;
         }
-        if raw.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '\\' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}')) {
+        if matrix_domain::has_unsafe_url_char(raw) {
             return None;
         }
         let parsed = url::Url::parse(raw).ok()?;

@@ -100,3 +100,14 @@ pub fn create_private_dir(path: &std::path::Path) -> std::io::Result<()> {
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
     builder.create(path)
 }
+
+/// Take the `matrix:` link out of argv before the option parsers see it (they would reject it).
+/// A string starting with `-` is never a link. Several links: the last wins. Returns the raw
+/// string, still unvalidated: the caller runs `matrix_engine::matrix_link::parse_matrix_link`.
+pub fn take_matrix_link(args: Vec<String>) -> (Vec<String>, Option<String>) {
+    let is_link = |a: &String| {
+        a.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("matrix:")) && !a.starts_with('-')
+    };
+    let link = args.iter().rev().find(|a| is_link(a)).cloned();
+    (args.into_iter().filter(|a| !is_link(a)).collect(), link)
+}

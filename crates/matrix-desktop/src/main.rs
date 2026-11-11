@@ -2696,6 +2696,7 @@ fn main() {
     if std::env::var_os("P115B_NATIVE").is_some() {
         return login_field::mac_clipboard_probe::run();
     }
+
     #[cfg(feature = "live")]
     if std::env::var_os("RUST_LOG").is_some() {
         tracing_subscriber::fmt()
@@ -2708,7 +2709,16 @@ fn main() {
     if let Some(dirs) = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
         matrix_desktop::update::scheduler::start(dirs, matrix_desktop::update::shared_state(), Default::default());
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (args, link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
+    // Kept in memory for the link handler; an invalid one is dropped (only the error kind is logged).
+    #[cfg(feature = "live")]
+    let _pending_link = link.and_then(|raw| {
+        matrix_engine::matrix_link::parse_matrix_link(&raw)
+            .map_err(|error| eprintln!("Gnobbi: ignored matrix link ({error:?})"))
+            .ok()
+    });
+    #[cfg(not(feature = "live"))]
+    let _ = link;
     if args.first().is_some_and(|a| a == "--install-desktop-entry") {
         // Saved icon choice; missing or invalid preferences fall back to the default.
         let icon = matrix_desktop::app_dirs(matrix_desktop::Platform::Linux, |k| {

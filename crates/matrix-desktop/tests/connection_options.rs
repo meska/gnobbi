@@ -106,3 +106,21 @@ fn linux_launch_without_arguments_opens_the_sign_in_on_the_standard_profile() {
     let restore = ["--restore", "/s", "1"].map(str::to_owned);
     assert_eq!(linux_launch_args(&restore), restore);
 }
+
+#[test]
+fn matrix_link_is_taken_out_of_argv_before_the_option_parsers() {
+    use matrix_desktop::{SignInOptions, take_matrix_link};
+    let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    // Linux: `--signin matrix:…` used to fail SignInOptions::parse; Windows: a lone link used to fail RestoreOptions::parse.
+    let (rest, link) = take_matrix_link(v(&["--signin", "matrix:u/a:b"]));
+    assert_eq!((rest.as_slice(), link.as_deref()), (v(&["--signin"]).as_slice(), Some("matrix:u/a:b")));
+    let (rest, link) = take_matrix_link(v(&["MATRIX:u/a:b"]));
+    assert!(rest.is_empty() && link.is_some());
+    assert!(RestoreOptions::parse(&rest).unwrap().is_none());
+    let (rest, link) = take_matrix_link(v(&["--signin", "/p", "--ca-file", "/c.pem", "matrix:r/a:b"]));
+    assert!(SignInOptions::parse(&rest).unwrap().is_some() && link.is_some());
+    // Never a link: option-looking strings; the last link wins; others stay.
+    let (rest, link) = take_matrix_link(v(&["-matrix:u/a:b", "matrix:u/x:y", "matrix:u/z:y"]));
+    assert_eq!((rest, link.as_deref()), (v(&["-matrix:u/a:b"]), Some("matrix:u/z:y")));
+    assert!(take_matrix_link(v(&["--restore", "/s", "1"])).1.is_none());
+}

@@ -125,6 +125,8 @@ pub mod status_line;
 pub mod keychain;
 pub mod media;
 #[cfg(feature = "sdk")]
+pub mod matrix_link;
+#[cfg(feature = "sdk")]
 pub mod media_sdk;
 pub mod operations;
 #[cfg(feature = "sdk")]
