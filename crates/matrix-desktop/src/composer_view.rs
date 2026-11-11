@@ -444,7 +444,7 @@ impl ComposerView {
 
     /// Text or an attachment waiting to be sent.
     pub(crate) fn has_unsent(&self) -> bool {
-        !self.draft.text().is_empty() || self.attachment.is_some()
+        !self.draft.text().is_empty() || self.attachment.is_some() || self.rooms.has_unsent()
     }
 
     #[cfg(test)]

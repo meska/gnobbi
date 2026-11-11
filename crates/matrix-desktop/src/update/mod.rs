@@ -71,6 +71,17 @@ pub fn outcome_line(result: &str, version: &str) -> String {
     }
 }
 
+/// «Aggiorna ora»: `install` runs only with nothing unsent; the returned line is what the drawer shows.
+pub fn install_unless_unsent(unsent: bool, install: impl FnOnce() -> Result<std::convert::Infallible, String>) -> String {
+    if unsent {
+        return "Aggiornamento rinviato: messaggio non inviato".into();
+    }
+    match install() {
+        Err(line) => line,
+        Ok(never) => match never {},
+    }
+}
+
 /// `BUILD_INFO.build` as a number; `None` for «sconosciuto» or anything non-numeric.
 pub fn build_number(build: &str) -> Option<u64> {
     build.trim().parse().ok()

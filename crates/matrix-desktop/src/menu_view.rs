@@ -490,16 +490,15 @@ impl Shell {
     }
 
     /// «Aggiorna ora»: swap and restart; on failure the returned line is shown as is.
-    /// shortcut: runs on the UI thread (a few seconds) and checks only the visible draft; add queued sends and other rooms' drafts when they have an accessor.
+    /// shortcut: runs on the UI thread (a few seconds) and sees drafts, not the SDK send queue; add queued sends when the shell exposes them.
     fn update_now(&mut self, cx: &mut Context<Self>) {
         use matrix_desktop::update::{channel::{Env, detect_channel}, install::install_and_restart};
         let ready = matrix_desktop::update::shared_state().lock().unwrap_or_else(|e| e.into_inner()).ready.clone();
         let (Some(dirs), Some(ready)) = (self.prefs_dirs.clone(), ready) else { return };
-        self.update_error = if self.composer.read(cx).has_unsent() {
-            Some("Aggiornamento rinviato: messaggio non inviato".into())
-        } else {
-            install_and_restart(&dirs, &detect_channel(&Env::from_process()), &ready).err()
-        };
+        let unsent = self.composer.read(cx).has_unsent();
+        self.update_error = Some(matrix_desktop::update::install_unless_unsent(unsent, || {
+            install_and_restart(&dirs, &detect_channel(&Env::from_process()), &ready)
+        }));
         cx.notify();
     }
 

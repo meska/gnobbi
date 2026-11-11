@@ -110,3 +110,17 @@ fn switching_rooms_restores_exact_draft_selection_and_undo() {
     rooms.switch(b, &mut editor);
     assert_eq!(editor.text(), "draft B");
 }
+
+#[test]
+fn draft_left_in_another_room_counts_as_unsent() {
+    let (a, b) = (scope(1, "!a:fixture.invalid"), scope(1, "!b:fixture.invalid"));
+    let mut drafts = RoomDrafts::new(a);
+    let mut editor = Composer::default();
+    assert!(!drafts.has_unsent());
+    editor.replace(None, "non ancora inviato");
+    drafts.switch(b.clone(), &mut editor);
+    assert!(drafts.has_unsent(), "the draft saved with room A blocks the update");
+    editor.replace(None, "");
+    drafts.switch(scope(1, "!a:fixture.invalid"), &mut editor);
+    assert!(!drafts.has_unsent(), "once A is the active editor nothing is saved");
+}

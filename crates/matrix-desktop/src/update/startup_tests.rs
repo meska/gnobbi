@@ -235,3 +235,18 @@ fn add_bad_build_does_not_read_settings_while_the_lock_is_busy() {
     assert_eq!(after.bad_builds.iter().copied().collect::<Vec<_>>(), [7, 42]);
     assert_eq!(after.max_build_seen, 99, "the other writer's key survives");
 }
+
+#[test]
+fn every_outcome_line_is_shown_once() {
+    for (result, line) in [
+        (OUTCOME_UPDATED, "Aggiornato a 1.2.3"),
+        (OUTCOME_RESTORED, "Aggiornamento non riuscito: ripristinata la 1.2.3"),
+        (OUTCOME_FAILED, "Aggiornamento non riuscito: errore"),
+    ] {
+        let e = env(&format!("once-{result}"));
+        save_outcome(&e.dirs, result, 11).unwrap();
+        let (r, _) = take_outcome(&e.dirs).expect("first open shows it");
+        assert_eq!(super::outcome_line(&r, "1.2.3"), line);
+        assert_eq!(take_outcome(&e.dirs), None, "{result}: second open shows nothing");
+    }
+}
