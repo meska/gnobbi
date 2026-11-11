@@ -1814,6 +1814,33 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             free.send(()).unwrap();
             holder.join().unwrap().unwrap();
             assert_eq!(saved(&dirs).theme, Some(Theme::Night));
+            // 4. The real "Check for updates" switch (row 4; only in a self-updating channel, i.e. APPIMAGE set): ON -> OFF while a check is suspended.
+            if this.update_in(cx, |this, _, _| this.show_update_check()).unwrap() {
+                let before = saved(&dirs);
+                let third = run_check(dirs.clone(), keys());
+                arrived.recv_timeout(std::time::Duration::from_secs(30)).unwrap();
+                this.update_in(cx, |this, _, cx| {
+                    this.toggle_setting(4, cx);
+                    assert!(!this.prefs.update_check_enabled && this.settings_error.is_none());
+                }).unwrap();
+                release.send(()).unwrap();
+                assert!(matches!(third.join().unwrap(), Ok(check::Outcome::NoUpdate)), "OFF during the check: no update is offered");
+                let after = saved(&dirs);
+                assert!(!after.update_check_enabled, "the completed check must not re-enable the switch");
+                assert_eq!((after.max_build_seen, after.theme), (before.max_build_seen, before.theme));
+                // 5. Persistence failure never shows a switch state that was not saved.
+                let (held_tx, held) = std::sync::mpsc::channel::<()>();
+                let (free, free_rx) = std::sync::mpsc::channel::<()>();
+                let holder = { let dirs = dirs.clone(); std::thread::spawn(move || Preferences::update(&dirs, |_| { held_tx.send(()).unwrap(); free_rx.recv_timeout(std::time::Duration::from_secs(30)).unwrap(); })) };
+                held.recv_timeout(std::time::Duration::from_secs(30)).unwrap();
+                this.update_in(cx, |this, _, cx| {
+                    this.toggle_setting(4, cx);
+                    assert!(!this.prefs.update_check_enabled && this.settings_error.is_some(), "no false ON, error visible");
+                }).unwrap();
+                free.send(()).unwrap();
+                holder.join().unwrap().unwrap();
+                assert!(!saved(&dirs).update_check_enabled);
+            }
             this.update_in(cx, |this, _, cx| {
                 this.choose_theme(Theme::Dark, cx);
                 assert!(this.settings_error.is_none() && this.prefs.theme == Some(Theme::Dark));
@@ -1919,7 +1946,22 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             key!("tab");
             key!("tab");
             key!("tab");
-            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "the ring wraps after four stops")).unwrap();
+            this.update_in(cx, |this, _, _| {
+                if this.show_update_check() {
+                    assert_eq!(this.settings_row, 4);
+                    assert!(this.prefs.update_check_enabled && saved(&dirs).update_check_enabled);
+                } else {
+                    assert_eq!(this.settings_row, 0, "the ring wraps after four stops");
+                }
+            }).unwrap();
+            if this.update_in(cx, |this, _, _| this.show_update_check()).unwrap() {
+                key!("space");
+                this.update_in(cx, |this, _, _| assert!(!this.prefs.update_check_enabled && !saved(&dirs).update_check_enabled)).unwrap();
+                key!("enter");
+                this.update_in(cx, |this, _, _| assert!(this.prefs.update_check_enabled && saved(&dirs).update_check_enabled)).unwrap();
+                key!("tab");
+                this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0)).unwrap();
+            }
             wait(300).await;
             shot("p242-receipts-off");
             key!("escape");

@@ -16,7 +16,7 @@ fn find(tree: &accesskit::TreeUpdate, label: &str) -> accesskit::NodeId {
 
 #[test]
 fn drawer_has_a_clickable_info_row_even_offline() {
-    let snap = DrawerSnapshot { rows: vec![], confirm: None, connected: false };
+    let snap = DrawerSnapshot { rows: vec![], confirm: None, connected: false, update: None };
     let tree = snap.tree();
     let id = find(&tree, "Informazioni su Gnobbi");
     let node = &tree.nodes.iter().find(|(i, _)| *i == id).unwrap().1;

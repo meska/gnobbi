@@ -31,6 +31,10 @@ impl LiveDelivery {
     fn queue(&self) -> Option<std::sync::Arc<dyn SendControl>> {
         self.control.lock().ok()?.clone()
     }
+    /// A message still queued or failed (not persisted: a restart would lose it).
+    pub fn has_unsent(&self) -> bool {
+        self.rooms.values().any(|t| t.items().iter().any(|i| i.status != matrix_domain::SendStatus::Sent))
+    }
     pub fn items(&self, scope: &RoomScope) -> &[TimelineItem] {
         self.rooms
             .get(scope)

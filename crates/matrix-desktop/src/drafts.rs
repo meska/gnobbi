@@ -25,6 +25,11 @@ impl RoomDrafts {
         }
     }
 
+    /// Text waiting in a room that is not the active one (the active editor is the caller's).
+    pub fn has_unsent(&self) -> bool {
+        self.saved.values().any(|c| !c.text().is_empty())
+    }
+
     pub fn switch(&mut self, scope: RoomScope, editor: &mut Composer) {
         if scope == self.active {
             return;
