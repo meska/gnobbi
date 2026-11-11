@@ -1169,6 +1169,9 @@ fn disposable_thread_receipt_privacy_gate() {
             "off records the private receipt under the thread's root, on the exact event");
         assert_ne!(public_after_private.as_deref(), Some(target3.as_str()), "a private receipt never moves the public marker");
         // 4. No-op: a second intent whose marker already covers the target sends nothing.
+        // The SDK judges a no-op against the worker's own store, which only learns the markers from its
+        // sync echo (Tuwunel can deliver it late): give it time, or the "no-op" is a real send.
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         let mut read5 = ViewRequests::new();
         let tag5 = read5.start(scope.clone()).unwrap();
         assert!(
