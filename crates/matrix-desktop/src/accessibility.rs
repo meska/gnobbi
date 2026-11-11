@@ -1762,11 +1762,12 @@ impl NavigationSnapshot {
         if self.visible
             && let Some(filter) = &self.unread_filter
         {
-            let (id, node) = filter.node();
-            tree.nodes[0].1.push_child(id);
-            tree.nodes.push((id, node));
+            for (id, node) in filter.nodes() {
+                tree.nodes[0].1.push_child(id);
+                tree.nodes.push((id, node));
+            }
             if filter.focused {
-                tree.focus = id;
+                tree.focus = filters::UNREAD;
             }
         }
         if self.visible

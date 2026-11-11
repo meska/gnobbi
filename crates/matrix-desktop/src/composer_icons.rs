@@ -70,9 +70,9 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
             vec![(8., 5.), (16., 5.)],
             vec![(8., 10.), (16., 10.)],
             vec![(8., 15.), (16., 15.)],
-            vec![(4., 5.), (4.5, 5.)],
-            vec![(4., 10.), (4.5, 10.)],
-            vec![(4., 15.), (4.5, 15.)],
+            arc((4.5, 5.), 0.8, 0., 2. * PI), // ring thinner than the stroke = solid dot
+            arc((4.5, 10.), 0.8, 0., 2. * PI), // ring thinner than the stroke = solid dot
+            arc((4.5, 15.), 0.8, 0., 2. * PI), // ring thinner than the stroke = solid dot
         ],
         Icon::Star => {
             let pts: Vec<(f32, f32)> = (0..=10)

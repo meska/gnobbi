@@ -48,7 +48,9 @@ impl SemanticSession {
             self.current.remove(&super::SEND);
         }
         if self.snapshot.navigation_revision != snapshot.navigation_revision {
-            self.current.remove(&super::filters::UNREAD);
+            for i in 0..10 {
+                self.current.remove(&NodeId(50 + i));
+            }
         }
         for old in &self.snapshot.openers {
             if !snapshot
