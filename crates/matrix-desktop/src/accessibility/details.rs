@@ -229,8 +229,9 @@ impl DetailsSnapshot {
     fn ring_index(&self, id: NodeId) -> Option<usize> {
         (0..2 + self.acts.len()).find(|&i| self.ring_node(i) == id)
     }
-    pub fn next_focus(&self) -> DetailsControl {
-        DetailsControl::ALL[(self.focus as usize + 1) % DetailsControl::ALL.len()]
+    pub fn next_focus(&self, reverse: bool) -> DetailsControl {
+        let n = DetailsControl::ALL.len();
+        DetailsControl::ALL[(self.focus as usize + if reverse { n - 1 } else { 1 }) % n]
     }
     pub fn tree(&self) -> TreeUpdate {
         let mut root = Node::new(Role::Complementary);

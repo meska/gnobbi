@@ -131,7 +131,7 @@ mod tests {
             data: None,
         }
     }
-    fn node<'a>(nodes: &'a [(NodeId, Node)], id: NodeId) -> &'a Node {
+    fn node(nodes: &[(NodeId, Node)], id: NodeId) -> &Node {
         &nodes.iter().find(|(i, _)| *i == id).unwrap().1
     }
 

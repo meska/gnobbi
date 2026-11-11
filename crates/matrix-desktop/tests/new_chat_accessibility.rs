@@ -3,7 +3,6 @@
 use accesskit::{Action, ActionRequest, Live, Role, TreeId};
 use matrix_desktop::accessibility::new_chat::*;
 use matrix_desktop::new_chat::{Entry, Status};
-use matrix_desktop::search_list::Hit as _;
 
 fn entry(id: &str, name: &str) -> Entry {
     Entry {
