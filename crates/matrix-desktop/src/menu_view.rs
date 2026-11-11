@@ -70,7 +70,10 @@ impl Shell {
         self.about_open = false;
         self.confirm_removal = None;
         self.switch_error = None;
-        self.update_error = None;
+        // A stored outcome replaces the update row here, once: it is cleared as it is read.
+        self.update_error = self.prefs_dirs.as_ref().filter(|_| open).and_then(matrix_desktop::update::startup::take_outcome).map(|(r, _)| {
+            matrix_desktop::update::outcome_line(&r, matrix_desktop::build_info::BUILD_INFO.version)
+        });
         // Initial focus goes to the shown account, not to the first catalog row.
         self.drawer_row = self.drawer_accounts().iter().position(|a| a.current).unwrap_or(0);
         if open {
@@ -434,7 +437,13 @@ impl Shell {
 
     /// «Aggiornamento disponibile · <versione>» (or the one-line failure) with its two actions, above the version line.
     fn render_update_row(&self, t: matrix_desktop::DesignTokens, window: &Window, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let version = matrix_desktop::update::announced().filter(|_| !self.settings_open && !self.about_open)?;
+        if self.settings_open || self.about_open {
+            return None;
+        }
+        let version = matrix_desktop::update::announced();
+        if version.is_none() && self.update_error.is_none() {
+            return None;
+        }
         let n = self.drawer_accounts().len();
         let ring = input_modality::ring(&self.drawer_focus, window, cx);
         let action = |id: &'static str, label: &'static str, i: usize| {
@@ -466,15 +475,15 @@ impl Shell {
                         .truncate()
                         .text_size(px(12.))
                         .text_color(rgb(t.accent))
-                        .child(self.update_error.clone().unwrap_or_else(|| matrix_desktop::update::indicator_row(&version))),
+                        .child(self.update_error.clone().or_else(|| version.as_deref().map(matrix_desktop::update::indicator_row)).unwrap_or_default()),
                 )
-                .child(
+                .when(version.is_some(), |d| d.child(
                     div()
                         .flex()
                         .gap_1()
                         .child(action("menu-update-now", "Aggiorna ora", n + 9).on_click(cx.listener(|this, _, _, cx| this.update_now(cx))))
                         .child(action("menu-update-later", "Più tardi", n + 10).on_click(cx.listener(|this, _, _, cx| this.update_later(cx)))),
-                )
+                ))
                 .into_any_element(),
         )
     }

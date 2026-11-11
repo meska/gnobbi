@@ -61,6 +61,15 @@ pub fn indicator_label(version: &str) -> String {
     format!("Aggiornamento disponibile, versione {version}")
 }
 
+/// Line for a stored outcome; `version` is the running one (the new build, or the restored one).
+pub fn outcome_line(result: &str, version: &str) -> String {
+    match result {
+        startup::OUTCOME_UPDATED => format!("Aggiornato a {version}"),
+        startup::OUTCOME_RESTORED => format!("Aggiornamento non riuscito: ripristinata la {version}"),
+        _ => "Aggiornamento non riuscito: errore".into(),
+    }
+}
+
 /// `BUILD_INFO.build` as a number; `None` for «sconosciuto» or anything non-numeric.
 pub fn build_number(build: &str) -> Option<u64> {
     build.trim().parse().ok()
@@ -90,6 +99,12 @@ mod prefs_tests {
         assert_eq!(indicator(&st), None);
         assert_eq!(indicator_row("1.2.3"), "Aggiornamento disponibile · 1.2.3");
         assert_eq!(indicator_label("1.2.3"), "Aggiornamento disponibile, versione 1.2.3");
+    }
+
+    #[test]
+    fn outcome_lines_and_take_once() {
+        assert_eq!(outcome_line("updated", "1.2.3"), "Aggiornato a 1.2.3");
+        assert_eq!(outcome_line("restored", "1.2.2"), "Aggiornamento non riuscito: ripristinata la 1.2.2");
     }
 
     #[test]

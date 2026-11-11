@@ -28,6 +28,14 @@ fn pend(e: &Env, to: u64, attempts: u64) {
 fn start(e: &Env, build: u64) -> StartupAction { handle_marker(&e.dirs, build, &e.target, &e.prev) }
 
 #[test]
+fn outcome_is_taken_once() {
+    let e = env("take");
+    save_outcome(&e.dirs, OUTCOME_UPDATED, 11).unwrap();
+    assert_eq!(take_outcome(&e.dirs), Some((OUTCOME_UPDATED.into(), 11)));
+    assert_eq!(take_outcome(&e.dirs), None);
+}
+
+#[test]
 fn confirmed_start_clears_marker_and_prev() {
     let e = env("confirm");
     pend(&e, 11, 0);

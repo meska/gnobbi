@@ -90,6 +90,17 @@ pub fn update_outcome(dirs: &AppDirs) -> Option<(String, u64)> {
     Some((o.get("result")?.as_str()?.to_owned(), o.get("build")?.as_u64()?))
 }
 
+/// Reads and clears the stored outcome: it is shown once and never reappears.
+pub fn take_outcome(dirs: &AppDirs) -> Option<(String, u64)> {
+    let o = update_outcome(dirs)?;
+    if let Err(e) = update_settings(dirs, |m| {
+        m.remove("update_outcome");
+    }) {
+        eprintln!("update: outcome not cleared: {e}");
+    }
+    Some(o)
+}
+
 pub(super) fn save_outcome(dirs: &AppDirs, result: &str, build: u64) -> std::io::Result<()> {
     update_settings(dirs, |m| {
         m.insert("update_outcome".into(), json!({ "result": result, "build": build }));
