@@ -141,6 +141,10 @@ struct Shell {
     /// The «Unisciti» server-name field went away: the next render puts the focus back on the search field.
     refocus_join_field: bool,
     drawer_row: usize,
+    /// Last «Aggiorna ora» failure, one line, shown in place of the update row.
+    update_error: Option<String>,
+    /// `confirm_update` runs once, at the first frame.
+    update_confirmed: bool,
     settings_focus: FocusHandle,
     /// Switch the keyboard sits on in Settings: 0 debug, 1 hide deleted messages.
     settings_row: usize,
@@ -2060,6 +2064,7 @@ impl Shell {
 
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.start_update_watch(cx);
         // Common wrapper: sign-in, notifications and verification return early from `render_screen` and must update the input modality too.
         div().size_full().relative()
             .capture_key_down(|_, _, cx| input_modality::set_keyboard(cx))
@@ -2698,7 +2703,7 @@ fn main() {
     // Background update check; a no-op (no thread, no network) outside AppImage/Windows portable.
     #[cfg(feature = "live")]
     if let Some(dirs) = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
-        matrix_desktop::update::scheduler::start(dirs, Default::default(), Default::default());
+        matrix_desktop::update::scheduler::start(dirs, matrix_desktop::update::shared_state(), Default::default());
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--install-desktop-entry") {
@@ -3430,6 +3435,8 @@ fn main() {
                         refocus_list: false,
                         refocus_join_field: false,
                         drawer_row: 0,
+                        update_error: None,
+                        update_confirmed: false,
                         settings_focus: cx.focus_handle(),
                         settings_row: 0,
                         accounts: prefs_dirs.as_ref().map(matrix_desktop::AccountCatalog::load).unwrap_or_default(),

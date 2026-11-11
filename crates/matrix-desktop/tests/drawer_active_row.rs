@@ -8,7 +8,7 @@ fn row(id: u64, name: &str, unread: u64, current: bool) -> DrawerRow {
     DrawerRow { id: AccountId::new(id), name: name.into(), user_id: format!("@{name}:s.org"), unread, current, switchable: !current }
 }
 fn snap(rows: Vec<DrawerRow>) -> DrawerSnapshot {
-    DrawerSnapshot { rows, confirm: None, connected: true }
+    DrawerSnapshot { rows, confirm: None, connected: true, update: None }
 }
 fn labels(s: &DrawerSnapshot) -> Vec<String> {
     s.tree().nodes.iter().filter_map(|(_, n)| n.label().map(str::to_string)).collect()

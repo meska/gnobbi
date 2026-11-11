@@ -9,6 +9,9 @@ const ITEM_BASE: u64 = 3; // + DrawerItem as u64
 const CONFIRM: NodeId = NodeId(20);
 const CANCEL: NodeId = NodeId(21);
 const PROMPT: NodeId = NodeId(22);
+const UPDATE_NOW: NodeId = NodeId(23);
+const UPDATE_LATER: NodeId = NodeId(24);
+const UPDATE_LABEL: NodeId = NodeId(25);
 const ACCOUNT_BASE: u64 = 1 << 20; // + 2 * account ID (switch), + 1 (remove)
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,6 +54,8 @@ pub struct DrawerSnapshot {
     pub confirm: Option<(AccountId, String)>,
     /// Entries other than the account rows exist only while signed in.
     pub connected: bool,
+    /// Version of a staged update still announced (not dismissed with «Più tardi»).
+    pub update: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +64,8 @@ pub enum DrawerAction {
     AskRemove(AccountId),
     ConfirmRemove,
     CancelRemove,
+    UpdateNow,
+    UpdateLater,
     Item(DrawerItem),
     Close,
 }
@@ -133,6 +140,13 @@ impl DrawerSnapshot {
                     button(format!("Rimuovi account {}", row.name), true),
                 );
             }
+            if let Some(v) = &self.update {
+                let mut label = Node::new(Role::Label);
+                label.set_value(crate::update::indicator_label(v));
+                add(&mut root, UPDATE_LABEL, label);
+                add(&mut root, UPDATE_NOW, button("Aggiorna ora", true));
+                add(&mut root, UPDATE_LATER, button("Più tardi", true));
+            }
             for (i, (item, label)) in DrawerItem::ALL.into_iter().enumerate() {
                 if self.connected || matches!(item, DrawerItem::Settings | DrawerItem::About) {
                     add(&mut root, NodeId(ITEM_BASE + i as u64), button(label, true));
@@ -165,6 +179,10 @@ impl DrawerSnapshot {
             }
         } else if target == CLOSE {
             DrawerAction::Close
+        } else if target == UPDATE_NOW {
+            DrawerAction::UpdateNow
+        } else if target == UPDATE_LATER {
+            DrawerAction::UpdateLater
         } else if let Some(row) = self.rows.iter().find(|r| switch_node(r.id) == target) {
             DrawerAction::Switch(row.id)
         } else if let Some(row) = self.rows.iter().find(|r| remove_node(r.id) == target) {
@@ -188,6 +206,7 @@ impl DrawerSnapshot {
             DrawerAction::Switch(id) => self.rows.iter().any(|r| r.id == *id && r.switchable),
             DrawerAction::AskRemove(id) => self.rows.iter().any(|r| r.id == *id),
             DrawerAction::Item(item) => self.connected || matches!(item, DrawerItem::Settings | DrawerItem::About),
+            DrawerAction::UpdateNow | DrawerAction::UpdateLater => self.update.is_some(),
             DrawerAction::Close => true,
         }
     }

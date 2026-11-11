@@ -70,6 +70,7 @@ impl Shell {
         self.about_open = false;
         self.confirm_removal = None;
         self.switch_error = None;
+        self.update_error = None;
         // Initial focus goes to the shown account, not to the first catalog row.
         self.drawer_row = self.drawer_accounts().iter().position(|a| a.current).unwrap_or(0);
         if open {
@@ -117,7 +118,7 @@ impl Shell {
                 current: a.current,
             })
             .collect();
-        Some(DrawerSnapshot { rows, confirm, connected: self.connected })
+        Some(DrawerSnapshot { rows, confirm, connected: self.connected, update: matrix_desktop::update::announced() })
     }
 
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -136,6 +137,8 @@ impl Shell {
             DrawerAction::AskRemove(id) => self.confirm_removal = Some(id),
             DrawerAction::ConfirmRemove => self.remove_account(window, cx),
             DrawerAction::CancelRemove => self.confirm_removal = None,
+            DrawerAction::UpdateNow => self.update_now(cx),
+            DrawerAction::UpdateLater => self.update_later(cx),
             DrawerAction::Close => self.set_menu_open(false, window, cx),
             DrawerAction::Item(item) => match item {
                 DrawerItem::Settings => self.set_settings_open(true, window, cx),
@@ -261,6 +264,7 @@ impl Shell {
         }
         if self.menu_open {
             let accounts = self.drawer_accounts();
+            let update = matrix_desktop::update::announced().is_some() && !self.settings_open;
             let activate = !m.modified() && matches!(key.key.as_str(), "enter" | "space");
             match key.key.as_str() {
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
@@ -290,6 +294,8 @@ impl Shell {
                         Some(6) if self.connected => self.open_join_room(window, cx),
                         Some(7) if self.connected => self.open_quick_search(window, cx),
                         Some(8) => self.set_about_open(true, window, cx),
+                        Some(9) if update => self.update_now(cx),
+                        Some(10) if update => self.update_later(cx),
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }
@@ -300,7 +306,7 @@ impl Shell {
                 // The drawer holds one focus stop; Up/Down/Tab move between its rows.
                 "up" | "down" | "tab" => {
                     let back = key.key == "up" || m.shift;
-                    let rows = DRAWER_ROWS + accounts.len();
+                    let rows = DRAWER_ROWS + accounts.len() + if update { 2 } else { 0 };
                     self.drawer_row = (self.drawer_row + if back { rows - 1 } else { 1 }) % rows;
                     self.drawer_focus.focus(window);
                     cx.notify();
@@ -383,6 +389,9 @@ impl Shell {
             .child(line())
             .child(line())
             .child(line())
+            .when(matrix_desktop::update::announced().is_some(), |d| {
+                d.child(div().absolute().top(px(4.)).right(px(4.)).size(px(8.)).rounded_full().bg(rgb(t.accent)))
+            })
             .on_click(
                 cx.listener(|this, _, window, cx| this.set_menu_open(!this.menu_open, window, cx)),
             )
@@ -414,12 +423,99 @@ impl Shell {
                 .when(!self.settings_open && !self.about_open, |d| d.children(self.render_drawer_header(t)))
                 // Scrolls so that Settings stays reachable on short windows (150%); the footer stays put.
                 .child(div().id("drawer-body").flex_1().min_h_0().overflow_y_scroll().child(self.render_drawer_body(t, window, cx)))
+                .children(self.render_update_row(t, window, cx))
                 .when(!self.about_open, |d| d.child(self.render_version_line(t, window, cx))),
             t,
             cx.listener(|this, _, window, cx| this.set_menu_open(false, window, cx)),
         )
             .children(self.render_removal_dialog(t, cx))
             .into_any_element()
+    }
+
+    /// «Aggiornamento disponibile · <versione>» (or the one-line failure) with its two actions, above the version line.
+    fn render_update_row(&self, t: matrix_desktop::DesignTokens, window: &Window, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let version = matrix_desktop::update::announced().filter(|_| !self.settings_open && !self.about_open)?;
+        let n = self.drawer_accounts().len();
+        let ring = input_modality::ring(&self.drawer_focus, window, cx);
+        let action = |id: &'static str, label: &'static str, i: usize| {
+            div()
+                .id(id)
+                .flex_1()
+                .px_2()
+                .py_2()
+                .rounded_lg()
+                .border_1()
+                .border_color(rgb(if ring && self.drawer_row == i { t.accent } else { t.surface }))
+                .text_size(px(12.))
+                .text_color(rgb(t.text))
+                .hover(|s| s.bg(rgb(t.border)))
+                .cursor_pointer()
+                .child(label)
+        };
+        Some(
+            div()
+                .id("menu-update")
+                .flex_shrink_0()
+                .mx_2()
+                .px_2()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .truncate()
+                        .text_size(px(12.))
+                        .text_color(rgb(t.accent))
+                        .child(self.update_error.clone().unwrap_or_else(|| matrix_desktop::update::indicator_row(&version))),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap_1()
+                        .child(action("menu-update-now", "Aggiorna ora", n + 9).on_click(cx.listener(|this, _, _, cx| this.update_now(cx))))
+                        .child(action("menu-update-later", "Più tardi", n + 10).on_click(cx.listener(|this, _, _, cx| this.update_later(cx)))),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// «Aggiorna ora»: swap and restart; on failure the returned line is shown as is.
+    /// shortcut: runs on the UI thread (a few seconds) and checks only the visible draft; add queued sends and other rooms' drafts when they have an accessor.
+    fn update_now(&mut self, cx: &mut Context<Self>) {
+        use matrix_desktop::update::{channel::{Env, detect_channel}, install::install_and_restart};
+        let ready = matrix_desktop::update::shared_state().lock().unwrap_or_else(|e| e.into_inner()).ready.clone();
+        let (Some(dirs), Some(ready)) = (self.prefs_dirs.clone(), ready) else { return };
+        self.update_error = if self.composer.read(cx).has_unsent() {
+            Some("Aggiornamento rinviato: messaggio non inviato".into())
+        } else {
+            install_and_restart(&dirs, &detect_channel(&Env::from_process()), &ready).err()
+        };
+        cx.notify();
+    }
+
+    fn update_later(&mut self, cx: &mut Context<Self>) {
+        matrix_desktop::update::dismiss_indicator();
+        self.update_error = None;
+        self.drawer_row = self.drawer_row.min(DRAWER_ROWS + self.drawer_accounts().len() - 1);
+        cx.notify();
+    }
+
+    /// First frame: confirm a just-installed build off the UI thread (it may sleep 2 s), then
+    /// repaint every 30 s so a freshly staged update shows up without user input.
+    pub(crate) fn start_update_watch(&mut self, cx: &mut Context<Self>) {
+        if std::mem::replace(&mut self.update_confirmed, true) {
+            return;
+        }
+        std::thread::spawn(matrix_desktop::update::startup::confirm_update);
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(std::time::Duration::from_secs(30)).await;
+                if this.update(cx, |_, cx| cx.notify()).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
     }
 
     /// «Gnobbi 0.1.0» at the bottom: looks clickable only on hover or keyboard focus.
