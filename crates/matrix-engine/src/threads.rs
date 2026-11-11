@@ -23,9 +23,11 @@ pub(crate) async fn open(
     want: usize,
 ) -> Result<ThreadPage, HistoryError> {
     let root_id = matrix_sdk::ruma::EventId::parse(root.as_str()).map_err(|_| HistoryError::WrongScope)?;
-    let main = loaded(room, &*timelines.get(room).await?).await;
+    let main_timeline = timelines.get(room).await?;
+    let mut main = loaded(room, &main_timeline).await;
     let thread = timelines.thread(room, &root_id).await?;
     let mut now = loaded(room, &thread).await;
+    let mut offline = false;
     if now.rows.is_empty() {
         let (filled, status) = fill(room, &thread, want.max(PAGE)).await;
         now = filled;
@@ -35,8 +37,36 @@ pub(crate) async fn open(
     } else {
         // The SDK loads only the newest saved chunk first: the older saved ones come with a pagination
         // step. A step that has to leave the disk is dropped after 1 s, so a frozen server only delays it.
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), fill(room, &thread, want.max(PAGE))).await;
+        let step = tokio::time::timeout(std::time::Duration::from_secs(1), fill(room, &thread, want.max(PAGE))).await;
         now = loaded(room, &thread).await;
+        // Each live sync batch left a gap before its chunk: only the newest chunk is reachable without the
+        // network. Offline, read the older saved chunks across those gaps (the holes stay gaps in the cache).
+        if step.is_err() || matches!(step, Ok((_, Err(_)))) {
+            offline = true;
+            if let Ok((cache, _)) = room.client().event_cache().thread(room.room_id(), &root_id).await {
+                cache.set_read_through_gaps(true);
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(1), thread.paginate_backwards(PAGE as u16)).await;
+                cache.set_read_through_gaps(false);
+                // The timeline applies the chunks in its own task; a disk read lands within milliseconds.
+                tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                now = loaded(room, &thread).await;
+            }
+        }
+    }
+    // Offline, the root can sit in an older saved chunk of the room's own timeline (the thread's chunks do not
+    // hold it). Online the page does not move the room's view.
+    // shortcut: at most 10 disk steps, each cut at 1 s (a step that must leave the disk ends the search).
+    for _ in 0..if offline { 10 } else { 0 } {
+        let found = |rows: &[crate::history::HistoryEvent]| rows.iter().any(|r| r.event_id == *root);
+        if found(&main.rows) || found(&now.rows) || main.at_start {
+            break;
+        }
+        let step = tokio::time::timeout(std::time::Duration::from_secs(1), main_timeline.paginate_backwards(PAGE as u16)).await;
+        if !matches!(step, Ok(Ok(_))) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        main = loaded(room, &main_timeline).await;
     }
     // No `annotate_unread` here: it paginates every thread in view (network) and the read below zeroes this one.
     let mut root_row = main.rows.into_iter().find(|r| r.event_id == *root);

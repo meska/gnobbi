@@ -1,6 +1,6 @@
-diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/config/request.rs b/src/config/request.rs
---- a/src/config/request.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/config/request.rs	2026-10-28 12:52:48.756410991 +0100
+diff -ruN --exclude=GNOBBI-PATCH.md --exclude=LICENSE a/src/config/request.rs b/src/config/request.rs
+--- a/src/config/request.rs	2006-07-24 03:21:28
++++ b/src/config/request.rs	2026-11-12 00:17:03
 @@ -44,6 +44,10 @@
  pub struct RequestConfig {
      pub(crate) timeout: Option<Duration>,
@@ -75,9 +75,9 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/config/request.r
      /// Create a new default `RequestConfig`.
      #[must_use]
      pub fn new() -> Self {
-diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/error.rs b/src/error.rs
---- a/src/error.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/error.rs	2026-10-28 12:52:48.765602862 +0100
+diff -ruN --exclude=GNOBBI-PATCH.md --exclude=LICENSE a/src/error.rs b/src/error.rs
+--- a/src/error.rs	2006-07-24 03:21:28
++++ b/src/error.rs	2026-11-12 00:17:04
 @@ -64,6 +64,13 @@
  /// converting the raw HTTP response into a Matrix response.
  #[derive(Error, Debug)]
@@ -92,9 +92,275 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/error.rs b/src/e
      /// Error at the HTTP layer.
      #[error(transparent)]
      Reqwest(#[from] ReqwestError),
-diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/http_client/native.rs b/src/http_client/native.rs
---- a/src/http_client/native.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/http_client/native.rs	2026-10-28 12:52:48.697263096 +0100
+diff -ruN --exclude=GNOBBI-PATCH.md --exclude=LICENSE a/src/event_cache/caches/thread/mod.rs b/src/event_cache/caches/thread/mod.rs
+--- a/src/event_cache/caches/thread/mod.rs	2006-07-24 03:21:28
++++ b/src/event_cache/caches/thread/mod.rs	2026-11-12 00:17:03
+@@ -83,6 +83,10 @@
+ 
+     /// Update sender for this thread.
+     update_sender: ThreadEventCacheUpdateSender,
++
++    /// Gnobbi: when set, a back-pagination from the store reads the saved chunks
++    /// across the gaps instead of stopping at the first one (see `set_read_through_gaps`).
++    read_through_gaps: std::sync::atomic::AtomicBool,
+ }
+ 
+ impl fmt::Debug for ThreadEventCache {
+@@ -137,6 +141,7 @@
+                 pagination_batch_token_notifier: Notify::new(),
+                 auto_shrink_sender,
+                 update_sender,
++                read_through_gaps: std::sync::atomic::AtomicBool::new(false),
+             }),
+         };
+ 
+@@ -222,6 +227,13 @@
+         trace!("added a thread event cache subscriber; new count: {}", subscribers_handle.count());
+ 
+         Ok((events, subscriber))
++    }
++
++    /// Gnobbi: while `on`, back-pagination reads the saved chunks across the gaps (no network),
++    /// so a thread whose live events each left a gap shows what the store holds when the
++    /// server cannot be reached. The holes stay marked as gaps in memory.
++    pub fn set_read_through_gaps(&self, on: bool) {
++        self.inner.read_through_gaps.store(on, std::sync::atomic::Ordering::Relaxed);
+     }
+ 
+     /// Return a [`ThreadPagination`] useful for running back-pagination queries
+diff -ruN --exclude=GNOBBI-PATCH.md --exclude=LICENSE a/src/event_cache/caches/thread/pagination.rs b/src/event_cache/caches/thread/pagination.rs
+--- a/src/event_cache/caches/thread/pagination.rs	2006-07-24 03:21:28
++++ b/src/event_cache/caches/thread/pagination.rs	2026-11-12 00:17:03
+@@ -104,7 +104,11 @@
+ 
+         // If any in-memory chunk is a gap, don't load more events, and let the caller
+         // resolve the gap.
+-        if let Some(prev_token) = state.thread_linked_chunk().rgap().map(|gap| gap.token) {
++        // Gnobbi: with `read_through_gaps` (offline), saved chunks are read across the gaps.
++        let read_through = self.cache.read_through_gaps.load(std::sync::atomic::Ordering::Relaxed);
++        if !read_through
++            && let Some(prev_token) = state.thread_linked_chunk().rgap().map(|gap| gap.token)
++        {
+             trace!(%prev_token, "thread chunk has at least a gap");
+ 
+             return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+@@ -113,109 +117,134 @@
+             });
+         }
+ 
+-        let prev_first_chunk = state.thread_linked_chunk().first_chunk();
++        // Events of the chunks read so far in this call, oldest first (only used with `read_through`).
++        let mut collected: Vec<Event> = Vec::new();
++        let mut diffs: Vec<VectorDiff<Event>> = Vec::new();
+ 
+-        // If we are here, it means all gaps have been resolved (see the `if` block
+-        // above). So the first chunk is not a gap, we can load its previous chunk.
+-        let linked_chunk_id = LinkedChunkId::Thread(&state.room_id, &state.thread_id);
+-        let new_first_chunk = match state
+-            .store
+-            .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
+-            .await
+-        {
+-            Ok(Some(new_first_chunk)) => {
+-                // All good, let's continue with this chunk.
+-                new_first_chunk
+-            }
++        loop {
++            let prev_first_chunk = state.thread_linked_chunk().first_chunk();
+ 
+-            Ok(None) => {
+-                // No previous chunk in the store.
+-                //
+-                // If the first in-memory event is the thread root, it's all good, we have
+-                // effectively reached the start of the thread.
+-                if let Some((_pos, first_event)) = state.thread_linked_chunk().events().next()
+-                    && self.cache.thread_id
+-                        == first_event.event_id().expect("Stored events all have an ID")
+-                {
+-                    trace!("thread chunk is fully loaded and non-empty: reached_start=true");
++            // If we are here, it means all gaps have been resolved (see the `if` block
++            // above). So the first chunk is not a gap, we can load its previous chunk.
++            let linked_chunk_id = LinkedChunkId::Thread(&state.room_id, &state.thread_id);
++            let new_first_chunk = match state
++                .store
++                .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
++                .await
++            {
++                Ok(Some(new_first_chunk)) => {
++                    // All good, let's continue with this chunk.
++                    new_first_chunk
++                }
+ 
+-                    return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
++                Ok(None) if !collected.is_empty() => {
++                    // Read through (Gnobbi): the oldest saved chunk is done.
++                    return Ok(LoadMoreEventsBackwardsOutcome::Events {
++                        events: collected,
++                        timeline_event_diffs: diffs,
++                        reached_start: false,
++                    });
+                 }
+ 
+-                // Otherwise, start back-pagination from the end of the thread.
+-                return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+-                    prev_token: None,
+-                    waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+-                });
+-            }
++                Ok(None) => {
++                    // No previous chunk in the store.
++                    //
++                    // If the first in-memory event is the thread root, it's all good, we have
++                    // effectively reached the start of the thread.
++                    if let Some((_pos, first_event)) = state.thread_linked_chunk().events().next()
++                        && self.cache.thread_id
++                            == first_event.event_id().expect("Stored events all have an ID")
++                    {
++                        trace!("thread chunk is fully loaded and non-empty: reached_start=true");
+ 
+-            Err(err) => {
+-                error!("error when loading the previous chunk of a linked chunk: {err}");
++                        return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
++                    }
+ 
+-                // Clear storage for this room.
++                    // Otherwise, start back-pagination from the end of the thread.
++                    return Ok(LoadMoreEventsBackwardsOutcome::Gap {
++                        prev_token: None,
++                        waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
++                    });
++                }
++
++                Err(err) => {
++                    error!("error when loading the previous chunk of a linked chunk: {err}");
++
++                    // Clear storage for this room.
++                    state
++                        .store
++                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
++                        .await?;
++
++                    // Return the error.
++                    return Err(err.into());
++                }
++            };
++
++            let chunk_content = new_first_chunk.content.clone();
++
++            // We've reached the start on disk, if and only if, there was no chunk prior to
++            // the one we just loaded.
++            //
++            // This value is correct, if and only if, it is used for a chunk content of kind
++            // `Items`.
++            let reached_start = new_first_chunk.previous.is_none();
++
++            if let Err(err) = state.thread_linked_chunk_mut().insert_new_chunk_as_first(new_first_chunk)
++            {
++                error!("error when inserting the previous chunk into its linked chunk: {err}");
++
++                // Clear storage for this thread.
+                 state
+                     .store
+-                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
++                    .handle_linked_chunk_updates(
++                        LinkedChunkId::Thread(&state.room_id, &state.thread_id),
++                        vec![Update::Clear],
++                    )
+                     .await?;
+ 
+                 // Return the error.
+                 return Err(err.into());
+             }
+-        };
+ 
+-        let chunk_content = new_first_chunk.content.clone();
++            // ⚠️ Let's not propagate the updates to the store! We already have these data
++            // in the store! Let's drain them.
++            let _ = state.thread_linked_chunk_mut().store_updates().take();
+ 
+-        // We've reached the start on disk, if and only if, there was no chunk prior to
+-        // the one we just loaded.
+-        //
+-        // This value is correct, if and only if, it is used for a chunk content of kind
+-        // `Items`.
+-        let reached_start = new_first_chunk.previous.is_none();
++            // However, we want to get updates as `VectorDiff`s.
++            diffs.extend(state.thread_linked_chunk_mut().updates_as_vector_diffs());
+ 
+-        if let Err(err) = state.thread_linked_chunk_mut().insert_new_chunk_as_first(new_first_chunk)
+-        {
+-            error!("error when inserting the previous chunk into its linked chunk: {err}");
++            match chunk_content {
++                ChunkContent::Gap(_) if read_through => {
++                    // Gnobbi: offline, the gap cannot be resolved: read the chunk before it.
++                    trace!("reloaded chunk from disk (gap), reading through");
++                }
+ 
+-            // Clear storage for this thread.
+-            state
+-                .store
+-                .handle_linked_chunk_updates(
+-                    LinkedChunkId::Thread(&state.room_id, &state.thread_id),
+-                    vec![Update::Clear],
+-                )
+-                .await?;
++                ChunkContent::Gap(gap) => {
++                    trace!("reloaded chunk from disk (gap)");
+ 
+-            // Return the error.
+-            return Err(err.into());
+-        }
++                    return Ok(LoadMoreEventsBackwardsOutcome::Gap {
++                        prev_token: Some(gap.token),
++                        waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
++                    });
++                }
+ 
+-        // ⚠️ Let's not propagate the updates to the store! We already have these data
+-        // in the store! Let's drain them.
+-        let _ = state.thread_linked_chunk_mut().store_updates().take();
++                ChunkContent::Items(mut events) => {
++                    trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+ 
+-        // However, we want to get updates as `VectorDiff`s.
+-        let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
++                    if !read_through || reached_start {
++                        return Ok(LoadMoreEventsBackwardsOutcome::Events {
++                            events,
++                            timeline_event_diffs: diffs,
++                            reached_start,
++                        });
++                    }
+ 
+-        Ok(match chunk_content {
+-            ChunkContent::Gap(gap) => {
+-                trace!("reloaded chunk from disk (gap)");
+-
+-                LoadMoreEventsBackwardsOutcome::Gap {
+-                    prev_token: Some(gap.token),
+-                    waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
++                    events.append(&mut collected);
++                    collected = events;
+                 }
+             }
+-
+-            ChunkContent::Items(events) => {
+-                trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+-
+-                LoadMoreEventsBackwardsOutcome::Events {
+-                    events,
+-                    timeline_event_diffs,
+-                    reached_start,
+-                }
+-            }
+-        })
++        }
+     }
+ 
+     async fn mark_has_waited_for_initial_prev_token(&self) -> Result<()> {
+diff -ruN --exclude=GNOBBI-PATCH.md --exclude=LICENSE a/src/http_client/native.rs b/src/http_client/native.rs
+--- a/src/http_client/native.rs	2006-07-24 03:21:28
++++ b/src/http_client/native.rs	2026-11-12 00:17:03
 @@ -75,7 +75,7 @@
          async fn send_request_inner(
              http_client: &reqwest::Client,
@@ -182,9 +448,9 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/http_client/nati
  }
  
  struct BytesChunks {
-diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/media.rs b/src/media.rs
---- a/src/media.rs	2006-07-24 03:21:28.000000000 +0200
-+++ b/src/media.rs	2026-10-28 12:52:48.782948189 +0100
+diff -ruN --exclude=GNOBBI-PATCH.md --exclude=LICENSE a/src/media.rs b/src/media.rs
+--- a/src/media.rs	2006-07-24 03:21:28
++++ b/src/media.rs	2026-11-12 00:17:04
 @@ -804,98 +804,110 @@
  #[derive(Debug, Clone)]
  pub struct DefaultMediaFetcher;
@@ -211,10 +477,14 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/media.rs b/src/m
 +    ) -> Result<Vec<u8>, Error> {
 +        // Use the authenticated endpoints when the server supports it.
 +        let supported_versions = client.supported_versions().await?;
-+
+ 
+-            // Use the authenticated endpoints when the server supports it.
+-            let supported_versions = client.supported_versions().await?;
 +        let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
 +            .is_supported(&supported_versions);
-+
+ 
+-            let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
+-                .is_supported(&supported_versions);
 +        match &request.source {
 +            MediaSource::Encrypted(file) => {
 +                let content = if use_auth {
@@ -225,28 +495,6 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/media.rs b/src/m
 +                    #[allow(deprecated)]
 +                    let request = media::get_content::v3::Request::from_url(&file.url)?;
 +                    client.send(request).with_request_config(request_config).await?.file
-+                };
-+
-+                #[cfg(feature = "e2e-encryption")]
-+                let content = {
-+                    let content_len = content.len();
-+                    let mut cursor = std::io::Cursor::new(content);
-+                    let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
-+                        &mut cursor,
-+                        file.as_ref().clone().into(),
-+                    )?;
-+
-+                    // Encrypted size should be the same as the decrypted size,
-+                    // rounded up to a cipher block.
-+                    let mut decrypted = Vec::with_capacity(content_len);
- 
--            // Use the authenticated endpoints when the server supports it.
--            let supported_versions = client.supported_versions().await?;
-+                    reader.read_to_end(&mut decrypted)?;
- 
--            let use_auth = authenticated_media::get_content::v1::Request::PATH_BUILDER
--                .is_supported(&supported_versions);
-+                    decrypted
 +                };
  
 -            match &request.source {
@@ -260,7 +508,15 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/media.rs b/src/m
 -                        let request = media::get_content::v3::Request::from_url(&file.url)?;
 -                        client.send(request).with_request_config(request_config).await?.file
 -                    };
--
++                #[cfg(feature = "e2e-encryption")]
++                let content = {
++                    let content_len = content.len();
++                    let mut cursor = std::io::Cursor::new(content);
++                    let mut reader = matrix_sdk_base::crypto::AttachmentDecryptor::new(
++                        &mut cursor,
++                        file.as_ref().clone().into(),
++                    )?;
+ 
 -                    #[cfg(feature = "e2e-encryption")]
 -                    let content = {
 -                        let content_len = content.len();
@@ -269,13 +525,19 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/media.rs b/src/m
 -                            &mut cursor,
 -                            file.as_ref().clone().into(),
 -                        )?;
--
++                    // Encrypted size should be the same as the decrypted size,
++                    // rounded up to a cipher block.
++                    let mut decrypted = Vec::with_capacity(content_len);
+ 
 -                        // Encrypted size should be the same as the decrypted size,
 -                        // rounded up to a cipher block.
 -                        let mut decrypted = Vec::with_capacity(content_len);
--
++                    reader.read_to_end(&mut decrypted)?;
+ 
 -                        reader.read_to_end(&mut decrypted)?;
--
++                    decrypted
++                };
+ 
 -                        decrypted
 -                    };
 +                Ok(content)
@@ -333,11 +595,11 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/media.rs b/src/m
 -                        }
 -                    } else if use_auth {
 -                        let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
--                        Ok(client.send(request).with_request_config(request_config).await?.file)
+                         Ok(client.send(request).with_request_config(request_config).await?.file)
 -                    } else {
 -                        #[allow(deprecated)]
 -                        let request = media::get_content::v3::Request::from_url(uri)?;
-                         Ok(client.send(request).with_request_config(request_config).await?.file)
+-                        Ok(client.send(request).with_request_config(request_config).await?.file)
                      }
 +                } else if use_auth {
 +                    let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
@@ -371,9 +633,9 @@ diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/media.rs b/src/m
      }
  }
  
-diff -ruN '--exclude=GNOBBI-PATCH.md' '--exclude=LICENSE' a/src/room/mod.rs b/src/room/mod.rs
+diff -ruN --exclude=GNOBBI-PATCH.md --exclude=LICENSE a/src/room/mod.rs b/src/room/mod.rs
 --- a/src/room/mod.rs	2006-07-24 03:21:28
-+++ b/src/room/mod.rs	2026-11-10 14:29:38
++++ b/src/room/mod.rs	2026-11-12 00:17:03
 @@ -424,26 +424,11 @@
          let request = leave_room::v3::Request::new(self.inner.room_id().to_owned());
          let response = self.client.send(request).await;

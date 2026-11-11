@@ -104,7 +104,11 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         // If any in-memory chunk is a gap, don't load more events, and let the caller
         // resolve the gap.
-        if let Some(prev_token) = state.thread_linked_chunk().rgap().map(|gap| gap.token) {
+        // Gnobbi: with `read_through_gaps` (offline), saved chunks are read across the gaps.
+        let read_through = self.cache.read_through_gaps.load(std::sync::atomic::Ordering::Relaxed);
+        if !read_through
+            && let Some(prev_token) = state.thread_linked_chunk().rgap().map(|gap| gap.token)
+        {
             trace!(%prev_token, "thread chunk has at least a gap");
 
             return Ok(LoadMoreEventsBackwardsOutcome::Gap {
@@ -113,109 +117,134 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             });
         }
 
-        let prev_first_chunk = state.thread_linked_chunk().first_chunk();
+        // Events of the chunks read so far in this call, oldest first (only used with `read_through`).
+        let mut collected: Vec<Event> = Vec::new();
+        let mut diffs: Vec<VectorDiff<Event>> = Vec::new();
 
-        // If we are here, it means all gaps have been resolved (see the `if` block
-        // above). So the first chunk is not a gap, we can load its previous chunk.
-        let linked_chunk_id = LinkedChunkId::Thread(&state.room_id, &state.thread_id);
-        let new_first_chunk = match state
-            .store
-            .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
-            .await
-        {
-            Ok(Some(new_first_chunk)) => {
-                // All good, let's continue with this chunk.
-                new_first_chunk
-            }
+        loop {
+            let prev_first_chunk = state.thread_linked_chunk().first_chunk();
 
-            Ok(None) => {
-                // No previous chunk in the store.
-                //
-                // If the first in-memory event is the thread root, it's all good, we have
-                // effectively reached the start of the thread.
-                if let Some((_pos, first_event)) = state.thread_linked_chunk().events().next()
-                    && self.cache.thread_id
-                        == first_event.event_id().expect("Stored events all have an ID")
-                {
-                    trace!("thread chunk is fully loaded and non-empty: reached_start=true");
-
-                    return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+            // If we are here, it means all gaps have been resolved (see the `if` block
+            // above). So the first chunk is not a gap, we can load its previous chunk.
+            let linked_chunk_id = LinkedChunkId::Thread(&state.room_id, &state.thread_id);
+            let new_first_chunk = match state
+                .store
+                .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
+                .await
+            {
+                Ok(Some(new_first_chunk)) => {
+                    // All good, let's continue with this chunk.
+                    new_first_chunk
                 }
 
-                // Otherwise, start back-pagination from the end of the thread.
-                return Ok(LoadMoreEventsBackwardsOutcome::Gap {
-                    prev_token: None,
-                    waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
-                });
-            }
+                Ok(None) if !collected.is_empty() => {
+                    // Read through (Gnobbi): the oldest saved chunk is done.
+                    return Ok(LoadMoreEventsBackwardsOutcome::Events {
+                        events: collected,
+                        timeline_event_diffs: diffs,
+                        reached_start: false,
+                    });
+                }
 
-            Err(err) => {
-                error!("error when loading the previous chunk of a linked chunk: {err}");
+                Ok(None) => {
+                    // No previous chunk in the store.
+                    //
+                    // If the first in-memory event is the thread root, it's all good, we have
+                    // effectively reached the start of the thread.
+                    if let Some((_pos, first_event)) = state.thread_linked_chunk().events().next()
+                        && self.cache.thread_id
+                            == first_event.event_id().expect("Stored events all have an ID")
+                    {
+                        trace!("thread chunk is fully loaded and non-empty: reached_start=true");
 
-                // Clear storage for this room.
+                        return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                    }
+
+                    // Otherwise, start back-pagination from the end of the thread.
+                    return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                        prev_token: None,
+                        waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                    });
+                }
+
+                Err(err) => {
+                    error!("error when loading the previous chunk of a linked chunk: {err}");
+
+                    // Clear storage for this room.
+                    state
+                        .store
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    // Return the error.
+                    return Err(err.into());
+                }
+            };
+
+            let chunk_content = new_first_chunk.content.clone();
+
+            // We've reached the start on disk, if and only if, there was no chunk prior to
+            // the one we just loaded.
+            //
+            // This value is correct, if and only if, it is used for a chunk content of kind
+            // `Items`.
+            let reached_start = new_first_chunk.previous.is_none();
+
+            if let Err(err) = state.thread_linked_chunk_mut().insert_new_chunk_as_first(new_first_chunk)
+            {
+                error!("error when inserting the previous chunk into its linked chunk: {err}");
+
+                // Clear storage for this thread.
                 state
                     .store
-                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                    .handle_linked_chunk_updates(
+                        LinkedChunkId::Thread(&state.room_id, &state.thread_id),
+                        vec![Update::Clear],
+                    )
                     .await?;
 
                 // Return the error.
                 return Err(err.into());
             }
-        };
 
-        let chunk_content = new_first_chunk.content.clone();
+            // ⚠️ Let's not propagate the updates to the store! We already have these data
+            // in the store! Let's drain them.
+            let _ = state.thread_linked_chunk_mut().store_updates().take();
 
-        // We've reached the start on disk, if and only if, there was no chunk prior to
-        // the one we just loaded.
-        //
-        // This value is correct, if and only if, it is used for a chunk content of kind
-        // `Items`.
-        let reached_start = new_first_chunk.previous.is_none();
+            // However, we want to get updates as `VectorDiff`s.
+            diffs.extend(state.thread_linked_chunk_mut().updates_as_vector_diffs());
 
-        if let Err(err) = state.thread_linked_chunk_mut().insert_new_chunk_as_first(new_first_chunk)
-        {
-            error!("error when inserting the previous chunk into its linked chunk: {err}");
+            match chunk_content {
+                ChunkContent::Gap(_) if read_through => {
+                    // Gnobbi: offline, the gap cannot be resolved: read the chunk before it.
+                    trace!("reloaded chunk from disk (gap), reading through");
+                }
 
-            // Clear storage for this thread.
-            state
-                .store
-                .handle_linked_chunk_updates(
-                    LinkedChunkId::Thread(&state.room_id, &state.thread_id),
-                    vec![Update::Clear],
-                )
-                .await?;
+                ChunkContent::Gap(gap) => {
+                    trace!("reloaded chunk from disk (gap)");
 
-            // Return the error.
-            return Err(err.into());
+                    return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                        prev_token: Some(gap.token),
+                        waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                    });
+                }
+
+                ChunkContent::Items(mut events) => {
+                    trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+
+                    if !read_through || reached_start {
+                        return Ok(LoadMoreEventsBackwardsOutcome::Events {
+                            events,
+                            timeline_event_diffs: diffs,
+                            reached_start,
+                        });
+                    }
+
+                    events.append(&mut collected);
+                    collected = events;
+                }
+            }
         }
-
-        // ⚠️ Let's not propagate the updates to the store! We already have these data
-        // in the store! Let's drain them.
-        let _ = state.thread_linked_chunk_mut().store_updates().take();
-
-        // However, we want to get updates as `VectorDiff`s.
-        let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
-
-        Ok(match chunk_content {
-            ChunkContent::Gap(gap) => {
-                trace!("reloaded chunk from disk (gap)");
-
-                LoadMoreEventsBackwardsOutcome::Gap {
-                    prev_token: Some(gap.token),
-                    waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
-                }
-            }
-
-            ChunkContent::Items(events) => {
-                trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
-
-                LoadMoreEventsBackwardsOutcome::Events {
-                    events,
-                    timeline_event_diffs,
-                    reached_start,
-                }
-            }
-        })
     }
 
     async fn mark_has_waited_for_initial_prev_token(&self) -> Result<()> {
