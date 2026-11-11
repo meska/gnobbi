@@ -2908,6 +2908,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             vec![("tab", "edit"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "edit"), ("shift-tab", "rail")]
         };
         for (key, expected) in steps {
+            if key == "tab" && expected == "search" {
+                // Open «Gruppi» menu: Tab out of the filter row must close it.
+                this.update_in(cx, |this, _, cx| { this.groups_menu = Some(0); cx.notify(); }).unwrap();
+            }
             cx.update(|window, cx| {
                 window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx);
             }).unwrap();
@@ -2934,6 +2938,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     },
                     _ => unreachable!(),
                 };
+                assert!(this.groups_menu.is_none(), "{key} must close the Gruppi menu");
                 assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                 assert_eq!(this.active_scope, scopes[0]);

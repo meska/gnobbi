@@ -308,6 +308,9 @@ impl Shell {
         {
             return true;
         }
+        if key.key == "tab" {
+            self.groups_menu = None; // focus leaves the filter row: the popup must not stay open
+        }
         if (compact && self.compact_chat)
             || key.key != "tab"
             || key.modifiers.control
