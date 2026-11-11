@@ -414,10 +414,11 @@ impl RoomListWorker {
                         );
                         let mut rooms_rx = rooms.subscribe();
                         // One receipt in flight per account, polled beside the commands: a page never waits for it.
-                        let mut receipt: Option<(
+                        type InFlightReceipt = Option<(
                             crate::RequestTag,
                             std::pin::Pin<Box<dyn std::future::Future<Output = OperationResult> + Send>>,
-                        )> = None;
+                        )>;
+                        let mut receipt: InFlightReceipt = None;
                         loop {
                             let command = tokio::select! {
                                 command = shutdown_receive(&operation_stop, &mut operations) => {
