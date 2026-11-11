@@ -3215,6 +3215,7 @@ mod tests {
 
     /// Paints one video row (with or without a ready thumbnail, or after a failed play) and checks
     /// what reached the screen.
+    #[allow(clippy::needless_update)] // thumbnail esiste solo con matrix-engine/sdk
     fn video_bubble_shot(thumbnail: bool, failed: bool) {
         use matrix_engine::history::{HistoryEvent, HistorySender, VideoInfo};
         assert_eq!(
@@ -3247,6 +3248,7 @@ mod tests {
                             video: Some(VideoInfo {
                                 duration_ms: Some(12_000),
                                 size: Some(1_468_006),
+                                ..Default::default()
                             }),
                             audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
