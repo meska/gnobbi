@@ -105,3 +105,22 @@ impl AccountId {
         self.0
     }
 }
+
+/// A validated `matrix:` / matrix.to link; see `matrix_engine::matrix_link::parse_matrix_link`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MatrixLink {
+    /// `target` is `#alias:server` or `!id:server`.
+    Room {
+        target: String,
+        via: Vec<String>,
+        event: Option<String>,
+    },
+    User {
+        user_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkError {
+    Invalid,
+}

@@ -16,6 +16,7 @@ mod filter_icon;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;
+mod link_view;
 #[cfg(target_os = "linux")]
 mod install_offer_view;
 mod login_field;
@@ -223,6 +224,10 @@ struct Shell {
     /// Why the last click on this drawer account row could not show it.
     switch_error: Option<(AccountId, &'static str)>,
     swallow_menu_key_up: bool,
+    /// The system link waiting for the accounts to be ready (memory only, see `link_open`).
+    pending_link: matrix_desktop::link_open::LinkQueue,
+    /// One line about a link that could not be opened; cleared after a few seconds.
+    link_notice: Option<(&'static str, std::time::Instant)>,
     removals: Vec<account_remove::Removal>,
     /// Catalog ID of the shown account (unknown until a new sign-in is recorded).
     active_id: Option<AccountId>,
@@ -2664,6 +2669,7 @@ impl Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
+            .children(self.render_link_notice(t))
             .children(self.poll_dialog.clone().inspect(|dialog| {
                 dialog.update(cx, |d, _| d.theme = t);
             }))
@@ -2712,13 +2718,13 @@ fn main() {
     let (args, link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
     // Kept in memory for the link handler; an invalid one is dropped (only the error kind is logged).
     #[cfg(feature = "live")]
-    let _pending_link = link.and_then(|raw| {
+    let mut start_link = link.and_then(|raw| {
         matrix_engine::matrix_link::parse_matrix_link(&raw)
             .map_err(|error| eprintln!("Gnobbi: ignored matrix link ({error:?})"))
             .ok()
     });
     #[cfg(not(feature = "live"))]
-    let _ = link;
+    let mut start_link: Option<matrix_domain::MatrixLink> = link.and(None);
     if args.first().is_some_and(|a| a == "--install-desktop-entry") {
         // Saved icon choice; missing or invalid preferences fall back to the default.
         let icon = matrix_desktop::app_dirs(matrix_desktop::Platform::Linux, |k| {
@@ -3359,6 +3365,7 @@ fn main() {
                                     cx.notify();
                                 }
                                 this.open_clicked_alert(window, cx);
+                                this.drain_pending_link(window, cx);
                             }).is_err() {
                                 break;
                             }
@@ -3563,6 +3570,12 @@ fn main() {
                         control: active_control.take(),
                         confirm_removal: None,
                         switch_error: None,
+                        pending_link: {
+                            let mut queue = matrix_desktop::link_open::LinkQueue::default();
+                            queue.extend(start_link.take());
+                            queue
+                        },
+                        link_notice: None,
                         swallow_menu_key_up: false,
                         removals: vec![],
                         active_id,

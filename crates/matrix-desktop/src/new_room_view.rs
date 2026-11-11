@@ -25,7 +25,7 @@ pub(crate) struct NewRoom {
     /// DM: user ID. Room: name, then topic.
     pub(crate) fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
     public_focus: FocusHandle,
-    cancel_focus: FocusHandle,
+    pub(crate) cancel_focus: FocusHandle,
     submit_focus: FocusHandle,
     busy: bool,
     error: Option<OperationError>,
@@ -35,6 +35,9 @@ pub(crate) struct NewRoom {
     /// What the field holds now, and the last term the engine was asked to search.
     term_wanted: String,
     term_sent: Option<(String, bool)>,
+    /// «Unisciti» opened by a link: the target it prefilled and the servers the link names; used
+    /// only while the field still holds exactly that target.
+    pub(crate) via: Option<(String, Vec<String>)>,
 }
 
 /// One line per failure, nothing else.
@@ -145,8 +148,22 @@ impl Shell {
             switch_focus: cx.focus_handle(),
             term_wanted: String::new(),
             term_sent: None,
+            via: None,
         });
         cx.notify();
+    }
+
+    /// «Unisciti» opened from a link: the room it names is typed in, the servers kept for the join and
+    /// the focus on «Annulla». Nothing is sent until the user confirms (Enter on «Vai», or a click).
+    pub(crate) fn open_join_for_link(&mut self, target: &str, via: &[String], window: &mut Window, cx: &mut Context<Self>) {
+        self.open_join_room(window, cx);
+        let Some(room) = self.new_room.as_mut() else { return };
+        room.via = Some((target.to_owned(), via.to_vec()));
+        room.cancel_focus.focus(window);
+        let field = room.fields[0].clone();
+        field.update(cx, |f, _| {
+            f.input.replace(None, target);
+        });
     }
 
     fn close_new_room(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -178,7 +195,8 @@ impl Shell {
             return;
         }
         let command = if room.join && first.starts_with(['#', '!']) {
-            OperationCommand::JoinRoom { target: first, via: Vec::new() }
+            let via = room.via.as_ref().filter(|(target, _)| *target == first).map(|(_, via)| via.clone()).unwrap_or_default();
+            OperationCommand::JoinRoom { target: first, via }
         } else if room.join {
             match room.rooms.chosen() {
                 // From the directory: the room ID, asked through the server that listed it.

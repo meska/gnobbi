@@ -469,10 +469,12 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let t = self.theme.tokens();
-        let Some(room) = self.sidebar.selected() else {
+        // A profile opened from a link has no room behind it: only that sheet is drawn.
+        let room = self.sidebar.selected();
+        if room.is_none() && self.profile.is_none() {
             return div().into_any_element();
-        };
-        let encryption = match room.info.encrypted {
+        }
+        let encryption = match room.and_then(|r| r.info.encrypted) {
             Some(true) => "Cifratura E2EE attiva",
             Some(false) => "Cifratura E2EE non attiva",
             None => "Cifratura non confermata dallo stato SDK",
@@ -482,8 +484,8 @@ impl Shell {
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         let topic_links = self.reconcile_topic_links();
-        let hide_status = self.room_prefs.hide_status(&room.scope);
-        let hide_redacted = self.room_prefs.hide_redacted(&room.scope).unwrap_or(self.prefs.hide_redacted);
+        let hide_status = room.is_some_and(|r| self.room_prefs.hide_status(&r.scope));
+        let hide_redacted = room.is_some_and(|r| self.room_prefs.hide_redacted(&r.scope).unwrap_or(self.prefs.hide_redacted));
         div()
             .id("room-details")
             .children({
@@ -563,7 +565,7 @@ impl Shell {
                     .flex_col()
                     .gap_4()
                     // An opened profile takes the whole sheet.
-                    .when(self.profile.is_none(), |d| d
+                    .when_some(room.filter(|_| self.profile.is_none()), |d, room| d
                     .child(
                     div().relative().flex().flex_col().flex_shrink().min_h_0().child(div().id("room-details-info").flex().flex_col().gap_4().min_h_0().track_scroll(&self.info_scroll.0.borrow().base_handle).overflow_y_scroll()
                     .child(

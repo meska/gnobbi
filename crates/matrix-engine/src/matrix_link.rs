@@ -11,23 +11,8 @@ const MAX_LEN: usize = 2048;
 const MAX_VIA: usize = 5;
 const MATRIX_TO: &str = "https://matrix.to/#/";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MatrixLink {
-    /// `target` is `#alias:server` or `!id:server`.
-    Room {
-        target: String,
-        via: Vec<String>,
-        event: Option<String>,
-    },
-    User {
-        user_id: String,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkError {
-    Invalid,
-}
+// The types live in matrix-domain so the desktop shell can hold a link without the SDK.
+pub use matrix_domain::{LinkError, MatrixLink};
 
 pub fn parse_matrix_link(raw: &str) -> Result<MatrixLink, LinkError> {
     if raw.len() > MAX_LEN || has_unsafe_url_char(raw) {

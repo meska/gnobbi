@@ -416,6 +416,46 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(this.composer.read(cx).is_focused(window), "focus still on the composer after closing");
     });
 
+    // 11. Links from the system. A profile with no room open: no rights asked, no «Cita», Esc closes the sheet.
+    shell!(|this, window, cx| {
+        use matrix_domain::MatrixLink;
+        this.set_room_details_open(false);
+        this.pending_operation_command = None;
+        this.sidebar.clear_selection();
+        this.status = RoomSyncStatus::Ready;
+        this.pending_link.push(MatrixLink::User { user_id: ADA.into() });
+        // A dialog open: the link waits.
+        this.open_join_room(window, cx);
+        this.drain_pending_link(window, cx);
+        assert!(this.pending_link.waiting() && this.profile.is_none(), "a dialog is open: the link waits");
+        this.new_room = None;
+        this.drain_pending_link(window, cx);
+        assert!(!this.pending_link.waiting() && this.room_details_open, "disposed once, sheet open with no room");
+        assert!(matches!(&this.pending_operation_command, Some(OperationCommand::Profile { user_id }) if user_id == ADA));
+        this.pending_operation_command = None;
+        this.profile_found(ADA.into(), Ok(profile(ADA, "Ada", None, false)), cx);
+        assert!(this.pending_operation_command.is_none(), "no MemberRights without a room");
+        assert!(!this.profile_acts().contains(&A::Quote), "no «Cita» without a room");
+    });
+    key!("escape");
+    shell!(|this, _, _| assert!(this.profile.is_none() && !this.room_details_open, "Esc with no room closes the sheet"));
+    // Two links: the last wins. A room the account is not in: «Unisciti» typed in, nothing sent.
+    shell!(|this, window, cx| {
+        use matrix_domain::MatrixLink;
+        this.pending_link.push(MatrixLink::User { user_id: ADA.into() });
+        this.pending_link.push(MatrixLink::Room { target: "!x:fixture.test".into(), via: vec!["via.test".into()], event: None });
+        this.drain_pending_link(window, cx);
+        let room = this.new_room.as_ref().expect("the join dialog opens");
+        assert_eq!(room.fields[0].read(cx).input.display_text(), "!x:fixture.test");
+        assert_eq!(room.via, Some(("!x:fixture.test".to_owned(), vec!["via.test".to_owned()])));
+        assert!(room.cancel_focus.is_focused(window), "focus on «Annulla»");
+        assert!(this.pending_operation_command.is_none(), "JoinRoom only on the user's click");
+        assert!(this.profile.is_none(), "the older link was replaced");
+        this.new_room = None;
+        this.drain_pending_link(window, cx);
+        assert!(this.new_room.is_none() && this.pending_operation_command.is_none(), "disposed once");
+    });
+
     println!("DEFECTS {known:?}");
     assert!(known.is_empty() || std::env::var_os("MEMBER_PROFILE_STRICT").is_none(), "known defects: {known:?}");
     shell!(|_, _, cx| cx.quit());

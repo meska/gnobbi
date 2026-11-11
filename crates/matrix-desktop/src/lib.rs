@@ -92,6 +92,7 @@ pub use event_id_copy::{EventIdCopies, EventIdCopyTarget};
 mod link_requests;
 pub use link_requests::{LinkMenu, LinkSource, MessageLinkRequests, MessageLinkTarget, link_at};
 mod links;
+pub mod link_open;
 pub mod mention_gaps;
 pub use links::{
     LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links,

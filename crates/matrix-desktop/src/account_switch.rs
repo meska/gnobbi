@@ -255,7 +255,7 @@ impl Shell {
         self.switch_account_with_room(id, None, window, cx);
     }
 
-    fn switch_account_with_room(
+    pub(crate) fn switch_account_with_room(
         &mut self,
         id: AccountId,
         room: Option<&RoomScope>,
