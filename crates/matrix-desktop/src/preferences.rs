@@ -260,6 +260,30 @@ impl Default for Preferences {
 
 const FILE: &str = "settings.json";
 
+/// Tests only. A process spawned while another thread holds the settings lock inherits that fd
+/// until its exec completes (seen on macOS), so the lock reads as held and the write fails with
+/// WouldBlock. Lock holders (`no_spawn`) hold this shared, a spawn holds it exclusively (`spawn_gate`).
+#[cfg(test)]
+static SPAWN_GATE: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+#[cfg(test)]
+pub(crate) fn no_spawn() -> std::sync::RwLockReadGuard<'static, ()> {
+    SPAWN_GATE.read().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Polls instead of queueing as a writer: a queued writer would block the second shared reader of
+/// a test that nests two writers (one waits on the other) and deadlock it.
+#[cfg(test)]
+pub(crate) fn spawn_gate() -> std::sync::RwLockWriteGuard<'static, ()> {
+    loop {
+        match SPAWN_GATE.try_write() {
+            Ok(guard) => return guard,
+            Err(std::sync::TryLockError::Poisoned(e)) => return e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(std::time::Duration::from_millis(1)),
+        }
+    }
+}
+
 impl Preferences {
     /// Missing, corrupt or invalid input yields defaults, field by field; unknown keys are ignored.
     pub fn load(dirs: &AppDirs) -> Preferences {
@@ -404,6 +428,8 @@ pub(crate) fn update_settings(
     dirs: &AppDirs,
     change: impl FnOnce(&mut serde_json::Map<String, Value>),
 ) -> std::io::Result<()> {
+    #[cfg(test)]
+    let _no_spawn = no_spawn();
     #[cfg(unix)]
     crate::create_private_dir(&dirs.config)?;
     #[cfg(not(unix))]

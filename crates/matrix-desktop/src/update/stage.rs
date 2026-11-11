@@ -95,8 +95,12 @@ fn run(c: &Candidate, body: impl Read, staging: &Path, timeout: Duration) -> Res
 
 fn self_test(path: &Path, build: u64, timeout: Duration) -> Result<(), StageError> {
     use std::process::{Command, Stdio};
+    #[cfg(test)]
+    let gate = crate::preferences::spawn_gate();
     let mut child = Command::new(path).arg("--self-test").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn().map_err(StageError::SelfTestSpawn)?;
+    #[cfg(test)]
+    drop(gate);
     let start = Instant::now();
     let status = loop {
         match child.try_wait().map_err(StageError::Io)? {

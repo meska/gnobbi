@@ -377,11 +377,16 @@ fn child_entry() {
 
 #[cfg(unix)]
 fn run_child(mode: &str) -> std::process::Output {
-    std::process::Command::new(std::env::current_exe().unwrap())
+    let gate = crate::preferences::spawn_gate();
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "update::install_tests::child_entry", "--nocapture", "--test-threads=1"])
         .env(CHILD_ENV, mode)
-        .output()
-        .unwrap()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(gate);
+    child.wait_with_output().unwrap()
 }
 
 #[cfg(unix)]

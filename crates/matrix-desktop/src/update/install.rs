@@ -41,15 +41,23 @@ pub fn prev_of(target: &Path) -> PathBuf {
 /// One install at a time per target. The OS releases it when this process dies.
 pub(super) struct Lock {
     _file: std::fs::File,
+    #[cfg(test)]
+    _no_spawn: std::sync::RwLockReadGuard<'static, ()>,
 }
 
 impl Lock {
     pub(super) fn acquire(target: &Path) -> Result<Self, String> {
+        #[cfg(test)]
+        let no_spawn = crate::preferences::no_spawn();
         let mut s = target.as_os_str().to_owned();
         s.push(".install.lock");
         let file = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(PathBuf::from(s)).map_err(|e| message(&e))?;
         match file.try_lock() {
-            Ok(()) => Ok(Lock { _file: file }),
+            Ok(()) => Ok(Lock {
+                _file: file,
+                #[cfg(test)]
+                _no_spawn: no_spawn,
+            }),
             Err(std::fs::TryLockError::WouldBlock) => Err(failed("altra installazione in corso")),
             Err(std::fs::TryLockError::Error(e)) => Err(message(&e)),
         }
