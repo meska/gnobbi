@@ -989,6 +989,12 @@ pub struct RoomSync {
 }
 
 impl RoomSync {
+    /// Fixture: owned handles so a test can act as the app does while `sliding::run` borrows `self`.
+    #[cfg(test)]
+    pub(crate) fn live_handles_for_test(&self) -> (matrix_sdk::Client, Timelines) {
+        (self.session.client.clone().expect("store-backed session"), self.timelines.clone())
+    }
+
     pub async fn message_details(
         &self,
         scope: &RoomScope,
@@ -2031,11 +2037,11 @@ async fn saved_page(
     let room = joined(client, &tag, account_id)?;
     let timeline = timelines.get(&room).await?;
     let mut now = loaded(&room, &timeline).await;
-    // The timeline starts from the newest saved chunk only. When that one holds nothing visible
-    // (only status rows, e.g. the join), step back through the older saved chunks; the SDK reads the disk first.
+    // The timeline starts from the newest saved chunk only (the reply may sit there while its root is in
+    // an older one): step back through the older saved chunks until a page is full; the SDK reads the disk first.
     // shortcut: a step that has to leave the disk is dropped after 1 s, and at most 10 steps.
     for _ in 0..10 {
-        if now.rows.iter().any(|r| !r.status) || now.at_start {
+        if now.rows.iter().filter(|r| !r.status).count() >= PAGE || now.at_start {
             break;
         }
         let step = tokio::time::timeout(

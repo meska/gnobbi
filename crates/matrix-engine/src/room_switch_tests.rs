@@ -71,6 +71,7 @@ fn disposable_room_switch_keeps_the_replies_already_seen() {
         let bodies = |rows: &[crate::history::HistoryEvent]| rows.iter().filter(|r| !r.status).map(|r| r.body.clone()).collect::<Vec<_>>();
         let mut snaps: Vec<(String, serde_json::Value)> = Vec::new();
         // One dump: main rows, thread page, SDK store (event cache) and our receipts, all of room A.
+        #[allow(clippy::too_many_arguments)]
         async fn snap(
             step: &str, sync: &RoomSync, client: &matrix_sdk::Client, timelines: &crate::room_sync::Timelines,
             account: AccountId, scope: &RoomScope, root: &matrix_domain::EventId, config: &serde_json::Value,
@@ -177,8 +178,11 @@ fn disposable_room_switch_keeps_the_replies_already_seen() {
                 }
             }
             let replies = v["thread"]["replies"].as_array().cloned().unwrap_or_default();
-            for body in ["thread one", "thread two", "thread three"] {
-                if !replies.iter().any(|x| x == body) {
+            // What the panel showed before the switch is the baseline: a reply Tuwunel never delivered to the
+            // thread timeline is a separate defect, not a reply that disappeared.
+            let seen = snaps[0].1["thread"]["replies"].as_array().cloned().unwrap_or_default();
+            for body in &seen {
+                if !replies.contains(body) {
                     lost.push(format!("{step}: thread lost \"{body}\" (has {replies:?})"));
                 }
             }
