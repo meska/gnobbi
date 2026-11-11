@@ -18,7 +18,8 @@ fn appdir_desktop_entry_matches_app_id() {
     for line in [
         format!("StartupWMClass={APP_ID}"),
         format!("Icon={APP_ID}"),
-        "Exec=gnobbi".into(),
+        "Exec=gnobbi %u".into(),
+        "MimeType=x-scheme-handler/matrix;".into(),
     ] {
         assert!(desktop.lines().any(|l| l == line), "missing {line}");
     }

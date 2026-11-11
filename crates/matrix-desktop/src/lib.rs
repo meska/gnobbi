@@ -52,6 +52,8 @@ mod account_state;
 pub use account_state::{AccountRoutes, AccountState, Drained};
 mod app_dirs;
 pub mod desktop_entry;
+#[cfg(unix)]
+pub mod single_instance;
 pub mod install_offer;
 pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use account_list::{AccountRow, account_rows, initials};

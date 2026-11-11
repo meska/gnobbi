@@ -45,7 +45,8 @@ fn installs_idempotently_and_only_on_request() {
     assert!(run(&home, &["--install-desktop-entry"]).success());
     let first = fs::read_to_string(&desktop).unwrap();
     for line in [
-        format!("Exec=\"{}\"", home.join("Applications/my apps/Gnobbi.AppImage").display()),
+        format!("Exec=\"{}\" %u", home.join("Applications/my apps/Gnobbi.AppImage").display()),
+        "MimeType=x-scheme-handler/matrix;".to_string(),
         format!("Icon={ID}"),
         format!("StartupWMClass={ID}"),
     ] {
@@ -98,11 +99,14 @@ fn runs_user_cache_commands_and_writes_only_under_home() {
         calls.push((p.to_string(), a.iter().map(|x| x.to_path_buf()).collect::<Vec<_>>()))
     })
     .unwrap();
-    assert_eq!(calls.len(), 2);
+    assert_eq!(calls.len(), 3);
     assert_eq!(calls[0].0, "update-desktop-database");
     assert_eq!(calls[0].1, [home.join(".local/share/applications")]);
     assert_eq!(calls[1].0, "gtk-update-icon-cache");
     assert_eq!(calls[1].1[2], home.join(".local/share/icons/hicolor"));
+    assert_eq!(calls[2].0, "xdg-mime");
+    assert_eq!(calls[2].1[0], Path::new("default"));
+    assert_eq!(calls[2].1[2], Path::new("x-scheme-handler/matrix"));
     // A stale Exec is rewritten.
     matrix_desktop::desktop_entry::install_desktop_entry_with(&share, "/opt/New.AppImage", IconChoice::default(), &mut |_, _| {}).unwrap();
     let d = fs::read_to_string(home.join(format!(".local/share/applications/{ID}.desktop"))).unwrap();

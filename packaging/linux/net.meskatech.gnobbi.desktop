@@ -2,8 +2,9 @@
 Type=Application
 Name=Gnobbi
 Comment=Matrix chat client
-Exec=gnobbi
+Exec=gnobbi %u
 Icon=net.meskatech.gnobbi
 Terminal=false
 Categories=Network;InstantMessaging;
+MimeType=x-scheme-handler/matrix;
 StartupWMClass=net.meskatech.gnobbi

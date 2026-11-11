@@ -2691,12 +2691,33 @@ impl Shell {
     }
 }
 
+/// First instance: listen for later launches. Otherwise deliver our link (or "raise") and exit.
+/// Any socket trouble only costs the single-instance behaviour: the app starts normally.
+#[cfg(all(target_os = "linux", feature = "live"))]
+fn single_instance_gate(argv: &[String]) {
+    use matrix_desktop::single_instance::{Claim, MAX_LINK, claim, default_socket_path, serve};
+    let (rest, link) = matrix_desktop::take_matrix_link(argv.to_vec());
+    if rest.first().is_some_and(|a| a == "--install-desktop-entry") {
+        return;
+    }
+    // An oversized link is invalid anyway: the live instance is only raised.
+    let link = link.filter(|l| l.len() <= MAX_LINK && !l.contains('\n')).unwrap_or_default();
+    match claim(&default_socket_path(), &link) {
+        Ok(Claim::First(listener)) => serve(listener),
+        Ok(Claim::Delivered) => std::process::exit(0),
+        Err(error) => eprintln!("Gnobbi: single instance off ({error})"),
+    }
+}
+
 fn main() {
     // Before the marker and the UI: the update helper is this same exe in another mode.
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if let Some(code) = matrix_desktop::update::helper::dispatch(&argv) {
         std::process::exit(code);
     }
+    // A second launch hands its link to the live instance and exits before anything else starts.
+    #[cfg(all(target_os = "linux", feature = "live"))]
+    single_instance_gate(&argv);
     matrix_desktop::update::startup::run_at_start();
     #[cfg(all(feature = "perf-probe", feature = "live", target_os = "macos"))]
     if std::env::var_os("P115B_NATIVE").is_some() {
@@ -3365,6 +3386,13 @@ fn main() {
                                     cx.notify();
                                 }
                                 this.open_clicked_alert(window, cx);
+                                #[cfg(target_os = "linux")]
+                                for link in matrix_desktop::single_instance::take_incoming() {
+                                    window.activate_window();
+                                    if !link.is_empty() {
+                                        this.open_matrix_link(&link, cx);
+                                    }
+                                }
                                 this.drain_pending_link(window, cx);
                             }).is_err() {
                                 break;
