@@ -1867,6 +1867,26 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 99 {
+            let id = matrix_domain::EventId::new("$viewer:fixture.invalid");
+            this.update_in(cx, |this, window, cx| {
+                let timeline = this.timeline.as_ref().expect("timeline");
+                let buffer = image::RgbaImage::from_raw(2, 2, vec![255; 16]).unwrap();
+                timeline.images.borrow_mut().insert(id.clone(), crate::media_view::InlineImage::Ready(std::sync::Arc::new(gpui::RenderImage::new([image::Frame::new(buffer)]))));
+                this.thread = Some(crate::thread_view::ThreadPanel::new(this.active_scope.clone(), id.clone(), Default::default(), 1));
+                timeline.open_image(id.clone(), window);
+                cx.notify();
+            }).unwrap();
+            executor.timer(std::time::Duration::from_millis(600)).await;
+            this.update_in(cx, |this, window, cx| {
+                let bounds = PAINTED.lock().unwrap()["large-image"];
+                let size = window.viewport_size();
+                assert!(bounds.size.width >= size.width - px(1.), "viewer {bounds:?} must cover window {size:?}");
+                assert!(this.thread.is_some());
+                cx.quit();
+            }).unwrap();
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 90 {
             crate::details_panel_test::scenario(this, cx, executor).await;
             return;
@@ -3584,6 +3604,16 @@ fn tab_ring_compact_from_the_menu_button() {
     COMPACT.store(true, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     SPACES.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn thread_image_viewer_covers_window() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(99, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();
 }

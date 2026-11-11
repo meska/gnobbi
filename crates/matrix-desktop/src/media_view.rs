@@ -359,6 +359,10 @@ pub(crate) fn large_view(
         .child(
             div()
                 .id("large-image")
+                .children({
+                    #[cfg(test)] { crate::sidebar_navigation_test::observe("large-image".into()) }
+                    #[cfg(not(test))] { None::<gpui::AnyElement> }
+                })
                 .size_full()
                 .flex()
                 .items_center()

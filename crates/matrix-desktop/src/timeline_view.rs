@@ -1693,6 +1693,31 @@ impl TimelineView {
         }
     }
 
+    pub(crate) fn render_viewer(&self, t: DesignTokens) -> Option<gpui::AnyElement> {
+        self.viewing().and_then(|id| {
+            let is_video = self.video_events().contains(&id);
+            let thumbnail = match self.images.borrow().get(&id) {
+                Some(crate::media_view::InlineImage::Ready(image)) => Some(image.clone()),
+                _ => None,
+            };
+            if thumbnail.is_none() && !is_video {
+                return None;
+            }
+            let (viewing, focus) = (self.viewing.clone(), self.focus.clone());
+            let original = self.original.borrow().clone().filter(|(o, _)| *o == id).map(|(_, state)| state);
+            let (retry_original, retry_id) = (self.original.clone(), id.clone());
+            let retry_want = if is_video { self.want_video.clone() } else { self.want_original.clone() };
+            Some(crate::media_view::large_view(thumbnail, original, is_video, t, move |window| {
+                close_viewer(&viewing, &focus, "escape", window);
+                window.refresh();
+            }, move |window| {
+                *retry_original.borrow_mut() = None;
+                *retry_want.borrow_mut() = Some(retry_id.clone());
+                window.refresh();
+            }))
+        })
+    }
+
     pub fn render(
         &self,
         t: DesignTokens,
@@ -2489,28 +2514,6 @@ impl TimelineView {
                 })
                 .size_full(),
             )
-            .children(self.viewing().and_then(|id| {
-                let is_video = self.video_events().contains(&id);
-                let thumbnail = match self.images.borrow().get(&id) {
-                    Some(crate::media_view::InlineImage::Ready(image)) => Some(image.clone()),
-                    _ => None,
-                };
-                if thumbnail.is_none() && !is_video {
-                    return None;
-                }
-                let (viewing, focus) = (self.viewing.clone(), self.focus.clone());
-                let original = self.original.borrow().clone().filter(|(o, _)| *o == id).map(|(_, state)| state);
-                let (retry_original, retry_id) = (self.original.clone(), id.clone());
-                let retry_want = if is_video { self.want_video.clone() } else { self.want_original.clone() };
-                Some(crate::media_view::large_view(thumbnail, original, is_video, t, move |window| {
-                    close_viewer(&viewing, &focus, "escape", window);
-                    window.refresh();
-                }, move |window| {
-                    *retry_original.borrow_mut() = None;
-                    *retry_want.borrow_mut() = Some(retry_id.clone());
-                    window.refresh();
-                }))
-            }))
             .map(|d| {
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 {
