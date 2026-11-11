@@ -1064,7 +1064,7 @@ impl Shell {
                     let action = if key.key == "tab" {
                         Some(DetailsAction::Focus {
                             scope: panel.scope.clone(),
-                            control: panel.next_focus(),
+                            control: panel.next_focus(key.modifiers.shift),
                         })
                     } else {
                         view.action(&accesskit::ActionRequest {

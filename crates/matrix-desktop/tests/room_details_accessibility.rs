@@ -126,7 +126,7 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
     assert_eq!(copy.role(), Role::Button);
     assert_eq!(copy.label(), Some("Copia ID stanza"));
     assert_eq!(copy.bounds(), panel.bounds[2]);
-    assert_eq!(panel.next_focus(), DetailsControl::Topic);
+    assert_eq!(panel.next_focus(false), DetailsControl::Topic);
 }
 
 #[test]
@@ -296,11 +296,16 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
     // Tab reaches every control once, in visual order, and wraps.
     let mut order = vec![panel.focus];
     for _ in 0..DetailsControl::ALL.len() {
-        panel.focus = panel.next_focus();
+        panel.focus = panel.next_focus(false);
         order.push(panel.focus);
     }
     assert_eq!(order[..6], DetailsControl::ALL);
     assert_eq!(order[6], DetailsControl::Close);
+    // Shift+Tab is the exact inverse, wrapping from Close to Edit.
+    for want in order.iter().rev().skip(1) {
+        panel.focus = panel.next_focus(true);
+        assert_eq!(panel.focus, *want);
+    }
     let ids: std::collections::HashSet<_> = DetailsControl::ALL.iter().map(|c| c.id()).collect();
     assert_eq!(ids.len(), 6);
     panel.people = vec![("Membro: Ada, @ada:x".into(), Some("@ada:x".into()))];
@@ -348,6 +353,7 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
     ));
 }
 
+#[test]
 fn details_panel_is_a_named_complementary_not_a_modal_dialog() {
     let tree = panel().tree();
     let root = &tree.nodes[0].1;
