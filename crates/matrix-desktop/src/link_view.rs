@@ -3,11 +3,29 @@
 //! starts a chat: the user does that with a click afterwards.
 use crate::*;
 use matrix_desktop::link_open::{self, Candidate, Mode, Plan, Presence};
+use crate::room_search_view::{Jump, JumpStep};
 use matrix_domain::MatrixLink;
 
 /// Only mode A exists on this branch (one shown account, the others parked).
 const MODE: Mode = Mode::Separate;
 const NOTICE_SECONDS: u64 = 5;
+// shortcut: 100 older pages read one after the other (and 30 s in all), switch to /context (SDK Room::event_with_context) when links to old messages are common or slow.
+const JUMP_PAGES: u32 = 100;
+const JUMP_SECONDS: u64 = 30;
+
+/// A link to a message: waits for its room to be the shown one, then reads back to the event.
+pub(crate) struct LinkJump {
+    scope: RoomScope,
+    event: matrix_domain::EventId,
+    pub(crate) pages: u32,
+    started: std::time::Instant,
+}
+
+impl LinkJump {
+    pub(crate) fn new(scope: RoomScope, event: &str) -> Self {
+        Self { scope, event: matrix_domain::EventId::new(event), pages: JUMP_PAGES, started: std::time::Instant::now() }
+    }
+}
 
 fn presence(sidebar: &Sidebar, target: &str) -> Presence {
     // Local only: the room ID or any alias the SDK knows; a joined room wins over an invitation.
@@ -71,9 +89,13 @@ impl Shell {
         eprintln!("Gnobbi: matrix link ({})", link_open::kind(&link));
         let candidates = self.link_candidates(&link);
         match link_open::plan(&link, &candidates, MODE, self.active_id) {
-            Plan::Room { account, scope } | Plan::Invite { account, scope } => {
-                self.show_link_room(account, scope, window, cx)
+            Plan::Room { account, scope } => {
+                self.show_link_room(account, scope.clone(), window, cx);
+                if let MatrixLink::Room { event: Some(event), .. } = &link {
+                    self.link_jump = Some(LinkJump::new(scope, event));
+                }
             }
+            Plan::Invite { account, scope } => self.show_link_room(account, scope, window, cx),
             Plan::Join { target, via, .. } => self.open_join_for_link(&target, &via, window, cx),
             Plan::Profile { account, user_id } => {
                 if self.show_link_account(account, window, cx) {
@@ -86,6 +108,35 @@ impl Shell {
             Plan::Notice(text) => self.notify_link(text),
         }
         cx.notify();
+    }
+
+    /// Every 200 ms: carries a link to a message to its row (reading older pages), or says it is not there.
+    pub(crate) fn drive_link_jump(&mut self, cx: &mut Context<Self>) {
+        let Some(mut link) = self.link_jump.take() else {
+            return;
+        };
+        let expired = link.started.elapsed().as_secs() >= JUMP_SECONDS;
+        // Not the shown room (yet): wait; whoever the user opens meanwhile is left alone.
+        let step = if expired {
+            JumpStep::Unreachable
+        } else if self.active_scope != link.scope || self.timeline.is_none() {
+            JumpStep::Waiting
+        } else {
+            // A reply of a thread is shown as its root, with the thread opened, as the search does.
+            let jump = match self.timeline.as_ref().and_then(|t| t.thread_target(&link.event)) {
+                Some((root, ..)) => Jump { open_thread: root != link.event, show: root, term: String::new() },
+                None => Jump { show: link.event.clone(), open_thread: false, term: String::new() },
+            };
+            self.step_jump(&jump, &mut link.pages, cx)
+        };
+        match step {
+            JumpStep::Waiting => self.link_jump = Some(link),
+            JumpStep::Shown => {}
+            JumpStep::Unreachable => {
+                self.notify_link("Messaggio non trovato");
+                cx.notify();
+            }
+        }
     }
 
     /// Usable accounts (shown first, then the parked ones by catalog ID) and what each knows of the room.

@@ -58,6 +58,8 @@ mod verification_popup_test;
 #[cfg(test)]
 mod member_profile_test;
 #[cfg(test)]
+mod link_jump_test;
+#[cfg(test)]
 mod drawer_active_test;
 #[cfg(test)]
 mod rail_ring_test;
@@ -228,6 +230,7 @@ struct Shell {
     pending_link: matrix_desktop::link_open::LinkQueue,
     /// One line about a link that could not be opened; cleared after a few seconds.
     link_notice: Option<(&'static str, std::time::Instant)>,
+    link_jump: Option<link_view::LinkJump>,
     removals: Vec<account_remove::Removal>,
     /// Catalog ID of the shown account (unknown until a new sign-in is recorded).
     active_id: Option<AccountId>,
@@ -3296,6 +3299,7 @@ fn main() {
                                         }
                                         this.drive_profile(cx);
                                         this.drive_room_search(cx);
+                                        this.drive_link_jump(cx);
                                         if let Some((sender, _)) = &mut this.routes.verification {
                                             this.verification.flush(sender);
                                         }
@@ -3604,6 +3608,7 @@ fn main() {
                             queue
                         },
                         link_notice: None,
+                        link_jump: None,
                         swallow_menu_key_up: false,
                         removals: vec![],
                         active_id,
