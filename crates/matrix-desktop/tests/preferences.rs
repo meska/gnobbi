@@ -48,6 +48,168 @@ fn roundtrip_keeps_values() {
 }
 
 #[test]
+fn transaction_excludes_a_second_thread_but_not_another_directory() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let d = dirs(&tmp("thread-lock"));
+    let other = dirs(&tmp("thread-other"));
+    let thread_dirs = d.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        Preferences::update(&thread_dirs, |p| {
+            entered_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            p.max_build_seen = 19;
+        })
+    });
+    entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    let contended = Preferences::update(&d, |_| {}).unwrap_err().kind();
+    let independent = Preferences::update(&other, |p| p.debug = true);
+    release_tx.send(()).unwrap();
+    writer.join().unwrap().unwrap();
+    assert_eq!(contended, std::io::ErrorKind::WouldBlock);
+    assert!(independent.unwrap().debug);
+    assert_eq!(Preferences::load(&d).max_build_seen, 19);
+}
+
+#[test]
+fn lock_process_helper() {
+    use std::io::{Read, Write};
+    let Some(path) = std::env::var_os("GNOBBI_TEST_LOCK_PATH") else { return };
+    let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
+    lock.try_lock().unwrap();
+    println!("LOCK_HELD");
+    std::io::stdout().flush().unwrap();
+    let mut byte = [0];
+    let _ = std::io::stdin().read(&mut byte);
+}
+
+#[test]
+fn process_death_releases_the_lock() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+    let d = dirs(&tmp("process-lock"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "lock_process_helper", "--nocapture"])
+        .env("GNOBBI_TEST_LOCK_PATH", d.config.join("settings.json.lock"))
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let output = child.stdout.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(output).lines().map_while(Result::ok) {
+            if line.contains("LOCK_HELD") { let _ = tx.send(()); break; }
+        }
+    });
+    if rx.recv_timeout(Duration::from_secs(10)).is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+        panic!("child did not acquire lock");
+    }
+    assert_eq!(Preferences::update(&d, |_| {}).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    child.kill().unwrap();
+    child.wait().unwrap();
+    Preferences::update(&d, |p| p.debug = true).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_and_lock_symlinks_are_rejected() {
+    use std::os::unix::fs::symlink;
+    let d = dirs(&tmp("symlinks"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let victim = d.config.join("victim");
+    std::fs::write(&victim, b"{}").unwrap();
+    for name in ["settings.json", "settings.json.lock"] {
+        let path = d.config.join(name);
+        symlink(&victim, &path).unwrap();
+        assert!(Preferences::update(&d, |p| p.debug = true).is_err());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"{}");
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn settings_and_lock_hard_links_are_rejected() {
+    let d = dirs(&tmp("hardlinks"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let victim = d.config.join("victim");
+    std::fs::write(&victim, b"{}").unwrap();
+    for name in ["settings.json", "settings.json.lock"] {
+        let path = d.config.join(name);
+        std::fs::hard_link(&victim, &path).unwrap();
+        assert!(Preferences::update(&d, |p| p.debug = true).is_err());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"{}");
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
+fn directory_servers_and_outcome_survive_preference_update() {
+    use matrix_desktop::directory_servers::SavedServers;
+    let d = dirs(&tmp("shared-stores"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let path = d.config.join("settings.json");
+    std::fs::write(&path, br#"{"update_outcome":{"result":"updated","build":31},"future":{"x":1}}"#).unwrap();
+    let mut servers = SavedServers::default();
+    servers.add(1, "matrix.example");
+    servers.save(&d).unwrap();
+    Preferences::update(&d, |p| p.debug = true).unwrap();
+    let data: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(data["update_outcome"]["build"], 31);
+    assert_eq!(data["future"]["x"], 1);
+    assert_eq!(matrix_desktop::update::startup::update_outcome(&d), Some(("updated".into(), 31)));
+    assert_eq!(SavedServers::load(&d).for_account(1), ["matrix.example"]);
+}
+
+#[test]
+fn non_object_settings_are_never_overwritten() {
+    let d = dirs(&tmp("non-object"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let path = d.config.join("settings.json");
+    std::fs::write(&path, b"[]").unwrap();
+    assert!(Preferences::update(&d, |_| {}).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), b"[]");
+}
+
+#[test]
+fn update_reads_current_values_and_preserves_unknown_keys() {
+    let d = dirs(&tmp("update-current"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let path = d.config.join("settings.json");
+    std::fs::write(&path, br#"{"future":{"value":9},"max_build_seen":42}"#).unwrap();
+    let result = Preferences::update(&d, |p| p.debug = true).unwrap();
+    assert_eq!(result.max_build_seen, 42);
+    assert!(result.debug);
+    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(json["future"]["value"], 9);
+}
+
+#[test]
+fn save_returns_would_block_if_another_handle_holds_the_lock() {
+    let d = dirs(&tmp("contended"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let lock = std::fs::File::create(d.config.join("settings.json.lock")).unwrap();
+    lock.try_lock().unwrap();
+    assert_eq!(Preferences::default().save(&d).unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+    drop(lock);
+    Preferences::default().save(&d).unwrap();
+}
+
+#[test]
+fn corrupt_settings_are_not_overwritten_by_save() {
+    let d = dirs(&tmp("corrupt-save"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    let path = d.config.join("settings.json");
+    std::fs::write(&path, b"{broken").unwrap();
+    assert!(Preferences::default().save(&d).is_err());
+    assert_eq!(std::fs::read(path).unwrap(), b"{broken");
+}
+
+#[test]
 fn corrupt_file_gives_defaults() {
     let d = dirs(&tmp("corrupt"));
     std::fs::create_dir_all(&d.config).unwrap();

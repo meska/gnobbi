@@ -269,6 +269,26 @@ impl Preferences {
         let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(&bytes) else {
             return Self::default();
         };
+        Self::from_map(&map)
+    }
+
+    /// Strict read for automatic network operations; only a missing file uses defaults.
+    pub fn load_checked(dirs: &AppDirs) -> std::io::Result<Preferences> {
+        let bytes = match std::fs::read(dirs.config.join(FILE)) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(e) => return Err(e),
+        };
+        match serde_json::from_slice::<Value>(&bytes) {
+            Ok(Value::Object(map)) => {
+                validate_update_settings(&map)?;
+                Ok(Self::from_map(&map))
+            },
+            _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid settings")),
+        }
+    }
+
+    fn from_map(map: &serde_json::Map<String, Value>) -> Preferences {
         Preferences {
             theme: map
                 .get("theme")
@@ -338,15 +358,37 @@ impl Preferences {
         }
     }
 
-    /// Atomic write (temp file then rename), owner-only. Keys it does not own stay as they are.
-    pub fn save(&self, dirs: &AppDirs) -> std::io::Result<()> {
+    pub fn update(dirs: &AppDirs, change: impl FnOnce(&mut Preferences)) -> std::io::Result<Preferences> {
+        let mut saved = None;
         update_settings(dirs, |map| {
-            let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base });
-            if let Value::Object(own) = body {
-                map.extend(own);
-            }
-        })
+            let mut prefs = Self::from_map(map);
+            change(&mut prefs);
+            prefs.encode(map);
+            saved = Some(prefs);
+        })?;
+        Ok(saved.expect("transaction closure executed"))
     }
+
+    /// Legacy snapshot writer; runtime callers migrate to field-level updates.
+    pub fn save(&self, dirs: &AppDirs) -> std::io::Result<()> {
+        update_settings(dirs, |map| self.encode(map))
+    }
+
+    fn encode(&self, map: &mut serde_json::Map<String, Value>) {
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base });
+        if let Value::Object(own) = body {
+            map.extend(own);
+        }
+    }
+}
+
+fn validate_update_settings(map: &serde_json::Map<String, Value>) -> std::io::Result<()> {
+    let valid = map.get("update_check_enabled").is_none_or(Value::is_boolean)
+        && map.get("update_base").is_none_or(|v| v.is_null() || v.is_string())
+        && map.get("last_check").is_none_or(|v| v.is_null() || v.as_u64().is_some())
+        && map.get("max_build_seen").is_none_or(|v| v.as_u64().is_some())
+        && map.get("bad_builds").is_none_or(|v| v.as_array().is_some_and(|a| a.iter().all(|n| n.as_u64().is_some())));
+    if valid { Ok(()) } else { Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid update settings")) }
 }
 
 /// Reads `settings.json` as an object (empty when missing or corrupt).
@@ -366,14 +408,95 @@ pub(crate) fn update_settings(
     crate::create_private_dir(&dirs.config)?;
     #[cfg(not(unix))]
     std::fs::create_dir_all(&dirs.config)?;
-    let mut map = read_settings(dirs);
-    change(&mut map);
-    let tmp = dirs.config.join(format!("{FILE}.tmp"));
+    let path = dirs.config.join(FILE);
+    reject_non_file(&path)?;
+    let lock_path = dirs.config.join("settings.json.lock");
+    reject_non_file(&lock_path)?;
     let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
+    opts.read(true).write(true).create(true);
+    no_follow(&mut opts);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
-    opts.open(&tmp)?
-        .write_all(Value::Object(map).to_string().as_bytes())?;
-    std::fs::rename(tmp, dirs.config.join(FILE))
+    let lock = opts.open(&lock_path)?;
+    validate_regular(&lock.metadata()?)?;
+    lock.try_lock().map_err(std::io::Error::from)?;
+    reject_non_file(&path)?;
+    let mut read_opts = std::fs::OpenOptions::new();
+    read_opts.read(true);
+    no_follow(&mut read_opts);
+    let mut map = match read_opts.open(&path).and_then(|mut file| {
+        validate_regular(&file.metadata()?)?;
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(&mut file, &mut bytes)?;
+        Ok(bytes)
+    }) {
+        Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
+            Ok(Value::Object(map)) => map,
+            Ok(_) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "settings must be an object")),
+            Err(error) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
+        Err(error) => return Err(error),
+    };
+    validate_update_settings(&map)?;
+    change(&mut map);
+    static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let (tmp, mut file) = loop {
+        let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let tmp = dirs.config.join(format!("{FILE}.{}.{}.tmp", std::process::id(), n));
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        match opts.open(&tmp) {
+            Ok(file) => break (tmp, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    };
+    let result = (|| {
+        file.write_all(Value::Object(map).to_string().as_bytes())?;
+        file.sync_all()?;
+        drop(file);
+        reject_non_file(&path)?;
+        std::fs::rename(&tmp, &path)?;
+        #[cfg(unix)]
+        std::fs::File::open(&dirs.config)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn reject_non_file(path: &std::path::Path) -> std::io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => validate_regular(&metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+fn validate_regular(metadata: &std::fs::Metadata) -> std::io::Result<()> {
+    if !metadata.file_type().is_file() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "not a regular file"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "hard link rejected"));
+        }
+    }
+    Ok(())
+}
+
+fn no_follow(opts: &mut std::fs::OpenOptions) {
+    #[cfg(target_os = "linux")]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(opts, libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    #[cfg(target_os = "macos")]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(opts, 0x100 | 0x4);
+    #[cfg(windows)]
+    std::os::windows::fs::OpenOptionsExt::custom_flags(opts, 0x0020_0000);
 }

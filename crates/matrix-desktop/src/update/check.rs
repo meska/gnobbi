@@ -1,9 +1,13 @@
 //! Network half of the update check (AUTO_UPDATE.md §1.4, client steps 1-6): fetch `latest.json`
 //! and `latest.json.minisig`, verify, apply the stateful rules (R8 `max_build_seen`,
 //! `bad_builds`), persist. Errors go to stderr only; the caller never shows them in the UI.
+//! The fetch and the cryptographic check run outside any lock; only the decision is taken and
+//! persisted inside one `Preferences::update` transaction, on the values current at commit time.
 //! No download of the artifact here.
 
-use super::verify::{Candidate, MAX_MANIFEST_BYTES, UpdateError, UpdateKeys, verify_manifest};
+use super::verify::{
+    Candidate, MAX_MANIFEST_BYTES, UpdateError, UpdateKeys, VerifiedManifest, authenticate_manifest,
+};
 use super::{build_number, effective_base};
 use crate::{AppDirs, Preferences};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -39,53 +43,105 @@ pub enum CheckError {
     TooLarge,
     /// Signature or manifest rejected.
     Verify(UpdateError),
-    /// `Preferences::save` failed.
+    /// The settings transaction failed (lock contended, unreadable store, write error):
+    /// nothing was persisted and no candidate is offered.
     Persist(std::io::ErrorKind),
 }
 
-/// Full check with the running build and the real clock; saves `prefs` after a valid decision.
+/// Full check with the running build and the real clock.
 pub async fn check(
     dirs: &AppDirs,
     prefs: &mut Preferences,
     keys: &UpdateKeys,
     platform: &str,
 ) -> Result<Outcome, CheckError> {
+    check_with(dirs, prefs, keys, platform, crate::build_info::BUILD_INFO.build, UPDATE_HOST, SystemTime::now()).await
+}
+
+/// [`check`] with build, host and clock injected: the only body, so tests drive the same path.
+pub(super) async fn check_with(
+    dirs: &AppDirs,
+    prefs: &mut Preferences,
+    keys: &UpdateKeys,
+    platform: &str,
+    build: &str,
+    host: &str,
+    now: SystemTime,
+) -> Result<Outcome, CheckError> {
     // An unparsable build ("sconosciuto") never updates: 0 would offer everything.
-    let Some(running) = build_number(crate::build_info::BUILD_INFO.build) else {
+    let Some(running) = build_number(build) else {
         return Ok(Outcome::NoUpdate);
     };
+    // The scheduler's snapshot may already be stale before the network starts.
+    let current = Preferences::load_checked(dirs).map_err(|e| CheckError::Persist(e.kind()))?;
+    *prefs = current.clone();
     let result = run(
-        prefs,
+        dirs,
+        &current,
         keys,
         running,
         platform,
-        UPDATE_HOST,
-        SystemTime::now(),
+        host,
+        now,
     )
     .await;
-    let result = match result {
-        Ok(out) => prefs
-            .save(dirs)
-            .map(|()| out)
-            .map_err(|e| CheckError::Persist(e.kind())),
-        Err(e) => Err(e),
-    };
     if let Err(e) = &result {
         eprintln!("update check failed: {e:?}");
     }
     result
 }
 
-/// Fetch + verify + decide; mutates `prefs` (not saved) only after a valid decision.
+/// Production path with the running build and clock injected (tests drive it directly). `prefs`
+/// is the configuration read before the network; it is never written back. Steps: gate on the
+/// switch, fetch + verify outside the lock, then decide and persist in one transaction.
 pub(super) async fn run(
-    prefs: &mut Preferences,
+    dirs: &AppDirs,
+    prefs: &Preferences,
     keys: &UpdateKeys,
     running_build: u64,
     platform: &str,
     expected_host: &str,
     now: SystemTime,
 ) -> Result<Outcome, CheckError> {
+    // Before the network: a disabled switch opens no connection at all.
+    if !prefs.update_check_enabled {
+        return Ok(Outcome::NoUpdate);
+    }
     let base = effective_base(prefs);
+    let now_secs = now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    // The stamp is the ATTEMPT (B5): written before the network, so failures and restarts cannot
+    // retry within 24 h. A stamp in the future (clock moved back) is replaced by `now`.
+    // It never touches `max_build_seen`/`bad_builds`.
+    let mut go = false;
+    Preferences::update(dirs, |p| {
+        go = p.update_check_enabled && effective_base(p) == base;
+        if go {
+            p.last_check = Some(now_secs);
+        }
+    })
+    .map_err(|e| CheckError::Persist(e.kind()))?;
+    if !go {
+        return Ok(Outcome::NoUpdate);
+    }
+    let verified = fetch(&base, keys, now).await?;
+    let build = verified.build;
+    // Every authenticated manifest raises the floor (B3), even without our artifact.
+    let (candidate, error) = match verified.select(running_build, platform, expected_host) {
+        Ok(c) => (Some(c), None),
+        Err(UpdateError::NotNewer { .. } | UpdateError::NoArtifact) => (None, None),
+        Err(e) => (None, Some(CheckError::Verify(e))),
+    };
+    let outcome = commit(dirs, &base, build, candidate)?;
+    error.map_or(Ok(outcome), Err)
+}
+
+/// Fetch `latest.json` + `latest.json.minisig` and run the cryptographic verification: the whole
+/// network half, no store read or written.
+async fn fetch(
+    base: &str,
+    keys: &UpdateKeys,
+    now: SystemTime,
+) -> Result<VerifiedManifest, CheckError> {
     let client = reqwest::Client::builder()
         .user_agent("Gnobbi")
         .timeout(TIMEOUT)
@@ -95,17 +151,7 @@ pub(super) async fn run(
         .map_err(|_| CheckError::Network)?;
     let manifest = get_capped(&client, &format!("{base}latest.json")).await?;
     let minisig = get_capped(&client, &format!("{base}latest.json.minisig")).await?;
-    let verdict = verify_manifest(
-        keys,
-        &manifest,
-        &minisig,
-        running_build,
-        now,
-        platform,
-        expected_host,
-    );
-    let now_secs = now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    decide(prefs, verdict, &base, now_secs).map_err(CheckError::Verify)
+    authenticate_manifest(keys, &manifest, &minisig, now).map_err(CheckError::Verify)
 }
 
 /// GET with a hard byte cap, counted while streaming (Content-Length is not trusted).
@@ -128,33 +174,40 @@ async fn get_capped(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, Chec
     Ok(body)
 }
 
-/// R8 and `bad_builds` on top of the verification result. A signed manifest older than
-/// `max_build_seen` is discarded; any valid one (including "not newer") raises `max_build_seen`
-/// and stamps `last_check`. Verification failures leave `prefs` untouched.
-fn decide(
-    prefs: &mut Preferences,
-    verdict: Result<Candidate, UpdateError>,
+/// Decide and persist in ONE transaction on the values the store holds NOW (R8 `max_build_seen`
+/// and `bad_builds` on top of the verification result). The fetched verdict is dropped whole —
+/// no metadata mixed in — when the effective base changed while fetching. `max_build_seen` only moves forward; `bad_builds` is the current set, never replaced by the check.
+/// A failed transaction is [`CheckError::Persist`] and offers no candidate.
+fn commit(
+    dirs: &AppDirs,
     base: &str,
-    now_secs: u64,
-) -> Result<Outcome, UpdateError> {
-    let (build, candidate) = match verdict {
-        Ok(c) => (c.build, Some(c)),
-        Err(UpdateError::NotNewer { build, .. }) => (build, None),
-        Err(e) => return Err(e),
-    };
-    let rollback = build < prefs.max_build_seen;
-    prefs.max_build_seen = prefs.max_build_seen.max(build);
-    prefs.last_check = Some(now_secs);
-    Ok(match candidate {
-        Some(c) if !rollback && !prefs.bad_builds.contains(&c.build) => Outcome::Candidate(Offer {
-            url: format!("{base}{}", c.file_name),
-            version: c.version,
-            build: c.build,
-            sha256: c.sha256,
-            size: c.size,
-        }),
-        _ => Outcome::NoUpdate,
+    build: u64,
+    candidate: Option<Candidate>,
+) -> Result<Outcome, CheckError> {
+    let mut outcome = Outcome::NoUpdate;
+    Preferences::update(dirs, |prefs| {
+        if effective_base(prefs) != base {
+            return;
+        }
+        let rollback = build < prefs.max_build_seen;
+        prefs.max_build_seen = prefs.max_build_seen.max(build);
+        // Switch off since the fetch, a rollback or a known-bad build: metadata only.
+        if prefs.update_check_enabled
+            && !rollback
+            && let Some(c) = candidate
+            && !prefs.bad_builds.contains(&c.build)
+        {
+            outcome = Outcome::Candidate(Offer {
+                version: c.version,
+                build: c.build,
+                url: format!("{base}{}", c.file_name),
+                sha256: c.sha256,
+                size: c.size,
+            });
+        }
     })
+    .map_err(|e| CheckError::Persist(e.kind()))?;
+    Ok(outcome)
 }
 
 #[cfg(test)]

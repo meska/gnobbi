@@ -74,11 +74,17 @@ pub fn bad_builds(dirs: &AppDirs) -> Vec<u64> {
 }
 
 pub fn add_bad_build(dirs: &AppDirs, build: u64) -> std::io::Result<()> {
-    let mut list = bad_builds(dirs);
-    if !list.contains(&build) {
-        list.push(build);
-    }
     update_settings(dirs, |m| {
+        // The union is computed on the values read under the lock: a read before it would be a
+        // snapshot to write back over whatever another writer committed meanwhile.
+        let mut list: Vec<u64> = m
+            .get("bad_builds")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_u64).collect())
+            .unwrap_or_default();
+        if !list.contains(&build) {
+            list.push(build);
+        }
         m.insert("bad_builds".into(), json!(list));
     })
 }

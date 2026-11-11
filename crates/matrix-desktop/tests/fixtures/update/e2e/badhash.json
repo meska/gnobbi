@@ -1,0 +1,1 @@
+{"schema":1,"version":"0.1.0","build":43,"commit":"9f2c1d0a4b6e8c3a5d7f1b2c4e6a8d0f2b4c6e8a","released":"2026-11-05T18:40:00Z","valid_until":"2026-12-05T18:40:00Z","channel":"stable","artifacts":{"linux-x86_64-appimage":{"url":"https://gnobbi.meskatech.net/download/Gnobbi-x86_64-43.AppImage","sha256":"2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881","size":33}}}

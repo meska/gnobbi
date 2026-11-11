@@ -147,6 +147,22 @@ pub fn verify_manifest(
     platform: &str,
     expected_host: &str,
 ) -> Result<Candidate, UpdateError> {
+    let verified = authenticate_manifest(keys, manifest, minisig, now)?;
+    verified.select(running_build, platform, expected_host)
+}
+
+pub(super) struct VerifiedManifest {
+    pub build: u64,
+    version: String,
+    artifacts: Value,
+}
+
+pub(super) fn authenticate_manifest(
+    keys: &UpdateKeys,
+    manifest: &[u8],
+    minisig: &[u8],
+    now: SystemTime,
+) -> Result<VerifiedManifest, UpdateError> {
     if manifest.len() > MAX_MANIFEST_BYTES || minisig.len() > MAX_SIGNATURE_BYTES {
         return Err(UpdateError::TooLarge);
     }
@@ -200,49 +216,69 @@ pub fn verify_manifest(
     if now >= valid_until {
         return Err(UpdateError::Expired);
     }
-    if build <= running_build {
-        return Err(UpdateError::NotNewer {
-            build,
-            running: running_build,
-        });
-    }
-
-    let artifact = artifacts.get(platform).ok_or(UpdateError::NoArtifact)?;
-    let url = artifact
-        .get("url")
-        .and_then(Value::as_str)
-        .ok_or(UpdateError::Malformed("url"))?;
-    let sha256 = artifact
-        .get("sha256")
-        .and_then(Value::as_str)
-        .filter(|h| h.len() == 64 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
-        .ok_or(UpdateError::Malformed("sha256"))?;
-    let size = artifact
-        .get("size")
-        .and_then(Value::as_u64)
-        .filter(|s| *s > 0)
-        .ok_or(UpdateError::Malformed("size"))?;
-
-    let url = url::Url::parse(url)
-        .ok()
-        .filter(|u| u.scheme() == "https")
-        .ok_or(UpdateError::NotHttps)?;
-    if url.host_str() != Some(expected_host) {
-        return Err(UpdateError::WrongHost);
-    }
-    let file_name = url
-        .path_segments()
-        .and_then(|mut s| s.next_back())
-        .filter(|n| !matches!(*n, "" | "." | "..") && n.bytes().all(is_name_byte))
-        .ok_or(UpdateError::BadFileName)?;
-
-    Ok(Candidate {
-        version: version.to_owned(),
+    Ok(VerifiedManifest {
         build,
-        file_name: file_name.to_owned(),
-        sha256: sha256.to_owned(),
-        size,
+        version: version.to_owned(),
+        artifacts: Value::Object(artifacts.clone()),
     })
+}
+
+impl VerifiedManifest {
+    pub(super) fn select(
+        self,
+        running_build: u64,
+        platform: &str,
+        expected_host: &str,
+    ) -> Result<Candidate, UpdateError> {
+        let Self {
+            build,
+            version,
+            artifacts,
+        } = self;
+        if build <= running_build {
+            return Err(UpdateError::NotNewer {
+                build,
+                running: running_build,
+            });
+        }
+
+        let artifact = artifacts.get(platform).ok_or(UpdateError::NoArtifact)?;
+        let url = artifact
+            .get("url")
+            .and_then(Value::as_str)
+            .ok_or(UpdateError::Malformed("url"))?;
+        let sha256 = artifact
+            .get("sha256")
+            .and_then(Value::as_str)
+            .filter(|h| h.len() == 64 && h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+            .ok_or(UpdateError::Malformed("sha256"))?;
+        let size = artifact
+            .get("size")
+            .and_then(Value::as_u64)
+            .filter(|s| *s > 0)
+            .ok_or(UpdateError::Malformed("size"))?;
+
+        let url = url::Url::parse(url)
+            .ok()
+            .filter(|u| u.scheme() == "https")
+            .ok_or(UpdateError::NotHttps)?;
+        if url.host_str() != Some(expected_host) {
+            return Err(UpdateError::WrongHost);
+        }
+        let file_name = url
+            .path_segments()
+            .and_then(|mut s| s.next_back())
+            .filter(|n| !matches!(*n, "" | "." | "..") && n.bytes().all(is_name_byte))
+            .ok_or(UpdateError::BadFileName)?;
+
+        Ok(Candidate {
+            version: version.to_owned(),
+            build,
+            file_name: file_name.to_owned(),
+            sha256: sha256.to_owned(),
+            size,
+        })
+    }
 }
 
 /// Checks a downloaded file against the verified candidate before any chmod, rename
@@ -298,7 +334,7 @@ impl UpdateKeys {
                 Ok(()) => return Ok(()),
                 Err(minisign_verify::Error::UnexpectedKeyId) => {}
                 Err(minisign_verify::Error::InvalidSignature) => {
-                    return Err(UpdateError::InvalidSignature)
+                    return Err(UpdateError::InvalidSignature);
                 }
                 Err(_) => return Err(UpdateError::MalformedSignature),
             }

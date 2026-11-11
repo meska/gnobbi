@@ -24,13 +24,17 @@ impl Shell {
 
     pub(crate) fn choose_install(&mut self, choice: Choice, cx: &mut Context<Self>) {
         let icon = self.prefs.icon;
-        let changed =
-            self.install_offer
-                .choose(choice, &mut self.prefs.desktop_entry_dont_ask, |replace| {
-                    matrix_desktop::desktop_entry::install_for_current_user(icon, replace)
-                });
-        if changed {
-            self.save_prefs(cx);
+        let mut dont_ask = self.prefs.desktop_entry_dont_ask;
+        self.install_offer
+            .choose(choice, &mut dont_ask, |replace| {
+                matrix_desktop::desktop_entry::install_for_current_user(icon, replace)
+            });
+        if matches!(choice, Choice::Never | Choice::Add | Choice::Replace)
+            && !self.install_offer.open && self.install_offer.error.is_none()
+            && !self.update_prefs(cx, |p| p.desktop_entry_dont_ask = dont_ask)
+        {
+            self.install_offer.open = true;
+            self.install_offer.error = Some("Impossibile salvare le impostazioni. Riprova.".into());
         }
         cx.notify();
     }
