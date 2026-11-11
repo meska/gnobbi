@@ -1254,3 +1254,70 @@ fn disposable_thread_receipt_privacy_gate() {
     });
     worker.shutdown().expect("worker stops");
 }
+/// Room-list badge = main-timeline messages only, plain and encrypted room: thread replies before and
+/// after the main message, a read of `main`, then a new reply (no change) and a new main message (+1).
+/// Bob sends through the SDK so the encrypted room really carries megolm events.
+/// Run: `python3 the auth_smoke script --filter disposable_thread_badge [--server tuwunel]`
+#[test]
+#[ignore = "requires disposable homeserver; needs the external test harness (not in this repo)"]
+fn disposable_thread_badge_counts_main_messages_only_plain_and_encrypted() {
+    use crate::room_sync::RoomSync;
+    use matrix_sdk::ruma::events::room::message::{RoomMessageEventContent as Msg, Relation};
+    use matrix_sdk::ruma::events::relation::Thread;
+    let config = fixture();
+    runtime().block_on(async {
+        for (encrypted, n) in [(false, 70u64), (true, 72)] {
+            let mut create = serde_json::json!({"invite":["@bob:matrix-desktop.test"], "preset":"private_chat"});
+            if encrypted {
+                create["initial_state"] = serde_json::json!([{"type":"m.room.encryption","state_key":"",
+                    "content":{"algorithm":"m.megolm.v1.aes-sha2"}}]);
+            }
+            let room = room_request(&config, "alice", reqwest::Method::POST, "createRoom", create).await["room_id"].as_str().unwrap().to_owned();
+            room_request(&config, "bob", reqwest::Method::POST, &format!("join/{room}"), serde_json::json!({})).await;
+            let peer = login(&config, "bob", n + 1).await.client.unwrap();
+            peer.encryption().wait_for_e2ee_initialization_tasks().await;
+            peer.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            let mut alice = RoomSync::new(login(&config, "alice", n).await);
+            alice.sliding_round().await.unwrap();
+            peer.sync_once(matrix_sdk::config::SyncSettings::default()).await.unwrap();
+            alice.sliding_round().await.unwrap();
+            let scope = matrix_domain::RoomScope { account_id: AccountId::new(n), room_id: matrix_domain::RoomId::new(room.clone()) };
+            let peer_room = peer.get_room(&matrix_sdk::ruma::RoomId::parse(&room).unwrap()).unwrap();
+            let root = alice.send_text(&crate::sending::SendRequest { scope: scope.clone(),
+                transaction_id: matrix_domain::TransactionId::new(format!("badge-root-{n}")), body: "root".into(),
+                attachment: None, poll: None, mentions: Vec::new() }).await.unwrap();
+            let root_ev = matrix_sdk::ruma::OwnedEventId::try_from(root.as_str().to_owned()).unwrap();
+            let thread_reply = |body: &str| { let mut m = Msg::text_plain(body); m.relates_to = Some(Relation::Thread(Thread::plain(root_ev.clone(), root_ev.clone()))); m };
+            let mut badge = None;
+            // Every await is bounded: an unbounded one hung the Tuwunel run once in ~5. Waits for the badge to reach `want`; the last value seen is returned either way.
+            macro_rules! settle { ($want:expr) => {{
+                for _ in 0..12 {
+                    let _ = tokio::time::timeout(std::time::Duration::from_secs(20), peer.sync_once(matrix_sdk::config::SyncSettings::default().timeout(std::time::Duration::from_millis(300)))).await;
+                    if let Ok(Ok(diffs)) = tokio::time::timeout(std::time::Duration::from_secs(30), alice.sliding_round()).await { for d in diffs {
+                        if let crate::RoomListDiff::Upsert(r) = d && r.scope.room_id.as_str() == room { badge = Some(r.unread); }
+                    } }
+                    if badge == Some($want) { break; }
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                badge
+            }}; }
+            let mut seen = Vec::new();
+            for b in ["reply one", "reply two"] { {tokio::time::timeout(std::time::Duration::from_secs(40), peer_room.send(thread_reply(b))).await.expect("peer send hung (bounded, see Tuwunel note)").unwrap()}; }
+            seen.push(("only_thread_replies", settle!(0)));
+            {tokio::time::timeout(std::time::Duration::from_secs(40), peer_room.send(Msg::text_plain("main one"))).await.expect("peer send hung (bounded, see Tuwunel note)").unwrap()};
+            {tokio::time::timeout(std::time::Duration::from_secs(40), peer_room.send(thread_reply("reply three"))).await.expect("peer send hung (bounded, see Tuwunel note)").unwrap()};
+            seen.push(("main_then_reply", settle!(1)));
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(30), alice.mark_main_read(&scope, false)).await;
+            seen.push(("main_read", settle!(0)));
+            {tokio::time::timeout(std::time::Duration::from_secs(40), peer_room.send(thread_reply("reply four"))).await.expect("peer send hung (bounded, see Tuwunel note)").unwrap()};
+            seen.push(("new_reply_after_read", settle!(0)));
+            {tokio::time::timeout(std::time::Duration::from_secs(40), peer_room.send(Msg::text_plain("main two"))).await.expect("peer send hung (bounded, see Tuwunel note)").unwrap()};
+            seen.push(("new_main_after_read", settle!(1)));
+            println!("P336_BADGE {}", serde_json::json!({"server": config["server"], "encrypted": encrypted, "steps": seen}));
+            let want = [("only_thread_replies", Some(0)), ("main_then_reply", Some(1)), ("main_read", Some(0)),
+                ("new_reply_after_read", Some(0)), ("new_main_after_read", Some(1))];
+            assert_eq!(seen, want, "badge counts main messages only (encrypted: {encrypted})");
+        }
+    });
+}
+
