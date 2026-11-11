@@ -312,6 +312,8 @@ fn deny(_: &Path) -> std::io::Result<()> {
     Err(std::io::ErrorKind::PermissionDenied.into())
 }
 
+// rename(prev, target) on the same inode is a no-op only on unix; on Windows it moves prev away.
+#[cfg(unix)]
 #[test]
 fn failed_cleanup_after_a_rollback_is_reported_and_keeps_the_marker_with_the_backup() {
     let fx = fixture("cleanup-fail");
