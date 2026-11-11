@@ -17,6 +17,8 @@ mod filter_view;
 mod groups_edit_view;
 mod invite_view;
 mod link_view;
+/// URLs the system handed to the app (macOS open-URL) before the shell could take them.
+static OPENED_URLS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 #[cfg(target_os = "linux")]
 mod install_offer_view;
 mod login_field;
@@ -2973,7 +2975,11 @@ fn main() {
         .then(matrix_desktop::notifications::NotificationWorker::spawn)
         .and_then(Result::ok);
     let mut notification_handle = notification_worker.as_ref().map(|worker| worker.handle());
-    Application::new().run(move |cx: &mut App| {
+    // Registered on the Application, before it runs and so before any window: GPUI drops URLs that arrive
+    // with no callback. The shell does not exist yet, so the URLs wait in OPENED_URLS for the 200 ms tick.
+    let app = Application::new();
+    app.on_open_urls(|urls| OPENED_URLS.lock().unwrap().extend(urls));
+    app.run(move |cx: &mut App| {
         emoji_font::register(cx);
         #[cfg(target_os = "macos")]
         cx.set_menus(vec![
@@ -3411,6 +3417,10 @@ fn main() {
                                     if !link.is_empty() {
                                         this.open_matrix_link(&link, cx);
                                     }
+                                }
+                                #[cfg(feature = "live")]
+                                for url in std::mem::take(&mut *OPENED_URLS.lock().unwrap()) {
+                                    this.open_matrix_link(&url, cx);
                                 }
                                 this.drain_pending_link(window, cx);
                             }).is_err() {

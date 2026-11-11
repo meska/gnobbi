@@ -38,6 +38,10 @@ cat > "$APP/Contents/Info.plist" <<P
 <key>ITSAppUsesNonExemptEncryption</key><false/>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSMicrophoneUsageDescription</key><string>Gnobbi usa il microfono per registrare le note vocali.</string>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>Matrix</string>
+<key>CFBundleURLSchemes</key><array><string>matrix</string></array>
+</dict></array>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict></plist>
 P
