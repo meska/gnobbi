@@ -428,7 +428,7 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - matchers 0.2.0 — MIT — https://github.com/hawkw/matchers
 - matrix-pickle 0.2.3 — Apache-2.0 — https://github.com/matrix-org/matrix-pickle
 - matrix-pickle-derive 0.2.3 — Apache-2.0 — https://github.com/matrix-org/matrix-pickle
-- matrix-sdk 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk — vendored with local modifications (optional receive-time response body limit); provenance, modified files and license in vendor/matrix-sdk-0.19.1/GNOBBI-PATCH.md, LICENSE and vendor/matrix-sdk-0.19.1.patch.
+- matrix-sdk 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk — vendored with local modifications (optional receive-time response body limit; offline thread pagination across gaps); provenance, modified files and license in vendor/matrix-sdk-0.19.1/GNOBBI-PATCH.md, LICENSE and vendor/matrix-sdk-0.19.1.patch.
 - matrix-sdk-base 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk
 - matrix-sdk-common 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk
 - matrix-sdk-crypto 0.19.1 — Apache-2.0 — https://github.com/matrix-org/matrix-rust-sdk

@@ -17,7 +17,7 @@ ANNOTATIONS = {
     # matrix-sdk is vendored and patched; see GNOBBI-PATCH.md in the vendor dir.
     ("matrix-sdk", "0.19.1"):
         "https://github.com/matrix-org/matrix-rust-sdk — vendored with local "
-        "modifications (optional receive-time response body limit); provenance, "
+        "modifications (optional receive-time response body limit; offline thread pagination across gaps); provenance, "
         "modified files and license in vendor/matrix-sdk-0.19.1/GNOBBI-PATCH.md, "
         "LICENSE and vendor/matrix-sdk-0.19.1.patch.",
     # gpui is vendored with one Linux text-system patch; see GNOBBI-PATCH.md in the vendor dir.

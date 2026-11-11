@@ -83,6 +83,10 @@ struct ThreadEventCacheInner {
 
     /// Update sender for this thread.
     update_sender: ThreadEventCacheUpdateSender,
+
+    /// Gnobbi: when set, a back-pagination from the store reads the saved chunks
+    /// across the gaps instead of stopping at the first one (see `set_read_through_gaps`).
+    read_through_gaps: std::sync::atomic::AtomicBool,
 }
 
 impl fmt::Debug for ThreadEventCache {
@@ -137,6 +141,7 @@ impl ThreadEventCache {
                 pagination_batch_token_notifier: Notify::new(),
                 auto_shrink_sender,
                 update_sender,
+                read_through_gaps: std::sync::atomic::AtomicBool::new(false),
             }),
         };
 
@@ -222,6 +227,13 @@ impl ThreadEventCache {
         trace!("added a thread event cache subscriber; new count: {}", subscribers_handle.count());
 
         Ok((events, subscriber))
+    }
+
+    /// Gnobbi: while `on`, back-pagination reads the saved chunks across the gaps (no network),
+    /// so a thread whose live events each left a gap shows what the store holds when the
+    /// server cannot be reached. The holes stay marked as gaps in memory.
+    pub fn set_read_through_gaps(&self, on: bool) {
+        self.inner.read_through_gaps.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Return a [`ThreadPagination`] useful for running back-pagination queries
