@@ -83,6 +83,28 @@ impl Shell {
         let width = self.list_width(window);
         let ring = crate::input_modality::ring(&self.list_divider_focus, window, cx);
         let accent = self.theme.tokens().accent;
+        // Shared by the handle and the drag layer: a quick second press can land on the layer before the first release is handled.
+        let press = move |this: &mut Shell, e: &gpui::MouseDownEvent, window: &mut Window, cx: &mut Context<Shell>| {
+            window.focus(&this.list_divider_focus);
+            if e.click_count >= 2 {
+                this.list_drag = None;
+                this.set_list_width(None, window, cx);
+                this.save_list_width();
+            } else {
+                this.list_drag = Some((f32::from(e.position.x), width));
+                cx.notify();
+            }
+            cx.stop_propagation();
+        };
+        // Save only if the drag changed the width (a plain click writes nothing).
+        let end = |this: &mut Shell, _: &gpui::MouseUpEvent, window: &mut Window, cx: &mut Context<Shell>| {
+            if let Some((_, w0)) = this.list_drag.take() {
+                if this.list_width(window) != w0 {
+                    this.save_list_width();
+                }
+                cx.notify();
+            }
+        };
         let handle = div()
             .id("list-divider")
             .absolute()
@@ -92,24 +114,8 @@ impl Shell {
             .w(px(GRAB_WIDTH))
             .cursor(CursorStyle::ResizeLeftRight)
             .when(ring, |d| d.child(div().absolute().top_0().bottom_0().left(px((GRAB_WIDTH - 2.) / 2.)).w(px(2.)).bg(rgb(accent))))
-            .on_mouse_down(MouseButton::Left, cx.listener(move |this, e: &gpui::MouseDownEvent, window, cx| {
-                window.focus(&this.list_divider_focus);
-                if e.click_count >= 2 {
-                    this.list_drag = None;
-                    this.set_list_width(None, window, cx);
-                    this.save_list_width();
-                } else {
-                    this.list_drag = Some((f32::from(e.position.x), width));
-                    cx.notify();
-                }
-                cx.stop_propagation();
-            }));
-        let end = |this: &mut Shell, _: &gpui::MouseUpEvent, _: &mut Window, cx: &mut Context<Shell>| {
-            if this.list_drag.take().is_some() {
-                this.save_list_width();
-                cx.notify();
-            }
-        };
+            .on_mouse_down(MouseButton::Left, cx.listener(press))
+            .on_mouse_up(MouseButton::Left, cx.listener(end));
         let layer = self.list_drag.map(|(x0, w0)| {
             div()
                 .id("list-divider-drag")
@@ -117,6 +123,7 @@ impl Shell {
                 .inset_0()
                 .occlude()
                 .cursor(CursorStyle::ResizeLeftRight)
+                .on_mouse_down(MouseButton::Left, cx.listener(press))
                 .on_mouse_move(cx.listener(move |this, e: &gpui::MouseMoveEvent, window, cx| {
                     this.set_list_width(Some(w0 + f32::from(e.position.x) - x0), window, cx);
                 }))
