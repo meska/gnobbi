@@ -1,6 +1,25 @@
 use matrix_desktop::{Accent, AppDirs, AutoNight, FontChoice, Preferences, Theme};
 use std::path::PathBuf;
 
+/// A child spawned while another test holds a settings lock inherits that fd until exec, so the
+/// lock reads as held (macOS and Linux). Every test touching settings holds this shared (`no_spawn`),
+/// the spawning test exclusively (`spawn_gate`, polled: a queued writer would deadlock a nested reader).
+static SPAWN_GATE: std::sync::RwLock<()> = std::sync::RwLock::new(());
+
+fn no_spawn() -> std::sync::RwLockReadGuard<'static, ()> {
+    SPAWN_GATE.read().unwrap_or_else(|e| e.into_inner())
+}
+
+fn spawn_gate() -> std::sync::RwLockWriteGuard<'static, ()> {
+    loop {
+        match SPAWN_GATE.try_write() {
+            Ok(g) => return g,
+            Err(std::sync::TryLockError::Poisoned(e)) => return e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(std::time::Duration::from_millis(1)),
+        }
+    }
+}
+
 fn dirs(root: &std::path::Path) -> AppDirs {
     AppDirs {
         config: root.join("cfg"),
@@ -19,12 +38,14 @@ fn tmp(name: &str) -> PathBuf {
 #[test]
 fn missing_file_gives_defaults() {
     assert!(!Preferences::default().close_to_tray, "closing keeps quitting unless asked");
+    let _gate = no_spawn();
     let d = dirs(&tmp("missing"));
     assert_eq!(Preferences::load(&d), Preferences::default());
 }
 
 #[test]
 fn roundtrip_keeps_values() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("roundtrip"));
     let p = Preferences {
         theme: Some(Theme::Night),
@@ -51,6 +72,7 @@ fn roundtrip_keeps_values() {
 fn transaction_excludes_a_second_thread_but_not_another_directory() {
     use std::sync::mpsc;
     use std::time::Duration;
+    let _gate = no_spawn();
     let d = dirs(&tmp("thread-lock"));
     let other = dirs(&tmp("thread-other"));
     let thread_dirs = d.clone();
@@ -77,7 +99,7 @@ fn transaction_excludes_a_second_thread_but_not_another_directory() {
 fn lock_process_helper() {
     use std::io::{Read, Write};
     let Some(path) = std::env::var_os("GNOBBI_TEST_LOCK_PATH") else { return };
-    let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).open(path).unwrap();
+    let lock = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(path).unwrap();
     lock.try_lock().unwrap();
     println!("LOCK_HELD");
     std::io::stdout().flush().unwrap();
@@ -90,6 +112,7 @@ fn process_death_releases_the_lock() {
     use std::io::{BufRead, BufReader};
     use std::process::{Command, Stdio};
     use std::time::Duration;
+    let _gate = spawn_gate();
     let d = dirs(&tmp("process-lock"));
     std::fs::create_dir_all(&d.config).unwrap();
     let mut child = Command::new(std::env::current_exe().unwrap())
@@ -118,6 +141,7 @@ fn process_death_releases_the_lock() {
 #[test]
 fn settings_and_lock_symlinks_are_rejected() {
     use std::os::unix::fs::symlink;
+    let _gate = no_spawn();
     let d = dirs(&tmp("symlinks"));
     std::fs::create_dir_all(&d.config).unwrap();
     let victim = d.config.join("victim");
@@ -134,6 +158,7 @@ fn settings_and_lock_symlinks_are_rejected() {
 #[cfg(unix)]
 #[test]
 fn settings_and_lock_hard_links_are_rejected() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("hardlinks"));
     std::fs::create_dir_all(&d.config).unwrap();
     let victim = d.config.join("victim");
@@ -150,6 +175,7 @@ fn settings_and_lock_hard_links_are_rejected() {
 #[test]
 fn directory_servers_and_outcome_survive_preference_update() {
     use matrix_desktop::directory_servers::SavedServers;
+    let _gate = no_spawn();
     let d = dirs(&tmp("shared-stores"));
     std::fs::create_dir_all(&d.config).unwrap();
     let path = d.config.join("settings.json");
@@ -167,6 +193,7 @@ fn directory_servers_and_outcome_survive_preference_update() {
 
 #[test]
 fn non_object_settings_are_never_overwritten() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("non-object"));
     std::fs::create_dir_all(&d.config).unwrap();
     let path = d.config.join("settings.json");
@@ -177,6 +204,7 @@ fn non_object_settings_are_never_overwritten() {
 
 #[test]
 fn update_reads_current_values_and_preserves_unknown_keys() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("update-current"));
     std::fs::create_dir_all(&d.config).unwrap();
     let path = d.config.join("settings.json");
@@ -190,6 +218,7 @@ fn update_reads_current_values_and_preserves_unknown_keys() {
 
 #[test]
 fn save_returns_would_block_if_another_handle_holds_the_lock() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("contended"));
     std::fs::create_dir_all(&d.config).unwrap();
     let lock = std::fs::File::create(d.config.join("settings.json.lock")).unwrap();
@@ -201,6 +230,7 @@ fn save_returns_would_block_if_another_handle_holds_the_lock() {
 
 #[test]
 fn corrupt_settings_are_not_overwritten_by_save() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("corrupt-save"));
     std::fs::create_dir_all(&d.config).unwrap();
     let path = d.config.join("settings.json");
@@ -211,6 +241,7 @@ fn corrupt_settings_are_not_overwritten_by_save() {
 
 #[test]
 fn corrupt_file_gives_defaults() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("corrupt"));
     std::fs::create_dir_all(&d.config).unwrap();
     std::fs::write(d.config.join("settings.json"), b"{not json").unwrap();
@@ -219,6 +250,7 @@ fn corrupt_file_gives_defaults() {
 
 #[test]
 fn unknown_keys_ignored_and_invalid_values_default_per_field() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("unknown"));
     std::fs::create_dir_all(&d.config).unwrap();
     std::fs::write(
@@ -235,6 +267,7 @@ fn unknown_keys_ignored_and_invalid_values_default_per_field() {
 #[test]
 fn save_creates_private_dir_and_file() {
     use std::os::unix::fs::PermissionsExt;
+    let _gate = no_spawn();
     let d = dirs(&tmp("perm"));
     Preferences::default().save(&d).unwrap();
     let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
@@ -244,6 +277,7 @@ fn save_creates_private_dir_and_file() {
 
 #[test]
 fn thumbnail_cache_dir_is_under_cache_and_created() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("thumbs"));
     let t = d.thumbnails().unwrap();
     assert_eq!(t, d.cache.join("thumbnails"));
@@ -253,6 +287,7 @@ fn thumbnail_cache_dir_is_under_cache_and_created() {
 #[test]
 fn read_receipts_default_on_and_invalid_value_falls_back_to_on() {
     assert!(Preferences::default().read_receipts);
+    let _gate = no_spawn();
     let d = dirs(&tmp("receipts"));
     std::fs::create_dir_all(&d.config).unwrap();
     for body in [
@@ -277,6 +312,7 @@ fn read_receipts_default_on_and_invalid_value_falls_back_to_on() {
 
 #[test]
 fn theme_saved_values_map_to_the_four_themes_and_unknown_follows_system() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("badtheme"));
     std::fs::create_dir_all(&d.config).unwrap();
     for (saved, want) in [
@@ -316,6 +352,7 @@ fn theme_saved_values_map_to_the_four_themes_and_unknown_follows_system() {
 
 #[test]
 fn accent_roundtrips_system_included_and_unknown_means_blue() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("accent"));
     for accent in Accent::ALL.map(Some).into_iter().chain([None]) {
         Preferences { accent, ..Preferences::default() }.save(&d).unwrap();
@@ -362,6 +399,7 @@ fn auto_night_picks_night_by_clock_or_system_else_the_saved_theme() {
 
 #[test]
 fn auto_night_and_font_default_safely_when_invalid_or_wrong_type() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("autofont"));
     std::fs::create_dir_all(&d.config).unwrap();
     for body in [
@@ -382,6 +420,7 @@ fn auto_night_and_font_default_safely_when_invalid_or_wrong_type() {
 
 #[test]
 fn restart_restores_theme_accent_auto_night_and_font() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("restart"));
     for auto_night in AutoNight::ALL {
         for font in FontChoice::ALL {
@@ -405,6 +444,7 @@ fn restart_restores_theme_accent_auto_night_and_font() {
 
 #[test]
 fn unreadable_or_hostile_settings_files_load_as_defaults_without_panicking() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("hostile"));
     std::fs::create_dir_all(&d.config).unwrap();
     let file = d.config.join("settings.json");
@@ -431,6 +471,7 @@ fn icon_defaults_to_minimal_mark_saves_and_invalid_value_falls_back() {
         IconChoice::ALL.map(IconChoice::label),
         ["Segno minimo", "Gnomo", "Mostriciattolo"]
     );
+    let _gate = no_spawn();
     let d = dirs(&tmp("icon"));
     for icon in IconChoice::ALL {
         let p = Preferences { icon, ..Preferences::default() };
@@ -446,6 +487,7 @@ fn icon_defaults_to_minimal_mark_saves_and_invalid_value_falls_back() {
 #[test]
 fn hide_redacted_defaults_on_invalid_falls_back_and_persists() {
     assert!(Preferences::default().hide_redacted);
+    let _gate = no_spawn();
     let d = dirs(&tmp("hide-redacted"));
     std::fs::create_dir_all(&d.config).unwrap();
     for body in [
@@ -468,6 +510,7 @@ fn hide_redacted_defaults_on_invalid_falls_back_and_persists() {
 
 #[test]
 fn update_fields_old_file_defaults_and_full_roundtrip() {
+    let _gate = no_spawn();
     let d = dirs(&tmp("update_fields"));
     std::fs::create_dir_all(&d.config).unwrap();
     std::fs::write(d.config.join("settings.json"), r#"{"theme":"dark","debug":true}"#).unwrap();
