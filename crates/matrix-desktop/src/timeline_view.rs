@@ -3492,8 +3492,8 @@ mod tests {
                         "the waveform sits beside the button"
                     );
                     assert!(
-                        duration.left() >= waveform.right() - px(1.),
-                        "the duration sits on the right"
+                        duration.top() >= waveform.bottom() - px(1.),
+                        "the duration sits under the waveform"
                     );
                     assert!(
                         f32::from(waveform.size.height) > 0. && f32::from(duration.size.width) > 0.,

@@ -226,8 +226,8 @@ pub(crate) fn video_picture(
         .into_any_element()
 }
 
-/// Audio bubble: a round Play/Pause button, the waveform with the played part filled in, and
-/// the duration and size beside it. The message's own time stays in the bubble footer.
+/// Audio bubble: a round Play/Pause button, the waveform (full remaining width) with the played part filled in, and
+/// the duration and size under it. The message's own time stays in the bubble footer.
 /// A note whose playback failed shows its one line instead of a dead button.
 pub(crate) fn audio_bubble(
     waveform: Vec<f32>,
@@ -262,22 +262,32 @@ pub(crate) fn audio_bubble(
             .child(probe("failed"))
             .into_any_element();
     }
-    let played = if waveform.is_empty() {
-        0
-    } else {
-        ((progress.clamp(0.0, 1.0) * waveform.len() as f32).round() as usize).min(waveform.len())
+    // Bars are painted to the measured width: as many as fit (2px wide, at least 1px apart),
+    // spread so the last one ends on the right edge. Each bar shows the peak of its slice.
+    let waveform_bars = {
+        let painted = painted.clone();
+        let (accent, rest) = (t.accent, t.border);
+        gpui::canvas(
+            |_, _, _| (),
+            move |bounds, _, window, _| {
+                painted("waveform", bounds);
+                let (width, bar) = (f32::from(bounds.size.width), 2.0_f32);
+                let n = (((width - bar) / 3.0).floor().max(0.0) as usize + 1).min(waveform.len().max(1));
+                let pitch = if n > 1 { (width - bar) / (n - 1) as f32 } else { 0.0 };
+                let played = (progress.clamp(0.0, 1.0) * n as f32).round() as usize;
+                for i in 0..n {
+                    let (from, to) = (i * waveform.len() / n, ((i + 1) * waveform.len() / n).max(i * waveform.len() / n + 1));
+                    let peak = waveform.get(from..to.min(waveform.len())).and_then(|s| s.iter().copied().reduce(f32::max)).unwrap_or(0.0);
+                    let h = 2.0 + peak.clamp(0.0, 1.0) * (f32::from(bounds.size.height) - 2.0);
+                    let origin = gpui::point(bounds.origin.x + px(i as f32 * pitch), bounds.origin.y + px((f32::from(bounds.size.height) - h) / 2.0));
+                    let mut quad = gpui::fill(gpui::Bounds::new(origin, gpui::size(px(bar), px(h))), rgb(if i < played { accent } else { rest }));
+                    quad.corner_radii = px(1.).into();
+                    window.paint_quad(quad);
+                }
+            },
+        )
+        .size_full()
     };
-    // A sent waveform can be any length: draw at most 60 bars, one per shown point.
-    let step = waveform.len().div_ceil(60).max(1);
-    let bars = waveform.iter().step_by(step).enumerate().map(|(i, peak)| {
-        let played = i * step < played;
-        let colour = if played { t.accent } else { t.border };
-        div()
-            .w(px(2.))
-            .h(px(2. + peak.clamp(0.0, 1.0) * 22.))
-            .rounded_sm()
-            .bg(rgb(colour))
-    });
     let button = div()
         .relative()
         .flex()
@@ -295,33 +305,28 @@ pub(crate) fn audio_bubble(
         .flex()
         .items_center()
         .gap_3()
-        .h(px(44.))
         .child(button)
         .child(
             div()
-                .relative()
                 .flex()
+                .flex_col()
                 .flex_1()
                 .min_w_0()
-                .items_center()
-                .gap(px(1.))
-                .h(px(24.))
-                .children(bars)
-                .child(probe("waveform")),
-        )
-        .child(
-            div()
-                .relative()
-                .flex_shrink_0()
-                .text_size(px(12.))
-                .text_color(rgb(t.secondary))
-                .child(match (duration, size) {
-                    (Some(duration), Some(size)) => format!("{duration} · {size}"),
-                    (Some(duration), None) => duration,
-                    (None, Some(size)) => size,
-                    (None, None) => String::new(),
-                })
-                .child(probe("duration")),
+                .gap(px(2.))
+                .child(div().h(px(40.)).child(waveform_bars))
+                .child(
+                    div()
+                        .relative()
+                        .text_size(px(12.))
+                        .text_color(rgb(t.secondary))
+                        .child(match (duration, size) {
+                            (Some(duration), Some(size)) => format!("{duration} · {size}"),
+                            (Some(duration), None) => duration,
+                            (None, Some(size)) => size,
+                            (None, None) => String::new(),
+                        })
+                        .child(probe("duration")),
+                ),
         )
         .into_any_element()
 }
