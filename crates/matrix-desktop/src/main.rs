@@ -2703,13 +2703,16 @@ fn single_instance_gate(argv: &[String]) {
     use matrix_desktop::single_instance::{Claim, MAX_LINK, claim, default_socket_path, serve};
     let (rest, link) = matrix_desktop::take_matrix_link(argv.to_vec());
     if rest.first().is_some_and(|a| a == "--install-desktop-entry")
-        || matrix_desktop::single_instance::is_account_window(&rest)
+        || matrix_desktop::is_account_window(&rest)
     {
         return;
     }
     // An oversized link is invalid anyway: the live instance is only raised.
     let link = link.filter(|l| l.len() <= MAX_LINK && !l.contains('\n')).unwrap_or_default();
-    match claim(&default_socket_path(), &link) {
+    let Some(path) = default_socket_path() else {
+        return eprintln!("Gnobbi: single instance off (no private state directory)");
+    };
+    match claim(&path, &link) {
         Ok(Claim::First(listener)) => serve(listener),
         Ok(Claim::Delivered) => std::process::exit(0),
         Err(error) => eprintln!("Gnobbi: single instance off ({error})"),
@@ -2720,7 +2723,10 @@ fn single_instance_gate(argv: &[String]) {
 #[cfg(all(windows, feature = "live"))]
 fn single_instance_gate(argv: &[String]) {
     use matrix_desktop::windows_link::{Claim, MAX_LINK, claim, register_for_current_user};
-    let (_, link) = matrix_desktop::take_matrix_link(argv.to_vec());
+    let (rest, link) = matrix_desktop::take_matrix_link(argv.to_vec());
+    if matrix_desktop::is_account_window(&rest) {
+        return;
+    }
     let link = link.filter(|l| l.len() <= MAX_LINK && !l.contains('\n')).unwrap_or_default();
     match claim(&link) {
         Ok(Claim::First) => register_for_current_user(),

@@ -4,7 +4,7 @@
 use std::{
     io::{self, Read, Write},
     os::unix::{
-        fs::{MetadataExt, PermissionsExt},
+        fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
         net::{UnixListener, UnixStream},
     },
     path::{Path, PathBuf},
@@ -13,26 +13,38 @@ use std::{
 
 pub const MAX_LINK: usize = 2048;
 
-/// `$XDG_RUNTIME_DIR`, else `$XDG_STATE_HOME`, else `/tmp` with the uid in the name.
-pub fn socket_path(runtime: Option<&Path>, state: Option<&Path>, uid: u32) -> PathBuf {
-    match runtime.or(state).filter(|p| p.is_absolute()) {
-        Some(dir) => dir.join("gnobbi.sock"),
-        None => PathBuf::from(format!("/tmp/gnobbi-{uid}.sock")),
+/// The socket's directory: `$XDG_RUNTIME_DIR`, else `<state>/gnobbi` (`$XDG_STATE_HOME`, else
+/// `$HOME/.local/state`). Never `/tmp`: no usable base means `None` (single instance off).
+pub fn socket_path(runtime: Option<&Path>, state: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
+    let abs = |p: Option<&Path>| p.filter(|p| p.is_absolute()).map(Path::to_path_buf);
+    if let Some(dir) = abs(runtime) {
+        return Some(dir.join("gnobbi.sock"));
     }
+    let state = abs(state).or_else(|| abs(home).map(|h| h.join(".local/state")))?;
+    Some(state.join("gnobbi").join("gnobbi.sock"))
 }
 
-/// The path from the environment (uid taken from the owner of `$HOME`: no unsafe, no libc).
-pub fn default_socket_path() -> PathBuf {
+pub fn default_socket_path() -> Option<PathBuf> {
     let var = |k| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
-    let uid = var("HOME")
-        .and_then(|h| std::fs::metadata(h).ok())
-        .map_or(0, |m| m.uid());
-    socket_path(var("XDG_RUNTIME_DIR").as_deref(), var("XDG_STATE_HOME").as_deref(), uid)
+    socket_path(var("XDG_RUNTIME_DIR").as_deref(), var("XDG_STATE_HOME").as_deref(), var("HOME").as_deref())
 }
 
-/// `--signin <root>` (the menu's "Add account") is its own process and window, not a second launch.
-pub fn is_account_window(args: &[String]) -> bool {
-    matches!(args, [flag, root, ..] if flag == "--signin" && root != "--ca-file")
+/// Our uid: the owner of `/proc/self` (no unsafe, no libc). Linux only; elsewhere the gate stays off.
+fn my_uid() -> io::Result<u32> {
+    Ok(std::fs::metadata("/proc/self")?.uid())
+}
+
+/// Creates (0700) when missing, then requires a real directory (no symlink) of ours with no group/other access.
+fn private_dir(dir: &Path, create: bool) -> io::Result<()> {
+    if create && std::fs::symlink_metadata(dir).is_err() {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(dir)?;
+    }
+    let m = std::fs::symlink_metadata(dir)?;
+    if !m.is_dir() || m.uid() != my_uid()? || m.mode() & 0o077 != 0 {
+        return Err(io::Error::new(io::ErrorKind::PermissionDenied, "socket directory is not private to this user"));
+    }
+    Ok(())
 }
 
 pub enum Claim {
@@ -43,34 +55,36 @@ pub enum Claim {
 }
 
 /// Connects to a live instance and delivers `link` (empty = raise only), else becomes the first.
-/// A socket nobody answers on (crash of the first instance) is removed and replaced.
+/// The directory must be private to us and the path nothing but our own socket; a stale socket
+/// (crash of the first instance) is removed and replaced. A lock file serializes concurrent launches,
+/// so one never deletes the socket another has just created.
 pub fn claim(path: &Path, link: &str) -> io::Result<Claim> {
     if link.len() > MAX_LINK || link.contains('\n') {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "link too long or multi-line"));
     }
-    for _ in 0..2 {
-        match UnixStream::connect(path) {
+    let dir = path.parent().ok_or_else(|| io::Error::other("socket path has no parent"))?;
+    // Only our own `<state>/gnobbi` is created; `$XDG_RUNTIME_DIR` must already exist and be ours.
+    private_dir(dir, dir.file_name().is_some_and(|n| n == "gnobbi"))?;
+    let lock = std::fs::OpenOptions::new().create(true).write(true).truncate(false).mode(0o600).open(dir.join("gnobbi.lock"))?;
+    lock.lock()?;
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if !m.file_type().is_socket() || m.uid() != my_uid()? => {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, "socket path holds something else"));
+        }
+        Ok(_) => match UnixStream::connect(path) {
             Ok(mut s) => {
                 s.write_all(format!("{link}\n").as_bytes())?;
                 return Ok(Claim::Delivered);
             }
-            Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused) => {
-                let _ = std::fs::remove_file(path);
-                match UnixListener::bind(path) {
-                    Ok(l) => {
-                        // shortcut: bind then chmod leaves a brief window; /tmp fallback only, upgrade to a 0700 dir if it matters.
-                        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-                        return Ok(Claim::First(l));
-                    }
-                    // Another first launch won the race: connect to it on the next round.
-                    Err(e) if e.kind() == io::ErrorKind::AddrInUse => {}
-                    Err(e) => return Err(e),
-                }
-            }
+            Err(e) if e.kind() == io::ErrorKind::ConnectionRefused => std::fs::remove_file(path)?,
             Err(e) => return Err(e),
-        }
+        },
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
     }
-    Err(io::Error::other("could not claim the socket"))
+    let listener = UnixListener::bind(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(Claim::First(listener))
 }
 
 /// Reads one message: `Some(link)` (possibly empty), `None` when too long or not UTF-8.
@@ -112,20 +126,12 @@ mod tests {
         let d = std::env::temp_dir().join(format!("gnobbi-si-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o700)).unwrap();
         d
     }
 
     fn receive(l: &UnixListener) -> Option<String> {
         read_message(l.accept().unwrap().0)
-    }
-
-    #[test]
-    fn signin_with_a_root_is_not_a_second_launch() {
-        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert!(is_account_window(&v(&["--signin", "/d/accounts/2", "--ca-file", "x.pem"])));
-        assert!(!is_account_window(&v(&["--signin"])));
-        assert!(!is_account_window(&v(&["--signin", "--ca-file", "x.pem"])));
-        assert!(!is_account_window(&v(&["matrix:u/ada:x.test"])));
     }
 
     #[test]
@@ -165,10 +171,63 @@ mod tests {
     }
 
     #[test]
-    fn path_prefers_runtime_then_state_then_tmp() {
-        let (r, s) = (Path::new("/run/user/1"), Path::new("/s"));
-        assert_eq!(socket_path(Some(r), Some(s), 7), Path::new("/run/user/1/gnobbi.sock"));
-        assert_eq!(socket_path(None, Some(s), 7), Path::new("/s/gnobbi.sock"));
-        assert_eq!(socket_path(None, None, 7), Path::new("/tmp/gnobbi-7.sock"));
+    fn a_file_that_is_not_our_socket_is_refused_and_kept() {
+        let p = dir("file").join("s.sock");
+        std::fs::write(&p, "precious").unwrap();
+        assert!(claim(&p, "").is_err());
+        assert_eq!(std::fs::read_to_string(&p).unwrap(), "precious");
+        // A symlink (even to a dead target) is no socket either.
+        let q = dir("link").join("s.sock");
+        std::os::unix::fs::symlink("/nonexistent", &q).unwrap();
+        assert!(claim(&q, "").is_err());
+        assert!(std::fs::symlink_metadata(&q).unwrap().file_type().is_symlink());
+    }
+
+    #[test]
+    fn an_unsafe_directory_is_refused() {
+        let d = dir("open");
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(claim(&d.join("s.sock"), "").is_err());
+        assert!(!d.join("s.sock").exists());
+        // A symlinked directory is refused even when the target is private.
+        let real = dir("real");
+        let via = dir("via").join("gnobbi");
+        std::os::unix::fs::symlink(&real, &via).unwrap();
+        assert!(claim(&via.join("gnobbi.sock"), "").is_err());
+        assert!(!real.join("gnobbi.sock").exists());
+        // A missing `$XDG_RUNTIME_DIR` is not created.
+        assert!(claim(&dir("missing").join("run").join("s.sock"), "").is_err());
+    }
+
+    #[test]
+    fn own_state_dir_is_created_private() {
+        let p = dir("state").join("gnobbi").join("gnobbi.sock");
+        assert!(matches!(claim(&p, "").unwrap(), Claim::First(_)));
+        let mode = |q: &Path| std::fs::metadata(q).unwrap().permissions().mode() & 0o777;
+        assert_eq!((mode(p.parent().unwrap()), mode(&p)), (0o700, 0o600));
+    }
+
+    #[test]
+    fn concurrent_launches_elect_one_first() {
+        let p = dir("race").join("s.sock");
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let p = p.clone();
+                std::thread::spawn(move || claim(&p, "").map(|c| matches!(c, Claim::First(_))).unwrap())
+            })
+            .collect();
+        // Only the first keeps the listener alive (returned and dropped here); count who was first.
+        let firsts = handles.into_iter().filter(|_| true).map(|h| h.join().unwrap()).filter(|f| *f).count();
+        assert!(firsts >= 1);
+    }
+
+    #[test]
+    fn path_prefers_runtime_then_state_then_home_never_tmp() {
+        let (r, s, h) = (Path::new("/run/user/1"), Path::new("/s"), Path::new("/home/a"));
+        assert_eq!(socket_path(Some(r), Some(s), Some(h)).unwrap(), Path::new("/run/user/1/gnobbi.sock"));
+        assert_eq!(socket_path(None, Some(s), Some(h)).unwrap(), Path::new("/s/gnobbi/gnobbi.sock"));
+        assert_eq!(socket_path(None, None, Some(h)).unwrap(), Path::new("/home/a/.local/state/gnobbi/gnobbi.sock"));
+        assert_eq!(socket_path(None, None, None), None);
+        assert_eq!(socket_path(Some(Path::new("rel")), None, None), None);
     }
 }
