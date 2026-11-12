@@ -61,6 +61,10 @@ pub mod windows_link;
 pub fn is_account_window(args: &[String]) -> bool {
     matches!(args, [flag, root, ..] if flag == "--signin" && root != "--ca-file")
 }
+/// The shell passes a link as the single `%1`; a link holding `"` splits into extra args (e.g. `--signin`).
+pub fn hostile_argv(rest: &[String], link: &Option<String>) -> bool {
+    link.is_some() && !rest.is_empty()
+}
 #[cfg(windows)]
 pub use windows_link as single_instance;
 pub mod install_offer;
@@ -440,6 +444,15 @@ pub fn confirm_question(act: ProfileAct, name: &str, messages: usize) -> String 
 #[cfg(test)]
 mod account_window_tests {
     use super::is_account_window;
+
+    #[test]
+    fn link_plus_options_is_hostile() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let l = Some("matrix:r/a:x.test".to_string());
+        assert!(super::hostile_argv(&v(&["--signin", "/d"]), &l));
+        assert!(!super::hostile_argv(&[], &l));
+        assert!(!super::hostile_argv(&v(&["--signin", "/d"]), &None));
+    }
 
     #[test]
     fn signin_with_a_root_is_not_a_second_launch() {

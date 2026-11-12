@@ -159,7 +159,8 @@ mod sys {
         let _ = unsafe { AllowSetForegroundWindow(u32::MAX) };
         // 2 = pipe not created yet (first instance still starting), 231 = every instance busy.
         for _ in 0..30 {
-            match OpenOptions::new().write(true).open(pipe_name()) {
+            // SECURITY_IDENTIFICATION (0x10000): a squatter owning the pipe name can read the link but not impersonate us.
+            match std::os::windows::fs::OpenOptionsExt::security_qos_flags(OpenOptions::new().write(true), 0x0001_0000).open(pipe_name()) {
                 Ok(mut pipe) => return pipe.write_all(msg),
                 Err(e) if matches!(e.raw_os_error(), Some(2 | 231)) => std::thread::sleep(Duration::from_millis(100)),
                 Err(e) => return Err(e),

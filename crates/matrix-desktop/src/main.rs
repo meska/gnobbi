@@ -2723,6 +2723,10 @@ fn single_instance_gate(argv: &[String]) {
 fn single_instance_gate(argv: &[String]) {
     use matrix_desktop::windows_link::{Claim, MAX_LINK, claim, register_for_current_user};
     let (rest, link) = matrix_desktop::take_matrix_link(argv.to_vec());
+    if matrix_desktop::hostile_argv(&rest, &link) {
+        eprintln!("Gnobbi: link with extra arguments refused");
+        std::process::exit(2);
+    }
     if matrix_desktop::is_account_window(&rest) {
         return;
     }
