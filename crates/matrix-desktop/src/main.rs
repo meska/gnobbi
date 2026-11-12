@@ -17,6 +17,9 @@ mod filter_view;
 mod groups_edit_view;
 mod invite_view;
 mod link_view;
+mod list_divider;
+#[cfg(test)]
+mod list_divider_test;
 /// URLs the system handed to the app (macOS open-URL) before the shell could take them.
 static OPENED_URLS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 #[cfg(target_os = "linux")]
@@ -160,6 +163,8 @@ struct Shell {
     settings_row: usize,
     prefs: matrix_desktop::Preferences,
     prefs_dirs: Option<matrix_desktop::AppDirs>,
+    /// Divider drag in progress: pointer x and list width at mouse down.
+    list_drag: Option<(f32, f32)>,
     room_prefs: matrix_desktop::RoomPrefs,
     /// Composer focus as of the last frame (saved with the room on change/close, not per event).
     composer_focused: bool,
@@ -2131,6 +2136,7 @@ impl Shell {
         }
         window.set_window_title(&matrix_desktop::window::account_title(self.verification.profile()));
         let compact = window.viewport_size().width < px(800.);
+        let list_width = self.list_width(window);
         if let (Some(timeline), Some(room)) = (&self.timeline, self.sidebar.selected()) {
             timeline.set_peer_receipts(&room.info.public_read_receipts);
         }
@@ -2297,7 +2303,7 @@ impl Shell {
                         .w(if compact {
                             window.viewport_size().width
                         } else {
-                            px(t.sidebar)
+                            px(list_width)
                         })
                         .h_full()
                         .flex_shrink_0()
@@ -2671,8 +2677,9 @@ impl Shell {
                         .when(!self.connected || self.sidebar.selected().is_some(), |d| d.child(self.composer.clone())),
                 )
             })
+            .when(!compact, |d| d.children(self.render_list_divider(window, cx)))
             .when(self.room_details_open, |d| d.child(self.render_room_details(window, cx)))
-            .when_some(pinned_picker.clone(), |d, p| d.child(thread_view::side_panel("emoji-drawer", window, t).child(p)))
+            .when_some(pinned_picker.clone(), |d, p| d.child(thread_view::side_panel("emoji-drawer", window, t, list_width).child(p)))
             .when(self.thread.is_some() && pinned_picker.is_none(), |d| d.child(self.render_thread(window, cx)))
             .when(self.rail_edit_open(), |d| d.child(self.render_edit_panel(window, cx)))
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
@@ -2839,6 +2846,7 @@ fn main() {
         || panel_opener_view::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || list_divider_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || bar_alignment_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || verification_popup_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || drawer_active_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
@@ -3491,6 +3499,8 @@ fn main() {
                     switch_rows_test::install(window, cx);
                     #[cfg(any(test, feature = "gui-fixture"))]
                     rail_drag_test::install(window, cx);
+                    #[cfg(test)]
+                    list_divider_test::install(window, cx);
                     Shell {
                         #[cfg(feature = "live")]
                         signin: signin.clone(),
@@ -3537,6 +3547,7 @@ fn main() {
                         composer_focused: false,
                         focus_composer_on_restore: false,
                         prefs_dirs,
+                        list_drag: None,
                         prefs,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         back_ui: compact_view::BackUi::new(cx),

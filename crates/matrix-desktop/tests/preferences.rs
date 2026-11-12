@@ -63,9 +63,14 @@ fn roundtrip_keeps_values() {
         max_build_seen: 812,
         bad_builds: [7, 3].into(),
         update_base: Some("http://lan/dl/".into()),
+        list_width: Some(412),
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);
+    // «Doppio clic»: back to the default clears the saved width; other settings stay.
+    Preferences::update(&d, |p| p.list_width = None).unwrap();
+    let back = Preferences::load(&d);
+    assert_eq!((back.list_width, back.font), (None, FontChoice::Serif));
 }
 
 #[test]

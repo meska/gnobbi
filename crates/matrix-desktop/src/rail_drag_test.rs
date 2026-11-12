@@ -20,7 +20,7 @@ const HEAD: f32 = 56.; // fixed «Gruppi / Crea / Chiudi» header
 const SLOT: f32 = 46.; // 2 px line + 44 px row
 
 /// Pointer and keys through xdotool (X11) or, when WL_INPUT is set, a held-button RFB session to wayvnc + wtype.
-enum Input {
+pub(crate) enum Input {
     X(String),
     Wl(std::process::Child, std::io::BufReader<std::process::ChildStdout>),
 }
@@ -32,7 +32,7 @@ fn run(cmd: &str, args: &[&str]) -> String {
 }
 
 impl Input {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         if let Ok(helper) = std::env::var("WL_INPUT") {
             let script = std::path::Path::new(&helper).with_file_name("rfb-send.py");
             let port = std::env::var("WL_VNC_PORT").unwrap_or_else(|_| "5902".into());
@@ -58,14 +58,14 @@ impl Input {
         assert_eq!(ack.trim(), "ok", "rfb {line}");
     }
 
-    fn mv(&mut self, x: i32, y: i32) {
+    pub(crate) fn mv(&mut self, x: i32, y: i32) {
         match self {
             Input::X(win) => drop(run("xdotool", &["mousemove", "--window", win, &x.to_string(), &y.to_string()])),
             Input::Wl(..) => self.rfb(&format!("move {x} {y}")),
         }
     }
 
-    fn button(&mut self, down: bool) {
+    pub(crate) fn button(&mut self, down: bool) {
         match self {
             Input::X(_) => drop(run("xdotool", &[if down { "mousedown" } else { "mouseup" }, "1"])),
             Input::Wl(..) => self.rfb(if down { "down" } else { "up" }),
@@ -88,14 +88,14 @@ impl Input {
     }
 
     /// Pointer path; every step lets the app handle the event before the next one.
-    async fn glide(&mut self, ex: &gpui::BackgroundExecutor, from: (i32, i32), to: (i32, i32), steps: i32) {
+    pub(crate) async fn glide(&mut self, ex: &gpui::BackgroundExecutor, from: (i32, i32), to: (i32, i32), steps: i32) {
         for i in 1..=steps {
             self.mv(from.0 + (to.0 - from.0) * i / steps, from.1 + (to.1 - from.1) * i / steps);
             pause(ex, 40).await;
         }
     }
 
-    fn shot(&self, tag: &str, name: &str) {
+    pub(crate) fn shot(&self, tag: &str, name: &str) {
         if matches!(self, Input::X(_)) {
             eprintln!("SHOT {tag}-{name} skipped: Xvfb shows Vulkan presentation black (use the Wayland run)");
             return;
@@ -121,7 +121,7 @@ fn names(this: &Shell) -> Vec<String> {
     this.rail_arranged().into_iter().skip(1).map(|(e, _)| e.name).collect()
 }
 
-async fn pause(ex: &gpui::BackgroundExecutor, ms: u64) {
+pub(crate) async fn pause(ex: &gpui::BackgroundExecutor, ms: u64) {
     ex.timer(Duration::from_millis(ms)).await;
 }
 

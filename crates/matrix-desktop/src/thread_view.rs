@@ -118,16 +118,16 @@ pub(crate) struct ThreadPanel {
 
 const SIDE_PANEL_WIDTH: f32 = 360.;
 /// The chat column must keep at least this much next to a docked panel (usable composer).
-const CHAT_MIN_WIDTH: f32 = 360.;
+pub(crate) const CHAT_MIN_WIDTH: f32 = 360.;
 
 /// Narrowest window that fits rail + room list + chat + panel side by side.
-fn dock_min_width(t: matrix_desktop::DesignTokens) -> f32 {
-    crate::rail_view::RAIL_WIDTH + t.sidebar + CHAT_MIN_WIDTH + SIDE_PANEL_WIDTH
+fn dock_min_width(list_width: f32) -> f32 {
+    crate::rail_view::RAIL_WIDTH + list_width + CHAT_MIN_WIDTH + SIDE_PANEL_WIDTH
 }
 
 /// Right-hand column shared by the thread and the emoji drawer. Wide window: docked next to the chat. Narrow: a sheet over it (as the room sheet).
-pub(crate) fn side_panel(id: &'static str, window: &Window, t: matrix_desktop::DesignTokens) -> gpui::Stateful<gpui::Div> {
-    let docked = window.viewport_size().width >= px(dock_min_width(t));
+pub(crate) fn side_panel(id: &'static str, window: &Window, t: matrix_desktop::DesignTokens, list_width: f32) -> gpui::Stateful<gpui::Div> {
+    let docked = window.viewport_size().width >= px(dock_min_width(list_width));
     div().id(id).occlude()
         .when(docked, |d| d.h_full().w(px(SIDE_PANEL_WIDTH)).flex_shrink_0())
         .when(!docked, |d| d.absolute().right_0().top_0().bottom_0().w(window.viewport_size().width.min(px(SIDE_PANEL_WIDTH))))
@@ -444,6 +444,7 @@ impl Shell {
 
     pub(crate) fn render_thread(&mut self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         let t = self.theme.tokens();
+        let list_width = self.list_width(window);
         let Some(p) = &mut self.thread else { return div().into_any_element() };
         if std::mem::take(&mut p.stick_bottom) {
             p.scroll.scroll_to_bottom();
@@ -478,8 +479,8 @@ impl Shell {
                 })))
         };
         let status = if p.failed { Some("Impossibile caricare · riprova più tardi") } else if p.pending && p.replies.is_empty() { Some("Caricamento…") } else if p.read_failed { Some("Lettura non confermata") } else { None };
-        let docked = window.viewport_size().width >= px(dock_min_width(t));
-        let panel = side_panel("thread-panel", window, t)
+        let docked = window.viewport_size().width >= px(dock_min_width(list_width));
+        let panel = side_panel("thread-panel", window, t, list_width)
             .child(div().h(px(t.header)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Thread"))
                 .child(div().id("thread-close").w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer().hover(|s| s.bg(rgb(t.border))).child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
@@ -519,8 +520,8 @@ mod tests {
     #[test]
     fn side_panel_docks_only_when_chat_keeps_360px() {
         // Measured on the layout: rail 72 + list 320 + chat 360 + panel 360.
-        assert_eq!(super::dock_min_width(matrix_desktop::LIGHT), 1112.);
-        assert_eq!(super::dock_min_width(matrix_desktop::DARK), super::dock_min_width(matrix_desktop::LIGHT));
+        assert_eq!(super::dock_min_width(matrix_desktop::LIGHT.sidebar), 1112.);
+        assert_eq!(super::dock_min_width(matrix_desktop::DARK.sidebar), super::dock_min_width(matrix_desktop::LIGHT.sidebar));
     }
 
     use super::*;
