@@ -148,7 +148,7 @@ mod tests {
     fn rejected_link_becomes_a_short_marker() {
         assert_eq!(outgoing(None), "");
         assert_eq!(outgoing(Some("matrix:u/a:b".into())), "matrix:u/a:b");
-        for bad in ["matrix:u/".to_owned() + &"a".repeat(MAX_LINK), "matrix:u/a\nb".to_owned()] {
+        for bad in [format!("matrix:u/{}", "a".repeat(MAX_LINK)), "matrix:u/a\nb".to_owned()] {
             let m = outgoing(Some(bad));
             assert_eq!(m, "matrix:");
             assert!(m.len() <= MAX_LINK && !m.contains('\n'));
