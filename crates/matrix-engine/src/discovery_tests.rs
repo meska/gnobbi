@@ -415,3 +415,21 @@ fn discovers_delegation_and_reports_server_advertised_login_flows() {
     );
     assert!(requests.iter().all(|r| r["authorization"] == false));
 }
+
+#[test]
+fn apex_with_delegation_resolves_for_name_and_for_url_but_a_prefixed_url_is_not_rerouted() {
+    let f = Fixture::start("apex");
+    let d = f.discovery();
+    let delegated = format!("{}/delegated/", f.base);
+    let name = f.base.strip_prefix("https://").unwrap();
+    for bare in [true, false] {
+        let r = run(d.resolve(HomeserverUrl::parse(&f.base).unwrap(), bare)).unwrap();
+        assert_eq!(r.homeserver.as_str(), delegated, "bare {bare}");
+    }
+    assert!(!name.is_empty());
+    let prefixed = HomeserverUrl::parse(&format!("{}/other", f.base)).unwrap();
+    assert!(matches!(
+        run(d.resolve(prefixed, false)),
+        Err(DiscoveryError::HttpStatus(404))
+    ));
+}

@@ -57,6 +57,18 @@ impl HomeserverUrl {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
+    /// `host[:port]` when this is a bare origin (root path), i.e. could be a server name.
+    fn server_name(&self) -> Option<String> {
+        if self.0.path() != "/" {
+            return None;
+        }
+        let host = self.0.host_str()?;
+        Some(match self.0.port() {
+            Some(port) => format!("{host}:{port}"),
+            None => host.to_owned(),
+        })
+    }
 }
 
 /// Describes available SDK primitives, NOT a working app login or SSO/OIDC UX.
@@ -126,6 +138,25 @@ impl Discovery {
             http: crate::auth::with_trust_roots(secure_http_builder(), certs)
                 .build().map_err(|_| DiscoveryError::Transport)?,
         })
+    }
+
+    /// Sign-in entry point. A bare server name resolves `.well-known` first; a full URL
+    /// is probed as typed, but an origin answering 404 falls back to its delegation.
+    pub async fn resolve(
+        &self,
+        homeserver: HomeserverUrl,
+        bare_name: bool,
+    ) -> Result<DiscoveryResult, DiscoveryError> {
+        let Some(name) = homeserver.server_name() else {
+            return self.probe_url(homeserver).await;
+        };
+        if bare_name {
+            return self.discover_server_name(&name).await;
+        }
+        match self.probe_url(homeserver).await {
+            Err(DiscoveryError::HttpStatus(404)) => self.discover_server_name(&name).await,
+            other => other,
+        }
     }
 
     pub async fn discover_server_name(

@@ -114,7 +114,7 @@ impl FormStatus {
             VaultError::{Locked, Unavailable},
         };
         Some(match error {
-            InvalidHomeserver => "Inserisci un endpoint homeserver HTTPS valido.",
+            InvalidHomeserver => "Inserisci un nome server o un indirizzo HTTPS valido.",
             InvalidUserId => "Inserisci l’ID Matrix completo: @nome:server.",
             InvalidSecret if matches!(self, Self::Prompt(prompt) if prompt.mode == SignInMode::Unlock) => {
                 "Inserisci la frase locale del profilo."
@@ -122,6 +122,9 @@ impl FormStatus {
             InvalidSecret => "Password richiesta; frase locale di almeno 16 caratteri.",
             UnsupportedLogin => "Questo server non offre login password. SSO/OIDC non supportati.",
             NoSlidingSync => "Questo server non supporta lo sliding sync",
+            ServerStatus => {
+                "Il server ha risposto con un errore: controlla l’indirizzo (es. https://matrix.esempio.it)."
+            }
             Discovery | InvalidTrustRoot => {
                 "Server non raggiungibile o certificato TLS non valido."
             }

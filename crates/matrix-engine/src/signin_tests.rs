@@ -736,3 +736,27 @@ fn disposable_signin_setup_recovery_never_replaces_an_identity_this_device_canno
     }));
     assert_eq!(kind, crate::signin::SetupFailure::IdentityRequired);
 }
+
+#[cfg(unix)]
+#[test]
+#[ignore = "requires disposable Synapse or Tuwunel; needs the external test harness (not in this repo)"]
+fn disposable_signin_with_bare_server_name() {
+    use crate::signin::{Secret, SignInProfile};
+    let config = fixture();
+    let name = config["url"].as_str().unwrap().strip_prefix("https://").unwrap().trim_end_matches('/');
+    let root = std::path::Path::new(config["ca"].as_str().unwrap()).parent().unwrap().join("bare-name-profile");
+    runtime().block_on(async {
+        let mut profile = SignInProfile::open(root).unwrap();
+        let session = profile
+            .password_login(
+                name.into(),
+                "@alice:matrix-desktop.test".into(),
+                Secret::new(config["alice_password"].as_str().unwrap().into()).unwrap(),
+                Secret::new("bare name restore phrase".into()).unwrap(),
+                Some(std::fs::read(config["ca"].as_str().unwrap()).unwrap()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(session.whoami().await.unwrap().user_id(), "@alice:matrix-desktop.test");
+    });
+}

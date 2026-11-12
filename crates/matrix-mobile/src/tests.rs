@@ -128,6 +128,10 @@ fn engine_errors_map_to_fixed_categories() {
         MobileError::Unsupported
     );
     assert_eq!(
+        MobileError::from(SignInError::ServerStatus),
+        MobileError::InvalidHomeserver
+    );
+    assert_eq!(
         MobileError::from(SendError::Encryption),
         MobileError::Encryption
     );

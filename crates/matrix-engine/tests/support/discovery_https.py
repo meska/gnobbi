@@ -52,6 +52,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = {'flows': [{'type': 'm.login.password'}, {'type': 'm.login.sso'}, {'type': 'm.login.token'}, {'type': 'org.example.future'}]}
         else:
             status, payload = 404, {}
+        if mode == 'apex' and self.path.endswith(('/_matrix/client/versions', '/_matrix/client/v3/login')) and not self.path.startswith('/delegated'):
+            status, payload = 404, {}
         if mode in ['redirect', 'loop']:
             chain = {'/.well-known/matrix/client': '/hop1', '/hop1': '/hop2', '/hop2': '/hop3'}
             if self.path in chain or (mode == 'loop' and self.path == '/hop3'):

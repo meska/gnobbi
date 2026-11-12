@@ -263,3 +263,24 @@ fn interrupted_profile_publication_is_not_treated_as_a_new_account() {
         "interrupted selector must block before another remote login"
     );
 }
+
+#[test]
+fn bare_server_name_is_accepted_but_schemes_and_junk_are_not() {
+    let root = PrivateRoot::new();
+    let new = |endpoint: &str| {
+        PasswordSignIn::new(
+            root.0.clone(),
+            AccountId::new(1),
+            endpoint.into(),
+            "@alice:example.invalid".into(),
+            Secret::new("fixture".into()).unwrap(),
+            Secret::new("local unlock phrase".into()).unwrap(),
+            None,
+        )
+    };
+    assert!(new("gnobbi.chat").is_ok());
+    assert!(new("example.invalid:8448").is_ok());
+    for bad in ["gnobbi.chat/path", "gnobbi chat", "", "ftp://x.invalid"] {
+        assert!(matches!(new(bad), Err(SignInError::InvalidHomeserver)), "{bad}");
+    }
+}

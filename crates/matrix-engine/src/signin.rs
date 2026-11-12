@@ -2,7 +2,7 @@
 //! No runtime, sync, recovery setup or remote writes beyond explicit login.
 use crate::{
     auth::{AccountSession, AuthError},
-    discovery::{Discovery, HomeserverUrl, LoginSupport},
+    discovery::{Discovery, DiscoveryError, HomeserverUrl, LoginSupport},
     persistence::AccountStore,
     recovery::{RecoveryError, SetupError},
 };
@@ -97,6 +97,8 @@ pub enum SignInError {
     InvalidTrustRoot,
     InvalidStorePath,
     Discovery,
+    /// The address answered with an HTTP error: not a Matrix endpoint (TLS was fine).
+    ServerStatus,
     UnsupportedLogin,
     NoSlidingSync,
     Storage,
@@ -114,6 +116,7 @@ pub struct PasswordSignIn {
     root: PathBuf,
     account: AccountId,
     homeserver: HomeserverUrl,
+    bare_name: bool,
     user: String,
     password: Secret,
     phrase: Option<Secret>,
@@ -133,13 +136,24 @@ impl PasswordSignIn {
         trust_root: Option<Vec<u8>>,
     ) -> Result<Self, SignInError> {
         validate_store(&root, &phrase, trust_root.as_deref())?;
-        let homeserver =
-            HomeserverUrl::parse(&homeserver).map_err(|_| SignInError::InvalidHomeserver)?;
+        // No scheme: a server name (delegation via .well-known); anything else must be a valid HTTPS URL.
+        let bare_name = !homeserver.contains("://");
+        if bare_name {
+            matrix_sdk::ruma::ServerName::parse(&homeserver)
+                .map_err(|_| SignInError::InvalidHomeserver)?;
+        }
+        let homeserver = HomeserverUrl::parse(&if bare_name {
+            format!("https://{homeserver}")
+        } else {
+            homeserver
+        })
+        .map_err(|_| SignInError::InvalidHomeserver)?;
         matrix_sdk::ruma::UserId::parse(&user).map_err(|_| SignInError::InvalidUserId)?;
         Ok(Self {
             root,
             account,
             homeserver,
+            bare_name,
             user,
             password,
             phrase: Some(phrase),
@@ -182,9 +196,12 @@ impl PasswordSignIn {
         }
         .map_err(|_| SignInError::Discovery)?;
         let result = discovery
-            .probe_url(self.homeserver)
+            .resolve(self.homeserver, self.bare_name)
             .await
-            .map_err(|_| SignInError::Discovery)?;
+            .map_err(|error| match error {
+                DiscoveryError::HttpStatus(_) => SignInError::ServerStatus,
+                _ => SignInError::Discovery,
+            })?;
         if !result
             .login_flows
             .iter()

@@ -74,6 +74,7 @@ impl From<SignInError> for MobileError {
             SignInError::InvalidUserId => Self::InvalidUserId,
             SignInError::InvalidSecret | SignInError::InvalidTrustRoot => Self::InvalidInput,
             SignInError::Discovery => Self::Network,
+            SignInError::ServerStatus => Self::InvalidHomeserver,
             SignInError::UnsupportedLogin | SignInError::NoSlidingSync => Self::Unsupported,
             SignInError::InvalidStorePath
             | SignInError::Storage

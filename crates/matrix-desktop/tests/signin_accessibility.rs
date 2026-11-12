@@ -194,7 +194,7 @@ fn password_error_projection_explains_the_same_fixed_validation_error() {
     for (error, message) in [
         (
             SignInError::InvalidHomeserver,
-            "Inserisci un endpoint homeserver HTTPS valido.",
+            "Inserisci un nome server o un indirizzo HTTPS valido.",
         ),
         (
             SignInError::InvalidUserId,
@@ -215,6 +215,10 @@ fn password_error_projection_explains_the_same_fixed_validation_error() {
         (
             SignInError::Discovery,
             "Server non raggiungibile o certificato TLS non valido.",
+        ),
+        (
+            SignInError::ServerStatus,
+            "Il server ha risposto con un errore: controlla l’indirizzo (es. https://matrix.esempio.it).",
         ),
         (
             SignInError::ProfileBusy,
