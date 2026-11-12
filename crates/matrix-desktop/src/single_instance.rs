@@ -98,7 +98,7 @@ pub fn claim(path: &Path, link: &str) -> io::Result<Claim> {
 }
 
 /// Reads one message: `Some(link)` (possibly empty), `None` when too long or not UTF-8.
-fn read_message(mut s: UnixStream) -> Option<String> {
+fn read_message(s: UnixStream) -> Option<String> {
     let _ = s.set_read_timeout(Some(std::time::Duration::from_secs(2)));
     let mut buf = Vec::new();
     // One byte over the limit tells "too long" without reading an unbounded stream.
