@@ -254,7 +254,7 @@ impl Render for PickerView {
                                 .rounded_lg()
                                 .cursor_pointer()
                                 .hover(|s| s.bg(rgb(t.selected)))
-                                .child("×")
+                                .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
                                 .on_click(cx.listener(|_, _, _, cx| cx.emit(PickerEvent::Close))),
                         )
                     }),

@@ -24,6 +24,10 @@ pub enum Icon {
     Ring,
     People,
     Shield,
+    Play,
+    Pause,
+    Download,
+    Ellipsis,
 }
 
 fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
@@ -100,6 +104,13 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
             arc((10., 17.), 6., PI, 2. * PI),
         ],
         Icon::Shield => vec![vec![(10., 2.5), (16., 5.), (16., 10.), (10., 17.5), (4., 10.), (4., 5.), (10., 2.5)]],
+        Icon::Play => vec![vec![(6., 3.), (6., 17.), (16., 10.), (6., 3.)]],
+        Icon::Pause => vec![
+            vec![(5.5, 4.), (8.5, 4.), (8.5, 16.), (5.5, 16.), (5.5, 4.)],
+            vec![(11.5, 4.), (14.5, 4.), (14.5, 16.), (11.5, 16.), (11.5, 4.)],
+        ],
+        Icon::Download => vec![vec![(10., 3.), (10., 13.)], vec![(5.5, 8.5), (10., 13.), (14.5, 8.5)], vec![(4., 17.), (16., 17.)]],
+        Icon::Ellipsis => [4.5, 10., 15.5].map(|x| arc((x, 10.), 0.8, 0., 2. * PI)).to_vec(),
         Icon::Ring => vec![arc((10., 10.), 5.5, 0., 2. * PI)],
         Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![
@@ -111,15 +122,31 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
     }
 }
 
+/// Grid point that lands on the canvas centre: the bounding-box centre of the strokes, so every
+/// glyph is centred in its button whatever the shape. The Play triangle uses its centroid instead
+/// (optical centring: the box centre would look too far left of the hit area's centre).
+fn anchor(kind: Icon, lines: &[Vec<(f32, f32)>]) -> (f32, f32) {
+    if matches!(kind, Icon::Play) {
+        let v = &lines[0][..3];
+        return (v.iter().map(|p| p.0).sum::<f32>() / 3., v.iter().map(|p| p.1).sum::<f32>() / 3.);
+    }
+    let pts = || lines.iter().flatten();
+    let (min, max) = (|f: fn(&(f32, f32)) -> f32| pts().map(f).fold(f32::MAX, f32::min), |f: fn(&(f32, f32)) -> f32| pts().map(f).fold(f32::MIN, f32::max));
+    ((min(|p| p.0) + max(|p| p.0)) / 2., (min(|p| p.1) + max(|p| p.1)) / 2.)
+}
+
 pub fn icon(kind: Icon, color: u32) -> impl IntoElement {
     canvas(
         |_, _, _| (),
         move |bounds, _, window, _| {
-            for line in strokes(kind) {
-                if matches!(kind, Icon::StarFilled) {
+            let lines = strokes(kind);
+            let (ax, ay) = anchor(kind, &lines);
+            let (ox, oy) = (bounds.center().x - px(ax * 1.2), bounds.center().y - px(ay * 1.2));
+            for line in lines {
+                if matches!(kind, Icon::StarFilled | Icon::Play | Icon::Pause) {
                     let mut fill = PathBuilder::fill();
                     for (i, (x, y)) in line.iter().enumerate() {
-                        let p = point(bounds.left() + px(x * 1.2), bounds.top() + px(y * 1.2));
+                        let p = point(ox + px(x * 1.2), oy + px(y * 1.2));
                         if i == 0 { fill.move_to(p) } else { fill.line_to(p) }
                     }
                     fill.close();
@@ -129,7 +156,7 @@ pub fn icon(kind: Icon, color: u32) -> impl IntoElement {
                 }
                 let mut path = PathBuilder::stroke(px(1.6));
                 for (i, (x, y)) in line.into_iter().enumerate() {
-                    let p = point(bounds.left() + px(x * 1.2), bounds.top() + px(y * 1.2));
+                    let p = point(ox + px(x * 1.2), oy + px(y * 1.2));
                     if i == 0 {
                         path.move_to(p);
                     } else {
@@ -144,4 +171,24 @@ pub fn icon(kind: Icon, color: u32) -> impl IntoElement {
     )
     .w(px(24.))
     .h(px(24.))
+    .flex_shrink_0()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_glyph_is_centred_on_its_anchor() {
+        for kind in [Icon::Attach, Icon::Voice, Icon::Emoji, Icon::Send, Icon::Back, Icon::Close, Icon::Copy, Icon::Check, Icon::Search, Icon::Poll, Icon::FilterAll, Icon::Star, Icon::StarFilled, Icon::LowPriority, Icon::Folder, Icon::Dot, Icon::Ring, Icon::People, Icon::Shield, Icon::Pause, Icon::Download, Icon::Ellipsis] {
+            let lines = strokes(kind);
+            let (ax, ay) = anchor(kind, &lines);
+            let pts: Vec<_> = lines.iter().flatten().collect();
+            let mid = |f: fn(&&(f32, f32)) -> f32| (pts.iter().map(f).fold(f32::MAX, f32::min) + pts.iter().map(f).fold(f32::MIN, f32::max)) / 2.;
+            assert!((ax - mid(|p| p.0)).abs() < 1e-3 && (ay - mid(|p| p.1)).abs() < 1e-3);
+        }
+        // Play: centroid of the triangle, left of the box centre by ~8% of the width.
+        let (ax, ay) = anchor(Icon::Play, &strokes(Icon::Play));
+        assert!((ax - (6. + 6. + 16.) / 3.).abs() < 1e-3 && (ay - 10.).abs() < 1e-3);
+    }
 }

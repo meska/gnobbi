@@ -504,7 +504,7 @@ impl Shell {
                 })))
             .children(p.reply_to.as_ref().map(|(_, label)| div().flex_shrink_0().px_4().py_1().flex().items_center().justify_between().border_t_1().border_color(rgb(t.border)).text_size(px(12.)).text_color(rgb(t.secondary))
                 .child(div().min_w_0().overflow_hidden().child(label.clone()))
-                .child(div().id("thread-reply-clear").cursor_pointer().px_2().child("×")
+                .child(div().id("thread-reply-clear").cursor_pointer().size(px(24.)).flex().items_center().justify_center().child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.secondary))
                     .on_click(cx.listener(|this, _, _, cx| {
                         if let Some(p) = &mut this.thread { p.reply_to = None; }
                         cx.notify();

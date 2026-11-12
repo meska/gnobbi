@@ -366,7 +366,7 @@ impl Shell {
                         .text_size(px(20.))
                         .text_color(rgb(t.secondary))
                         .hover(|s| s.bg(rgb(t.border)))
-                        .child("×")
+                        .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.secondary))
                         .on_click(cx.listener(|this, _, window, cx| this.close_room_search(true, Some(window), cx))),
                 )
                 .into_any_element(),

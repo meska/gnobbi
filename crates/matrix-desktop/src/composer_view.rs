@@ -1351,8 +1351,11 @@ impl Render for ComposerView {
                                 div()
                                     .id("composer-attachment-remove")
                                     .cursor_pointer()
-                                    .px_2()
-                                    .child("×")
+                                    .size(px(24.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(icon(Icon::Close, t.secondary))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.attachment = None;
                                         this.attach_error = None;

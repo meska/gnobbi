@@ -1068,7 +1068,10 @@ impl Shell {
                     div()
                         .id("quick-chip-remove")
                         .cursor_pointer()
-                        .child("✕")
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.text))
                         .on_click(cx.listener(|this, _, window, cx| {
                             cx.stop_propagation();
                             this.quick_set_chip(None, window, cx)

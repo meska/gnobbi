@@ -395,13 +395,13 @@ impl Shell {
                         div()
                             .id(("menu-account-remove", a.id.as_u64() as usize))
                             .flex_shrink_0()
-                            .px_2()
-                            .py_1()
+                            .size(px(32.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
                             .rounded_md()
                             .cursor_pointer()
-                            .text_size(px(18.))
-                            .text_color(rgb(t.secondary))
-                            .child("×")
+                            .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.secondary))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.confirm_removal = Some(id);

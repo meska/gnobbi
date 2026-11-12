@@ -1,4 +1,5 @@
 //! Pictures drawn inside message bubbles from bounded, already-decoded backend pixels. Never an image URL.
+use crate::composer_icons::{Icon, icon};
 use crate::Shell;
 use gpui::{AnyElement, div, img, prelude::*, px, rgb};
 use matrix_desktop::DesignTokens;
@@ -91,7 +92,7 @@ pub(crate) fn save_icon(
             cx.stop_propagation();
             click(window, cx)
         })
-        .child(if running { "…" } else { "↓" })
+        .child(icon(if running { Icon::Ellipsis } else { Icon::Download }, t.accent))
         .child(
             gpui::canvas(|_, _, _| (), move |bounds, _, _, _| painted(bounds))
                 .absolute()
@@ -205,9 +206,7 @@ pub(crate) fn video_picture(
                                 .justify_center()
                                 .rounded_full()
                                 .bg(gpui::rgba(VIEWER_CHIP))
-                                .text_size(px(20.))
-                                .text_color(gpui::white())
-                                .child("▶")
+                                .child(icon(Icon::Play, 0xFFFFFF))
                                 .child(probe("play")),
                         ),
                 )
@@ -289,17 +288,7 @@ pub(crate) fn audio_bubble(
         .rounded_full()
         .bg(rgb(t.accent))
         .text_color(rgb(t.surface))
-        .text_size(px(16.))
-        .child(if playing {
-            div()
-                .flex()
-                .gap(px(3.))
-                .child(div().w(px(4.)).h(px(14.)).bg(rgb(t.surface)))
-                .child(div().w(px(4.)).h(px(14.)).bg(rgb(t.surface)))
-                .into_any_element()
-        } else {
-            "▶".into_any_element()
-        })
+        .child(icon(if playing { Icon::Pause } else { Icon::Play }, t.surface))
         .child(probe("play"));
     div()
         .relative()
