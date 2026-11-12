@@ -231,7 +231,25 @@ impl DetailsSnapshot {
     }
     pub fn next_focus(&self, reverse: bool) -> DetailsControl {
         let n = DetailsControl::ALL.len();
-        DetailsControl::ALL[(self.focus as usize + if reverse { n - 1 } else { 1 }) % n]
+        let mut i = self.focus as usize;
+        loop {
+            i = (i + if reverse { n - 1 } else { 1 }) % n;
+            if DetailsControl::ALL[i] != DetailsControl::Topic || self.has_topic() {
+                return DetailsControl::ALL[i];
+            }
+        }
+    }
+    /// Same test as the view: the «Argomento» box exists only for a non-blank topic.
+    fn has_topic(&self) -> bool {
+        self.info.topic.as_deref().is_some_and(|s| !s.trim().is_empty())
+    }
+    /// A focus left on the vanished «Argomento» box falls back to «Copia ID».
+    fn focus_node(&self) -> NodeId {
+        if self.focus == DetailsControl::Topic && !self.has_topic() {
+            DetailsControl::Copy.id()
+        } else {
+            self.focus.id()
+        }
     }
     pub fn tree(&self) -> TreeUpdate {
         let mut root = Node::new(Role::Complementary);
@@ -291,6 +309,7 @@ impl DetailsSnapshot {
         ]
         .into_iter()
         .enumerate()
+        .filter(|(_, (control, _))| *control != DetailsControl::Topic || self.has_topic())
         {
             let on = match control {
                 DetailsControl::HideStatus => Some(!self.hide_status),
@@ -346,7 +365,7 @@ impl DetailsSnapshot {
             nodes,
             tree: Some(Tree::new(ROOT)),
             tree_id: TreeId::ROOT,
-            focus: if self.back { self.ring_node(self.profile_focus) } else { self.focus.id() },
+            focus: if self.back { self.ring_node(self.profile_focus) } else { self.focus_node() },
         };
         if let Some(confirmation) = &self.confirmation {
             confirmation.append_to(&mut tree);

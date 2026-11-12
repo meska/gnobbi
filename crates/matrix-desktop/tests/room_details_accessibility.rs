@@ -68,10 +68,12 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
 fn panel() -> DetailsSnapshot {
     let sidebar = Sidebar::demo(AccountId::new(18));
     let room = sidebar.selected().unwrap();
+    let mut info = room.info.clone();
+    info.topic.get_or_insert_with(|| "Argomento".into());
     DetailsSnapshot {
         scope: room.scope.clone(),
         name: room.name.clone(),
-        info: room.info.clone(),
+        info,
         people: vec![],
         back: false,
         acts: vec![],
@@ -458,4 +460,25 @@ fn topic_links_are_link_children_of_the_unchanged_topic_node() {
     // A node of a link the panel no longer lists leads nowhere.
     let gone = DetailsView::Open(Box::new(crate::panel()));
     assert_eq!(gone.action(&request(Action::Click, link_id)), None);
+}
+
+#[test]
+fn without_a_topic_tab_skips_the_hidden_argomento_and_the_tree_has_no_node_for_it() {
+    let mut panel = panel();
+    panel.info.topic = None;
+    assert_eq!(panel.next_focus(false), DetailsControl::Copy);
+    panel.focus = DetailsControl::Copy;
+    assert_eq!(panel.next_focus(true), DetailsControl::Close);
+    panel.info.topic = Some("  ".into());
+    assert_eq!(panel.next_focus(true), DetailsControl::Close);
+    // The topic vanished while it had focus: both directions and the tree land on existing controls.
+    panel.focus = DetailsControl::Topic;
+    assert_eq!(panel.next_focus(false), DetailsControl::Copy);
+    assert_eq!(panel.next_focus(true), DetailsControl::Close);
+    let tree = panel.tree();
+    assert!(!tree.nodes.iter().any(|(id, _)| *id == DetailsControl::Topic.id()));
+    assert_eq!(tree.focus, DetailsControl::Copy.id());
+    panel.info.topic = Some("Ciao".into());
+    panel.focus = DetailsControl::Close;
+    assert_eq!(panel.next_focus(false), DetailsControl::Topic);
 }
