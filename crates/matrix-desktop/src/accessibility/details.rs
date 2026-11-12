@@ -21,6 +21,7 @@ pub enum DetailsAction {
     HideRedacted(RoomScope),
     Edit(RoomScope),
     Favourite(RoomScope),
+    LowPriority(RoomScope),
     /// Member row: read that user's profile.
     Profile {
         scope: RoomScope,
@@ -124,6 +125,7 @@ impl DetailsView {
                         }
                         DetailsControl::Edit => DetailsAction::Edit(panel.scope.clone()),
                         DetailsControl::Favourite => DetailsAction::Favourite(panel.scope.clone()),
+                        DetailsControl::LowPriority => DetailsAction::LowPriority(panel.scope.clone()),
                     }),
                     _ => None,
                 }
@@ -142,6 +144,7 @@ impl DetailsView {
                 | DetailsAction::HideRedacted(scope)
                 | DetailsAction::Edit(scope)
                 | DetailsAction::Favourite(scope)
+                | DetailsAction::LowPriority(scope)
                 | DetailsAction::Profile { scope, .. }
                 | DetailsAction::Members(scope)
                 | DetailsAction::Act { scope, .. }
@@ -168,6 +171,8 @@ pub enum DetailsControl {
     Close,
     /// Star next to the shield: the room is a favourite or not.
     Favourite,
+    /// Icon right of the star: the room is low priority or not.
+    LowPriority,
     /// «Argomento»: scrollable area, a tab stop of its own (no click action).
     Topic,
     Copy,
@@ -177,12 +182,13 @@ pub enum DetailsControl {
 }
 impl DetailsControl {
     /// Focus order = visual order.
-    pub const ALL: [Self; 7] = [Self::Close, Self::Favourite, Self::Topic, Self::Copy, Self::HideStatus, Self::HideRedacted, Self::Edit];
+    pub const ALL: [Self; 8] = [Self::Close, Self::Favourite, Self::LowPriority, Self::Topic, Self::Copy, Self::HideStatus, Self::HideRedacted, Self::Edit];
     pub fn id(self) -> NodeId {
         match self {
             Self::Close => NodeId(31),
             Self::Copy => NodeId(32),
             Self::Favourite => NodeId((1 << 40) + 5),
+            Self::LowPriority => NodeId((1 << 40) + 6),
             Self::Topic => NodeId((1 << 40) + 4),
             // Above BACK: member labels take every id from 33 up.
             Self::HideStatus => NodeId((1 << 40) + 1),
@@ -205,11 +211,12 @@ pub struct DetailsSnapshot {
     pub focus: DetailsControl,
     /// Keyboard focus inside an opened profile: index in the ring ‹, ✕, then the acts.
     pub profile_focus: usize,
-    pub bounds: [Option<accesskit::Rect>; 7],
+    pub bounds: [Option<accesskit::Rect>; 8],
     /// Current values: the toggles' accessible names follow the visible labels.
     pub hide_status: bool,
     pub hide_redacted: bool,
     pub favourite: bool,
+    pub low_priority: bool,
     /// Links of the topic text, in text order; children of the «Argomento» node.
     pub links: Vec<links::Snapshot>,
     /// Pending open-in-browser confirmation of a topic link.
@@ -309,6 +316,7 @@ impl DetailsSnapshot {
         for (index, (control, label)) in [
             (DetailsControl::Close, "Chiudi informazioni stanza"),
             (DetailsControl::Favourite, if self.favourite { "Preferita" } else { "Non preferita" }),
+            (DetailsControl::LowPriority, if self.low_priority { "Bassa priorità" } else { "Non a bassa priorità" }),
             (DetailsControl::Topic, "Argomento"),
             (DetailsControl::Copy, "Copia ID stanza"),
             (DetailsControl::HideStatus, "Messaggi di stato"),

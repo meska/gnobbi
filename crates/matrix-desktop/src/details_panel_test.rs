@@ -130,6 +130,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         #[cfg(feature = "linux-a11y")]
         {
             key!("tab"); // Favourite
+            key!("tab"); // LowPriority
             key!("tab");
         }
         let (scope, before) = shell!(|this, _, _| {

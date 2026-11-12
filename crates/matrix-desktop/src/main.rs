@@ -202,7 +202,7 @@ struct Shell {
     /// Focus zone of the non-modal «Informazioni stanza» panel; the composer keeps the keyboard until F6 or a click moves it here.
     details_zone: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_details_bounds: [Option<accesskit::Rect>; 7],
+    a11y_details_bounds: [Option<accesskit::Rect>; 8],
     spaces_ui: spaces_view::SpacesUi,
     spaces_open: bool,
     navigation_wide: bool,
@@ -2346,7 +2346,7 @@ impl Shell {
                         )
                         .when(self.connected, |d| d.child(self.render_filter_row(window, cx)))
                         // The room menu closes on click, so its failed «Preferiti» action reports here (the drawer shows the same line).
-                        .children(self.sidebar.favourite_error().map(|e| div().mx_4().mb_2().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
+                        .children(self.sidebar.tag_error().map(|e| div().mx_4().mb_2().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
                         .child(
                             div()
                                 .mx_4()
@@ -3620,7 +3620,7 @@ fn main() {
                         details_focus: Default::default(),
                         details_zone: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_details_bounds: [None; 7],
+                        a11y_details_bounds: [None; 8],
                         spaces_ui,
                         spaces_open: false,
                         navigation_wide: true,

@@ -162,10 +162,10 @@ pub struct Sidebar {
     reject_armed: Option<RoomScope>,
     /// The room whose last «Esci» failed, with the one-line reason shown in its row.
     leave_error: Option<(RoomScope, &'static str)>,
-    /// The favourite toggle in flight: the room and its state before the optimistic flip.
-    favourite: Option<(RoomScope, bool)>,
+    /// The tag toggle in flight: the room and ALL its tags before the optimistic flip.
+    tag: Option<(RoomScope, Vec<String>)>,
     /// One-line reason of the last failed toggle, until the next one.
-    favourite_error: Option<&'static str>,
+    tag_error: Option<&'static str>,
 }
 
 impl Sidebar {
@@ -188,8 +188,8 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
-            favourite: None,
-            favourite_error: None,
+            tag: None,
+            tag_error: None,
         }
     }
 
@@ -310,8 +310,8 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
-            favourite: None,
-            favourite_error: None,
+            tag: None,
+            tag_error: None,
         }
     }
 
@@ -530,9 +530,13 @@ impl Sidebar {
         self.leave_error = None;
     }
 
-    /// The one state every UI and the «Preferiti» filter read: the room carries `m.favourite`.
+    /// The one state every UI and the tag filters read: the room carries `tag`.
+    pub fn has_tag(&self, scope: &RoomScope, tag: &str) -> bool {
+        self.rooms.iter().any(|r| r.scope == *scope && r.info.tags.iter().any(|t| t == tag))
+    }
+
     pub fn is_favourite(&self, scope: &RoomScope) -> bool {
-        self.rooms.iter().any(|r| r.scope == *scope && r.info.tags.iter().any(|t| t == FAVOURITE))
+        self.has_tag(scope, FAVOURITE)
     }
 
     /// Room-menu entry for the room's current state.
@@ -540,48 +544,59 @@ impl Sidebar {
         if self.is_favourite(scope) { "Togli dai preferiti" } else { "Aggiungi ai preferiti" }
     }
 
-    pub fn favourite_pending(&self) -> bool {
-        self.favourite.is_some()
+    pub fn low_priority_label(&self, scope: &RoomScope) -> &'static str {
+        if self.has_tag(scope, LOW_PRIORITY) { "Togli dalla bassa priorità" } else { "Segna come bassa priorità" }
     }
 
-    pub fn favourite_error(&self) -> Option<&'static str> {
-        self.favourite_error
+    pub fn tag_pending(&self) -> bool {
+        self.tag.is_some()
     }
 
-    fn set_favourite(&mut self, scope: &RoomScope, on: bool) {
+    pub fn tag_error(&self) -> Option<&'static str> {
+        self.tag_error
+    }
+
+    fn set_tags(&mut self, scope: &RoomScope, tags: Vec<String>) {
         if let Some(room) = self.rooms.iter_mut().find(|r| r.scope == *scope) {
-            room.info.tags.retain(|t| t != FAVOURITE);
-            if on {
-                room.info.tags.push(FAVOURITE.into());
-                room.info.tags.sort();
-            }
+            room.info.tags = tags;
         }
         self.set_query(&self.query.clone());
     }
 
-    /// The single «Preferiti» action (context menu and drawer): flips the room now so the filter follows,
-    /// and returns the tag edit to send. None while another toggle waits or for an unknown room.
-    pub fn toggle_favourite(&mut self, scope: &RoomScope) -> Option<matrix_engine::operations::TagEdit> {
-        if self.favourite.is_some() || !self.rooms.iter().any(|r| r.scope == *scope) {
+    /// The single favourite / low-priority action (context menu and drawer): flips the room now so the filter
+    /// follows, and returns the tag edit to send. Turning one on drops the other, as the SDK does, so the write
+    /// stays ONE edit. None while another toggle waits or for an unknown room.
+    pub fn toggle_tag(&mut self, scope: &RoomScope, tag: &'static str) -> Option<matrix_engine::operations::TagEdit> {
+        if self.tag.is_some() {
             return None;
         }
-        let was = self.is_favourite(scope);
-        self.favourite = Some((scope.clone(), was));
-        self.favourite_error = None;
-        self.set_favourite(scope, !was);
+        let before = self.rooms.iter().find(|r| r.scope == *scope)?.info.tags.clone();
+        let on = !before.iter().any(|t| t == tag);
+        let mut tags = before.clone();
+        if on {
+            let other = if tag == FAVOURITE { LOW_PRIORITY } else { FAVOURITE };
+            tags.retain(|t| t != other);
+            tags.push(tag.into());
+            tags.sort();
+        } else {
+            tags.retain(|t| t != tag);
+        }
+        self.tag = Some((scope.clone(), before));
+        self.tag_error = None;
+        self.set_tags(scope, tags);
         Some(matrix_engine::operations::TagEdit::Assign {
             room_id: scope.room_id.as_str().to_owned(),
-            tag: FAVOURITE.into(),
-            on: !was,
+            tag: tag.into(),
+            on,
         })
     }
 
-    /// The engine's answer: on failure the room goes back to its real state and one line says why.
-    pub fn favourite_done(&mut self, result: Result<(), matrix_engine::operations::OperationError>) {
-        let Some((scope, was)) = self.favourite.take() else { return };
+    /// The engine's answer: on failure the room gets all its real tags back and one line says why.
+    pub fn tag_done(&mut self, result: Result<(), matrix_engine::operations::OperationError>) {
+        let Some((scope, before)) = self.tag.take() else { return };
         if let Err(e) = result {
-            self.set_favourite(&scope, was);
-            self.favourite_error = Some(match e {
+            self.set_tags(&scope, before);
+            self.tag_error = Some(match e {
                 matrix_engine::operations::OperationError::Forbidden => "Non consentito dal server",
                 _ => "Connessione non riuscita",
             });
@@ -1499,14 +1514,14 @@ mod favourite_tests {
         let (mut s, scope) = one();
         s.set_filter(s.filter().with_group(Some(FAVOURITE.into())));
         assert_eq!(in_filter(&s), 0);
-        let edit = s.toggle_favourite(&scope);
+        let edit = s.toggle_tag(&scope, FAVOURITE);
         assert_eq!(edit, Some(TagEdit::Assign { room_id: "!r:x".into(), tag: FAVOURITE.into(), on: true }));
         assert!(s.is_favourite(&scope));
         assert_eq!(in_filter(&s), 1);
-        assert!(s.toggle_favourite(&scope).is_none(), "one toggle at a time");
-        s.favourite_done(Ok(()));
-        assert!(s.is_favourite(&scope) && s.favourite_error().is_none());
-        let off = s.toggle_favourite(&scope);
+        assert!(s.toggle_tag(&scope, FAVOURITE).is_none(), "one toggle at a time");
+        s.tag_done(Ok(()));
+        assert!(s.is_favourite(&scope) && s.tag_error().is_none());
+        let off = s.toggle_tag(&scope, FAVOURITE);
         assert!(matches!(off, Some(TagEdit::Assign { on: false, .. })));
         assert_eq!(in_filter(&s), 0);
     }
@@ -1515,28 +1530,74 @@ mod favourite_tests {
     fn menu_label_follows_the_state() {
         let (mut s, scope) = one();
         assert_eq!(s.favourite_label(&scope), "Aggiungi ai preferiti");
-        s.toggle_favourite(&scope);
+        s.toggle_tag(&scope, FAVOURITE);
         assert_eq!(s.favourite_label(&scope), "Togli dai preferiti");
-        s.favourite_done(Ok(()));
-        s.toggle_favourite(&scope);
+        s.tag_done(Ok(()));
+        s.toggle_tag(&scope, FAVOURITE);
         assert_eq!(s.favourite_label(&scope), "Aggiungi ai preferiti");
     }
 
     #[test]
     fn failure_restores_the_real_state_with_one_line() {
         let (mut s, scope) = one();
-        s.toggle_favourite(&scope);
-        s.favourite_done(Err(OperationError::Transport));
+        s.toggle_tag(&scope, FAVOURITE);
+        s.tag_done(Err(OperationError::Transport));
         assert!(!s.is_favourite(&scope));
-        assert_eq!(s.favourite_error(), Some("Connessione non riuscita"));
-        assert!(!s.favourite_pending());
+        assert_eq!(s.tag_error(), Some("Connessione non riuscita"));
+        assert!(!s.tag_pending());
         // the same from the favourite side
-        s.favourite_done(Ok(()));
-        s.toggle_favourite(&scope);
-        s.favourite_done(Ok(()));
-        s.toggle_favourite(&scope);
-        s.favourite_done(Err(OperationError::Forbidden));
+        s.tag_done(Ok(()));
+        s.toggle_tag(&scope, FAVOURITE);
+        s.tag_done(Ok(()));
+        s.toggle_tag(&scope, FAVOURITE);
+        s.tag_done(Err(OperationError::Forbidden));
         assert!(s.is_favourite(&scope));
-        assert_eq!(s.favourite_error(), Some("Non consentito dal server"));
+        assert_eq!(s.tag_error(), Some("Non consentito dal server"));
+    }
+
+    fn tags(s: &Sidebar, scope: &RoomScope) -> Vec<String> {
+        s.rooms.iter().find(|r| r.scope == *scope).unwrap().info.tags.clone()
+    }
+
+    #[test]
+    fn low_priority_label_flip_and_filter_follow_at_once() {
+        let (mut s, scope) = one();
+        s.set_filter(s.filter().with_group(Some(LOW_PRIORITY.into())));
+        assert_eq!(s.low_priority_label(&scope), "Segna come bassa priorità");
+        assert_eq!(in_filter(&s), 0);
+        let edit = s.toggle_tag(&scope, LOW_PRIORITY);
+        assert_eq!(edit, Some(TagEdit::Assign { room_id: "!r:x".into(), tag: LOW_PRIORITY.into(), on: true }));
+        assert_eq!(s.low_priority_label(&scope), "Togli dalla bassa priorità");
+        assert_eq!(in_filter(&s), 1);
+        s.tag_done(Ok(()));
+        let off = s.toggle_tag(&scope, LOW_PRIORITY);
+        assert!(matches!(off, Some(TagEdit::Assign { on: false, .. })));
+        assert_eq!(in_filter(&s), 0);
+    }
+
+    #[test]
+    fn each_tag_turns_the_other_off_in_the_same_flip() {
+        let (mut s, scope) = one();
+        s.toggle_tag(&scope, FAVOURITE);
+        s.tag_done(Ok(()));
+        let edit = s.toggle_tag(&scope, LOW_PRIORITY);
+        assert!(matches!(edit, Some(TagEdit::Assign { on: true, .. })), "one edit, no second request");
+        assert!(s.has_tag(&scope, LOW_PRIORITY) && !s.is_favourite(&scope));
+        s.tag_done(Ok(()));
+        s.toggle_tag(&scope, FAVOURITE);
+        assert!(s.is_favourite(&scope) && !s.has_tag(&scope, LOW_PRIORITY));
+    }
+
+    #[test]
+    fn failure_restores_both_tags() {
+        let (mut s, scope) = one();
+        s.toggle_tag(&scope, FAVOURITE);
+        s.tag_done(Ok(()));
+        let before = tags(&s, &scope);
+        s.toggle_tag(&scope, LOW_PRIORITY);
+        s.tag_done(Err(OperationError::Transport));
+        assert_eq!(tags(&s, &scope), before);
+        assert!(s.is_favourite(&scope) && !s.has_tag(&scope, LOW_PRIORITY));
+        assert_eq!(s.tag_error(), Some("Connessione non riuscita"));
     }
 }

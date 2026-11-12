@@ -124,7 +124,24 @@ impl Shell {
                                 .child(label)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.room_menu = None;
-                                    this.toggle_favourite(&scope, cx);
+                                    this.toggle_tag(&scope, "m.favourite", cx);
+                                }))
+                        })
+                        .child({
+                            let scope = scope.clone();
+                            let label = self.sidebar.low_priority_label(&scope);
+                            div()
+                                .id("room-menu-low-priority")
+                                .px_4()
+                                .py_2()
+                                .cursor_pointer()
+                                .text_size(px(13.))
+                                .text_color(rgb(t.text))
+                                .hover(|s| s.bg(rgb(t.border)))
+                                .child(label)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.room_menu = None;
+                                    this.toggle_tag(&scope, "m.lowpriority", cx);
                                 }))
                         })
                         .child({
