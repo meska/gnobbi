@@ -143,4 +143,79 @@ mod tests {
         assert_eq!(effective_width(400., 700.), LIST_MIN_WIDTH);
         assert_eq!(effective_width(400., 300.), LIST_MIN_WIDTH);
     }
+
+    /// Window width that leaves exactly `list` px for the list next to the rail and the minimum chat.
+    fn viewport_for(list: f32) -> f32 {
+        RAIL_WIDTH + list + CHAT_MIN_WIDTH
+    }
+
+    #[test]
+    fn limits_are_exact_at_both_ends() {
+        let wide = 2000.;
+        assert_eq!(effective_width(LIST_MIN_WIDTH, wide), LIST_MIN_WIDTH);
+        assert_eq!(effective_width(LIST_MIN_WIDTH - 0.5, wide), LIST_MIN_WIDTH);
+        assert_eq!(effective_width(LIST_MAX_WIDTH, wide), LIST_MAX_WIDTH);
+        assert_eq!(effective_width(LIST_MAX_WIDTH + 0.5, wide), LIST_MAX_WIDTH);
+        assert_eq!(effective_width(f32::MAX, wide), LIST_MAX_WIDTH);
+        assert_eq!(effective_width(0., wide), LIST_MIN_WIDTH);
+        assert_eq!(effective_width(-50., wide), LIST_MIN_WIDTH);
+    }
+
+    #[test]
+    fn chat_minimum_caps_the_list_and_the_list_minimum_beats_it() {
+        // Window with exactly 400 px for the list: 480 is cut to 400, 304 stays.
+        assert_eq!(effective_width(480., viewport_for(400.)), 400.);
+        assert_eq!(effective_width(304., viewport_for(400.)), 304.);
+        // One pixel less than the list minimum plus the chat minimum: the list does not shrink further.
+        assert_eq!(effective_width(480., viewport_for(LIST_MIN_WIDTH) - 1.), LIST_MIN_WIDTH);
+        assert_eq!(effective_width(480., viewport_for(LIST_MIN_WIDTH)), LIST_MIN_WIDTH);
+        // Window wide enough for the maximum: the maximum, not more.
+        assert_eq!(effective_width(480., viewport_for(LIST_MAX_WIDTH)), LIST_MAX_WIDTH);
+        assert_eq!(effective_width(480., viewport_for(LIST_MAX_WIDTH) + 500.), LIST_MAX_WIDTH);
+        // Degenerate windows (zero, negative, NaN-free tiny) never go below the minimum.
+        assert_eq!(effective_width(400., 0.), LIST_MIN_WIDTH);
+        assert_eq!(effective_width(400., -10.), LIST_MIN_WIDTH);
+    }
+
+    #[test]
+    fn effective_width_is_idempotent_and_never_leaves_the_range() {
+        for viewport in [0., 300., 700., 736., 800., 900., 1280., 1920., 2560., 5000.] {
+            for stored in [0., 100., 303., 304., 320., 400., 479., 480., 481., 5000.] {
+                let w = effective_width(stored, viewport);
+                assert!((LIST_MIN_WIDTH..=LIST_MAX_WIDTH).contains(&w), "{stored} in {viewport}: {w}");
+                assert_eq!(effective_width(w, viewport), w, "{stored} in {viewport}");
+            }
+        }
+    }
+
+    #[test]
+    fn arrow_step_stops_exactly_on_the_limits() {
+        let wide = 2000.;
+        // Left/Right apply KEY_STEP to the current width and the same clamp as a drag.
+        assert_eq!(effective_width(LIST_MIN_WIDTH - KEY_STEP, wide), LIST_MIN_WIDTH, "Left at the minimum");
+        assert_eq!(effective_width(LIST_MAX_WIDTH + KEY_STEP, wide), LIST_MAX_WIDTH, "Right at the maximum");
+        assert_eq!(effective_width(LIST_MIN_WIDTH + KEY_STEP, wide), LIST_MIN_WIDTH + KEY_STEP);
+        assert_eq!(effective_width(LIST_MAX_WIDTH - KEY_STEP, wide), LIST_MAX_WIDTH - KEY_STEP);
+        // A step that overshoots by less than a step lands on the limit, not before it.
+        assert_eq!(effective_width(LIST_MAX_WIDTH - 8. + KEY_STEP, wide), LIST_MAX_WIDTH);
+        assert_eq!(effective_width(LIST_MIN_WIDTH + 8. - KEY_STEP, wide), LIST_MIN_WIDTH);
+        // In a window that only fits 368: Right from 368 stays at 368.
+        assert_eq!(effective_width(368. + KEY_STEP, viewport_for(368.)), 368.);
+        // Walking from the default to each end takes a whole number of steps and ends exactly on it.
+        let mut w = 320.;
+        let mut steps = 0;
+        while w < LIST_MAX_WIDTH {
+            w = effective_width(w + KEY_STEP, wide);
+            steps += 1;
+            assert!(steps < 100, "never reaches the maximum");
+        }
+        assert_eq!((w, steps), (LIST_MAX_WIDTH, 10));
+        let mut steps = 0;
+        while w > LIST_MIN_WIDTH {
+            w = effective_width(w - KEY_STEP, wide);
+            steps += 1;
+            assert!(steps < 100, "never reaches the minimum");
+        }
+        assert_eq!((w, steps), (LIST_MIN_WIDTH, 11));
+    }
 }

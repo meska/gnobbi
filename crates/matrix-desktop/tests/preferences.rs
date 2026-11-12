@@ -535,3 +535,22 @@ fn update_fields_old_file_defaults_and_full_roundtrip() {
     assert_eq!(Preferences::load(&d), full);
     assert_eq!(full.bad_builds.len(), 2);
 }
+
+/// Saved list width: survives a restart as is; a narrower window only clamps what is painted, the saved value stays.
+#[test]
+fn list_width_survives_restart_and_odd_values_fall_back_to_default() {
+    let _gate = no_spawn();
+    let d = dirs(&tmp("list-width-restart"));
+    assert_eq!(Preferences::load(&d).list_width, None, "first run: default");
+    Preferences::update(&d, |p| p.list_width = Some(480)).unwrap();
+    assert_eq!(Preferences::load(&d).list_width, Some(480), "restart 1");
+    assert_eq!(Preferences::load(&d).list_width, Some(480), "restart 2: loading does not rewrite or drop it");
+    Preferences::update(&d, |p| p.font = FontChoice::Serif).unwrap();
+    assert_eq!(Preferences::load(&d).list_width, Some(480), "other settings do not touch the width");
+    // Written by hand / by another version: anything that is not a plain non-negative integer is «not saved».
+    let file = d.config.join("settings.json");
+    for (raw, want) in [("\"wide\"", None), ("-5", None), ("320.5", None), ("null", None), ("99999999999", None), ("0", Some(0)), ("1000000", Some(1_000_000))] {
+        std::fs::write(&file, format!("{{\"list_width\": {raw}}}")).unwrap();
+        assert_eq!(Preferences::load(&d).list_width, want, "list_width = {raw}");
+    }
+}
