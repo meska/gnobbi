@@ -3416,7 +3416,7 @@ fn main() {
                                     cx.notify();
                                 }
                                 this.open_clicked_alert(window, cx);
-                                #[cfg(any(target_os = "linux", windows))]
+                                #[cfg(all(any(target_os = "linux", windows), feature = "live"))]
                                 for link in matrix_desktop::single_instance::take_incoming() {
                                     window.activate_window();
                                     if !link.is_empty() {
