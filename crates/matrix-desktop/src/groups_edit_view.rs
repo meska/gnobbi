@@ -64,7 +64,6 @@ impl Shell {
 
     /// The one «Preferiti» action for the room menu and the drawer: optimistic flip, `m.favourite` through the SDK.
     /// Refused while another tag command is in flight.
-    #[allow(dead_code)] // wired by the room menu and drawer cards that follow
     pub(crate) fn toggle_favourite(&mut self, scope: &RoomScope, cx: &mut Context<Self>) {
         if self.pending_operation_command.is_some() || self.groups_edit.as_ref().is_some_and(|e| e.busy) {
             return;

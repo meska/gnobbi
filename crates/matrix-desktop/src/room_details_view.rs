@@ -30,6 +30,7 @@ impl Shell {
                 profile_focus: self.profile_focus,
                 bounds: self.a11y_details_bounds,
                 hide_status: self.room_prefs.hide_status(&room.scope),
+                favourite: self.sidebar.is_favourite(&room.scope),
                 hide_redacted: self
                     .room_prefs
                     .hide_redacted(&room.scope)
@@ -78,7 +79,7 @@ impl Shell {
             DetailsAction::Open(_) => {
                 self.set_room_details_open(true);
                 self.details_focus = Default::default();
-                self.a11y_details_bounds = [None; 6];
+                self.a11y_details_bounds = [None; 7];
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
@@ -133,6 +134,10 @@ impl Shell {
                 self.open_room_edit(window, cx);
                 cx.notify();
                 return;
+            }
+            DetailsAction::Favourite(scope) => {
+                self.details_focus = DetailsControl::Favourite;
+                self.toggle_favourite(&scope, cx);
             }
             DetailsAction::Copy(scope) => {
                 self.details_focus = DetailsControl::Copy;
@@ -582,8 +587,30 @@ impl Shell {
                             .child(crate::composer_icons::icon(
                                 crate::composer_icons::Icon::Shield,
                                 if room.info.encrypted == Some(true) { ENCRYPTED_GREEN } else { t.error },
-                            )),
+                            ))
+                            // Name for screen readers («Preferita» / «Non preferita») lives in the a11y tree.
+                            .child({
+                                let favourite = self.sidebar.is_favourite(&room.scope);
+                                let scope = room.scope.clone();
+                                div()
+                                    .id("room-details-favourite")
+                                    .relative()
+                                    .children(self.details_observer(1, cx))
+                                    .flex_shrink_0()
+                                    .w(px(32.)).h(px(32.)).flex().items_center().justify_center()
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(if input_modality::only_keys(focused_control == Some(1), cx) { rgb(t.accent) } else { gpui::rgba(0) })
+                                    .hover(|s| s.bg(rgb(t.border)))
+                                    .cursor_pointer()
+                                    .child(composer_icons::icon(
+                                        if favourite { composer_icons::Icon::StarFilled } else { composer_icons::Icon::Star },
+                                        t.accent,
+                                    ))
+                                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_favourite(&scope, cx)))
+                            }),
                     )
+                    .children(self.sidebar.favourite_error().map(|e| div().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
                     .children(room.info.topic.as_deref().filter(|s| !s.trim().is_empty()).map(|_| 
                         div().child("Argomento").child(
                             // At most a third of the sheet below the header, then it scrolls (short text: natural height, no thumb).
@@ -596,8 +623,8 @@ impl Shell {
                                     #[cfg(not(test))]
                                     { None::<gpui::AnyElement> }
                                 })
-                                .children(self.details_observer(1, cx))
-                                .when(focused_control == Some(1), |d| {
+                                .children(self.details_observer(2, cx))
+                                .when(focused_control == Some(2), |d| {
                                     d.border_1().border_color(rgb(t.accent))
                                 })
                                 .child(
@@ -637,7 +664,7 @@ impl Shell {
                                         div()
                                             .id("copy-room-id")
                                             .relative()
-                                            .children(self.details_observer(2, cx))
+                                            .children(self.details_observer(3, cx))
                                             .flex_shrink_0()
                                             .w(px(36.))
                                             .h(px(36.))
@@ -646,7 +673,7 @@ impl Shell {
                                             .justify_center()
                                             .rounded_lg()
                                             .border_1()
-                                            .border_color(if input_modality::only_keys(focused_control == Some(2), cx) {
+                                            .border_color(if input_modality::only_keys(focused_control == Some(3), cx) {
                                                 rgb(t.accent)
                                             } else {
                                                 gpui::rgba(0)
@@ -667,26 +694,26 @@ impl Shell {
                     .child(div().flex().flex_col()
                     .child(
                         switch_row(
-                            "room-hide-status", "Messaggi di stato", !hide_status, true, input_modality::only_keys(focused_control == Some(3), cx), t,
+                            "room-hide-status", "Messaggi di stato", !hide_status, true, input_modality::only_keys(focused_control == Some(4), cx), t,
                         )
                         .relative()
-                        .children(self.details_observer(3, cx))
+                        .children(self.details_observer(4, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
                     )
                     .child(
                         switch_row(
-                            "room-hide-redacted", "Messaggi eliminati", !hide_redacted, true, input_modality::only_keys(focused_control == Some(4), cx), t,
+                            "room-hide-redacted", "Messaggi eliminati", !hide_redacted, true, input_modality::only_keys(focused_control == Some(5), cx), t,
                         )
                         .relative()
-                        .children(self.details_observer(4, cx))
+                        .children(self.details_observer(5, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
                     ))
                     .child(
                         div()
                             .id("room-edit-open")
                             .relative()
-                            .children(self.details_observer(5, cx))
-                            .when(focused_control == Some(5), |d| d.border_1().border_color(rgb(t.accent)))
+                            .children(self.details_observer(6, cx))
+                            .when(focused_control == Some(6), |d| d.border_1().border_color(rgb(t.accent)))
                             .cursor_pointer()
                             .text_color(rgb(t.accent))
                             .child("Modifica")

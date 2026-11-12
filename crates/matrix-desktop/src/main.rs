@@ -202,7 +202,7 @@ struct Shell {
     /// Focus zone of the non-modal «Informazioni stanza» panel; the composer keeps the keyboard until F6 or a click moves it here.
     details_zone: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_details_bounds: [Option<accesskit::Rect>; 6],
+    a11y_details_bounds: [Option<accesskit::Rect>; 7],
     spaces_ui: spaces_view::SpacesUi,
     spaces_open: bool,
     navigation_wide: bool,
@@ -3618,7 +3618,7 @@ fn main() {
                         details_focus: Default::default(),
                         details_zone: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_details_bounds: [None; 6],
+                        a11y_details_bounds: [None; 7],
                         spaces_ui,
                         spaces_open: false,
                         navigation_wide: true,

@@ -16,6 +16,8 @@ pub enum Icon {
     Poll,
     FilterAll,
     Star,
+    /// Star outline plus a solid fill: a favourite room.
+    StarFilled,
     LowPriority,
     Folder,
     Dot,
@@ -76,7 +78,7 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
             arc((4.5, 10.), 0.8, 0., 2. * PI), // ring thinner than the stroke = solid dot
             arc((4.5, 15.), 0.8, 0., 2. * PI), // ring thinner than the stroke = solid dot
         ],
-        Icon::Star => {
+        Icon::Star | Icon::StarFilled => {
             let pts: Vec<(f32, f32)> = (0..=10)
                 .map(|i| {
                     let (r, a) = (if i % 2 == 0 { 7.5 } else { 3.2 }, -PI / 2. + i as f32 * PI / 5.);
@@ -114,6 +116,17 @@ pub fn icon(kind: Icon, color: u32) -> impl IntoElement {
         |_, _, _| (),
         move |bounds, _, window, _| {
             for line in strokes(kind) {
+                if matches!(kind, Icon::StarFilled) {
+                    let mut fill = PathBuilder::fill();
+                    for (i, (x, y)) in line.iter().enumerate() {
+                        let p = point(bounds.left() + px(x * 1.2), bounds.top() + px(y * 1.2));
+                        if i == 0 { fill.move_to(p) } else { fill.line_to(p) }
+                    }
+                    fill.close();
+                    if let Ok(fill) = fill.build() {
+                        window.paint_path(fill, rgb(color));
+                    }
+                }
                 let mut path = PathBuilder::stroke(px(1.6));
                 for (i, (x, y)) in line.into_iter().enumerate() {
                     let p = point(bounds.left() + px(x * 1.2), bounds.top() + px(y * 1.2));

@@ -128,7 +128,10 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         wait(400).await;
         key!("f6");
         #[cfg(feature = "linux-a11y")]
-        key!("tab");
+        {
+            key!("tab"); // Favourite
+            key!("tab");
+        }
         let (scope, before) = shell!(|this, _, _| {
             #[cfg(feature = "linux-a11y")]
             assert_eq!(this.details_focus, DetailsControl::Topic);
