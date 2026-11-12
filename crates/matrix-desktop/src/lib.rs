@@ -52,7 +52,8 @@ mod account_state;
 pub use account_state::{AccountRoutes, AccountState, Drained};
 mod app_dirs;
 pub mod desktop_entry;
-#[cfg(unix)]
+// Linux only: the uid comes from /proc/self, and on macOS nothing calls it (the OS opens links itself).
+#[cfg(target_os = "linux")]
 pub mod single_instance;
 pub mod windows_link;
 
