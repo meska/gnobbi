@@ -1,4 +1,4 @@
-//! Context menu of a room row: «Segna come letto» / «Segna come non letto» / «Esci» (asks «Uscire?» once).
+//! Context menu of a room row: «Segna come letto» / «Segna come non letto» / «Aggiungi/Togli dai preferiti» / «Esci» (asks «Uscire?» once).
 use crate::*;
 
 pub(crate) const ITEMS: [&str; 2] = ["Segna come letto", "Segna come non letto"];
@@ -110,6 +110,23 @@ impl Shell {
                         }))
                         .child(item(0))
                         .child(item(1))
+                        .child({
+                            let scope = scope.clone();
+                            let label = self.sidebar.favourite_label(&scope);
+                            div()
+                                .id("room-menu-favourite")
+                                .px_4()
+                                .py_2()
+                                .cursor_pointer()
+                                .text_size(px(13.))
+                                .text_color(rgb(t.text))
+                                .hover(|s| s.bg(rgb(t.border)))
+                                .child(label)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.room_menu = None;
+                                    this.toggle_favourite(&scope, cx);
+                                }))
+                        })
                         .child({
                             let scope = scope.clone();
                             let confirming = self.confirm_leave.as_ref() == Some(&scope);

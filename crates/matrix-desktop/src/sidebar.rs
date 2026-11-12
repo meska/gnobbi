@@ -535,6 +535,11 @@ impl Sidebar {
         self.rooms.iter().any(|r| r.scope == *scope && r.info.tags.iter().any(|t| t == FAVOURITE))
     }
 
+    /// Room-menu entry for the room's current state.
+    pub fn favourite_label(&self, scope: &RoomScope) -> &'static str {
+        if self.is_favourite(scope) { "Togli dai preferiti" } else { "Aggiungi ai preferiti" }
+    }
+
     pub fn favourite_pending(&self) -> bool {
         self.favourite.is_some()
     }
@@ -1504,6 +1509,17 @@ mod favourite_tests {
         let off = s.toggle_favourite(&scope);
         assert!(matches!(off, Some(TagEdit::Assign { on: false, .. })));
         assert_eq!(in_filter(&s), 0);
+    }
+
+    #[test]
+    fn menu_label_follows_the_state() {
+        let (mut s, scope) = one();
+        assert_eq!(s.favourite_label(&scope), "Aggiungi ai preferiti");
+        s.toggle_favourite(&scope);
+        assert_eq!(s.favourite_label(&scope), "Togli dai preferiti");
+        s.favourite_done(Ok(()));
+        s.toggle_favourite(&scope);
+        assert_eq!(s.favourite_label(&scope), "Aggiungi ai preferiti");
     }
 
     #[test]
