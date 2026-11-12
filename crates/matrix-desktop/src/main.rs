@@ -2702,7 +2702,8 @@ impl Shell {
 fn single_instance_gate(argv: &[String]) {
     use matrix_desktop::single_instance::{Claim, claim, default_socket_path, serve};
     let (rest, link) = matrix_desktop::take_matrix_link(argv.to_vec());
-    if rest.first().is_some_and(|a| a == "--install-desktop-entry")
+    // --self-test prints the build and must touch nothing (tests/self_test_cli.rs): no socket dir.
+    if rest.first().is_some_and(|a| a == "--install-desktop-entry" || a == "--self-test")
         || matrix_desktop::is_account_window(&rest)
     {
         return;
@@ -2727,7 +2728,7 @@ fn single_instance_gate(argv: &[String]) {
         eprintln!("Gnobbi: link with extra arguments refused");
         std::process::exit(2);
     }
-    if matrix_desktop::is_account_window(&rest) {
+    if rest.first().is_some_and(|a| a == "--self-test") || matrix_desktop::is_account_window(&rest) {
         return;
     }
     let link = link.filter(|l| l.len() <= MAX_LINK && !l.contains('\n')).unwrap_or_default();
