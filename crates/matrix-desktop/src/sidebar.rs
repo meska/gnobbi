@@ -404,18 +404,23 @@ impl Sidebar {
             scope(FilterId::All, "Tutte", f.group.is_none()),
             scope(FilterId::Group(FAVOURITE.into()), "Preferiti", f.group.as_deref() == Some(FAVOURITE)),
             scope(FilterId::Group(LOW_PRIORITY.into()), "Bassa priorità", f.group.as_deref() == Some(LOW_PRIORITY)),
-            scope(
+        ];
+        // «Gruppi» exists only while some room carries a u.* tag: the menu never opens empty.
+        if !self.group_menu().is_empty() {
+            buttons.push(scope(
                 FilterId::GroupsMenu,
                 "Gruppi",
                 f.group.as_deref().is_some_and(|g| g != FAVOURITE && g != LOW_PRIORITY),
-            ),
+            ));
+        }
+        buttons.push(
             FilterButton {
                 id: FilterId::Unread,
                 name: "Non lette".into(),
                 count: count(self.listed().filter(|r| r.unread > 0).count()),
                 selected: f.unread_only,
             },
-        ];
+        );
         let empty = self.listed().filter(|r| r.is_empty() && !self.kept.contains(&r.scope)).count();
         if empty > 0 || f.show_empty {
             buttons.push(FilterButton {
@@ -1321,6 +1326,11 @@ mod tests {
         tagged(&mut sidebar, &account, "a", 2, &["m.favourite"]);
         tagged(&mut sidebar, &account, "b", 0, &[]);
         assert_eq!(sidebar.filter().group, None);
+        // …and with no u.* tag left the row has no «Gruppi» button at all.
+        assert_eq!(
+            row(&sidebar).into_iter().map(|(n, _)| n).collect::<Vec<_>>(),
+            ["Tutte", "Preferiti", "Bassa priorità", "Non lette, 2"]
+        );
     }
 }
 #[cfg(test)]

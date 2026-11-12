@@ -208,6 +208,13 @@ impl Shell {
         if self.notifications_open || self.verification_open {
             return;
         }
+        // The last u.* tag is gone: the menu closes (the scope already fell back to «Tutte»).
+        if self.sidebar.group_menu().is_empty() {
+            self.groups_menu = None;
+            if self.filter_cursor == FilterId::GroupsMenu {
+                self.filter_cursor = FilterId::All;
+            }
+        }
         // Back only exists on the narrow chat page: widening hands its focus to the composer.
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if window.viewport_size().width >= px(800.) && self.back_ui.focus.is_focused(window) {
@@ -407,7 +414,6 @@ impl Shell {
     /// The single filter row: scopes on the left, switches fixed on the right; never wraps.
     /// One tab stop (`unread_focus`): arrows move `filter_cursor`, Space/Enter activates.
     pub(crate) fn render_filter_row(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let t = self.theme.tokens();
         let focused = self.unread_focus.is_focused(window);
         let ring = input_modality::only_keys(focused, cx);
         let button = |i: usize, b: &matrix_desktop::FilterButton, cx: &mut Context<Self>| {
@@ -453,7 +459,6 @@ impl Shell {
             .child(div().flex().items_center().gap_1().min_w_0().overflow_hidden().children(
                 scopes.iter().enumerate().map(|(i, b)| button(i, b, cx)),
             ))
-            .child(div().w(px(1.)).h(px(16.)).flex_shrink_0().bg(rgb(t.border)))
             .child(div().flex().items_center().gap_1().flex_shrink_0().children(
                 switches.iter().enumerate().map(|(i, b)| button(scopes.len() + i, b, cx)),
             ))
