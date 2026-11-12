@@ -297,9 +297,7 @@ struct Shell {
     room_scrollbar: scrollbar_view::Scrollbar,
     members_scroll: UniformListScrollHandle,
     members_scrollbar: scrollbar_view::Scrollbar,
-    info_scroll: UniformListScrollHandle, // only its base ScrollHandle is used, to share the scrollbar
-    info_scrollbar: scrollbar_view::Scrollbar,
-    topic_scroll: UniformListScrollHandle, // same trick as info_scroll: only its base ScrollHandle
+    topic_scroll: UniformListScrollHandle, // only its base ScrollHandle is used, to share the scrollbar
     topic_scrollbar: scrollbar_view::Scrollbar,
     // Links of the «Argomento» text: their own registry and confirmation, never the timeline's.
     topic_links: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
@@ -3687,8 +3685,6 @@ fn main() {
                         room_scrollbar: Default::default(),
                         members_scroll: UniformListScrollHandle::new(),
                         members_scrollbar: Default::default(),
-                        info_scroll: UniformListScrollHandle::new(),
-                        info_scrollbar: Default::default(),
                         topic_scroll: UniformListScrollHandle::new(),
                         topic_scrollbar: Default::default(),
                         topic_links: Default::default(),

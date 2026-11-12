@@ -565,7 +565,7 @@ impl Shell {
                     // An opened profile takes the whole sheet.
                     .when_some(room.filter(|_| self.profile.is_none()), |d, room| d
                     .child(
-                    div().relative().flex().flex_col().flex_shrink().min_h_0().child(div().id("room-details-info").flex().flex_col().gap_4().min_h_0().track_scroll(&self.info_scroll.0.borrow().base_handle).overflow_y_scroll()
+                    div().relative().flex().flex_col().flex_shrink().min_h_0().child(div().id("room-details-info").flex().flex_col().gap_2().min_h_0()
                     .child(
                         div().flex().items_center().gap_2().flex_shrink_0()
                             .child(
@@ -584,7 +584,7 @@ impl Shell {
                                 if room.info.encrypted == Some(true) { ENCRYPTED_GREEN } else { t.error },
                             )),
                     )
-                    .child(
+                    .children(room.info.topic.as_deref().filter(|s| !s.trim().is_empty()).map(|_| 
                         div().child("Argomento").child(
                             // At most a third of the sheet below the header, then it scrolls (short text: natural height, no thumb).
                             div()
@@ -615,7 +615,7 @@ impl Shell {
                                     t,
                                 )),
                         ),
-                    )
+                    ))
                     .child(
                         div()
                             .text_size(px(12.))
@@ -664,6 +664,7 @@ impl Shell {
                                     ),
                             ),
                     )
+                    .child(div().flex().flex_col()
                     .child(
                         switch_row(
                             "room-hide-status", "Messaggi di stato", !hide_status, true, input_modality::only_keys(focused_control == Some(3), cx), t,
@@ -679,7 +680,7 @@ impl Shell {
                         .relative()
                         .children(self.details_observer(4, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
-                    )
+                    ))
                     .child(
                         div()
                             .id("room-edit-open")
@@ -693,11 +694,7 @@ impl Shell {
                                 this.open_room_edit(window, cx)
                             })),
                     ))
-                    .child(self.info_scrollbar.render(
-                        "room-info-scrollbar",
-                        scrollbar_view::ScrollTarget::Rooms(self.info_scroll.clone()),
-                        t,
-                    )))
+                    )
                     )
                     .child(self.render_people(cx)),
             )
