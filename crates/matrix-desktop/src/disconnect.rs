@@ -4,6 +4,7 @@
 use std::time::{Duration, Instant};
 
 /// Down for less than this: no icon (= the engine's StatusGate hold, 5 s). Back up: hidden at once.
+/// The delay the user sees is dominated by the engine (SyncFailed arrives 27–147 s after the drop, measured); GRACE only avoids flashing.
 pub const GRACE: Duration = Duration::from_secs(5);
 
 /// What the engine distinguishes while down: `SyncFailed` covers no network and server down alike (one state, no message).
@@ -52,6 +53,14 @@ pub fn node(reason: &str) -> (accesskit::NodeId, accesskit::Node) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reason_only_for_the_failed_states() {
+        use matrix_engine::RoomSyncStatus::*;
+        assert_eq!(reason(&SyncFailed), Some("Sync interrotta"));
+        assert_eq!(reason(&AuthenticationFailed), Some("Sessione scaduta o rifiutata"));
+        assert_eq!((reason(&Ready), reason(&Connecting)), (None, None));
+    }
 
     #[test]
     fn connected_has_no_icon() {

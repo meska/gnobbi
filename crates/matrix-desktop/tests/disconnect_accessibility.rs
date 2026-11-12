@@ -48,7 +48,9 @@ fn disconnected_node_exists_only_while_disconnected() {
     let nodes = statuses(&s);
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0].label(), Some("Sync interrotta"));
-    assert_eq!(nodes[0].live(), Live::Polite);
+    assert_eq!(nodes[0].live(), Some(Live::Polite));
+    s.disconnected = Some("Sessione scaduta o rifiutata");
+    assert_eq!(statuses(&s)[0].label(), Some("Sessione scaduta o rifiutata"));
     s.disconnected = None;
     assert!(statuses(&s).is_empty());
 }
