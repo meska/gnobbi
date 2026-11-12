@@ -2,6 +2,9 @@
 use crate::switch_row::switch_row;
 use crate::*;
 
+/// Shield of an encrypted room: not a theme token, the same green in every theme.
+const ENCRYPTED_GREEN: u32 = 0x2e9e5b;
+
 impl Shell {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     pub(crate) fn semantic_details(
@@ -474,11 +477,6 @@ impl Shell {
         if room.is_none() && self.profile.is_none() {
             return div().into_any_element();
         }
-        let encryption = match room.and_then(|r| r.info.encrypted) {
-            Some(true) => "Cifratura E2EE attiva",
-            Some(false) => "Cifratura E2EE non attiva",
-            None => "Cifratura non confermata dallo stato SDK",
-        };
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let focused_control = Some(self.details_focus as usize);
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -569,22 +567,23 @@ impl Shell {
                     .child(
                     div().relative().flex().flex_col().flex_shrink().min_h_0().child(div().id("room-details-info").flex().flex_col().gap_4().min_h_0().track_scroll(&self.info_scroll.0.borrow().base_handle).overflow_y_scroll()
                     .child(
-                        div()
-                            .text_size(px(20.))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .flex_shrink_0() // truncate clips, so in a short sheet flex would squash the title to half a line
-                            .truncate()
-                            .child(matrix_desktop::row_text::one_line(&room.name)),
+                        div().flex().items_center().gap_2().flex_shrink_0()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_size(px(20.))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .truncate() // truncate clips, so in a short sheet flex would squash the title to half a line
+                                    .child(matrix_desktop::row_text::one_line(&room.name)),
+                            )
+                            // Count and shield are the visual form of the "N membri" / "Cifratura ..." labels in accessibility/details.rs.
+                            .child(div().flex().flex_shrink_0().items_center().gap_1().text_color(rgb(t.secondary)).child(crate::composer_icons::icon(crate::composer_icons::Icon::People, t.secondary)).child(room.info.joined_members.to_string()))
+                            .child(crate::composer_icons::icon(
+                                crate::composer_icons::Icon::Shield,
+                                if room.info.encrypted == Some(true) { ENCRYPTED_GREEN } else { t.error },
+                            )),
                     )
-                    .child(format!(
-                        "{} {}",
-                        room.info.joined_members,
-                        if room.info.joined_members == 1 {
-                            "membro"
-                        } else {
-                            "membri"
-                        }
-                    ))
                     .child(
                         div().child("Argomento").child(
                             // At most a third of the sheet below the header, then it scrolls (short text: natural height, no thumb).
@@ -617,7 +616,6 @@ impl Shell {
                                 )),
                         ),
                     )
-                    .child(encryption)
                     .child(
                         div()
                             .text_size(px(12.))

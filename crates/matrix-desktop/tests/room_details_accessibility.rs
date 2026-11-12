@@ -130,6 +130,15 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
 }
 
 #[test]
+fn details_tree_names_encryption_without_jargon() {
+    for (state, label) in [(Some(true), "Cifratura attiva"), (Some(false), "Cifratura non attiva")] {
+        let mut panel = panel();
+        panel.info.encrypted = state;
+        assert!(panel.tree().nodes.iter().any(|(_, n)| n.value() == Some(label)));
+    }
+}
+
+#[test]
 fn details_actions_revalidate_room_scope_and_reject_hidden_targets() {
     use accesskit::{Action, ActionRequest, TreeId};
     use matrix_desktop::accessibility::details::{DetailsAction, DetailsView, OPEN};

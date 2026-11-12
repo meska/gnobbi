@@ -258,8 +258,8 @@ impl DetailsSnapshot {
                 self.info.topic.as_deref().unwrap_or("Nessun argomento")
             ),
             match self.info.encrypted {
-                Some(true) => "Cifratura E2EE attiva",
-                Some(false) => "Cifratura E2EE non attiva",
+                Some(true) => "Cifratura attiva",
+                Some(false) => "Cifratura non attiva",
                 None => "Cifratura non confermata dallo stato SDK",
             }
             .into(),

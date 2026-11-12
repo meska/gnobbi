@@ -20,6 +20,8 @@ pub enum Icon {
     Folder,
     Dot,
     Ring,
+    People,
+    Shield,
 }
 
 fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
@@ -91,6 +93,11 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
         Icon::Folder => vec![vec![(3., 6.), (8., 6.), (10., 8.), (17., 8.), (17., 16.), (3., 16.), (3., 6.)]],
         // Strokes only: a filled dot is concentric rings one stroke apart.
         Icon::Dot => (1..=4).map(|r| arc((10., 10.), r as f32, 0., 2. * PI)).collect(),
+        Icon::People => vec![
+            arc((10., 7.), 3., 0., 2. * PI),
+            arc((10., 17.), 6., PI, 2. * PI),
+        ],
+        Icon::Shield => vec![vec![(10., 2.5), (16., 5.), (16., 10.), (10., 17.5), (4., 10.), (4., 5.), (10., 2.5)]],
         Icon::Ring => vec![arc((10., 10.), 5.5, 0., 2. * PI)],
         Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![
