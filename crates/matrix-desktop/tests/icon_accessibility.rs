@@ -16,6 +16,7 @@ fn snapshot(icon_choice: Option<IconChoice>) -> NavigationSnapshot {
         spaces: None,
         navigation_revision: 0,
         icon_choice,
+        disconnected: None,
         new_room: None,
         devices: Default::default(),
         new_chat: Default::default(),

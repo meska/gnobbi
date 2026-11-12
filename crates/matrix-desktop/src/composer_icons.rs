@@ -29,6 +29,7 @@ pub enum Icon {
     Chats,
     /// Speech bubble with a dot: «Non lette».
     Unread,
+    Alert,
 }
 
 fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
@@ -102,6 +103,8 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
             v.push(if matches!(icon, Icon::Unread) { arc((10., 8.75), 1.4, 0., 2. * PI) } else { vec![(7., 8.75), (13., 8.75)] });
             v
         }
+        // Triangle with an exclamation mark: not connected.
+        Icon::Alert => vec![vec![(10., 3.), (17.5, 16.5), (2.5, 16.5), (10., 3.)], vec![(10., 8.), (10., 12.)], vec![(10., 14.4), (10., 14.6)]],
         Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![
             arc((10., 10.), 7.5, 0., 2. * PI),

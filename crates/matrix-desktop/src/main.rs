@@ -56,8 +56,6 @@ mod switch_rows_test;
 #[cfg(any(test, feature = "gui-fixture"))]
 mod rail_drag_test;
 #[cfg(test)]
-mod bar_alignment_test;
-#[cfg(test)]
 mod verification_popup_test;
 #[cfg(test)]
 mod member_profile_test;
@@ -277,6 +275,8 @@ struct Shell {
     confirm_end: bool,
     connected: bool,
     status: RoomSyncStatus,
+    /// Start of the current outage, for the list's disconnection icon.
+    outage: matrix_desktop::disconnect::Gate,
     sidebar: Sidebar,
     active_scope: RoomScope,
     composer: gpui::Entity<ComposerView>,
@@ -2049,6 +2049,15 @@ impl Shell {
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.start_update_watch(cx);
+        let down = self.connected && matches!(self.status, RoomSyncStatus::AuthenticationFailed | RoomSyncStatus::SyncFailed);
+        if self.outage.observe(down, std::time::Instant::now()) {
+            // Redraw once the grace has passed so the icon appears without waiting for another event.
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(matrix_desktop::disconnect::GRACE).await;
+                this.update(cx, |_, cx| cx.notify()).ok();
+            })
+            .detach();
+        }
         // Common wrapper: sign-in, notifications and verification return early from `render_screen` and must update the input modality too.
         div().size_full().relative()
             .capture_key_down(|_, _, cx| input_modality::set_keyboard(cx))
@@ -2064,6 +2073,11 @@ impl Render for Shell {
 }
 
 impl Shell {
+    /// The reason to show, once the outage has outlived the grace; None while connected.
+    fn disconnected_shown(&self) -> Option<&'static str> {
+        self.outage.visible(std::time::Instant::now()).then(|| matrix_desktop::disconnect::reason(&self.status)).flatten()
+    }
+
     fn render_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) -> gpui::AnyElement {
         // Whatever selected a row meanwhile (diff fallback), a still-awaited saved room means no row is selected.
         if self.restore.waiting() {
@@ -2148,6 +2162,7 @@ impl Shell {
                 spaces: self.semantic_spaces(window),
                 navigation_revision: self.sidebar.navigation_revision(),
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
+                disconnected: self.disconnected_shown(),
                 new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_room_edit(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
@@ -2217,6 +2232,7 @@ impl Shell {
             return self.render_verification(cx);
         }
         let t = self.theme.tokens();
+        let theme = self.theme;
         let selected = self.sidebar.selected();
         let header_name = selected.map_or("Nessuna stanza".to_owned(), |room| room.name.clone());
         let header_initials = selected.map_or(String::new(), |room| room.initials.clone());
@@ -2315,7 +2331,17 @@ impl Shell {
                                         .text_size(px(18.))
                                         .font_weight(gpui::FontWeight::SEMIBOLD)
                                         .child(list_name),
-                                ),
+                                )
+                                // Fixed spot, absent (not hidden) while connected: nothing in the Tab order, no help text.
+                                .when_some(self.disconnected_shown(), |d, reason| {
+                                    d.child(
+                                        div()
+                                            .id("disconnected")
+                                            .flex_shrink_0()
+                                            .child(composer_icons::icon(composer_icons::Icon::Alert, t.error))
+                                            .tooltip(move |_, cx| cx.new(|_| rail_view::RailTooltip { label: reason.into(), theme }).into()),
+                                    )
+                                }),
                         )
                         // The room menu closes on click, so its failed «Fissa in alto» action reports here (the drawer shows the same line).
                         .children(self.sidebar.tag_error().map(|e| div().mx_4().mb_2().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
@@ -2528,23 +2554,6 @@ impl Shell {
                                     .child("Nessuna conversazione trovata"),
                             )
                         })
-                        .child(
-                            div()
-                                .px_4()
-                                .h(px(t.bottom_bar)) // same token as the composer: one baseline across both columns
-                                .flex_shrink_0()
-                                .border_t_1()
-                                .relative()
-                                .children({
-                                    #[cfg(test)] { bar_alignment_test::observe() }
-                                    #[cfg(not(test))] { None::<gpui::AnyElement> }
-                                })
-                                .border_color(rgb(t.border))
-                                .text_size(px(11.))
-                                .text_color(rgb(t.secondary))
-                                .flex().items_center().justify_between()
-                                .child(div().child(if self.connected { connection_label } else { "fixture offline" }))
-                        ),
                 )
             })
             // Tab stop of the divider: between the list and the chat, like its place on screen.
@@ -2813,7 +2822,6 @@ fn main() {
         || sidebar_navigation_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || rail_drag_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || list_divider_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
-        || bar_alignment_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || verification_popup_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || drawer_active_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || rail_ring_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
@@ -3453,8 +3461,6 @@ fn main() {
                     #[cfg(test)]
                     sidebar_navigation_test::install(window, cx);
                     #[cfg(test)]
-                    bar_alignment_test::install(window, cx);
-                    #[cfg(test)]
                     verification_popup_test::install(window, cx);
                     #[cfg(test)]
                     drawer_active_test::install(window, cx);
@@ -3539,6 +3545,7 @@ fn main() {
                                 spaces: None,
                 navigation_revision: 0,
                                 icon_choice: None,
+                                disconnected: None,
                                 new_room: None,
                                 devices: Default::default(),
                                 settings: None,
@@ -3641,6 +3648,7 @@ fn main() {
                         confirm_end: false,
                         connected,
                         status: RoomSyncStatus::Connecting,
+                        outage: Default::default(),
                         sidebar,
                         composer_visit: composer.read(cx).visit.clone(),
                         composer,

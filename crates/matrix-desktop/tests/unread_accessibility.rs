@@ -44,6 +44,7 @@ fn unread_description_updates_without_renaming_or_reidentifying_room() {
             spaces: None,
             navigation_revision: 0,
             icon_choice: None,
+            disconnected: None,
             new_room: None,
             devices: Default::default(),
             settings: None,

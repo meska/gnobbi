@@ -27,6 +27,7 @@ fn snapshot(history: matrix_desktop::accessibility::HistorySnapshot) -> Navigati
         spaces: None,
         navigation_revision: 0,
         icon_choice: None,
+        disconnected: None,
         new_room: None,
         devices: Default::default(),
         settings: None,

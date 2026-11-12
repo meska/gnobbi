@@ -751,6 +751,8 @@ pub struct NavigationSnapshot {
     pub navigation_revision: u64,
     /// Current app icon while Settings is open; None hides the three choices.
     pub icon_choice: Option<crate::IconChoice>,
+    /// The list's red disconnection icon is on screen; its node exists only then (no empty Tab stop or live region).
+    pub disconnected: Option<&'static str>,
     pub new_room: Option<new_room::Snapshot>,
     pub devices: devices::DeviceView,
     pub details: details::DetailsView,
@@ -1757,6 +1759,11 @@ impl NavigationSnapshot {
                 tree.nodes[0].1.push_child(id);
                 tree.nodes.push((id, node));
             }
+        }
+        if let (true, Some(reason)) = (self.visible, self.disconnected) {
+            let (id, node) = crate::disconnect::node(reason);
+            tree.nodes[0].1.push_child(id);
+            tree.nodes.push((id, node));
         }
         if self.visible
             && let Some(spaces) = &self.spaces

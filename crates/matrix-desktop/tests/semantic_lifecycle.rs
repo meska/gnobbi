@@ -15,6 +15,7 @@ fn snapshot(visible: bool) -> NavigationSnapshot {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
+        disconnected: None,
         devices: Default::default(),
         settings: None,
         about: None,
