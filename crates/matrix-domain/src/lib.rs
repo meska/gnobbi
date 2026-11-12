@@ -9,6 +9,16 @@ mod timeline;
 pub use sender_label::{SENDER_LABEL_GAP_MS, shows_sender_label};
 pub use timeline::{SendStatus, Timeline, TimelineError, TimelineItem, TimelineUpdate};
 
+/// Whitespace, control, backslash, zero-width and bidi characters: never allowed in a URL the user
+/// is shown or that opens something (shared by web links and Matrix links).
+pub fn has_unsafe_url_char(s: &str) -> bool {
+    s.chars().any(|c| {
+        c.is_whitespace()
+            || c.is_control()
+            || matches!(c, '\\' | '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}')
+    })
+}
+
 /// Timeline identity explicitly tagged as local pending or server-assigned.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum TimelineId {
@@ -94,4 +104,23 @@ impl AccountId {
     pub const fn as_u64(&self) -> u64 {
         self.0
     }
+}
+
+/// A validated `matrix:` / matrix.to link; see `matrix_engine::matrix_link::parse_matrix_link`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MatrixLink {
+    /// `target` is `#alias:server` or `!id:server`.
+    Room {
+        target: String,
+        via: Vec<String>,
+        event: Option<String>,
+    },
+    User {
+        user_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkError {
+    Invalid,
 }

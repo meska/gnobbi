@@ -52,6 +52,21 @@ mod account_state;
 pub use account_state::{AccountRoutes, AccountState, Drained};
 mod app_dirs;
 pub mod desktop_entry;
+#[cfg(unix)]
+pub mod single_instance;
+pub mod windows_link;
+
+/// `--signin <root>` (the menu's "Add account") is its own process and window, not a second launch:
+/// the single-instance gate (Linux socket, Windows mutex/pipe) must leave it alone.
+pub fn is_account_window(args: &[String]) -> bool {
+    matches!(args, [flag, root, ..] if flag == "--signin" && root != "--ca-file")
+}
+/// The shell passes a link as the single `%1`; a link holding `"` splits into extra args (e.g. `--signin`).
+pub fn hostile_argv(rest: &[String], link: &Option<String>) -> bool {
+    link.is_some() && !rest.is_empty()
+}
+#[cfg(windows)]
+pub use windows_link as single_instance;
 pub mod install_offer;
 pub use account_catalog::{AccountCatalog, AccountEntry};
 pub use account_list::{AccountRow, account_rows, initials};
@@ -79,6 +94,7 @@ pub use composer::{
 pub use connection_options::create_private_dir;
 pub use connection_options::{
     RestoreOptions, SignInOptions, bundle_launch_args, default_signin_args, linux_launch_args,
+    take_matrix_link,
 };
 mod drafts;
 pub use drafts::RoomDrafts;
@@ -91,6 +107,7 @@ pub use event_id_copy::{EventIdCopies, EventIdCopyTarget};
 mod link_requests;
 pub use link_requests::{LinkMenu, LinkSource, MessageLinkRequests, MessageLinkTarget, link_at};
 mod links;
+pub mod link_open;
 pub mod mention_gaps;
 pub use links::{
     LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links,
@@ -421,5 +438,28 @@ pub fn confirm_question(act: ProfileAct, name: &str, messages: usize) -> String 
         ProfileAct::Ban => format!("Bannare {name}?"),
         ProfileAct::Ignore => format!("Ignorare {name}?"),
         _ => format!("Rimuovere {messages} messaggi di {name}?"),
+    }
+}
+
+#[cfg(test)]
+mod account_window_tests {
+    use super::is_account_window;
+
+    #[test]
+    fn link_plus_options_is_hostile() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let l = Some("matrix:r/a:x.test".to_string());
+        assert!(super::hostile_argv(&v(&["--signin", "/d"]), &l));
+        assert!(!super::hostile_argv(&[], &l));
+        assert!(!super::hostile_argv(&v(&["--signin", "/d"]), &None));
+    }
+
+    #[test]
+    fn signin_with_a_root_is_not_a_second_launch() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(is_account_window(&v(&["--signin", "/d/accounts/2", "--ca-file", "x.pem"])));
+        assert!(!is_account_window(&v(&["--signin"])));
+        assert!(!is_account_window(&v(&["--signin", "--ca-file", "x.pem"])));
+        assert!(!is_account_window(&v(&["matrix:u/ada:x.test"])));
     }
 }

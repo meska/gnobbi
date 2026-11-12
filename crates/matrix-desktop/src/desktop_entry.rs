@@ -211,6 +211,15 @@ pub fn install_desktop_entry_with(
             &share.join("icons/hicolor"),
         ],
     );
+    // matrix: links open Gnobbi; same as running it by hand, and safe to repeat.
+    run(
+        "xdg-mime",
+        &[
+            Path::new("default"),
+            Path::new(&format!("{APP_ID}.desktop")),
+            Path::new("x-scheme-handler/matrix"),
+        ],
+    );
     Ok(())
 }
 

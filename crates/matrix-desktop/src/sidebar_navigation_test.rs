@@ -2062,6 +2062,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             crate::quick_answer_test::scenario(this, cx, executor).await;
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 97 {
+            crate::link_jump_test::scenario(this, cx, executor).await;
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 91 {
             crate::member_profile_test::scenario(this, cx, executor).await;
             return;
@@ -3825,6 +3829,16 @@ fn pending_restore_arrow_preserves_wait_and_selection() {
 fn member_detail_profile_actions_and_keyboard() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(91, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn link_to_a_message_scrolls_loads_and_flashes() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(97, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();

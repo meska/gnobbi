@@ -82,7 +82,7 @@ pub(crate) struct ThreadPanel {
     reply_to: Option<(EventId, String)>,
     outgoing: Vec<Outgoing>,
     scope: RoomScope,
-    root: EventId,
+    pub(crate) root: EventId,
     /// The room timeline's row, shown whenever the thread read does not carry the root.
     root_row: ThreadRow,
     replies: Vec<ThreadRow>,

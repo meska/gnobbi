@@ -55,7 +55,9 @@ impl Shell {
         }
         acts.push(ProfileAct::Link);
         if !me {
-            acts.push(ProfileAct::Quote);
+            if self.sidebar.selected().is_some() {
+                acts.push(ProfileAct::Quote);
+            }
             if self.profile_rights.as_ref().is_some_and(|(id, r)| *id == p.user_id && r.read_receipt.is_some()) {
                 acts.push(ProfileAct::ReadReceipt);
             }
@@ -92,6 +94,14 @@ impl Shell {
         }
     }
 
+    /// Back to the member list; with no room there is no list, so the sheet closes.
+    fn profile_back(&mut self) {
+        self.profile = None;
+        if self.sidebar.selected().is_none() {
+            self.set_room_details_open(false);
+        }
+    }
+
     fn profile_ctls(&self) -> Vec<ProfileCtl> {
         [ProfileCtl::Back, ProfileCtl::Close]
             .into_iter()
@@ -101,7 +111,7 @@ impl Shell {
 
     fn activate_ctl(&mut self, ctl: ProfileCtl, window: &mut Window, cx: &mut Context<Self>) {
         match ctl {
-            ProfileCtl::Back => self.profile = None,
+            ProfileCtl::Back => self.profile_back(),
             ProfileCtl::Close => self.set_room_details_open(false),
             ProfileCtl::Act(act) => self.profile_act(act, window, cx),
         }
@@ -113,7 +123,7 @@ impl Shell {
         let ctls = self.profile_ctls();
         match key {
             "escape" if self.profile_confirm.take().is_some() => self.profile_focus = 0,
-            "escape" => self.profile = None,
+            "escape" => self.profile_back(),
             "tab" => {
                 let n = ctls.len();
                 self.profile_focus = (self.profile_focus + if shift { n - 1 } else { 1 }) % n;
@@ -337,7 +347,8 @@ impl Shell {
         if waiting {
             self.profile = Some(match result {
                 Ok(profile) => {
-                    if self.pending_operation_command.is_none() {
+                    // Rights are a room matter: a profile opened from a link has no room.
+                    if self.pending_operation_command.is_none() && self.sidebar.selected().is_some() {
                         self.pending_operation_command = Some(OperationCommand::MemberRights {
                             scope: self.active_scope.clone(),
                             user_id: profile.user_id.clone(),
@@ -411,7 +422,7 @@ impl Shell {
                 .text_color(rgb(t.accent))
                 .child("Membri")
                 .on_click(cx.listener(|this, _, _, cx| {
-                    this.profile = None;
+                    this.profile_back();
                     cx.notify();
                 }))
         };

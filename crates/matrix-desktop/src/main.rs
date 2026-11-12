@@ -16,6 +16,9 @@ mod filter_icon;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;
+mod link_view;
+/// URLs the system handed to the app (macOS open-URL) before the shell could take them.
+static OPENED_URLS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 #[cfg(target_os = "linux")]
 mod install_offer_view;
 mod login_field;
@@ -56,6 +59,8 @@ mod bar_alignment_test;
 mod verification_popup_test;
 #[cfg(test)]
 mod member_profile_test;
+#[cfg(test)]
+mod link_jump_test;
 #[cfg(test)]
 mod drawer_active_test;
 #[cfg(test)]
@@ -223,6 +228,11 @@ struct Shell {
     /// Why the last click on this drawer account row could not show it.
     switch_error: Option<(AccountId, &'static str)>,
     swallow_menu_key_up: bool,
+    /// The system link waiting for the accounts to be ready (memory only, see `link_open`).
+    pending_link: matrix_desktop::link_open::LinkQueue,
+    /// One line about a link that could not be opened; cleared after a few seconds.
+    link_notice: Option<(&'static str, std::time::Instant)>,
+    link_jump: Option<link_view::LinkJump>,
     removals: Vec<account_remove::Removal>,
     /// Catalog ID of the shown account (unknown until a new sign-in is recorded).
     active_id: Option<AccountId>,
@@ -2664,6 +2674,7 @@ impl Shell {
             .when(self.menu_open, |d| d.child(self.render_drawer(t, window, cx)))
             .when(self.room_menu.is_some(), |d| d.child(self.render_room_menu(t, cx)))
             .children(self.render_new_room(t, window, cx))
+            .children(self.render_link_notice(t))
             .children(self.poll_dialog.clone().inspect(|dialog| {
                 dialog.update(cx, |d, _| d.theme = t);
             }))
@@ -2685,17 +2696,63 @@ impl Shell {
     }
 }
 
+/// First instance: listen for later launches. Otherwise deliver our link (or "raise") and exit.
+/// Any socket trouble only costs the single-instance behaviour: the app starts normally.
+#[cfg(all(target_os = "linux", feature = "live"))]
+fn single_instance_gate(argv: &[String]) {
+    use matrix_desktop::single_instance::{Claim, claim, default_socket_path, serve};
+    let (rest, link) = matrix_desktop::take_matrix_link(argv.to_vec());
+    if rest.first().is_some_and(|a| a == "--install-desktop-entry")
+        || matrix_desktop::is_account_window(&rest)
+    {
+        return;
+    }
+    let link = matrix_desktop::single_instance::outgoing(link);
+    let Some(path) = default_socket_path() else {
+        return eprintln!("Gnobbi: single instance off (no private state directory)");
+    };
+    match claim(&path, &link) {
+        Ok(Claim::First(listener)) => serve(listener),
+        Ok(Claim::Delivered) => std::process::exit(0),
+        Err(error) => eprintln!("Gnobbi: single instance off ({error})"),
+    }
+}
+
+/// Windows twin of the gate above: named mutex + pipe, same behaviour.
+#[cfg(all(windows, feature = "live"))]
+fn single_instance_gate(argv: &[String]) {
+    use matrix_desktop::windows_link::{Claim, MAX_LINK, claim, register_for_current_user};
+    let (rest, link) = matrix_desktop::take_matrix_link(argv.to_vec());
+    if matrix_desktop::hostile_argv(&rest, &link) {
+        eprintln!("Gnobbi: link with extra arguments refused");
+        std::process::exit(2);
+    }
+    if matrix_desktop::is_account_window(&rest) {
+        return;
+    }
+    let link = link.filter(|l| l.len() <= MAX_LINK && !l.contains('\n')).unwrap_or_default();
+    match claim(&link) {
+        Ok(Claim::First) => register_for_current_user(),
+        Ok(Claim::Delivered) => std::process::exit(0),
+        Err(error) => eprintln!("Gnobbi: single instance off ({error})"),
+    }
+}
+
 fn main() {
     // Before the marker and the UI: the update helper is this same exe in another mode.
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if let Some(code) = matrix_desktop::update::helper::dispatch(&argv) {
         std::process::exit(code);
     }
+    // A second launch hands its link to the live instance and exits before anything else starts.
+    #[cfg(all(any(target_os = "linux", windows), feature = "live"))]
+    single_instance_gate(&argv);
     matrix_desktop::update::startup::run_at_start();
     #[cfg(all(feature = "perf-probe", feature = "live", target_os = "macos"))]
     if std::env::var_os("P115B_NATIVE").is_some() {
         return login_field::mac_clipboard_probe::run();
     }
+
     #[cfg(feature = "live")]
     if std::env::var_os("RUST_LOG").is_some() {
         tracing_subscriber::fmt()
@@ -2708,7 +2765,16 @@ fn main() {
     if let Some(dirs) = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
         matrix_desktop::update::scheduler::start(dirs, matrix_desktop::update::shared_state(), Default::default());
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (args, link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
+    // Kept in memory for the link handler; an invalid one is dropped (only the error kind is logged).
+    #[cfg(feature = "live")]
+    let mut start_link = link.and_then(|raw| {
+        matrix_engine::matrix_link::parse_matrix_link(&raw)
+            .map_err(|error| eprintln!("Gnobbi: ignored matrix link ({error:?})"))
+            .ok()
+    });
+    #[cfg(not(feature = "live"))]
+    let mut start_link: Option<matrix_domain::MatrixLink> = link.and(None);
     if args.first().is_some_and(|a| a == "--install-desktop-entry") {
         // Saved icon choice; missing or invalid preferences fall back to the default.
         let icon = matrix_desktop::app_dirs(matrix_desktop::Platform::Linux, |k| {
@@ -2918,7 +2984,11 @@ fn main() {
         .then(matrix_desktop::notifications::NotificationWorker::spawn)
         .and_then(Result::ok);
     let mut notification_handle = notification_worker.as_ref().map(|worker| worker.handle());
-    Application::new().run(move |cx: &mut App| {
+    // Registered on the Application, before it runs and so before any window: GPUI drops URLs that arrive
+    // with no callback. The shell does not exist yet, so the URLs wait in OPENED_URLS for the 200 ms tick.
+    let app = Application::new();
+    app.on_open_urls(|urls| OPENED_URLS.lock().unwrap().extend(urls));
+    app.run(move |cx: &mut App| {
         emoji_font::register(cx);
         #[cfg(target_os = "macos")]
         cx.set_menus(vec![
@@ -3259,6 +3329,7 @@ fn main() {
                                         }
                                         this.drive_profile(cx);
                                         this.drive_room_search(cx);
+                                        this.drive_link_jump(cx);
                                         if let Some((sender, _)) = &mut this.routes.verification {
                                             this.verification.flush(sender);
                                         }
@@ -3349,6 +3420,18 @@ fn main() {
                                     cx.notify();
                                 }
                                 this.open_clicked_alert(window, cx);
+                                #[cfg(all(any(target_os = "linux", windows), feature = "live"))]
+                                for link in matrix_desktop::single_instance::take_incoming() {
+                                    window.activate_window();
+                                    if !link.is_empty() {
+                                        this.open_matrix_link(&link, cx);
+                                    }
+                                }
+                                #[cfg(feature = "live")]
+                                for url in std::mem::take(&mut *OPENED_URLS.lock().unwrap()) {
+                                    this.open_matrix_link(&url, cx);
+                                }
+                                this.drain_pending_link(window, cx);
                             }).is_err() {
                                 break;
                             }
@@ -3553,6 +3636,13 @@ fn main() {
                         control: active_control.take(),
                         confirm_removal: None,
                         switch_error: None,
+                        pending_link: {
+                            let mut queue = matrix_desktop::link_open::LinkQueue::default();
+                            queue.extend(start_link.take());
+                            queue
+                        },
+                        link_notice: None,
+                        link_jump: None,
                         swallow_menu_key_up: false,
                         removals: vec![],
                         active_id,

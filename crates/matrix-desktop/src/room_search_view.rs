@@ -12,11 +12,19 @@ use matrix_engine::operations::{MessageHit, MessageSearchState, MoreHits, Operat
 const FLASH: std::time::Duration = std::time::Duration::from_secs(2);
 
 #[derive(Clone)]
-struct Jump {
+pub(crate) struct Jump {
     /// The row to show: the hit, or the thread root for a reply inside a thread.
-    show: EventId,
-    open_thread: bool,
-    term: String,
+    pub(crate) show: EventId,
+    pub(crate) open_thread: bool,
+    pub(crate) term: String,
+}
+
+/// Where a jump stands after one step.
+pub(crate) enum JumpStep {
+    Shown,
+    Waiting,
+    /// The start of the history (or a failed load, or the page limit) came before the row.
+    Unreachable,
 }
 
 pub(crate) struct RoomSearch {
@@ -284,33 +292,52 @@ impl Shell {
             self.close_room_search(false, None, cx);
             return;
         }
-        let timeline = self.timeline.as_ref().expect("checked above");
-        if timeline.flash_ended() {
+        if self.timeline.as_ref().is_some_and(|t| t.flash_ended()) {
             cx.notify();
         }
         let Some(jump) = search.jump.clone() else {
             return;
         };
+        let mut pages = u32::MAX;
+        if !matches!(self.step_jump(&jump, &mut pages, cx), JumpStep::Waiting)
+            && let Some(search) = self.room_search.as_mut()
+        {
+            search.jump = None;
+        }
+    }
+
+    /// One step of a jump, for the search and for a link to a message: scrolls once the row is
+    /// loaded and flashes it (opening the thread when asked), else reads one older page, at most
+    /// `pages` of them.
+    pub(crate) fn step_jump(&mut self, jump: &Jump, pages: &mut u32, cx: &mut Context<Self>) -> JumpStep {
+        let Some(timeline) = self.timeline.as_ref() else {
+            return JumpStep::Unreachable;
+        };
         if timeline.scroll_to_event(&jump.show) {
             timeline.set_search_mark(Some(crate::timeline_view::SearchMark {
                 event: jump.show.clone(),
-                term: jump.term,
+                term: jump.term.clone(),
                 flash_until: std::time::Instant::now() + FLASH,
                 ended: false,
             }));
-            search.jump = None;
             if jump.open_thread {
                 self.open_thread(&jump.show, None, cx);
             }
             cx.notify();
-        } else if self.pending_history.is_none() {
+            return JumpStep::Shown;
+        }
+        if self.pending_history.is_none() {
             match self.history.status() {
-                HistoryStatus::More => self.request_older(),
+                HistoryStatus::More if *pages == 0 => return JumpStep::Unreachable,
+                HistoryStatus::More => {
+                    *pages -= 1;
+                    self.request_older();
+                }
                 HistoryStatus::Loading => {}
-                // The start was reached (or loading failed) without the row: it is not reachable.
-                _ => search.jump = None,
+                _ => return JumpStep::Unreachable,
             }
         }
+        JumpStep::Waiting
     }
 
     pub(crate) fn render_room_search_field(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
