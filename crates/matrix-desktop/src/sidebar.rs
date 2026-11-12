@@ -162,6 +162,10 @@ pub struct Sidebar {
     reject_armed: Option<RoomScope>,
     /// The room whose last «Esci» failed, with the one-line reason shown in its row.
     leave_error: Option<(RoomScope, &'static str)>,
+    /// The favourite toggle in flight: the room and its state before the optimistic flip.
+    favourite: Option<(RoomScope, bool)>,
+    /// One-line reason of the last failed toggle, until the next one.
+    favourite_error: Option<&'static str>,
 }
 
 impl Sidebar {
@@ -184,6 +188,8 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
+            favourite: None,
+            favourite_error: None,
         }
     }
 
@@ -304,6 +310,8 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
+            favourite: None,
+            favourite_error: None,
         }
     }
 
@@ -520,6 +528,59 @@ impl Sidebar {
 
     pub fn clear_leave_error(&mut self) {
         self.leave_error = None;
+    }
+
+    /// The one state every UI and the «Preferiti» filter read: the room carries `m.favourite`.
+    pub fn is_favourite(&self, scope: &RoomScope) -> bool {
+        self.rooms.iter().any(|r| r.scope == *scope && r.info.tags.iter().any(|t| t == FAVOURITE))
+    }
+
+    pub fn favourite_pending(&self) -> bool {
+        self.favourite.is_some()
+    }
+
+    pub fn favourite_error(&self) -> Option<&'static str> {
+        self.favourite_error
+    }
+
+    fn set_favourite(&mut self, scope: &RoomScope, on: bool) {
+        if let Some(room) = self.rooms.iter_mut().find(|r| r.scope == *scope) {
+            room.info.tags.retain(|t| t != FAVOURITE);
+            if on {
+                room.info.tags.push(FAVOURITE.into());
+                room.info.tags.sort();
+            }
+        }
+        self.set_query(&self.query.clone());
+    }
+
+    /// The single «Preferiti» action (context menu and drawer): flips the room now so the filter follows,
+    /// and returns the tag edit to send. None while another toggle waits or for an unknown room.
+    pub fn toggle_favourite(&mut self, scope: &RoomScope) -> Option<matrix_engine::operations::TagEdit> {
+        if self.favourite.is_some() || !self.rooms.iter().any(|r| r.scope == *scope) {
+            return None;
+        }
+        let was = self.is_favourite(scope);
+        self.favourite = Some((scope.clone(), was));
+        self.favourite_error = None;
+        self.set_favourite(scope, !was);
+        Some(matrix_engine::operations::TagEdit::Assign {
+            room_id: scope.room_id.as_str().to_owned(),
+            tag: FAVOURITE.into(),
+            on: !was,
+        })
+    }
+
+    /// The engine's answer: on failure the room goes back to its real state and one line says why.
+    pub fn favourite_done(&mut self, result: Result<(), matrix_engine::operations::OperationError>) {
+        let Some((scope, was)) = self.favourite.take() else { return };
+        if let Err(e) = result {
+            self.set_favourite(&scope, was);
+            self.favourite_error = Some(match e {
+                matrix_engine::operations::OperationError::Forbidden => "Non consentito dal server",
+                _ => "Connessione non riuscita",
+            });
+        }
     }
 
     /// The invitation under the cursor, if the cursor is on one.
@@ -1398,5 +1459,68 @@ mod invite_tests {
         sidebar.apply_diff(RoomListDiff::Remove(other.clone()));
         assert_eq!(sidebar.invite_count(), 0);
         assert_eq!(sidebar.answer_invite(&other, true), None, "no invitation, no answer");
+    }
+}
+
+#[cfg(test)]
+mod favourite_tests {
+    use super::*;
+    use matrix_engine::operations::{OperationError, TagEdit};
+
+    fn one() -> (Sidebar, RoomScope) {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let scope = RoomScope { account_id: account, room_id: RoomId::new("!r:x") };
+        sidebar.rooms.push(SidebarRoom {
+            scope: scope.clone(),
+            name: "r".into(),
+            initials: "R".into(),
+            preview: String::new(),
+            time: "",
+            color: 0,
+            unread: 0,
+            info: Default::default(),
+        });
+        sidebar.set_query("");
+        (sidebar, scope)
+    }
+
+    fn in_filter(s: &Sidebar) -> usize {
+        s.visible_indices().len()
+    }
+
+    #[test]
+    fn toggle_flips_at_once_and_the_filter_follows() {
+        let (mut s, scope) = one();
+        s.set_filter(s.filter().with_group(Some(FAVOURITE.into())));
+        assert_eq!(in_filter(&s), 0);
+        let edit = s.toggle_favourite(&scope);
+        assert_eq!(edit, Some(TagEdit::Assign { room_id: "!r:x".into(), tag: FAVOURITE.into(), on: true }));
+        assert!(s.is_favourite(&scope));
+        assert_eq!(in_filter(&s), 1);
+        assert!(s.toggle_favourite(&scope).is_none(), "one toggle at a time");
+        s.favourite_done(Ok(()));
+        assert!(s.is_favourite(&scope) && s.favourite_error().is_none());
+        let off = s.toggle_favourite(&scope);
+        assert!(matches!(off, Some(TagEdit::Assign { on: false, .. })));
+        assert_eq!(in_filter(&s), 0);
+    }
+
+    #[test]
+    fn failure_restores_the_real_state_with_one_line() {
+        let (mut s, scope) = one();
+        s.toggle_favourite(&scope);
+        s.favourite_done(Err(OperationError::Transport));
+        assert!(!s.is_favourite(&scope));
+        assert_eq!(s.favourite_error(), Some("Connessione non riuscita"));
+        assert!(!s.favourite_pending());
+        // the same from the favourite side
+        s.favourite_done(Ok(()));
+        s.toggle_favourite(&scope);
+        s.favourite_done(Ok(()));
+        s.toggle_favourite(&scope);
+        s.favourite_done(Err(OperationError::Forbidden));
+        assert!(s.is_favourite(&scope));
+        assert_eq!(s.favourite_error(), Some("Non consentito dal server"));
     }
 }

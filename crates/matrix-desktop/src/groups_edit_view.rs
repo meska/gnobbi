@@ -52,7 +52,7 @@ impl Shell {
     /// Sends one tag change; refused while another command waits. Returns whether it was queued.
     fn send_tag_edit(&mut self, edit: TagEdit, cx: &mut Context<Self>) -> bool {
         let Some(state) = &mut self.groups_edit else { return false };
-        if state.busy || self.pending_operation_command.is_some() {
+        if state.busy || self.pending_operation_command.is_some() || self.sidebar.favourite_pending() {
             return false;
         }
         state.busy = true;
@@ -60,6 +60,19 @@ impl Shell {
         self.pending_operation_command = Some(OperationCommand::EditTags(edit));
         cx.notify();
         true
+    }
+
+    /// The one «Preferiti» action for the room menu and the drawer: optimistic flip, `m.favourite` through the SDK.
+    /// Refused while another tag command is in flight.
+    #[allow(dead_code)] // wired by the room menu and drawer cards that follow
+    pub(crate) fn toggle_favourite(&mut self, scope: &RoomScope, cx: &mut Context<Self>) {
+        if self.pending_operation_command.is_some() || self.groups_edit.as_ref().is_some_and(|e| e.busy) {
+            return;
+        }
+        if let Some(edit) = self.sidebar.toggle_favourite(scope) {
+            self.pending_operation_command = Some(OperationCommand::EditTags(edit));
+            cx.notify();
+        }
     }
 
     /// Typed name → `u.<name>` (None for an empty name).
@@ -129,6 +142,11 @@ impl Shell {
 
     /// The engine's answer. The lists change with the next sync; only the busy flag and the error live here.
     pub(crate) fn groups_edited(&mut self, result: Result<(), OperationError>, cx: &mut Context<Self>) {
+        if self.sidebar.favourite_pending() {
+            self.sidebar.favourite_done(result);
+            cx.notify();
+            return;
+        }
         if let Some(edit) = &mut self.groups_edit {
             edit.busy = false;
             edit.error = result.is_err();
