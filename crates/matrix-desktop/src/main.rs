@@ -2345,6 +2345,8 @@ impl Shell {
                                 ),
                         )
                         .when(self.connected, |d| d.child(self.render_filter_row(window, cx)))
+                        // The room menu closes on click, so its failed «Preferiti» action reports here (the drawer shows the same line).
+                        .children(self.sidebar.favourite_error().map(|e| div().mx_4().mb_2().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
                         .child(
                             div()
                                 .mx_4()
