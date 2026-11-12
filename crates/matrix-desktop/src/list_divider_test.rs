@@ -63,6 +63,22 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         assert_eq!(width(cx), 320., "double click restores the default");
         assert_eq!(saved(cx), None);
 
+        // 3b. Keyboard: the double click focused the divider; arrows move it 16 px, save, and stop at the limits.
+        assert!(this.update_in(cx, |this, window, _| this.list_divider_focus.is_focused(window)).unwrap(), "divider has focus");
+        input.key("Right");
+        pause(&ex, 300).await;
+        assert_eq!((width(cx), saved(cx)), (336., Some(336)));
+        for _ in 0..4 {
+            input.key("Left");
+            pause(&ex, 200).await;
+        }
+        assert_eq!((width(cx), saved(cx)), (LIST_MIN_WIDTH, Some(304)), "Left stops at the minimum");
+        input.shot("divider", "keys");
+        input.key("Tab");
+        pause(&ex, 300).await;
+        assert!(!this.update_in(cx, |this, window, _| this.list_divider_focus.is_focused(window)).unwrap(), "Tab leaves the divider");
+        this.update_in(cx, |this, window, cx| this.set_list_width(None, window, cx)).unwrap();
+
         // 4. A wide saved width is re-clamped (not rewritten) when the window gets narrower.
         this.update_in(cx, |this, window, cx| {
             this.set_list_width(Some(480.), window, cx);

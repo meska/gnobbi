@@ -80,7 +80,7 @@ impl Input {
         }
     }
 
-    fn key(&self, key: &str) {
+    pub(crate) fn key(&self, key: &str) {
         match self {
             Input::X(_) => drop(run("xdotool", &["key", key])),
             Input::Wl(..) => drop(run("wtype", &["-k", key])),

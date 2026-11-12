@@ -891,7 +891,7 @@ impl NavigationSnapshot {
                 .tree()
                 .nodes
                 .iter()
-                .any(|(id, node)| *id == bar.node().0 && node.role() == Role::ScrollBar)
+                .any(|(id, node)| *id == bar.node().0 && node.role() == bar.node().1.role())
                 && let Some(action) = bar.action(request)
             {
                 return Some(NavigationAction::Scrollbar(action));
@@ -1751,7 +1751,7 @@ impl NavigationSnapshot {
         self.room_search.append(&mut tree);
         for bar in &self.scrollbars {
             if match bar.pane {
-                scrollbars::Pane::Rooms(_) => self.visible,
+                scrollbars::Pane::Rooms(_) | scrollbars::Pane::Divider { .. } => self.visible,
                 scrollbars::Pane::History(_) => self.history.is_some(),
             } {
                 let (id, node) = bar.node();

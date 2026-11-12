@@ -318,6 +318,9 @@ impl crate::Shell {
         {
             bars.push(bar);
         }
+        if !compact {
+            bars.push(self.divider_snapshot(window));
+        }
         if (!compact || self.compact_chat)
             && let Some(bar) = self.timeline.as_ref().and_then(|timeline| {
                 timeline
@@ -330,9 +333,10 @@ impl crate::Shell {
     }
 
     pub(crate) fn apply_scrollbar(
-        &self,
+        &mut self,
         action: matrix_desktop::accessibility::scrollbars::ScrollbarAction,
         window: &Window,
+        cx: &mut gpui::Context<Self>,
     ) {
         use matrix_desktop::accessibility::scrollbars::Pane;
         if !self
@@ -351,6 +355,7 @@ impl crate::Shell {
                     timeline.set_scroll_fraction(action.fraction);
                 }
             }
+            Pane::Divider { .. } => self.move_list_divider(action.fraction as f32, window, cx),
         }
     }
 }

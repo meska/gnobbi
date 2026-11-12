@@ -165,6 +165,7 @@ struct Shell {
     prefs_dirs: Option<matrix_desktop::AppDirs>,
     /// Divider drag in progress: pointer x and list width at mouse down.
     list_drag: Option<(f32, f32)>,
+    list_divider_focus: FocusHandle,
     room_prefs: matrix_desktop::RoomPrefs,
     /// Composer focus as of the last frame (saved with the room on change/close, not per event).
     composer_focused: bool,
@@ -658,7 +659,7 @@ impl Shell {
                 continue;
             }
             if let matrix_desktop::accessibility::NavigationAction::Scrollbar(action) = action {
-                this.apply_scrollbar(action, window);
+                this.apply_scrollbar(action, window, cx);
                 cx.notify();
                 continue;
             }
@@ -2583,6 +2584,8 @@ impl Shell {
                         ),
                 )
             })
+            // Tab stop of the divider: between the list and the chat, like its place on screen.
+            .when(!compact, |d| d.child(self.render_list_divider_focus(cx)))
             .when(!compact || self.compact_chat, |d| {
                 d.child(
                     div()
@@ -3548,6 +3551,7 @@ fn main() {
                         focus_composer_on_restore: false,
                         prefs_dirs,
                         list_drag: None,
+                        list_divider_focus: cx.focus_handle().tab_stop(true),
                         prefs,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         back_ui: compact_view::BackUi::new(cx),
