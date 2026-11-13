@@ -1,6 +1,6 @@
 diff -ruN a/Cargo.toml b/Cargo.toml
 --- a/Cargo.toml	1970-01-01 01:00:01
-+++ b/Cargo.toml	2026-11-11 21:18:50
++++ b/Cargo.toml	2026-11-13 08:43:44
 @@ -487,6 +487,12 @@
  version = "0.14.0"
  optional = true
@@ -16,7 +16,7 @@ diff -ruN a/Cargo.toml b/Cargo.toml
  optional = true
 diff -ruN a/src/elements/text.rs b/src/elements/text.rs
 --- a/src/elements/text.rs	2006-07-24 03:21:28
-+++ b/src/elements/text.rs	2026-11-11 21:18:50
++++ b/src/elements/text.rs	2026-11-13 08:43:44
 @@ -316,6 +316,7 @@
      lines: SmallVec<[WrappedLine; 1]>,
      line_height: Pixels,
@@ -25,7 +25,7 @@ diff -ruN a/src/elements/text.rs b/src/elements/text.rs
      size: Option<Size<Pixels>>,
      bounds: Option<Bounds<Pixels>>,
  }
-@@ -372,7 +373,10 @@
+@@ -372,11 +373,16 @@
  
                  if let Some(text_layout) = element_state.0.borrow().as_ref()
                      && text_layout.size.is_some()
@@ -36,7 +36,13 @@ diff -ruN a/src/elements/text.rs b/src/elements/text.rs
                  {
                      return text_layout.size.unwrap();
                  }
-@@ -406,6 +410,7 @@
+ 
++                // truncate_line shortens the runs in place: every measure must start from the originals.
++                let mut runs = runs.clone();
+                 let mut line_wrapper = cx.text_system().line_wrapper(text_style.font(), font_size);
+                 let text = if let Some(truncate_width) = truncate_width {
+                     line_wrapper.truncate_line(
+@@ -406,6 +412,7 @@
                          len: 0,
                          line_height,
                          wrap_width,
@@ -44,7 +50,7 @@ diff -ruN a/src/elements/text.rs b/src/elements/text.rs
                          size: Some(Size::default()),
                          bounds: None,
                      });
-@@ -424,6 +429,7 @@
+@@ -424,6 +431,7 @@
                      len,
                      line_height,
                      wrap_width,
@@ -54,7 +60,7 @@ diff -ruN a/src/elements/text.rs b/src/elements/text.rs
                  });
 diff -ruN a/src/platform/linux/text_system.rs b/src/platform/linux/text_system.rs
 --- a/src/platform/linux/text_system.rs	2006-07-24 03:21:28
-+++ b/src/platform/linux/text_system.rs	2026-11-11 21:18:50
++++ b/src/platform/linux/text_system.rs	2026-11-13 08:43:44
 @@ -371,8 +371,54 @@
          }
      }
@@ -112,7 +118,7 @@ diff -ruN a/src/platform/linux/text_system.rs b/src/platform/linux/text_system.r
          for run in font_runs {
 diff -ruN a/src/platform/linux/wayland/client.rs b/src/platform/linux/wayland/client.rs
 --- a/src/platform/linux/wayland/client.rs	2006-07-24 03:21:28
-+++ b/src/platform/linux/wayland/client.rs	2026-11-11 21:18:50
++++ b/src/platform/linux/wayland/client.rs	2026-11-13 08:43:44
 @@ -809,7 +809,7 @@
          };
          if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
@@ -166,7 +172,7 @@ diff -ruN a/src/platform/linux/wayland/client.rs b/src/platform/linux/wayland/cl
  
 diff -ruN a/src/platform/linux/wayland/serial.rs b/src/platform/linux/wayland/serial.rs
 --- a/src/platform/linux/wayland/serial.rs	2006-07-24 03:21:28
-+++ b/src/platform/linux/wayland/serial.rs	2026-11-11 21:18:50
++++ b/src/platform/linux/wayland/serial.rs	2026-11-13 08:43:44
 @@ -46,4 +46,29 @@
              .map(|serial_data| serial_data.serial)
              .unwrap_or(0)
@@ -199,7 +205,7 @@ diff -ruN a/src/platform/linux/wayland/serial.rs b/src/platform/linux/wayland/se
  }
 diff -ruN a/src/platform/linux/x11/client.rs b/src/platform/linux/x11/client.rs
 --- a/src/platform/linux/x11/client.rs	2006-07-24 03:21:28
-+++ b/src/platform/linux/x11/client.rs	2026-11-11 21:18:50
++++ b/src/platform/linux/x11/client.rs	2026-11-13 08:43:44
 @@ -392,6 +392,23 @@
              ),
          )?;
@@ -226,7 +232,7 @@ diff -ruN a/src/platform/linux/x11/client.rs b/src/platform/linux/x11/client.rs
          let xkb_state = {
 diff -ruN a/src/platform/windows/window.rs b/src/platform/windows/window.rs
 --- a/src/platform/windows/window.rs	2006-07-24 03:21:28
-+++ b/src/platform/windows/window.rs	2026-11-11 21:18:50
++++ b/src/platform/windows/window.rs	2026-11-13 08:43:44
 @@ -28,6 +28,9 @@
  
  use crate::*;
@@ -277,7 +283,7 @@ diff -ruN a/src/platform/windows/window.rs b/src/platform/windows/window.rs
  
 diff -ruN a/src/platform/windows/work_area.rs b/src/platform/windows/work_area.rs
 --- a/src/platform/windows/work_area.rs	1970-01-01 01:00:00
-+++ b/src/platform/windows/work_area.rs	2026-11-11 21:18:50
++++ b/src/platform/windows/work_area.rs	2026-11-13 08:43:44
 @@ -0,0 +1,75 @@
 +pub(crate) fn fit_window(rect: [i32; 4], monitor: [i32; 4], work: [i32; 4]) -> [i32; 4] {
 +    let mut result = rect;

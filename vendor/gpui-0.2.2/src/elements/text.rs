@@ -381,6 +381,8 @@ impl TextLayout {
                     return text_layout.size.unwrap();
                 }
 
+                // truncate_line shortens the runs in place: every measure must start from the originals.
+                let mut runs = runs.clone();
                 let mut line_wrapper = cx.text_system().line_wrapper(text_style.font(), font_size);
                 let text = if let Some(truncate_width) = truncate_width {
                     line_wrapper.truncate_line(
