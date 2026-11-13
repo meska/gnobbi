@@ -769,7 +769,7 @@ pub async fn public_rooms(
 /// Leave a joined room (`Room::leave`). No `forget`: the room stays in the store as Left (history kept) and the
 /// list projection skips Left rooms, also after a restart.
 /// SDK 0.19.1 `leave_impl` treats M_FORBIDDEN as a successful leave, so a refused leave would look done:
-/// after `Ok` the server is asked for our own membership and a still-`join` answer becomes `Forbidden`.
+/// after `Ok` the server is asked for our own membership: `join` or an unreadable answer becomes `Forbidden`.
 #[cfg(feature = "sdk")]
 pub async fn leave_room(
     client: &matrix_sdk::Client,
@@ -792,20 +792,34 @@ pub async fn leave_room(
     // whether we are still in: already out (kicked/left elsewhere) counts as a completed leave.
     match left {
         Err(e) if !matches!(classify(&e), OperationError::Forbidden) => Err(classify(&e)),
-        _ if still_joined(client, &id).await => Err(OperationError::Forbidden),
-        _ => Ok(()),
+        _ => match membership(client, &id).await {
+            Membership::NotJoined => Ok(()),
+            // Still in, or unreadable: the row must stay, with the error line.
+            Membership::Joined | Membership::Unknown => Err(OperationError::Forbidden),
+        },
     }
 }
 
-/// Server-side check of our own `m.room.member` content. Any failure to ask counts as «not joined»:
-/// the SDK already reported the leave and a server that hides the state of a left room must not block it.
 #[cfg(feature = "sdk")]
-async fn still_joined(client: &matrix_sdk::Client, room: &matrix_sdk::ruma::RoomId) -> bool {
+enum Membership {
+    Joined,
+    NotJoined,
+    Unknown,
+}
+
+/// Server-side check of our own `m.room.member` content. Only an answer proves we are out (a membership that
+/// is not `join`, or 404: no member state); any other failure to ask is `Unknown`, never «not joined».
+#[cfg(feature = "sdk")]
+async fn membership(client: &matrix_sdk::Client, room: &matrix_sdk::ruma::RoomId) -> Membership {
     use matrix_sdk::ruma::{api::client::state::get_state_event_for_key::v3::Request, events::StateEventType};
-    let Some(me) = client.user_id() else { return false };
+    let Some(me) = client.user_id() else { return Membership::Unknown };
     let request = Request::new(room.to_owned(), StateEventType::RoomMember, me.to_string());
-    let sent = tokio::time::timeout(std::time::Duration::from_secs(10), client.send(request)).await;
-    matches!(sent, Ok(Ok(r)) if content_is_join(r.event_or_content.get()))
+    match tokio::time::timeout(std::time::Duration::from_secs(10), client.send(request)).await {
+        Ok(Ok(r)) if content_is_join(r.event_or_content.get()) => Membership::Joined,
+        Ok(Ok(_)) => Membership::NotJoined,
+        Ok(Err(e)) if e.as_client_api_error().is_some_and(|a| a.status_code.as_u16() == 404) => Membership::NotJoined,
+        _ => Membership::Unknown,
+    }
 }
 
 #[cfg(feature = "sdk")]
