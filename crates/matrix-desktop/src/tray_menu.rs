@@ -104,10 +104,35 @@ pub fn drain_tray_actions(rx: &Receiver<TrayAction>) -> Vec<TrayAction> {
     rx.try_iter().take(8).collect()
 }
 
+/// What a window-close request (X button, Super+Q / killactive, Alt+F4) does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseAction {
+    HideToTray,
+    Quit,
+}
+
+/// Hide only with the setting on and an icon the user can really reach: an app hidden
+/// without a tray host would be lost.
+pub fn close_action(close_to_tray: bool, tray_reachable: bool) -> CloseAction {
+    if close_to_tray && tray_reachable {
+        CloseAction::HideToTray
+    } else {
+        CloseAction::Quit
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use matrix_domain::notifications::NotificationPolicy;
+
+    #[test]
+    fn close_hides_only_with_setting_and_reachable_tray() {
+        assert_eq!(close_action(true, true), CloseAction::HideToTray);
+        assert_eq!(close_action(true, false), CloseAction::Quit);
+        assert_eq!(close_action(false, true), CloseAction::Quit);
+        assert_eq!(close_action(false, false), CloseAction::Quit);
+    }
 
     fn row(id: u64, name: &str, current: bool) -> AccountRow {
         AccountRow {

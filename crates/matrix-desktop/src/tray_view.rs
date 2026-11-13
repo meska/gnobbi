@@ -2,12 +2,13 @@
 //! the tray's thread), and icon/menu follow unread, account, notifications and visibility.
 use crate::Shell;
 use gpui::{Context, Window};
-use matrix_desktop::tray_menu::{TrayAction, total_unread, tray_menu};
+use matrix_desktop::tray_menu::{CloseAction, TrayAction, close_action, total_unread, tray_menu};
 
 impl Shell {
     /// «Riduci nel tray alla chiusura»: only with the setting on and a tray that really exists.
     pub(crate) fn close_hides_to_tray(&self) -> bool {
-        self.prefs.close_to_tray && self.tray.is_some()
+        let reachable = self.tray.as_ref().is_some_and(|t| t.host_present());
+        close_action(self.prefs.close_to_tray, reachable) == CloseAction::HideToTray
     }
 
     pub(crate) fn sync_tray(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -41,7 +42,7 @@ impl Shell {
     ) {
         match action {
             TrayAction::ToggleWindow if self.window_visible => {
-                window.minimize_window();
+                window.hide_window();
                 self.window_visible = false;
             }
             TrayAction::ToggleWindow | TrayAction::ShowWindow => self.show_window(window, cx),

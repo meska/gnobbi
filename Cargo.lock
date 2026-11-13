@@ -4502,6 +4502,7 @@ dependencies = [
  "wayland-protocols 0.32.13",
  "wayland-server",
  "windows 0.61.3",
+ "zbus",
  "zeroize",
 ]
 

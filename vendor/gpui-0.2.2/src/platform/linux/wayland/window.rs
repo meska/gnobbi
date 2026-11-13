@@ -85,9 +85,16 @@ struct InProgressConfigure {
 pub struct WaylandWindowState {
     xdg_surface: xdg_surface::XdgSurface,
     acknowledged_first_configure: bool,
+    /// Unmapped by `hide`: no buffer attached until the compositor configures the surface again.
+    hidden: bool,
+    remapping: bool,
+    /// A wl_surface.frame callback is outstanding (it stays queued while the surface is unmapped).
+    frame_requested: bool,
     pub surface: wl_surface::WlSurface,
     decoration: Option<zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1>,
     app_id: Option<String>,
+    title: Option<String>,
+    min_size: Option<Size<Pixels>>,
     appearance: WindowAppearance,
     blur: Option<org_kde_kwin_blur::OrgKdeKwinBlur>,
     toplevel: xdg_toplevel::XdgToplevel,
@@ -160,9 +167,14 @@ impl WaylandWindowState {
         Ok(Self {
             xdg_surface,
             acknowledged_first_configure: false,
+            hidden: false,
+            remapping: false,
+            frame_requested: false,
             surface,
             decoration,
             app_id: None,
+            title: None,
+            min_size: options.window_min_size,
             blur: None,
             toplevel,
             viewport,
@@ -354,14 +366,30 @@ impl WaylandWindowStatePtr {
     }
 
     pub fn frame(&self) {
+        self.request_frame(Default::default());
+    }
+
+    /// The compositor answered the pending frame callback.
+    pub fn frame_done(&self) {
+        self.state.borrow_mut().frame_requested = false;
+        self.frame();
+    }
+
+    fn request_frame(&self, options: RequestFrameOptions) {
         let mut state = self.state.borrow_mut();
-        state.surface.frame(&state.globals.qh, state.surface.id());
+        if state.hidden || !state.acknowledged_first_configure {
+            return; // attaching a buffer to an unmapped surface is a protocol error; the next configure restarts the chain
+        }
+        if !state.frame_requested {
+            state.surface.frame(&state.globals.qh, state.surface.id());
+            state.frame_requested = true;
+        }
         state.resize_throttle = false;
         drop(state);
 
         let mut cb = self.callbacks.borrow_mut();
         if let Some(fun) = cb.request_frame.as_mut() {
-            fun(Default::default());
+            fun(options);
         }
     }
 
@@ -433,8 +461,13 @@ impl WaylandWindowStatePtr {
             let request_frame_callback = !state.acknowledged_first_configure;
             if request_frame_callback {
                 state.acknowledged_first_configure = true;
+                // A surface shown again has no buffer: paint it whether or not anything is dirty.
+                let force_render = std::mem::take(&mut state.remapping);
                 drop(state);
-                self.frame();
+                self.request_frame(RequestFrameOptions {
+                    force_render,
+                    ..Default::default()
+                });
             }
         }
     }
@@ -912,6 +945,14 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn activate(&self) {
+        {
+            let mut state = self.borrow_mut();
+            if std::mem::take(&mut state.hidden) {
+                // New map = initial commit without buffer; the compositor answers with a configure.
+                state.remapping = true;
+                state.surface.commit();
+            }
+        }
         // Try to request an activation token. Even though the activation is likely going to be rejected,
         // KWin and Mutter can use the app_id to visually indicate we're requesting attention.
         let state = self.borrow();
@@ -937,7 +978,9 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn set_title(&mut self, title: &str) {
-        self.borrow().toplevel.set_title(title.to_string());
+        let mut state = self.borrow_mut();
+        state.title = Some(title.to_string());
+        state.toplevel.set_title(title.to_string());
     }
 
     fn set_app_id(&mut self, app_id: &str) {
@@ -954,6 +997,41 @@ impl PlatformWindow for WaylandWindow {
 
     fn minimize(&self) {
         self.borrow().toplevel.set_minimized();
+    }
+
+    fn hide(&self) {
+        let mut state = self.borrow_mut();
+        if !state.hidden {
+            state.hidden = true;
+            state.acknowledged_first_configure = false;
+            state.surface.attach(None, 0, 0);
+            state.surface.commit();
+            // A compositor only configures a surface again for a fresh role (what Qt does on hide):
+            // swap the xdg objects now, the initial commit comes with `activate`.
+            if let Some(decoration) = state.decoration.take() {
+                decoration.destroy();
+            }
+            state.toplevel.destroy();
+            state.xdg_surface.destroy();
+            let xdg_surface = state.globals.wm_base.get_xdg_surface(&state.surface, &state.globals.qh, state.surface.id());
+            let toplevel = xdg_surface.get_toplevel(&state.globals.qh, state.surface.id());
+            if let Some(size) = state.min_size {
+                toplevel.set_min_size(size.width.0 as i32, size.height.0 as i32);
+            }
+            if let Some(app_id) = &state.app_id {
+                toplevel.set_app_id(app_id.clone());
+            }
+            if let Some(title) = &state.title {
+                toplevel.set_title(title.clone());
+            }
+            state.decoration = state.globals.decoration_manager.as_ref().map(|manager| {
+                let decoration = manager.get_toplevel_decoration(&toplevel, &state.globals.qh, state.surface.id());
+                decoration.set_mode(state.decorations.to_xdg());
+                decoration
+            });
+            state.xdg_surface = xdg_surface;
+            state.toplevel = toplevel;
+        }
     }
 
     fn zoom(&self) {

@@ -278,6 +278,23 @@ impl Tray {
         }
     }
 
+    /// Linux: the icon only shows if a StatusNotifierWatcher owns its name on the session bus
+    /// (ksni is told to assume it does, so `start` succeeds without one). Elsewhere always.
+    pub fn host_present(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            use zbus::blocking::{Connection, fdo::DBusProxy};
+            let name = zbus::names::BusName::try_from("org.kde.StatusNotifierWatcher");
+            Connection::session()
+                .ok()
+                .zip(name.ok())
+                .and_then(|(bus, name)| DBusProxy::new(&bus).ok()?.name_has_owner(name).ok())
+                .unwrap_or(false)
+        }
+        #[cfg(not(target_os = "linux"))]
+        true
+    }
+
     fn icon(unread: u64) -> Option<Icon> {
         #[cfg(target_os = "macos")]
         {

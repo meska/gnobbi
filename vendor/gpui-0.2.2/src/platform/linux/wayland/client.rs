@@ -968,7 +968,7 @@ impl Dispatch<WlCallback, ObjectId> for WaylandClientStatePtr {
         drop(state);
 
         if let wl_callback::Event::Done { .. } = event {
-            window.frame();
+            window.frame_done();
         }
     }
 }

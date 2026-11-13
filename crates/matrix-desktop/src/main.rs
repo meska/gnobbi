@@ -3724,7 +3724,7 @@ fn main() {
                         .update(cx, |this, _| this.close_hides_to_tray())
                         .unwrap_or(false);
                     if hide {
-                        window.minimize_window();
+                        window.hide_window();
                         let _ = weak.update(cx, |this, _| this.window_visible = false);
                     }
                     !hide
