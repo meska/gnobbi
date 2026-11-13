@@ -186,7 +186,6 @@ impl Shell {
             // Lift what would hide the room, as the quick search does for the shown account.
             state.sidebar.set_filter(state.sidebar.filter().with_unread(false));
             state.sidebar.set_query("");
-            state.sidebar.keep_visible(scope.clone());
             state.open_room(&scope);
         }
         self.switch_account_with_room(id, Some(&scope), window, cx);

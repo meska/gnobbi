@@ -2578,7 +2578,7 @@ impl Shell {
                                 .flex().items_center().justify_between()
                                 .child(div().child(format!(
                                     "{}/{} conversazioni · {}",
-                                    self.sidebar.visible_indices().iter().filter(|&&i| !self.sidebar.rooms()[i].info.invited).count(), self.sidebar.rooms().iter().filter(|r| !r.info.is_space && !r.info.invited).count() - if self.sidebar.show_empty() { 0 } else { self.sidebar.hidden_empty_count() },
+                                    self.sidebar.visible_indices().iter().filter(|&&i| !self.sidebar.rooms()[i].info.invited).count(), self.sidebar.rooms().iter().filter(|r| !r.info.is_space && !r.info.invited).count(),
                                     if self.connected { connection_label } else { "fixture offline" }
                                 )))
                         ),

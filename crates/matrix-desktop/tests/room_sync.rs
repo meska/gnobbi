@@ -228,32 +228,20 @@ fn upsert_info(id: &str, unread: u64, members: u64, preview: Option<&str>) -> Ro
 }
 
 #[test]
-fn rooms_with_only_me_and_no_messages_are_hidden_until_shown() {
+fn rooms_with_only_me_and_no_messages_are_listed_like_any_other() {
     let mut sidebar = Sidebar::connected(AccountId::new(18));
     sidebar.apply_diff(upsert_info("!empty:test", 0, 1, None));
     sidebar.apply_diff(upsert_info("!talk:test", 0, 1, Some("ciao")));
     sidebar.apply_diff(upsert_info("!unread:test", 3, 1, None));
     sidebar.apply_diff(upsert_info("!peer:test", 0, 2, None));
     sidebar.apply_diff(upsert_info("!unknown:test", 0, 0, None));
-    let names = |s: &Sidebar| {
-        s.visible_indices()
-            .iter()
-            .map(|&i| s.rooms()[i].name.clone())
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        names(&sidebar),
-        ["!peer:test", "!talk:test", "!unknown:test", "!unread:test"]
-    );
-    assert_eq!(sidebar.hidden_empty_count(), 1);
-    sidebar.set_filter(sidebar.filter().with_empty(true));
     assert_eq!(sidebar.visible_indices().len(), 5);
-    assert_eq!(sidebar.hidden_empty_count(), 1);
-    // a deleted last message leaves the room empty again
-    sidebar.set_filter(sidebar.filter().with_empty(false));
+    // a deleted last message leaves the room empty: still listed
     sidebar.apply_diff(upsert_info("!talk:test", 0, 1, None));
-    assert_eq!(sidebar.hidden_empty_count(), 2);
-    assert_eq!(sidebar.visible_indices().len(), 3);
+    assert_eq!(sidebar.visible_indices().len(), 5);
+    // leaving the empty room takes it off the list
+    sidebar.room_left(&scope("!empty:test"), Ok(()));
+    assert_eq!(sidebar.visible_indices().len(), 4);
 }
 
 fn space_upsert(id: &str, invited: bool) -> RoomListDiff {

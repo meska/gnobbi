@@ -445,7 +445,7 @@ impl Shell {
             el
         };
         let buttons = self.sidebar.filter_buttons();
-        let split = buttons.iter().position(|b| matches!(b.id, FilterId::Unread | FilterId::Empty)).unwrap_or(buttons.len());
+        let split = buttons.iter().position(|b| matches!(b.id, FilterId::Unread)).unwrap_or(buttons.len());
         let (scopes, switches) = buttons.split_at(split);
         div()
             .id("filter-row")

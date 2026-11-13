@@ -29,14 +29,6 @@ impl SidebarRoom {
         }
     }
 
-    /// Only me in the room, nothing unread and no live message. Unknown member count (0) is never empty.
-    fn is_empty(&self) -> bool {
-        !self.info.invited
-            && !self.info.is_space
-            && self.info.joined_members == 1
-            && self.unread == 0
-            && self.info.preview.is_none()
-    }
 }
 
 /// Session-local navigation projection. `Some` is a joined Matrix Space, not a local folder.
@@ -65,7 +57,6 @@ pub struct GroupEntry {
 pub struct ListFilter {
     pub group: Option<String>,
     pub unread_only: bool,
-    pub show_empty: bool,
 }
 
 impl ListFilter {
@@ -74,9 +65,6 @@ impl ListFilter {
     }
     pub fn with_unread(&self, unread_only: bool) -> Self {
         Self { unread_only, ..self.clone() }
-    }
-    pub fn with_empty(&self, show_empty: bool) -> Self {
-        Self { show_empty, ..self.clone() }
     }
 }
 
@@ -87,7 +75,6 @@ pub enum FilterId {
     /// The «Gruppi» button: opens the menu of `u.*` groups, it never changes the filter by itself.
     GroupsMenu,
     Unread,
-    Empty,
 }
 
 /// One button of the filter row, in drawing order.
@@ -152,7 +139,6 @@ pub struct Sidebar {
     query: String,
     filter: ListFilter,
     /// Rooms the user just created: shown although still empty.
-    kept: std::collections::HashSet<RoomScope>,
     space: Option<RoomScope>,
     selected: Option<usize>,
     keyboard_focus: Option<RoomScope>,
@@ -180,7 +166,6 @@ impl Sidebar {
             visible: Vec::new(),
             query: String::new(),
             filter: ListFilter::default(),
-            kept: Default::default(),
             selected: None,
             keyboard_focus: None,
             space: None,
@@ -303,7 +288,6 @@ impl Sidebar {
             visible: (0..300).collect(),
             query: String::new(),
             filter: ListFilter::default(),
-            kept: Default::default(),
             selected: Some(0),
             keyboard_focus: None,
             space: None,
@@ -384,7 +368,6 @@ impl Sidebar {
             FilterId::Group(tag) => f.with_group(Some(tag.clone())),
             FilterId::GroupsMenu => return,
             FilterId::Unread => f.with_unread(!f.unread_only),
-            FilterId::Empty => f.with_empty(!f.show_empty),
         };
         self.set_filter(next);
     }
@@ -394,8 +377,7 @@ impl Sidebar {
         self.rooms.iter().filter(|r| !r.info.is_space && !r.info.invited)
     }
 
-    /// The filter row: scopes first, then the switches. Favourites and low priority are always there;
-    /// «Vuote» only while there is something to show or it is on.
+    /// The filter row: scopes first, then the switches. Favourites and low priority are always there.
     pub fn filter_buttons(&self) -> Vec<FilterButton> {
         let f = &self.filter;
         let count = |n: usize| (n > 0).then_some(n as u64);
@@ -421,15 +403,6 @@ impl Sidebar {
                 selected: f.unread_only,
             },
         );
-        let empty = self.listed().filter(|r| r.is_empty() && !self.kept.contains(&r.scope)).count();
-        if empty > 0 || f.show_empty {
-            buttons.push(FilterButton {
-                id: FilterId::Empty,
-                name: "Vuote".into(),
-                count: count(empty),
-                selected: f.show_empty,
-            });
-        }
         buttons
     }
 
@@ -439,24 +412,6 @@ impl Sidebar {
             .into_iter()
             .filter(|e| e.tag.as_deref().is_some_and(|t| t.starts_with("u.")))
             .collect()
-    }
-
-    pub fn show_empty(&self) -> bool {
-        self.filter.show_empty
-    }
-
-    /// Keeps a just-created room in the list while it has no message yet.
-    pub fn keep_visible(&mut self, scope: RoomScope) {
-        self.kept.insert(scope);
-        self.set_query(&self.query.clone());
-    }
-
-    /// Rooms that are empty, whether or not they are currently shown.
-    pub fn hidden_empty_count(&self) -> usize {
-        self.rooms
-            .iter()
-            .filter(|room| !room.info.is_space && !room.info.invited && room.is_empty() && !self.kept.contains(&room.scope))
-            .count()
     }
 
     pub fn unread_only(&self) -> bool {
@@ -792,7 +747,6 @@ impl Sidebar {
                     && room.name.to_lowercase().contains(&needle)
                     && (room.info.invited
                         || ((!self.filter.unread_only || room.unread > 0)
-                            && (self.filter.show_empty || !room.is_empty() || self.kept.contains(&room.scope))
                             && self.filter.group.as_ref().is_none_or(|g| room.info.tags.contains(g))
                             && space.is_none_or(|s| s.info.children.contains(&room.scope.room_id))))
             })
@@ -1282,7 +1236,7 @@ mod tests {
         let row = |s: &Sidebar| {
             s.filter_buttons().into_iter().map(|b| (b.accessible_name(), b.selected)).collect::<Vec<_>>()
         };
-        // Favourites and low priority are there with no tagged room; «Vuote» is not.
+        // Favourites and low priority are there with no tagged room; 
         tagged(&mut sidebar, &account, "a", 2, &["m.favourite", "u.work"]);
         tagged(&mut sidebar, &account, "b", 0, &["u.work"]);
         tagged(&mut sidebar, &account, "c", 3, &[]);
@@ -1299,7 +1253,7 @@ mod tests {
         // Scopes replace each other; the switch stays on across scopes.
         sidebar.activate(&FilterId::Group("u.work".into()));
         sidebar.activate(&FilterId::Unread);
-        assert_eq!(sidebar.filter(), &ListFilter { group: Some("u.work".into()), unread_only: true, show_empty: false });
+        assert_eq!(sidebar.filter(), &ListFilter { group: Some("u.work".into()), unread_only: true });
         assert_eq!(names(&sidebar), ["a"]);
         assert!(row(&sidebar)[3].1 && !row(&sidebar)[1].1 && row(&sidebar)[4].1);
         sidebar.activate(&FilterId::Group("m.lowpriority".into()));
@@ -1379,7 +1333,7 @@ mod invite_tests {
     fn invites_ignore_filters_empty_rule_spaces_and_survive_a_restart_projection() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
-        // Alone in the room and nothing unread: a joined room like this is hidden, an invitation is not.
+        // Alone in the room and nothing unread: a joined room like this is listed too, and an invitation is.
         let lonely = RoomInfo { invited: true, joined_members: 1, ..Default::default() };
         upsert(&mut sidebar, account, "!dm:t.invalid", "Anna", lonely);
         let space = RoomInfo { invited: true, is_space: true, ..Default::default() };
@@ -1387,7 +1341,6 @@ mod invite_tests {
         sidebar.set_filter(sidebar.filter().with_unread(true));
         assert_eq!(names(&sidebar), ["Anna", "Spazio"]);
         assert_eq!(sidebar.spaces().count(), 0, "an invited space is not in the rail");
-        assert_eq!(sidebar.hidden_empty_count(), 0);
         sidebar.set_query("ann");
         assert_eq!(names(&sidebar), ["Anna"]);
     }
@@ -1437,6 +1390,21 @@ mod invite_tests {
         upsert(&mut sidebar, account, "!a:t.invalid", "a", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
         sidebar.room_left(&a, Err(Unavailable));
         assert!(sidebar.rooms().is_empty() && sidebar.leave_error(&a).is_none());
+    }
+
+    #[test]
+    fn an_empty_room_is_listed_and_leaving_it_removes_it_and_the_row_has_no_empty_button() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let e = scope(account, "!e:t.invalid");
+        upsert(&mut sidebar, account, "!e:t.invalid", "vuota", RoomInfo { joined_members: 1, ..Default::default() });
+        assert_eq!(names(&sidebar), ["vuota"]);
+        let row = |s: &Sidebar| s.filter_buttons().into_iter().map(|b| b.name).collect::<Vec<_>>();
+        assert_eq!(row(&sidebar), ["Tutte", "Preferiti", "Bassa priorità", "Non lette"]);
+        upsert(&mut sidebar, account, "!t:t.invalid", "t", RoomInfo { joined_members: 2, preview: Some("x".into()), tags: vec!["u.work".into()], ..Default::default() });
+        assert_eq!(row(&sidebar), ["Tutte", "Preferiti", "Bassa priorità", "Gruppi", "Non lette"]);
+        sidebar.room_left(&e, Ok(()));
+        assert_eq!(names(&sidebar), ["t"]);
     }
 
     #[test]

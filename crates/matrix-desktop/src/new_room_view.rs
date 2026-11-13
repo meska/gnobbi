@@ -561,7 +561,6 @@ impl Shell {
     ) {
         if self.quick_answered(&result, cx) {
             if let Ok(scope) = result {
-                self.sidebar.keep_visible(scope.clone());
                 self.pending_open = Some(scope);
                 self.open_started_room(cx);
             }
@@ -571,7 +570,6 @@ impl Shell {
         if self.new_room.is_none() && std::mem::take(&mut self.profile_dm) {
             // «Invia messaggio» of a member profile: open the chat; a failure leaves the profile as it is.
             if let Ok(scope) = result {
-                self.sidebar.keep_visible(scope.clone());
                 self.pending_open = Some(scope);
                 self.set_room_details_open(false);
                 self.open_started_room(cx);
@@ -586,7 +584,6 @@ impl Shell {
         room.busy = false;
         match result {
             Ok(scope) => {
-                self.sidebar.keep_visible(scope.clone());
                 self.new_room = None;
                 self.refocus_menu = true;
                 self.pending_open = Some(scope);

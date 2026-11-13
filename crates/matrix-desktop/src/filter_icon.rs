@@ -17,7 +17,6 @@ pub(crate) fn filter_icon_kind(id: &FilterId) -> Icon {
         FilterId::Group(_) => Icon::LowPriority,
         FilterId::GroupsMenu => Icon::Folder,
         FilterId::Unread => Icon::Dot,
-        FilterId::Empty => Icon::Ring,
     }
 }
 

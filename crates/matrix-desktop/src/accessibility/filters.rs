@@ -8,14 +8,13 @@ const fn button_node(i: usize) -> NodeId {
     NodeId(51 + i as u64)
 }
 
-/// A button of the filter row other than «Non lette»: scopes are radios, «Vuote» a switch.
+/// A button of the filter row other than «Non lette»: scopes are radios.
 #[derive(Clone)]
 pub struct FilterNode {
     /// Position in `Sidebar::filter_buttons()`.
     pub index: usize,
     pub name: String,
     pub selected: bool,
-    pub switch: bool,
 }
 
 #[derive(Clone)]
@@ -70,7 +69,6 @@ impl UnreadFilter {
                     index,
                     name: b.accessible_name(),
                     selected: b.selected,
-                    switch: b.id == crate::FilterId::Empty,
                 })
                 .collect(),
         }
@@ -146,7 +144,7 @@ impl UnreadFilter {
     pub fn nodes(&self) -> Vec<(NodeId, Node)> {
         let mut nodes = vec![self.node()];
         for b in &self.buttons {
-            let mut node = Node::new(if b.switch { Role::Switch } else { Role::RadioButton });
+            let mut node = Node::new(Role::RadioButton);
             node.set_label(b.name.as_str());
             node.set_toggled(if b.selected { Toggled::True } else { Toggled::False });
             node.add_action(Action::Focus);

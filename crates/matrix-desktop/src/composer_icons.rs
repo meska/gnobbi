@@ -21,7 +21,6 @@ pub enum Icon {
     LowPriority,
     Folder,
     Dot,
-    Ring,
     People,
     Shield,
     Play,
@@ -111,7 +110,6 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
         ],
         Icon::Download => vec![vec![(10., 3.), (10., 13.)], vec![(5.5, 8.5), (10., 13.), (14.5, 8.5)], vec![(4., 17.), (16., 17.)]],
         Icon::Ellipsis => [4.5, 10., 15.5].map(|x| arc((x, 10.), 0.8, 0., 2. * PI)).to_vec(),
-        Icon::Ring => vec![arc((10., 10.), 5.5, 0., 2. * PI)],
         Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![
             arc((10., 10.), 7.5, 0., 2. * PI),
@@ -180,7 +178,7 @@ mod tests {
 
     #[test]
     fn every_glyph_is_centred_on_its_anchor() {
-        for kind in [Icon::Attach, Icon::Voice, Icon::Emoji, Icon::Send, Icon::Back, Icon::Close, Icon::Copy, Icon::Check, Icon::Search, Icon::Poll, Icon::FilterAll, Icon::Star, Icon::StarFilled, Icon::LowPriority, Icon::Folder, Icon::Dot, Icon::Ring, Icon::People, Icon::Shield, Icon::Pause, Icon::Download, Icon::Ellipsis] {
+        for kind in [Icon::Attach, Icon::Voice, Icon::Emoji, Icon::Send, Icon::Back, Icon::Close, Icon::Copy, Icon::Check, Icon::Search, Icon::Poll, Icon::FilterAll, Icon::Star, Icon::StarFilled, Icon::LowPriority, Icon::Folder, Icon::Dot, Icon::People, Icon::Shield, Icon::Pause, Icon::Download, Icon::Ellipsis] {
             let lines = strokes(kind);
             let (ax, ay) = anchor(kind, &lines);
             let pts: Vec<_> = lines.iter().flatten().collect();

@@ -2150,7 +2150,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             return;
         }
         if DYNAMIC.load(Ordering::SeqCst) == 25 {
-            // Connected Shell: an empty room is hidden, a «Vuote (N)» control brings it back.
+            // Connected Shell: an empty room is listed like any other.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let shot = |name: &str| {
                 let ok = std::process::Command::new("grim").arg(format!("/tmp/gui-out/{name}.png")).status().map(|s| s.success()).unwrap_or(false);
@@ -2169,15 +2169,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 cx.notify();
                 visible(this)
             }).unwrap();
-            assert!(!hidden.iter().any(|n| n == "Stanza vuota") && hidden.iter().any(|n| n == "Anna Bianchi"), "{hidden:?}");
-            wait(700).await;
-            shot("p182-hidden");
-            let shown = this.update_in(cx, |this, _, cx| {
-                this.sidebar.set_filter(this.sidebar.filter().with_empty(true));
-                cx.notify();
-                visible(this)
-            }).unwrap();
-            assert!(shown.iter().any(|n| n == "Stanza vuota"), "{shown:?}");
+            assert!(hidden.iter().any(|n| n == "Stanza vuota") && hidden.iter().any(|n| n == "Anna Bianchi"), "{hidden:?}");
             wait(700).await;
             shot("p182-shown");
             this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
@@ -3659,7 +3651,7 @@ fn room_row_shows_the_last_real_message_as_preview() {
 
 #[test]
 #[ignore = "requires private display"]
-fn empty_rooms_are_hidden_until_the_control_shows_them() {
+fn empty_rooms_are_listed_like_any_other() {
     assert_eq!(
         std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
         Ok("1")

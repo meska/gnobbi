@@ -471,13 +471,10 @@ impl Shell {
     /// Opens a room the account already has: lifts the filters that would hide it.
     pub(crate) fn open_scope(&mut self, scope: RoomScope, window: &mut Window, cx: &mut Context<Self>) {
         if !self.sidebar.select(&scope) {
-            // Hidden by an empty-room, unread or text filter: lift them rather than not opening.
-            self.sidebar.keep_visible(scope.clone());
-            if !self.sidebar.select(&scope) {
-                self.sidebar.set_filter(self.sidebar.filter().with_unread(false));
-                self.sidebar.set_query("");
-                self.sidebar.select(&scope);
-            }
+            // Hidden by the unread or text filter: lift them rather than not opening.
+            self.sidebar.set_filter(self.sidebar.filter().with_unread(false));
+            self.sidebar.set_query("");
+            self.sidebar.select(&scope);
         }
         self.restore.cancel();
         self.sync_room(cx);

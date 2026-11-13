@@ -177,7 +177,7 @@ fn every_row_button_has_a_node_with_the_button_name_and_state() {
         assert_eq!(node.label(), Some(b.accessible_name().as_str()));
         assert_eq!(node.toggled(), Some(if b.selected { Toggled::True } else { Toggled::False }), "{}", b.name);
         let expected = match b.id {
-            FilterId::Unread | FilterId::Empty => Role::Switch,
+            FilterId::Unread => Role::Switch,
             _ => Role::RadioButton,
         };
         assert_eq!(node.role(), expected, "{}", b.name);
