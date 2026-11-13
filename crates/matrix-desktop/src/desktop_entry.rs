@@ -170,6 +170,19 @@ fn run_cache_tool(prog: &str, args: &[&Path]) {
         .status();
 }
 
+/// The launcher the installer writes: the template with `Exec` pointing at `exec`. Detection
+/// compares against this, so any future template change makes older user entries stale.
+pub(crate) fn render_entry(exec: &str) -> String {
+    // Desktop Entry spec: quote the Exec argument and escape its special characters.
+    let quoted = exec
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('`', "\\`")
+        .replace('$', "\\$")
+        .replace('%', "%%");
+    DESKTOP.replace("Exec=gnobbi", &format!("Exec=\"{quoted}\""))
+}
+
 /// Same as [`install_desktop_entry`] with an injectable cache-command runner `(program, args)`.
 pub fn install_desktop_entry_with(
     share: &Path,
@@ -183,17 +196,9 @@ pub fn install_desktop_entry_with(
             "Exec path must be absolute",
         ));
     }
-    // Desktop Entry spec: quote the Exec argument and escape its special characters.
-    let quoted = exec
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('`', "\\`")
-        .replace('$', "\\$")
-        .replace('%', "%%");
-    let desktop = DESKTOP.replace("Exec=gnobbi", &format!("Exec=\"{quoted}\""));
     let apps = share.join("applications");
     fs::create_dir_all(&apps)?;
-    fs::write(apps.join(format!("{APP_ID}.desktop")), desktop)?;
+    fs::write(apps.join(format!("{APP_ID}.desktop")), render_entry(exec))?;
     for (size, png) in [
         ("256x256", icon.theme_png_256()),
         ("512x512", icon.runtime_png()),
@@ -232,7 +237,7 @@ pub mod detect {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum EntryStatus {
         Missing,
-        /// User entry exists but Exec is not the current executable, or the icon is gone.
+        /// User entry differs from the current template (Exec, MimeType, ...), or the icon is gone.
         Stale,
         Ok,
         /// Only a system-wide entry exists (package install): never prompt.
@@ -325,6 +330,28 @@ pub mod detect {
         Some(out.replace("%%", "%"))
     }
 
+    /// `key=value` pairs of the `[Desktop Entry]` group.
+    fn keys(desktop: &str) -> Vec<(&str, &str)> {
+        let mut in_group = false;
+        let mut out = Vec::new();
+        for l in desktop.lines().map(str::trim) {
+            if l.starts_with('[') {
+                in_group = l == "[Desktop Entry]";
+            } else if in_group && let Some((k, v)) = l.split_once('=') {
+                out.push((k.trim(), v.trim()));
+            }
+        }
+        out
+    }
+
+    /// Every key of the current template (Exec = this entry's target) is present and equal;
+    /// keys added by the user are ignored.
+    fn matches_template(text: &str, target: &str) -> bool {
+        let have = keys(text);
+        let want = super::render_entry(target);
+        keys(&want).iter().all(|w| have.contains(w))
+    }
+
     /// The entry points at the `~/Applications` copy of the running AppImage (identical bytes).
     fn is_stable_copy(env: &Env, running: &str, target: &str) -> bool {
         env.home.as_ref().is_some_and(|h| {
@@ -345,7 +372,8 @@ pub mod detect {
                         .as_deref()
                         .is_none_or(|cur| cur == t || is_stable_copy(env, cur, &t))
             });
-            return if exec_ok && has_icon(share) {
+            let current = exec_target(&text).is_some_and(|t| matches_template(&text, &t));
+            return if exec_ok && current && has_icon(share) {
                 EntryStatus::Ok
             } else {
                 EntryStatus::Stale
@@ -425,6 +453,29 @@ pub mod detect {
             // existing but different executable is stale too
             fs::write(&gone, "x").unwrap();
             assert_eq!(entry_status(&env), EntryStatus::Stale);
+        }
+
+        #[test]
+        fn old_entry_without_mime_or_percent_u_is_stale_and_repair_is_idempotent() {
+            let (env, root) = setup("old");
+            install(&env, env.exec.as_deref().unwrap());
+            let f = root.join(format!("home/.local/share/applications/{APP_ID}.desktop"));
+            let good = fs::read_to_string(&f).unwrap();
+            for bad in [
+                good.replace("MimeType=x-scheme-handler/matrix;\n", ""),
+                good.replace(" %u", ""),
+            ] {
+                assert_ne!(bad, good);
+                fs::write(&f, bad).unwrap();
+                assert_eq!(entry_status(&env), EntryStatus::Stale);
+                install(&env, env.exec.as_deref().unwrap());
+                assert_eq!(entry_status(&env), EntryStatus::Ok);
+                install(&env, env.exec.as_deref().unwrap());
+                assert_eq!(fs::read_to_string(&f).unwrap(), good);
+            }
+            // extra user keys do not make it stale
+            fs::write(&f, format!("{good}\nNoDisplay=false\n")).unwrap();
+            assert_eq!(entry_status(&env), EntryStatus::Ok);
         }
 
         #[test]
