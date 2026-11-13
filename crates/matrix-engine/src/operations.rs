@@ -1699,6 +1699,43 @@ mod tests {
         assert!(!crate::EditRights::default().any());
     }
     #[test]
+    fn edit_rights_by_role_with_default_levels() {
+        let id = |s| matrix_sdk::ruma::UserId::parse(s).unwrap();
+        let pl = levels(&[("@admin:x", 100), ("@mod:x", 50)]);
+        let rights = |u| crate::EditRights::from_levels(&pl, &id(u));
+        let all = crate::EditRights { name: true, topic: true, avatar: true };
+        assert_eq!(rights("@admin:x"), all);
+        // default room: name/topic/avatar need 50, so the moderator qualifies
+        assert_eq!(rights("@mod:x"), all);
+        // plain member (0): nothing, so «Modifica» stays hidden
+        assert!(!rights("@u:x").any());
+    }
+
+    #[test]
+    fn edit_rights_follow_promotion_and_demotion() {
+        let id = matrix_sdk::ruma::UserId::parse("@u:x").unwrap();
+        let rights = |pl| crate::EditRights::from_levels(&pl, &id);
+        assert!(!rights(levels(&[])).any());
+        assert!(rights(levels(&[("@u:x", 50)])).any(), "promoted");
+        assert!(!rights(levels(&[("@u:x", 49)])).any(), "just below the threshold");
+        assert!(!rights(levels(&[("@u:x", 0)])).any(), "demoted again");
+    }
+
+    #[test]
+    fn edit_rights_can_be_partial() {
+        use matrix_sdk::ruma::{Int, UserId, events::{TimelineEventType, room::power_levels::*}, room_version_rules::AuthorizationRules};
+        let rules = AuthorizationRules::V10;
+        let mut c = RoomPowerLevelsEventContent::new(&rules);
+        c.users.insert(UserId::parse("@mod:x").unwrap(), Int::from(50));
+        c.events.insert(TimelineEventType::RoomName, Int::from(100));
+        c.events.insert(TimelineEventType::RoomTopic, Int::from(100));
+        let pl = RoomPowerLevels::new(c.into(), &rules, []);
+        let r = crate::EditRights::from_levels(&pl, &UserId::parse("@mod:x").unwrap());
+        assert_eq!(r, crate::EditRights { name: false, topic: false, avatar: true });
+        assert!(r.any(), "one field is enough to keep the entry");
+    }
+
+    #[test]
     fn full_reaction_journal_keeps_confirmed_identity_without_accepting_new_writes() {
         use matrix_domain::{AccountId, RoomId};
         let runtime = tokio::runtime::Builder::new_current_thread()

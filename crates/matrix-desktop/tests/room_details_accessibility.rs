@@ -554,3 +554,19 @@ fn edit_control_follows_the_rights_in_tree_and_tab_ring() {
     panel.info.edit_rights.topic = true;
     assert!(panel.tree().nodes.iter().any(|(id, _)| *id == DetailsControl::Edit.id()));
 }
+
+#[test]
+fn edit_control_appears_and_vanishes_with_rights_at_runtime() {
+    let has_edit = |p: &DetailsSnapshot| p.tree().nodes.iter().any(|(id, _)| *id == DetailsControl::Edit.id());
+    let mut p = panel();
+    p.info.edit_rights = matrix_engine::EditRights::default();
+    assert!(!has_edit(&p), "member");
+    // promotion with the same open panel: only an avatar right is enough
+    p.info.edit_rights = matrix_engine::EditRights { name: false, topic: false, avatar: true };
+    assert!(has_edit(&p), "promoted");
+    p.focus = DetailsControl::Edit;
+    // demotion while «Modifica» has focus: focus falls back to the control before it
+    p.info.edit_rights = matrix_engine::EditRights::default();
+    assert!(!has_edit(&p), "demoted");
+    assert_eq!(p.next_focus(false), DetailsControl::Close);
+}
