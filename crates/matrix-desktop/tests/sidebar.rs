@@ -131,6 +131,7 @@ fn sidebar_fixture_has_300_stable_account_scoped_rooms() {
     assert_eq!(a.selected().unwrap().scope, a.rooms()[0].scope);
 }
 
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 #[test]
 fn pinned_and_low_priority_rows_are_named_and_ordered_for_screen_readers() {
     use matrix_desktop::accessibility::RoomNodes;
