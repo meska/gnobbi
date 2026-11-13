@@ -16,6 +16,7 @@ fn snapshot() -> SpacesSnapshot {
         account: AccountId::new(17),
         open: true,
         active: Some(scope(17, "!space:test")),
+        unread_active: false,
         focused: Some(TOGGLE),
         bounds: Default::default(),
         choices: vec![
@@ -40,10 +41,12 @@ fn rail_always_exports_all_with_unread_count_and_no_invented_space() {
     };
     let sidebar = Sidebar::demo(AccountId::new(17));
     let choices = SpaceNodes::default().rail_choices(&sidebar);
-    assert_eq!(choices.len(), 1);
-    assert_eq!(choices[0].id, ALL);
-    assert_eq!(choices[0].scope, None);
-    assert_eq!(choices[0].name, "Tutte le conversazioni · 0 non letti");
+    assert_eq!(choices.len(), 2);
+    assert_eq!(choices[0].id, matrix_desktop::accessibility::spaces::UNREAD);
+    assert_eq!(choices[0].name, "Non lette, 0");
+    assert_eq!(choices[1].id, ALL);
+    assert_eq!(choices[1].scope, None);
+    assert_eq!(choices[1].name, "Tutte le chat");
 }
 
 #[test]
@@ -558,4 +561,32 @@ fn spaces_export_expanded_state_selected_choices_focus_and_observed_bounds() {
     let nodes = snapshot.nodes();
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0].1.is_expanded(), Some(false));
+}
+
+#[test]
+fn unread_choice_is_selected_only_when_the_unread_view_is_shown() {
+    use matrix_desktop::accessibility::spaces::UNREAD;
+    let toggled = |view: &SpacesSnapshot, id| {
+        view.nodes().iter().find(|(i, _)| *i == id).unwrap().1.toggled()
+    };
+    let mut view = snapshot();
+    view.persistent = true;
+    view.choices.insert(
+        0,
+        SpaceChoice {
+            id: UNREAD,
+            scope: None,
+            name: "Non lette, 3".into(),
+        },
+    );
+    let (all, space) = (NodeId(61), NodeId(1 << 57));
+    let node = view.nodes().into_iter().find(|(i, _)| *i == UNREAD).unwrap().1;
+    assert_eq!(node.role(), Role::RadioButton);
+    assert_eq!(node.label(), Some("Non lette, 3"));
+    assert_eq!(toggled(&view, UNREAD), Some(accesskit::Toggled::False));
+    assert_eq!(toggled(&view, space), Some(accesskit::Toggled::True));
+    view.unread_active = true;
+    assert_eq!(toggled(&view, UNREAD), Some(accesskit::Toggled::True));
+    assert_eq!(toggled(&view, all), Some(accesskit::Toggled::False));
+    assert_eq!(toggled(&view, space), Some(accesskit::Toggled::False));
 }

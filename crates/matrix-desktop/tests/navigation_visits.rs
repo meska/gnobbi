@@ -49,6 +49,7 @@ fn navigation(
             account: AccountId::new(17),
             open,
             active: sidebar.active_space().cloned(),
+            unread_active: sidebar.unread_view(),
             focused: None,
             bounds: Default::default(),
             choices: spaces.rail_choices(sidebar),
