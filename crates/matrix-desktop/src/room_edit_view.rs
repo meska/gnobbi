@@ -8,6 +8,8 @@ pub(crate) struct RoomEdit {
     /// Name, then topic.
     pub(crate) fields: Vec<gpui::Entity<crate::login_field::LoginField>>,
     original: [String; 2],
+    /// Only the allowed fields are shown, focused and sent.
+    rights: matrix_engine::EditRights,
     avatar: Option<std::path::PathBuf>,
     avatar_focus: FocusHandle,
     cancel_focus: FocusHandle,
@@ -28,8 +30,12 @@ fn error_text(name_blank: bool, error: OperationError) -> &'static str {
 
 impl RoomEdit {
     fn ring(&self, cx: &gpui::App) -> Vec<FocusHandle> {
-        let mut ring: Vec<_> = self.fields.iter().map(|f| f.read(cx).focus.clone()).collect();
-        ring.extend([self.avatar_focus.clone(), self.cancel_focus.clone(), self.submit_focus.clone()]);
+        let allowed = [self.rights.name, self.rights.topic];
+        let mut ring: Vec<_> = self.fields.iter().zip(allowed).filter(|(_, ok)| *ok).map(|(f, _)| f.read(cx).focus.clone()).collect();
+        if self.rights.avatar {
+            ring.push(self.avatar_focus.clone());
+        }
+        ring.extend([self.cancel_focus.clone(), self.submit_focus.clone()]);
         ring
     }
 
@@ -38,18 +44,19 @@ impl RoomEdit {
     }
 
     fn name_blank(&self, cx: &gpui::App) -> bool {
-        self.text(0, cx).is_empty() && !self.original[0].is_empty()
+        self.rights.name && self.text(0, cx).is_empty() && !self.original[0].is_empty()
     }
 
     /// Only what differs from the room as listed.
     fn command(&self, cx: &gpui::App) -> Option<OperationCommand> {
-        let changed = |i: usize| (self.text(i, cx) != self.original[i]).then(|| self.text(i, cx));
-        let (name, topic) = (changed(0), changed(1));
-        (name.is_some() || topic.is_some() || self.avatar.is_some()).then(|| OperationCommand::EditRoom {
+        let changed = |i: usize, ok: bool| (ok && self.text(i, cx) != self.original[i]).then(|| self.text(i, cx));
+        let (name, topic) = (changed(0, self.rights.name), changed(1, self.rights.topic));
+        let avatar = self.avatar.clone().filter(|_| self.rights.avatar);
+        (name.is_some() || topic.is_some() || avatar.is_some()).then(|| OperationCommand::EditRoom {
             scope: self.scope.clone(),
             name,
             topic,
-            avatar: self.avatar.clone(),
+            avatar,
         })
     }
 }
@@ -59,6 +66,11 @@ impl Shell {
         let Some(room) = self.sidebar.selected() else { return };
         let original = [room.name.clone(), room.info.topic.clone().unwrap_or_default()];
         let scope = room.scope.clone();
+        let rights = room.info.edit_rights;
+        // The sheet hides «Modifica» without rights; a stale call opens nothing.
+        if !rights.any() {
+            return;
+        }
         let fields: Vec<_> = [("Nome", &original[0]), ("Argomento", &original[1])]
             .into_iter()
             .map(|(label, value)| {
@@ -73,13 +85,19 @@ impl Shell {
                 field
             })
             .collect();
-        fields[0].read(cx).focus.focus(window);
+        let avatar_focus = cx.focus_handle();
+        let first = if rights.name { Some(0) } else if rights.topic { Some(1) } else { None };
+        match first {
+            Some(i) => fields[i].read(cx).focus.focus(window),
+            None => avatar_focus.focus(window),
+        }
         self.room_edit = Some(RoomEdit {
             scope,
             fields,
             original,
+            rights,
             avatar: None,
-            avatar_focus: cx.focus_handle(),
+            avatar_focus,
             cancel_focus: cx.focus_handle(),
             submit_focus: cx.focus_handle(),
             busy: false,
@@ -231,11 +249,11 @@ impl Shell {
                                 .text_color(rgb(t.text))
                                 .child("Modifica stanza"),
                         )
-                        .children(edit.fields.iter().cloned())
-                        .child(
+                        .children(edit.fields.iter().zip([edit.rights.name, edit.rights.topic]).filter(|(_, ok)| *ok).map(|(f, _)| f.clone()))
+                        .when(edit.rights.avatar, |d| d.child(
                             button("room-edit-avatar", avatar_label, t.accent, &edit.avatar_focus)
                                 .on_click(cx.listener(|this, _, _, cx| this.pick_room_avatar(cx))),
-                        )
+                        ))
                         .children(edit.error.map(|error| {
                             div().text_size(px(13.)).text_color(rgb(t.error)).child(error_text(edit.name_blank(cx), error))
                         }))

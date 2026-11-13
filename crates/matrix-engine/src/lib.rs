@@ -51,9 +51,37 @@ pub struct RoomSummary {
     pub info: RoomInfo,
 }
 
+/// What the user may change of the room (power levels for m.room.name/topic/avatar).
+/// Default = nothing: unknown levels never show an edit.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct EditRights {
+    pub name: bool,
+    pub topic: bool,
+    pub avatar: bool,
+}
+
+impl EditRights {
+    pub fn any(self) -> bool {
+        self.name || self.topic || self.avatar
+    }
+
+    /// Rights from the room's power levels; the permission test is ruma's.
+    #[cfg(feature = "sdk")]
+    pub fn from_levels(
+        levels: &matrix_sdk::ruma::events::room::power_levels::RoomPowerLevels,
+        user: &matrix_sdk::ruma::UserId,
+    ) -> Self {
+        use matrix_sdk::ruma::events::StateEventType as T;
+        let can = |t| levels.user_can_send_state(user, t);
+        Self { name: can(T::RoomName), topic: can(T::RoomTopic), avatar: can(T::RoomAvatar) }
+    }
+}
+
 /// Snapshot from SDK state after /sync. No remote payload formatting traits.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct RoomInfo {
+    /// What the user may edit; see `EditRights`.
+    pub edit_rights: EditRights,
     /// Observed public peer markers only; empty means no known marker, not unread.
     pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
     pub topic: Option<String>,

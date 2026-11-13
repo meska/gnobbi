@@ -1683,6 +1683,22 @@ mod tests {
         assert_eq!(rights("@admin:x", "@mod:x", true).0.levels, vec![0, 100]);
     }
     #[test]
+    fn edit_rights_follow_the_state_event_levels() {
+        use matrix_sdk::ruma::{Int, UserId, events::{TimelineEventType, room::power_levels::*}, room_version_rules::AuthorizationRules};
+        let rules = AuthorizationRules::V10;
+        let mut c = RoomPowerLevelsEventContent::new(&rules);
+        c.users.insert(UserId::parse("@mod:x").unwrap(), Int::from(50));
+        c.events.insert(TimelineEventType::RoomTopic, Int::from(0));
+        c.events.insert(TimelineEventType::RoomAvatar, Int::from(100));
+        let pl = RoomPowerLevels::new(c.into(), &rules, []);
+        let rights = |u| crate::EditRights::from_levels(&pl, &UserId::parse(u).unwrap());
+        // plain user: only what the room opened to level 0
+        assert_eq!(rights("@u:x"), crate::EditRights { name: false, topic: true, avatar: false });
+        // moderator (50, default for name): name and topic, not the avatar set to 100
+        assert_eq!(rights("@mod:x"), crate::EditRights { name: true, topic: true, avatar: false });
+        assert!(!crate::EditRights::default().any());
+    }
+    #[test]
     fn full_reaction_journal_keeps_confirmed_identity_without_accepting_new_writes() {
         use matrix_domain::{AccountId, RoomId};
         let runtime = tokio::runtime::Builder::new_current_thread()

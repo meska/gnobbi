@@ -70,6 +70,7 @@ fn panel() -> DetailsSnapshot {
     let room = sidebar.selected().unwrap();
     let mut info = room.info.clone();
     info.topic.get_or_insert_with(|| "Argomento".into());
+    info.edit_rights = matrix_engine::EditRights { name: true, topic: true, avatar: true };
     DetailsSnapshot {
         scope: room.scope.clone(),
         name: room.name.clone(),
@@ -537,4 +538,19 @@ fn low_priority_icon_is_named_for_its_state_and_clicks_to_toggle() {
         let view = DetailsView::Open(Box::new(p.clone()));
         assert_eq!(view.action(&click), Some(DetailsAction::LowPriority(p.scope.clone())));
     }
+}
+
+#[test]
+fn edit_control_follows_the_rights_in_tree_and_tab_ring() {
+    let mut panel = panel();
+    panel.info.edit_rights = matrix_engine::EditRights::default();
+    let ids: Vec<_> = panel.tree().nodes.iter().map(|(id, _)| *id).collect();
+    assert!(!ids.contains(&DetailsControl::Edit.id()), "no ghost node without rights");
+    panel.focus = DetailsControl::HideRedacted;
+    assert_eq!(panel.next_focus(false), DetailsControl::Close, "Tab skips the hidden control");
+    panel.focus = DetailsControl::Close;
+    assert_eq!(panel.next_focus(true), DetailsControl::HideRedacted, "Shift+Tab too");
+    // One right is enough.
+    panel.info.edit_rights.topic = true;
+    assert!(panel.tree().nodes.iter().any(|(id, _)| *id == DetailsControl::Edit.id()));
 }

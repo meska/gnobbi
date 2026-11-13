@@ -732,7 +732,7 @@ impl Shell {
                         .children(self.details_observer(6, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
                     ))
-                    .child(
+                    .when(room.info.edit_rights.any(), |d| d.child(
                         div()
                             .id("room-edit-open")
                             .relative()
@@ -744,7 +744,7 @@ impl Shell {
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.open_room_edit(window, cx)
                             })),
-                    ))
+                    )))
                     )
                     )
                     .child(self.render_people(cx)),

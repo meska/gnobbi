@@ -288,7 +288,8 @@ impl Sidebar {
                     time: seed.time,
                     color: seed.color,
                     unread: 0,
-                    info: Default::default(),
+                    // The offline demo has no server: its rooms stay editable so the sheet and the dialog can be shown.
+                    info: matrix_engine::RoomInfo { edit_rights: matrix_engine::EditRights { name: true, topic: true, avatar: true }, ..Default::default() },
                 }
             })
             .collect();

@@ -109,7 +109,8 @@ impl DetailsView {
             Self::Open(panel) => {
                 let control = DetailsControl::ALL
                     .into_iter()
-                    .find(|c| c.id() == request.target_node)?;
+                    .find(|c| c.id() == request.target_node)
+                    .filter(|c| panel.shown(*c))?;
                 match request.action {
                     Action::Focus => Some(DetailsAction::Focus {
                         scope: panel.scope.clone(),
@@ -248,9 +249,18 @@ impl DetailsSnapshot {
         let mut i = self.focus as usize;
         loop {
             i = (i + if reverse { n - 1 } else { 1 }) % n;
-            if DetailsControl::ALL[i] != DetailsControl::Topic || self.has_topic() {
+            if self.shown(DetailsControl::ALL[i]) {
                 return DetailsControl::ALL[i];
             }
+        }
+    }
+    /// Controls that come and go: «Argomento» needs a non-blank topic, «Modifica» a right to edit.
+    /// One test for view, Tab ring and tree.
+    fn shown(&self, control: DetailsControl) -> bool {
+        match control {
+            DetailsControl::Topic => self.has_topic(),
+            DetailsControl::Edit => self.info.edit_rights.any(),
+            _ => true,
         }
     }
     /// Same test as the view: the «Argomento» box exists only for a non-blank topic.
@@ -259,8 +269,9 @@ impl DetailsSnapshot {
     }
     /// A focus left on the vanished «Argomento» box falls back to «Copia ID».
     fn focus_node(&self) -> NodeId {
-        if self.focus == DetailsControl::Topic && !self.has_topic() {
-            DetailsControl::Copy.id()
+        if !self.shown(self.focus) {
+            // Topic gone: «Copia ID»; Edit gone (last control): the one before it.
+            if self.focus == DetailsControl::Edit { DetailsControl::HideRedacted.id() } else { DetailsControl::Copy.id() }
         } else {
             self.focus.id()
         }
@@ -325,7 +336,7 @@ impl DetailsSnapshot {
         ]
         .into_iter()
         .enumerate()
-        .filter(|(_, (control, _))| *control != DetailsControl::Topic || self.has_topic())
+        .filter(|(_, (control, _))| self.shown(*control))
         {
             let on = match control {
                 DetailsControl::HideStatus => Some(!self.hide_status),

@@ -1385,6 +1385,11 @@ impl RoomSync {
                 Ok(Some(tags)) => crate::room_tags::group_names(&tags),
                 _ => Vec::new(),
             };
+            // Unknown levels (not synced yet) or no own user id: no rights.
+            let edit_rights = match (room.power_levels().await, client.user_id()) {
+                (Ok(levels), Some(me)) if room.state() == RoomState::Joined => crate::EditRights::from_levels(&levels, me),
+                _ => crate::EditRights::default(),
+            };
             current.insert(
                 id.clone(),
                 RoomSummary {
@@ -1395,6 +1400,7 @@ impl RoomSync {
                     name: room_label(room.display_name().await.ok(), &id),
                     unread: room.num_unread_notifications(),
                     info: crate::RoomInfo {
+                        edit_rights,
                         public_read_receipts: peer_receipts,
                         preview: latest_event_text(&latest),
                         last_event_ts: latest_event_ts(&latest),
