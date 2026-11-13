@@ -215,9 +215,13 @@ impl Shell {
         }
     }
 
-    /// First stop of the list column: the search field.
+    /// First stop of the list column: the disconnection icon while shown, else the search field.
     pub(crate) fn first_list_stop(&self) -> &FocusHandle {
-        &self.search_focus
+        if self.disconnected_shown().is_some() {
+            &self.alert_focus
+        } else {
+            &self.search_focus
+        }
     }
 
     pub(crate) fn sidebar_tab(
@@ -237,7 +241,25 @@ impl Shell {
         {
             return false;
         }
-        let target = if self.search_focus.is_focused(window) && key.modifiers.shift {
+        let target = if self.alert_focus.is_focused(window) {
+            // The icon exists only while shown: Tab goes on to the list, Shift-Tab leaves the column backwards.
+            if key.modifiers.shift {
+                if compact {
+                    &self.menu_focus
+                } else {
+                    self.rail_ui.on_unread = false;
+                    self.rail_ui.target = self.rail_entries().last().unwrap().scope.clone();
+                    &self.rail_ui.edit_focus
+                }
+            } else {
+                &self.search_focus
+            }
+        } else if self.disconnected_shown().is_some()
+            && self.search_focus.is_focused(window)
+            && key.modifiers.shift
+        {
+            &self.alert_focus
+        } else if self.search_focus.is_focused(window) && key.modifiers.shift {
             // Shift-Tab from the first stop of the list column leaves it backwards.
             if compact {
                 &self.menu_focus

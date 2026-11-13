@@ -163,6 +163,8 @@ struct Shell {
     /// Divider drag in progress: pointer x and list width at mouse down.
     list_drag: Option<(f32, f32)>,
     list_divider_focus: FocusHandle,
+    /// Disconnection icon: a stop of the list column's Tab chain only while it is rendered (see `sidebar_tab`).
+    alert_focus: FocusHandle,
     room_prefs: matrix_desktop::RoomPrefs,
     /// Composer focus as of the last frame (saved with the room on change/close, not per event).
     composer_focused: bool,
@@ -1598,6 +1600,8 @@ impl Shell {
         if key.key == "tab" || (searching && key.key == "enter") {
             if searching {
                 self.list_focus.focus(window);
+            } else if self.disconnected_shown().is_some() && !self.alert_focus.is_focused(window) {
+                self.alert_focus.focus(window);
             } else {
                 self.search_focus.focus(window);
             }
@@ -2334,12 +2338,20 @@ impl Shell {
                                 )
                                 // Fixed spot, absent (not hidden) while connected: nothing in the Tab order, no help text.
                                 .when_some(self.disconnected_shown(), |d, reason| {
+                                    let ring = input_modality::ring(&self.alert_focus, window, cx);
                                     d.child(
                                         div()
                                             .id("disconnected")
+                                            .relative()
                                             .flex_shrink_0()
+                                            .track_focus(&self.alert_focus)
+                                            .rounded_sm()
+                                            .border_1()
+                                            .border_color(if ring { rgb(t.accent) } else { gpui::rgba(0) })
                                             .child(composer_icons::icon(composer_icons::Icon::Alert, t.error))
-                                            .tooltip(move |_, cx| cx.new(|_| rail_view::RailTooltip { label: reason.into(), theme }).into()),
+                                            .tooltip(move |_, cx| cx.new(|_| rail_view::RailTooltip { label: reason.into(), theme }).into())
+                                            // GPUI tooltips are hover-only: show the same label under the icon while the keyboard focus is on it.
+                                            .when(ring, |d| d.child(div().absolute().top(px(26.)).right_0().whitespace_nowrap().px_3().py_2().rounded_md().border_1().border_color(rgb(t.border)).bg(rgb(t.surface)).text_color(rgb(t.text)).text_size(px(12.)).child(reason))),
                                     )
                                 }),
                         )
@@ -3520,6 +3532,7 @@ fn main() {
                         prefs_dirs,
                         list_drag: None,
                         list_divider_focus: cx.focus_handle().tab_stop(true),
+                        alert_focus: cx.focus_handle(),
                         prefs,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         back_ui: compact_view::BackUi::new(cx),
