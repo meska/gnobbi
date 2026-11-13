@@ -2177,7 +2177,7 @@ impl Shell {
                 navigation_revision: self.sidebar.navigation_revision(),
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
                 unread_filter: self.semantic_unread(window),
-                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
+                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_room_edit(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),

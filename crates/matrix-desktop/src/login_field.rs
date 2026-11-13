@@ -30,6 +30,12 @@ pub struct LoginField {
 }
 
 impl LoginField {
+    /// Wrapped text area: Enter is a new line, Cmd/Ctrl+Enter bubbles up to confirm.
+    pub fn multiline(cx: &mut Context<Self>) -> Self {
+        let mut field = Self::new(false, cx);
+        field.input = LoginInput::multiline();
+        field
+    }
     pub fn new(protected: bool, cx: &mut Context<Self>) -> Self {
         Self {
             theme: LIGHT,
@@ -79,11 +85,35 @@ impl LoginField {
             if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
                 self.input.replace(None, &text);
             }
+        } else if self.input.is_multiline() && key.key == "enter" && !command {
+            self.input.replace(None, "\n");
+        } else if self.input.is_multiline() && matches!(key.key.as_str(), "up" | "down") && !command {
+            if !self.move_vertically(key.key == "up", key.modifiers.shift) {
+                return;
+            }
         } else if !self.input.edit(&key.key, command, key.modifiers.shift) {
             return;
         }
         cx.notify();
         cx.stop_propagation();
+    }
+    /// Caret one wrapped line up or down, at the same x (first/last line: start/end of text).
+    fn move_vertically(&mut self, up: bool, shift: bool) -> bool {
+        if self.input.marked_utf16().is_some() {
+            return false;
+        }
+        let text = self.input.display_text();
+        let Some(layout) = &self.layout else { return false };
+        let cursor = byte_offset(&text, self.input.selection_utf16().end).unwrap_or(text.len());
+        let Some(at) = layout.position_for_index(cursor) else { return false };
+        let step = layout.line_height();
+        let to = if up { at.y - step } else { at.y + step };
+        let index = match layout.index_for_position(point(at.x, to + step / 2.)) {
+            Ok(i) | Err(i) => i.min(text.len()),
+        };
+        let index = if up && to < layout.bounds().top() { 0 } else if !up && to > layout.bounds().bottom() { text.len() } else { index };
+        self.input.move_to(text.get(..index).map_or(0, |t| t.encode_utf16().count()), shift);
+        true
     }
 }
 fn byte_offset(text: &str, target: usize) -> Option<usize> {
@@ -197,13 +227,14 @@ impl Render for LoginField {
         let layout = body.layout().clone();
         let entity = cx.entity();
         let theme = self.theme;
+        let multiline = self.input.is_multiline();
         div()
             .id("login-field")
             .track_focus(&self.focus)
-            .h(px(36.))
+            .when(multiline, |d| d.min_h(px(82.)).max_h(px(154.)).overflow_y_scroll())
+            .when(!multiline, |d| d.h(px(36.)).overflow_hidden())
             .flex_shrink_0()
             .relative()
-            .overflow_hidden()
             .px_2()
             .py_1()
             .text_size(px(14.))

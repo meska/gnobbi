@@ -40,7 +40,9 @@ impl RoomEdit {
     }
 
     fn text(&self, i: usize, cx: &gpui::App) -> String {
-        self.fields[i].read(cx).input.display_text().trim().to_owned()
+        // The topic keeps its line breaks and leading text; only trailing space goes.
+        let text = self.fields[i].read(cx).input.display_text();
+        if i == 1 { text.trim_end() } else { text.trim() }.to_owned()
     }
 
     fn name_blank(&self, cx: &gpui::App) -> bool {
@@ -75,7 +77,11 @@ impl Shell {
             .into_iter()
             .map(|(label, value)| {
                 let field = cx.new(|cx| {
-                    let mut field = crate::login_field::LoginField::new(false, cx);
+                    let mut field = if label == "Argomento" {
+                        crate::login_field::LoginField::multiline(cx)
+                    } else {
+                        crate::login_field::LoginField::new(false, cx)
+                    };
                     field.enabled = true;
                     field.placeholder = label;
                     field.input.replace(None, value);
@@ -186,6 +192,29 @@ impl Shell {
         }
         cx.notify();
         cx.stop_propagation();
+    }
+
+    /// Controls in Tab order for the screen-reader tree; the topic is a multi-line text input.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn semantic_room_edit(&self, window: &Window, cx: &gpui::App) -> Option<matrix_desktop::accessibility::new_room::Snapshot> {
+        use accesskit::Role;
+        use matrix_desktop::accessibility::new_room::{Item, Snapshot};
+        let edit = self.room_edit.as_ref()?;
+        let item = |role, label: &str, focus: &FocusHandle, bounds| Item { role, label: label.to_owned(), checked: None, focused: focus.is_focused(window), bounds };
+        let mut items: Vec<_> = edit.fields.iter().zip([edit.rights.name, edit.rights.topic]).filter(|(_, ok)| *ok).map(|(f, _)| {
+            let f = f.read(cx);
+            let role = if f.input.is_multiline() { Role::MultilineTextInput } else { Role::TextInput };
+            item(role, f.placeholder, &f.focus, f.semantic_bounds)
+        }).collect();
+        if edit.rights.avatar {
+            items.push(item(Role::Button, "Immagine", &edit.avatar_focus, None));
+        }
+        items.push(item(Role::Button, "Annulla", &edit.cancel_focus, None));
+        items.push(item(Role::Button, "Salva", &edit.submit_focus, None));
+        if let Some(error) = edit.error {
+            items.push(Item { role: Role::Label, label: error_text(edit.name_blank(cx), error).to_owned(), checked: None, focused: false, bounds: None });
+        }
+        Some(Snapshot { items, join: None })
     }
 
     pub(crate) fn render_room_edit(

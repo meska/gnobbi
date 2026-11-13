@@ -840,7 +840,7 @@ pub async fn edit_room(
         within(room.set_name(name.to_owned())).await?;
     }
     if let Some(topic) = topic {
-        within(room.set_room_topic(topic.trim())).await?;
+        within(room.set_room_topic(topic.trim_end())).await?;
     }
     if let Some(path) = avatar {
         let mime = mime_guess::from_path(path).first_or_octet_stream();
