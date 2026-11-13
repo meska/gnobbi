@@ -478,6 +478,41 @@ pub mod detect {
             assert_eq!(entry_status(&env), EntryStatus::Ok);
         }
 
+        /// The entry an older Gnobbi wrote (no `%u`, no `MimeType`), Exec being the real AppImage.
+        fn old_entry(exec: &str) -> String {
+            format!(
+                "[Desktop Entry]\nType=Application\nName=Gnobbi\nComment=Matrix chat client\n\
+                 Exec=\"{exec}\"\nIcon=net.meskatech.gnobbi\nTerminal=false\n\
+                 Categories=Network;InstantMessaging;\nStartupWMClass=net.meskatech.gnobbi\n"
+            )
+        }
+
+        #[test]
+        fn exact_old_entry_is_stale_current_is_ok_other_exec_stale_system_is_package() {
+            let (env, root) = setup("exact");
+            let exec = env.exec.clone().unwrap();
+            install(&env, &exec); // icons only matter for Ok; the entry is rewritten below
+            let f = root.join(format!("home/.local/share/applications/{APP_ID}.desktop"));
+            let old = old_entry(&exec);
+            assert!(!old.contains("MimeType") && !old.contains("%u"));
+            fs::write(&f, &old).unwrap();
+            assert_eq!(entry_status(&env), EntryStatus::Stale);
+            fs::write(&f, super::super::render_entry(&exec)).unwrap();
+            assert_eq!(entry_status(&env), EntryStatus::Ok);
+            // same entry, Exec points at another existing file
+            let other = root.join("other.AppImage");
+            fs::write(&other, "y").unwrap();
+            fs::write(&f, super::super::render_entry(other.to_str().unwrap())).unwrap();
+            assert_eq!(entry_status(&env), EntryStatus::Stale);
+            // no user entry, only a system one
+            fs::remove_file(&f).unwrap();
+            let sys = root.join("sys/applications");
+            fs::create_dir_all(&sys).unwrap();
+            fs::write(sys.join(format!("{APP_ID}.desktop")), old).unwrap();
+            assert_eq!(entry_status(&env), EntryStatus::SystemPackage);
+            assert!(!should_prompt(&env, false));
+        }
+
         #[test]
         fn missing_icon_is_stale() {
             let (env, root) = setup("icon");
