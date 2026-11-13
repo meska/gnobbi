@@ -3583,6 +3583,11 @@ mod tests {
                             match runs.last_mut() { Some(r) if r.1 == x => r.1 = x + 1, _ => runs.push((x, x + 1, p)) }
                         }
                     }
+                    if wave_len == 0 {
+                        cx.quit();
+                        assert!(runs.is_empty(), "{} bars painted for a note without waveform, expected 0", runs.len());
+                        return;
+                    }
                     let width = f32::from(wave.size.width);
                     let want = ((((width - 2.) / 3.).floor() as usize) + 1).min(wave_len.max(1));
                     let first = &runs[0];

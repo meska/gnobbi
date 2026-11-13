@@ -272,6 +272,9 @@ pub(crate) fn audio_bubble(
             move |bounds, _, window, _| {
                 painted("waveform", bounds);
                 let (width, bar) = (f32::from(bounds.size.width), 2.0_f32);
+                if waveform.is_empty() || width < bar {
+                    return;
+                }
                 let n = (((width - bar) / 3.0).floor().max(0.0) as usize + 1).min(waveform.len().max(1));
                 let pitch = if n > 1 { (width - bar) / (n - 1) as f32 } else { 0.0 };
                 let played = (progress.clamp(0.0, 1.0) * n as f32).round() as usize;
