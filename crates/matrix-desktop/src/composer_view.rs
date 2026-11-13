@@ -3138,6 +3138,33 @@ mod tests {
         });
     }
 
+    /// Pixels, not boxes: the glyph painted inside each icon button is centred on the button's hit area (±1 px), measured on a grim screenshot.
+    /// Theme from COMPOSER_THEME, scale from the sway output; PNGs to $SHOT_DIR.
+    fn assert_glyphs_centred(text: &'static str, last: &'static str, tag: &'static str) {
+        rendered_composer(text, move |_, window, _| {
+            let scale = window.scale_factor();
+            let theme = std::env::var("COMPOSER_THEME").unwrap_or_else(|_| "light".into());
+            let img = crate::ink_test::grim(&format!("{tag}-{theme}-x{scale}"), window);
+            let off: Vec<String> = ["composer-emoji-toggle", "composer-poll", "composer-attach", last]
+                .into_iter()
+                .filter_map(|name| { let b = probed(name); crate::ink_test::assert_centred(name, crate::ink_test::ink(&img, b, scale, false).bbox, b, scale).err() })
+                .collect();
+            assert!(off.is_empty(), "{off:?}");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_glyphs_are_centred_in_their_hit_areas_with_voice() {
+        assert_glyphs_centred("", "composer-record", "composer-voice");
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_glyphs_are_centred_in_their_hit_areas_with_send() {
+        assert_glyphs_centred("una riga", "send", "composer-send");
+    }
+
     /// Emoji, Poll, Attach and the last slot (Voice when empty, Send otherwise) are ≥32x32, in order right of the text,
     /// and the text and every control are centred on the bar within 1 physical px (the scale comes from the harness:
     /// GPUI_X11_SCALE_FACTOR on X11).

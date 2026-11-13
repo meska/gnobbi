@@ -72,6 +72,8 @@ mod dialog_typing_test;
 #[cfg(test)]
 mod quick_answer_test;
 #[cfg(test)]
+mod ink_test;
+#[cfg(test)]
 mod sidebar_navigation_test;
 #[cfg(feature = "live")]
 mod signin_view;

@@ -3507,6 +3507,125 @@ mod tests {
         });
     }
 
+    struct AudioHost(TimelineView, matrix_desktop::DesignTokens);
+    impl Render for AudioHost {
+        fn render(&mut self, window: &mut gpui::Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().size_full().flex().flex_col().child(self.0.render(self.1, window, None, None, cx))
+        }
+    }
+
+    /// Measures the painted voice note on a grim screenshot: Play (centroid) or Pause (box) centred on the 40 px button, and
+    /// the waveform: every bar 2 px with a gap, the last one ending `px_4` (16 px) from the bubble's right edge like the Play
+    /// starts 16 px from its left edge, and the bars up to the progress filled. Window width = sway output width.
+    /// Env: WAVE_THEME=light|dark, WAVE_PROGRESS (default 0.5), WAVE_LEN samples (default 100), SHOT_DIR.
+    fn audio_measured(playing: bool) {
+        use crate::ink_test::*;
+        use matrix_engine::history::{AudioInfo, HistoryEvent, HistorySender};
+        gpui::Application::new().run(move |cx| {
+            let id = EventId::new("$note:fixture.invalid");
+            let dark = std::env::var("WAVE_THEME").as_deref() == Ok("dark");
+            let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
+            let wave_len: usize = std::env::var("WAVE_LEN").ok().and_then(|p| p.parse().ok()).unwrap_or(100);
+            let progress: f32 = std::env::var("WAVE_PROGRESS").ok().and_then(|p| p.parse().ok()).unwrap_or(0.5);
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi audio measured");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!note:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        v.append_server(vec![HistoryEvent {
+                            poll: None, redacted: false, event_id: id.clone(), body: String::new(), outgoing: false, timestamp_ms: 0,
+                            sender: HistorySender::new("@a:fixture.invalid", None), video: None,
+                            audio: Some(AudioInfo { duration_ms: Some(12_000), size: Some(1_468_006), voice: true, waveform: (0..wave_len).map(|i| 0.3 + ((i * 7) % 10) as f32 / 15.0).collect() }),
+                            media: Some(matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Audio, label: "Nota vocale · 0:12".into() }),
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false, thread: None, thread_root: None, status: false, utd: false,
+                            attachment_name: Some("nota-vocale.ogg".into()), attachment_size: Some(1_468_006),
+                        }]);
+                        let mut ui = v.audio.borrow_mut();
+                        ui.event = Some(id.clone());
+                        ui.progress = progress;
+                        ui.playing = playing;
+                        drop(ui);
+                        AudioHost(v, tokens)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(600)).await;
+                view.update(cx, |host, window, cx| {
+                    let scale = window.scale_factor();
+                    let key = |name| (TimelineId::Server(EventId::new("$note:fixture.invalid")), name);
+                    let (play, wave) = (*host.0.audio_painted.borrow().get(&key("play")).expect("play"), *host.0.audio_painted.borrow().get(&key("waveform")).expect("waveform"));
+                    let tag = format!("audio-{}-w{}-p{}-{}-x{scale}", if dark { "dark" } else { "light" }, f32::from(window.viewport_size().width) as u32, (progress * 100.) as u32, if playing { "pause" } else { "play" });
+                    let img = grim(&tag, window);
+                    let ink_ = ink(&img, play, scale, true);
+                    let centred = if playing { assert_centred("Pausa", ink_.bbox, play, scale) } else { assert_centred("Play (baricentro)", ink_.mass, play, scale) };
+                    // Waveform: scan the centre row (bars are >= 2 px tall around it) and classify each column.
+                    let (bg, played_c, rest_c) = (rgb(tokens.surface), rgb(tokens.accent), rgb(tokens.border));
+                    let row = (f32::from(wave.top() + wave.bottom()) / 2. * scale) as u32;
+                    // Linear mixing model: a column is p = bg + cover * (bar - bg) for the played or the rest colour; bar if cover >= 0.5.
+                    let column = |x: u32| {
+                        let p = (row - 1..=row + 1).map(|y| img.get_pixel(x, y).0).max_by(|a, b| { let d = |q: &[u8; 4]| (0..3).map(|i| (q[i] as f32 - bg[i]).abs()).fold(0., f32::max); d(a).total_cmp(&d(b)) }).unwrap();
+                        let fit = |bar: [f32; 3]| {
+                            let (dv, dp): (Vec<f32>, Vec<f32>) = (0..3).map(|i| (bar[i] - bg[i], p[i] as f32 - bg[i])).unzip();
+                            let cover = dv.iter().zip(&dp).map(|(a, b)| a * b).sum::<f32>() / dv.iter().map(|a| a * a).sum::<f32>();
+                            (cover, (0..3).map(|i| (dp[i] - cover * dv[i]).abs()).fold(0., f32::max))
+                        };
+                        let ((cp, ep), (cr, er)) = (fit(played_c), fit(rest_c));
+                        let (cover, played) = if ep <= er { (cp, true) } else { (cr, false) };
+                        (cover >= 0.5).then_some(played)
+                    };
+                    let (x0, x1) = ((f32::from(wave.left()) * scale) as u32 - 2, (f32::from(wave.right()) * scale) as u32 + 4);
+                    let mut runs: Vec<(u32, u32, bool)> = vec![]; // [start, end), played
+                    for x in x0..x1 {
+                        if let Some(p) = column(x) {
+                            match runs.last_mut() { Some(r) if r.1 == x => r.1 = x + 1, _ => runs.push((x, x + 1, p)) }
+                        }
+                    }
+                    let width = f32::from(wave.size.width);
+                    let want = ((((width - 2.) / 3.).floor() as usize) + 1).min(wave_len.max(1));
+                    let first = &runs[0];
+                    let last = runs.last().unwrap();
+                    // Bubble right edge: first column on the centre row, beyond the last bar, that is no longer the bubble colour.
+                    // Skip 3 px: a fractional output scale blurs the bar's edge into the next column.
+                    let edge = (last.1 + (3. * scale) as u32..last.1 + (60. * scale) as u32).find(|&x| dist(&img, x, row, bg) > 3.).expect("bubble right edge");
+                    let pad_right = (edge - last.1) as f32 / scale;
+                    let played = runs.iter().filter(|r| r.2).count();
+                    crate::ink_test::note(&format!("WAVE width {width:.1} scale {scale}: bars {} (want {want}), played {played} (want {}), last bar ends {:.2} (waveform right {:.2}), right padding {pad_right:.2} px, first bar {:.2} (waveform left {:.2}), widths {:?}", runs.len(), (progress * want as f32).round() as usize, last.1 as f32 / scale, f32::from(wave.right()), first.0 as f32 / scale, f32::from(wave.left()), runs.iter().map(|r| r.1 - r.0).collect::<std::collections::BTreeSet<_>>()));
+                    let fail: std::result::Result<(), String> = (|| {
+                        centred.clone()?;
+                        let tol = 1.0 + 1.0 / scale;
+                        if runs.len() != want { return Err(format!("{} bars painted, {want} expected (merged or missing)", runs.len())); }
+                        if (last.1 as f32 / scale - f32::from(wave.right())).abs() > tol { return Err("last bar does not end on the waveform's right edge".into()); }
+                        if (first.0 as f32 / scale - f32::from(wave.left())).abs() > tol { return Err("first bar does not start on the waveform's left edge".into()); }
+                        if (pad_right - 16.).abs() > tol { return Err(format!("right padding {pad_right} px, expected 16 (px_4)")); }
+                        if let Some(r) = runs.iter().find(|r| (r.1 - r.0) as f32 / scale > 2. + 1.0 / scale + 0.5) { return Err(format!("a bar {} px wide: overlap or smear {r:?}", (r.1 - r.0) as f32 / scale)); }
+                        let w = (progress * want as f32).round() as usize;
+                        if played != w || runs.iter().take(w).any(|r| !r.2) { return Err(format!("{played} bars filled, first {w} expected")); }
+                        Ok(())
+                    })();
+                    cx.quit();
+                    if let Err(e) = fail { panic!("{e}") }
+                })
+                .unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_audio_play_is_centred_and_the_waveform_fills_the_bubble() {
+        audio_measured(false);
+    }
+
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_audio_pause_is_centred_and_the_waveform_fills_the_bubble() {
+        audio_measured(true);
+    }
+
     #[test]
     #[ignore = "requires private display"]
     fn painted_audio_bubble_has_a_play_button_a_waveform_and_a_duration() {
@@ -3936,6 +4055,49 @@ mod tests {
     #[ignore = "requires private display"]
     fn painted_save_icons_dark() {
         save_icons_painted(true);
+    }
+
+    /// The ↓ glyph is centred on the 32 px «Scarica» hit area (±1 px), measured on a grim screenshot (SAVE_THEME=dark for dark).
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_save_glyph_is_centred_in_its_hit_area() {
+        use matrix_engine::history::{HistoryEvent, HistorySender};
+        gpui::Application::new().run(move |cx| {
+            let dark = std::env::var("SAVE_THEME").as_deref() == Ok("dark");
+            let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
+            let id = EventId::new("$file:fixture.invalid");
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title("Gnobbi save glyph");
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!save:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), true);
+                        v.append_server(vec![HistoryEvent {
+                            poll: None, redacted: false, event_id: id.clone(), body: "rel.pdf".into(), outgoing: false, timestamp_ms: 1,
+                            sender: HistorySender::new("@a:fixture.invalid", None), video: None, audio: None, styles: Vec::new(), mentions: Vec::new(),
+                            highlighted: false, thread: None, thread_root: None, status: false, attachment_name: Some("rel.pdf".into()),
+                            attachment_size: Some(2048), media: None, utd: false,
+                        }]);
+                        ThemedHost(v, tokens)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                view.update(cx, |host, window, cx| {
+                    let scale = window.scale_factor();
+                    let b = *host.0.save_painted.borrow().get(&id).expect("no ↓ painted");
+                    let img = crate::ink_test::grim(&format!("save-{}-x{scale}", if dark { "dark" } else { "light" }), window);
+                    let got = crate::ink_test::ink(&img, b, scale, false).bbox;
+                    cx.quit();
+                    crate::ink_test::assert_centred("Scarica ↓", got, b, scale).unwrap();
+                })
+                .unwrap();
+            })
+            .detach();
+        });
     }
 
     /// Captions under attachments painted for real (rows as the engine delivers them: blank and
