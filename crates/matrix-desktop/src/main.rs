@@ -1446,7 +1446,7 @@ impl Shell {
             || prefs.last_open_room(saved),
             |room| {
                 let scope = RoomScope { account_id: account, room_id: room.clone() };
-                sidebar.is_joined(&scope) && sidebar.select(&scope)
+                sidebar.is_joined(&scope) && (sidebar.select(&scope) || sidebar.select_outside_view(&scope))
             },
         );
         if opened.is_none() && self.restore.waiting() {
@@ -2659,7 +2659,7 @@ impl Shell {
                             div().flex_shrink_0().px_4().py_1().text_size(px(11.)).text_color(rgb(t.secondary))
                                 .child(matrix_desktop::debug_room_line(&self.active_scope, connection_label))))
                         .when_some(self.timeline.as_ref(), |d, timeline| { timeline.set_debug(self.prefs.debug); { let (offered, pending, message) = self.key_recovery_state(); timeline.set_key_recovery(offered, pending, message); } d.child(timeline.render(t, window, self.connected.then(|| self.delivery.clone()), self.connected.then(|| self.operations.clone()), cx))})
-                        .when(self.connected && self.timeline.is_none(), |d| d.child(div().flex_1().bg(rgb(t.timeline)).p_6().child("Nessuna stanza selezionata. Nessun messaggio demo.")))
+                        .when(self.connected && self.timeline.is_none(), |d| d.child(div().flex_1().bg(rgb(t.timeline)).p_6()))
                         .when(self.connected, |d| d.child(self.render_operations(window, cx)))
                         .when(!self.connected || self.sidebar.selected().is_some(), |d| d.child(self.composer.clone())),
                 )

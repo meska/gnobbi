@@ -691,6 +691,16 @@ impl Sidebar {
         }
     }
 
+    /// Opens a joined room the active view (Unread, Space, search) hides: the restored room stays open.
+    pub fn select_outside_view(&mut self, scope: &RoomScope) -> bool {
+        let Some(i) = self.rooms.iter().position(|r| r.scope == *scope && !r.info.invited) else {
+            return false;
+        };
+        self.retire_navigation();
+        self.selected = Some(i);
+        true
+    }
+
     /// Returns the filtered position for the view to reveal, not a global room index.
     pub fn navigate(&mut self, direction: Navigation) -> Option<usize> {
         let last = self.visible.len().checked_sub(1)?;
@@ -1254,6 +1264,20 @@ mod invite_tests {
         assert_eq!(sidebar.visible_indices().len(), 33);
         assert!(names(&sidebar)[..3].iter().all(|n| n.starts_with("inv")));
         assert!(sidebar.rooms()[sidebar.visible_indices()[3]].name.starts_with("room"));
+    }
+
+    #[test]
+    fn a_room_outside_the_active_view_can_still_be_opened() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let info = || RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() };
+        upsert(&mut sidebar, account, "!a:t.invalid", "a", info());
+        upsert(&mut sidebar, account, "!b:t.invalid", "b", info());
+        sidebar.set_query("b");
+        let a = scope(account, "!a:t.invalid");
+        assert!(!sidebar.select(&a));
+        assert!(sidebar.select_outside_view(&a));
+        assert_eq!(sidebar.selected().map(|r| &r.scope), Some(&a));
     }
 
     #[test]
