@@ -92,6 +92,8 @@ pub struct Sidebar {
     visible: Vec<usize>,
     query: String,
     space: Option<RoomScope>,
+    /// «Non lette» view: only joined rooms with unread messages or a manual mark. Exclusive with `space`.
+    unread_view: bool,
     selected: Option<usize>,
     keyboard_focus: Option<RoomScope>,
     /// Invitations whose answer is on its way, and those whose last answer failed.
@@ -120,6 +122,7 @@ impl Sidebar {
             selected: None,
             keyboard_focus: None,
             space: None,
+            unread_view: false,
             answering: Default::default(),
             failed: Default::default(),
             reject_armed: None,
@@ -241,6 +244,7 @@ impl Sidebar {
             selected: Some(0),
             keyboard_focus: None,
             space: None,
+            unread_view: false,
             answering: Default::default(),
             failed: Default::default(),
             reject_armed: None,
@@ -468,7 +472,7 @@ impl Sidebar {
                 space.initials.clone(),
                 Some(space.color),
             ),
-            None => ("Tutte".into(), "▦".into(), None),
+            None => ((if self.unread_view { "Non lette" } else { "Tutte" }).into(), "▦".into(), None),
         }
     }
 
@@ -498,7 +502,7 @@ impl Sidebar {
             name: "Tutte".into(),
             unread,
             mentions,
-            selected: self.space.is_none(),
+            selected: self.space.is_none() && !self.unread_view,
             avatar: None,
         }];
         entries.extend(self.spaces().map(|space| {
@@ -545,10 +549,37 @@ impl Sidebar {
         {
             return false;
         }
-        if self.space != scope {
+        if self.space != scope || self.unread_view {
             self.retire_navigation();
         }
+        self.unread_view = false;
         self.space = scope;
+        self.set_query(&self.query.clone());
+        true
+    }
+
+    /// A joined, unmuted room that counts for «Non lette» (same muted rule as the other badges).
+    fn in_unread_view(room: &SidebarRoom) -> bool {
+        !room.info.invited && !room.info.is_space && !room.info.muted && (room.unread > 0 || room.info.marked_unread)
+    }
+
+    /// How many rooms «Non lette» holds (rooms, not messages, like Telegram's chat counter).
+    pub fn unread_rooms(&self) -> usize {
+        self.rooms.iter().filter(|r| Self::in_unread_view(r)).count()
+    }
+
+    pub fn unread_view(&self) -> bool {
+        self.unread_view
+    }
+
+    /// Shows «Non lette» (leaving any Space) or, with false, «Tutte le chat». True when something changed.
+    pub fn set_unread_view(&mut self, on: bool) -> bool {
+        if self.unread_view == on {
+            return false;
+        }
+        self.retire_navigation();
+        self.unread_view = on;
+        self.space = None;
         self.set_query(&self.query.clone());
         true
     }
@@ -580,6 +611,7 @@ impl Sidebar {
                 (room.info.invited || !room.info.is_space)
                     && room.name.to_lowercase().contains(&needle)
                     && (room.info.invited || space.is_none_or(|s| s.info.children.contains(&room.scope.room_id)))
+                    && (!self.unread_view || Self::in_unread_view(room))
             })
             .map(|(i, _)| i)
             .collect();
@@ -1030,6 +1062,74 @@ mod tests {
         // Both tags set by another client: pinned wins.
         pinned(&mut sidebar, &account, "n1", 0, &["m.favourite", "m.lowpriority"], Some(0.9));
         assert_eq!(names(&sidebar)[..4], ["f_new", "f_old", "n1", "f_none1"]);
+    }
+
+    #[test]
+    fn unread_view_lists_rooms_with_unread_or_manual_mark_in_list_order_and_counts_rooms() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        fill(&mut sidebar, &account, &[("a", Some(4)), ("b", Some(3)), ("c", Some(2)), ("d", Some(1))]);
+        pinned(&mut sidebar, &account, "b", 5, &[], None);
+        pinned(&mut sidebar, &account, "d", 2, &["m.favourite"], Some(0.5));
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+            scope: scope(&account, "c"),
+            name: "c".into(),
+            unread: 0,
+            info: RoomInfo { marked_unread: true, preview: Some("x".into()), ..Default::default() },
+        })));
+        assert_eq!(sidebar.unread_rooms(), 3);
+        assert!(sidebar.set_unread_view(true) && !sidebar.set_unread_view(true));
+        assert_eq!(sidebar.list_header().0, "Non lette");
+        assert_eq!(names(&sidebar), ["d", "b", "c"]); // pinned first, then activity
+        assert!(!sidebar.navigation_entries()[0].selected);
+        sidebar.set_query("c");
+        assert_eq!(names(&sidebar), ["c"]); // search inside the view
+        // Reading a room drops it from the view and the counter; all read: empty, no badge.
+        sidebar.set_query("");
+        for n in ["b", "d"] {
+            sidebar.mark_read_optimistic(&scope(&account, n));
+        }
+        assert_eq!(names(&sidebar), ["c"]);
+        assert_eq!(sidebar.unread_rooms(), 1);
+        pinned(&mut sidebar, &account, "c", 0, &[], None);
+        assert_eq!((sidebar.unread_rooms(), names(&sidebar).len()), (0, 0));
+        // Leaving the view: «Tutte le chat» is selected again.
+        assert!(sidebar.set_unread_view(false));
+        assert_eq!(names(&sidebar).len(), 4);
+        assert!(sidebar.navigation_entries()[0].selected);
+    }
+
+    #[test]
+    fn views_are_exclusive_a_space_shows_its_rooms_unread_shows_unread_of_every_space_and_all_shows_everything() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let upsert = |sidebar: &mut Sidebar, id: &str, unread, children: &[&str]| {
+            sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+                scope: scope(&account, id),
+                name: id.into(),
+                unread,
+                info: RoomInfo {
+                    is_space: !children.is_empty(),
+                    children: children.iter().map(|c| RoomId::new(format!("!{c}:t.invalid"))).collect(),
+                    ..Default::default()
+                },
+            })));
+        };
+        upsert(&mut sidebar, "a", 2, &[]);
+        upsert(&mut sidebar, "b", 3, &[]);
+        upsert(&mut sidebar, "c", 0, &[]);
+        upsert(&mut sidebar, "s", 0, &["a", "c"]);
+        let s = scope(&account, "s");
+        assert!(sidebar.set_space(Some(s.clone())));
+        assert_eq!(names(&sidebar), ["a", "c"]);
+        sidebar.set_unread_view(true);
+        assert_eq!((sidebar.active_space(), names(&sidebar)), (None, vec!["a", "b"]));
+        assert!(sidebar.set_space(Some(s)) && !sidebar.unread_view());
+        assert_eq!(names(&sidebar), ["a", "c"]);
+        sidebar.set_unread_view(true);
+        assert!(sidebar.set_space(None) && !sidebar.unread_view());
+        assert_eq!(names(&sidebar), ["a", "b", "c"]);
+        assert!(sidebar.navigation_entries()[0].selected);
     }
 
     #[test]

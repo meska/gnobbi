@@ -1,4 +1,4 @@
-//! Local order and visibility of the spaces in the rail, per account (`rail-layout.json` in the
+//! Local order and visibility of the spaces in the rail and the «Non lette» / «Tutte le chat» choice, per account (`rail-layout.json` in the
 //! config dir). Never sent to the server; «Tutte» is not part of it and is always shown first.
 use crate::{AppDirs, NavigationEntry};
 use serde_json::{Map, Value, json};
@@ -12,6 +12,8 @@ const FILE: &str = "rail-layout.json";
 pub struct RailLayout {
     order: Vec<String>,
     hidden: HashSet<String>,
+    /// The shown view is «Non lette» instead of «Tutte le chat» (a chosen Space is not remembered).
+    pub unread: bool,
 }
 
 /// One list of strings, or None when the value is not a list of distinct strings.
@@ -106,6 +108,7 @@ impl RailLayouts {
                             .unwrap_or_default()
                             .into_iter()
                             .collect(),
+                        unread: value.get("unread").and_then(Value::as_bool).unwrap_or(false),
                     };
                     Some((key.parse().ok()?, layout))
                 })
@@ -139,7 +142,7 @@ impl RailLayouts {
                 hidden.sort();
                 (
                     id.to_string(),
-                    json!({ "order": l.order, "hidden": hidden }),
+                    json!({ "order": l.order, "hidden": hidden, "unread": l.unread }),
                 )
             })
             .collect();
@@ -151,5 +154,23 @@ impl RailLayouts {
         opts.open(&tmp)?
             .write_all(Value::Object(body).to_string().as_bytes())?;
         std::fs::rename(tmp, dirs.config.join(FILE))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_unread_view_choice_survives_save_and_load_per_account_and_defaults_to_off() {
+        let dir = std::env::temp_dir().join(format!("rail-layout-{}", std::process::id()));
+        let dirs = AppDirs { config: dir.join("c"), data: dir.join("d"), cache: dir.join("k") };
+        let mut layouts = RailLayouts::default();
+        layouts.set(1, RailLayout { unread: true, ..Default::default() });
+        layouts.set(2, RailLayout::default());
+        layouts.save(&dirs).unwrap();
+        let back = RailLayouts::load(&dirs);
+        assert!(back.get(1).unread && !back.get(2).unread && !back.get(3).unread);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

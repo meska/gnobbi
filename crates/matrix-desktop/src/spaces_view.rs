@@ -40,7 +40,7 @@ impl Shell {
             else {
                 return;
             };
-            if !self.sidebar.set_space(entry.scope.clone()) {
+            if !self.choose_view(false, entry.scope.clone()) {
                 return;
             }
             self.set_spaces_open(false);
@@ -276,15 +276,22 @@ impl Shell {
             account: self.active_scope.account_id,
             open: persistent || self.spaces_open,
             active: self.sidebar.active_space().cloned(),
+            unread_active: persistent && self.sidebar.unread_view(),
             focused: if self.menu_focus.is_focused(window) {
                 Some(matrix_desktop::accessibility::MENU)
             } else if persistent && self.rail_ui.edit_focus.is_focused(window) {
                 Some(matrix_desktop::accessibility::spaces::EDIT)
             } else if persistent {
                 self.rail_ui.focus.is_focused(window).then(|| {
+                    if self.rail_ui.on_unread {
+                        return matrix_desktop::accessibility::spaces::UNREAD;
+                    }
                     choices
                         .iter()
-                        .find(|choice| choice.scope == self.rail_ui.target)
+                        .find(|choice| {
+                            choice.id != matrix_desktop::accessibility::spaces::UNREAD
+                                && choice.scope == self.rail_ui.target
+                        })
                         .unwrap_or(&choices[0])
                         .id
                 })
@@ -318,6 +325,7 @@ impl Shell {
             }
             SpacesAction::Focus { id, .. } => {
                 if view.persistent {
+                    self.rail_ui.on_unread = id == matrix_desktop::accessibility::spaces::UNREAD;
                     self.rail_ui.target = view
                         .choices
                         .iter()
@@ -337,13 +345,15 @@ impl Shell {
                 self.spaces_ui.target = TOGGLE;
                 self.spaces_ui.bounds.clear();
             }
-            SpacesAction::Choose { scope, .. } => {
-                if !self.sidebar.set_space(scope.clone()) {
+            SpacesAction::Choose { id, scope, .. } => {
+                let unread = id == matrix_desktop::accessibility::spaces::UNREAD;
+                if !self.choose_view(unread, scope.clone()) {
                     return;
                 }
                 self.set_spaces_open(false);
                 self.spaces_ui.target = TOGGLE;
                 if view.persistent {
+                    self.rail_ui.on_unread = unread;
                     self.rail_ui.target = scope;
                 }
                 self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
@@ -539,6 +549,7 @@ mod tests {
             account: AccountId::new(17),
             open: false,
             active: None,
+            unread_active: false,
             focused: None,
             bounds: Default::default(),
             choices: vec![],

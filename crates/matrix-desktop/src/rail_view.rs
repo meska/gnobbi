@@ -11,6 +11,20 @@ const RAIL_ICON_PX: f32 = 34.;
 const RAIL_LABEL_UNITS: usize = 10;
 
 // shortcut: width is estimated (wide chars count 2), not measured; measure text if fonts change.
+/// Round icon of the rail entries without a picture; the drawing is centred by the flex box, not by offsets.
+fn rail_icon(kind: composer_icons::Icon, selected: bool, t: &matrix_desktop::DesignTokens) -> gpui::AnyElement {
+    div()
+        .size(px(RAIL_ICON_PX))
+        .flex_shrink_0()
+        .rounded_full()
+        .bg(rgb(t.surface))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(composer_icons::icon_sized(kind, if selected { t.accent } else { t.secondary }, 22.))
+        .into_any_element()
+}
+
 fn rail_label(name: &str) -> String {
     let w = |c: char| {
         if c.is_ascii() || (c as u32) < 0x2000 {
@@ -85,6 +99,8 @@ pub(crate) struct RailUi {
     pub(crate) edit_cursor: usize,
     pub(crate) layouts: matrix_desktop::RailLayouts,
     pub(crate) target: Option<RoomScope>,
+    /// The ring is on «Non lette», the entry above «Tutte le chat» (then `target` is not used).
+    pub(crate) on_unread: bool,
     scroll: gpui::ScrollHandle,
     pub(crate) edit_scroll: gpui::ScrollHandle,
     /// Current drag auto-scroll step (0 = none) and whether the ticking loop runs.
@@ -101,6 +117,7 @@ impl RailUi {
             edit_cursor: 0,
             layouts: Default::default(),
             target: None,
+            on_unread: false,
             scroll: gpui::ScrollHandle::new(),
             edit_scroll: gpui::ScrollHandle::new(),
             edge: Default::default(),
@@ -259,7 +276,7 @@ impl Shell {
             PanelAct::Toggle => {
                 self.rail_layout_edit(|l, _| l.toggle_hidden(&id));
                 if self.sidebar.active_space() == Some(&scope) && !self.rail_entries().iter().any(|e| e.scope.as_ref() == Some(&scope)) {
-                    self.sidebar.set_space(None);
+                    self.choose_view(false, None);
                 }
             }
         }
@@ -278,8 +295,35 @@ impl Shell {
         self.rail_ui.edit_cursor = to;
     }
 
+    /// Shows «Non lette» (`unread`) or «Tutte le chat»/the Space `scope`, and remembers the choice of «Non lette» for this
+    /// account. Same answer as `Sidebar::set_space` / `set_unread_view`: false when nothing was changed or the Space is gone.
+    pub(crate) fn choose_view(&mut self, unread: bool, scope: Option<RoomScope>) -> bool {
+        let done = if unread { self.sidebar.set_unread_view(true) } else { self.sidebar.set_space(scope) };
+        let on = self.sidebar.unread_view();
+        if self.rail_ui.layouts.get(self.rail_account()).unread != on {
+            self.rail_layout_edit(|l, _| l.unread = on);
+        }
+        done
+    }
+
+    /// The saved «Non lette» choice shows only where the rail does (wide): below 800 px the list stays complete.
+    pub(crate) fn restore_unread_view(&mut self) {
+        let on = self.rail_ui.layouts.get(self.rail_account()).unread && self.navigation_wide;
+        self.sidebar.set_unread_view(on);
+    }
+
+    /// Ring position over «Non lette» + the rail entries: 0 is «Non lette».
+    fn rail_position(&self, entries: &[matrix_desktop::NavigationEntry]) -> usize {
+        if self.rail_ui.on_unread {
+            return 0;
+        }
+        1 + entries.iter().position(|e| e.scope == self.rail_ui.target).unwrap_or(0)
+    }
+
     pub(crate) fn reveal_rail_target(&self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(anchor) = self.rail_ui.anchors.borrow().get(&self.rail_ui.target) {
+        if self.rail_ui.on_unread {
+            self.rail_ui.scroll.scroll_to_item(0);
+        } else if let Some(anchor) = self.rail_ui.anchors.borrow().get(&self.rail_ui.target) {
             anchor.scroll_to(window, cx);
         }
     }
@@ -293,7 +337,7 @@ impl Shell {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
             let view = self.semantic_spaces(_window)?;
-            let id = view.choices.iter().find(|c| c.scope == *_scope)?.id;
+            let id = view.choice_of(_scope)?.id;
             Some(self.space_observer(id, _cx))
         }
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
@@ -363,6 +407,7 @@ impl Shell {
         }
         if key.modifiers.control && key.modifiers.shift && key.key == "s" {
             self.rail_ui.target = self.sidebar.active_space().cloned();
+            self.rail_ui.on_unread = self.sidebar.unread_view();
             self.rail_ui.focus.focus(window);
             cx.notify();
             return true;
@@ -375,11 +420,8 @@ impl Shell {
             return false;
         }
         let entries = self.rail_entries();
-        let index = entries
-            .iter()
-            .position(|entry| entry.scope == self.rail_ui.target)
-            .unwrap_or(0);
-        let last = entries.len() - 1;
+        let index = self.rail_position(&entries);
+        let last = entries.len();
         if key.key == "tab" && key.modifiers.shift && index == 0 {
             self.menu_focus.focus(window);
             cx.notify();
@@ -403,7 +445,10 @@ impl Shell {
             _ => return false,
         };
         if let Some(next) = next {
-            self.rail_ui.target = entries[next].scope.clone();
+            self.rail_ui.on_unread = next == 0;
+            if let Some(entry) = next.checked_sub(1).map(|i| &entries[i]) {
+                self.rail_ui.target = entry.scope.clone();
+            }
             self.reveal_rail_target(window, cx);
         }
         cx.notify();
@@ -415,11 +460,12 @@ impl Shell {
         #[cfg(test)]
         sidebar_navigation_test::ACTIVATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let entries = self.rail_entries();
-        let index = entries
-            .iter()
-            .position(|entry| entry.scope == self.rail_ui.target)
-            .unwrap_or(0);
-        if self.sidebar.set_space(entries[index].scope.clone()) {
+        let index = self.rail_position(&entries);
+        let chosen = match index.checked_sub(1) {
+            None => self.choose_view(true, None),
+            Some(i) => self.choose_view(false, entries[i].scope.clone()),
+        };
+        if chosen {
             self.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
         }
         cx.notify();
@@ -458,6 +504,7 @@ impl Shell {
                     .flex_col()
                     .overflow_y_scroll()
                     .track_scroll(&self.rail_ui.scroll)
+                    .child(self.render_unread_entry(window, cx))
                     .children(
                         self
                             .rail_entries()
@@ -468,7 +515,7 @@ impl Shell {
                                 let source_visit = self.sidebar.navigation_callback();
                                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                                 let callback = self.semantic_spaces(window).and_then(|view| {
-                                    let choice = view.choices.iter().find(|c| c.scope == scope)?;
+                                    let choice = view.choice_of(&scope)?;
                                     Some(crate::spaces_view::space_callback(
                                 matrix_desktop::accessibility::spaces::SpacesAction::Choose {
                                     revision: view.revision,
@@ -489,14 +536,11 @@ impl Shell {
                                     })
                                     .clone();
                                 let focused = input_modality::only_keys(self.rail_ui.focus.is_focused(window), cx)
+                                    && !self.rail_ui.on_unread
                                     && self.rail_ui.target == scope;
-                                let initials: String = if scope.is_none() {
-                                    "▦".into()
-                                } else {
-                                    entry.name.chars().take(2).collect()
-                                };
+                                let initials: String = entry.name.chars().take(2).collect();
                                 let label = if scope.is_none() {
-                                    "Tutte le conversazioni".to_owned()
+                                    "Tutte le chat".to_owned()
                                 } else {
                                     format!("Spazio Matrix: {}", entry.name)
                                 };
@@ -520,7 +564,8 @@ impl Shell {
                                     }
                                 }
                                 #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-                                if this.sidebar.set_space(scope.clone()) {
+                                if this.choose_view(false, scope.clone()) {
+                                    this.rail_ui.on_unread = false;
                                     this.rail_ui.target = scope.clone();
                                     this.rail_ui.focus.focus(window);
                                     this.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
@@ -563,6 +608,7 @@ impl Shell {
                                     .cursor_pointer()
                                     .children(self.rail_observer(&scope_key, window, cx))
                                     .child(match self.avatars.get(entry.avatar.as_deref()) {
+                                        _ if scope_key.is_none() => rail_icon(composer_icons::Icon::Chats, entry.selected, &t),
                                         Some(image) => avatar_view::round(image, RAIL_ICON_PX),
                                         None => div()
                                             .size(px(RAIL_ICON_PX))
@@ -596,7 +642,7 @@ impl Shell {
                                                 .bg(rgb(t.accent)),
                                         )
                                     })
-                                    .when(entry.unread > 0, |d| {
+                                    .when(entry.unread > 0 && scope_key.is_some(), |d| {
                                         d.child(
                                             div()
                                                 .absolute()
@@ -621,6 +667,81 @@ impl Shell {
                     ),
             )
             .child(self.render_edit_button(window, cx))
+            .into_any_element()
+    }
+
+    /// «Non lette»: first entry of the rail, with the number of rooms in it (no badge at zero).
+    fn render_unread_entry(&self, window: &Window, cx: &mut Context<Self>) -> gpui::AnyElement {
+        let t = self.theme.tokens();
+        let count = self.sidebar.unread_rooms();
+        let selected = self.sidebar.unread_view();
+        let focused = input_modality::only_keys(self.rail_ui.focus.is_focused(window), cx) && self.rail_ui.on_unread;
+        let source_visit = self.sidebar.navigation_callback();
+        let theme = self.theme;
+        let label = format!("Non lette, {count}");
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let observer = Some(self.space_observer(matrix_desktop::accessibility::spaces::UNREAD, cx));
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        let observer = {
+            #[cfg(test)]
+            {
+                sidebar_navigation_test::observe("rail-unread".into())
+            }
+            #[cfg(not(test))]
+            {
+                None::<gpui::AnyElement>
+            }
+        };
+        div()
+            .id("rail-unread")
+            .relative()
+            .tooltip(move |_, cx| cx.new(|_| RailTooltip { label: label.clone(), theme }).into())
+            .w_full()
+            .h(px(RAIL_ENTRY_HEIGHT))
+            .flex_shrink_0()
+            .flex()
+            .flex_col()
+            .items_center()
+            .justify_center()
+            .gap_1()
+            .border_2()
+            .border_color(rgb(if focused { t.accent } else { t.input }))
+            .bg(rgb(if selected { t.selected } else { t.input }))
+            .text_color(rgb(if selected { t.accent } else { t.secondary }))
+            .cursor_pointer()
+            .children(observer)
+            .child(rail_icon(composer_icons::Icon::Unread, selected, &t))
+            .child(div().w_full().px_1().truncate().text_center().text_size(px(11.)).child("Non lette"))
+            .when(selected, |d| {
+                d.child(div().absolute().left_0().top(px(RAIL_INDICATOR_TOP)).w(px(3.)).h(px(28.)).bg(rgb(t.accent)))
+            })
+            .when(count > 0, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .right(px(3.))
+                        .top(px(RAIL_BADGE_TOP))
+                        .rounded_full()
+                        .px_1()
+                        .bg(rgb(t.accent))
+                        .text_color(rgb(t.on_accent))
+                        .text_size(px(10.))
+                        .child(if count > 99 { "99+".into() } else { count.to_string() }),
+                )
+            })
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.navigation_wide = window.viewport_size().width >= px(800.);
+                this.refresh_navigation_visibility();
+                if !source_visit(&this.sidebar) {
+                    return;
+                }
+                this.rail_ui.on_unread = true;
+                this.rail_ui.focus.focus(window);
+                if this.choose_view(true, None) {
+                    this.scroll.scroll_to_item_strict(0, ScrollStrategy::Top);
+                }
+                cx.notify();
+            }))
             .into_any_element()
     }
 

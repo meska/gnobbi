@@ -7,6 +7,8 @@ pub const TOGGLE: NodeId = NodeId(60);
 pub const ALL: NodeId = NodeId(61);
 /// Rail «Modifica» button: a Tab stop of the ring, so it needs a focusable node.
 pub const EDIT: NodeId = NodeId(62);
+/// Rail «Non lette»: the first choice of the persistent rail (scope None like «Tutte le chat», told apart by this id).
+pub const UNREAD: NodeId = NodeId(63);
 
 #[derive(Clone)]
 pub struct SpaceChoice {
@@ -22,6 +24,8 @@ pub struct SpacesSnapshot {
     pub account: AccountId,
     pub open: bool,
     pub active: Option<RoomScope>,
+    /// «Non lette» is the shown view (no Space is active then).
+    pub unread_active: bool,
     pub focused: Option<NodeId>,
     pub bounds: HashMap<NodeId, Rect>,
     pub choices: Vec<SpaceChoice>,
@@ -51,11 +55,19 @@ impl SpaceNodes {
         }
         for (choice, entry) in choices.iter_mut().zip(sidebar.navigation_entries()) {
             choice.name = if entry.scope.is_none() {
-                format!("Tutte le conversazioni · {} non letti", entry.unread)
+                "Tutte le chat".to_owned()
             } else {
                 format!("Spazio Matrix: {} · {} non letti", entry.name, entry.unread)
             };
         }
+        choices.insert(
+            0,
+            SpaceChoice {
+                id: UNREAD,
+                scope: None,
+                name: format!("Non lette, {}", sidebar.unread_rooms()),
+            },
+        );
         choices
     }
 
@@ -109,6 +121,19 @@ pub enum SpacesAction {
 }
 
 impl SpacesSnapshot {
+    /// The rail choice of a scope; «Non lette» shares scope None with «Tutte le chat» and is never it.
+    pub fn choice_of(&self, scope: &Option<RoomScope>) -> Option<&SpaceChoice> {
+        self.choices.iter().find(|c| c.id != UNREAD && c.scope == *scope)
+    }
+
+    fn is_active(&self, choice: &SpaceChoice) -> bool {
+        if choice.id == UNREAD {
+            self.unread_active
+        } else {
+            !self.unread_active && choice.scope == self.active
+        }
+    }
+
     /// None means leave the filter, never trap Tab within a menu.
     pub fn next_focus(&self, reverse: bool) -> Option<NodeId> {
         let ids: Vec<_> = std::iter::once(TOGGLE)
@@ -237,7 +262,7 @@ impl SpacesSnapshot {
             for choice in &self.choices {
                 let mut node = Node::new(Role::RadioButton);
                 node.set_label(choice.name.clone());
-                node.set_toggled(if choice.scope == self.active {
+                node.set_toggled(if self.is_active(choice) {
                     Toggled::True
                 } else {
                     Toggled::False

@@ -99,6 +99,14 @@ const RING: [&str; 9] = [
     "none",
 ];
 
+/// Ring position of the rail: 0 is «Non lette», then «Tutte le chat» and the Spaces in order.
+fn rail_at(this: &Shell, index: usize) -> bool {
+    match index.checked_sub(1) {
+        None => this.rail_ui.on_unread,
+        Some(i) => !this.rail_ui.on_unread && this.rail_ui.target == this.sidebar.navigation_entries()[i].scope,
+    }
+}
+
 fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
     use matrix_desktop::panel_openers::Control;
     let entry = {
@@ -797,7 +805,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         "history" => this.history_focus.is_focused(window),
                         name if name.starts_with("rail") => {
                             let index = name[4..].parse::<usize>().unwrap();
-                            this.rail_ui.focus.is_focused(window) && this.rail_ui.target == this.sidebar.navigation_entries()[index].scope
+                            this.rail_ui.focus.is_focused(window) && rail_at(this, index)
                         }
                         _ => unreachable!(),
                     };
@@ -1653,8 +1661,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }
             eprintln!("TAB-ORDER forward {forward:?}");
             let wide = DYNAMIC.load(Ordering::SeqCst) == 32;
-            // menu -> rail entries (+ their edit button) -> list header -> search -> list; compact has no rail but the Spaces strip after the list.
-            let want: &[&str] = if wide { &["menu", "rail", "rail", "rail", "other", "search"] } else { &["menu", "search", "list", "spaces", "menu", "search"] };
+            // menu -> «Non lette», «Tutte le chat» and the Spaces (+ the edit button) -> list header -> search -> list; compact has no rail but the Spaces strip after the list.
+            let want: &[&str] = if wide { &["menu", "rail", "rail", "rail", "rail", "other"] } else { &["menu", "search", "list", "spaces", "menu", "search"] };
             assert_eq!(forward, want);
             let mut back = vec![];
             this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
@@ -2588,7 +2596,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         let steps = if COMPACT.load(Ordering::SeqCst) && OPEN.load(Ordering::SeqCst) {
             vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "list"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "menu"), ("tab", "search"), ("tab", "list")]
         } else if !COMPACT.load(Ordering::SeqCst) && SPACES.load(Ordering::SeqCst) {
-            vec![("tab", "edit"), ("shift-tab", "rail2"), ("shift-tab", "rail1"), ("shift-tab", "rail0"), ("tab", "rail1"), ("tab", "rail2"), ("tab", "edit"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "edit"), ("shift-tab", "rail2")]
+            vec![("tab", "edit"), ("shift-tab", "rail3"), ("shift-tab", "rail2"), ("shift-tab", "rail1"), ("shift-tab", "rail0"), ("tab", "rail1"), ("tab", "rail2"), ("tab", "rail3"), ("tab", "edit"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "edit"), ("shift-tab", "rail3")]
         } else if COMPACT.load(Ordering::SeqCst) {
             if CONNECTED.load(Ordering::SeqCst) {
                 vec![("tab", "search"), ("tab", "list"), ("tab", "space0"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "menu"), ("shift-tab", "space0"), ("tab", "menu")]
@@ -2622,7 +2630,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     },
                     name if name.starts_with("rail") => {
                         let index = name[4..].parse::<usize>().unwrap();
-                        this.rail_ui.focus.is_focused(window) && this.rail_ui.target == this.sidebar.navigation_entries()[index].scope
+                        this.rail_ui.focus.is_focused(window) && rail_at(this, index)
                     },
                     _ => unreachable!(),
                 };

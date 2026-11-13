@@ -242,6 +242,7 @@ impl Shell {
             if compact {
                 &self.menu_focus
             } else {
+                self.rail_ui.on_unread = false;
                 self.rail_ui.target = self.rail_entries().last().unwrap().scope.clone();
                 &self.rail_ui.edit_focus
             }

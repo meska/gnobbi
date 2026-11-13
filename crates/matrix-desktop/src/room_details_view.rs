@@ -402,7 +402,7 @@ impl Shell {
                                             window.viewport_size().width >= px(800.);
                                         this.refresh_navigation_visibility();
                                         if !source_visit(&this.sidebar)
-                                            || !this.sidebar.set_space(scope.clone())
+                                            || !this.choose_view(false, scope.clone())
                                         {
                                             return;
                                         }

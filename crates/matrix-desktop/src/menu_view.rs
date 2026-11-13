@@ -615,7 +615,7 @@ impl Shell {
         let wide = window.viewport_size().width >= px(800.);
         match (wide, shift) {
             (true, false) => {
-                self.rail_ui.target = self.sidebar.navigation_entries()[0].scope.clone();
+                self.rail_ui.on_unread = true;
                 self.reveal_rail_target(window, cx);
                 self.rail_ui.focus.focus(window);
             }

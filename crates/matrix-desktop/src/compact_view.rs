@@ -120,6 +120,7 @@ impl Shell {
     }
 
     pub(crate) fn refresh_navigation_visibility(&mut self) {
+        self.restore_unread_view();
         self.reconcile_topic_links();
         self.sidebar
             .set_navigation_context(self.active_scope.account_id, self.connected);

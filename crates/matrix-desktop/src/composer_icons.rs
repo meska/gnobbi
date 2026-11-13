@@ -25,6 +25,10 @@ pub enum Icon {
     Pause,
     Download,
     Ellipsis,
+    /// Speech bubble: «Tutte le chat».
+    Chats,
+    /// Speech bubble with a dot: «Non lette».
+    Unread,
 }
 
 fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
@@ -93,6 +97,11 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
         ],
         Icon::Download => vec![vec![(10., 3.), (10., 13.)], vec![(5.5, 8.5), (10., 13.), (14.5, 8.5)], vec![(4., 17.), (16., 17.)]],
         Icon::Ellipsis => [4.5, 10., 15.5].map(|x| arc((x, 10.), 0.8, 0., 2. * PI)).to_vec(),
+        Icon::Chats | Icon::Unread => {
+            let mut v = vec![vec![(3.5, 4.), (16.5, 4.), (16.5, 13.5), (9.5, 13.5), (5.5, 17.), (5.5, 13.5), (3.5, 13.5), (3.5, 4.)]];
+            v.push(if matches!(icon, Icon::Unread) { arc((10., 8.75), 1.4, 0., 2. * PI) } else { vec![(7., 8.75), (13., 8.75)] });
+            v
+        }
         Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![
             arc((10., 10.), 7.5, 0., 2. * PI),
