@@ -593,7 +593,7 @@ impl Shell {
                                 crate::composer_icons::Icon::Shield,
                                 if room.info.encrypted == Some(true) { ENCRYPTED_GREEN } else { t.error },
                             ))
-                            // Name for screen readers («Preferita» / «Non preferita») lives in the a11y tree.
+                            // Name for screen readers («Stacca» / «Fissa in alto») lives in the a11y tree.
                             .child({
                                 let favourite = self.sidebar.is_favourite(&room.scope);
                                 let scope = room.scope.clone();
@@ -609,7 +609,7 @@ impl Shell {
                                     .hover(|s| s.bg(rgb(t.border)))
                                     .cursor_pointer()
                                     .child(composer_icons::icon(
-                                        if favourite { composer_icons::Icon::StarFilled } else { composer_icons::Icon::Star },
+                                        if favourite { composer_icons::Icon::PinFilled } else { composer_icons::Icon::Pin },
                                         t.accent,
                                     ))
                                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_tag(&scope, "m.favourite", cx)))

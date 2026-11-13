@@ -109,3 +109,67 @@ fn disposable_explicit_group_edits_by_one_client_reach_the_other() {
         eprintln!("TAG_EDIT ok");
     });
 }
+
+#[test]
+#[ignore = "requires disposable Synapse"]
+fn disposable_pinned_rooms_keep_the_last_pinned_first_across_sessions_and_renumber() {
+    use crate::operations::TagEdit;
+    use crate::room_tags::{RoomGroups, edit};
+    use matrix_sdk::ruma::{RoomId, events::tag::TagName};
+    runtime().block_on(async {
+        let config = fixture();
+        let a = login(&config, "alice", 220).await.client.unwrap();
+        let mut ids = Vec::new();
+        for name in ["gnobbi-test-one", "gnobbi-test-two", "gnobbi-test-three"] {
+            let made = room_request(&config, "alice", reqwest::Method::POST, "createRoom", serde_json::json!({"name": name, "visibility": "private"})).await;
+            ids.push(made["room_id"].as_str().unwrap().to_owned());
+        }
+        let sync = |c: matrix_sdk::Client| async move { crate::room_sync::RoomSync::sliding_catch_up(&c).await.unwrap(); c };
+        let a = sync(a).await;
+        let assign = |i: usize, tag: &str, on: bool| TagEdit::Assign { room_id: ids[i].clone(), tag: tag.into(), on };
+        // Another session of the same account, started afresh: what a restart or a second device sees.
+        let seen = |n: u64| { let config = &config; async move {
+            let c = sync(login(config, "alice", n).await.client.unwrap()).await;
+            let groups = RoomGroups::read(&c).await.unwrap();
+            let mut orders = Vec::new();
+            for room in &groups.favourites {
+                let order = c.get_room(<&RoomId>::try_from(room.as_str()).unwrap()).unwrap().tags().await.unwrap().and_then(|t| t.get(&TagName::Favorite)?.order);
+                orders.push(order);
+            }
+            (groups.favourites, orders)
+        } };
+
+        // Pin A, then B: B is above A.
+        edit(&a, &assign(0, "m.favourite", true)).await.unwrap();
+        let a = sync(a).await;
+        edit(&a, &assign(1, "m.favourite", true)).await.unwrap();
+        let (fav, orders) = seen(221).await;
+        assert_eq!(fav, [ids[1].clone(), ids[0].clone()]);
+        assert!(orders[0].unwrap() < orders[1].unwrap(), "{orders:?}");
+        // Unpin B: only A is left.
+        let a = sync(a).await;
+        edit(&a, &assign(1, "m.favourite", false)).await.unwrap();
+        assert_eq!(seen(222).await.0, [ids[0].clone()]);
+        // Low priority takes the pin away (exclusive, as the SDK does).
+        let a = sync(a).await;
+        edit(&a, &assign(0, "m.lowpriority", true)).await.unwrap();
+        assert!(seen(223).await.0.is_empty());
+        let mut a = sync(a).await;
+        edit(&a, &assign(0, "m.lowpriority", false)).await.unwrap();
+
+        // Pin the three in turn 34 times: the top order halves every time and is renumbered before it runs out.
+        let mut last = Vec::new();
+        for i in 0..34 {
+            a = sync(a).await;
+            edit(&a, &assign(i % 3, "m.favourite", true)).await.unwrap();
+            last.push(i % 3);
+        }
+        let (fav, orders) = seen(224).await;
+        let want: Vec<String> = [last[33], last[32], last[31]].iter().map(|&i| ids[i].clone()).collect();
+        assert_eq!(fav, want);
+        let orders: Vec<f64> = orders.into_iter().map(|o| o.expect("every pinned room has an order")).collect();
+        assert!(orders.windows(2).all(|w| w[0] < w[1]) && orders[0] > 0.0 && orders[2] < 1.0, "{orders:?}");
+        assert!(orders[0] > 1e-9, "renumbered before the precision ran out: {orders:?}");
+        eprintln!("PIN_ORDER ok: {orders:?}");
+    });
+}

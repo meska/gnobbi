@@ -55,7 +55,6 @@ fn navigation(
         }),
         navigation_revision: 0,
         icon_choice: None,
-        unread_filter: None,
         new_room: None,
         devices: Default::default(),
         settings: None,
@@ -152,7 +151,6 @@ fn queued_room_focus_rejects_removed_replaced_hidden_foreign_sources() {
     for case in [
         "remove-return",
         "space-return",
-        "unread-return",
         "search-return",
         "account",
         "node",
@@ -163,9 +161,6 @@ fn queued_room_focus_rejects_removed_replaced_hidden_foreign_sources() {
         sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
         sidebar.apply_diff(RoomListDiff::Upsert(Box::new(summary("!other:test", false))));
         sidebar.set_navigation_visibility(true, true, false);
-        if case == "unread-return" {
-            sidebar.set_filter(sidebar.filter().with_unread(true));
-        }
         let selected = sidebar.selected().unwrap().scope.clone();
         let mut rooms = RoomNodes::default();
         let mut spaces = SpaceNodes::default();
@@ -195,12 +190,6 @@ fn queued_room_focus_rejects_removed_replaced_hidden_foreign_sources() {
             "space-return" => {
                 let mut changed = room.clone();
                 changed.info.is_space = true;
-                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
-                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
-            }
-            "unread-return" => {
-                let mut changed = room.clone();
-                changed.unread = 0;
                 sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
                 sidebar.apply_diff(RoomListDiff::Upsert(Box::new(room.clone())));
             }

@@ -28,6 +28,31 @@ fn is_group(name: &TagName) -> bool {
     matches!(name, TagName::Favorite | TagName::LowPriority | TagName::User(_))
 }
 
+/// `order` of the `m.favourite` tag as f64 bits (see `RoomInfo::favourite_order`); None when absent or not in 0..=1.
+pub fn favourite_order(tags: &Tags) -> Option<u64> {
+    let o = tags.get(&TagName::Favorite)?.order?;
+    (0.0..=1.0).contains(&o).then(|| o.to_bits())
+}
+
+/// Below this the halving of «Fissa in alto» has used up the f64 headroom worth keeping: renumber first.
+const PIN_FLOOR: f64 = 1e-9;
+
+/// `order` for a room pinned above `pinned` (room, order of every favourite that has one) and, when the
+/// room at the top is too close to 0, the new `order` of each pinned room, evenly spaced and in the same
+/// relative order (ties by room id, as `from_tags`). The new room always gets the lowest order.
+pub fn next_pin_order(pinned: &[(String, f64)]) -> (f64, Vec<(String, f64)>) {
+    let mut v: Vec<&(String, f64)> = pinned.iter().filter(|(_, o)| (0.0..=1.0).contains(o)).collect();
+    v.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    match v.first() {
+        None => (0.5, Vec::new()),
+        Some((_, top)) if *top >= PIN_FLOOR => (top / 2.0, Vec::new()),
+        _ => {
+            let step = 1.0 / (v.len() + 2) as f64;
+            (step, v.iter().enumerate().map(|(i, (r, _))| (r.clone(), step * (i + 2) as f64)).collect())
+        }
+    }
+}
+
 impl RoomGroups {
     /// Lowest `order` first; rooms without one follow, then ties break by room id (stable per spec).
     pub fn from_tags<'a>(rooms: impl IntoIterator<Item = (&'a str, &'a Tags)>) -> Self {
@@ -69,6 +94,12 @@ impl RoomGroups {
     }
 }
 
+fn assign_order(o: f64) -> TagInfo {
+    let mut i = TagInfo::new();
+    i.order = Some(o);
+    i
+}
+
 /// Writes one explicit group change through the SDK. Called only for a user action, never from sync.
 pub async fn edit(client: &Client, edit: &TagEdit) -> Result<(), OperationError> {
     let tag = |name: &str| -> Result<TagName, OperationError> {
@@ -87,7 +118,21 @@ pub async fn edit(client: &Client, edit: &TagEdit) -> Result<(), OperationError>
             let id = matrix_sdk::ruma::RoomId::parse(room_id).map_err(|_| OperationError::InvalidInput)?;
             let room = client.get_room(&id).ok_or(OperationError::Unavailable)?;
             match (tag(name)?, on) {
-                (TagName::Favorite, on) => room.set_is_favourite(*on, None).await,
+                (TagName::Favorite, true) => {
+                    // Pinned = lowest `order` of all favourites, the standard field (Element ignores it).
+                    let mut pinned = Vec::new();
+                    for r in client.joined_rooms() {
+                        let o = r.tags().await.map_err(|_| OperationError::Unavailable)?.and_then(|t| t.get(&TagName::Favorite)?.order);
+                        if let (Some(o), true) = (o, r.room_id() != room.room_id()) { pinned.push((r.room_id().to_string(), o)); }
+                    }
+                    let (order, renumbered) = next_pin_order(&pinned);
+                    for (id, o) in renumbered {
+                        let other = matrix_sdk::ruma::RoomId::parse(&id).ok().and_then(|id| client.get_room(&id)).ok_or(OperationError::Unavailable)?;
+                        other.set_tag(TagName::Favorite, assign_order(o)).await.map(drop).map_err(sdk)?;
+                    }
+                    room.set_is_favourite(true, Some(order)).await
+                }
+                (TagName::Favorite, false) => room.set_is_favourite(false, None).await,
                 (TagName::LowPriority, on) => room.set_is_low_priority(*on, None).await,
                 (t, true) => room.set_tag(t, TagInfo::new()).await.map(drop),
                 (t, false) => room.remove_tag(t).await.map(drop),
@@ -145,5 +190,32 @@ mod tests {
         assert_eq!(g.low_priority, ["!b"]);
         assert_eq!(g.user["u.work"], ["!c", "!a"]);
         assert_eq!(g.user.len(), 1);
+    }
+
+    fn id(i: usize) -> String { format!("!{i}") }
+
+    #[test]
+    fn next_pin_goes_above_all_and_renumbers_only_when_the_top_is_too_close_to_zero() {
+        assert_eq!(next_pin_order(&[]), (0.5, vec![]));
+        assert_eq!(next_pin_order(&[(id(1), 0.5), (id(2), 0.25)]), (0.125, vec![]));
+        // Out-of-range orders are not ours to sort on.
+        assert_eq!(next_pin_order(&[(id(1), 7.0), (id(2), -1.0)]), (0.5, vec![]));
+        // Many pins in a row: each new order stays strictly below the previous one, renumbering keeps the order.
+        let mut pinned: Vec<(String, f64)> = Vec::new();
+        let mut renumbered = 0;
+        for i in 0..200 {
+            let (o, re) = next_pin_order(&pinned);
+            if !re.is_empty() {
+                renumbered += 1;
+                let before: Vec<String> = { let mut p = pinned.clone(); p.sort_by(|a, b| a.1.total_cmp(&b.1)); p.into_iter().map(|x| x.0).collect() };
+                for (r, n) in &re { pinned.iter_mut().find(|p| p.0 == *r).unwrap().1 = *n; }
+                let mut after = pinned.clone();
+                after.sort_by(|a, b| a.1.total_cmp(&b.1));
+                assert_eq!(after.into_iter().map(|x| x.0).collect::<Vec<_>>(), before);
+            }
+            assert!(pinned.iter().all(|p| o < p.1) && o > 0.0 && o < 1.0, "pin {i}");
+            pinned.push((id(i), o));
+        }
+        assert!(renumbered > 0);
     }
 }

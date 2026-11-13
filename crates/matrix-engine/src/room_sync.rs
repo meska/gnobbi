@@ -1381,9 +1381,9 @@ impl RoomSync {
             };
             let latest = matrix_sdk_ui::timeline::RoomExt::latest_event(&room).await;
             let children = children_of.remove(&id).unwrap_or_default();
-            let tags = match room.tags().await {
-                Ok(Some(tags)) => crate::room_tags::group_names(&tags),
-                _ => Vec::new(),
+            let (tags, favourite_order) = match room.tags().await {
+                Ok(Some(tags)) => (crate::room_tags::group_names(&tags), crate::room_tags::favourite_order(&tags)),
+                _ => (Vec::new(), None),
             };
             // Unknown levels (not synced yet) or no own user id: no rights.
             let edit_rights = match (room.power_levels().await, client.user_id()) {
@@ -1415,6 +1415,7 @@ impl RoomSync {
                         encrypted: (!room.encryption_state().is_unknown())
                             .then(|| room.encryption_state().is_encrypted()),
                         tags,
+                        favourite_order,
                         muted: room.cached_user_defined_notification_mode()
                             == Some(matrix_sdk::notification_settings::RoomNotificationMode::Mute),
                         aliases: room

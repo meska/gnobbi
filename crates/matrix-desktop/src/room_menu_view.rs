@@ -1,4 +1,4 @@
-//! Context menu of a room row: «Segna come letto» / «Segna come non letto» / «Aggiungi/Togli dai preferiti» / «Esci» (asks «Uscire?» once).
+//! Context menu of a room row: «Segna come letto» / «Segna come non letto» / «Fissa in alto»/«Stacca» / «Esci» (asks «Uscire?» once).
 use crate::*;
 
 pub(crate) const ITEMS: [&str; 2] = ["Segna come letto", "Segna come non letto"];

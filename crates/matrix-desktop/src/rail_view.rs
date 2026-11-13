@@ -413,7 +413,7 @@ impl Shell {
     /// Runs on the release of a completed Space/Enter gesture (see `sidebar_activation_up`).
     pub(crate) fn rail_activate(&mut self, cx: &mut Context<Self>) {
         #[cfg(test)]
-        sidebar_navigation_test::ACTIVATIONS[1].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        sidebar_navigation_test::ACTIVATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let entries = self.rail_entries();
         let index = entries
             .iter()

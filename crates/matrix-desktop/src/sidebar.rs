@@ -29,6 +29,15 @@ impl SidebarRoom {
         }
     }
 
+    /// Pinned (`m.favourite`) row: it carries the pin where the unread badge goes.
+    pub fn pinned(&self) -> bool {
+        !self.info.invited && self.info.tags.iter().any(|t| t == FAVOURITE)
+    }
+
+    /// Low-priority row (never also pinned: pinned wins when another client set both).
+    pub fn low_priority(&self) -> bool {
+        !self.info.invited && !self.pinned() && self.info.tags.iter().any(|t| t == LOW_PRIORITY)
+    }
 }
 
 /// Session-local navigation projection. `Some` is a joined Matrix Space, not a local folder.
@@ -40,61 +49,6 @@ pub struct NavigationEntry {
     pub selected: bool,
     /// mxc URI of the space avatar; None for «Tutte» and for spaces without one.
     pub avatar: Option<String>,
-}
-
-/// Personal group filter (from the standard room tags), shown like a Telegram folder.
-pub struct GroupEntry {
-    /// Tag name; None is «Tutte» (no group filter).
-    pub tag: Option<String>,
-    pub name: String,
-    pub unread: u64,
-    pub selected: bool,
-}
-
-/// Filters of the room list, session only. `group` is an exclusive scope (None = «Tutte»,
-/// `m.favourite`, `m.lowpriority` or a `u.*` tag); the two switches combine with it and with each other.
-#[derive(Clone, Default, PartialEq, Debug)]
-pub struct ListFilter {
-    pub group: Option<String>,
-    pub unread_only: bool,
-}
-
-impl ListFilter {
-    pub fn with_group(&self, group: Option<String>) -> Self {
-        Self { group, ..self.clone() }
-    }
-    pub fn with_unread(&self, unread_only: bool) -> Self {
-        Self { unread_only, ..self.clone() }
-    }
-}
-
-#[derive(Clone, PartialEq, Debug)]
-pub enum FilterId {
-    All,
-    Group(String),
-    /// The «Gruppi» button: opens the menu of `u.*` groups, it never changes the filter by itself.
-    GroupsMenu,
-    Unread,
-}
-
-/// One button of the filter row, in drawing order.
-pub struct FilterButton {
-    pub id: FilterId,
-    /// Accessible name and hover text (one word or two, never a sentence).
-    pub name: String,
-    /// Data shown next to the icon; None when 0.
-    pub count: Option<u64>,
-    pub selected: bool,
-}
-
-impl FilterButton {
-    /// Name for assistive technology: «Non lette, 12».
-    pub fn accessible_name(&self) -> String {
-        match self.count {
-            Some(n) => format!("{}, {n}", self.name),
-            None => self.name.clone(),
-        }
-    }
 }
 
 const FAVOURITE: &str = "m.favourite";
@@ -137,8 +91,6 @@ pub struct Sidebar {
     order: std::collections::HashMap<RoomScope, usize>,
     visible: Vec<usize>,
     query: String,
-    filter: ListFilter,
-    /// Rooms the user just created: shown although still empty.
     space: Option<RoomScope>,
     selected: Option<usize>,
     keyboard_focus: Option<RoomScope>,
@@ -148,8 +100,8 @@ pub struct Sidebar {
     reject_armed: Option<RoomScope>,
     /// The room whose last «Esci» failed, with the one-line reason shown in its row.
     leave_error: Option<(RoomScope, &'static str)>,
-    /// The tag toggle in flight: the room and ALL its tags before the optimistic flip.
-    tag: Option<(RoomScope, Vec<String>)>,
+    /// The tag toggle in flight: the room and ALL its tags and pin order before the optimistic flip.
+    tag: Option<(RoomScope, Vec<String>, Option<u64>)>,
     /// One-line reason of the last failed toggle, until the next one.
     tag_error: Option<&'static str>,
 }
@@ -165,7 +117,6 @@ impl Sidebar {
             order: std::collections::HashMap::new(),
             visible: Vec::new(),
             query: String::new(),
-            filter: ListFilter::default(),
             selected: None,
             keyboard_focus: None,
             space: None,
@@ -287,7 +238,6 @@ impl Sidebar {
             order: Default::default(),
             visible: (0..300).collect(),
             query: String::new(),
-            filter: ListFilter::default(),
             selected: Some(0),
             keyboard_focus: None,
             space: None,
@@ -345,77 +295,6 @@ impl Sidebar {
             .navigation_revision
             .checked_add(1)
             .expect("navigation revision exhausted");
-    }
-
-    pub fn filter(&self) -> &ListFilter {
-        &self.filter
-    }
-
-    /// The only way to change the list filters. Never changes the open conversation.
-    pub fn set_filter(&mut self, filter: ListFilter) {
-        if self.filter != filter {
-            self.retire_navigation();
-        }
-        self.filter = filter;
-        self.set_query(&self.query.clone());
-    }
-
-    /// A scope replaces the current one; a switch flips.
-    pub fn activate(&mut self, id: &FilterId) {
-        let f = &self.filter;
-        let next = match id {
-            FilterId::All => f.with_group(None),
-            FilterId::Group(tag) => f.with_group(Some(tag.clone())),
-            FilterId::GroupsMenu => return,
-            FilterId::Unread => f.with_unread(!f.unread_only),
-        };
-        self.set_filter(next);
-    }
-
-    /// Rooms that count for the row: no spaces, no invitations.
-    fn listed(&self) -> impl Iterator<Item = &SidebarRoom> {
-        self.rooms.iter().filter(|r| !r.info.is_space && !r.info.invited)
-    }
-
-    /// The filter row: scopes first, then the switches. Favourites and low priority are always there.
-    pub fn filter_buttons(&self) -> Vec<FilterButton> {
-        let f = &self.filter;
-        let count = |n: usize| (n > 0).then_some(n as u64);
-        let scope = |id, name: &str, selected| FilterButton { id, name: name.into(), count: None, selected };
-        let mut buttons = vec![
-            scope(FilterId::All, "Tutte", f.group.is_none()),
-            scope(FilterId::Group(FAVOURITE.into()), "Preferiti", f.group.as_deref() == Some(FAVOURITE)),
-            scope(FilterId::Group(LOW_PRIORITY.into()), "Bassa priorità", f.group.as_deref() == Some(LOW_PRIORITY)),
-        ];
-        // «Gruppi» exists only while some room carries a u.* tag: the menu never opens empty.
-        if !self.group_menu().is_empty() {
-            buttons.push(scope(
-                FilterId::GroupsMenu,
-                "Gruppi",
-                f.group.as_deref().is_some_and(|g| g != FAVOURITE && g != LOW_PRIORITY),
-            ));
-        }
-        buttons.push(
-            FilterButton {
-                id: FilterId::Unread,
-                name: "Non lette".into(),
-                count: count(self.listed().filter(|r| r.unread > 0).count()),
-                selected: f.unread_only,
-            },
-        );
-        buttons
-    }
-
-    /// The `u.*` groups for the «Gruppi» menu, with their unread count.
-    pub fn group_menu(&self) -> Vec<GroupEntry> {
-        self.group_entries()
-            .into_iter()
-            .filter(|e| e.tag.as_deref().is_some_and(|t| t.starts_with("u.")))
-            .collect()
-    }
-
-    pub fn unread_only(&self) -> bool {
-        self.filter.unread_only
     }
 
     pub fn spaces(&self) -> impl Iterator<Item = &SidebarRoom> {
@@ -491,7 +370,7 @@ impl Sidebar {
         self.leave_error = None;
     }
 
-    /// The one state every UI and the tag filters read: the room carries `tag`.
+    /// The one state every UI and the list order read: the room carries `tag`.
     pub fn has_tag(&self, scope: &RoomScope, tag: &str) -> bool {
         self.rooms.iter().any(|r| r.scope == *scope && r.info.tags.iter().any(|t| t == tag))
     }
@@ -502,7 +381,7 @@ impl Sidebar {
 
     /// Room-menu entry for the room's current state.
     pub fn favourite_label(&self, scope: &RoomScope) -> &'static str {
-        if self.is_favourite(scope) { "Togli dai preferiti" } else { "Aggiungi ai preferiti" }
+        if self.is_favourite(scope) { "Stacca" } else { "Fissa in alto" }
     }
 
     pub fn low_priority_label(&self, scope: &RoomScope) -> &'static str {
@@ -517,21 +396,23 @@ impl Sidebar {
         self.tag_error
     }
 
-    fn set_tags(&mut self, scope: &RoomScope, tags: Vec<String>) {
+    fn set_tags(&mut self, scope: &RoomScope, tags: Vec<String>, order: Option<u64>) {
         if let Some(room) = self.rooms.iter_mut().find(|r| r.scope == *scope) {
             room.info.tags = tags;
+            room.info.favourite_order = order;
         }
         self.set_query(&self.query.clone());
     }
 
-    /// The single favourite / low-priority action (context menu and drawer): flips the room now so the filter
+    /// The single favourite / low-priority action (context menu and drawer): flips the room now so the list
     /// follows, and returns the tag edit to send. Turning one on drops the other, as the SDK does, so the write
     /// stays ONE edit. None while another toggle waits or for an unknown room.
     pub fn toggle_tag(&mut self, scope: &RoomScope, tag: &'static str) -> Option<matrix_engine::operations::TagEdit> {
         if self.tag.is_some() {
             return None;
         }
-        let before = self.rooms.iter().find(|r| r.scope == *scope)?.info.tags.clone();
+        let room = self.rooms.iter().find(|r| r.scope == *scope)?;
+        let (before, before_order) = (room.info.tags.clone(), room.info.favourite_order);
         let on = !before.iter().any(|t| t == tag);
         let mut tags = before.clone();
         if on {
@@ -542,9 +423,11 @@ impl Sidebar {
         } else {
             tags.retain(|t| t != tag);
         }
-        self.tag = Some((scope.clone(), before));
+        self.tag = Some((scope.clone(), before, before_order));
         self.tag_error = None;
-        self.set_tags(scope, tags);
+        // Pinned now = above every pinned room (order 0.0); the server's real `order` replaces it with the next sync.
+        let order = if on && tag == FAVOURITE { Some(0) } else { None };
+        self.set_tags(scope, tags, order);
         Some(matrix_engine::operations::TagEdit::Assign {
             room_id: scope.room_id.as_str().to_owned(),
             tag: tag.into(),
@@ -554,9 +437,9 @@ impl Sidebar {
 
     /// The engine's answer: on failure the room gets all its real tags back and one line says why.
     pub fn tag_done(&mut self, result: Result<(), matrix_engine::operations::OperationError>) {
-        let Some((scope, before)) = self.tag.take() else { return };
+        let Some((scope, before, before_order)) = self.tag.take() else { return };
         if let Err(e) = result {
-            self.set_tags(&scope, before);
+            self.set_tags(&scope, before, before_order);
             self.tag_error = Some(match e {
                 matrix_engine::operations::OperationError::Forbidden => "Non consentito dal server",
                 _ => "Connessione non riuscita",
@@ -634,48 +517,6 @@ impl Sidebar {
         entries
     }
 
-    /// «Tutte» plus one entry per tag in use (favourites, low priority, then `u.*` by name); empty
-    /// when no room has a group tag. Unread counts every room of the group, whatever the other filters.
-    pub fn group_entries(&self) -> Vec<GroupEntry> {
-        let mut tags: Vec<&str> = self
-            .rooms
-            .iter()
-            .filter(|room| !room.info.is_space)
-            .flat_map(|room| room.info.tags.iter().map(String::as_str))
-            .collect();
-        let rank = |t: &str| match t {
-            "m.favourite" => 0,
-            "m.lowpriority" => 1,
-            _ => 2,
-        };
-        tags.sort_by_key(|t| (rank(t), *t));
-        tags.dedup();
-        if tags.is_empty() {
-            return Vec::new();
-        }
-        let mut entries = vec![GroupEntry {
-            tag: None,
-            name: "Tutte".into(),
-            unread: 0,
-            selected: self.filter.group.is_none(),
-        }];
-        entries.extend(tags.into_iter().map(|tag| GroupEntry {
-            tag: Some(tag.to_owned()),
-            name: group_label(tag),
-            unread: self
-                .rooms
-                .iter()
-                .filter(|room| !room.info.is_space && room.info.tags.iter().any(|t| t == tag))
-                .fold(0, |sum, room| sum.saturating_add(room.unread)),
-            selected: self.filter.group.as_deref() == Some(tag),
-        }));
-        entries
-    }
-
-    pub fn active_group(&self) -> Option<&str> {
-        self.filter.group.as_deref()
-    }
-
     /// Optimistic drop once the read receipt is sent: zero this room's counters now,
     /// the next server projection of the room (apply_diff) overwrites them. Other accounts are ignored.
     pub fn mark_read_optimistic(&mut self, scope: &RoomScope) -> bool {
@@ -725,13 +566,6 @@ impl Sidebar {
         {
             self.space = None;
         }
-        // A group nobody carries any more is dropped, like a vanished space.
-        // The two standard groups have a fixed button, so they stay selectable while empty.
-        if self.filter.group.as_ref().is_some_and(|g| {
-            g != FAVOURITE && g != LOW_PRIORITY && !self.rooms.iter().any(|r| r.info.tags.contains(g))
-        }) {
-            self.filter.group = None;
-        }
         let needle = query.trim().to_lowercase();
         let space = self
             .space
@@ -745,10 +579,7 @@ impl Sidebar {
                 // Joined spaces live in the rail only; an invitation to one stays an invite row.
                 (room.info.invited || !room.info.is_space)
                     && room.name.to_lowercase().contains(&needle)
-                    && (room.info.invited
-                        || ((!self.filter.unread_only || room.unread > 0)
-                            && self.filter.group.as_ref().is_none_or(|g| room.info.tags.contains(g))
-                            && space.is_none_or(|s| s.info.children.contains(&room.scope.room_id))))
+                    && (room.info.invited || space.is_none_or(|s| s.info.children.contains(&room.scope.room_id)))
             })
             .map(|(i, _)| i)
             .collect();
@@ -762,9 +593,15 @@ impl Sidebar {
                 )
             });
         }
-        // Invitations wait for an answer: first, whatever the order or the search.
+        // Invitations wait for an answer: first. Then the pinned (lowest `order` first, those without one last in
+        // activity order), the rest, and low priority at the bottom: whatever the search. Stable: ties keep the order above.
         let rooms = &self.rooms;
-        self.visible.sort_by_key(|&i| !rooms[i].info.invited);
+        self.visible.sort_by_key(|&i| {
+            let r = &rooms[i];
+            let has = |t: &str| r.info.tags.iter().any(|x| x == t);
+            let (class, pin) = if has(FAVOURITE) { (0, r.info.favourite_order.unwrap_or(u64::MAX)) } else if has(LOW_PRIORITY) { (2, 0) } else { (1, 0) };
+            (!r.info.invited, class, pin)
+        });
         if self.keyboard_focus.as_ref().is_some_and(|scope| self.position_of(scope).is_none()) {
             self.keyboard_focus = None;
         }
@@ -990,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_message_keeps_the_open_room_selected_in_every_filter() {
+    fn a_new_message_keeps_the_open_room_selected() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         fill(
@@ -1000,7 +837,6 @@ mod tests {
         );
         let open = scope(&account, "c");
         assert!(sidebar.select(&open));
-        sidebar.set_filter(sidebar.filter().with_unread(false));
         // another room gets the newest message, the open one is pushed down
         fill(&mut sidebar, &account, &[("b", Some(50))]);
         assert_eq!(names(&sidebar), ["b", "a", "c"]);
@@ -1015,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    fn a_new_message_reorders_inside_a_selected_space_and_the_unread_filter() {
+    fn a_new_message_reorders_inside_a_selected_space() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         fill(
@@ -1040,18 +876,6 @@ mod tests {
             names(&sidebar),
             ["x", "y", "space"][..names(&sidebar).len()]
         );
-        assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
-        sidebar.set_filter(sidebar.filter().with_unread(true));
-        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
-            scope: scope(&account, "y"),
-            name: "y".into(),
-            unread: 2,
-            info: RoomInfo {
-                preview: Some("x".into()),
-                ..Default::default()
-            },
-        })));
-        assert_eq!(names(&sidebar), ["y"]);
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
     }
 
@@ -1123,7 +947,7 @@ mod tests {
     }
 
     #[test]
-    fn optimistic_read_lowers_room_space_filter_and_mention_counters() {
+    fn optimistic_read_lowers_room_space_and_mention_counters() {
         let other = AccountId::new(2);
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
@@ -1146,7 +970,6 @@ mod tests {
         upsert(&mut sidebar, "a", 3, 2, &[]);
         upsert(&mut sidebar, "b", 4, 1, &[]);
         upsert(&mut sidebar, "s", 0, 0, &["a"]);
-        sidebar.set_filter(sidebar.filter().with_unread(true));
         assert_eq!(names(&sidebar), ["a", "b"]);
         let counts = |s: &Sidebar| {
             s.navigation_entries()
@@ -1162,7 +985,7 @@ mod tests {
 
         assert!(sidebar.mark_read_optimistic(&scope(&account, "a")));
         assert_eq!(counts(&sidebar), [(4, 1), (0, 0)]); // all, space
-        assert_eq!(names(&sidebar), ["b"]); // unread filter drops the room
+        assert_eq!(names(&sidebar), ["a", "b"]); // no unread filter: the row stays
         assert!(!sidebar.mark_read_optimistic(&scope(&account, "a"))); // idempotent
 
         // the next server projection wins
@@ -1170,7 +993,7 @@ mod tests {
         assert_eq!(counts(&sidebar), [(5, 1), (1, 0)]);
     }
 
-    fn tagged(sidebar: &mut Sidebar, account: &AccountId, name: &str, unread: u64, tags: &[&str]) {
+    fn pinned(sidebar: &mut Sidebar, account: &AccountId, name: &str, unread: u64, tags: &[&str], order: Option<f64>) {
         sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
             scope: scope(account, name),
             name: name.into(),
@@ -1178,113 +1001,78 @@ mod tests {
             info: RoomInfo {
                 preview: Some("x".into()),
                 tags: tags.iter().map(|t| (*t).into()).collect(),
+                favourite_order: order.map(f64::to_bits),
                 ..Default::default()
             },
         })));
     }
 
     #[test]
-    fn groups_filter_the_list_and_count_unread_per_group() {
+    fn pinned_rooms_lead_by_order_then_unordered_by_activity_and_low_priority_ends_the_list() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
-        assert!(sidebar.group_entries().is_empty());
-        tagged(&mut sidebar, &account, "a", 2, &["m.favourite", "u.work"]);
-        tagged(&mut sidebar, &account, "b", 3, &["u.work"]);
-        tagged(&mut sidebar, &account, "c", 5, &["m.lowpriority"]);
-        tagged(&mut sidebar, &account, "d", 7, &[]);
-        let summary = |s: &Sidebar| {
-            s.group_entries().into_iter().map(|e| (e.name, e.unread, e.selected)).collect::<Vec<_>>()
-        };
-        assert_eq!(
-            summary(&sidebar),
-            [
-                ("Tutte".into(), 0, true),
-                ("Preferiti".into(), 2, false),
-                ("Bassa priorità".into(), 5, false),
-                ("work".into(), 5, false),
-            ]
-        );
-        assert_eq!(names(&sidebar).len(), 4);
-        sidebar.activate(&FilterId::Group("u.work".into()));
-        let mut got = names(&sidebar);
-        got.sort();
-        assert_eq!(got, ["a", "b"]);
-        assert!(sidebar.group_entries()[3].selected);
-        // Counters ignore the group, search and unread filters; the unread filter still applies on top.
-        sidebar.set_filter(sidebar.filter().with_unread(true));
-        sidebar.set_query("b");
-        assert_eq!(names(&sidebar), ["b"]);
-        assert_eq!(summary(&sidebar)[1], ("Preferiti".into(), 2, false));
+        // SDK order (newest first): n1, f_none1, low1, f_old, f_new, f_none2, n2, low2
+        fill(&mut sidebar, &account, &[("n1", Some(90)), ("f_none1", Some(80)), ("low1", Some(70)), ("f_old", Some(60)), ("f_new", Some(50)), ("f_none2", Some(40)), ("n2", Some(30)), ("low2", Some(20))]);
+        pinned(&mut sidebar, &account, "f_old", 0, &["m.favourite"], Some(0.5));
+        pinned(&mut sidebar, &account, "f_new", 0, &["m.favourite"], Some(0.25));
+        pinned(&mut sidebar, &account, "f_none1", 0, &["m.favourite"], None);
+        pinned(&mut sidebar, &account, "f_none2", 7, &["m.favourite"], None);
+        pinned(&mut sidebar, &account, "low1", 0, &["m.lowpriority"], None);
+        pinned(&mut sidebar, &account, "low2", 0, &["m.lowpriority"], None);
+        // Unread has no special rank: n2 stays below n1.
+        assert_eq!(names(&sidebar), ["f_new", "f_old", "f_none1", "f_none2", "n1", "n2", "low1", "low2"]);
+        // Search: only the matches, pinned still first, low priority last.
+        sidebar.set_query("o");
+        assert_eq!(names(&sidebar), ["f_old", "f_none1", "f_none2", "low1", "low2"]);
         sidebar.set_query("");
-        sidebar.set_filter(sidebar.filter().with_unread(false));
-        // A new message lifts the counter; read rooms drop out of it.
-        tagged(&mut sidebar, &account, "b", 10, &["u.work"]);
-        assert_eq!(sidebar.group_entries()[3].unread, 12);
-        sidebar.mark_read_optimistic(&scope(&account, "b"));
-        assert_eq!(sidebar.group_entries()[3].unread, 2);
-        // The server drops the tag from the last room that had it: the filter falls back to «Tutte».
-        tagged(&mut sidebar, &account, "a", 2, &["m.favourite"]);
-        tagged(&mut sidebar, &account, "b", 0, &[]);
-        assert_eq!(sidebar.active_group(), None);
-        assert_eq!(names(&sidebar).len(), 4);
+        let (pin, low) = (|n: &str| sidebar.rooms().iter().find(|r| r.name == n).unwrap().pinned(), |n: &str| sidebar.rooms().iter().find(|r| r.name == n).unwrap().low_priority());
+        assert!(pin("f_new") && !pin("n1") && !pin("low1") && low("low1") && !low("f_new"));
+        // Both tags set by another client: pinned wins.
+        pinned(&mut sidebar, &account, "n1", 0, &["m.favourite", "m.lowpriority"], Some(0.9));
+        assert_eq!(names(&sidebar)[..4], ["f_new", "f_old", "n1", "f_none1"]);
     }
 
     #[test]
-    fn filter_row_scope_is_exclusive_and_switches_combine() {
+    fn pinning_puts_the_room_above_the_pinned_and_unpinning_returns_it_to_its_place() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
-        let row = |s: &Sidebar| {
-            s.filter_buttons().into_iter().map(|b| (b.accessible_name(), b.selected)).collect::<Vec<_>>()
-        };
-        // Favourites and low priority are there with no tagged room; 
-        tagged(&mut sidebar, &account, "a", 2, &["m.favourite", "u.work"]);
-        tagged(&mut sidebar, &account, "b", 0, &["u.work"]);
-        tagged(&mut sidebar, &account, "c", 3, &[]);
-        assert_eq!(
-            row(&sidebar),
-            [
-                ("Tutte".into(), true),
-                ("Preferiti".into(), false),
-                ("Bassa priorità".into(), false),
-                ("Gruppi".into(), false),
-                ("Non lette, 2".into(), false),
-            ]
-        );
-        // Scopes replace each other; the switch stays on across scopes.
-        sidebar.activate(&FilterId::Group("u.work".into()));
-        sidebar.activate(&FilterId::Unread);
-        assert_eq!(sidebar.filter(), &ListFilter { group: Some("u.work".into()), unread_only: true });
-        assert_eq!(names(&sidebar), ["a"]);
-        assert!(row(&sidebar)[3].1 && !row(&sidebar)[1].1 && row(&sidebar)[4].1);
-        sidebar.activate(&FilterId::Group("m.lowpriority".into()));
-        assert_eq!(sidebar.filter().group.as_deref(), Some("m.lowpriority"));
-        assert!(!row(&sidebar)[3].1 && row(&sidebar)[2].1);
-        // A standard group with no room keeps its button selected (empty list); the menu button does nothing.
-        assert!(names(&sidebar).is_empty());
-        let before = sidebar.filter().clone();
-        sidebar.activate(&FilterId::GroupsMenu);
-        assert_eq!(sidebar.filter(), &before);
-        // «Tutte» clears the scope only; set_filter is the single entry and bumps the revision once per change.
-        let revision = sidebar.navigation_revision();
-        sidebar.activate(&FilterId::All);
-        assert_eq!(sidebar.filter(), &ListFilter { unread_only: true, ..Default::default() });
-        assert_eq!(sidebar.navigation_revision(), revision + 1);
-        sidebar.set_filter(sidebar.filter().clone());
-        assert_eq!(sidebar.navigation_revision(), revision + 1);
-        // The menu lists only u.* groups, with their unread count.
-        let menu = sidebar.group_menu();
-        assert_eq!(menu.len(), 1);
-        assert_eq!((menu[0].name.as_str(), menu[0].unread), ("work", 2));
-        // A u.* group nobody carries any more falls back to «Tutte».
-        sidebar.activate(&FilterId::Group("u.work".into()));
-        tagged(&mut sidebar, &account, "a", 2, &["m.favourite"]);
-        tagged(&mut sidebar, &account, "b", 0, &[]);
-        assert_eq!(sidebar.filter().group, None);
-        // …and with no u.* tag left the row has no «Gruppi» button at all.
-        assert_eq!(
-            row(&sidebar).into_iter().map(|(n, _)| n).collect::<Vec<_>>(),
-            ["Tutte", "Preferiti", "Bassa priorità", "Non lette, 2"]
-        );
+        fill(&mut sidebar, &account, &[("a", Some(3)), ("b", Some(2)), ("c", Some(1))]);
+        let (b, c) = (scope(&account, "b"), scope(&account, "c"));
+        sidebar.toggle_tag(&c, FAVOURITE);
+        sidebar.tag_done(Ok(()));
+        // The server answers with the real order of c; then b is pinned: optimistic order beats it.
+        pinned(&mut sidebar, &account, "c", 0, &["m.favourite"], Some(0.5));
+        sidebar.toggle_tag(&b, FAVOURITE);
+        assert_eq!(names(&sidebar), ["b", "c", "a"]);
+        sidebar.tag_done(Ok(()));
+        sidebar.toggle_tag(&b, FAVOURITE);
+        sidebar.tag_done(Ok(()));
+        assert_eq!(names(&sidebar), ["c", "a", "b"]);
+    }
+
+    #[test]
+    fn a_rejected_pin_gives_the_room_back_its_order_and_place() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        fill(&mut sidebar, &account, &[("a", Some(3)), ("b", Some(2))]);
+        pinned(&mut sidebar, &account, "a", 0, &["m.favourite"], Some(0.5));
+        let b = scope(&account, "b");
+        sidebar.toggle_tag(&b, FAVOURITE);
+        assert_eq!(names(&sidebar), ["b", "a"]);
+        sidebar.tag_done(Err(matrix_engine::operations::OperationError::Forbidden));
+        assert_eq!(names(&sidebar), ["a", "b"]);
+        assert_eq!(sidebar.rooms()[sidebar.visible_indices()[1]].info.favourite_order, None);
+    }
+
+    #[test]
+    fn there_is_no_limit_to_the_pinned_rooms() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        for i in 0..40 {
+            pinned(&mut sidebar, &account, &format!("r{i:02}"), 0, &["m.favourite"], Some(1.0 / (i + 2) as f64));
+        }
+        assert_eq!(names(&sidebar).len(), 40);
+        assert_eq!(names(&sidebar)[0], "r39");
     }
 }
 #[cfg(test)]
@@ -1330,7 +1118,7 @@ mod invite_tests {
     }
 
     #[test]
-    fn invites_ignore_filters_empty_rule_spaces_and_survive_a_restart_projection() {
+    fn invites_ignore_the_empty_rule_spaces_and_survive_a_restart_projection() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         // Alone in the room and nothing unread: a joined room like this is listed too, and an invitation is.
@@ -1338,7 +1126,6 @@ mod invite_tests {
         upsert(&mut sidebar, account, "!dm:t.invalid", "Anna", lonely);
         let space = RoomInfo { invited: true, is_space: true, ..Default::default() };
         upsert(&mut sidebar, account, "!sp:t.invalid", "Spazio", space);
-        sidebar.set_filter(sidebar.filter().with_unread(true));
         assert_eq!(names(&sidebar), ["Anna", "Spazio"]);
         assert_eq!(sidebar.spaces().count(), 0, "an invited space is not in the rail");
         sidebar.set_query("ann");
@@ -1393,16 +1180,13 @@ mod invite_tests {
     }
 
     #[test]
-    fn an_empty_room_is_listed_and_leaving_it_removes_it_and_the_row_has_no_empty_button() {
+    fn an_empty_room_is_listed_and_leaving_it_removes_it() {
         let account = AccountId::new(1);
         let mut sidebar = Sidebar::connected(account);
         let e = scope(account, "!e:t.invalid");
         upsert(&mut sidebar, account, "!e:t.invalid", "vuota", RoomInfo { joined_members: 1, ..Default::default() });
         assert_eq!(names(&sidebar), ["vuota"]);
-        let row = |s: &Sidebar| s.filter_buttons().into_iter().map(|b| b.name).collect::<Vec<_>>();
-        assert_eq!(row(&sidebar), ["Tutte", "Preferiti", "Bassa priorità", "Non lette"]);
         upsert(&mut sidebar, account, "!t:t.invalid", "t", RoomInfo { joined_members: 2, preview: Some("x".into()), tags: vec!["u.work".into()], ..Default::default() });
-        assert_eq!(row(&sidebar), ["Tutte", "Preferiti", "Bassa priorità", "Gruppi", "Non lette"]);
         sidebar.room_left(&e, Ok(()));
         assert_eq!(names(&sidebar), ["t"]);
     }
@@ -1484,36 +1268,30 @@ mod favourite_tests {
         (sidebar, scope)
     }
 
-    fn in_filter(s: &Sidebar) -> usize {
-        s.visible_indices().len()
-    }
-
     #[test]
-    fn toggle_flips_at_once_and_the_filter_follows() {
+    fn toggle_flips_at_once_and_the_row_pins() {
         let (mut s, scope) = one();
-        s.set_filter(s.filter().with_group(Some(FAVOURITE.into())));
-        assert_eq!(in_filter(&s), 0);
+        assert!(!s.rooms()[0].pinned());
         let edit = s.toggle_tag(&scope, FAVOURITE);
         assert_eq!(edit, Some(TagEdit::Assign { room_id: "!r:x".into(), tag: FAVOURITE.into(), on: true }));
-        assert!(s.is_favourite(&scope));
-        assert_eq!(in_filter(&s), 1);
+        assert!(s.is_favourite(&scope) && s.rooms()[0].pinned());
         assert!(s.toggle_tag(&scope, FAVOURITE).is_none(), "one toggle at a time");
         s.tag_done(Ok(()));
         assert!(s.is_favourite(&scope) && s.tag_error().is_none());
         let off = s.toggle_tag(&scope, FAVOURITE);
         assert!(matches!(off, Some(TagEdit::Assign { on: false, .. })));
-        assert_eq!(in_filter(&s), 0);
+        assert!(!s.rooms()[0].pinned());
     }
 
     #[test]
     fn menu_label_follows_the_state() {
         let (mut s, scope) = one();
-        assert_eq!(s.favourite_label(&scope), "Aggiungi ai preferiti");
+        assert_eq!(s.favourite_label(&scope), "Fissa in alto");
         s.toggle_tag(&scope, FAVOURITE);
-        assert_eq!(s.favourite_label(&scope), "Togli dai preferiti");
+        assert_eq!(s.favourite_label(&scope), "Stacca");
         s.tag_done(Ok(()));
         s.toggle_tag(&scope, FAVOURITE);
-        assert_eq!(s.favourite_label(&scope), "Aggiungi ai preferiti");
+        assert_eq!(s.favourite_label(&scope), "Fissa in alto");
     }
 
     #[test]
@@ -1539,19 +1317,18 @@ mod favourite_tests {
     }
 
     #[test]
-    fn low_priority_label_flip_and_filter_follow_at_once() {
+    fn low_priority_label_and_row_flip_at_once() {
         let (mut s, scope) = one();
-        s.set_filter(s.filter().with_group(Some(LOW_PRIORITY.into())));
         assert_eq!(s.low_priority_label(&scope), "Segna come bassa priorità");
-        assert_eq!(in_filter(&s), 0);
+        assert!(!s.rooms()[0].low_priority());
         let edit = s.toggle_tag(&scope, LOW_PRIORITY);
         assert_eq!(edit, Some(TagEdit::Assign { room_id: "!r:x".into(), tag: LOW_PRIORITY.into(), on: true }));
         assert_eq!(s.low_priority_label(&scope), "Togli dalla bassa priorità");
-        assert_eq!(in_filter(&s), 1);
+        assert!(s.rooms()[0].low_priority());
         s.tag_done(Ok(()));
         let off = s.toggle_tag(&scope, LOW_PRIORITY);
         assert!(matches!(off, Some(TagEdit::Assign { on: false, .. })));
-        assert_eq!(in_filter(&s), 0);
+        assert!(!s.rooms()[0].low_priority());
     }
 
     #[test]

@@ -183,8 +183,7 @@ impl Shell {
             return self.notify_link("Account non disponibile");
         }
         if let Some(state) = self.parked.get_mut(&id) {
-            // Lift what would hide the room, as the quick search does for the shown account.
-            state.sidebar.set_filter(state.sidebar.filter().with_unread(false));
+            // Lift the search that would hide the room, as the quick search does for the shown account.
             state.sidebar.set_query("");
             state.open_room(&scope);
         }

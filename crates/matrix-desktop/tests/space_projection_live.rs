@@ -138,9 +138,6 @@ fn volta_softair_team_space_and_same_name_room_project_correctly() {
         sidebar.set_query("Vuoto");
         report(&mut failed, "search_empty_space_name_shows_nothing", shown(&sidebar).is_empty(), format!("{:?}", shown(&sidebar)));
         sidebar.set_query("");
-        sidebar.set_filter(sidebar.filter().with_unread(true));
-        report(&mut failed, "unread_filter_no_space", shown(&sidebar).iter().all(|(_, sp)| !sp), format!("{:?}", shown(&sidebar))); // shortcut: the room is read for alice (joined after the messages), so the list may be empty
-        sidebar.set_filter(sidebar.filter().with_unread(false));
 
         let rail: Vec<_> = sidebar.navigation_entries().into_iter().map(|e| (e.name, e.avatar)).collect();
         let has = |n: &str| rail.iter().filter(|(x, _)| x == n).count();

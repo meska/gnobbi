@@ -106,6 +106,9 @@ pub struct RoomInfo {
     pub encrypted: Option<bool>,
     /// Group tags of the room (`m.favourite`, `m.lowpriority`, `u.*`), sorted; see `room_tags`.
     pub tags: Vec<String>,
+    /// `order` of the `m.favourite` tag (0..=1, lowest = pinned highest) as f64 bits: bits of a non-negative
+    /// finite f64 sort like the number, and RoomInfo stays `Eq`. None: not a favourite, or one without `order`.
+    pub favourite_order: Option<u64>,
     /// Muted by the user's push rules (`NotificationSettings`), on every device.
     pub muted: bool,
     /// Canonical alias then alternative aliases, as the SDK room info has them (may hold

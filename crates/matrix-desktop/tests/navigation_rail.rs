@@ -18,7 +18,7 @@ fn add(sidebar: &mut Sidebar, id: &str, unread: u64, info: RoomInfo) {
 }
 
 #[test]
-fn rail_counts_direct_joined_rooms_once_without_search_or_unread_filter_bias() {
+fn rail_counts_direct_joined_rooms_once_without_search_bias() {
     let mut sidebar = Sidebar::connected(AccountId::new(38));
     add(&mut sidebar, "!a:test", 4, RoomInfo::default());
     add(&mut sidebar, "!b:test", 7, RoomInfo::default());
@@ -37,7 +37,6 @@ fn rail_counts_direct_joined_rooms_once_without_search_or_unread_filter_bias() {
         },
     );
     sidebar.set_query("no result");
-    sidebar.set_filter(sidebar.filter().with_unread(true));
     let entries = sidebar.navigation_entries();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].scope, None);

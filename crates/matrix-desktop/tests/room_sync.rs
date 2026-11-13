@@ -36,12 +36,9 @@ fn space_filter_uses_direct_joined_children_without_changing_selection() {
     assert_eq!(sidebar.selected().unwrap().scope, scope("!other:test"));
     sidebar.set_query("alpha");
     assert_eq!(sidebar.visible_indices(), &[0]);
-    sidebar.set_filter(sidebar.filter().with_unread(true));
-    assert_eq!(sidebar.visible_indices(), &[0]);
     assert!(!sidebar.set_space(Some(scope("!other:test"))));
     assert_eq!(sidebar.active_space(), Some(&scope("!space:test")));
     sidebar.set_query("");
-    sidebar.set_filter(sidebar.filter().with_unread(false));
     assert!(sidebar.set_space(None));
     assert_eq!(sidebar.visible_indices(), &[0, 1]);
     assert_eq!(sidebar.rooms()[2].info.children.len(), 2);
@@ -99,27 +96,21 @@ fn removing_an_earlier_row_preserves_selection_by_room_identity() {
 }
 
 #[test]
-fn unread_filter_reacts_to_live_diffs_without_changing_hidden_selection() {
+fn search_reacts_to_live_diffs_without_changing_hidden_selection() {
     let mut sidebar = Sidebar::connected(AccountId::new(18));
     sidebar.apply_diff(upsert("!one:fixture.invalid", "Alpha", 0));
     sidebar.apply_diff(upsert("!two:fixture.invalid", "Beta", 3));
-    sidebar.set_filter(sidebar.filter().with_unread(true));
+    sidebar.set_query("beta");
     assert_eq!(sidebar.visible_indices(), &[1]);
-    assert_eq!(
-        sidebar.selected().unwrap().scope,
-        scope("!one:fixture.invalid")
-    );
-    sidebar.set_query("alpha");
-    assert!(sidebar.visible_indices().is_empty());
-    sidebar.apply_diff(upsert("!one:fixture.invalid", "Alpha", 2));
-    assert_eq!(sidebar.visible_indices(), &[0]);
+    assert_eq!(sidebar.selected().unwrap().scope, scope("!one:fixture.invalid"));
     sidebar.apply_diff(upsert("!one:fixture.invalid", "Renamed", 2));
-    assert!(sidebar.visible_indices().is_empty());
+    assert_eq!(sidebar.visible_indices(), &[1]);
     assert_eq!(sidebar.selected().unwrap().name, "Renamed");
+    sidebar.apply_diff(upsert("!one:fixture.invalid", "Beta two", 2));
+    assert_eq!(sidebar.visible_indices(), &[0, 1]);
     assert_eq!(sidebar.rooms().len(), 2);
     sidebar.set_query("");
-    sidebar.set_filter(sidebar.filter().with_unread(false));
-    // Plain list: idle rooms by name, so Beta (index 1) precedes Renamed (index 0).
+    // Plain list: idle rooms by name, so Beta (index 1) precedes Beta two (index 0).
     assert_eq!(sidebar.visible_indices(), &[1, 0]);
 }
 
@@ -163,12 +154,12 @@ fn public_peer_marker_survives_scoped_client_route_without_becoming_unread_count
 }
 
 #[test]
-fn upsert_retires_navigation_when_unread_eligibility_leaves_and_returns_unobserved() {
+fn upsert_retires_navigation_when_search_eligibility_leaves_and_returns_unobserved() {
     let mut sidebar = Sidebar::connected(AccountId::new(18));
     sidebar.apply_diff(upsert("!one:test", "Alpha", 2));
-    sidebar.set_filter(sidebar.filter().with_unread(true));
+    sidebar.set_query("alpha");
     let before = sidebar.navigation_revision();
-    sidebar.apply_diff(upsert("!one:test", "Alpha", 0));
+    sidebar.apply_diff(upsert("!one:test", "Zed", 2));
     sidebar.apply_diff(upsert("!one:test", "Alpha", 2));
     assert_ne!(sidebar.navigation_revision(), before);
     assert_eq!(sidebar.visible_indices(), &[0]);

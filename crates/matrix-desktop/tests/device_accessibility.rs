@@ -295,7 +295,6 @@ fn device_sheet_replaces_chat_tree_and_routes_only_its_controls() {
         spaces: None,
         navigation_revision: 0,
         icon_choice: None,
-        unread_filter: None,
         new_room: None,
         devices: DeviceView::Closed(account),
         settings: None,

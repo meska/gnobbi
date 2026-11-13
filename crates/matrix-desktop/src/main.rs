@@ -12,7 +12,6 @@ mod emoji_font;
 mod directory_servers_view;
 // Unused until the filter row card wires it in.
 #[allow(dead_code)]
-mod filter_icon;
 mod filter_view;
 mod groups_edit_view;
 mod invite_view;
@@ -192,13 +191,6 @@ struct Shell {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     history_focus: FocusHandle,
     pending_sidebar_key: Option<filter_view::SidebarPress>,
-    unread_focus: FocusHandle,
-    /// Button of the filter row the keyboard is on (roving cursor of the single tab stop).
-    filter_cursor: matrix_desktop::FilterId,
-    /// Open «Gruppi» menu: highlighted entry.
-    groups_menu: Option<usize>,
-    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_unread_bounds: Option<accesskit::Rect>,
     notification_focus: matrix_desktop::notifications::NotificationControl,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_notification_bounds: [Option<accesskit::Rect>; 4],
@@ -339,10 +331,6 @@ impl Shell {
             }
             if let matrix_desktop::accessibility::NavigationAction::Spaces(action) = action {
                 this.apply_semantic_spaces(action, window, cx);
-                continue;
-            }
-            if let matrix_desktop::accessibility::NavigationAction::Filter(action) = action {
-                this.apply_semantic_filter(action, window, cx);
                 continue;
             }
             if let matrix_desktop::accessibility::NavigationAction::About(action) = action {
@@ -692,7 +680,6 @@ impl Shell {
                     unreachable!()
                 }
                 matrix_desktop::accessibility::NavigationAction::Spaces(_) => unreachable!(),
-                matrix_desktop::accessibility::NavigationAction::Filter(_) => unreachable!(),
                 matrix_desktop::accessibility::NavigationAction::Devices(_)
                 | matrix_desktop::accessibility::NavigationAction::Drawer(_)
                 | matrix_desktop::accessibility::NavigationAction::About(_) => unreachable!(),
@@ -1208,30 +1195,6 @@ impl Shell {
         if self.spaces_key(event, window, cx) {
             cx.stop_propagation();
             return;
-        }
-        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        if self.semantic_unread(window).is_some()
-            && !key.modifiers.control
-            && !key.modifiers.alt
-            && !key.modifiers.platform
-        {
-            if key.key == "tab" && key.modifiers.shift && self.search_focus.is_focused(window) {
-                self.unread_focus.focus(window);
-                cx.notify();
-                cx.stop_propagation();
-                return;
-            }
-            if self.unread_focus.is_focused(window) {
-                if key.key == "tab" && !key.modifiers.shift {
-                    self.search_focus.focus(window);
-                } else {
-                    // GPUI emits one Keyboard ClickEvent on Space/Enter release.
-                    return;
-                }
-                cx.notify();
-                cx.stop_propagation();
-                return;
-            }
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         if key.key == "tab"
@@ -2185,7 +2148,6 @@ impl Shell {
                 spaces: self.semantic_spaces(window),
                 navigation_revision: self.sidebar.navigation_revision(),
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
-                unread_filter: self.semantic_unread(window),
                 new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_room_edit(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
@@ -2355,8 +2317,7 @@ impl Shell {
                                         .child(list_name),
                                 ),
                         )
-                        .when(self.connected, |d| d.child(self.render_filter_row(window, cx)))
-                        // The room menu closes on click, so its failed «Preferiti» action reports here (the drawer shows the same line).
+                        // The room menu closes on click, so its failed «Fissa in alto» action reports here (the drawer shows the same line).
                         .children(self.sidebar.tag_error().map(|e| div().mx_4().mb_2().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
                         .child(
                             div()
@@ -2539,6 +2500,12 @@ impl Shell {
                                                                         .line_height(px(matrix_desktop::row_text::PREVIEW_LINE_PX))
                                                                         .child(if room.unread > 0 { room.unread.to_string() } else { "•".to_owned() }),
                                                                 )
+                                                            })
+                                                            // Same place, when there is no badge: the pin of a pinned room or the arrow of a low-priority one.
+                                                            // Name for screen readers («Fissata» / «Bassa priorità») is in the row label (accessibility.rs).
+                                                            .when(!(this.connected && (room.unread > 0 || room.info.marked_unread)) && (room.pinned() || room.low_priority()), |d| {
+                                                                let kind = if room.pinned() { composer_icons::Icon::PinFilled } else { composer_icons::Icon::LowPriority };
+                                                                d.child(div().flex_shrink_0().flex().items_center().h(px(matrix_desktop::row_text::PREVIEW_LINE_PX)).child(composer_icons::icon_sized(kind, t.secondary, 16.)))
                                                             }),
                                                     ),
                                             )
@@ -2576,11 +2543,7 @@ impl Shell {
                                 .text_size(px(11.))
                                 .text_color(rgb(t.secondary))
                                 .flex().items_center().justify_between()
-                                .child(div().child(format!(
-                                    "{}/{} conversazioni · {}",
-                                    self.sidebar.visible_indices().iter().filter(|&&i| !self.sidebar.rooms()[i].info.invited).count(), self.sidebar.rooms().iter().filter(|r| !r.info.is_space && !r.info.invited).count(),
-                                    if self.connected { connection_label } else { "fixture offline" }
-                                )))
+                                .child(div().child(if self.connected { connection_label } else { "fixture offline" }))
                         ),
                 )
             })
@@ -3023,10 +2986,9 @@ fn main() {
                 matrix_desktop::window::refresh_drawable(window);
                 let shell = cx.new(|cx| {
                     let search_focus = cx.focus_handle();
-                    let unread_focus = cx.focus_handle();
                     let mut rail_ui = rail_view::RailUi::new(cx);
                     let spaces_ui = spaces_view::SpacesUi::new(cx);
-                    for focus in [&unread_focus, &rail_ui.focus, &spaces_ui.focus] {
+                    for focus in [&rail_ui.focus, &spaces_ui.focus] {
                         cx.on_blur(focus, window, |this: &mut Shell, _, _| {
                             if let Some(press) = &mut this.pending_sidebar_key { press.cancelled = true; }
                         }).detach();
@@ -3577,7 +3539,6 @@ fn main() {
                                 spaces: None,
                 navigation_revision: 0,
                                 icon_choice: None,
-                                unread_filter: None,
                                 new_room: None,
                                 devices: Default::default(),
                                 settings: None,
@@ -3601,11 +3562,6 @@ fn main() {
                         a11y_history_bounds: None,
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         history_focus: cx.focus_handle(),
-                        unread_focus,
-                        filter_cursor: matrix_desktop::FilterId::All,
-                        groups_menu: None,
-                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_unread_bounds: None,
                         notification_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_notification_bounds: [None; 4],

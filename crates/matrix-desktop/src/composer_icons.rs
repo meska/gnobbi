@@ -14,13 +14,11 @@ pub enum Icon {
     Check,
     Search,
     Poll,
-    FilterAll,
-    Star,
-    /// Star outline plus a solid fill: a favourite room.
-    StarFilled,
+    /// Pin (head and needle): «Fissa in alto».
+    Pin,
+    /// Pin with a solid head: the room is pinned.
+    PinFilled,
     LowPriority,
-    Folder,
-    Dot,
     People,
     Shield,
     Play,
@@ -73,31 +71,16 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
             vec![(4., 10.), (16., 10.)],
             vec![(4., 15.), (10., 15.)],
         ],
-        Icon::FilterAll => vec![
-            vec![(8., 5.), (16., 5.)],
-            vec![(8., 10.), (16., 10.)],
-            vec![(8., 15.), (16., 15.)],
-            arc((4.5, 5.), 0.8, 0., 2. * PI), // ring thinner than the stroke = solid dot
-            arc((4.5, 10.), 0.8, 0., 2. * PI), // ring thinner than the stroke = solid dot
-            arc((4.5, 15.), 0.8, 0., 2. * PI), // ring thinner than the stroke = solid dot
+        Icon::Pin | Icon::PinFilled => vec![
+            arc((10., 6.5), 3.5, 0., 2. * PI),
+            vec![(10., 10.), (10., 17.5)],
+            vec![(6., 10.), (14., 10.)],
         ],
-        Icon::Star | Icon::StarFilled => {
-            let pts: Vec<(f32, f32)> = (0..=10)
-                .map(|i| {
-                    let (r, a) = (if i % 2 == 0 { 7.5 } else { 3.2 }, -PI / 2. + i as f32 * PI / 5.);
-                    (10. + r * a.cos(), 10.5 + r * a.sin())
-                })
-                .collect();
-            vec![pts]
-        }
         Icon::LowPriority => vec![
             vec![(10., 3.), (10., 13.)],
             vec![(5.5, 8.5), (10., 13.), (14.5, 8.5)],
             vec![(4., 17.), (16., 17.)],
         ],
-        Icon::Folder => vec![vec![(3., 6.), (8., 6.), (10., 8.), (17., 8.), (17., 16.), (3., 16.), (3., 6.)]],
-        // Strokes only: a filled dot is concentric rings one stroke apart.
-        Icon::Dot => (1..=4).map(|r| arc((10., 10.), r as f32, 0., 2. * PI)).collect(),
         Icon::People => vec![
             arc((10., 7.), 3., 0., 2. * PI),
             arc((10., 17.), 6., PI, 2. * PI),
@@ -134,17 +117,23 @@ fn anchor(kind: Icon, lines: &[Vec<(f32, f32)>]) -> (f32, f32) {
 }
 
 pub fn icon(kind: Icon, color: u32) -> impl IntoElement {
+    icon_sized(kind, color, 24.)
+}
+
+/// Same drawing on a `side` px square (the 20x20 grid scaled), for marks inside a text line.
+pub fn icon_sized(kind: Icon, color: u32, side: f32) -> impl IntoElement {
+    let k = side / 20.;
     canvas(
         |_, _, _| (),
         move |bounds, _, window, _| {
             let lines = strokes(kind);
             let (ax, ay) = anchor(kind, &lines);
-            let (ox, oy) = (bounds.center().x - px(ax * 1.2), bounds.center().y - px(ay * 1.2));
+            let (ox, oy) = (bounds.center().x - px(ax * k), bounds.center().y - px(ay * k));
             for line in lines {
-                if matches!(kind, Icon::StarFilled | Icon::Play | Icon::Pause) {
+                if matches!(kind, Icon::PinFilled | Icon::Play | Icon::Pause) {
                     let mut fill = PathBuilder::fill();
                     for (i, (x, y)) in line.iter().enumerate() {
-                        let p = point(ox + px(x * 1.2), oy + px(y * 1.2));
+                        let p = point(ox + px(x * k), oy + px(y * k));
                         if i == 0 { fill.move_to(p) } else { fill.line_to(p) }
                     }
                     fill.close();
@@ -152,9 +141,9 @@ pub fn icon(kind: Icon, color: u32) -> impl IntoElement {
                         window.paint_path(fill, rgb(color));
                     }
                 }
-                let mut path = PathBuilder::stroke(px(1.6));
+                let mut path = PathBuilder::stroke(px(1.6 * k / 1.2));
                 for (i, (x, y)) in line.into_iter().enumerate() {
-                    let p = point(ox + px(x * 1.2), oy + px(y * 1.2));
+                    let p = point(ox + px(x * k), oy + px(y * k));
                     if i == 0 {
                         path.move_to(p);
                     } else {
@@ -167,8 +156,8 @@ pub fn icon(kind: Icon, color: u32) -> impl IntoElement {
             }
         },
     )
-    .w(px(24.))
-    .h(px(24.))
+    .w(px(side))
+    .h(px(side))
     .flex_shrink_0()
 }
 
@@ -178,7 +167,7 @@ mod tests {
 
     #[test]
     fn every_glyph_is_centred_on_its_anchor() {
-        for kind in [Icon::Attach, Icon::Voice, Icon::Emoji, Icon::Send, Icon::Back, Icon::Close, Icon::Copy, Icon::Check, Icon::Search, Icon::Poll, Icon::FilterAll, Icon::Star, Icon::StarFilled, Icon::LowPriority, Icon::Folder, Icon::Dot, Icon::People, Icon::Shield, Icon::Pause, Icon::Download, Icon::Ellipsis] {
+        for kind in [Icon::Attach, Icon::Voice, Icon::Emoji, Icon::Send, Icon::Back, Icon::Close, Icon::Copy, Icon::Check, Icon::Search, Icon::Poll, Icon::Pin, Icon::PinFilled, Icon::LowPriority, Icon::People, Icon::Shield, Icon::Pause, Icon::Download, Icon::Ellipsis] {
             let lines = strokes(kind);
             let (ax, ay) = anchor(kind, &lines);
             let pts: Vec<_> = lines.iter().flatten().collect();

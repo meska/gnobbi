@@ -22,7 +22,6 @@ fn snapshot() -> NavigationSnapshot {
         spaces: None,
         navigation_revision: 0,
         icon_choice: None,
-        unread_filter: None,
         new_room: None,
         devices: Default::default(),
         settings: None,

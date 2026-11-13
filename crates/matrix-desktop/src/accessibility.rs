@@ -11,7 +11,6 @@ pub mod drawer;
 pub mod devices;
 pub mod directory_servers;
 pub mod event_id_copy;
-pub mod filters;
 pub mod install_offer;
 pub mod links;
 pub mod new_chat;
@@ -581,6 +580,8 @@ pub struct SemanticRoom {
     pub invite: Option<crate::InviteState>,
     /// Set while the row's context menu is open: «Esci» button, `true` once it asks «Uscire?».
     pub leave: Option<bool>,
+    /// «Fissata» or «Bassa priorità»: the icon on the row, read with the name.
+    pub mark: Option<&'static str>,
 }
 
 fn invite_state_label(state: crate::InviteState) -> &'static str {
@@ -659,6 +660,7 @@ impl RoomNodes {
                     selected: sidebar.selected().is_some_and(|r| r.scope == room.scope),
                     invite: room.info.invited.then(|| sidebar.invite_state(&room.scope)),
                     leave: None,
+                    mark: room.pinned().then_some("Fissata").or(room.low_priority().then_some("Bassa priorità")),
                 }
             })
             .collect()
@@ -749,7 +751,6 @@ pub struct NavigationSnapshot {
     pub navigation_revision: u64,
     /// Current app icon while Settings is open; None hides the three choices.
     pub icon_choice: Option<crate::IconChoice>,
-    pub unread_filter: Option<filters::UnreadFilter>,
     pub new_room: Option<new_room::Snapshot>,
     pub devices: devices::DeviceView,
     pub details: details::DetailsView,
@@ -964,12 +965,6 @@ impl NavigationSnapshot {
             && let Some(action) = spaces.action(request)
         {
             return Some(NavigationAction::Spaces(action));
-        }
-        if self.visible
-            && let Some(filter) = &self.unread_filter
-            && let Some(action) = filter.action(request)
-        {
-            return Some(NavigationAction::Filter(action));
         }
         if request.action == Action::Focus
             && let Some(server) = self.history.as_ref().and_then(|h| h.server.as_ref())
@@ -1230,12 +1225,16 @@ impl NavigationSnapshot {
             for room in &self.rooms {
                 let mut node = Node::new(Role::ListBoxOption);
                 // The invitation state is part of the name, so it is read with the room name.
-                node.set_label(match room.invite {
+                let label = match room.invite {
                     Some(state) => format!("{}, {}", room.name, invite_state_label(state)),
                     None => match &room.stamp {
                         Some(spoken) => format!("{}, {spoken}", room.name),
                         None => room.name.clone(),
                     },
+                };
+                node.set_label(match room.mark {
+                    Some(mark) => format!("{label}, {mark}"),
+                    None => label,
                 });
                 node.set_description(match room.unread {
                     _ if room.invite.is_some() => "Invito".to_owned(),
@@ -1760,17 +1759,6 @@ impl NavigationSnapshot {
             }
         }
         if self.visible
-            && let Some(filter) = &self.unread_filter
-        {
-            for (id, node) in filter.nodes() {
-                tree.nodes[0].1.push_child(id);
-                tree.nodes.push((id, node));
-            }
-            if filter.focused {
-                tree.focus = filters::UNREAD;
-            }
-        }
-        if self.visible
             && let Some(spaces) = &self.spaces
         {
             let nodes = spaces.nodes();
@@ -1862,7 +1850,6 @@ pub enum NavigationAction {
     /// Opens (or refocuses) the «Chiave di recupero Matrix» field under that message.
     RecoverKeys(matrix_domain::ScopedTimelineId),
     Spaces(spaces::SpacesAction),
-    Filter(filters::FilterAction),
     FocusServerHistory(matrix_engine::RequestTag),
     LoadServerHistory(matrix_engine::RequestTag),
     Devices(devices::DeviceAction),

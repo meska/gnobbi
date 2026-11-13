@@ -30,7 +30,6 @@ fn details_overlay_replaces_chat_and_routes_only_current_sheet_actions() {
         spaces: None,
         navigation_revision: 0,
         icon_choice: None,
-        unread_filter: None,
         new_room: None,
         devices: Default::default(),
         settings: None,
@@ -282,7 +281,6 @@ fn navigation(details: matrix_desktop::accessibility::details::DetailsView) -> m
         spaces: None,
         navigation_revision: 0,
         icon_choice: None,
-        unread_filter: None,
         new_room: None,
         devices: Default::default(),
         settings: None,
@@ -490,7 +488,7 @@ fn without_a_topic_tab_skips_the_hidden_argomento_and_the_tree_has_no_node_for_i
 
 #[test]
 fn favourite_star_is_named_for_its_state_and_clicks_to_toggle() {
-    for (favourite, name) in [(false, "Non preferita"), (true, "Preferita")] {
+    for (favourite, name) in [(false, "Fissa in alto"), (true, "Stacca")] {
         let mut p = panel();
         p.favourite = favourite;
         let tree = p.tree();

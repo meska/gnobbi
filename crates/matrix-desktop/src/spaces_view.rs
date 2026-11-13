@@ -28,7 +28,7 @@ impl Shell {
             return;
         }
         #[cfg(test)]
-        sidebar_navigation_test::ACTIVATIONS[1].fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        sidebar_navigation_test::ACTIVATIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if self.spaces_ui.target.is_none() {
             self.set_spaces_open(!self.spaces_open);
         } else {
@@ -240,7 +240,7 @@ impl Shell {
             return;
         };
         #[cfg(test)]
-        crate::sidebar_navigation_test::ACTIVATIONS[1]
+        crate::sidebar_navigation_test::ACTIVATIONS
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         if let Some(action) = view.action(&accesskit::ActionRequest {
             action: accesskit::Action::Click,

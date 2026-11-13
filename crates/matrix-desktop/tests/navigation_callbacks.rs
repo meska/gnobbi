@@ -59,11 +59,10 @@ fn room() -> RoomSummary {
 
 #[test]
 fn painted_callback_rejects_eligibility_replacement_and_same_scope_return() {
-    for case in ["remove", "reclassify", "unread", "search", "direct-child"] {
+    for case in ["remove", "reclassify", "search", "direct-child"] {
         let mut sidebar = Sidebar::connected(AccountId::new(17));
         let original = room();
         sidebar.apply_diff(RoomListDiff::Upsert(Box::new(original.clone())));
-        sidebar.set_filter(sidebar.filter().with_unread(true));
         let mut space = original.clone();
         space.scope.room_id = RoomId::new("!space:test");
         space.info.is_space = true;
@@ -80,10 +79,6 @@ fn painted_callback_rejects_eligibility_replacement_and_same_scope_return() {
             }
             "reclassify" => {
                 changed.info.is_space = true;
-                sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
-            }
-            "unread" => {
-                changed.unread = 0;
                 sidebar.apply_diff(RoomListDiff::Upsert(Box::new(changed)));
             }
             "search" => sidebar.set_query("absent"),

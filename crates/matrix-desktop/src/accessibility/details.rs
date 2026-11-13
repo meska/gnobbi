@@ -326,7 +326,7 @@ impl DetailsSnapshot {
         }
         for (index, (control, label)) in [
             (DetailsControl::Close, "Chiudi informazioni stanza"),
-            (DetailsControl::Favourite, if self.favourite { "Preferita" } else { "Non preferita" }),
+            (DetailsControl::Favourite, if self.favourite { "Stacca" } else { "Fissa in alto" }),
             (DetailsControl::LowPriority, if self.low_priority { "Bassa priorità" } else { "Non a bassa priorità" }),
             (DetailsControl::Topic, "Argomento"),
             (DetailsControl::Copy, "Copia ID stanza"),

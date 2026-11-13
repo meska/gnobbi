@@ -14,25 +14,11 @@ static DYNAMIC: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize:
 /// Key-ups seen by the Shell; GPUI X11 turns an auto-repeat release/press split by scheduling jitter into a real key-up.
 pub(crate) static UPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 pub(crate) static KEYDOWNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-pub(crate) static ACTIVATIONS: [std::sync::atomic::AtomicUsize; 2] = [
-    std::sync::atomic::AtomicUsize::new(0), // unread filter
-    std::sync::atomic::AtomicUsize::new(0), // rail / compact Spaces
-];
+/// Activations of the rail / compact Spaces.
+pub(crate) static ACTIVATIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 const DRAFTS: [&str; 2] = [" caffè 🦀\nprima ", " δεύτερη 🚀\nbozza "];
 
 type PointerCallback = std::rc::Rc<dyn Fn(&mut Shell, &mut Window, &mut Context<Shell>)>;
-thread_local! {
-    static POINTER: std::cell::RefCell<Option<PointerCallback>> = Default::default();
-}
-pub(crate) fn capture_pointer(
-    callback: impl Fn(&mut Shell, &mut Window, &mut Context<Shell>) + 'static,
-) -> PointerCallback {
-    let callback: PointerCallback = std::rc::Rc::new(callback);
-    if ACTIVE.load(Ordering::SeqCst) {
-        POINTER.with_borrow_mut(|painted| *painted = Some(callback.clone()));
-    }
-    callback
-}
 thread_local! {
     static RAILS: std::cell::RefCell<std::collections::HashMap<Option<RoomScope>, PointerCallback>> = Default::default();
 }
@@ -78,11 +64,6 @@ fn painted_space(id: accesskit::NodeId) -> PointerCallback {
             .clone()
     })
 }
-fn painted_pointer() -> PointerCallback {
-    assert!(PAINTED.lock().unwrap().contains_key("unread"));
-    POINTER.with_borrow(|painted| painted.as_ref().unwrap().clone())
-}
-
 pub(crate) static PAINTED: std::sync::LazyLock<
     std::sync::Mutex<std::collections::HashMap<String, gpui::Bounds<gpui::Pixels>>>,
 > = std::sync::LazyLock::new(Default::default);
@@ -106,10 +87,9 @@ pub(crate) fn observe(label: String) -> Option<gpui::AnyElement> {
     })
 }
 
-const RING: [&str; 10] = [
+const RING: [&str; 9] = [
     "list",
     "search",
-    "unread",
     "devices",
     "notifications",
     "lens",
@@ -138,7 +118,6 @@ fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
     [
         (this.list_focus.is_focused(window), "list"),
         (this.search_focus.is_focused(window), "search"),
-        (this.unread_focus.is_focused(window), "unread"),
         (this.opener_ui.focused(Control::Devices, window), "devices"),
         (
             this.opener_ui.focused(Control::Notifications, window),
@@ -150,7 +129,7 @@ fn ring_label(this: &Shell, window: &Window, cx: &App) -> &'static str {
     ]
     .into_iter()
     .find_map(|(focused, name)| focused.then_some(name))
-    .unwrap_or(RING[9])
+    .unwrap_or(RING[8])
 }
 
 fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Context<Shell>) {
@@ -163,7 +142,6 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
     let control = match label {
         "list" => return this.list_focus.focus(window),
         "search" => return this.search_focus.focus(window),
-        "unread" => { this.filter_cursor = matrix_desktop::FilterId::Unread; return this.unread_focus.focus(window) }
         "devices" => Control::Devices,
         "notifications" => Control::Notifications,
         "lens" => Control::Search,
@@ -197,7 +175,7 @@ fn ring_focus(this: &mut Shell, label: &str, window: &mut Window, cx: &mut Conte
 fn ring_visible(label: &str, wide: bool, chat: bool) -> bool {
     match (wide, chat) {
         (true, _) => label != "back",
-        (false, false) => ["list", "search", "unread"].contains(&label),
+        (false, false) => ["list", "search"].contains(&label),
         (false, true) => ["lens", "info", "entry", "back"].contains(&label),
     }
 }
@@ -246,27 +224,10 @@ fn preserve_drafts_and_capture(
     eprintln!("{label}: exact dual multiline Unicode drafts and selected/active scope preserved");
 }
 
-fn pointer_transition(this: &mut Shell, transition: &str, away: bool) {
-    match transition {
-        "query" => this
-            .sidebar
-            .set_query(if away { "retire pointer" } else { "" }),
-        "unread" => this.sidebar.set_filter(this.sidebar.filter().with_unread(away)),
-        "details" => this.set_room_details_open(away),
-        "notifications" => this.set_notifications_open(away),
-        "devices" => this.set_verification_open(away),
-        "account" => {
-            this.active_scope.account_id = if away {
-                AccountId::new(900)
-            } else {
-                this.sidebar.rooms()[0].scope.account_id
-            };
-        }
-        "offline" => this.connected = !away,
-        "compact-chat" => this.set_compact_chat(away),
-        _ => unreachable!(),
-    }
-    this.refresh_navigation_visibility();
+/// A navigation revision change that hides nothing for good: the search away and back.
+fn bump(sidebar: &mut Sidebar) {
+    sidebar.set_query("retire");
+    sidebar.set_query("");
 }
 
 fn upsert_space(this: &mut Shell, account: matrix_domain::AccountId, id: &str, name: &str) {
@@ -330,92 +291,6 @@ fn native_key(key: &str, down: bool) {
             .success()
     );
     eprintln!("isolated XTest {command} {key}");
-}
-
-#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-fn sidebar_session(
-    this: &Shell,
-    window: &Window,
-) -> matrix_desktop::accessibility::semantic_session::SemanticSession {
-    use matrix_desktop::accessibility::{NavigationSnapshot, semantic_session::SemanticSession};
-    SemanticSession::new(NavigationSnapshot {
-        title: matrix_desktop::window::TITLE.into(),
-        new_chat: Default::default(),
-        room_search: Default::default(),
-        #[cfg(feature = "live")]
-        signin: None,
-        openers: vec![],
-        back: None,
-        drawer: None,
-        scrollbars: vec![],
-        operation_panel: None,
-        spaces: None,
-        navigation_revision: this.sidebar.navigation_revision(),
-        icon_choice: None,
-        unread_filter: this.semantic_unread(window),
-        new_room: None,
-        devices: Default::default(),
-        settings: None,
-        about: None,
-        details: Default::default(),
-        notifications: Default::default(),
-        dark: this.theme.is_dark(),
-        visible: true,
-        query: this.sidebar.query().into(),
-        search_focused: false,
-        search_bounds: None,
-        rooms: vec![],
-        history: None,
-        list_focused: false,
-        composer: None,
-    })
-}
-
-fn activation_callback(this: &Shell, window: &Window) -> PointerCallback {
-    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    if DYNAMIC.load(Ordering::SeqCst) == 9 {
-        let session = sidebar_session(this, window);
-        let id = session
-            .tree()
-            .nodes
-            .into_iter()
-            .find(|(_, n)| n.label() == Some("Non lette"))
-            .unwrap()
-            .0;
-        let intents = [accesskit::Action::Focus, accesskit::Action::Click].map(|action| {
-            session
-                .action(&accesskit::ActionRequest {
-                    action,
-                    target_tree: accesskit::TreeId::ROOT,
-                    target_node: id,
-                    data: None,
-                })
-                .unwrap()
-        });
-        let revision = this.sidebar.navigation_revision();
-        return std::rc::Rc::new(move |this, window, cx| {
-            let current = revision == this.sidebar.navigation_revision();
-            for intent in &intents {
-                let matrix_desktop::accessibility::NavigationAction::Filter(action) = intent else {
-                    unreachable!("the unread control only translates to filter actions")
-                };
-                this.apply_semantic_filter(*action, window, cx);
-            }
-            if current {
-                assert!(
-                    this.unread_focus.is_focused(window),
-                    "fresh translated Focus must reach its current native control"
-                );
-            }
-            eprintln!(
-                "actual pretranslated SemanticSession Focus/Click; revision={}; native focus unread={}",
-                this.sidebar.navigation_revision(),
-                this.unread_focus.is_focused(window)
-            );
-        });
-    }
-    let _ = (this, window);
-    painted_pointer()
 }
 
 pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
@@ -570,94 +445,6 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             return;
         }
-        if matches!(DYNAMIC.load(Ordering::SeqCst), 8 | 9) {
-            {
-                for transition in ["query", "unread", "details", "notifications", "devices", "account", "offline", "compact-chat"] {
-                    if transition == "compact-chat" && !COMPACT.load(Ordering::SeqCst) { continue; }
-                    executor.timer(std::time::Duration::from_millis(150)).await;
-                    let callback = this.update_in(cx, |this, window, cx| {
-                        let callback = activation_callback(this, window);
-                        let before = ACTIVATIONS[0].load(Ordering::SeqCst);
-                        this.list_focus.focus(window);
-                        pointer_transition(this, transition, true);
-                        callback(this, window, cx);
-                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "retired painted callback activated during {transition}");
-                        assert!(this.list_focus.is_focused(window), "rejected pointer changed focus");
-                        pointer_transition(this, transition, false);
-                        callback(this, window, cx);
-                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "retired painted callback activated after {transition} away/back");
-                        assert!(this.list_focus.is_focused(window));
-                        assert!(history(this));
-                        eprintln!("painted pointer retired during/after {transition}, revision={}", this.sidebar.navigation_revision());
-                        cx.notify();
-                        callback
-                    }).unwrap();
-                    executor.timer(std::time::Duration::from_millis(150)).await;
-                    this.update_in(cx, |this, window, cx| {
-                        let before = ACTIVATIONS[0].load(Ordering::SeqCst);
-                        callback(this, window, cx);
-                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "fresh paint resurrected old pointer");
-                        activation_callback(this, window)(this, window, cx);
-                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before + 1, "reacquired painted callback must activate exactly once");
-                        this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
-                        assert!(history(this));
-                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("pointer-{transition}"));
-                        cx.notify();
-                    }).unwrap();
-                }
-            }
-            executor.timer(std::time::Duration::from_millis(150)).await;
-            let callback = this.update_in(cx, |this, window, _| {
-                let callback = activation_callback(this, window);
-                PAINTED.lock().unwrap().clear();
-                navigation_resize_test::FROZEN.store(true, Ordering::SeqCst);
-                if COMPACT.load(Ordering::SeqCst) { navigation_resize_test::resize("1120", "760"); }
-                else { navigation_resize_test::resize("360", "480"); }
-                callback
-            }).unwrap();
-            for returned in [false, true] {
-                executor.timer(std::time::Duration::from_millis(200)).await;
-                this.update_in(cx, |this, window, cx| {
-                    let compact = COMPACT.load(Ordering::SeqCst) == returned;
-                    assert_eq!(window.viewport_size().width, if compact { px(360.) } else { px(1120.) });
-                    assert!(PAINTED.lock().unwrap().is_empty(), "Configure must not repaint while suspended");
-                    this.list_focus.focus(window);
-                    let before = ACTIVATIONS[0].load(Ordering::SeqCst);
-                    callback(this, window, cx);
-                    assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "old painted source activated on native Configure");
-                    assert!(this.list_focus.is_focused(window));
-                    assert!(history(this));
-                    eprintln!("actual native Configure returned={returned}, viewport={:?}, no intermediate paint, callback rejected", window.viewport_size());
-                    if !returned {
-                        if COMPACT.load(Ordering::SeqCst) { navigation_resize_test::resize("360", "480"); }
-                        else { navigation_resize_test::resize("1120", "760"); }
-                    } else {
-                        navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
-                        cx.notify();
-                    }
-                }).unwrap();
-            }
-            executor.timer(std::time::Duration::from_millis(200)).await;
-            this.update_in(cx, |this, window, cx| {
-                let before = ACTIVATIONS[0].load(Ordering::SeqCst);
-                callback(this, window, cx);
-                assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before);
-                activation_callback(this, window)(this, window, cx);
-                assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before + 1);
-                assert!(history(this));
-                cx.notify();
-            }).unwrap();
-            executor.timer(std::time::Duration::from_millis(200)).await;
-            this.update_in(cx, |this, window, cx| {
-                assert!(history(this));
-                assert!(this.unread_focus.is_focused(window));
-                let bounds = PAINTED.lock().unwrap()["unread"];
-                assert!(bounds.size.width > px(0.) && bounds.bottom() <= window.viewport_size().height);
-                preserve_drafts_and_capture(this, &scopes, window, cx, "pointer-native-return");
-                cx.quit();
-            }).unwrap();
-            return;
-        }
         if DYNAMIC.load(Ordering::SeqCst) == 16 {
             // List/chat seam: room list -> footer Devices, Notifications -> Info -> chat entry, and back.
             let chat = CHAT.load(Ordering::SeqCst);
@@ -701,7 +488,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert_eq!(this.compact_chat, chat);
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                     assert_eq!(this.active_scope, scopes[0]);
-                    assert!(!this.theme.is_dark() && !this.sidebar.unread_only());
+                    assert!(!this.theme.is_dark());
                     assert!(history(this));
                     this.composer.update(cx, |v, cx| {
                         let mut actual = None;
@@ -722,12 +509,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let cases: &[(bool, bool, &str)] = &[
                 (true, false, "lens"), (true, false, "info"), (true, false, "entry"),
-                (true, false, "unread"), (true, false, "search"), (true, false, "list"),
+                (true, false, "search"), (true, false, "list"),
                 (true, true, "info"), (true, true, "entry"),
                 (false, true, "lens"), (false, true, "info"), (false, true, "entry"),
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 (false, true, "back"),
-                (false, false, "unread"), (false, false, "search"), (false, false, "list"),
+                (false, false, "search"), (false, false, "list"),
             ];
             let size = |wide: bool| if wide { ("1120", "760") } else { ("360", "480") };
             for &(wide, chat, start) in cases {
@@ -735,14 +522,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
                 navigation_resize_test::resize(size(wide).0, size(wide).1);
                 wait(300).await;
-                let callbacks = this.update_in(cx, |this, window, cx| {
+                this.update_in(cx, |this, window, cx| {
                     assert_eq!(window.viewport_size().width >= px(800.), wide);
                     this.list_focus.focus(window); // no leftover chat-entry focus may pick the page
                     this.navigation_wide = wide;
                     this.set_compact_chat(chat);
                     cx.notify();
-                    // The unread filter is only painted where the sidebar is visible.
-                    (wide || !chat).then(|| activation_callback(this, window))
                 }).unwrap();
                 wait(200).await;
                 let retired = this.update_in(cx, |this, window, cx| {
@@ -768,15 +553,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     if ring_visible(start, !wide, chat) {
                         assert_eq!(landed, start, "{start} stays visible and must keep focus");
                     }
-                    // Retired callbacks: nothing opens, nothing is activated, nothing is sent.
-                    let before = ACTIVATIONS[0].load(Ordering::SeqCst);
+                    // Retired callbacks: nothing opens, nothing is sent.
                     let draft_before = this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) });
-                    for callback in callbacks.iter() { callback(this, window, cx); }
                     for intent in retired.into_iter().flatten() {
                         let hidden = this.opener_ui.source(intent.control) != Some(intent.source);
                         if hidden { this.apply_opener(intent, window, cx); }
                     }
-                    assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "retired unread callback acted");
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "retired opener opened a panel");
                     assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }), draft_before);
                     assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }).as_deref(), Some(DRAFTS[0]), "draft must be intact, nothing sent");
@@ -805,10 +587,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // A light/dark change with focus on each ring control keeps the focus target, room, history and drafts.
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             let mut cases: Vec<(bool, bool, &str)> = vec![];
-            for label in ["list", "search", "unread", "lens", "info", "entry"] {
+            for label in ["list", "search", "lens", "info", "entry"] {
                 cases.push((true, false, label));
             }
-            for label in ["list", "search", "unread"] {
+            for label in ["list", "search"] {
                 cases.push((false, false, label));
             }
             for label in ["lens", "info", "entry", #[cfg(all(feature = "linux-a11y", target_os = "linux"))] "back"] {
@@ -828,13 +610,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     cx.notify();
                 }).unwrap();
                 wait(200).await;
-                let (callback, intents) = this.update_in(cx, |this, window, cx| {
+                let intents = this.update_in(cx, |this, _, cx| {
                     use matrix_desktop::panel_openers::{Control, Intent};
-                    let callback = activation_callback(this, window);
                     let intents = Control::ALL.map(|control| this.opener_ui.source(control).map(|source| Intent { control, source, focus_only: false }));
                     this.set_compact_chat(chat);
                     cx.notify();
-                    (callback, intents)
+                    intents
                 }).unwrap();
                 wait(200).await;
                 let dark_before = this.update_in(cx, |this, window, cx| {
@@ -854,22 +635,16 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert_eq!(landed, start, "focus must survive the repaint of the new theme");
                     assert_eq!(this.theme.is_dark(), !dark_before);
                     assert_eq!(this.compact_chat, chat);
-                    // Hidden sidebar callbacks and openers stay inert after the theme change.
-                    let before = ACTIVATIONS[0].load(Ordering::SeqCst);
+                    // Hidden openers stay inert after the theme change.
                     let draft_before = this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) });
-                    if !wide && chat {
-                        callback(this, window, cx);
-                    }
                     for intent in intents.into_iter().flatten() {
                         if this.opener_ui.source(intent.control) != Some(intent.source) { this.apply_opener(intent, window, cx); }
                     }
-                    assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "hidden callback acted after theme change");
                     assert!(!this.room_details_open && !this.notifications_open && !this.verification_open, "hidden opener opened a panel");
                     assert_eq!(this.composer.update(cx, |v, cx| { let mut a = None; v.text_for_range(0..65536, &mut a, window, cx) }), draft_before);
                     assert_eq!(draft_before.as_deref(), Some(DRAFTS[0]), "draft must be intact, nothing sent");
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                     assert_eq!(this.active_scope, scopes[0]);
-                    assert!(!this.sidebar.unread_only());
                     assert!(history(this));
                     assert_eq!(ring_label(this, window, cx), start);
                     this.toggle_theme(cx); // back to the starting theme for the next case
@@ -890,11 +665,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         if DYNAMIC.load(Ordering::SeqCst) == 18 {
             // Filter and room switch, then the empty and selected-hidden list modes keep a deterministic ring.
             let empty = EMPTY.load(Ordering::SeqCst);
-            // The painted unread-filter callback is captured while still visible; the filter change retires them.
             executor.timer(std::time::Duration::from_millis(300)).await;
-            let painted = this.update_in(cx, |this, window, _| activation_callback(this, window)).unwrap();
             this.update_in(cx, |this, window, cx| {
                 let name = this.sidebar.rooms()[1].name.clone();
+                let other_name = name.clone();
                 this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope: scopes[1].clone(), name, unread: 3, info: Default::default(),
                 })));
@@ -903,11 +677,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 this.sync_room(cx);
                 assert!(this.sidebar.select(&scopes[0]));
                 this.sync_room(cx);
-                if empty {
-                    this.sidebar.set_query("no matches ");
-                } else {
-                    this.sidebar.set_filter(this.sidebar.filter().with_unread(true));
-                }
+                // The search leaves exactly the other room visible; the selected one stays hidden.
+                this.sidebar.set_query(if empty { "no matches " } else { &other_name });
                 assert_eq!(this.sidebar.visible_indices().len(), if empty { 0 } else { 1 });
                 this.list_focus.focus(window);
                 cx.notify();
@@ -920,15 +691,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 let other_scope = scopes[1].clone();
                 move |this: &Shell| active(this.timeline.as_ref().unwrap()) && saved(&this.saved_timelines[&other_scope])
             }).unwrap();
-            this.update_in(cx, |this, window, cx| {
-                let before = ACTIVATIONS[0].load(Ordering::SeqCst);
-                let unread = this.sidebar.unread_only();
-                painted(this, window, cx);
-                assert!(this.list_focus.is_focused(window), "retired callbacks must not steal focus");
-                assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before, "retired callback must not act");
-                assert!(!this.theme.is_dark() && this.sidebar.unread_only() == unread);
+            this.update_in(cx, |this, window, _| {
+                assert!(this.list_focus.is_focused(window));
+                assert!(!this.theme.is_dark());
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
-                eprintln!("hidden-ring empty={empty}: retired unread callback inert");
             }).unwrap();
             let steps = [
                 ("tab", "lens"), ("tab", "info"), ("tab", "entry"),
@@ -1040,7 +806,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert_eq!(this.compact_chat, chat);
                     assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                     assert_eq!(this.active_scope, scopes[0]);
-                    assert!(!this.theme.is_dark() && !this.sidebar.unread_only());
+                    assert!(!this.theme.is_dark());
                     assert!(history(this));
                     if !empty {
                         this.composer.update(cx, |v, cx| {
@@ -1059,110 +825,6 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 preserve_drafts_and_capture(this, &scopes, window, cx, if chat { "ring-chat" } else if empty { "ring-empty" } else { "ring-wide" });
                 cx.quit();
             }).unwrap();
-            return;
-        }
-        if DYNAMIC.load(Ordering::SeqCst) == 7 {
-            executor.timer(std::time::Duration::from_millis(250)).await;
-            {
-                this.update_in(cx, |this, window, _| { this.filter_cursor = matrix_desktop::FilterId::Unread; this.unread_focus.focus(window) }).unwrap();
-                executor.timer(std::time::Duration::from_millis(120)).await;
-                for key in ["space", "enter"] {
-                    let before = ACTIVATIONS[0].load(Ordering::SeqCst);
-                    // A release without a matching press must not activate a painted control.
-                    native_key(key, false);
-                    executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, _, _| {
-                        assert!(!this.sidebar.unread_only(), "unmatched release activated Unread");
-                    }).unwrap();
-                    let downs_before = KEYDOWNS.load(Ordering::SeqCst);
-                    native_key(key, true);
-                    for wait in [100, 900, 150] {
-                        executor.timer(std::time::Duration::from_millis(wait)).await;
-                        this.update_in(cx, |this, _, _| {
-                            assert!(!this.sidebar.unread_only(), "press/repeat activated Unread before release");
-                            assert!(history(this));
-                        }).unwrap();
-                    }
-                    assert!(KEYDOWNS.load(Ordering::SeqCst) >= downs_before + 2, "private X server must deliver actual held-repeat keydowns");
-                    native_key(key, false);
-                    executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, window, cx| {
-                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), before + 1, "exactly one actual callback activation per gesture");
-                        eprintln!("current release {key}: exact callback count {} -> {}", before, before+1);
-                        assert!(this.sidebar.unread_only(), "completed gesture must activate Unread once");
-                        this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
-                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("release-{key}"));
-                        cx.notify();
-                    }).unwrap();
-                    executor.timer(std::time::Duration::from_millis(120)).await;
-                    let stale_before = ACTIVATIONS[0].load(Ordering::SeqCst);
-                    native_key(key, true);
-                    executor.timer(std::time::Duration::from_millis(100)).await;
-                    if std::env::var("P110_RESIZE").as_deref() == Ok("1") {
-                        this.update_in(cx, |_, _, _| {
-                            PAINTED.lock().unwrap().clear();
-                            navigation_resize_test::FROZEN.store(true, Ordering::SeqCst);
-                            if COMPACT.load(Ordering::SeqCst) { navigation_resize_test::resize("1120", "760"); } else { navigation_resize_test::resize("360", "480"); }
-                        }).unwrap();
-                        executor.timer(std::time::Duration::from_millis(200)).await;
-                        this.update_in(cx, |_, window, _| {
-                            assert_eq!(window.viewport_size().width, if COMPACT.load(Ordering::SeqCst) { px(1120.) } else { px(360.) });
-                            if COMPACT.load(Ordering::SeqCst) { navigation_resize_test::resize("360", "480"); } else { navigation_resize_test::resize("1120", "760"); }
-                        }).unwrap();
-                        executor.timer(std::time::Duration::from_millis(200)).await;
-                        this.update_in(cx, |this, window, cx| {
-                            assert_eq!(window.viewport_size().width, if COMPACT.load(Ordering::SeqCst) { px(360.) } else { px(1120.) });
-                            assert!(!PAINTED.lock().unwrap().contains_key("unread"), "no intermediate sidebar paint allowed");
-                            assert!(this.pending_sidebar_key.is_some(), "retain retired press until release");
-                            eprintln!("real Configure away/back with paint suspended: {:?}", window.viewport_size());
-                            navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
-                            this.filter_cursor = matrix_desktop::FilterId::Unread;
-                            this.unread_focus.focus(window);
-                            cx.notify();
-                        }).unwrap();
-                        executor.timer(std::time::Duration::from_millis(200)).await;
-                        assert!(PAINTED.lock().unwrap().contains_key("unread"), "reacquire actual fresh callback paint before releasing held key");
-                    } else {
-                        this.update_in(cx, |this, _, cx| {
-                            let transition = std::env::var("P112_TRANSITION").unwrap_or_else(|_| "query".into());
-                            pointer_transition(this, &transition, true);
-                            if std::env::var("P112_RELEASE_HIDDEN").as_deref() != Ok("1") {
-                                pointer_transition(this, &transition, false);
-                            }
-                            cx.notify();
-                        }).unwrap();
-                    }
-                    executor.timer(std::time::Duration::from_millis(900)).await;
-                    native_key(key, false);
-                    executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, _, cx| {
-                        navigation_resize_test::FROZEN.store(false, Ordering::SeqCst);
-                        if std::env::var("P112_RELEASE_HIDDEN").as_deref() == Ok("1") {
-                            let transition = std::env::var("P112_TRANSITION").unwrap();
-                            pointer_transition(this, &transition, false);
-                        }
-                        cx.notify();
-                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), stale_before, "release after source retirement must not activate a replacement");
-                        assert!(!this.sidebar.unread_only());
-                        assert!(history(this));
-                    }).unwrap();
-                    native_key(key, true);
-                    executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, window, cx| { this.search_focus.focus(window); cx.notify(); }).unwrap();
-                    executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, window, cx| { this.filter_cursor = matrix_desktop::FilterId::Unread; this.unread_focus.focus(window); cx.notify(); }).unwrap();
-                    executor.timer(std::time::Duration::from_millis(900)).await;
-                    native_key(key, false);
-                    executor.timer(std::time::Duration::from_millis(100)).await;
-                    this.update_in(cx, |this, window, cx| {
-                        assert_eq!(ACTIVATIONS[0].load(Ordering::SeqCst), stale_before, "release after focus away-back must not activate");
-                        assert!(!this.sidebar.unread_only());
-                        assert!(history(this));
-                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("focus-retired-{key}"));
-                    }).unwrap();
-                }
-            }
-            this.update_in(cx, |_, _, cx| cx.quit()).unwrap();
             return;
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1231,8 +893,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             wait(300).await;
             this.update_in(cx, |this, window, cx| {
                 let click = translate(this, window, accesskit::Action::Click, false, &beta);
-                this.sidebar.set_filter(this.sidebar.filter().with_unread(true));
-                this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
+                bump(&mut this.sidebar);
                 this.apply_semantic_spaces(click, window, cx);
                 assert!(this.sidebar.active_space().is_none(), "choice translated before a revision change activated");
                 let stale = translate(this, window, accesskit::Action::Click, false, &beta);
@@ -1292,8 +953,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, window, cx| {
                 let id = choice_id(this, window, &beta);
                 let (toggle, choice) = (painted_space(TOGGLE), painted_space(id));
-                this.sidebar.set_filter(this.sidebar.filter().with_unread(true));
-                this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
+                bump(&mut this.sidebar);
                 toggle(this, window, cx);
                 assert!(this.spaces_open, "retired toggle changed the menu");
                 choice(this, window, cx);
@@ -1391,8 +1051,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 painted(this, window, cx);
                 assert_eq!(this.sidebar.active_space(), beta.as_ref(), "current painted rail callback must activate its Space once");
                 this.sidebar.set_space(None);
-                this.sidebar.set_filter(this.sidebar.filter().with_unread(true));
-                this.sidebar.set_filter(this.sidebar.filter().with_unread(false));
+                bump(&mut this.sidebar);
                 painted(this, window, cx);
                 assert!(this.sidebar.active_space().is_none(), "rail callback from an older navigation revision activated");
                 cx.notify();
@@ -1434,7 +1093,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             // Rail and compact Spaces activate once per completed key gesture, never on press/repeat or from a retired source.
             let compact = COMPACT.load(Ordering::SeqCst);
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
-            let count = || ACTIVATIONS[1].load(Ordering::SeqCst);
+            let count = || ACTIVATIONS.load(Ordering::SeqCst);
             let entries = this.update_in(cx, |this, _, _| this.sidebar.navigation_entries()).unwrap();
             let (alpha, beta) = (entries[1].scope.clone(), entries[2].scope.clone());
             let account = scopes[0].account_id;
@@ -1469,7 +1128,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     }
                     assert!(KEYDOWNS.load(Ordering::SeqCst) >= downs + 2, "private X server must deliver held-repeat keydowns");
                     match retire {
-                        Some("revision") => this.update_in(cx, |this, _, _| { this.sidebar.set_filter(this.sidebar.filter().with_unread(true)); this.sidebar.set_filter(this.sidebar.filter().with_unread(false)); }).unwrap(),
+                        Some("revision") => this.update_in(cx, |this, _, _| { bump(&mut this.sidebar); }).unwrap(),
                         Some("removed") => this.update_in(cx, |this, _, cx| {
                             this.sidebar.apply_diff(matrix_engine::RoomListDiff::Remove(beta.clone().unwrap()));
                             cx.notify();
@@ -1981,7 +1640,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             let wait = |ms| executor.timer(std::time::Duration::from_millis(ms));
             macro_rules! key { ($k:expr) => { cx.update(|window, cx| { window.dispatch_keystroke(Keystroke::parse($k).unwrap(), cx); }).unwrap() }; }
             let names = |this: &mut Shell, window: &mut Window| -> &'static str {
-                [("menu", &this.menu_focus), ("rail", &this.rail_ui.focus), ("unread", &this.unread_focus), ("search", &this.search_focus), ("list", &this.list_focus), ("spaces", &this.spaces_ui.focus)]
+                [("menu", &this.menu_focus), ("rail", &this.rail_ui.focus), ("search", &this.search_focus), ("list", &this.list_focus), ("spaces", &this.spaces_ui.focus)]
                     .into_iter().find(|(_, h)| h.is_focused(window)).map_or("other", |(n, _)| n)
             };
             this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
@@ -1995,7 +1654,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             eprintln!("TAB-ORDER forward {forward:?}");
             let wide = DYNAMIC.load(Ordering::SeqCst) == 32;
             // menu -> rail entries (+ their edit button) -> list header -> search -> list; compact has no rail but the Spaces strip after the list.
-            let want: &[&str] = if wide { &["menu", "rail", "rail", "rail", "other", "unread"] } else { &["menu", "unread", "search", "list", "spaces", "menu"] };
+            let want: &[&str] = if wide { &["menu", "rail", "rail", "rail", "other", "search"] } else { &["menu", "search", "list", "spaces", "menu", "search"] };
             assert_eq!(forward, want);
             let mut back = vec![];
             this.update_in(cx, |this, window, _| this.menu_focus.focus(window)).unwrap();
@@ -2012,7 +1671,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 key!("shift-tab");
                 assert_eq!(this.update_in(cx, |this, window, _| names(this, window)).unwrap(), "menu");
             } else {
-                assert_eq!(back, ["menu", "spaces", "list", "search", "unread", "menu"]);
+                assert_eq!(back, ["menu", "spaces", "list", "search", "menu", "spaces"]);
             }
             // The button stays reachable (inside the window) and closing the drawer gives focus back to it.
             let menu = { PAINTED.lock().unwrap()["menu-button"] };
@@ -2105,12 +1764,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             if let Some(first) = first {
                 assert!(drawer.left() <= px(0.) && drawer.top() <= px(0.) && drawer.right() >= first.right() && drawer.bottom() >= first.bottom(), "drawer {drawer:?} covers menu {menu:?} and rail {first:?}");
                 let selected = this.update_in(cx, |this, _, _| this.active_scope.clone()).unwrap();
-                let ups = ACTIVATIONS[1].load(Ordering::SeqCst);
+                let ups = ACTIVATIONS.load(Ordering::SeqCst);
                 // Just under the drawer's last row, still over the bottom edge of «Tutte».
                 click!(f32::from(first.center().x), f32::from(first.bottom()) - 3.);
                 wait(500).await;
                 // The point may land on a drawer row (which closes it); either way the rail entry underneath stays untouched.
-                this.update_in(cx, |this, _, _| assert!(this.active_scope == selected && ACTIVATIONS[1].load(Ordering::SeqCst) == ups, "the rail entry under the drawer received the click")).unwrap();
+                this.update_in(cx, |this, _, _| assert!(this.active_scope == selected && ACTIVATIONS.load(Ordering::SeqCst) == ups, "the rail entry under the drawer received the click")).unwrap();
             }
             // The point sits on a drawer row (Notifiche), which closes the drawer and opens its panel: start the outside click from a plain open drawer.
             this.update_in(cx, |this, window, cx| { this.set_notifications_open(false); this.set_settings_open(false, window, cx); this.set_menu_open(false, window, cx); this.set_menu_open(true, window, cx); }).unwrap();
@@ -2710,13 +2369,13 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
-                assert!(this.unread_focus.is_focused(window));
+                assert!(this.search_focus.is_focused(window));
                 this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary { scope: beta, name: "Beta replacement".into(), unread: 0, info: matrix_engine::RoomInfo { is_space: true, ..Default::default() } })));
                 cx.notify();
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
-                assert!(this.unread_focus.is_focused(window), "replacement eligibility must not steal focus back");
+                assert!(this.search_focus.is_focused(window), "replacement eligibility must not steal focus back");
                 assert!(!this.spaces_open);
                 assert_eq!(this.sidebar.active_space(), None);
                 assert!(history(this));
@@ -2742,11 +2401,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 space
             }).unwrap();
             for dark in [false, true] {
-                for (query, unread, group, count) in [("",false,false,300), ("",true,false,1), ("",true,true,1), ("no matches ",true,true,0), ("",false,true,1), ("",false,false,300)] {
+                for (query, group, count) in [("",false,300), ("",true,1), ("no matches ",true,0), ("",false,300)] {
                     this.update_in(cx, |this, _, cx| {
                         if this.theme.is_dark() != dark { this.toggle_theme(cx); }
                         this.sidebar.set_query(query);
-                        this.sidebar.set_filter(this.sidebar.filter().with_unread(unread));
                         this.sidebar.set_space(group.then(|| space.clone()));
                         PAINTED.lock().unwrap().clear();
                         cx.notify();
@@ -2756,13 +2414,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         assert_eq!(this.sidebar.visible_indices().len(), count);
                         assert!(this.list_focus.is_focused(window));
                         assert_eq!(this.sidebar.query(), query);
-                        assert_eq!(this.sidebar.unread_only(), unread);
                         assert_eq!(this.sidebar.active_space(), group.then_some(&space));
                         assert!(history(this));
                         let bounds = PAINTED.lock().unwrap()["list"];
                         assert!(bounds.left() >= px(0.) && bounds.right() <= window.viewport_size().width && bounds.bottom() <= window.viewport_size().height);
-                        eprintln!("painted visible list focus: dark={dark}, query={query:?}, unread={unread}, Space={group}, exact visible={count}, bounds={bounds:?}; hidden selected retained");
-                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("filters-{dark}-{count}-{unread}-{group}"));
+                        eprintln!("painted visible list focus: dark={dark}, query={query:?}, Space={group}, exact visible={count}, bounds={bounds:?}; hidden selected retained");
+                        preserve_drafts_and_capture(this, &scopes, window, cx, &format!("filters-{dark}-{count}-{group}"));
                     }).unwrap();
                 }
             }
@@ -2780,7 +2437,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
                 assert_eq!(window.viewport_size().width, px(1120.));
-                assert!(this.unread_focus.is_focused(window), "native Configure must move hidden compact focus to the visible unread filter before repaint");
+                assert!(this.search_focus.is_focused(window), "native Configure must move hidden compact focus to the visible Search before repaint");
                 this.rail_ui.focus.focus(window);
                 navigation_resize_test::resize("360", "480");
                 cx.notify();
@@ -2823,7 +2480,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
                 assert!(this.list_focus.is_focused(window));
-                for label in ["unread", "search", "list"] {
+                for label in ["search", "list"] {
                     let bounds = PAINTED.lock().unwrap()[label];
                     assert!(bounds.left() >= px(72.) && bounds.right() <= window.viewport_size().width && bounds.bottom() <= window.viewport_size().height);
                     eprintln!("fresh post-Configure desktop {label} bounds={bounds:?}, native focus=list");
@@ -2896,12 +2553,12 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             }).unwrap();
             executor.timer(std::time::Duration::from_millis(250)).await;
             this.update_in(cx, |this, window, cx| {
-                assert!(this.unread_focus.is_focused(window), "last joined Space removal must reach the visible unread filter, not hidden menu");
+                assert!(this.search_focus.is_focused(window), "last joined Space removal must reach the visible Search, not hidden menu");
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                 assert_eq!(this.active_scope, scopes[0]);
                 assert_eq!(this.sidebar.active_space(), None);
                 assert!(history(this));
-                eprintln!("compact: removed preceding choice retains Beta; last Space removal focuses the unread filter without activation");
+                eprintln!("compact: removed preceding choice retains Beta; last Space removal focuses Search without activation");
                 preserve_drafts_and_capture(this, &scopes, window, cx, &format!("dynamic{}", DYNAMIC.load(Ordering::SeqCst)));
                 cx.quit();
             }).unwrap();
@@ -2929,31 +2586,26 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             return;
         }
         let steps = if COMPACT.load(Ordering::SeqCst) && OPEN.load(Ordering::SeqCst) {
-            vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "list"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "menu"), ("tab", "unread"), ("tab", "search"), ("tab", "list")]
+            vec![("shift-tab", "space3"), ("shift-tab", "space2"), ("shift-tab", "space1"), ("shift-tab", "space0"), ("shift-tab", "list"), ("tab", "space0"), ("tab", "space1"), ("tab", "space2"), ("tab", "space3"), ("tab", "menu"), ("tab", "search"), ("tab", "list")]
         } else if !COMPACT.load(Ordering::SeqCst) && SPACES.load(Ordering::SeqCst) {
-            vec![("tab", "edit"), ("shift-tab", "rail2"), ("shift-tab", "rail1"), ("shift-tab", "rail0"), ("tab", "rail1"), ("tab", "rail2"), ("tab", "edit"), ("tab", "unread"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "edit"), ("shift-tab", "rail2")]
+            vec![("tab", "edit"), ("shift-tab", "rail2"), ("shift-tab", "rail1"), ("shift-tab", "rail0"), ("tab", "rail1"), ("tab", "rail2"), ("tab", "edit"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "edit"), ("shift-tab", "rail2")]
         } else if COMPACT.load(Ordering::SeqCst) {
             if CONNECTED.load(Ordering::SeqCst) {
-                vec![("tab", "unread"), ("tab", "search"), ("tab", "list"), ("tab", "space0"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "menu"), ("shift-tab", "space0"), ("tab", "menu")]
+                vec![("tab", "search"), ("tab", "list"), ("tab", "space0"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "menu"), ("shift-tab", "space0"), ("tab", "menu")]
             } else {
                 vec![("tab", "search"), ("tab", "list"), ("tab", "menu"), ("shift-tab", "list"), ("shift-tab", "search"), ("shift-tab", "menu")]
             }
         } else if CONNECTED.load(Ordering::SeqCst) {
-            vec![("tab", "edit"), ("tab", "unread"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "unread"), ("shift-tab", "edit"), ("shift-tab", "rail")]
+            vec![("tab", "edit"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "edit"), ("shift-tab", "rail")]
         } else {
             vec![("tab", "edit"), ("tab", "search"), ("tab", "list"), ("shift-tab", "search"), ("shift-tab", "edit"), ("shift-tab", "rail")]
         };
         for (key, expected) in steps {
-            if key == "tab" && expected == "search" {
-                // Open «Gruppi» menu: Tab out of the filter row must close it.
-                this.update_in(cx, |this, _, cx| { this.groups_menu = Some(0); cx.notify(); }).unwrap();
-            }
             cx.update(|window, cx| {
                 window.dispatch_keystroke(Keystroke::parse(key).unwrap(), cx);
             }).unwrap();
             this.update_in(cx, |this, window, cx| {
                 let focused = match expected {
-                    "unread" => this.unread_focus.is_focused(window),
                     "menu" => this.menu_focus.is_focused(window),
                     "edit" => this.rail_ui.edit_focus.is_focused(window),
                     "search" => this.search_focus.is_focused(window),
@@ -2974,11 +2626,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     },
                     _ => unreachable!(),
                 };
-                assert!(this.groups_menu.is_none(), "{key} must close the Gruppi menu");
                 assert!(focused, "{key} must reach {expected} through actual Shell dispatch (focus is on {})", ring_label(this, window, cx));
                 assert_eq!(this.sidebar.selected().unwrap().scope, scopes[0]);
                 assert_eq!(this.active_scope, scopes[0]);
-                assert!(!this.theme.is_dark() && !this.sidebar.unread_only());
+                assert!(!this.theme.is_dark());
                 assert_eq!(this.sidebar.active_space(), None);
                 assert_eq!(this.spaces_open, OPEN.load(Ordering::SeqCst));
                 assert!(!this.compact_chat);
@@ -3103,7 +2754,7 @@ fn closed_compact_menu_reclassification_and_replacement_keep_visible_focus() {
 
 #[test]
 #[ignore = "requires private display"]
-fn combined_filters_keep_visible_list_focus_and_hidden_conversation() {
+fn search_and_space_keep_visible_list_focus_and_hidden_conversation() {
     assert_eq!(
         std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
         Ok("1")
@@ -3117,7 +2768,7 @@ fn combined_filters_keep_visible_list_focus_and_hidden_conversation() {
 
 #[test]
 #[ignore = "requires private display"]
-fn compact_combined_filters_keep_visible_list_focus_and_hidden_conversation() {
+fn compact_search_and_space_keep_visible_list_focus_and_hidden_conversation() {
     assert_eq!(
         std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
         Ok("1")
@@ -3192,58 +2843,6 @@ fn retired_desktop_space_focus_falls_back_to_all_without_activation() {
     crate::main();
 }
 
-#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-#[test]
-#[ignore = "requires private display"]
-fn translated_theme_unread_intents_reject_retired_sources() {
-    assert_eq!(
-        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
-        Ok("1")
-    );
-    COMPACT.store(
-        std::env::var("P110_COMPACT").as_deref() == Ok("1"),
-        Ordering::SeqCst,
-    );
-    DYNAMIC.store(9, Ordering::SeqCst);
-    CONNECTED.store(true, Ordering::SeqCst);
-    ACTIVE.store(true, Ordering::SeqCst);
-    crate::main();
-}
-
-#[test]
-#[ignore = "requires private display"]
-fn theme_unread_pointer_callbacks_reject_retired_sources() {
-    assert_eq!(
-        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
-        Ok("1")
-    );
-    COMPACT.store(
-        std::env::var("P110_COMPACT").as_deref() == Ok("1"),
-        Ordering::SeqCst,
-    );
-    DYNAMIC.store(8, Ordering::SeqCst);
-    CONNECTED.store(true, Ordering::SeqCst);
-    ACTIVE.store(true, Ordering::SeqCst);
-    crate::main();
-}
-
-#[test]
-#[ignore = "requires private display"]
-fn theme_unread_require_completed_current_keyboard_gestures() {
-    assert_eq!(
-        std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
-        Ok("1")
-    );
-    COMPACT.store(
-        std::env::var("P110_COMPACT").as_deref() == Ok("1"),
-        Ordering::SeqCst,
-    );
-    DYNAMIC.store(7, Ordering::SeqCst);
-    CONNECTED.store(true, Ordering::SeqCst);
-    ACTIVE.store(true, Ordering::SeqCst);
-    crate::main();
-}
-
 #[test]
 #[ignore = "requires private display"]
 fn desktop_sidebar_tab_segment_is_bidirectional_without_changing_conversation() {
@@ -3257,7 +2856,7 @@ fn desktop_sidebar_tab_segment_is_bidirectional_without_changing_conversation() 
 
 #[test]
 #[ignore = "requires private display"]
-fn connected_sidebar_includes_unread_without_activating_it() {
+fn connected_sidebar_tab_ring_without_activating_anything() {
     assert_eq!(
         std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
         Ok("1")
@@ -3310,7 +2909,7 @@ fn connected_compact_open_spaces_traverse_all_visible_choices() {
 
 #[test]
 #[ignore = "requires private display"]
-fn desktop_joined_spaces_traverse_without_changing_filter_or_conversation() {
+fn desktop_joined_spaces_traverse_without_changing_conversation() {
     assert_eq!(
         std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(),
         Ok("1")

@@ -97,7 +97,7 @@ fn navigation_revision_retires_actions_after_conversation_away_back() {
 }
 
 #[test]
-fn navigation_revision_retires_actions_after_filter_away_back() {
+fn navigation_revision_retires_actions_after_search_away_back() {
     let mut sidebar = Sidebar::demo(AccountId::new(7));
     let initial = sidebar.navigation_revision();
     sidebar.set_query("missing");
@@ -105,10 +105,9 @@ fn navigation_revision_retires_actions_after_filter_away_back() {
     assert_ne!(sidebar.navigation_revision(), initial);
     let current = sidebar.navigation_revision();
     sidebar.set_query("");
-    sidebar.set_filter(sidebar.filter().with_unread(false));
     assert_eq!(sidebar.navigation_revision(), current);
-    sidebar.set_filter(sidebar.filter().with_unread(true));
-    sidebar.set_filter(sidebar.filter().with_unread(false));
+    sidebar.set_query("missing");
+    sidebar.set_query("");
     assert_ne!(sidebar.navigation_revision(), current);
 }
 
@@ -130,4 +129,27 @@ fn sidebar_fixture_has_300_stable_account_scoped_rooms() {
     assert_eq!(a.rooms()[0].name, "Laboratorio UI");
     assert_eq!(a.rooms()[299].name, "Stanza demo 300");
     assert_eq!(a.selected().unwrap().scope, a.rooms()[0].scope);
+}
+
+#[test]
+fn pinned_and_low_priority_rows_are_named_and_ordered_for_screen_readers() {
+    use matrix_desktop::accessibility::RoomNodes;
+    use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
+    let account = AccountId::new(5);
+    let mut sidebar = Sidebar::connected(account);
+    for (id, tag, order) in [("low", Some("m.lowpriority"), None), ("plain", None, None), ("pin", Some("m.favourite"), Some(0.5f64))] {
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+            scope: RoomScope { account_id: account, room_id: RoomId::new(format!("!{id}:t")) },
+            name: id.into(),
+            unread: 0,
+            info: RoomInfo {
+                tags: tag.map(|t| vec![t.to_owned()]).unwrap_or_default(),
+                favourite_order: order.map(f64::to_bits),
+                ..Default::default()
+            },
+        })));
+    }
+    let rooms = RoomNodes::default().project(&sidebar);
+    let seen: Vec<_> = rooms.iter().map(|r| (r.name.as_str(), r.mark)).collect();
+    assert_eq!(seen, [("pin", Some("Fissata")), ("plain", None), ("low", Some("Bassa priorità"))]);
 }

@@ -15,7 +15,6 @@ fn snapshot(visible: bool) -> NavigationSnapshot {
         operation_panel: None,
         spaces: None,
         navigation_revision: 0,
-        unread_filter: None,
         devices: Default::default(),
         settings: None,
         about: None,
@@ -34,57 +33,6 @@ fn snapshot(visible: bool) -> NavigationSnapshot {
         list_focused: false,
         composer: None,
     }
-}
-
-#[test]
-fn unread_handle_retires_when_the_sidebar_revision_changes() {
-    let mut view = snapshot(true);
-    view.unread_filter = Some(matrix_desktop::accessibility::filters::UnreadFilter {
-        account: matrix_domain::AccountId::new(1),
-        revision: 0,
-        checked: false,
-        focused: false,
-        bounds: None,
-        name: "Non lette".into(),
-        buttons: vec![],
-    });
-    let mut session = SemanticSession::new(view.clone());
-    let id = session
-        .tree()
-        .nodes
-        .into_iter()
-        .find(|(_, n)| n.label() == Some("Non lette"))
-        .unwrap()
-        .0;
-    view.navigation_revision += 1;
-    view.unread_filter.as_mut().unwrap().revision += 1;
-    session.update(view.clone());
-    for action in [Action::Focus, Action::Click] {
-        assert!(
-            session
-                .action(&ActionRequest {
-                    action,
-                    target_tree: TreeId::ROOT,
-                    target_node: id,
-                    data: None
-                })
-                .is_none(),
-            "retired native Unread path must not translate fresh intents"
-        );
-    }
-    view.navigation_revision += 1;
-    view.unread_filter.as_mut().unwrap().revision += 1;
-    session.update(view);
-    assert_ne!(
-        session
-            .tree()
-            .nodes
-            .into_iter()
-            .find(|(_, n)| n.label() == Some("Non lette"))
-            .unwrap()
-            .0,
-        id
-    );
 }
 
 fn composer_snapshot(room: &str) -> NavigationSnapshot {

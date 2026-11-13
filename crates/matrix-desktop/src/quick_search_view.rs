@@ -468,11 +468,10 @@ impl Shell {
         self.open_scope(scope, window, cx);
     }
 
-    /// Opens a room the account already has: lifts the filters that would hide it.
+    /// Opens a room the account already has: lifts the search that would hide it.
     pub(crate) fn open_scope(&mut self, scope: RoomScope, window: &mut Window, cx: &mut Context<Self>) {
         if !self.sidebar.select(&scope) {
-            // Hidden by the unread or text filter: lift them rather than not opening.
-            self.sidebar.set_filter(self.sidebar.filter().with_unread(false));
+            // Hidden by the text search: lift it rather than not opening.
             self.sidebar.set_query("");
             self.sidebar.select(&scope);
         }
