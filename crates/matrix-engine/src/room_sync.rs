@@ -1520,11 +1520,13 @@ pub(crate) fn latest_event_ts(latest: &matrix_sdk_ui::timeline::LatestEventValue
     }
 }
 
-/// Name shown in the room list: the SDK-computed display name, the raw id only as a last resort.
+/// Name shown in the room list: the SDK-computed display name; «Stanza vuota» for an unnamed room with
+/// nobody else in it (SDK `Empty`), the raw id only as a last resort.
 fn room_label(name: Option<matrix_sdk::RoomDisplayName>, id: &str) -> String {
     use matrix_sdk::RoomDisplayName as N;
     match name {
         Some(N::Named(n) | N::Aliased(n) | N::Calculated(n) | N::EmptyWas(n)) if !n.is_empty() => n,
+        Some(N::Empty) => "Stanza vuota".to_owned(),
         _ => id.to_owned(),
     }
 }

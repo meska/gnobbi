@@ -217,7 +217,7 @@ fn room_label_prefers_the_computed_name_and_uses_the_id_last() {
         "Anna, Luca"
     );
     assert_eq!(room_label(Some(N::EmptyWas("Anna".into())), id), "Anna");
-    assert_eq!(room_label(Some(N::Empty), id), id);
+    assert_eq!(room_label(Some(N::Empty), id), "Stanza vuota");
     assert_eq!(room_label(None, id), id);
 }
 
