@@ -45,6 +45,12 @@ impl RoomEdit {
         if i == 1 { text.trim_end() } else { text.trim() }.to_owned()
     }
 
+    /// Pretends the room already has this topic (the fixture room has none).
+    #[cfg(test)]
+    pub(crate) fn set_original_topic(&mut self, topic: &str) {
+        self.original[1] = topic.to_owned();
+    }
+
     fn name_blank(&self, cx: &gpui::App) -> bool {
         self.rights.name && self.text(0, cx).is_empty() && !self.original[0].is_empty()
     }

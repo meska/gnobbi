@@ -70,6 +70,8 @@ mod details_panel_test;
 #[cfg(test)]
 mod dialog_typing_test;
 #[cfg(test)]
+mod room_topic_test;
+#[cfg(test)]
 mod quick_answer_test;
 #[cfg(test)]
 mod ink_test;

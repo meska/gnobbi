@@ -22,6 +22,8 @@ pub struct LoginField {
     pub focus: FocusHandle,
     layout: Option<TextLayout>,
     #[cfg(test)]
+    painted_box: Option<Bounds<Pixels>>,
+    #[cfg(test)]
     pub painted_pointer: Option<PaintedPointer>,
     #[cfg(test)]
     pub painted_key: Option<PaintedKey>,
@@ -30,6 +32,11 @@ pub struct LoginField {
 }
 
 impl LoginField {
+    /// Visible box and wrapped text bounds as last painted (tests only).
+    #[cfg(test)]
+    pub(crate) fn painted(&self) -> Option<(Bounds<Pixels>, Bounds<Pixels>)> {
+        Some((self.painted_box?, self.layout.as_ref()?.bounds()))
+    }
     /// Wrapped text area: Enter is a new line, Cmd/Ctrl+Enter bubbles up to confirm.
     pub fn multiline(cx: &mut Context<Self>) -> Self {
         let mut field = Self::new(false, cx);
@@ -48,6 +55,8 @@ impl LoginField {
             },
             focus: cx.focus_handle(),
             layout: None,
+            #[cfg(test)]
+            painted_box: None,
             #[cfg(test)]
             painted_pointer: None,
             #[cfg(test)]
@@ -292,6 +301,8 @@ impl Render for LoginField {
                             ));
                         }
                         entity.update(cx, |this, _| this.layout = Some(layout.clone()));
+                        #[cfg(test)]
+                        entity.update(cx, |this, _| this.painted_box = Some(bounds));
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         {
                             let scale = f64::from(window.scale_factor());

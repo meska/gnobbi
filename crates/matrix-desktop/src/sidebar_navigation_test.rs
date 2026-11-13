@@ -2058,6 +2058,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             crate::dialog_typing_test::scenario(n, this, cx, executor).await;
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 100 {
+            crate::room_topic_test::scenario(this, cx, executor).await;
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 96 {
             crate::quick_answer_test::scenario(this, cx, executor).await;
             return;
@@ -3875,6 +3879,7 @@ dialog_typing_test!(dialog_typing_modifica_stanza, 92);
 dialog_typing_test!(dialog_typing_nuova_stanza, 93);
 dialog_typing_test!(dialog_typing_rinomina_dispositivo, 94);
 dialog_typing_test!(dialog_typing_crea_sondaggio, 95);
+dialog_typing_test!(room_topic_multiline, 100);
 
 #[test]
 #[ignore = "requires private display"]

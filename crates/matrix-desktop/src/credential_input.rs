@@ -300,6 +300,17 @@ mod multiline_tests {
     }
 
     #[test]
+    fn three_lines_round_trip_and_size_cap() {
+        let mut topic = LoginInput::multiline();
+        assert!(topic.replace(None, "  uno \ndue\ntre"));
+        assert_eq!(topic.display_text(), "  uno \ndue\ntre", "leading and inner spaces untouched");
+        assert!(topic.replace(Some(0..topic.display_text().encode_utf16().count()), &"x".repeat(32768)));
+        assert!(!topic.replace(None, "y"), "32 KB is the cap");
+        let mut other = LoginInput::multiline();
+        assert!(!other.replace(None, &"x".repeat(32769)));
+    }
+
+    #[test]
     fn home_end_stay_on_the_line() {
         let mut topic = LoginInput::multiline();
         topic.replace(None, "ab\ncde\nf");
