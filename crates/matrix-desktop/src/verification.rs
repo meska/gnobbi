@@ -372,7 +372,7 @@ impl DeviceVerification {
                 account_id,
                 devices,
             } if account_id == self.account => {
-                // The engine sends a fresh list only after a successful sign-out.
+                // Fallback only: the engine sends DeviceDeleted first, so a list without the device is not needed to close.
                 if self.delete.as_ref().is_some_and(|d| d.busy && !devices.iter().any(|x| x.device_id == d.device_id)) {
                     self.delete = None;
                 }
@@ -759,7 +759,13 @@ mod profile_tests {
         assert!(v.devices.iter().all(|d| d.device_id != "OLD"));
         v.apply(list(&["OWN", "OLD"]));
         assert!(v.open_delete(1));
-        // success: the refreshed list no longer has the device
+        // success: DeviceDeleted closes the dialog even if the next list is stale and still holds the device
+        assert!(v.submit_delete(pw()));
+        v.pending = None;
+        v.apply(VerificationEvent::DeviceDeleted { account_id: a, device_id: "OLD".into() });
+        assert!(v.delete_dialog().is_none());
+        v.apply(list(&["OWN", "OLD"]));
+        assert!(v.open_delete(1));
         assert!(v.submit_delete(pw()));
         v.pending = None;
         v.apply(list(&["OWN", "OLD"])); // unrelated refresh while busy keeps the dialog
