@@ -295,6 +295,10 @@ impl Shell {
             cx.notify();
             return;
         }
+        // A refused submit (empty field, request in flight) leaves the text alone.
+        if !self.verification.can_submit_delete(!field.read(cx).input.display_text().is_empty()) {
+            return;
+        }
         // The field is emptied right here; the password only travels inside the command.
         let password = field.update(cx, |f, _| f.input.take());
         self.verification.submit_delete(password);
@@ -309,6 +313,10 @@ impl Shell {
         };
         let field = self.delete_field.clone()?;
         field.update(cx, |f, _| f.theme = t);
+        let refocus = self.verification.delete_dialog().is_some_and(|d| d.take_refocus());
+        let filled = !field.read(cx).input.display_text().is_empty();
+        let confirm_color = if busy || (confirm == "Disconnetti" && !filled) { t.disabled } else if confirm == "Salva" { t.accent } else { t.error };
+        let focus_field = field.read(cx).focus.clone();
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let focus = self.device_focus;
         let button = |id: &'static str, label: &'static str, color: u32| {
@@ -330,10 +338,11 @@ impl Shell {
             }))
             .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child(matrix_desktop::row_text::one_line(&title)))
             .child(field)
+            .when(refocus, |d| d.child(gpui::canvas(|_, _, _| (), move |_, _, window, _| focus_field.focus(window)).size_0()))
             .when_some(error, |d, e| d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
             .child(div().flex().justify_end().gap_1()
                 .child(button("device-delete-cancel", "Annulla", t.accent).on_click(cx.listener(|this, _, window, cx| this.close_device_delete(window, cx))))
-                .child(button("device-delete-confirm", confirm, if busy { t.disabled } else if confirm == "Salva" { t.accent } else { t.error })
+                .child(button("device-delete-confirm", confirm, confirm_color)
                     .on_click(cx.listener(|this, _, _, cx| this.submit_device_delete(cx)))));
         Some(crate::menu_view::dialog_shell("device-delete-layer", dialog, 340., t, cx.listener(|this, _, window, cx| this.close_device_delete(window, cx))).into_any_element())
     }

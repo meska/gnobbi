@@ -36,6 +36,14 @@ pub struct DeleteDialog {
     pub name: String,
     pub busy: bool,
     pub error: Option<&'static str>,
+    /// Set by a failed try; the view consumes it once to put the focus back in the (emptied) field.
+    refocus: std::cell::Cell<bool>,
+}
+
+impl DeleteDialog {
+    pub fn take_refocus(&self) -> bool {
+        self.refocus.replace(false)
+    }
 }
 
 /// Open «Rinomina» dialog for this session's device: the one-line outcome of the last try.
@@ -198,6 +206,7 @@ impl DeviceVerification {
             name: device_title(d).to_owned(),
             busy: false,
             error: None,
+            refocus: Default::default(),
         });
         true
     }
@@ -232,12 +241,16 @@ impl DeviceVerification {
         });
         true
     }
+    /// «Disconnetti» is live only with a typed password and no request in flight; the view checks it before emptying the field.
+    pub fn can_submit_delete(&self, has_text: bool) -> bool {
+        has_text && self.pending.is_none() && self.delete.as_ref().is_some_and(|d| !d.busy)
+    }
     /// Queues the sign-out with the password typed now; the password lives only in the command.
     pub fn submit_delete(&mut self, mut password: zeroize::Zeroizing<String>) -> bool {
-        let Some(dialog) = self.delete.as_mut().filter(|d| !d.busy) else { return false };
-        if password.is_empty() || self.pending.is_some() {
+        if !self.can_submit_delete(!password.is_empty()) {
             return false;
         }
+        let Some(dialog) = self.delete.as_mut() else { return false };
         dialog.busy = true;
         dialog.error = None;
         self.pending = Some(VerificationCommand::DeleteDevice {
@@ -390,6 +403,7 @@ impl DeviceVerification {
                 use matrix_engine::verification::DeviceDeleteError::*;
                 if let Some(d) = self.delete.as_mut().filter(|d| d.device_id == device_id) {
                     d.busy = false;
+                    d.refocus.set(true);
                     d.error = Some(match error {
                         Unavailable => "Non disponibile con questo account",
                         WrongPassword => "Password non corretta",
@@ -856,6 +870,8 @@ mod profile_tests {
             let text = v.delete_dialog().unwrap().error.unwrap();
             assert!(!text.contains('\n') && !text.is_empty(), "{text:?}");
         }
+        assert!(!v.can_submit_delete(false), "empty field: button disabled, text kept");
+        assert!(v.can_submit_delete(true));
         assert!(!v.submit_delete(zeroize::Zeroizing::new(String::new())), "empty password");
         assert!(v.submit_delete(zeroize::Zeroizing::new("x".into())));
         assert!(!v.submit_delete(zeroize::Zeroizing::new("x".into())), "no double submit while busy");
