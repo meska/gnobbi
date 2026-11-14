@@ -56,18 +56,27 @@ impl AccountSession {
         device_id: &str,
         password: DevicePassword,
     ) -> Result<(), DeviceDeleteError> {
+        self.delete_devices(&[device_id.to_owned()], password).await
+    }
+
+    /// Same, for several devices in ONE request with ONE authentication (all or nothing).
+    pub async fn delete_devices(
+        &self,
+        device_ids: &[String],
+        password: DevicePassword,
+    ) -> Result<(), DeviceDeleteError> {
         use matrix_sdk::ruma::api::client::uiaa::{AuthData, AuthType, MatrixUserIdentifier, Password, UserIdentifier};
         let client = self.client.as_ref().ok_or(DeviceDeleteError::LoggedOut)?;
         let user_id = client.user_id().ok_or(DeviceDeleteError::LoggedOut)?;
-        if device_id.is_empty() || device_id.len() > 255 || device_id.chars().any(char::is_control)
+        if device_ids.is_empty()
+            || device_ids.iter().any(|id| id.is_empty() || id.len() > 255 || id.chars().any(char::is_control))
         {
             return Err(DeviceDeleteError::InvalidTarget);
         }
-        let device: matrix_sdk::ruma::OwnedDeviceId = device_id.into();
-        if Some(&*device) == client.device_id() {
+        let devices: Vec<matrix_sdk::ruma::OwnedDeviceId> = device_ids.iter().map(|id| id.as_str().into()).collect();
+        if devices.iter().any(|d| Some(&**d) == client.device_id()) {
             return Err(DeviceDeleteError::CurrentDevice);
         }
-        let devices = [device];
         let info = match client.delete_devices(&devices, None).await {
             Ok(_) => return Ok(()),
             Err(error) => match error.as_uiaa_response() {
@@ -452,20 +461,20 @@ pub(crate) async fn run_service(
                         if events.send(VerificationEvent::KeysComplete { account_id, complete }).await.is_err() { break; }
                         Ok(())
                     }
-                    VerificationCommand::DeleteDevice { account_id: requested, device_id, password } if requested == account_id => {
-                        match session.delete_device(&device_id, password).await {
+                    VerificationCommand::DeleteDevice { account_id: requested, device_ids, password } if requested == account_id => {
+                        match session.delete_devices(&device_ids, password).await {
                             Ok(()) => {
                                 // The server accepted the sign-out, but the crypto-store list still holds the device until a later keys query:
                                 // always close the dialog first, then send the list without it.
-                                if events.send(VerificationEvent::DeviceDeleted { account_id, device_id: device_id.clone() }).await.is_err() { break; }
+                                if events.send(VerificationEvent::DeviceDeleted { account_id, device_ids: device_ids.clone() }).await.is_err() { break; }
                                 // A failed re-read is not a verification error: the device is gone.
                                 if let Ok(devices) = device_list(&client).await {
-                                    if events.send(VerificationEvent::Devices { account_id, devices: without_device(devices, &device_id) }).await.is_err() { break; }
+                                    if events.send(VerificationEvent::Devices { account_id, devices: without_devices(devices, &device_ids) }).await.is_err() { break; }
                                 }
                                 Ok(())
                             }
                             Err(error) => {
-                                if events.send(VerificationEvent::DeviceDeleteFailed { account_id, device_id, error }).await.is_err() { break; }
+                                if events.send(VerificationEvent::DeviceDeleteFailed { account_id, device_ids, error }).await.is_err() { break; }
                                 Ok(())
                             }
                         }
@@ -594,8 +603,8 @@ fn valid_device_name(name: &str) -> Result<&str, VerificationError> {
     Ok(name)
 }
 
-fn without_device(mut devices: Vec<VerificationDevice>, device_id: &str) -> Vec<VerificationDevice> {
-    devices.retain(|d| d.device_id != device_id);
+fn without_devices(mut devices: Vec<VerificationDevice>, device_ids: &[String]) -> Vec<VerificationDevice> {
+    devices.retain(|d| !device_ids.contains(&d.device_id));
     devices
 }
 
@@ -665,7 +674,7 @@ mod rename_tests {
     #[test]
     fn deleted_device_is_dropped_from_a_stale_list() {
         let d = |id: &str| describe("@a:x", &[], id.into(), true);
-        let ids: Vec<_> = without_device(vec![d("OLD"), d("KEEP")], "OLD").into_iter().map(|d| d.device_id).collect();
+        let ids: Vec<_> = without_devices(vec![d("OLD"), d("KEEP")], &["OLD".to_owned()]).into_iter().map(|d| d.device_id).collect();
         assert_eq!(ids, ["KEEP"]);
     }
 

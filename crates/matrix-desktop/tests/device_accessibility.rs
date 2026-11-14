@@ -563,3 +563,52 @@ fn rename_button_and_name_dialog_are_reachable() {
     assert_eq!(by(DeviceControl::DialogConfirm).label(), Some("Salva"));
     assert!(matches!(open.action(&click(DeviceControl::DialogConfirm)), Some(DeviceAction::SubmitDelete(a)) if a == account));
 }
+
+#[test]
+fn disconnect_inactive_link_and_dialog_have_labelled_nodes() {
+    use accesskit::{ActionRequest, TreeId};
+    use matrix_desktop::accessibility::devices::{DeviceAction, DeviceNodes, DeviceView};
+    let account = AccountId::new(20);
+    let mut model = DeviceVerification::new(account);
+    let now = matrix_desktop::time_fmt::now_ms();
+    let device = |id: &str, ts: Option<u64>| VerificationDevice {
+        user_id: "@alice:matrix-desktop.test".into(),
+        device_id: id.into(),
+        verified: true,
+        display_name: Some(id.into()),
+        last_seen_ts: ts,
+        last_seen_ip: None,
+    };
+    model.apply(VerificationEvent::Profile { account_id: account, user_id: "@alice:matrix-desktop.test".into(), display_name: None, device_id: Some("OWN".into()), avatar: None });
+    let view = |model: &DeviceVerification| {
+        let rows = DeviceNodes::default().project(account, model);
+        DeviceView::Open(Box::new(DeviceOverview::project(account, model, DeviceControl::Close, [None; 2]).with_devices(rows)))
+    };
+    let DeviceView::Open(panel) = view(&model) else { unreachable!() };
+    assert!(!panel.controls().contains(&DeviceControl::Inactive), "nothing idle: no link");
+    let old = now - 400 * 86_400_000;
+    model.apply(VerificationEvent::Devices { account_id: account, devices: vec![device("OLD", Some(old)), device("UNK", None), device("OWN", Some(old))] });
+    let open = view(&model);
+    let DeviceView::Open(panel) = &open else { unreachable!() };
+    assert!(panel.controls().contains(&DeviceControl::Inactive));
+    let label = |tree: &accesskit::TreeUpdate, c: DeviceControl| tree.nodes.iter().find(|(id, _)| *id == c.id()).unwrap().1.label().map(str::to_owned);
+    assert_eq!(label(&panel.tree(), DeviceControl::Inactive).as_deref(), Some("Disconnetti inattivi"));
+    let click = |c: DeviceControl| ActionRequest { action: Action::Click, target_node: c.id(), target_tree: TreeId::ROOT, data: None };
+    let action = open.action(&click(DeviceControl::Inactive)).expect("click maps");
+    assert!(matches!(action, DeviceAction::OpenInactive(a) if a == account) && open.allows(&action));
+    assert!(model.open_delete_inactive(now));
+    let open = view(&model);
+    let DeviceView::Open(panel) = &open else { unreachable!() };
+    assert_eq!(panel.controls(), vec![DeviceControl::DialogField, DeviceControl::DialogThreshold, DeviceControl::DialogCancel, DeviceControl::DialogConfirm]);
+    let tree = panel.tree();
+    assert_eq!(label(&tree, DeviceControl::DialogThreshold).as_deref(), Some("Soglia inattività: 6 mesi"));
+    assert_eq!(label(&tree, DeviceControl::DialogField).as_deref(), Some("Password"));
+    assert_eq!(label(&tree, DeviceControl::DialogCancel).as_deref(), Some("Annulla"));
+    assert_eq!(label(&tree, DeviceControl::DialogConfirm).as_deref(), Some("Disconnetti"));
+    let values: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Label).filter_map(|(_, n)| n.value().map(str::to_owned)).collect();
+    assert!(values.iter().any(|v| v == "1 dispositivo da disconnettere"), "{values:?}");
+    assert!(values.iter().any(|v| v == "1 dispositivo senza ultima attività non incluso"), "{values:?}");
+    assert!(!values.iter().any(|v| v.contains("OWN")), "never this device");
+    let action = open.action(&click(DeviceControl::DialogThreshold)).expect("click maps");
+    assert!(matches!(action, DeviceAction::CycleThreshold(a) if a == account) && open.allows(&action));
+}

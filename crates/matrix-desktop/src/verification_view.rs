@@ -83,6 +83,16 @@ impl Shell {
                 }
                 return;
             }
+            DeviceAction::OpenInactive(_) => {
+                self.open_inactive_delete(window, cx);
+                self.device_focus = DeviceControl::DialogField;
+                return;
+            }
+            DeviceAction::CycleThreshold(_) => {
+                self.verification.cycle_delete_threshold(matrix_desktop::time_fmt::now_ms());
+                cx.notify();
+                return;
+            }
             DeviceAction::OpenRename(_) => {
                 self.open_device_rename(window, cx);
                 self.device_focus = DeviceControl::DialogField;
@@ -90,11 +100,12 @@ impl Shell {
             }
             DeviceAction::CancelDelete(_) => {
                 let renaming = self.verification.rename_dialog().is_some();
+                let inactive = self.verification.delete_dialog().is_some_and(|d| d.threshold.is_some());
                 let back = self.verification.delete_dialog().and_then(|dialog| {
-                    self.semantic_device_rows().into_iter().find(|r| r.device.device_id == dialog.device_id)
+                    self.semantic_device_rows().into_iter().find(|r| dialog.threshold.is_none() && dialog.device_ids.contains(&r.device.device_id))
                 });
                 self.close_device_delete(window, cx);
-                self.device_focus = if renaming { DeviceControl::Rename } else { back.map_or(DeviceControl::Close, |r| DeviceControl::Delete(r.id)) };
+                self.device_focus = if renaming { DeviceControl::Rename } else { back.map_or(if inactive { DeviceControl::Inactive } else { DeviceControl::Close }, |r| DeviceControl::Delete(r.id)) };
                 return;
             }
             DeviceAction::SubmitDelete(_) => {
@@ -131,7 +142,7 @@ impl Shell {
                         DeviceControl::Device(id) | DeviceControl::Delete(id) => {
                             self.device_scroll.rows.get(&id).map(|r| r.0.clone())
                         }
-                        DeviceControl::Rename | DeviceControl::DialogCancel | DeviceControl::DialogConfirm => None,
+                        DeviceControl::Rename | DeviceControl::Inactive | DeviceControl::DialogThreshold | DeviceControl::DialogCancel | DeviceControl::DialogConfirm => None,
                         DeviceControl::Popup(_) => None,
                         _ => Some(self.device_scroll.anchors[control.index().unwrap()].clone()),
                     };
@@ -245,9 +256,19 @@ impl Shell {
     }
 
     fn open_device_delete(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.verification.open_delete(index) {
-            return;
+        if self.verification.open_delete(index) {
+            self.start_delete_field(window, cx);
         }
+    }
+
+    /// «Disconnetti inattivi…»: the same dialog and password field, in its multi-device form.
+    fn open_inactive_delete(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.verification.open_delete_inactive(matrix_desktop::time_fmt::now_ms()) {
+            self.start_delete_field(window, cx);
+        }
+    }
+
+    fn start_delete_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let field = cx.new(|cx| {
             let mut field = crate::login_field::LoginField::new(true, cx);
             field.enabled = true;
@@ -327,6 +348,10 @@ impl Shell {
             let on = false;
             div().id(id).px_3().py_2().rounded_md().cursor_pointer().text_color(rgb(color)).when(on, |d| d.border_1().border_color(rgb(t.accent))).child(label)
         };
+        let inactive = self.verification.delete_dialog().and_then(|d| Some((d.threshold?.label(), d.counter(), d.unknown_note(), d.device_ids.is_empty())));
+        let targets: Vec<String> = self.verification.delete_targets().into_iter()
+            .map(|x| matrix_desktop::row_text::one_line(&format!("{} · {}", matrix_desktop::device_title(x), x.last_seen_ts.map_or(String::new(), matrix_desktop::time_fmt::day_or_time))).to_string())
+            .collect();
         let dialog = div().id("device-delete-dialog")
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 match event.keystroke.key.as_str() {
@@ -337,6 +362,14 @@ impl Shell {
                 cx.stop_propagation();
             }))
             .child(div().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child(matrix_desktop::row_text::one_line(&title)))
+            .when_some(inactive, |d, (threshold, counter, unknown, _)| d
+                .child(div().id("device-delete-threshold").cursor_pointer().text_color(rgb(t.accent)).py_1()
+                    .child(format!("Soglia inattività: {threshold}"))
+                    .on_click(cx.listener(|this, _, _, cx| { this.verification.cycle_delete_threshold(matrix_desktop::time_fmt::now_ms()); cx.notify(); })))
+                .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(counter))
+                .child(div().id("device-delete-list").max_h(px(140.)).overflow_y_scroll().text_size(px(12.)).flex().flex_col()
+                    .children(targets.into_iter().map(|line| div().child(line))))
+                .when_some(unknown, |d, u| d.child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child(u))))
             .child(field)
             .when(refocus, |d| d.child(gpui::canvas(|_, _, _| (), move |_, _, window, _| focus_field.focus(window)).size_0()))
             .when_some(error, |d, e| d.child(div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
@@ -448,6 +481,10 @@ impl Shell {
         let focused_control: Option<usize> = None;
         let delete_dialog = self.render_device_delete(t, cx);
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        let inactive_focused = self.device_focus == matrix_desktop::accessibility::devices::DeviceControl::Inactive;
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        let inactive_focused = false;
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         let rename_focused = self.device_focus == matrix_desktop::accessibility::devices::DeviceControl::Rename;
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let rename_focused = false;
@@ -482,10 +519,14 @@ impl Shell {
                         None => id.to_owned(),
                     })))))
                 .child("Altri dispositivi")
-                .child(div().id("verification-refresh").anchor_scroll(self.device_anchor(1)).relative().children(self.device_observer(1, cx))
+                .child(div().flex().gap_4().child(div().id("verification-refresh").anchor_scroll(self.device_anchor(1)).relative().children(self.device_observer(1, cx))
                     .when(focused_control == Some(1), |d| d.border_1().border_color(rgb(t.accent)))
                     .cursor_pointer().text_color(rgb(t.accent)).child("Aggiorna dispositivi")
                     .on_click(cx.listener(|this, _, _, cx| { this.verification.refresh(); cx.notify(); })))
+                    .when(panel.has_inactive(matrix_desktop::time_fmt::now_ms()), |d| d.child(div().id("verification-inactive").cursor_pointer().text_color(rgb(t.error))
+                        .when(inactive_focused, |d| d.border_1().border_color(rgb(t.accent)))
+                        .child("Disconnetti inattivi…")
+                        .on_click(cx.listener(|this, _, window, cx| this.open_inactive_delete(window, cx))))))
                 .when(panel.devices().is_empty(), |d| d.child("Nessun altro dispositivo disponibile"))
                 .children(panel.devices().iter().enumerate().map(|(index, device)| {
                     let row_index = semantic_row_ids.get(index).copied();

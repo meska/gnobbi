@@ -98,6 +98,10 @@ pub enum DeviceAction {
     Open(AccountId),
     Close(AccountId),
     Refresh(AccountId),
+    /// «Disconnetti inattivi…» next to «Aggiorna dispositivi».
+    OpenInactive(AccountId),
+    /// The threshold selector of the open «inattivi» dialog: next value.
+    CycleThreshold(AccountId),
     Focus {
         account: AccountId,
         control: DeviceControl,
@@ -153,6 +157,8 @@ impl DeviceView {
                     Action::Click => Some(match control {
                         DeviceControl::Close => DeviceAction::Close(panel.account),
                         DeviceControl::Refresh => DeviceAction::Refresh(panel.account),
+                        DeviceControl::Inactive => DeviceAction::OpenInactive(panel.account),
+                        DeviceControl::DialogThreshold => DeviceAction::CycleThreshold(panel.account),
                         DeviceControl::Delete(id) => DeviceAction::OpenDelete {
                             account: panel.account,
                             device: panel.devices.iter().find(|d| d.id == id)?.device.clone(),
@@ -216,6 +222,12 @@ impl DeviceView {
                         .iter()
                         .any(|d| d.account == *account && d.device == *device)
             }
+            (Self::Open(panel), DeviceAction::OpenInactive(a)) => {
+                panel.account == *a && panel.dialog.is_none() && panel.can_inactive
+            }
+            (Self::Open(panel), DeviceAction::CycleThreshold(a)) => {
+                panel.account == *a && panel.dialog_inactive.is_some()
+            }
             (Self::Open(panel), DeviceAction::OpenRename(a)) => {
                 panel.account == *a && panel.dialog.is_none() && panel.can_rename
             }
@@ -240,6 +252,10 @@ pub enum DeviceControl {
     #[default]
     Close,
     Refresh,
+    /// «Disconnetti inattivi…».
+    Inactive,
+    /// Threshold selector inside the «inattivi» dialog.
+    DialogThreshold,
     Device(NodeId),
     /// «Disconnetti» of the row whose device handle is the payload.
     Delete(NodeId),
@@ -257,6 +273,8 @@ impl DeviceControl {
             Self::Device(id) => id,
             Self::Delete(id) => NodeId(id.0 | 1 << 58),
             Self::Rename => NodeId(50),
+            Self::Inactive => NodeId(51),
+            Self::DialogThreshold => NodeId(52),
             Self::DialogField => NodeId(47),
             Self::DialogCancel => NodeId(48),
             Self::DialogConfirm => NodeId(49),
@@ -268,10 +286,18 @@ impl DeviceControl {
         Some(match self {
             Self::Close => 0,
             Self::Refresh => 1,
-            Self::Device(_) | Self::Delete(_) | Self::Rename => return None,
+            Self::Device(_) | Self::Delete(_) | Self::Rename | Self::Inactive | Self::DialogThreshold => return None,
             Self::DialogField | Self::DialogCancel | Self::DialogConfirm | Self::Popup(_) => return None,
         })
     }
+}
+
+#[derive(Clone)]
+struct InactiveDialogView {
+    threshold: &'static str,
+    counter: String,
+    unknown: Option<String>,
+    lines: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -290,6 +316,9 @@ pub struct DeviceOverview {
     /// Open «Disconnetti» or «Rinomina» dialog: title and last outcome. The password is never here.
     dialog: Option<(String, Option<&'static str>)>,
     dialog_rename: bool,
+    can_inactive: bool,
+    /// «Disconnetti inattivi…» dialog: selector text, counter, unknown-activity line, one label per device.
+    dialog_inactive: Option<InactiveDialogView>,
     flow_ids: [NodeId; 9],
 }
 impl DeviceOverview {
@@ -337,6 +366,15 @@ impl DeviceOverview {
                 .map(|d| (d.name.clone(), d.error))
                 .or_else(|| model.rename_dialog().map(|d| ("Rinomina".to_owned(), d.error))),
             dialog_rename: model.rename_dialog().is_some(),
+            can_inactive: model.has_inactive(crate::time_fmt::now_ms()),
+            dialog_inactive: model.delete_dialog().and_then(|d| {
+                Some(InactiveDialogView {
+                    threshold: d.threshold?.label(),
+                    counter: d.counter(),
+                    unknown: d.unknown_note(),
+                    lines: model.delete_targets().into_iter().map(crate::device_label).collect(),
+                })
+            }),
             flow_ids: PopupButton::ALL.map(|b| DeviceControl::Popup(b).id()),
         };
         if !matches!(panel.focus, DeviceControl::Device(_) | DeviceControl::Delete(_))
@@ -373,17 +411,19 @@ impl DeviceOverview {
                 .collect();
         }
         if self.dialog.is_some() {
-            return vec![
-                DeviceControl::DialogField,
-                DeviceControl::DialogCancel,
-                DeviceControl::DialogConfirm,
-            ];
+            let mut controls = vec![DeviceControl::DialogField];
+            controls.extend(self.dialog_inactive.as_ref().map(|_| DeviceControl::DialogThreshold));
+            controls.extend([DeviceControl::DialogCancel, DeviceControl::DialogConfirm]);
+            return controls;
         }
         let mut controls = vec![DeviceControl::Close];
         if self.can_rename {
             controls.push(DeviceControl::Rename);
         }
         controls.push(DeviceControl::Refresh);
+        if self.can_inactive {
+            controls.push(DeviceControl::Inactive);
+        }
         for d in &self.devices {
             // Verified rows are read-only labels: re-verification is not offered.
             if self.can_begin && !d.device.verified {
@@ -422,8 +462,28 @@ impl DeviceOverview {
             dialog.push_child(id);
             nodes.push((id, node));
         }
+        if let Some(v) = &self.dialog_inactive {
+            let mut label = |id: NodeId, text: &str, nodes: &mut Vec<(NodeId, Node)>| {
+                let mut node = Node::new(Role::Label);
+                node.set_value(text);
+                dialog.push_child(id);
+                nodes.push((id, node));
+            };
+            label(NodeId((1 << 59) + 2), &v.counter, &mut nodes);
+            if let Some(u) = &v.unknown {
+                label(NodeId((1 << 59) + 3), u, &mut nodes);
+            }
+            for (i, line) in v.lines.iter().enumerate() {
+                label(NodeId((1 << 59) + 16 + i as u64), line, &mut nodes);
+            }
+        }
         for control in self.controls() {
+            let threshold_label;
             let (role, label) = match control {
+                DeviceControl::DialogThreshold => {
+                    threshold_label = format!("Soglia inattività: {}", self.dialog_inactive.as_ref().map_or("", |v| v.threshold));
+                    (Role::Button, threshold_label.as_str())
+                }
                 DeviceControl::DialogField if self.dialog_rename => (Role::TextInput, "Nome"),
                 DeviceControl::DialogField => (Role::PasswordInput, "Password"),
                 DeviceControl::DialogCancel => (Role::Button, "Annulla"),
@@ -518,6 +578,7 @@ impl DeviceOverview {
             let label = match control {
                 DeviceControl::Close => "Chiudi verifica dispositivi",
                 DeviceControl::Refresh => "Aggiorna dispositivi",
+                DeviceControl::Inactive => "Disconnetti inattivi",
                 DeviceControl::Rename => "Rinomina",
                 DeviceControl::Device(id) => {
                     let device = &self.devices.iter().find(|d| d.id == id).unwrap().device;
@@ -530,6 +591,7 @@ impl DeviceOverview {
                     &device_label
                 }
                 DeviceControl::DialogField
+                | DeviceControl::DialogThreshold
                 | DeviceControl::DialogCancel
                 | DeviceControl::DialogConfirm
                 | DeviceControl::Popup(_) => unreachable!("dialog and popup have their own tree"),
@@ -544,7 +606,7 @@ impl DeviceOverview {
                     .iter()
                     .find(|d| d.id == id)
                     .and_then(|d| d.bounds),
-                DeviceControl::Rename => None,
+                DeviceControl::Rename | DeviceControl::Inactive => None,
                 _ => self.bounds[control.index().unwrap()],
             };
             if let Some(bounds) = bounds {

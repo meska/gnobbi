@@ -202,7 +202,7 @@ pub fn next_local_midnight_ms_in<Tz: TimeZone>(now_ms: u64, tz: &Tz) -> Option<u
         .and_then(|t| u64::try_from(t.timestamp_millis()).ok())
 }
 
-fn now_ms() -> u64 {
+pub fn now_ms() -> u64 {
     u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0)
 }
 

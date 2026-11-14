@@ -154,10 +154,10 @@ pub enum VerificationCommand {
         account_id: AccountId,
         key: crate::signin::Secret,
     },
-    /// Sign out another device (UIA password). On success a fresh `Devices` event follows.
+    /// Sign out other devices in one request (UIA password). On success a fresh `Devices` event follows.
     DeleteDevice {
         account_id: AccountId,
-        device_id: String,
+        device_ids: Vec<String>,
         password: DevicePassword,
     },
 }
@@ -199,13 +199,13 @@ pub enum VerificationEvent {
     },
     DeviceDeleteFailed {
         account_id: AccountId,
-        device_id: String,
+        device_ids: Vec<String>,
         error: DeviceDeleteError,
     },
     /// Sign-out succeeded but the list could not be re-read: the UI drops the row itself.
     DeviceDeleted {
         account_id: AccountId,
-        device_id: String,
+        device_ids: Vec<String>,
     },
 }
 #[cfg(feature = "sdk")]

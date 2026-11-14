@@ -27,6 +27,26 @@ impl InactiveThreshold {
     }
 }
 
+impl InactiveThreshold {
+    /// Selector text; the selector cycles in this order.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::OneMonth => "1 mese",
+            Self::ThreeMonths => "3 mesi",
+            Self::SixMonths => "6 mesi",
+            Self::OneYear => "1 anno",
+        }
+    }
+    pub const fn next(self) -> Self {
+        match self {
+            Self::OneMonth => Self::ThreeMonths,
+            Self::ThreeMonths => Self::SixMonths,
+            Self::SixMonths => Self::OneYear,
+            Self::OneYear => Self::OneMonth,
+        }
+    }
+}
+
 pub struct InactiveDevices<'a> {
     /// Devices to sign out, in input order.
     pub devices: Vec<&'a VerificationDevice>,

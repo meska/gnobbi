@@ -32,8 +32,13 @@ pub fn device_label(d: &matrix_engine::verification::VerificationDevice) -> Stri
 
 /// Open «Disconnetti» confirmation: the device to sign out and the one-line outcome of the last try.
 pub struct DeleteDialog {
-    pub device_id: String,
+    /// One id for a row's «Disconnetti»; the idle devices for «Disconnetti inattivi…» (never this session's).
+    pub device_ids: Vec<String>,
     pub name: String,
+    /// Some only in the «inattivi» form: the selected idle threshold.
+    pub threshold: Option<crate::inactive::InactiveThreshold>,
+    /// Devices left out of the list because their last activity is unknown.
+    pub unknown_activity: usize,
     pub busy: bool,
     pub error: Option<&'static str>,
     /// Set by a failed try; the view consumes it once to put the focus back in the (emptied) field.
@@ -41,6 +46,19 @@ pub struct DeleteDialog {
 }
 
 impl DeleteDialog {
+    pub fn counter(&self) -> String {
+        match self.device_ids.len() {
+            1 => "1 dispositivo da disconnettere".to_owned(),
+            n => format!("{n} dispositivi da disconnettere"),
+        }
+    }
+    pub fn unknown_note(&self) -> Option<String> {
+        match self.unknown_activity {
+            0 => None,
+            1 => Some("1 dispositivo senza ultima attività non incluso".to_owned()),
+            n => Some(format!("{n} dispositivi senza ultima attività non inclusi")),
+        }
+    }
     pub fn take_refocus(&self) -> bool {
         self.refocus.replace(false)
     }
@@ -202,13 +220,55 @@ impl DeviceVerification {
             return false;
         }
         self.delete = Some(DeleteDialog {
-            device_id: d.device_id.clone(),
+            device_ids: vec![d.device_id.clone()],
             name: device_title(d).to_owned(),
+            threshold: None,
+            unknown_activity: 0,
             busy: false,
             error: None,
             refocus: Default::default(),
         });
         true
+    }
+    /// «Disconnetti inattivi…» is offered only when some device is idle past the smallest threshold.
+    pub fn has_inactive(&self, now_ms: u64) -> bool {
+        crate::inactive::has_inactive_devices(&self.devices, self.own_device.as_deref(), now_ms)
+    }
+    /// Opens the shared dialog in its «inattivi» form with the default threshold.
+    pub fn open_delete_inactive(&mut self, now_ms: u64) -> bool {
+        if self.delete.is_some() || self.rename.is_some() || !self.has_inactive(now_ms) {
+            return false;
+        }
+        self.delete = Some(DeleteDialog {
+            device_ids: vec![],
+            name: "Disconnetti inattivi".to_owned(),
+            threshold: Some(Default::default()),
+            unknown_activity: 0,
+            busy: false,
+            error: None,
+            refocus: Default::default(),
+        });
+        self.set_delete_threshold(Default::default(), now_ms)
+    }
+    /// Recomputes the list for `threshold`; ignored while the request is in flight.
+    pub fn set_delete_threshold(&mut self, threshold: crate::inactive::InactiveThreshold, now_ms: u64) -> bool {
+        let Some(d) = self.delete.as_mut().filter(|d| !d.busy && d.threshold.is_some()) else { return false };
+        let found = crate::inactive::inactive_devices(&self.devices, self.own_device.as_deref(), threshold, now_ms);
+        d.device_ids = found.devices.iter().map(|x| x.device_id.clone()).collect();
+        d.unknown_activity = found.unknown_activity;
+        d.threshold = Some(threshold);
+        d.error = None;
+        true
+    }
+    /// Next threshold of the selector (1 mese → 3 mesi → 6 mesi → 1 anno → 1 mese).
+    pub fn cycle_delete_threshold(&mut self, now_ms: u64) -> bool {
+        let next = self.delete.as_ref().and_then(|d| d.threshold).map(|t| t.next());
+        next.is_some_and(|t| self.set_delete_threshold(t, now_ms))
+    }
+    /// Devices of the open dialog, for the list (name, last activity).
+    pub fn delete_targets(&self) -> Vec<&matrix_engine::verification::VerificationDevice> {
+        let Some(d) = &self.delete else { return vec![] };
+        self.devices.iter().filter(|x| d.device_ids.contains(&x.device_id)).collect()
     }
     pub fn cancel_delete(&mut self) {
         self.delete = None;
@@ -243,7 +303,7 @@ impl DeviceVerification {
     }
     /// «Disconnetti» is live only with a typed password and no request in flight; the view checks it before emptying the field.
     pub fn can_submit_delete(&self, has_text: bool) -> bool {
-        has_text && self.pending.is_none() && self.delete.as_ref().is_some_and(|d| !d.busy)
+        has_text && self.pending.is_none() && self.delete.as_ref().is_some_and(|d| !d.busy && !d.device_ids.is_empty())
     }
     /// Queues the sign-out with the password typed now; the password lives only in the command.
     pub fn submit_delete(&mut self, mut password: zeroize::Zeroizing<String>) -> bool {
@@ -255,7 +315,7 @@ impl DeviceVerification {
         dialog.error = None;
         self.pending = Some(VerificationCommand::DeleteDevice {
             account_id: self.account,
-            device_id: dialog.device_id.clone(),
+            device_ids: dialog.device_ids.clone(),
             password: matrix_engine::verification::DevicePassword::new(std::mem::take(&mut *password)),
         });
         true
@@ -386,22 +446,22 @@ impl DeviceVerification {
                 devices,
             } if account_id == self.account => {
                 // Fallback only: the engine sends DeviceDeleted first, so a list without the device is not needed to close.
-                if self.delete.as_ref().is_some_and(|d| d.busy && !devices.iter().any(|x| x.device_id == d.device_id)) {
+                if self.delete.as_ref().is_some_and(|d| d.busy && d.device_ids.iter().all(|id| !devices.iter().any(|x| x.device_id == *id))) {
                     self.delete = None;
                 }
                 self.devices = devices
             }
-            VerificationEvent::DeviceDeleted { account_id, device_id } if account_id == self.account => {
-                self.devices.retain(|x| x.device_id != device_id);
-                if self.delete.as_ref().is_some_and(|d| d.device_id == device_id) {
+            VerificationEvent::DeviceDeleted { account_id, device_ids } if account_id == self.account => {
+                self.devices.retain(|x| !device_ids.contains(&x.device_id));
+                if self.delete.as_ref().is_some_and(|d| d.device_ids == device_ids) {
                     self.delete = None;
                 }
             }
-            VerificationEvent::DeviceDeleteFailed { account_id, device_id, error }
+            VerificationEvent::DeviceDeleteFailed { account_id, device_ids, error }
                 if account_id == self.account =>
             {
                 use matrix_engine::verification::DeviceDeleteError::*;
-                if let Some(d) = self.delete.as_mut().filter(|d| d.device_id == device_id) {
+                if let Some(d) = self.delete.as_mut().filter(|d| d.device_ids == device_ids) {
                     d.busy = false;
                     d.refocus.set(true);
                     d.error = Some(match error {
@@ -760,7 +820,7 @@ mod profile_tests {
         assert!(v.submit_delete(pw()));
         assert!(matches!(v.pending, Some(VerificationCommand::DeleteDevice { .. })));
         v.pending = None;
-        let fail = |error| VerificationEvent::DeviceDeleteFailed { account_id: a, device_id: "OLD".into(), error };
+        let fail = |error| VerificationEvent::DeviceDeleteFailed { account_id: a, device_ids: vec!["OLD".into()], error };
         v.apply(fail(DeviceDeleteError::WrongPassword));
         assert_eq!(v.delete_dialog().unwrap().error, Some("Password non corretta"));
         v.apply(fail(DeviceDeleteError::Unavailable));
@@ -768,7 +828,7 @@ mod profile_tests {
         // success but the re-read failed: engine says DeviceDeleted; dialog closes, row goes, no failure
         assert!(v.submit_delete(pw()));
         v.pending = None;
-        v.apply(VerificationEvent::DeviceDeleted { account_id: a, device_id: "OLD".into() });
+        v.apply(VerificationEvent::DeviceDeleted { account_id: a, device_ids: vec!["OLD".into()] });
         assert!(v.delete_dialog().is_none() && !v.failed);
         assert!(v.devices.iter().all(|d| d.device_id != "OLD"));
         v.apply(list(&["OWN", "OLD"]));
@@ -776,7 +836,7 @@ mod profile_tests {
         // success: DeviceDeleted closes the dialog even if the next list is stale and still holds the device
         assert!(v.submit_delete(pw()));
         v.pending = None;
-        v.apply(VerificationEvent::DeviceDeleted { account_id: a, device_id: "OLD".into() });
+        v.apply(VerificationEvent::DeviceDeleted { account_id: a, device_ids: vec!["OLD".into()] });
         assert!(v.delete_dialog().is_none());
         v.apply(list(&["OWN", "OLD"]));
         assert!(v.open_delete(1));
@@ -791,6 +851,58 @@ mod profile_tests {
         assert!(v.open_delete(1));
         v.cancel_delete();
         assert!(v.delete_dialog().is_none());
+    }
+
+    #[test]
+    fn delete_inactive_state_machine() {
+        use crate::inactive::InactiveThreshold::*;
+        use matrix_engine::verification::DeviceDeleteError;
+        const DAY: u64 = 86_400_000;
+        const NOW: u64 = 1000 * DAY;
+        let a = AccountId::new(1);
+        let mut v = DeviceVerification::new(a);
+        let pw = || zeroize::Zeroizing::new("pw".to_owned());
+        let list = |items: &[(&str, Option<u64>)]| VerificationEvent::Devices {
+            account_id: a,
+            devices: items.iter().map(|(i, ts)| { let mut d = dev(Some(i), true, *ts, None); d.device_id = (*i).into(); d }).collect(),
+        };
+        v.apply(VerificationEvent::Profile { account_id: a, user_id: "@a:x".into(), display_name: None, device_id: Some("OWN".into()), avatar: None });
+        // empty list: no link, no dialog
+        v.apply(list(&[("NEW", Some(NOW - DAY)), ("OWN", Some(1))]));
+        assert!(!v.has_inactive(NOW) && !v.open_delete_inactive(NOW));
+        // idle (never «Questo dispositivo»), unknown activity counted apart
+        v.apply(list(&[("OWN", Some(1)), ("M2", Some(NOW - 60 * DAY)), ("M8", Some(NOW - 240 * DAY)), ("Y2", Some(NOW - 700 * DAY)), ("UNK", None)]));
+        assert!(v.has_inactive(NOW) && v.open_delete_inactive(NOW));
+        let d = v.delete_dialog().unwrap();
+        assert_eq!((d.threshold, d.device_ids.clone(), d.unknown_activity), (Some(SixMonths), vec!["M8".to_owned(), "Y2".to_owned()], 1));
+        assert_eq!((d.counter().as_str(), d.unknown_note().as_deref()), ("2 dispositivi da disconnettere", Some("1 dispositivo senza ultima attività non incluso")));
+        assert!(!v.open_delete_inactive(NOW) && !v.open_delete(1), "one dialog at a time");
+        // threshold change refreshes the list: 1 anno → only Y2; 1 mese → three
+        assert!(v.set_delete_threshold(OneYear, NOW));
+        assert_eq!(v.delete_dialog().unwrap().device_ids, ["Y2"]);
+        assert_eq!(v.delete_targets().len(), 1);
+        assert!(v.cycle_delete_threshold(NOW), "1 anno wraps to 1 mese");
+        assert_eq!((v.delete_dialog().unwrap().threshold, v.delete_dialog().unwrap().device_ids.len()), (Some(OneMonth), 3));
+        // empty list: «Disconnetti» disabled
+        v.apply(list(&[("OWN", Some(1)), ("M2", Some(NOW - 60 * DAY))]));
+        assert!(v.set_delete_threshold(OneYear, NOW));
+        assert!(v.delete_dialog().unwrap().device_ids.is_empty() && !v.can_submit_delete(true) && !v.submit_delete(pw()));
+        // in progress: one command with every id; the threshold is frozen; no second submit
+        assert!(v.set_delete_threshold(OneMonth, NOW));
+        assert!(v.submit_delete(pw()));
+        assert!(matches!(&v.pending, Some(VerificationCommand::DeleteDevice { device_ids, .. }) if device_ids == &["M2".to_owned()]));
+        v.pending = None;
+        assert!(!v.set_delete_threshold(OneYear, NOW) && !v.submit_delete(pw()) && v.delete_dialog().unwrap().busy);
+        // error: dialog stays, button active again, list kept
+        v.apply(VerificationEvent::DeviceDeleteFailed { account_id: a, device_ids: vec!["M2".into()], error: DeviceDeleteError::WrongPassword });
+        let d = v.delete_dialog().unwrap();
+        assert!(!d.busy && d.error == Some("Password non corretta") && d.take_refocus());
+        assert!(v.can_submit_delete(true));
+        // success: dialog closes, every row goes
+        assert!(v.submit_delete(pw()));
+        v.pending = None;
+        v.apply(VerificationEvent::DeviceDeleted { account_id: a, device_ids: vec!["M2".into()] });
+        assert!(v.delete_dialog().is_none() && v.devices.iter().all(|d| d.device_id != "M2"));
     }
 
     #[test]
@@ -857,16 +969,16 @@ mod profile_tests {
         v.apply(list(a, "MINE"));
         assert!(v.open_delete(0) && v.submit_delete(zeroize::Zeroizing::new("pw".into())));
         match v.pending.take() {
-            Some(VerificationCommand::DeleteDevice { account_id, device_id, .. }) => assert_eq!((account_id, device_id.as_str()), (a, "MINE")),
+            Some(VerificationCommand::DeleteDevice { account_id, device_ids, .. }) => assert_eq!((account_id, device_ids.as_slice()), (a, &["MINE".to_owned()][..])),
             _ => panic!("expected DeleteDevice"),
         }
         // A failure reported for another account or another device leaves this dialog untouched.
-        v.apply(VerificationEvent::DeviceDeleteFailed { account_id: b, device_id: "MINE".into(), error: DeviceDeleteError::WrongPassword });
-        v.apply(VerificationEvent::DeviceDeleteFailed { account_id: a, device_id: "ELSE".into(), error: DeviceDeleteError::WrongPassword });
+        v.apply(VerificationEvent::DeviceDeleteFailed { account_id: b, device_ids: vec!["MINE".into()], error: DeviceDeleteError::WrongPassword });
+        v.apply(VerificationEvent::DeviceDeleteFailed { account_id: a, device_ids: vec!["ELSE".into()], error: DeviceDeleteError::WrongPassword });
         assert_eq!(v.delete_dialog().unwrap().error, None);
         // Every error text is a single line; empty password and a second submit are refused.
         for e in [DeviceDeleteError::WrongPassword, DeviceDeleteError::Unavailable, DeviceDeleteError::Transport, DeviceDeleteError::Rejected] {
-            v.apply(VerificationEvent::DeviceDeleteFailed { account_id: a, device_id: "MINE".into(), error: e });
+            v.apply(VerificationEvent::DeviceDeleteFailed { account_id: a, device_ids: vec!["MINE".into()], error: e });
             let text = v.delete_dialog().unwrap().error.unwrap();
             assert!(!text.contains('\n') && !text.is_empty(), "{text:?}");
         }
