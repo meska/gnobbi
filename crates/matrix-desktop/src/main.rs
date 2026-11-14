@@ -314,6 +314,7 @@ struct Shell {
     topic_links: Rc<RefCell<matrix_desktop::MessageLinkRequests>>,
     topic_confirm: Rc<RefCell<matrix_desktop::LinkConfirmation>>,
     topic_pressed: Rc<Cell<Option<u64>>>,
+    topic_selection: Rc<RefCell<matrix_desktop::static_selection::StaticSelection>>,
     topic_hover: Rc<Cell<Option<u64>>>,
 }
 
@@ -1067,6 +1068,18 @@ impl Shell {
             let topic_focused = self.details_focus == matrix_desktop::accessibility::details::DetailsControl::Topic;
             #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
             let topic_focused = true;
+            let copy_modifier = if cfg!(target_os = "macos") { key.modifiers.platform } else { key.modifiers.control };
+            // Copy of the text selected in «Argomento» (only while the panel holds the focus).
+            if self.profile.is_none()
+                && key.key == "c"
+                && copy_modifier
+                && let Some((_, topic)) = self.topic_source()
+                && let Some(text) = self.topic_selection.borrow().copy(&topic)
+            {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.to_owned()));
+                cx.stop_propagation();
+                return;
+            }
             if self.profile.is_none() && topic_focused && self.topic_scroll_key(&key.key) {
                 cx.notify();
                 cx.stop_propagation();
@@ -3708,6 +3721,7 @@ fn main() {
                         topic_links: Default::default(),
                         topic_confirm: Default::default(),
                         topic_pressed: Default::default(),
+                        topic_selection: Default::default(),
                         topic_hover: Default::default(),
                     }
                 });

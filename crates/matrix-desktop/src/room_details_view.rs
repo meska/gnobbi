@@ -189,7 +189,7 @@ impl Shell {
     }
 
     /// The topic a link may come from: only while the panel really shows it.
-    fn topic_source(&self) -> Option<(RoomScope, String)> {
+    pub(crate) fn topic_source(&self) -> Option<(RoomScope, String)> {
         if !self.connected
             || !self.room_details_open
             || self.profile.is_some()
@@ -431,16 +431,17 @@ impl Shell {
         let Some(text) = topic else {
             return div().child("Nessun argomento").into_any_element();
         };
-        if targets.is_empty() {
-            return div().child(text.clone()).into_any_element();
-        }
-        let body = gpui::StyledText::new(text.clone()).with_highlights(targets.iter().map(|l| {
+        let sel = self.topic_selection.borrow().range(text);
+        let link_ranges: Vec<_> = targets.iter().map(|l| l.range()).collect();
+        let runs = matrix_desktop::static_selection::highlight_runs(text.len(), &link_ranges, sel);
+        let body = gpui::StyledText::new(text.clone()).with_highlights(runs.into_iter().map(|(range, link, selected)| {
             let style = gpui::HighlightStyle {
-                color: Some(rgb(t.accent).into()),
-                underline: Some(gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
+                color: link.then(|| rgb(t.accent).into()),
+                underline: link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
+                background_color: selected.then(|| rgb(t.selection).into()),
                 ..Default::default()
             };
-            (l.range(), style)
+            (range, style)
         }));
         let (down_layout, up_layout, move_layout) = (body.layout().clone(), body.layout().clone(), body.layout().clone());
         let (down_targets, up_targets, move_targets) = (targets.to_vec(), targets.to_vec(), targets.to_vec());
@@ -451,7 +452,13 @@ impl Shell {
                 .and_then(|ix| matrix_desktop::link_at(targets, ix).cloned())
         };
         div()
-            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, e: &gpui::MouseDownEvent, window, cx| {
+                // Focus the panel so Cmd/Ctrl+C reaches the selection.
+                this.details_zone.focus(window);
+                if let Some((_, topic)) = this.topic_source() {
+                    let index = down_layout.index_for_position(e.position).unwrap_or_else(|i| i);
+                    this.topic_selection.borrow_mut().press(&topic, index, e.click_count);
+                }
                 this.topic_confirm.borrow_mut().cancel();
                 this.topic_pressed.set(at(&down_layout, &down_targets, e.position).map(|l| l.instance()));
                 cx.notify();
@@ -460,7 +467,10 @@ impl Shell {
                 let pressed = this.topic_pressed.take();
                 // Re-read the shown topic first: only a link of the current text, pressed and released on the same spot, asks for confirmation.
                 this.reconcile_topic_links();
-                if let Some(target) = at(&up_layout, &up_targets, e.position)
+                // A drag or a double/triple click that selected text is not a click on a link.
+                let selecting = this.topic_source().is_some_and(|(_, topic)| this.topic_selection.borrow().range(&topic).is_some());
+                if !selecting
+                    && let Some(target) = at(&up_layout, &up_targets, e.position)
                     && pressed == Some(target.instance())
                     && this.topic_links.borrow_mut().request(&target, &mut this.topic_confirm.borrow_mut())
                 {
@@ -469,6 +479,13 @@ impl Shell {
             }))
             .on_mouse_move(cx.listener(move |this, e: &gpui::MouseMoveEvent, _, cx| {
                 let over = at(&move_layout, &move_targets, e.position).map(|l| l.instance());
+                if e.pressed_button == Some(gpui::MouseButton::Left)
+                    && let Some((_, topic)) = this.topic_source()
+                {
+                    let index = move_layout.index_for_position(e.position).unwrap_or_else(|i| i);
+                    this.topic_selection.borrow_mut().drag(&topic, index);
+                    cx.notify();
+                }
                 if over != this.topic_hover.get() {
                     this.topic_hover.set(over);
                     cx.notify();

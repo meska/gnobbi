@@ -104,6 +104,7 @@ pub use connection_options::{
 mod drafts;
 pub use drafts::RoomDrafts;
 mod selection;
+pub mod static_selection;
 pub use selection::TextSelection;
 mod offline_delivery;
 pub use offline_delivery::{OfflineDelivery, OfflineDeliveryTarget};
