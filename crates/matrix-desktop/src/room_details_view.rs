@@ -4,6 +4,8 @@ use crate::*;
 
 /// Shield of an encrypted room: not a theme token, the same green in every theme.
 const ENCRYPTED_GREEN: u32 = 0x2e9e5b;
+/// Glyph side of the four header icons: the 16 px already used for inline marks (main.rs row preview); the 32 px hit areas stay.
+const HEADER_ICON_PX: f32 = 16.;
 
 impl Shell {
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -588,10 +590,11 @@ impl Shell {
                                     .child(matrix_desktop::row_text::one_line(&room.name)),
                             )
                             // Count and shield are the visual form of the "N membri" / "Cifratura ..." labels in accessibility/details.rs.
-                            .child(div().flex().flex_shrink_0().items_center().gap_1().text_color(rgb(t.secondary)).child(crate::composer_icons::icon(crate::composer_icons::Icon::People, t.secondary)).child(room.info.joined_members.to_string()))
-                            .child(crate::composer_icons::icon(
+                            .child(div().flex().flex_shrink_0().items_center().gap_1().text_color(rgb(t.secondary)).child(crate::composer_icons::icon_sized(crate::composer_icons::Icon::People, t.secondary, HEADER_ICON_PX)).child(room.info.joined_members.to_string()))
+                            .child(crate::composer_icons::icon_sized(
                                 crate::composer_icons::Icon::Shield,
                                 if room.info.encrypted == Some(true) { ENCRYPTED_GREEN } else { t.error },
+                                HEADER_ICON_PX,
                             ))
                             // Name for screen readers («Stacca» / «Fissa in alto») lives in the a11y tree.
                             .child({
@@ -608,9 +611,10 @@ impl Shell {
                                     .border_color(if input_modality::only_keys(focused_control == Some(1), cx) { rgb(t.accent) } else { gpui::rgba(0) })
                                     .hover(|s| s.bg(rgb(t.border)))
                                     .cursor_pointer()
-                                    .child(composer_icons::icon(
+                                    .child(composer_icons::icon_sized(
                                         if favourite { composer_icons::Icon::PinFilled } else { composer_icons::Icon::Pin },
                                         t.accent,
+                                        HEADER_ICON_PX,
                                     ))
                                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_tag(&scope, "m.favourite", cx)))
                             })
@@ -630,7 +634,7 @@ impl Shell {
                                     .when(low, |d| d.bg(gpui::rgba((t.accent << 8) | 0x33)))
                                     .hover(|s| s.bg(rgb(t.border)))
                                     .cursor_pointer()
-                                    .child(composer_icons::icon(composer_icons::Icon::LowPriority, if low { t.accent } else { t.secondary }))
+                                    .child(composer_icons::icon_sized(composer_icons::Icon::LowPriority, if low { t.accent } else { t.secondary }, HEADER_ICON_PX))
                                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_tag(&scope, "m.lowpriority", cx)))
                             }),
                     )
