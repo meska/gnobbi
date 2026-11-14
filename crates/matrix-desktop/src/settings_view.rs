@@ -12,7 +12,10 @@ impl Shell {
         self.settings_open = open;
         if open {
             self.settings_row = 0;
-            self.install_offer.notice = None;
+            #[cfg(target_os = "linux")]
+            {
+                self.install_offer.notice = None;
+            }
             self.settings_focus.focus(window)
         } else {
             self.drawer_focus.focus(window)
