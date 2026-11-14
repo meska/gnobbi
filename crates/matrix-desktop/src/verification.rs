@@ -906,6 +906,32 @@ mod profile_tests {
     }
 
     #[test]
+    fn inactive_dialog_survives_a_refresh_that_already_dropped_some_targets() {
+        // «Aggiorna dispositivi» (or another client) removes a target while the dialog is open:
+        // the dialog keeps its snapshot, stays open, and the submit still carries every id.
+        use crate::inactive::InactiveThreshold::*;
+        const DAY: u64 = 86_400_000;
+        const NOW: u64 = 1000 * DAY;
+        let a = AccountId::new(1);
+        let mut v = DeviceVerification::new(a);
+        let list = |ids: &[&str]| VerificationEvent::Devices {
+            account_id: a,
+            devices: ids.iter().map(|i| { let mut d = dev(Some(i), true, Some(NOW - 400 * DAY), None); d.device_id = (*i).into(); d }).collect(),
+        };
+        v.apply(list(&["A", "B"]));
+        assert!(v.open_delete_inactive(NOW));
+        v.apply(list(&["A"]));
+        let d = v.delete_dialog().expect("an idle refresh does not close the dialog");
+        assert_eq!((d.threshold, d.device_ids.clone()), (Some(SixMonths), vec!["A".to_owned(), "B".to_owned()]));
+        assert!(v.submit_delete(zeroize::Zeroizing::new("pw".to_owned())));
+        assert!(matches!(&v.pending, Some(VerificationCommand::DeleteDevice { device_ids, .. }) if device_ids.len() == 2));
+        v.pending = None;
+        // busy and every target already gone from the list: the fallback closes the dialog
+        v.apply(list(&["Z"]));
+        assert!(v.delete_dialog().is_none());
+    }
+
+    #[test]
     fn rename_own_device_dialog() {
         use matrix_engine::verification::VerificationError;
         let a = AccountId::new(1);

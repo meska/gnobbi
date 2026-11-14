@@ -612,3 +612,28 @@ fn disconnect_inactive_link_and_dialog_have_labelled_nodes() {
     let action = open.action(&click(DeviceControl::DialogThreshold)).expect("click maps");
     assert!(matches!(action, DeviceAction::CycleThreshold(a) if a == account) && open.allows(&action));
 }
+
+#[test]
+#[ignore = "BUG: «Disconnetti» del popup inattivi non e' disabilitato (ne' a11y ne' colore) con lista vuota o richiesta in corso; togliere l'ignore col fix"]
+fn inactive_dialog_confirm_is_disabled_without_targets_or_while_busy() {
+    use matrix_desktop::accessibility::devices::{DeviceNodes, DeviceView};
+    let account = AccountId::new(21);
+    let mut model = DeviceVerification::new(account);
+    let now = matrix_desktop::time_fmt::now_ms();
+    let device = |id: &str, ts: u64| VerificationDevice { user_id: "@a:x".into(), device_id: id.into(), verified: true, display_name: Some(id.into()), last_seen_ts: Some(ts), last_seen_ip: None };
+    model.apply(VerificationEvent::Profile { account_id: account, user_id: "@a:x".into(), display_name: None, device_id: Some("OWN".into()), avatar: None });
+    model.apply(VerificationEvent::Devices { account_id: account, devices: vec![device("OLD", now - 40 * 86_400_000)] });
+    assert!(model.open_delete_inactive(now)); // 6 mesi: nothing idle that long, the list is empty
+    let confirm_disabled = |model: &DeviceVerification| {
+        let rows = DeviceNodes::default().project(account, model);
+        let view = DeviceView::Open(Box::new(DeviceOverview::project(account, model, DeviceControl::Close, [None; 2]).with_devices(rows)));
+        let DeviceView::Open(panel) = &view else { unreachable!() };
+        panel.tree().nodes.iter().find(|(id, _)| *id == DeviceControl::DialogConfirm.id()).unwrap().1.is_disabled()
+    };
+    assert!(model.delete_dialog().unwrap().device_ids.is_empty());
+    assert!(confirm_disabled(&model), "empty list");
+    assert!(model.set_delete_threshold(matrix_desktop::inactive::InactiveThreshold::OneMonth, now));
+    assert!(!confirm_disabled(&model), "one target, idle");
+    assert!(model.submit_delete(zeroize::Zeroizing::new("pw".into())));
+    assert!(confirm_disabled(&model), "request in flight");
+}

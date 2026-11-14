@@ -160,4 +160,13 @@ mod tests {
         let old = [dev("A", Some(NOW - 31 * DAY_MS))];
         assert!(has_inactive_devices(&old, None, NOW));
     }
+
+    #[test]
+    fn last_seen_in_the_future_or_huge_is_never_idle() {
+        // Clock skew between server and client: a timestamp after `now` must not wrap or be listed.
+        let list = [dev("FUT", Some(NOW + 5 * DAY_MS)), dev("MAX", Some(u64::MAX))];
+        let r = inactive_devices(&list, None, OneMonth, NOW);
+        assert!(r.devices.is_empty() && r.unknown_activity == 0);
+        assert!(!has_inactive_devices(&list, None, NOW));
+    }
 }
