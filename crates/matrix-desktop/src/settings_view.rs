@@ -12,6 +12,7 @@ impl Shell {
         self.settings_open = open;
         if open {
             self.settings_row = 0;
+            self.install_offer.notice = None;
             self.settings_focus.focus(window)
         } else {
             self.drawer_focus.focus(window)
@@ -85,8 +86,18 @@ impl Shell {
             4 if self.show_update_check() => {
                 self.update_prefs(cx, |p| p.update_check_enabled = !p.update_check_enabled);
             }
+            // Linux: the «Aggiungi al menu» row is the last stop of the ring.
+            r if cfg!(target_os = "linux") && r + 1 == self.settings_rows() => {
+                #[cfg(target_os = "linux")]
+                self.choose_install(matrix_desktop::install_offer::Choice::Add, cx);
+            }
             _ => {}
         }
+    }
+
+    /// Keyboard stops in Settings: the switches, plus «Aggiungi al menu» on Linux.
+    pub(crate) fn settings_rows(&self) -> usize {
+        4 + usize::from(self.show_update_check()) + usize::from(cfg!(target_os = "linux"))
     }
 
     pub(crate) fn toggle_debug(&mut self, cx: &mut Context<Self>) {
@@ -682,7 +693,11 @@ impl Shell {
             .children({
                 #[cfg(target_os = "linux")]
                 {
-                    Some(self.render_install_row(t, cx))
+                    Some(self.render_install_row(
+                        t,
+                        input_modality::only_keys(self.settings_row + 1 == self.settings_rows() && self.settings_focus.is_focused(window), cx),
+                        cx,
+                    ))
                 }
                 #[cfg(not(target_os = "linux"))]
                 {

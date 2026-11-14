@@ -1618,7 +1618,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                     assert_eq!(this.settings_row, 4);
                     assert!(this.prefs.update_check_enabled && saved(&dirs).update_check_enabled);
                 } else {
-                    assert_eq!(this.settings_row, 0, "the ring wraps after four stops");
+                    assert_eq!(this.settings_row, if cfg!(target_os = "linux") { 4 } else { 0 }, "the ring is four switches, plus «Aggiungi al menu» on Linux");
                 }
             }).unwrap();
             if this.update_in(cx, |this, _, _| this.show_update_check()).unwrap() {
@@ -1627,7 +1627,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 key!("enter");
                 this.update_in(cx, |this, _, _| assert!(this.prefs.update_check_enabled && saved(&dirs).update_check_enabled)).unwrap();
                 key!("tab");
-                this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0)).unwrap();
+                this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, if cfg!(target_os = "linux") { 5 } else { 0 })).unwrap();
             }
             wait(300).await;
             shot("p242-receipts-off");

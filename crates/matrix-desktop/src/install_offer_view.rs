@@ -24,6 +24,12 @@ impl Shell {
 
     pub(crate) fn choose_install(&mut self, choice: Choice, cx: &mut Context<Self>) {
         let icon = self.prefs.icon;
+        self.install_offer.already = matches!(
+            matrix_desktop::desktop_entry::detect::entry_status(
+                &matrix_desktop::desktop_entry::detect::Env::from_process()
+            ),
+            matrix_desktop::desktop_entry::detect::EntryStatus::Ok
+        );
         let mut dont_ask = self.prefs.desktop_entry_dont_ask;
         self.install_offer
             .choose(choice, &mut dont_ask, |replace| {
@@ -220,6 +226,7 @@ impl Shell {
     pub(crate) fn render_install_row(
         &self,
         t: matrix_desktop::DesignTokens,
+        focused: bool,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         div()
@@ -233,7 +240,10 @@ impl Shell {
                     .flex()
                     .items_center()
                     .rounded_lg()
+                    .border_1()
+                    .border_color(rgb(if focused { t.accent } else { t.surface }))
                     .cursor_pointer()
+                    .hover(|h| h.bg(rgb(t.selected)))
                     .text_color(rgb(t.text))
                     .child("Aggiungi al menu")
                     .children(self.offer_observer(3, cx))
@@ -241,6 +251,9 @@ impl Shell {
             )
             .when_some(self.install_offer.error.clone(), |d, e| {
                 d.child(div().mx_2().px_3().text_color(rgb(t.error)).child(e))
+            })
+            .when_some(self.install_offer.notice, |d, n| {
+                d.child(div().mx_2().px_3().text_color(rgb(t.text)).child(n))
             })
             .into_any_element()
     }
