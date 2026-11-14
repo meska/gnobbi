@@ -180,6 +180,23 @@ impl LoginInput {
         self.buffer.select_utf16(anchor.min(next)..anchor.max(next));
         self.cursor = next;
     }
+    /// Click selection at a UTF-16 offset: 1 caret (Shift extends), 2 word, 3+ line.
+    /// Protected text never reveals its structure: a multi-click selects all of it.
+    pub fn click_at(&mut self, at: usize, clicks: usize, shift: bool) {
+        if self.marked.is_some() {
+            return;
+        }
+        let end = self.buffer.value.encode_utf16().count();
+        let at = at.min(end);
+        let range = match clicks {
+            0 | 1 => return self.move_to(at, shift),
+            _ if self.protected => 0..end,
+            2 => word_range(&self.buffer.value, at),
+            _ => line_range(&self.buffer.value, at, self.buffer.multiline),
+        };
+        self.buffer.select_utf16(range.clone());
+        self.cursor = range.end;
+    }
     /// Start or end of the caret's line (the whole text when single-line).
     fn line_edge(&self, end: bool) -> usize {
         let mut line = (0, 0);
@@ -322,5 +339,99 @@ mod multiline_tests {
         topic.move_to(7, false);
         topic.edit("end", false, true);
         assert_eq!(topic.selection_utf16(), 7..8);
+    }
+}
+
+/// UTF-16 range of the word (letters/digits/`_`), blank run or symbol run around `at`.
+pub fn word_range(text: &str, at: usize) -> std::ops::Range<usize> {
+    let class = |c: char| match c {
+        c if c.is_alphanumeric() || c == '_' => 0,
+        c if c.is_whitespace() => 1,
+        _ => 2,
+    };
+    let mut spans = Vec::new(); // (start, end, class) per char
+    let mut offset = 0;
+    for c in text.chars() {
+        spans.push((offset, offset + c.len_utf16(), class(c)));
+        offset += c.len_utf16();
+    }
+    // At the very end, or between two chars, the char to the right wins; at the end the last one.
+    let Some(i) = spans.iter().position(|s| at < s.1).or(spans.len().checked_sub(1)) else {
+        return 0..0;
+    };
+    let kind = spans[i].2;
+    let mut a = i;
+    while a > 0 && spans[a - 1].2 == kind {
+        a -= 1;
+    }
+    let mut b = i;
+    while b + 1 < spans.len() && spans[b + 1].2 == kind {
+        b += 1;
+    }
+    spans[a].0..spans[b].1
+}
+
+/// UTF-16 range of the line around `at` (the whole text when single-line), without its `\n`.
+pub fn line_range(text: &str, at: usize, multiline: bool) -> std::ops::Range<usize> {
+    let total = text.encode_utf16().count();
+    if !multiline {
+        return 0..total;
+    }
+    let (mut start, mut offset) = (0, 0);
+    for c in text.chars() {
+        if c == '\n' {
+            if offset >= at {
+                return start..offset;
+            }
+            start = offset + 1;
+        }
+        offset += c.len_utf16();
+    }
+    start..total
+}
+
+#[cfg(test)]
+mod click_tests {
+    use super::*;
+
+    #[test]
+    fn words_blanks_and_symbols() {
+        let t = "ciao mondo, @x_1";
+        assert_eq!(word_range(t, 0), 0..4);
+        assert_eq!(word_range(t, 4), 4..5, "boundary: char to the right");
+        assert_eq!(word_range(t, 7), 5..10);
+        assert_eq!(word_range(t, 10), 10..11);
+        assert_eq!(word_range(t, 16), 13..16, "end of text: last word");
+        assert_eq!(word_range("", 0), 0..0);
+        assert_eq!(word_range("a😀b", 1), 1..3, "UTF-16 pairs stay whole");
+    }
+
+    #[test]
+    fn lines() {
+        let t = "uno\ndue\n\ntre";
+        assert_eq!(line_range(t, 1, true), 0..3);
+        assert_eq!(line_range(t, 3, true), 0..3);
+        assert_eq!(line_range(t, 4, true), 4..7);
+        assert_eq!(line_range(t, 8, true), 8..8);
+        assert_eq!(line_range(t, 12, true), 9..12);
+        assert_eq!(line_range(t, 5, false), 0..12);
+    }
+
+    #[test]
+    fn click_counts_and_shift() {
+        let mut i = LoginInput::public();
+        i.replace(None, "ciao mondo");
+        i.click_at(7, 2, false);
+        assert_eq!(i.selection_utf16(), 5..10);
+        i.click_at(1, 3, false);
+        assert_eq!(i.selection_utf16(), 0..10);
+        i.click_at(2, 1, false);
+        assert_eq!(i.selection_utf16(), 2..2);
+        i.click_at(6, 1, true);
+        assert_eq!(i.selection_utf16(), 2..6);
+        let mut s = LoginInput::secret();
+        s.replace(None, "pa ss");
+        s.click_at(1, 2, false);
+        assert_eq!(s.selection_utf16(), 0..5);
     }
 }

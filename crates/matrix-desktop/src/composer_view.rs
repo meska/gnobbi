@@ -7,7 +7,7 @@ use gpui::{
 use crate::composer_icons::{Icon, icon};
 use crate::input_modality;
 use crate::picker_view::{CLOSE_AFTER, Pick, Picker, PickerEvent, PickerMode, PickerView, Timer, Zone};
-use matrix_desktop::{Composer, DesignTokens, LIGHT, RoomDrafts};
+use matrix_desktop::{Composer, DesignTokens, LIGHT, RoomDrafts, line_range, word_range};
 use matrix_domain::RoomScope;
 use std::ops::Range;
 use std::{cell::Cell, rc::Rc, time::{Duration, Instant}};
@@ -651,6 +651,21 @@ impl ComposerView {
         self.draft
             .select(self.anchor.min(index)..self.anchor.max(index));
         cx.notify();
+    }
+
+    /// Double click selects the word, triple click the line (byte offsets in, byte offsets out).
+    fn choose_run(&mut self, index: usize, clicks: usize, cx: &mut Context<Self>) {
+        let text = self.draft.text();
+        let Some(head) = text.get(..index.min(text.len())) else { return };
+        let at = head.encode_utf16().count();
+        let range = if clicks == 2 { word_range(text, at) } else { line_range(text, at, true) };
+        let byte = |u: usize| {
+            let mut n = 0;
+            text.char_indices().find(|(_, c)| { let hit = n >= u; n += c.len_utf16(); hit }).map_or(text.len(), |(i, _)| i)
+        };
+        let (a, b) = (byte(range.start), byte(range.end));
+        self.anchor = a;
+        self.choose(b, true, cx);
     }
 
     fn submit(&mut self, cx: &mut Context<Self>) {
@@ -1439,7 +1454,11 @@ impl Render for ComposerView {
                                     let i = this.layout.as_ref().map_or(0, |l| {
                                         l.index_for_position(e.position).unwrap_or_else(|i| i)
                                     });
-                                    this.choose(i, e.modifiers.shift, cx);
+                                    if e.click_count >= 2 {
+                                        this.choose_run(i, e.click_count, cx);
+                                    } else {
+                                        this.choose(i, e.modifiers.shift, cx);
+                                    }
                                     cx.stop_propagation();
                                 }),
                             )

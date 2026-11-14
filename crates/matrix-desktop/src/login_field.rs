@@ -21,6 +21,7 @@ pub struct LoginField {
     pub input: LoginInput,
     pub focus: FocusHandle,
     layout: Option<TextLayout>,
+    dragging: bool,
     #[cfg(test)]
     painted_box: Option<Bounds<Pixels>>,
     #[cfg(test)]
@@ -55,6 +56,7 @@ impl LoginField {
             },
             focus: cx.focus_handle(),
             layout: None,
+            dragging: false,
             #[cfg(test)]
             painted_box: None,
             #[cfg(test)]
@@ -65,14 +67,40 @@ impl LoginField {
             semantic_bounds: None,
         }
     }
+    /// Focus + caret at the end (also the fallback before the first paint).
+    #[cfg(test)]
     fn pointer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.pointer_at(None, 1, false, window, cx);
+    }
+    fn pointer_at(
+        &mut self,
+        at: Option<Point<Pixels>>,
+        clicks: usize,
+        shift: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.enabled {
             return;
         }
         self.focus.focus(window);
-        self.input.edit("end", false, false);
+        match at.and_then(|p| self.index_at(p)) {
+            Some(index) => {
+                self.dragging = true;
+                self.input.click_at(index, clicks, shift);
+            }
+            None => {
+                self.input.edit("end", false, false);
+            }
+        }
         cx.notify();
         cx.stop_propagation();
+    }
+    /// UTF-16 offset under a window position, from the last painted layout.
+    fn index_at(&self, p: Point<Pixels>) -> Option<usize> {
+        let text = self.input.display_text();
+        let i = self.layout.as_ref()?.index_for_position(p).unwrap_or_else(|i| i);
+        text.get(..i.min(text.len())).map(|t| t.encode_utf16().count())
     }
     fn key(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.key_for_platform(event, cfg!(target_os = "macos"), cx);
@@ -223,11 +251,10 @@ impl EntityInputHandler for LoginField {
 }
 impl Render for LoginField {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let pointer = Self::pointer;
         let key = Self::key;
         #[cfg(test)]
         {
-            self.painted_pointer = Some(pointer);
+            self.painted_pointer = Some(Self::pointer);
             self.painted_key = Some(key);
         }
         let text = self.input.display_text();
@@ -269,8 +296,20 @@ impl Render for LoginField {
             })
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, _, window, cx| pointer(this, window, cx)),
+                cx.listener(move |this, e: &gpui::MouseDownEvent, window, cx| {
+                    this.pointer_at(Some(e.position), e.click_count, e.modifiers.shift, window, cx)
+                }),
             )
+            .on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| {
+                if this.dragging && e.pressed_button == Some(MouseButton::Left) {
+                    if let Some(index) = this.index_at(e.position) {
+                        this.input.move_to(index, true);
+                        cx.notify();
+                    }
+                }
+            }))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.dragging = false))
+            .on_mouse_up_out(MouseButton::Left, cx.listener(|this, _, _, _| this.dragging = false))
             .child(body)
             .when(text.is_empty() && !self.placeholder.is_empty(), |d| {
                 d.child(

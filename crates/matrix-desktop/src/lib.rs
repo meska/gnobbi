@@ -46,7 +46,7 @@ pub use signin_form::{
 #[cfg(feature = "live")]
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
-pub use credential_input::{CredentialInput, LoginInput};
+pub use credential_input::{CredentialInput, LoginInput, line_range, word_range};
 mod account_catalog;
 mod account_erase;
 pub mod app_icon;
