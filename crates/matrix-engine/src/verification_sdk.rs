@@ -454,17 +454,16 @@ pub(crate) async fn run_service(
                     }
                     VerificationCommand::DeleteDevice { account_id: requested, device_id, password } if requested == account_id => {
                         match session.delete_device(&device_id, password).await {
-                            Ok(()) => match device_list(&client).await {
-                                Ok(devices) => {
-                                    if events.send(VerificationEvent::Devices { account_id, devices }).await.is_err() { break; }
-                                    Ok(())
+                            Ok(()) => {
+                                // The server accepted the sign-out, but the crypto-store list still holds the device until a later keys query:
+                                // always close the dialog first, then send the list without it.
+                                if events.send(VerificationEvent::DeviceDeleted { account_id, device_id: device_id.clone() }).await.is_err() { break; }
+                                // A failed re-read is not a verification error: the device is gone.
+                                if let Ok(devices) = device_list(&client).await {
+                                    if events.send(VerificationEvent::Devices { account_id, devices: without_device(devices, &device_id) }).await.is_err() { break; }
                                 }
-                                // The device is gone: a failed re-read is not a verification error.
-                                Err(_) => {
-                                    if events.send(VerificationEvent::DeviceDeleted { account_id, device_id }).await.is_err() { break; }
-                                    Ok(())
-                                }
-                            },
+                                Ok(())
+                            }
                             Err(error) => {
                                 if events.send(VerificationEvent::DeviceDeleteFailed { account_id, device_id, error }).await.is_err() { break; }
                                 Ok(())
@@ -595,6 +594,11 @@ fn valid_device_name(name: &str) -> Result<&str, VerificationError> {
     Ok(name)
 }
 
+fn without_device(mut devices: Vec<VerificationDevice>, device_id: &str) -> Vec<VerificationDevice> {
+    devices.retain(|d| d.device_id != device_id);
+    devices
+}
+
 async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, VerificationError> {
     let user_id = client.user_id().ok_or(VerificationError::LoggedOut)?;
     let devices = client
@@ -656,6 +660,13 @@ mod rename_tests {
         assert!(valid_device_name("  ").is_err());
         assert!(valid_device_name("a\nb").is_err());
         assert!(valid_device_name(&"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn deleted_device_is_dropped_from_a_stale_list() {
+        let d = |id: &str| describe("@a:x", &[], id.into(), true);
+        let ids: Vec<_> = without_device(vec![d("OLD"), d("KEEP")], "OLD").into_iter().map(|d| d.device_id).collect();
+        assert_eq!(ids, ["KEEP"]);
     }
 
     #[test]
