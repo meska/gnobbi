@@ -334,7 +334,7 @@ fn empty_recovery_key_fails_locally_and_allows_a_retry() {
         form.recovery(),
         Some(RecoveryState::Failed(RecoveryFailure::InvalidKey))
     );
-    assert!(form.error_message().unwrap().contains("Chiave di recupero"));
+    assert!(form.error_message().unwrap().contains("Chiave errata"));
     let retry = form.source().unwrap();
     assert_ne!(retry, source);
     form.phrase.replace(None, "second attempt key");
