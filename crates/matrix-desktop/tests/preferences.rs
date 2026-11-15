@@ -82,6 +82,7 @@ fn roundtrip_keeps_values() {
         close_to_tray: true,
         notifications: true,
         desktop_entry_dont_ask: true,
+        message_preview: false,
         update_check_enabled: false,
         last_check: Some(1_700_000_000),
         max_build_seen: 812,
@@ -577,4 +578,16 @@ fn list_width_survives_restart_and_odd_values_fall_back_to_default() {
         std::fs::write(&file, format!("{{\"list_width\": {raw}}}")).unwrap();
         assert_eq!(Preferences::load(&d).list_width, want, "list_width = {raw}");
     }
+}
+
+#[test]
+fn message_preview_is_on_by_default_also_for_files_saved_before_it_existed() {
+    let _gate = no_spawn();
+    assert!(Preferences::default().message_preview);
+    let d = dirs(&tmp("message-preview-legacy"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    std::fs::write(d.config.join("settings.json"), r#"{"read_receipts": false, "message_preview": "x"}"#).unwrap();
+    assert!(Preferences::load(&d).message_preview, "missing or non-boolean value means on");
+    let saved = Preferences::update(&d, |p| p.message_preview = false).unwrap();
+    assert!(!saved.message_preview && !Preferences::load(&d).message_preview, "off survives a reload");
 }

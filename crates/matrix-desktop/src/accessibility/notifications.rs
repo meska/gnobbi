@@ -6,6 +6,7 @@ use matrix_domain::RoomScope;
 pub const ENABLED: NodeId = NodeId(21);
 pub const MUTE: NodeId = NodeId(22);
 pub const PREVIEW: NodeId = NodeId(23);
+pub const MESSAGE_PREVIEW: NodeId = NodeId(25);
 pub const CLOSE: NodeId = NodeId(24);
 pub const OPEN: NodeId = NodeId(27);
 
@@ -16,6 +17,7 @@ impl NotificationControl {
             Self::Enabled => ENABLED,
             Self::Mute => MUTE,
             Self::Preview => PREVIEW,
+            Self::MessagePreview => MESSAGE_PREVIEW,
             Self::Close => CLOSE,
         }
     }
@@ -23,10 +25,11 @@ impl NotificationControl {
 
 #[derive(Clone)]
 pub struct NotificationSnapshot {
-    pub bounds: [Option<accesskit::Rect>; 4],
+    pub bounds: [Option<accesskit::Rect>; 5],
     pub focus: NotificationControl,
     pub enabled: bool,
     pub preview: bool,
+    pub message_preview: bool,
     pub selected: Option<(RoomScope, bool)>,
     pub room_name: String,
     pub service_failed: bool,
@@ -50,6 +53,7 @@ pub enum NotificationAction {
     Close,
     SetEnabled(bool),
     SetPreview(bool),
+    SetMessagePreview(bool),
     SetMuted { scope: RoomScope, muted: bool },
 }
 impl NotificationView {
@@ -69,6 +73,7 @@ impl NotificationView {
                 panel.selected.as_ref().is_some_and(|(_, muted)| !*muted),
             ),
             (PREVIEW, "Anteprima del solo conteggio".to_owned(), panel.preview),
+            (MESSAGE_PREVIEW, "Anteprima messaggi".to_owned(), panel.message_preview),
         ]
         .into_iter()
         .enumerate()
@@ -94,7 +99,7 @@ impl NotificationView {
         }
         let mut close = Node::new(Role::Button);
         close.set_label("Chiudi notifiche");
-        if let Some(bounds) = panel.bounds[3] {
+        if let Some(bounds) = panel.bounds[4] {
             close.set_bounds(bounds);
         }
         close.add_action(Action::Click);
@@ -131,6 +136,7 @@ impl NotificationView {
                 NotificationControl::Enabled,
                 NotificationControl::Mute,
                 NotificationControl::Preview,
+                NotificationControl::MessagePreview,
                 NotificationControl::Close,
             ]
             .into_iter()
@@ -148,6 +154,9 @@ impl NotificationView {
             (Self::Open(_), CLOSE) => Some(NotificationAction::Close),
             (Self::Open(panel), ENABLED) => Some(NotificationAction::SetEnabled(!panel.enabled)),
             (Self::Open(panel), PREVIEW) => Some(NotificationAction::SetPreview(!panel.preview)),
+            (Self::Open(panel), MESSAGE_PREVIEW) => {
+                Some(NotificationAction::SetMessagePreview(!panel.message_preview))
+            }
             (Self::Open(panel), MUTE) => {
                 panel
                     .selected
@@ -170,6 +179,9 @@ impl NotificationView {
             | (Self::Open(_), NotificationAction::Close) => true,
             (Self::Open(panel), NotificationAction::SetEnabled(value)) => panel.enabled != *value,
             (Self::Open(panel), NotificationAction::SetPreview(value)) => panel.preview != *value,
+            (Self::Open(panel), NotificationAction::SetMessagePreview(value)) => {
+                panel.message_preview != *value
+            }
             (Self::Open(panel), NotificationAction::SetMuted { scope, muted }) => panel
                 .selected
                 .as_ref()

@@ -29,10 +29,10 @@ fn tab_order_wraps_and_skips_the_room_switch_without_a_room() {
         let mut c = Enabled;
         (0..4).map(|_| { c = c.next(room, back); c }).collect::<Vec<_>>()
     };
-    assert_eq!(walk(true, false), [Mute, Preview, Close, Enabled]);
-    assert_eq!(walk(true, true), [Close, Preview, Mute, Enabled]);
-    assert_eq!(walk(false, false), [Preview, Close, Enabled, Preview]);
-    assert_eq!(walk(false, true), [Close, Preview, Enabled, Close]);
+    assert_eq!(walk(true, false), [Mute, Preview, MessagePreview, Close]);
+    assert_eq!(walk(true, true), [Close, MessagePreview, Preview, Mute]);
+    assert_eq!(walk(false, false), [Preview, MessagePreview, Close, Enabled]);
+    assert_eq!(walk(false, true), [Close, MessagePreview, Preview, Enabled]);
 }
 
 /// Panel headers close with the shared X icon, never a visible «Chiudi» word.
@@ -57,7 +57,7 @@ fn panel_headers_close_with_the_x_icon() {
 mod tree {
     use accesskit::{Action, ActionRequest, Toggled, TreeId};
     use matrix_desktop::accessibility::notifications::{
-        ENABLED, MUTE, NotificationAction, NotificationSnapshot, NotificationView, PREVIEW,
+        ENABLED, MESSAGE_PREVIEW, MUTE, NotificationAction, NotificationSnapshot, NotificationView, PREVIEW,
     };
     use matrix_domain::{AccountId, RoomId, RoomScope};
 
@@ -67,10 +67,11 @@ mod tree {
 
     fn named(enabled: bool, room_muted: Option<bool>, preview: bool, name: &str) -> NotificationView {
         NotificationView::Open(Box::new(NotificationSnapshot {
-            bounds: [None; 4],
+            bounds: [None; 5],
             focus: Default::default(),
             enabled,
             preview,
+            message_preview: true,
             selected: room_muted.map(|m| (RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:fixture.invalid") }, m)),
             room_name: name.into(),
             service_failed: false,
@@ -106,6 +107,21 @@ mod tree {
             let Some(NotificationAction::SetMuted { muted, .. }) = v.action(&click(MUTE)) else { panic!("{name}: Click Stanza") };
             // Stanza is on when NOT muted: clicking an "on" row mutes it.
             assert_eq!(muted, on(want[1]), "{name}: Click Stanza");
+        }
+    }
+
+    #[test]
+    fn anteprima_messaggi_is_a_labelled_switch_that_announces_its_state_and_clicks_to_flip() {
+        let NotificationView::Open(mut panel) = view(true, Some(false), true) else { unreachable!() };
+        for on in [true, false] {
+            panel.message_preview = on;
+            let v = NotificationView::Open(panel.clone());
+            let tree = v.tree().unwrap();
+            let n = &tree.nodes.iter().find(|(i, _)| *i == MESSAGE_PREVIEW).unwrap().1;
+            assert_eq!((n.label(), n.role(), n.toggled()), (Some("Anteprima messaggi"), accesskit::Role::Switch, Some(if on { Toggled::True } else { Toggled::False })));
+            assert!(n.supports_action(Action::Click) && n.supports_action(Action::Focus));
+            assert_eq!(v.action(&click(MESSAGE_PREVIEW)), Some(NotificationAction::SetMessagePreview(!on)));
+            assert!(v.allows(&NotificationAction::SetMessagePreview(!on)) && !v.allows(&NotificationAction::SetMessagePreview(on)));
         }
     }
 

@@ -178,10 +178,11 @@ fn spaces_are_excluded_when_sidebar_hidden_or_sheet_covers_it() {
     assert!(view.action(&request).is_none());
     view.visible = true;
     view.notifications = NotificationView::Open(Box::new(NotificationSnapshot {
-        bounds: [None; 4],
+        bounds: [None; 5],
         focus: Default::default(),
         enabled: false,
         preview: false,
+        message_preview: true,
         selected: None,
         room_name: String::new(),
         service_failed: false,

@@ -60,6 +60,7 @@ impl Shell {
                 focus: self.notification_focus,
                 enabled: self.notifications.enabled(),
                 preview: self.notifications.count_preview(),
+                message_preview: self.prefs.message_preview,
                 selected: self
                     .sidebar
                     .selected()
@@ -89,6 +90,7 @@ impl Shell {
             action,
             NotificationAction::SetEnabled(_)
                 | NotificationAction::SetPreview(_)
+                | NotificationAction::SetMessagePreview(_)
                 | NotificationAction::SetMuted { .. }
         );
         // Set the requested state explicitly. Duplicate/stale queued requests cannot toggle back.
@@ -108,6 +110,9 @@ impl Shell {
             }
             NotificationAction::SetEnabled(value) => self.set_notifications_enabled(value),
             NotificationAction::SetPreview(value) => self.notifications.set_count_preview(value),
+            NotificationAction::SetMessagePreview(value) => {
+                self.update_prefs(cx, |p| p.message_preview = value);
+            }
             NotificationAction::SetMuted { scope, muted } => self.set_room_muted(scope, muted),
         }
         if policy_change && let Some(handle) = &self.notification_handle {
@@ -144,7 +149,7 @@ impl Shell {
         }
     }
 
-    pub(crate) fn change_notification_preference(&mut self, preference: u8) {
+    pub(crate) fn change_notification_preference(&mut self, preference: u8, cx: &mut Context<Self>) {
         if let Some(handle) = &self.notification_handle {
             handle.cancel_pending();
         }
@@ -159,6 +164,9 @@ impl Shell {
             2 => self
                 .notifications
                 .set_count_preview(!self.notifications.count_preview()),
+            3 => {
+                self.update_prefs(cx, |p| p.message_preview = !p.message_preview);
+            }
             _ => (),
         }
     }
@@ -167,6 +175,7 @@ impl Shell {
         let t = self.theme.tokens();
         let enabled = self.notifications.enabled();
         let preview = self.notifications.count_preview();
+        let message_preview = self.prefs.message_preview;
         let selected = self.sidebar.selected();
         let muted = selected.is_some_and(|room| room.info.muted);
         let room_available = selected.is_some();
@@ -178,7 +187,7 @@ impl Shell {
             .child(div().h(px(64.)).flex_shrink_0().px_4().flex().items_center().justify_between()
                 .border_b_1().border_color(rgb(t.border))
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Notifiche locali"))
-                .child(div().id("notifications-close").relative().children(self.notification_observer(3, cx)).when(input_modality::only_keys(focused_control == Some(3), cx), |d| d.border_1().border_color(rgb(t.accent)))
+                .child(div().id("notifications-close").relative().children(self.notification_observer(4, cx)).when(input_modality::only_keys(focused_control == Some(4), cx), |d| d.border_1().border_color(rgb(t.accent)))
                     .w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
                     .hover(|s| s.bg(rgb(t.border)))
                     .child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
@@ -188,10 +197,11 @@ impl Shell {
                     (0u8, "Notifiche".to_owned(), enabled, true),
                     (1, room_name.map_or_else(|| "Stanza".to_owned(), |n| format!("Stanza: {n}")), !muted, room_available),
                     (2, "Conteggio".to_owned(), preview, true),
+                    (3, "Anteprima messaggi".to_owned(), message_preview, true),
                 ].into_iter().map(|(action, label, on, available)| {
                     crate::switch_row::switch_row(("notification-setting", action as usize), label, on, available, input_modality::only_keys(focused_control == Some(action as usize), cx), t)
                         .relative().children(self.notification_observer(action as usize, cx))
-                        .on_click(cx.listener(move |this, _, _, cx| { if available { this.change_notification_preference(action); cx.notify(); } }))
+                        .on_click(cx.listener(move |this, _, _, cx| { if available { this.change_notification_preference(action, cx); cx.notify(); } }))
                 }))
                 .when(self.notification_failed, |d| d.child(div().text_size(px(12.)).text_color(rgb(t.secondary)).child("Servizio OS non disponibile o richiesta scaduta. Gli avvisi sono best effort.")))
             ).into_any_element()

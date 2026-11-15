@@ -142,7 +142,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                 {
                     let h = this.update_in(cx, |this, _, _| this.a11y_notification_bounds).unwrap();
-                    let close = h[3].map(|r| ((r.x1 - r.x0) / f64::from(scale), (r.y1 - r.y0) / f64::from(scale)));
+                    let close = h[4].map(|r| ((r.x1 - r.x0) / f64::from(scale), (r.y1 - r.y0) / f64::from(scale)));
                     check!(close.is_some_and(|(w, h)| w >= 32. && h >= 32.), "{tname}/{sname} close bounds {close:?} < 32x32 logical px");
                     for (i, b) in h.iter().take(3).enumerate() {
                         let rows = b.map(|r| (r.y1 - r.y0) / f64::from(scale));
@@ -204,7 +204,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 key!(k);
                 seen.push(this.update_in(cx, |this, _, _| focus(this)).unwrap());
             }
-            check!(seen == [NotificationControl::Mute, NotificationControl::Preview, NotificationControl::Close, NotificationControl::Enabled], "Tab order: {seen:?}");
+            check!(seen == [NotificationControl::Mute, NotificationControl::Preview, NotificationControl::MessagePreview, NotificationControl::Close], "Tab order: {seen:?}");
             key!("down");
             check!(this.update_in(cx, |this, _, _| focus(this)).unwrap() == NotificationControl::Mute, "Down after Enabled should reach Mute");
             key!("up");
@@ -244,6 +244,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, _| check!(!this.notifications.count_preview(), "Space on Conteggio did not switch it off")).unwrap();
             key!("enter");
             this.update_in(cx, |this, _, _| check!(this.notifications.count_preview(), "Enter on Conteggio did not switch it on")).unwrap();
+            this.update_in(cx, |this, _, _| this.notification_focus = NotificationControl::MessagePreview).unwrap();
+            key!("space");
+            this.update_in(cx, |this, _, _| check!(!this.prefs.message_preview, "Space on Anteprima messaggi did not switch it off")).unwrap();
+            key!("enter");
+            this.update_in(cx, |this, _, _| check!(this.prefs.message_preview, "Enter on Anteprima messaggi did not switch it on")).unwrap();
             this.update_in(cx, |this, _, _| this.notification_focus = NotificationControl::Enabled).unwrap();
             key!("space");
             this.update_in(cx, |this, _, _| check!(!this.notifications.enabled(), "Space on Notifiche did not switch it off")).unwrap();

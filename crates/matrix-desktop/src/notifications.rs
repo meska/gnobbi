@@ -14,13 +14,14 @@ pub enum NotificationControl {
     Enabled,
     Mute,
     Preview,
+    MessagePreview,
     Close,
 }
 impl NotificationControl {
     /// Next control in Tab order, wrapping; «Mute» is skipped while no room is selected.
     pub fn next(self, room: bool, backwards: bool) -> Self {
         use NotificationControl::*;
-        let all = [Enabled, Mute, Preview, Close];
+        let all = [Enabled, Mute, Preview, MessagePreview, Close];
         let controls: Vec<_> = all.into_iter().filter(|c| room || *c != Mute).collect();
         let index = controls.iter().position(|c| *c == self).unwrap_or(0);
         controls[(index + if backwards { controls.len() - 1 } else { 1 }) % controls.len()]
@@ -142,95 +143,115 @@ impl Drop for NotificationWorker {
     }
 }
 
-/// Blocking platform boundary: only the notification worker may call this. The alert carries an
-/// action; a short-lived thread per alert (at most `WAITERS` at once) reports a click.
-#[cfg(target_os = "linux")]
-fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
-    use std::io::Read;
-    use std::process::{Command, Stdio};
-    static WAITERS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    const WAITERS_MAX: usize = 4;
-    let mut child = Command::new("/usr/bin/notify-send")
-        .args([
-            "--app-name=Gnobbi",
-            "--urgency=low",
-            "--expire-time=5000",
-            "--hint=boolean:suppress-sound:true",
-            "--hint=boolean:transient:true",
-            "--category=im.received",
-            "--action=open=Apri",
-            "--wait",
-            "--",
-            notification.title(),
-            &notification.body(),
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
+/// Linux: the freedesktop `Notify` call over D-Bus, so title and body never enter any argv (`ps`).
+/// One live alert per room (`replaces_id`): the newest message replaces the previous one. A click
+/// arrives as `ActionInvoked`, read by one listener thread that lives as long as the connection.
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+mod linux {
+    use super::*;
+    use std::collections::HashMap;
+    use zbus::{blocking::{Connection, Proxy}, zvariant::Value};
+
+    type Ids = Arc<Mutex<HashMap<RoomScope, (u32, Option<AccountId>)>>>;
+    pub struct Bus {
+        proxy: Proxy<'static>,
+        ids: Ids,
+        markup: bool,
+    }
+    static BUS: Mutex<Option<Bus>> = Mutex::new(None);
+
+    fn connect(click: &Click) -> Result<Bus, NotificationError> {
+        let conn = Connection::session().map_err(|_| NotificationError::Unavailable)?;
+        let proxy = Proxy::new(
+            &conn,
+            "org.freedesktop.Notifications",
+            "/org/freedesktop/Notifications",
+            "org.freedesktop.Notifications",
+        )
         .map_err(|_| NotificationError::Unavailable)?;
-    // A failure (no service, unknown option) shows within a moment; a live alert keeps running.
-    let early = std::time::Instant::now() + Duration::from_millis(300);
-    while std::time::Instant::now() < early {
-        match child.try_wait() {
-            Ok(Some(status)) if !status.success() => return Err(NotificationError::Unavailable),
-            Ok(Some(_)) => break,
-            _ => std::thread::sleep(Duration::from_millis(10)),
-        }
-    }
-    let (account, scope) = {
-        let (account, scope) = notification.target();
-        (account, scope.clone())
-    };
-    if WAITERS.fetch_add(1, Ordering::AcqRel) >= WAITERS_MAX {
-        WAITERS.fetch_sub(1, Ordering::AcqRel);
-        let _ = child.kill();
-        let _ = child.wait();
-        return Ok(());
-    }
-    let click = click.clone();
-    std::thread::spawn(move || {
-        let end = std::time::Instant::now() + Duration::from_secs(10);
-        let done = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break status.success(),
-                Ok(None) if std::time::Instant::now() < end => {
-                    std::thread::sleep(Duration::from_millis(50))
+        let markup = proxy
+            .call::<_, _, Vec<String>>("GetCapabilities", &())
+            .map_err(|_| NotificationError::Unavailable)?
+            .iter()
+            .any(|c| c == "body-markup");
+        let signals = proxy.receive_signal("ActionInvoked").map_err(|_| NotificationError::Unavailable)?;
+        let ids = Ids::default();
+        let (slot, known) = (click.clone(), ids.clone());
+        std::thread::spawn(move || {
+            for message in signals {
+                let Ok((id, action)) = message.body().deserialize::<(u32, String)>() else { continue };
+                if action != "open" {
+                    continue;
                 }
-                _ => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    break false;
+                let target = known.lock().ok().and_then(|ids| {
+                    ids.iter().find(|(_, (known, _))| *known == id).map(|(scope, (_, account))| (*account, scope.clone()))
+                });
+                if let (Some(target), Ok(mut slot)) = (target, slot.lock()) {
+                    *slot = Some(target);
                 }
             }
+        });
+        Ok(Bus { proxy, ids, markup })
+    }
+
+    /// The daemon renders a small HTML subset: message text must not become markup or links.
+    fn escape(body: &str) -> String {
+        body.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    }
+
+    pub fn deliver(notification: Notification, click: &Click) -> Result<(), NotificationError> {
+        let mut guard = BUS.lock().map_err(|_| NotificationError::Worker)?;
+        if guard.is_none() {
+            *guard = Some(connect(click)?);
+        }
+        let bus = guard.as_ref().expect("connected above");
+        let (account, scope) = {
+            let (account, scope) = notification.target();
+            (account, scope.clone())
         };
-        let mut out = String::new();
-        if done && let Some(pipe) = child.stdout.as_mut() {
-            let _ = pipe.take(64).read_to_string(&mut out);
+        let replaces = bus.ids.lock().ok().and_then(|ids| ids.get(&scope).map(|(id, _)| *id)).unwrap_or(0);
+        let body = notification.body();
+        let body = if bus.markup { escape(&body) } else { body };
+        let hints = HashMap::from([
+            ("urgency", Value::from(0u8)),
+            ("suppress-sound", Value::from(true)),
+            ("transient", Value::from(true)),
+            ("category", Value::from("im.received")),
+        ]);
+        let sent = bus.proxy.call::<_, _, u32>(
+            "Notify",
+            &("Gnobbi", replaces, "", notification.title(), body, vec!["open", "Apri"], hints, 5000i32),
+        );
+        match sent {
+            Ok(id) => {
+                if let Ok(mut ids) = bus.ids.lock() {
+                    // shortcut: one id per room ever alerted; upgrade if rooms become unbounded.
+                    ids.insert(scope, (id, account));
+                }
+                Ok(())
+            }
+            Err(_) => {
+                *guard = None; // the daemon or the bus went away: reconnect on the next alert
+                Err(NotificationError::Unavailable)
+            }
         }
-        if out.trim() == "open"
-            && let Ok(mut slot) = click.lock()
-        {
-            *slot = Some((account, scope));
-        }
-        WAITERS.fetch_sub(1, Ordering::AcqRel);
-    });
-    Ok(())
+    }
 }
-/// Fixed AppleScript; title/body travel only as argv, so message text can never become script.
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
+    linux::deliver(notification, click)
+}
+/// Fixed AppleScript, no placeholders: title and body reach it only through the environment of
+/// the child (never argv, so never in `ps`, and never inside the script text). `system attribute`
+/// decodes as MacRoman (emoji/accents garbled), so the fixed `printf` re-reads it as UTF-8.
 #[cfg(any(target_os = "macos", test))]
-fn macos_osascript_args(notification: &Notification) -> Vec<String> {
-    vec![
-        "-e".into(),
-        "on run argv".into(),
-        "-e".into(),
-        "display notification (item 2 of argv) with title (item 1 of argv)".into(),
-        "-e".into(),
-        "end run".into(),
-        "--".into(),
-        notification.title().into(),
-        notification.body(),
-    ]
+const MACOS_SCRIPT: [&str; 2] = [
+    "-e",
+    "display notification (do shell script \"printf %s \\\"$GNOBBI_BODY\\\"\" as «class utf8») with title (do shell script \"printf %s \\\"$GNOBBI_TITLE\\\"\" as «class utf8»)",
+];
+#[cfg(any(target_os = "macos", test))]
+fn macos_env(notification: &Notification) -> [(&'static str, String); 2] {
+    [("GNOBBI_TITLE", notification.title().into()), ("GNOBBI_BODY", notification.body())]
 }
 
 /// Blocking platform boundary: only the notification worker may call this.
@@ -239,7 +260,8 @@ fn macos_osascript_args(notification: &Notification) -> Vec<String> {
 fn deliver_os(notification: Notification, _: &Click) -> Result<(), NotificationError> {
     use std::process::{Command, Stdio};
     let mut child = Command::new("/usr/bin/osascript")
-        .args(macos_osascript_args(&notification))
+        .args(MACOS_SCRIPT)
+        .envs(macos_env(&notification))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -261,7 +283,7 @@ fn deliver_os(notification: Notification, _: &Click) -> Result<(), NotificationE
         }
     }
 }
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(all(target_os = "linux", feature = "desktop"), target_os = "macos")))]
 fn deliver_os(_: Notification, _: &Click) -> Result<(), NotificationError> {
     Err(NotificationError::Unavailable)
 }

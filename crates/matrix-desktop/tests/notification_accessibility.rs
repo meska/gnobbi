@@ -43,10 +43,11 @@ fn notification_actions_reject_hidden_disabled_and_stale_room_targets() {
         "duplicate writes must not toggle"
     );
     let no_room = NotificationView::Open(Box::new(NotificationSnapshot {
-        bounds: [None; 4],
+        bounds: [None; 5],
         focus: Default::default(),
         enabled: false,
         preview: true,
+        message_preview: true,
         selected: None,
         room_name: String::new(),
         service_failed: false,
@@ -168,10 +169,11 @@ fn notification_focus_traversal_skips_unavailable_mute_and_exports_focus_action(
 
 fn panel() -> NotificationView {
     NotificationView::Open(Box::new(NotificationSnapshot {
-        bounds: [None; 4],
+        bounds: [None; 5],
         focus: Default::default(),
         enabled: false,
         preview: true,
+        message_preview: true,
         selected: Some((
             RoomScope {
                 account_id: AccountId::new(18),
@@ -188,7 +190,7 @@ fn panel() -> NotificationView {
 fn notification_dialog_exports_current_checkbox_states_and_privacy_text() {
     let mut view = panel();
     if let NotificationView::Open(ref mut p) = view {
-        p.bounds = [Some(accesskit::Rect::new(16., 80., 1104., 128.)); 4];
+        p.bounds = [Some(accesskit::Rect::new(16., 80., 1104., 128.)); 5];
     }
     let tree = view.tree().expect("open notification dialog");
     assert_eq!(tree.nodes[0].1.role(), Role::Window);

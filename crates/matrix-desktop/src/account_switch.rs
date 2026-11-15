@@ -111,6 +111,7 @@ impl Shell {
     /// Keeps the background accounts syncing; their new-message alerts go out like the shown one's.
     pub(crate) fn pump_parked(&mut self) {
         for (id, state) in self.parked.iter_mut() {
+            state.notifications.set_message_preview(self.prefs.message_preview);
             for alert in state.pump() {
                 if let Some(handle) = &self.notification_handle {
                     handle.submit(Self::alert_from(&self.accounts, Some(*id), alert));

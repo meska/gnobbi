@@ -203,7 +203,7 @@ struct Shell {
     pending_sidebar_key: Option<filter_view::SidebarPress>,
     notification_focus: matrix_desktop::notifications::NotificationControl,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_notification_bounds: [Option<accesskit::Rect>; 4],
+    a11y_notification_bounds: [Option<accesskit::Rect>; 5],
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_rooms: matrix_desktop::accessibility::RoomNodes,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -1167,9 +1167,10 @@ impl Shell {
             if matches!(key.key.as_str(), "space" | "enter") {
                 use matrix_desktop::notifications::NotificationControl::*;
                 match self.notification_focus {
-                    Enabled => self.change_notification_preference(0),
-                    Mute => self.change_notification_preference(1),
-                    Preview => self.change_notification_preference(2),
+                    Enabled => self.change_notification_preference(0, cx),
+                    Mute => self.change_notification_preference(1, cx),
+                    Preview => self.change_notification_preference(2, cx),
+                    MessagePreview => self.change_notification_preference(3, cx),
                     Close => self.set_notifications_open(false),
                 }
                 cx.notify();
@@ -1178,9 +1179,9 @@ impl Shell {
             }
             match key.key.as_str() {
                 "escape" => self.set_notifications_open(false),
-                "n" if !key.modifiers.control => self.change_notification_preference(0),
-                "m" if !key.modifiers.control => self.change_notification_preference(1),
-                "p" if !key.modifiers.control => self.change_notification_preference(2),
+                "n" if !key.modifiers.control => self.change_notification_preference(0, cx),
+                "m" if !key.modifiers.control => self.change_notification_preference(1, cx),
+                "p" if !key.modifiers.control => self.change_notification_preference(2, cx),
                 _ => (),
             }
             cx.notify();
@@ -3310,7 +3311,10 @@ fn main() {
                                         for event in events {
                                             match event {
                                                 RoomListEvent::Alert(scope) => {
-                                                    if let Some(alert) = this.notifications.alert(&scope, None)
+                                                    this.notifications.set_message_preview(this.prefs.message_preview);
+                                                    // The user is reading that room right now: no alert for it.
+                                                    let reading = cx.active_window().is_some() && this.sidebar.selected().is_some_and(|r| r.scope == scope);
+                                                    if !reading && let Some(alert) = this.notifications.alert(&scope, None)
                                                         && let Some(handle) = &this.notification_handle
                                                     {
                                                         handle.submit(Shell::alert_from(&this.accounts, this.active_id, alert));
@@ -3674,7 +3678,7 @@ fn main() {
                         history_focus: cx.focus_handle(),
                         notification_focus: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_notification_bounds: [None; 4],
+                        a11y_notification_bounds: [None; 5],
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_rooms: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]

@@ -1,5 +1,8 @@
 use super::*;
-use matrix_domain::{AccountId, RoomId, RoomScope, notifications::NotificationPolicy};
+use matrix_domain::{
+    AccountId, RoomId, RoomScope,
+    notifications::{MessagePreview, NotificationPolicy, PreviewContent},
+};
 use std::sync::mpsc;
 
 fn alert() -> Notification {
@@ -113,15 +116,33 @@ fn worker_delivers_content_free_payload_off_the_calling_thread() {
 }
 
 #[test]
-fn macos_alert_passes_text_only_as_argv_never_inside_the_script() {
-    let args = macos_osascript_args(&alert());
-    assert_eq!(args[0], "-e");
-    let script_end = args.iter().position(|a| a == "--").expect("argv separator");
-    let script = args[..script_end].join("\n");
-    assert!(script.contains("on run argv"));
-    assert!(script.contains("display notification (item 2 of argv) with title (item 1 of argv)"));
-    assert!(!script.contains("Gnobbi") && !script.contains("Nuovi messaggi"));
-    assert_eq!(&args[script_end + 1..], ["Gnobbi", "Nuovi messaggi"]);
+fn macos_alert_passes_text_only_in_the_environment_never_in_argv_or_script() {
+    let mut policy = NotificationPolicy::new(AccountId::new(1));
+    policy.set_enabled(true);
+    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:x") };
+    let preview = MessagePreview { content: PreviewContent::Text("segreto 🔒".into()), sender: None, direct: true };
+    let n = policy.alert(&scope, Some(preview)).unwrap();
+    let args = MACOS_SCRIPT.join("\n");
+    assert!(args.contains("$GNOBBI_BODY"));
+    assert!(!args.contains("Gnobbi") && !args.contains("segreto"));
+    let env = macos_env(&n);
+    assert_eq!(env[0], ("GNOBBI_TITLE", "Gnobbi".to_owned()));
+    assert_eq!(env[1], ("GNOBBI_BODY", "segreto 🔒".to_owned()));
+}
+
+#[test]
+fn saved_message_preview_switch_reaches_the_alert_body_and_defaults_to_on() {
+    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:x") };
+    let body = |on: bool| {
+        let mut policy = NotificationPolicy::new(scope.account_id);
+        policy.set_enabled(true);
+        policy.set_message_preview(crate::Preferences { message_preview: on, ..Default::default() }.message_preview);
+        let preview = MessagePreview { content: PreviewContent::Text("ciao".into()), sender: None, direct: true };
+        policy.alert(&scope, Some(preview)).unwrap().body()
+    };
+    assert_eq!(body(true), "ciao");
+    assert_eq!(body(false), "Nuovi messaggi");
+    assert!(crate::Preferences::default().message_preview);
 }
 
 #[test]
