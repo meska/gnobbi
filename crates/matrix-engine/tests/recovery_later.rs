@@ -120,6 +120,8 @@ async fn run(config: &serde_json::Value) {
         c.encryption().bootstrap_cross_signing_if_needed(None).await.expect("bootstrap cross-signing");
     }
     let key = a.encryption().recovery().enable().wait_for_backups_to_upload().await.expect("recovery enable");
+    // Well-formed key of ANOTHER account: the wrong-key case below.
+    let wrong_key = o.encryption().recovery().enable().await.expect("O recovery key");
     let (sa, so) = (SyncService::builder(a.clone()).build().await.unwrap(), SyncService::builder(o.clone()).build().await.unwrap());
     sa.start().await;
     so.start().await;
@@ -159,14 +161,25 @@ async fn run(config: &serde_json::Value) {
     }
     let utd: Vec<_> = rows.iter().filter(|r| r.utd).collect();
     assert_eq!(utd.len(), 2, "the two old messages are UTD rows");
-    assert!(utd.iter().all(|r| r.body == "Cifrato · chiavi non disponibili" && !r.status));
+    assert!(utd.iter().all(|r| r.body.starts_with("Cifrato ·") && !r.status));
     assert!(row(&rows, "own-B").is_some_and(|r| !r.utd), "a readable message is not UTD");
     assert!(rows.iter().any(|r| r.status), "room has status rows");
     assert!(rows.iter().filter(|r| r.status).all(|r| !r.utd), "status rows are not UTD");
     assert!(!keys_recovered(&b).await, "deferred recovery is not complete");
 
+    eprintln!("UTD texts: {:?}", utd.iter().map(|r| r.body.as_str()).collect::<Vec<_>>());
+    for r in &utd {
+        assert!(!r.body.contains('\n') && r.body.starts_with("Cifrato"), "one-line UTD text: {:?}", r.body);
+    }
+
+    // Wrong key: error, nothing decrypted, recovery still incomplete; the right key works afterwards.
+    assert!(recover_all_with(b.clone(), zeroize::Zeroizing::new(wrong_key), false).await.is_err(), "wrong key must fail");
+    let rows = rows_until(&rb1, &t1, 5, |r| r.iter().all(|x| !x.utd)).await;
+    assert_eq!(rows.iter().filter(|r| r.utd).count(), 2, "wrong key decrypts nothing");
+    assert!(!keys_recovered(&b).await, "wrong key leaves the recovery incomplete");
+
     // The new command path: recovery key, B already syncing.
-    recover_all_with(b.clone(), zeroize::Zeroizing::new(key), false).await.expect("recovery with the key");
+    recover_all_with(b.clone(), zeroize::Zeroizing::new(key.clone()), false).await.expect("recovery with the key");
     let rows = rows_until(&rb1, &t1, 40, |r| r.iter().all(|x| !x.utd)).await;
     assert!(rows.iter().all(|r| !r.utd), "no UTD row left in R1 after the recovery, same timeline, no restart");
     for label in ["old-O", "old-A"] {
@@ -175,6 +188,11 @@ async fn run(config: &serde_json::Value) {
     assert!(keys_recovered(&b).await, "recovery complete");
     let own = b.encryption().get_own_device().await.unwrap().expect("own device");
     assert!(own.is_cross_signed_by_owner(), "own device signed by its owner");
+
+    // Repeated recovery: succeeds again, nothing regresses.
+    recover_all_with(b.clone(), zeroize::Zeroizing::new(key.clone()), false).await.expect("second recovery");
+    let rows = rows_until(&rb1, &t1, 5, |r| r.iter().any(|x| x.utd)).await;
+    assert!(rows.iter().all(|r| !r.utd) && row(&rows, "old-O").is_some(), "rows stay readable after a repeated recovery");
 
     // Complete recovery, session in no backup: the row stays UTD (so no action is offered).
     let rows2 = rows_until(&rb2, &t2, 10, |r| r.iter().any(|x| x.utd)).await;

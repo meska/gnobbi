@@ -2551,5 +2551,8 @@ mod utd_text_tests {
         assert!(utd_cause_text(C::SentBeforeWeJoined).contains("non recuperabile"));
         assert!(utd_cause_text(C::HistoricalMessageAndBackupIsDisabled).contains("non recuperabile"));
         assert_eq!(utd_cause_text(C::Unknown), UTD_DEFAULT);
+        let all = [UTD_DEFAULT, utd_cause_text(C::HistoricalMessageAndDeviceIsUnverified), utd_cause_text(C::SentBeforeWeJoined)];
+        assert!(all.iter().all(|t| !t.contains('\n')), "one line each");
+        assert!(all[1] != all[2] && all[0] != all[1] && all[0] != all[2], "the cases read differently");
     }
 }
