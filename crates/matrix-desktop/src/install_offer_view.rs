@@ -185,6 +185,7 @@ impl Shell {
         Some(
             div()
                 .id("install-offer-layer")
+                .occlude()
                 .absolute()
                 .bottom_4()
                 .left_4()

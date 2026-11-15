@@ -19,6 +19,8 @@ mod link_view;
 mod list_divider;
 #[cfg(test)]
 mod list_divider_test;
+#[cfg(test)]
+mod overlay_scroll_test;
 /// URLs the system handed to the app (macOS open-URL) before the shell could take them.
 static OPENED_URLS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 #[cfg(target_os = "linux")]

@@ -131,6 +131,7 @@ impl Shell {
         Some(
             div()
                 .id("removal-layer")
+                .occlude()
                 .absolute()
                 .top_0()
                 .bottom_0()

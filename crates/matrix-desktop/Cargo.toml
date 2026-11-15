@@ -90,6 +90,8 @@ wayland-server = "0.31.14"
 wayland-protocols = { version = "0.32.13", features = ["server"] }
 
 [dev-dependencies]
+# TestAppContext for the overlay event-routing test (src/overlay_scroll_test.rs).
+gpui = { version = "=0.2.2", default-features = false, features = ["test-support"] }
 tokio = { version = "=1.53.2", default-features = false, features = ["rt", "time", "macros", "sync"] }
 
 [[test]]

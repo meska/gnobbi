@@ -1084,6 +1084,7 @@ impl Shell {
         Some(
             div()
                 .id("quick-search-layer")
+                .occlude()
                 .absolute()
                 .inset_0()
                 .flex()

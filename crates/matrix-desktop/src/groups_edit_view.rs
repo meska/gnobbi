@@ -167,6 +167,7 @@ impl Shell {
         Some(
             div()
                 .id("groups-layer")
+                .occlude()
                 .absolute()
                 .inset_0()
                 .flex()
