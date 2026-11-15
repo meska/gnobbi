@@ -725,8 +725,7 @@ impl DemoHistory {
         let event = self.events.get(index)?;
         let sender = event.sender.as_ref()?;
         let previous = index.checked_sub(1).map(|i| &self.events[i]).map(|prev| {
-            let same = !prev.status && prev.sender.as_ref().is_some_and(|p| p.id == sender.id);
-            (same, event.timestamp_ms.saturating_sub(prev.timestamp_ms))
+            (same_sender(prev, event), event.timestamp_ms.saturating_sub(prev.timestamp_ms))
         });
         matrix_domain::shows_sender_label(
             member_count.try_into().unwrap_or(u32::MAX),
@@ -734,6 +733,25 @@ impl DemoHistory {
             previous,
         )
         .then(|| sender.name.clone().unwrap_or_else(|| sender.id.clone()))
+    }
+}
+
+/// Previous bubble is a message from the same sender (status rows break a series).
+fn same_sender(prev: &DemoEvent, event: &DemoEvent) -> bool {
+    !prev.status
+        && (prev.sender.as_ref().is_some_and(|p| event.sender.as_ref().is_some_and(|s| p.id == s.id))
+            || (prev.outgoing && event.outgoing))
+}
+
+impl DemoHistory {
+    /// Whether bubble `index` continues the series of the one above (same sender, same
+    /// time window as the repeated sender name): the timeline then uses the tight gap.
+    pub fn continues_series(&self, index: usize) -> bool {
+        let Some(event) = self.events.get(index) else { return false };
+        let Some(prev) = index.checked_sub(1).map(|i| &self.events[i]) else { return false };
+        !event.status
+            && same_sender(prev, event)
+            && event.timestamp_ms.saturating_sub(prev.timestamp_ms) <= matrix_domain::SENDER_LABEL_GAP_MS
     }
 }
 

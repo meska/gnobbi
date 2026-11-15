@@ -121,3 +121,27 @@ fn status_row_offers_no_menu_and_does_not_hide_the_next_sender_name() {
     assert!(rows.events()[1].menu_available(true));
     assert_eq!(rows.sender_label(1, 3).as_deref(), Some("Anna"));
 }
+
+#[test]
+fn series_continues_only_for_same_sender_within_threshold_without_status_rows() {
+    let mut status = incoming("$s", "@anna:test", Some("Anna"), 90_000);
+    status.status = true;
+    let mine = |id: &str, ts| {
+        let mut e = incoming(id, "@me:test", None, ts);
+        e.outgoing = true;
+        e
+    };
+    let mut rows = DemoHistory::new(scope(), 0);
+    rows.prepend_server(vec![
+        incoming("$1", "@anna:test", Some("Anna"), 0),
+        incoming("$2", "@anna:test", Some("Anna"), 60_000), // same sender
+        status,                                              // event in between
+        incoming("$3", "@anna:test", Some("Anna"), 100_000), // after status
+        incoming("$4", "@bruno:test", None, 110_000),        // sender changes
+        incoming("$5", "@bruno:test", None, 110_000 + 6 * 60_000), // over threshold
+        mine("$m1", 400_000),
+        mine("$m2", 410_000), // own messages (outgoing)
+    ]);
+    let got: Vec<_> = (0..9).map(|i| rows.continues_series(i)).collect();
+    assert_eq!(got, [false, true, false, false, false, false, false, true, false]);
+}

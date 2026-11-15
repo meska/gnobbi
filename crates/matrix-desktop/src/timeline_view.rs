@@ -121,6 +121,10 @@ type PollParts = std::collections::HashMap<(matrix_domain::TimelineId, crate::po
 type SemanticBounds2 = Rc<RefCell<std::collections::HashMap<(ScopedTimelineId, bool), Bounds<Pixels>>>>;
 
 const SENDER_AVATAR_PX: f32 = 32.;
+/// Vertical gap between bubbles in logical px (same at 100/150/200%): inside one series
+/// (same rule as the repeated sender name) and between series. Variants to compare: 2 / 4.
+const SERIES_GAP_SAME_PX: f32 = 4.;
+const SERIES_GAP_NEW_PX: f32 = 16.;
 
 /// Avatar or name of a bubble: a click asks the shell to open that member's profile.
 fn profile_target(
@@ -2182,7 +2186,8 @@ impl TimelineView {
                         .relative()
                         .w_full()
                         .px_6()
-                        .py_2()
+                        .pt(px(if history.continues_series(index) { SERIES_GAP_SAME_PX } else { SERIES_GAP_NEW_PX / 2. }))
+                        .pb(px(if history.continues_series(index + 1) { 0. } else { SERIES_GAP_NEW_PX / 2. }))
                         .flex()
                         .when(event.outgoing, |d| d.justify_end())
                         .when(avatar_gutter, |d| d.gap_2().items_start().child(match sender_avatar {
