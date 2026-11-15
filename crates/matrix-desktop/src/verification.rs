@@ -1064,7 +1064,7 @@ mod key_recovery_tests {
         let mut v = DeviceVerification::new(AccountId::new(1));
         assert!(!v.recover_keys(zeroize::Zeroizing::new(String::new())));
         assert_eq!(v.key_recovery(), Some(RecoveryState::Failed(RecoveryFailure::InvalidKey)));
-        assert_eq!(v.key_recovery_message(), Some("Chiave di recupero Matrix non valida. Controlla e riprova."));
+        assert_eq!(v.key_recovery_message(), Some("Chiave errata. Controlla e riprova."));
         assert!(v.recover_keys(zeroize::Zeroizing::new("EsTu key".into())));
         assert!(matches!(v.pending, Some(VerificationCommand::RecoverKeys { .. })));
         assert!(!v.recover_keys(zeroize::Zeroizing::new("again".into())), "one attempt at a time");

@@ -1760,6 +1760,24 @@ pub async fn rows_for_test(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
     loaded(room, timeline).await.rows
 }
 
+/// One line for an undecryptable row; the cause (public variant fields only) picks between
+/// «keys may still arrive» and «will never be recoverable». Never includes message content.
+fn utd_text(message: &matrix_sdk_ui::timeline::EncryptedMessage) -> &'static str {
+    match message {
+        matrix_sdk_ui::timeline::EncryptedMessage::MegolmV1AesSha2 { cause, .. } => utd_cause_text(*cause),
+        _ => UTD_DEFAULT,
+    }
+}
+const UTD_DEFAULT: &str = "Cifrato · chiavi non disponibili";
+fn utd_cause_text(cause: matrix_sdk_crypto::types::events::UtdCause) -> &'static str {
+    use matrix_sdk_crypto::types::events::UtdCause::*;
+    match cause {
+        HistoricalMessageAndDeviceIsUnverified => "Cifrato · chiavi non ancora arrivate o recuperabili",
+        SentBeforeWeJoined | HistoricalMessageAndBackupIsDisabled => "Cifrato · inviato prima della tua verifica, non recuperabile",
+        _ => UTD_DEFAULT,
+    }
+}
+
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
 pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Loaded {
     use crate::history::{HistoryEvent, ReactionCount};
@@ -1844,9 +1862,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             }
             MsgLikeKind::Redacted => "[Messaggio eliminato]".into(),
             // A UTD stays a real row with server identity, never ciphertext or silence.
-            MsgLikeKind::UnableToDecrypt(_) => {
-                "Cifrato · chiavi non disponibili".into()
-            }
+            MsgLikeKind::UnableToDecrypt(message) => utd_text(message).into(),
             _ => continue,
         };
         out.reactions.extend(
@@ -2523,4 +2539,17 @@ pub(crate) async fn stored_events(
         }
     }
     Ok((cached, hole, older))
+}
+
+#[cfg(test)]
+mod utd_text_tests {
+    use super::*;
+    use matrix_sdk_crypto::types::events::UtdCause as C;
+    #[test]
+    fn cause_picks_the_one_line() {
+        assert!(utd_cause_text(C::HistoricalMessageAndDeviceIsUnverified).contains("non ancora arrivate"));
+        assert!(utd_cause_text(C::SentBeforeWeJoined).contains("non recuperabile"));
+        assert!(utd_cause_text(C::HistoricalMessageAndBackupIsDisabled).contains("non recuperabile"));
+        assert_eq!(utd_cause_text(C::Unknown), UTD_DEFAULT);
+    }
 }

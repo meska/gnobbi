@@ -234,6 +234,8 @@ struct Shell {
     pending_link: matrix_desktop::link_open::LinkQueue,
     /// One line about a link that could not be opened; cleared after a few seconds.
     link_notice: Option<(&'static str, std::time::Instant)>,
+    /// «Recuperate N chiavi» after a «Recupera chiavi»; shown like `link_notice`.
+    keys_notice: Option<(String, std::time::Instant)>,
     link_jump: Option<link_view::LinkJump>,
     removals: Vec<account_remove::Removal>,
     /// Catalog ID of the shown account (unknown until a new sign-in is recorded).
@@ -3215,6 +3217,9 @@ fn main() {
                                             {
                                                 this.history.activity(&scope);
                                             }
+                                            if let matrix_engine::verification::VerificationEvent::KeysRecovered { count, .. } = &event {
+                                                this.keys_notice = Some((matrix_desktop::keys_recovered_text(*count), std::time::Instant::now()));
+                                            }
                                             this.verification.apply(event);
                                             this.record_profile();
                                         }
@@ -3638,6 +3643,7 @@ fn main() {
                             queue
                         },
                         link_notice: None,
+                        keys_notice: None,
                         link_jump: None,
                         swallow_menu_key_up: false,
                         removals: vec![],

@@ -454,7 +454,9 @@ pub(crate) async fn run_service(
                         // The key lives only in this call; dropping it zeroizes it.
                         let outcome = crate::recovery::recover_all_with(client.clone(), zeroize::Zeroizing::new(key.0.to_string()), false).await;
                         drop(key);
-                        let state = crate::signin::RecoveryState::of_outcome(outcome);
+                        if let Ok(count) = &outcome
+                            && events.send(VerificationEvent::KeysRecovered { account_id, count: *count }).await.is_err() { break; }
+                        let state = crate::signin::RecoveryState::of_outcome(outcome.map(drop));
                         if events.send(VerificationEvent::KeysRecovery { account_id, state }).await.is_err() { break; }
                         let complete = crate::recovery::keys_recovered(&client).await;
                         shown_complete = Some(complete);

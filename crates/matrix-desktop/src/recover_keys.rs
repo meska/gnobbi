@@ -12,6 +12,15 @@ pub const RECOVERY_KEY_LABEL: &str = "";
 #[cfg(not(feature = "live"))]
 pub const RECOVERY_PENDING: &str = "";
 
+/// The one outcome line of a successful «Recupera chiavi».
+pub fn keys_recovered_text(count: usize) -> String {
+    match count {
+        0 => "Recupero riuscito: nessuna chiave nuova nel backup".into(),
+        1 => "Recuperata 1 chiave".into(),
+        n => format!("Recuperate {n} chiavi"),
+    }
+}
+
 #[derive(Default)]
 pub struct RecoverKeys {
     offered: bool,
@@ -91,6 +100,13 @@ mod tests {
             },
             id: TimelineId::Server(matrix_domain::EventId::new(format!("${n}:fixture.invalid"))),
         }
+    }
+
+    #[test]
+    fn outcome_line_counts_keys() {
+        assert_eq!(keys_recovered_text(1), "Recuperata 1 chiave");
+        assert_eq!(keys_recovered_text(42), "Recuperate 42 chiavi");
+        assert!(keys_recovered_text(0).contains("nessuna chiave nuova"));
     }
 
     #[test]

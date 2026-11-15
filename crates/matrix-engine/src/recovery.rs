@@ -107,7 +107,7 @@ pub async fn recover_all_with(
     client: matrix_sdk::Client,
     key: zeroize::Zeroizing<String>,
     first_sync: bool,
-) -> Result<(), RecoveryError> {
+) -> Result<usize, RecoveryError> {
     use futures_util::StreamExt;
     if key.is_empty() || key.len() > 1024 {
         return Err(RecoveryError::InvalidSecret);
@@ -134,17 +134,32 @@ pub async fn recover_all_with(
     .map_err(|_| RecoveryError::Deadline)??;
     let rooms: Vec<matrix_sdk::ruma::OwnedRoomId> = client.rooms().iter().map(|r| r.room_id().to_owned()).collect();
     let backups = client.encryption().backups();
+    // Keys the backup hands over arrive on the SDK's per-room stream; their sessions are the count.
+    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counters: Vec<_> = rooms
+        .iter()
+        .map(|id| {
+            let (mut stream, count) = (Box::pin(backups.room_keys_for_room_stream(id)), count.clone());
+            tokio::spawn(async move {
+                while let Some(Ok(keys)) = futures_util::StreamExt::next(&mut stream).await {
+                    count.fetch_add(keys.values().map(|s| s.len()).sum(), std::sync::atomic::Ordering::Relaxed);
+                }
+            })
+        })
+        .collect();
     let failed = futures_util::stream::iter(rooms.iter().cloned())
         .map(|id| download_one(&backups, id))
         .buffer_unordered(8)
         .filter(|ok| std::future::ready(!ok))
         .count()
         .await;
+    tokio::task::yield_now().await;
+    counters.iter().for_each(|t| t.abort());
     // Every room failing is a network problem the user can retry; some failing is not.
     if failed > 0 && failed == rooms.len() {
         return Err(RecoveryError::Transport);
     }
-    Ok(())
+    Ok(count.load(std::sync::atomic::Ordering::Relaxed))
 }
 
 // shortcut: 10 s per room, 8 rooms at once; a failed room is retried by AfterDecryptionFailure.
@@ -207,7 +222,7 @@ impl AccountSession {
     /// is left to BackupDownloadStrategy::AfterDecryptionFailure (fetched on first use).
     pub async fn recover_all_room_keys(&mut self, key: &str) -> Result<(), RecoveryError> {
         let client = self.client.clone().ok_or(RecoveryError::LoggedOut)?;
-        recover_all_with(client, zeroize::Zeroizing::new(key.to_owned()), true).await
+        recover_all_with(client, zeroize::Zeroizing::new(key.to_owned()), true).await.map(drop)
     }
     /// Return success only when the SDK confirms all currently known keys uploaded.
     pub async fn upload_key_backup(&mut self) -> Result<(), RecoveryError> {

@@ -15,7 +15,7 @@ pub const RECOVERY_PENDING: &str =
 pub(crate) fn recovery_message(state: RecoveryState) -> Option<&'static str> {
     Some(match state {
         RecoveryState::Failed(RecoveryFailure::InvalidKey) => {
-            "Chiave di recupero Matrix non valida. Controlla e riprova."
+            "Chiave errata. Controlla e riprova."
         }
         RecoveryState::Failed(RecoveryFailure::Network) => {
             "Server non raggiungibile. Riprova più tardi o continua senza recupero."
@@ -24,7 +24,7 @@ pub(crate) fn recovery_message(state: RecoveryState) -> Option<&'static str> {
             "Il recupero ha impiegato troppo tempo. Riprova o continua senza recupero."
         }
         RecoveryState::Failed(RecoveryFailure::BackupUnavailable) => {
-            "Il server non ha un backup delle chiavi utilizzabile. Continua senza recupero."
+            "Nessun backup delle chiavi sul server. Continua senza recupero."
         }
         RecoveryState::Failed(RecoveryFailure::Other) => {
             "Recupero non riuscito. Riprova o continua senza recupero."

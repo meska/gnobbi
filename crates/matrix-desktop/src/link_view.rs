@@ -80,6 +80,10 @@ impl Shell {
             self.link_notice = None;
             cx.notify();
         }
+        if self.keys_notice.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() >= NOTICE_SECONDS) {
+            self.keys_notice = None;
+            cx.notify();
+        }
         // A profile asks the engine, and only one command goes at a time: wait for it.
         let ready = self.accounts_ready() && self.pending_operation_command.is_none();
         let Some(link) = self.pending_link.take(ready, self.link_modal_open()) else {
@@ -191,7 +195,11 @@ impl Shell {
     }
 
     pub(crate) fn render_link_notice(&self, t: matrix_desktop::DesignTokens) -> Option<gpui::AnyElement> {
-        let (text, _) = self.link_notice?;
+        let text: gpui::SharedString = match (self.link_notice, &self.keys_notice) {
+            (Some((text, _)), _) => text.into(),
+            (None, Some((text, _))) => text.clone().into(),
+            _ => return None,
+        };
         Some(
             div()
                 .id("link-notice")

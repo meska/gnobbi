@@ -30,6 +30,7 @@ pub const MONO_FONT: &str = "Consolas";
 mod verification;
 pub mod inactive;
 pub mod recover_keys;
+pub use recover_keys::keys_recovered_text;
 #[cfg(feature = "desktop")]
 pub mod window;
 pub use verification::{DeviceVerification, PopupBody, PopupButton, PopupView, device_detail, device_label, device_title};

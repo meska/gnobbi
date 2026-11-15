@@ -188,6 +188,12 @@ pub enum VerificationEvent {
         account_id: AccountId,
         state: crate::signin::RecoveryState,
     },
+    /// A `RecoverKeys` that succeeded: how many room keys it brought (0 = the backup had nothing new).
+    #[cfg(feature = "sdk")]
+    KeysRecovered {
+        account_id: AccountId,
+        count: usize,
+    },
     /// Whether key recovery is complete (see `recovery::keys_recovered`); sent at start, on change and after a recovery.
     KeysComplete {
         account_id: AccountId,

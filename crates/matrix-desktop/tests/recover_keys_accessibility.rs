@@ -198,13 +198,13 @@ fn the_open_field_has_its_label_focus_and_the_pending_state_is_announced() {
     projected.offer_recover_keys(
         true,
         Some(&utd),
-        Some("Chiave di recupero Matrix non valida. Controlla e riprova."),
+        Some("Chiave errata. Controlla e riprova."),
     );
     let tree = snapshot(projected.clone()).tree();
     assert_eq!(
         labelled(
             &tree,
-            "Chiave di recupero Matrix non valida. Controlla e riprova."
+            "Chiave errata. Controlla e riprova."
         )
         .len(),
         1
