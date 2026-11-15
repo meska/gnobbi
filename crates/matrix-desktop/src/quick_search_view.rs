@@ -1182,10 +1182,7 @@ impl Shell {
                                 .child(div().flex_1().min_w_0().child(q.field.clone()))
                                 .children(self.quick_server_picker(t, cx)),
                         )
-                        .children(q.add_field.clone())
-                        .children(q.servers.as_ref().and_then(|p| p.add_error()).filter(|_| q.add_field.is_some()).map(|e| {
-                            div().text_size(px(13.)).text_color(rgb(t.error)).child(e)
-                        }))
+                        .children(q.add_field.clone().zip(q.servers.as_ref()).map(|(f, p)| self.add_server_block(f, p, t, cx)))
                         .children(q.error.map(|e| div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
                         .children(seen)
                         .children(searched_header)

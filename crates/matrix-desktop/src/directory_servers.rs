@@ -253,6 +253,15 @@ impl ServerPicker {
         self.adding.as_ref()?.error().map(AddError::text)
     }
 
+    pub fn is_probing(&self) -> bool {
+        matches!(self.adding, Some(AddState::Probing(_)))
+    }
+
+    /// «Aggiungi» is enabled: a non-blank field and no probe in flight.
+    pub fn can_add(&self, text: &str) -> bool {
+        self.adding.as_ref().is_some_and(|a| a.can_submit(text))
+    }
+
     pub fn cancel_add(&mut self) {
         self.adding = None;
     }
@@ -274,7 +283,8 @@ impl ServerPicker {
         });
         if let Some(s) = existing {
             self.selected = Some(s);
-            self.adding = None;
+            // field stays open with the line «Già presente»: Esc or a new name goes on
+            self.adding = Some(AddState::Error(AddError::Present));
             return None;
         }
         self.adding.as_mut()?.submit(name)
@@ -461,6 +471,8 @@ mod tests {
         p.choose(4);
         assert_eq!(p.confirm_add("Z.org"), None);
         assert_eq!(p.value(), Some("z.org".into()));
+        assert_eq!(p.add_error(), Some("Già presente"));
+        assert!(!p.is_probing() && p.can_add("w.org"));
     }
 
     #[test]
@@ -491,7 +503,7 @@ mod tests {
         p.choose(3);
         assert_eq!(p.confirm_add("b.org"), None);
         assert_eq!(p.value(), Some("b.org".into()));
-        assert!(!p.is_adding());
+        assert!(p.is_adding(), "field stays open with «Già presente»");
     }
 
     #[test]

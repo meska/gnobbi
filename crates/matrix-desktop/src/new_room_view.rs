@@ -380,7 +380,19 @@ impl Shell {
                     field.placeholder = "Nome del server";
                     field
                 });
-                cx.observe(&field, |_, _, cx| cx.notify()).detach();
+                // typing clears a shown error; other notifications (caret, focus) must not
+                let mut last = String::new();
+                cx.observe(&field, move |this, f, cx| {
+                    let text = f.read(cx).input.display_text();
+                    if text != last {
+                        last = text;
+                        if let Some((p, _)) = this.dir_servers() {
+                            p.add_edited();
+                        }
+                    }
+                    cx.notify();
+                })
+                .detach();
                 field.read(cx).focus.focus(window);
                 *add = Some(field);
             }
@@ -421,7 +433,10 @@ impl Shell {
         let mut probe = None;
         match picker.confirm_add(&name) {
             Some(server) if !busy => probe = Some(server),
-            Some(_) => picker.cancel_add(),
+            // another command still waits to be sent: say so instead of closing the field
+            Some(server) => {
+                picker.probed(&server, Err(matrix_engine::search::SearchError::Network));
+            }
             None => {}
         }
         let done = !picker.is_adding();
@@ -435,6 +450,55 @@ impl Shell {
             self.focus_dialog_field(window, cx);
         }
         cx.notify();
+    }
+
+    /// The name field, «Aggiungi», and one line under them: «Controllo…» while probing, else the error.
+    pub(crate) fn add_server_block(
+        &self,
+        field: gpui::Entity<crate::login_field::LoginField>,
+        picker: &ServerPicker,
+        t: matrix_desktop::DesignTokens,
+        cx: &mut Context<Self>,
+    ) -> gpui::AnyElement {
+        use gpui::{Animation, AnimationExt};
+        let enabled = picker.can_add(&field.read(cx).input.display_text());
+        let probing = picker.is_probing();
+        div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().min_w_0().child(field))
+                    .child(
+                        div()
+                            .id("add-server-submit")
+                            .px_3()
+                            .py_1()
+                            .text_color(rgb(if enabled { t.accent } else { t.disabled }))
+                            .child("Aggiungi")
+                            .when(enabled, |d| {
+                                d.cursor_pointer().on_click(cx.listener(|this, _, window, cx| this.confirm_server(window, cx)))
+                            }),
+                    ),
+            )
+            .when(probing, |d| {
+                d.child(
+                    div().flex().items_center().gap_1().text_size(px(13.)).text_color(rgb(t.secondary)).child(
+                        div().size(px(8.)).rounded_full().bg(rgb(t.accent)).with_animation(
+                            "add-server-dot",
+                            Animation::new(std::time::Duration::from_secs(1)).repeat(),
+                            |d, delta| d.opacity(gpui::pulsating_between(0.3, 1.0)(delta)),
+                        ),
+                    )
+                    .child("Controllo…"),
+                )
+            })
+            .children(picker.add_error().map(|e| div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
+            .into_any_element()
     }
 
     /// Esc in the name field of «Aggiungi nuovo server…».
@@ -1033,10 +1097,7 @@ impl Shell {
             .flex_col()
             .gap_1()
             .child(menu)
-            .children(room.add_field.clone())
-            .children(picker.add_error().filter(|_| room.add_field.is_some()).map(|e| {
-                div().text_size(px(13.)).text_color(rgb(t.error)).child(e)
-            }))
+            .children(room.add_field.clone().map(|f| self.add_server_block(f, picker, t, cx)))
             .into_any_element()
     }
 

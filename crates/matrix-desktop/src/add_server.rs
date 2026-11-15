@@ -89,6 +89,7 @@ pub enum AddError {
     DirectoryHidden,
     Tls,
     InvalidName(NameError),
+    Present,
 }
 
 impl AddError {
@@ -99,6 +100,7 @@ impl AddError {
             Self::DirectoryHidden => "Il server non mostra le sue stanze",
             Self::Tls => "Certificato del server non valido",
             Self::InvalidName(e) => e.text(),
+            Self::Present => "Già presente",
         }
     }
 }
