@@ -1,6 +1,7 @@
 //! Which server the public-room directory is read from: the choices, the servers the user added
 //! (kept per account in `settings.json`, never on the server) and the menu state. No GPUI, no network.
 use crate::AppDirs;
+use crate::add_server::{AddError, AddState};
 use crate::preferences::{read_settings, update_settings};
 use matrix_engine::search::SearchError;
 use serde_json::Value;
@@ -12,7 +13,7 @@ const FALLBACK: &str = "matrix.org";
 const KEY: &str = "directory_servers";
 
 /// Active account's server, the other accounts' servers, the added ones, then `matrix.org`
-/// when absent. Exact comparison on the server name, first occurrence wins.
+/// when absent. Case-insensitive on the server name, first occurrence wins.
 pub fn choices(active: &str, other_accounts: &[String], saved: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for s in std::iter::once(active)
@@ -20,23 +21,11 @@ pub fn choices(active: &str, other_accounts: &[String], saved: &[String]) -> Vec
         .chain(saved.iter().map(String::as_str))
         .chain(std::iter::once(FALLBACK))
     {
-        if !out.iter().any(|o| o == s) {
+        if !out.iter().any(|o| o.eq_ignore_ascii_case(s)) {
             out.push(s.to_owned());
         }
     }
     out
-}
-
-/// The one line shown under the name field when the probe fails.
-// shortcut: same wording as the shared result list's error line; use that one when it lands.
-pub fn error_text(e: SearchError) -> &'static str {
-    match e {
-        SearchError::InvalidServer => "Nome del server non valido",
-        SearchError::Refused => "Il server non mostra le sue stanze",
-        SearchError::Unreachable => "Il server non risponde",
-        SearchError::Timeout => "Tempo scaduto",
-        SearchError::Network => "Connessione non riuscita",
-    }
 }
 
 /// Added servers by account id, as stored under `directory_servers`.
@@ -79,7 +68,7 @@ impl SavedServers {
 
     pub fn add(&mut self, account: u64, server: &str) {
         let list = self.0.entry(account).or_default();
-        if !list.iter().any(|s| s == server) {
+        if !list.iter().any(|s| s.eq_ignore_ascii_case(server)) {
             list.push(server.to_owned());
         }
     }
@@ -91,7 +80,7 @@ impl SavedServers {
 
     pub fn remove(&mut self, account: u64, server: &str) {
         if let Some(list) = self.0.get_mut(&account) {
-            list.retain(|s| s != server);
+            list.retain(|s| !s.eq_ignore_ascii_case(server));
         }
     }
 }
@@ -117,12 +106,6 @@ pub enum Choice {
     Removed,
 }
 
-struct Adding {
-    /// Server being probed, once confirmed.
-    probing: Option<String>,
-    error: Option<SearchError>,
-}
-
 pub struct ServerPicker {
     account: u64,
     active: String,
@@ -131,7 +114,7 @@ pub struct ServerPicker {
     selected: Option<String>,
     open: bool,
     highlighted: usize,
-    adding: Option<Adding>,
+    adding: Option<AddState>,
 }
 
 impl ServerPicker {
@@ -180,7 +163,7 @@ impl ServerPicker {
         let list = choices(&self.active, &self.others, self.saved());
         let mut rows: Vec<Row> = list.into_iter().map(Row::Server).collect();
         rows.push(Row::Add);
-        rows.extend(self.saved().iter().cloned().map(Row::Remove));
+        rows.extend(self.saved().iter().filter(|s| !s.eq_ignore_ascii_case(&self.active)).cloned().map(Row::Remove));
         rows
     }
 
@@ -247,17 +230,17 @@ impl ServerPicker {
                 Choice::Selected
             }
             Some(Row::Add) => {
-                self.adding = Some(Adding { probing: None, error: None });
+                self.adding = Some(AddState::Idle);
                 Choice::AddStarted
             }
-            Some(Row::Remove(s)) => {
+            Some(Row::Remove(s)) if !s.eq_ignore_ascii_case(&self.active) => {
                 self.store.remove(self.account, &s);
-                if self.selected.as_deref() == Some(s.as_str()) && !self.rows().contains(&Row::Server(s)) {
+                if self.selected.as_deref() == Some(s.as_str()) && !self.rows().iter().any(|r| matches!(r, Row::Server(x) if x.eq_ignore_ascii_case(&s))) {
                     self.selected = None;
                 }
                 Choice::Removed
             }
-            None => Choice::Nothing,
+            _ => Choice::Nothing,
         }
     }
 
@@ -267,30 +250,41 @@ impl ServerPicker {
 
     /// The error line under the name field, if any.
     pub fn add_error(&self) -> Option<&'static str> {
-        self.adding.as_ref()?.error.map(error_text)
+        self.adding.as_ref()?.error().map(AddError::text)
     }
 
     pub fn cancel_add(&mut self) {
         self.adding = None;
     }
 
-    /// Name confirmed. Returns the server to probe; a name already in the menu is just selected,
-    /// an empty one or a probe in flight does nothing.
+    /// Name confirmed. Returns the canonical server to probe; a name already in the menu
+    /// (any case) is just selected, a blank or invalid one shows its error, a probe in flight
+    /// does nothing.
     pub fn confirm_add(&mut self, name: &str) -> Option<String> {
-        let name = name.trim();
         let adding = self.adding.as_mut()?;
-        if name.is_empty() || adding.probing.is_some() {
+        if !adding.can_submit(name) {
             return None;
         }
-        if self.rows().contains(&Row::Server(name.to_owned())) {
-            self.selected = Some(name.to_owned());
+        let Ok(canonical) = crate::add_server::normalize_server(name) else {
+            return adding.submit(name);
+        };
+        let existing = self.rows().into_iter().find_map(|r| match r {
+            Row::Server(s) if s.eq_ignore_ascii_case(&canonical) => Some(s),
+            _ => None,
+        });
+        if let Some(s) = existing {
+            self.selected = Some(s);
             self.adding = None;
             return None;
         }
-        let adding = self.adding.as_mut()?;
-        adding.probing = Some(name.to_owned());
-        adding.error = None;
-        Some(name.to_owned())
+        self.adding.as_mut()?.submit(name)
+    }
+
+    /// The name field changed: clears a shown error.
+    pub fn add_edited(&mut self) {
+        if let Some(a) = self.adding.as_mut() {
+            a.edited();
+        }
     }
 
     /// Answer of the probe: Ok saves and selects the server, Err shows one line and saves nothing.
@@ -299,22 +293,13 @@ impl ServerPicker {
         let Some(adding) = self.adding.as_mut() else {
             return false;
         };
-        if adding.probing.as_deref() != Some(server) {
+        if !adding.probed(server, result.map_err(AddError::from)) {
             return false;
         }
-        match result {
-            Ok(()) => {
-                self.store.add(self.account, server);
-                self.selected = Some(server.to_owned());
-                self.adding = None;
-                true
-            }
-            Err(e) => {
-                adding.probing = None;
-                adding.error = Some(e);
-                false
-            }
-        }
+        self.store.add(self.account, server);
+        self.selected = Some(server.to_owned());
+        self.adding = None;
+        true
     }
 }
 
@@ -352,10 +337,10 @@ mod tests {
     }
 
     #[test]
-    fn dedup_is_exact_on_the_name() {
+    fn dedup_is_case_insensitive_but_keeps_ports() {
         assert_eq!(
-            choices("a.org", &[], &v(&["A.org", "a.org:8448", "z.org", "z.org"])),
-            v(&["a.org", "A.org", "a.org:8448", "z.org", "matrix.org"])
+            choices("a.org", &[], &v(&["A.org", "a.org:8448", "z.org", "Z.ORG"])),
+            v(&["a.org", "a.org:8448", "z.org", "matrix.org"])
         );
     }
 
@@ -454,6 +439,50 @@ mod tests {
         assert_eq!(p.store().for_account(1), ["x.org"]);
         // a late answer for another server is ignored
         assert!(!p.probed("y.org", Ok(())));
+    }
+
+    #[test]
+    fn invalid_name_shows_its_error_and_editing_clears_it() {
+        let mut p = picker(&[]);
+        p.choose(3);
+        assert_eq!(p.confirm_add("http://x.org"), None);
+        assert_eq!(p.add_error(), Some("Sono ammessi solo indirizzi https"));
+        p.add_edited();
+        assert_eq!(p.add_error(), None);
+        assert_eq!(p.confirm_add(" HTTPS://X.org/ "), Some("x.org".into()));
+    }
+
+    #[test]
+    fn existing_name_in_any_case_selects_the_existing_one() {
+        let mut p = picker(&["z.org"]);
+        p.choose(4);
+        assert_eq!(p.confirm_add("https://B.ORG/"), None);
+        assert_eq!(p.value(), Some("b.org".into()));
+        p.choose(4);
+        assert_eq!(p.confirm_add("Z.org"), None);
+        assert_eq!(p.value(), Some("z.org".into()));
+    }
+
+    #[test]
+    fn store_dedups_and_removes_case_insensitively() {
+        let mut s = SavedServers::default();
+        s.add(1, "x.org");
+        s.add(1, "X.ORG");
+        assert_eq!(s.for_account(1), ["x.org"]);
+        s.remove(1, "X.org");
+        assert!(s.for_account(1).is_empty());
+    }
+
+    #[test]
+    fn your_own_server_is_never_removable() {
+        let mut p = picker(&["a.org", "z.org"]);
+        let removable: Vec<_> = p.rows().into_iter().filter_map(|r| match r {
+            Row::Remove(s) => Some(s),
+            _ => None,
+        }).collect();
+        assert_eq!(removable, ["z.org"]);
+        assert_eq!(p.store().for_account(1).len(), 2, "stored, just not offered");
+        let _ = &mut p;
     }
 
     #[test]
