@@ -516,6 +516,10 @@ impl Shell {
                 self.open_scope(scope, window, cx)
             }
             None => {
+                // A join already in flight for this room (double click): nothing to do.
+                if self.joins.begin(&hit.room_id, &hit.name, None) == matrix_desktop::joins::Begin::Ignore {
+                    return;
+                }
                 self.quick_busy(recent, false, cx);
                 self.pending_operation_command =
                     Some(OperationCommand::JoinRoom { target: hit.room_id, via: vec![hit.origin] });
@@ -575,6 +579,10 @@ impl Shell {
     }
 
     /// The engine's answer to a join or DM started from the overlay; false when none is waiting.
+    pub(crate) fn quick_waiting(&self) -> bool {
+        self.quick.as_ref().is_some_and(|q| q.busy.is_some())
+    }
+
     pub(crate) fn quick_answered(
         &mut self,
         result: &Result<RoomScope, matrix_engine::operations::OperationError>,

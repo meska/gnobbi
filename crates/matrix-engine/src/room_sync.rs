@@ -419,6 +419,10 @@ impl RoomListWorker {
                             std::pin::Pin<Box<dyn std::future::Future<Output = OperationResult> + Send>>,
                         )>;
                         let mut receipt: InFlightReceipt = None;
+                        // Joins in flight (key = command target) and their `Slow` notices; dropped with the loop on stop.
+                        let mut joins = tokio::task::JoinSet::<OperationResult>::new();
+                        let mut joining = std::collections::HashSet::<String>::new();
+                        let (join_progress_tx, mut join_progress) = tokio::sync::mpsc::unbounded_channel::<OperationResult>();
                         loop {
                             let command = tokio::select! {
                                 command = shutdown_receive(&operation_stop, &mut operations) => {
@@ -464,6 +468,17 @@ impl RoomListWorker {
                                     let state = rooms_rx.borrow_and_update().clone();
                                     let sent = until_stopped(&operation_stop, operation_results.send(OperationResult::RoomSearch { state })).await;
                                     clean &= matches!(sent, Some(Ok(())) | None);
+                                    continue;
+                                }
+                                Some(progress) = join_progress.recv() => {
+                                    let _ = until_stopped(&operation_stop, operation_results.send(progress)).await;
+                                    continue;
+                                }
+                                Some(Ok(done)) = joins.join_next() => {
+                                    if let OperationResult::Join { target, .. } = &done {
+                                        joining.remove(target);
+                                    }
+                                    let _ = until_stopped(&operation_stop, operation_results.send(done)).await;
                                     continue;
                                 }
                                 Some(done) = async {
@@ -645,14 +660,22 @@ impl RoomListWorker {
                                     OperationResult::RoomStarted { result }
                                 }
                                 OperationCommand::JoinRoom { target, via } => {
-                                    let result = crate::operations::join_room(
-                                        &operation_client,
-                                        account,
-                                        &target,
-                                        &via,
-                                    )
-                                    .await;
-                                    OperationResult::RoomStarted { result }
+                                    // Not awaited here: a slow join must not stall search and the other commands.
+                                    // A second request for a target already in flight is a no-op.
+                                    if !joining.insert(target.clone()) {
+                                        continue;
+                                    }
+                                    let client = operation_client.clone();
+                                    let progress = join_progress_tx.clone();
+                                    joins.spawn(async move {
+                                        let slow = target.clone();
+                                        let phase = crate::join::join_tracked(&client, account, &target, &via, |phase| {
+                                            let _ = progress.send(OperationResult::Join { target: slow.clone(), phase });
+                                        })
+                                        .await;
+                                        OperationResult::Join { target, phase }
+                                    });
+                                    continue;
                                 }
                                 OperationCommand::SearchRooms { term, server, kind } => {
                                     // Spaces and rooms list their first page for an empty term.

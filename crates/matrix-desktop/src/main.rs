@@ -284,6 +284,7 @@ struct Shell {
     /// Start of the current outage, for the list's disconnection icon.
     outage: matrix_desktop::disconnect::Gate,
     sidebar: Sidebar,
+    joins: matrix_desktop::joins::Joins,
     active_scope: RoomScope,
     composer: gpui::Entity<ComposerView>,
     composer_visit: std::rc::Rc<composer_view::SendVisit>,
@@ -1887,9 +1888,11 @@ impl Shell {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
-                        OperationCommand::StartDm { .. }
-                        | OperationCommand::CreateRoom { .. }
-                        | OperationCommand::JoinRoom { .. } => {
+                        OperationCommand::JoinRoom { target, .. } => OperationResult::Join {
+                            target,
+                            phase: matrix_engine::join::JoinPhase::Refused(OperationError::Unavailable),
+                        },
+                        OperationCommand::StartDm { .. } | OperationCommand::CreateRoom { .. } => {
                             OperationResult::RoomStarted {
                                 result: Err(OperationError::Unavailable),
                             }
@@ -3102,6 +3105,7 @@ fn main() {
                                             this.signin = None;
                                             this.refocus_list = true;
                                             this.sidebar = Sidebar::connected(account);
+                                            this.joins.clear();
                                             this.active_scope.account_id = account;
                                             this.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
                                             this.verification = matrix_desktop::DeviceVerification::new(account);
@@ -3191,6 +3195,10 @@ fn main() {
                                             }
                                             if let matrix_engine::operations::OperationResult::UserSearch { state, all_available } = result {
                                                 this.user_search_result(state, all_available, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Join { target, phase } = result {
+                                                this.join_progress(&target, phase, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::RoomStarted { result } = result {
@@ -3671,6 +3679,7 @@ fn main() {
                         status: RoomSyncStatus::Connecting,
                         outage: Default::default(),
                         sidebar,
+                        joins: Default::default(),
                         composer_visit: composer.read(cx).visit.clone(),
                         composer,
                         timeline: (!connected)

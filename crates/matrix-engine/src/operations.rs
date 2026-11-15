@@ -296,6 +296,11 @@ pub enum OperationResult {
     RoomStarted {
         result: Result<RoomScope, OperationError>,
     },
+    /// Progress of a `JoinRoom`; `target` is the command's string, echoed unchanged.
+    Join {
+        target: String,
+        phase: crate::join::JoinPhase,
+    },
     InviteAnswered {
         scope: RoomScope,
         accept: bool,
@@ -801,7 +806,7 @@ pub async fn leave_room(
 }
 
 #[cfg(feature = "sdk")]
-enum Membership {
+pub(crate) enum Membership {
     Joined,
     NotJoined,
     Unknown,
@@ -810,7 +815,7 @@ enum Membership {
 /// Server-side check of our own `m.room.member` content. Only an answer proves we are out (a membership that
 /// is not `join`, or 404: no member state); any other failure to ask is `Unknown`, never «not joined».
 #[cfg(feature = "sdk")]
-async fn membership(client: &matrix_sdk::Client, room: &matrix_sdk::ruma::RoomId) -> Membership {
+pub(crate) async fn membership(client: &matrix_sdk::Client, room: &matrix_sdk::ruma::RoomId) -> Membership {
     use matrix_sdk::ruma::{api::client::state::get_state_event_for_key::v3::Request, events::StateEventType};
     let Some(me) = client.user_id() else { return Membership::Unknown };
     let request = Request::new(room.to_owned(), StateEventType::RoomMember, me.to_string());

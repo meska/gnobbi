@@ -220,6 +220,11 @@ impl Shell {
                 public: room.public,
             }
         };
+        if let OperationCommand::JoinRoom { target, .. } = &command
+            && self.joins.begin(target, target, None) == matrix_desktop::joins::Begin::Ignore
+        {
+            return;
+        }
         room.busy = true;
         room.error = None;
         for field in &room.fields {
@@ -554,6 +559,21 @@ impl Shell {
     }
 
     /// The engine's answer: success closes the dialog and opens the room once the sync lists it.
+    /// Progress of a join. The popups still wait for one answer (UI of the row: the task); a late
+    /// success with nobody waiting is kept in `joins.notice()` and changes neither view nor focus.
+    pub(crate) fn join_progress(&mut self, target: &str, phase: matrix_engine::join::JoinPhase, cx: &mut Context<Self>) {
+        use matrix_engine::{join::JoinPhase, operations::OperationError};
+        let waiting = self.quick_waiting()
+            || self.new_room.as_ref().is_some_and(|r| r.busy);
+        let opened = self.joins.apply(target, phase.clone(), waiting);
+        match (phase, opened) {
+            (JoinPhase::Joined(_), Some(scope)) => self.room_started(Ok(scope), cx),
+            (JoinPhase::Refused(e), _) if waiting => self.room_started(Err(e), cx),
+            (JoinPhase::Unconfirmed, _) if waiting => self.room_started(Err(OperationError::Transport), cx),
+            _ => cx.notify(),
+        }
+    }
+
     pub(crate) fn room_started(
         &mut self,
         result: Result<RoomScope, OperationError>,

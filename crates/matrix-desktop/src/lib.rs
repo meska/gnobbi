@@ -4,6 +4,7 @@
 pub mod accessibility;
 pub mod build_info;
 pub mod directory_rooms;
+pub mod joins;
 pub mod disconnect;
 pub mod new_chat;
 pub mod notifications;
