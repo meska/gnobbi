@@ -1962,16 +1962,20 @@ async fn status_row(
     id: &matrix_sdk::ruma::EventId,
 ) -> Option<crate::history::HistoryEvent> {
     use crate::status_line::{Status, status_text};
-    use matrix_sdk::ruma::events::StateEventContentChange::Original;
+    use matrix_sdk::ruma::events::{StateEventContentChange::Original, room::member::MembershipState};
     use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange as State, MembershipChange as M, TimelineItemContent as C};
     let actor = history_sender(room, event.sender()).await;
     let label = |s: &crate::history::HistorySender| crate::status_line::display_label(s.name.as_deref(), &s.id);
     // `shown` is the person whose avatar leads the row; `subject` is who the sentence is about.
+    let mut reason = None;
     let (status, shown, subject) = match event.content() {
         C::MembershipChange(change) => {
             let status = match change.change()? {
                 M::Joined | M::InvitationAccepted => Status::Joined,
                 M::Left => Status::Left,
+                M::None if matches!(change.content(), Original { content, .. } if content.membership == MembershipState::Leave) => {
+                    crate::status_line::unclassified_leave(event.sender() == change.user_id())
+                }
                 M::Banned | M::KickedAndBanned => Status::Banned,
                 M::Unbanned => Status::Unbanned,
                 M::Kicked => Status::Kicked,
@@ -1983,6 +1987,10 @@ async fn status_row(
             let mut who = history_sender(room, change.user_id()).await;
             who.name = who.name.or_else(|| change.display_name());
             let name = label(&who);
+            reason = match change.content() {
+                Original { content, .. } => content.reason.clone(),
+                _ => None,
+            };
             (status, who, name)
         }
         C::ProfileChange(change) => {
@@ -2012,7 +2020,7 @@ async fn status_row(
     Some(crate::history::HistoryEvent {
         poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
-        body: status_text(&status, &label(&actor), &subject),
+        body: crate::status_line::with_reason(status_text(&status, &label(&actor), &subject), reason.as_deref()),
         outgoing: false,
         redacted: false,
         timestamp_ms: event.timestamp().0.into(),

@@ -75,9 +75,39 @@ pub fn status_text(status: &Status, actor: &str, subject: &str) -> String {
     }
 }
 
+/// A leave the SDK could not classify (`MembershipChange::None`, e.g. a backfilled event without
+/// `prev_content`): the sender leaving is «Left», anyone else removing them is «Kicked».
+pub fn unclassified_leave(sender_is_subject: bool) -> Status {
+    if sender_is_subject { Status::Left } else { Status::Kicked }
+}
+
+/// Appends the reason given on the membership event, when there is one.
+pub fn with_reason(text: String, reason: Option<&str>) -> String {
+    match reason.map(str::trim).filter(|r| !r.is_empty()) {
+        Some(r) => format!("{text} (motivo: {r})"),
+        None => text,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn membership_rows_with_and_without_reason() {
+        let row = |st: Status, actor: &str, subject: &str, reason: Option<&str>| with_reason(status_text(&st, actor, subject), reason);
+        // sender == state_key
+        assert_eq!(row(unclassified_leave(true), "Bob", "Bob", None), "Bob è uscito/a dalla stanza");
+        assert_eq!(row(unclassified_leave(true), "Bob", "Bob", Some("ciao")), "Bob è uscito/a dalla stanza (motivo: ciao)");
+        assert_eq!(row(Status::InvitationRejected, "Bob", "Bob", Some("no")), "Bob ha rifiutato l'invito (motivo: no)");
+        // sender != state_key
+        assert_eq!(row(unclassified_leave(false), "Ann", "Bob", None), "Ann ha rimosso Bob dalla stanza");
+        assert_eq!(row(unclassified_leave(false), "Ann", "Bob", Some("spam")), "Ann ha rimosso Bob dalla stanza (motivo: spam)");
+        assert_eq!(row(Status::Banned, "Ann", "Bob", Some("spam")), "Ann ha bandito Bob (motivo: spam)");
+        assert_eq!(row(Status::Invited, "Ann", "Bob", None), "Ann ha invitato Bob");
+        // blank reason counts as none
+        assert_eq!(row(Status::Joined, "Bob", "Bob", Some("  ")), "Bob è entrato/a nella stanza");
+    }
 
     #[test]
     fn label_fallbacks() {
