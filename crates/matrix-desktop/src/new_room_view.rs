@@ -558,22 +558,75 @@ impl Shell {
         cx.notify();
     }
 
-    /// The engine's answer: success closes the dialog and opens the room once the sync lists it.
-    /// Progress of a join. The popups still wait for one answer (UI of the row: the task); a late
-    /// success with nobody waiting is kept in `joins.notice()` and changes neither view nor focus.
+    /// Progress of a join. Success opens the room only for who still waits on it (the popup row last clicked, or
+    /// the dialog); a late success sets `joins.notice()` and changes neither view nor focus. Rows read `joins`.
     pub(crate) fn join_progress(&mut self, target: &str, phase: matrix_engine::join::JoinPhase, cx: &mut Context<Self>) {
         use matrix_engine::{join::JoinPhase, operations::OperationError};
-        let waiting = self.quick_waiting()
-            || self.new_room.as_ref().is_some_and(|r| r.busy);
-        let opened = self.joins.apply(target, phase.clone(), waiting);
+        let popup = self.quick.as_ref().and_then(|q| q.joining.clone()).filter(|r| r.id == target);
+        let dialog = popup.is_none() && self.new_room.as_ref().is_some_and(|r| r.busy);
+        let opened = self.joins.apply(target, phase.clone(), popup.is_some() || dialog);
         match (phase, opened) {
-            (JoinPhase::Joined(_), Some(scope)) => self.room_started(Ok(scope), cx),
-            (JoinPhase::Refused(e), _) if waiting => self.room_started(Err(e), cx),
-            (JoinPhase::Unconfirmed, _) if waiting => self.room_started(Err(OperationError::Transport), cx),
-            _ => cx.notify(),
+            (JoinPhase::Joined(_), Some(scope)) if dialog => self.room_started(Ok(scope), cx),
+            (JoinPhase::Joined(_), Some(scope)) => {
+                if let Some(recent) = popup {
+                    self.remember_recent(recent);
+                    self.end_quick();
+                }
+                self.pending_open = Some(scope);
+                self.open_started_room(cx);
+            }
+            (JoinPhase::Joined(_), None) => self.show_join_notice(cx),
+            (JoinPhase::Refused(e), _) if dialog => self.room_started(Err(e), cx),
+            (JoinPhase::Unconfirmed, _) if dialog => self.room_started(Err(OperationError::Transport), cx),
+            _ => {}
         }
+        cx.notify();
     }
 
+    /// «Sei entrato in …» stays six seconds, unless another one replaced it meanwhile.
+    fn show_join_notice(&mut self, cx: &mut Context<Self>) {
+        let Some(shown) = self.joins.notice().cloned() else {
+            return;
+        };
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(std::time::Duration::from_secs(6)).await;
+            this.update(cx, |this, cx| {
+                if this.joins.notice() == Some(&shown) {
+                    this.joins.dismiss_notice();
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The one-line notice under the room list; a click opens the room it names.
+    pub(crate) fn render_join_notice(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        let notice = self.joins.notice()?.clone();
+        Some(
+            div()
+                .id("join-notice")
+                .mx_4()
+                .my_2()
+                .px_3()
+                .py_2()
+                .rounded_lg()
+                .bg(rgb(t.input))
+                .text_size(px(13.))
+                .text_color(rgb(t.text))
+                .truncate()
+                .cursor_pointer()
+                .child(format!("Sei entrato in {}", matrix_desktop::row_text::one_line(&notice.name)))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.joins.dismiss_notice();
+                    this.open_scope(notice.scope.clone(), window, cx);
+                }))
+                .into_any_element(),
+        )
+    }
+
+    /// The engine's answer: success closes the dialog and opens the room once the sync lists it.
     pub(crate) fn room_started(
         &mut self,
         result: Result<RoomScope, OperationError>,

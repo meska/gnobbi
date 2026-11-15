@@ -76,6 +76,8 @@ mod room_topic_test;
 #[cfg(test)]
 mod quick_answer_test;
 #[cfg(test)]
+mod quick_join_row_test;
+#[cfg(test)]
 mod ink_test;
 #[cfg(test)]
 mod sidebar_navigation_test;
@@ -2573,6 +2575,7 @@ impl Shell {
                                     .child("Nessuna conversazione trovata"),
                             )
                         })
+                        .children(self.render_join_notice(t, cx))
                 )
             })
             // Tab stop of the divider: between the list and the chat, like its place on screen.

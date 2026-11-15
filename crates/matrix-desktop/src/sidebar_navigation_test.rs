@@ -1733,6 +1733,10 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             crate::quick_answer_test::scenario(this, cx, executor).await;
             return;
         }
+        if DYNAMIC.load(Ordering::SeqCst) == 101 {
+            crate::quick_join_row_test::scenario(this, cx, executor).await;
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 97 {
             crate::link_jump_test::scenario(this, cx, executor).await;
             return;
@@ -3446,6 +3450,16 @@ fn link_to_a_message_scrolls_loads_and_flashes() {
 fn quick_search_join_dm_answer() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(96, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[test]
+#[ignore = "requires private display"]
+fn quick_join_row() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(101, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();

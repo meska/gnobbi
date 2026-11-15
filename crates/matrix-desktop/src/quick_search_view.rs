@@ -14,6 +14,54 @@ use matrix_engine::operations::{DirectoryRoom, OperationCommand, SearchState};
 use std::ops::Range;
 
 const ROW_H: f32 = 44.;
+
+#[derive(Clone, Copy, PartialEq)]
+enum JoinKind {
+    Working,
+    Done,
+    Failed,
+    Retry,
+}
+
+/// The status line of a row: a pulsing dot while the join runs (the project's one animation primitive, as the
+/// drawer), the error in the error colour, «Riprova» as the action of an unconfirmed join (a click on the row).
+fn join_row_line(text: &'static str, kind: JoinKind, t: matrix_desktop::DesignTokens) -> gpui::AnyElement {
+    use gpui::{Animation, AnimationExt};
+    let color = match kind {
+        JoinKind::Failed => t.error,
+        _ => t.secondary,
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .text_size(px(12.))
+        .text_color(rgb(color))
+        .when(kind == JoinKind::Working, |d| {
+            d.child(
+                div().size(px(8.)).flex_shrink_0().rounded_full().bg(rgb(t.accent)).with_animation(
+                    "join-dot",
+                    Animation::new(std::time::Duration::from_secs(1)).repeat(),
+                    |d, delta| d.opacity(gpui::pulsating_between(0.3, 1.0)(delta)),
+                ),
+            )
+        })
+        .child(div().truncate().child(text))
+        .when(kind == JoinKind::Retry, |d| d.child(div().flex_shrink_0().text_color(rgb(t.accent)).child("· Riprova")))
+        .into_any_element()
+}
+
+/// The one line a row shows for its join (the JOIN_STATE_MACHINE notes §6); `None`: the normal row.
+fn join_line(state: Option<&matrix_desktop::joins::JoinState>) -> Option<(&'static str, JoinKind)> {
+    use matrix_desktop::joins::JoinState::*;
+    Some(match state? {
+        Pending => ("Ingresso…", JoinKind::Working),
+        Slow => ("Ancora in corso…", JoinKind::Working),
+        Joined(_) => ("Già unito", JoinKind::Done),
+        Refused(e) => (crate::new_room_view::error_text(false, true, *e), JoinKind::Failed),
+        Unconfirmed => ("Non confermato", JoinKind::Retry),
+    })
+}
 const LIST_MAX_H: f32 = 308.;
 /// Local list height while «Utenti» and «Cerca» share the overlay.
 const SHARED_LIST_MAX_H: f32 = 176.;
@@ -48,19 +96,22 @@ pub(crate) struct QuickSearch {
     index: Index,
     term: String,
     hits: Vec<Hit>,
-    chip: Option<Category>,
+    pub(crate) chip: Option<Category>,
     /// Server users for `term`, and the last term handed to the engine.
     users: Picker,
     sent: Option<String>,
     /// Public directory: the hits, the last `(term, server, kind)` sent, and the server selector
     /// (the «Unisciti» one) with its «Aggiungi nuovo server…» name field.
-    rooms: SearchList<DirectoryRoom>,
+    pub(crate) rooms: SearchList<DirectoryRoom>,
     rooms_sent: Option<qs::DirectoryRequest>,
     pub(crate) servers: Option<ServerPicker>,
     server_focus: FocusHandle,
     pub(crate) add_field: Option<gpui::Entity<crate::login_field::LoginField>>,
     /// A join or DM is waiting for the engine: the entry to remember on success, and whether it is a DM.
     busy: Option<(Recent, bool)>,
+    /// The room joined by the last click on a directory row: its success opens the room only while this popup is open.
+    /// Rooms never set `busy`: the field and the other rows stay usable while the join runs.
+    pub(crate) joining: Option<Recent>,
     /// The one line shown under the field when that join or DM failed.
     error: Option<&'static str>,
     zone: Zone,
@@ -323,7 +374,7 @@ impl Shell {
     }
 
     /// The overlay is gone: searches still in flight are cancelled.
-    fn end_quick(&mut self) {
+    pub(crate) fn end_quick(&mut self) {
         let Some(q) = self.quick.take() else {
             return;
         };
@@ -386,6 +437,7 @@ impl Shell {
             server_focus: cx.focus_handle(),
             add_field: None,
             busy: None,
+            joining: None,
             error: None,
             zone: if has_searched {
                 Zone::Rows
@@ -427,7 +479,7 @@ impl Shell {
     }
 
     /// Opens the room; a pick from the search lists (not from «Visti») is remembered too.
-    fn quick_pick(&mut self, zone: Zone, i: usize, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn quick_pick(&mut self, zone: Zone, i: usize, window: &mut Window, cx: &mut Context<Self>) {
         let account = self.recents_account();
         let mut recents = self.recents.get(account);
         let item = match zone {
@@ -520,7 +572,10 @@ impl Shell {
                 if self.joins.begin(&hit.room_id, &hit.name, None) == matrix_desktop::joins::Begin::Ignore {
                     return;
                 }
-                self.quick_busy(recent, false, cx);
+                if let Some(q) = self.quick.as_mut() {
+                    q.joining = Some(recent);
+                    q.error = None;
+                }
                 self.pending_operation_command =
                     Some(OperationCommand::JoinRoom { target: hit.room_id, via: vec![hit.origin] });
                 cx.notify();
@@ -560,7 +615,7 @@ impl Shell {
         self.quick.as_ref().is_some_and(|q| q.field.read(cx).enabled)
     }
 
-    fn remember_recent(&mut self, recent: Recent) {
+    pub(crate) fn remember_recent(&mut self, recent: Recent) {
         let account = self.recents_account();
         let mut recents = self.recents.get(account);
         recents.picked(recent);
@@ -579,10 +634,6 @@ impl Shell {
     }
 
     /// The engine's answer to a join or DM started from the overlay; false when none is waiting.
-    pub(crate) fn quick_waiting(&self) -> bool {
-        self.quick.as_ref().is_some_and(|q| q.busy.is_some())
-    }
-
     pub(crate) fn quick_answered(
         &mut self,
         result: &Result<RoomScope, matrix_engine::operations::OperationError>,
@@ -814,6 +865,14 @@ impl Shell {
                     format!("{}, {}", hit.name, hit.secondary),
                     q.zone == zone && q.active == i,
                 ));
+            }
+        }
+        // The state of a join and its result, as a label next to the rows (the same words as the row).
+        let rooms = if q.directory() { qs::room_hits(q.room_entries(), usize::MAX) } else { self.quick_room_hits() };
+        for hit in &rooms {
+            if let Some(text) = self.joins.state(&hit.id).and_then(|s| join_line(Some(s))).map(|(t, _)| t) {
+                let label = format!("{}, {}", hit.name, text.to_lowercase().replace('…', ""));
+                items.push(Item { role: Role::Label, label, checked: None, focused: false, bounds: None });
             }
         }
         for (i, c) in self.quick_categories().iter().enumerate() {
@@ -1269,8 +1328,9 @@ impl Shell {
                             .text_color(rgb(t.text))
                             .child(matrix_desktop::row_text::one_line(&hit.name)),
                     )
-                    .children(
-                        Some(secondary_label(&hit.secondary))
+                    .children(match join_line(self.joins.state(&hit.id).filter(|_| zone == Zone::Rooms)) {
+                        Some((text, kind)) => Some(join_row_line(text, kind, t)),
+                        None => Some(secondary_label(&hit.secondary))
                             .filter(|s| !s.is_empty())
                             .map(|s| {
                                 div()
@@ -1278,8 +1338,9 @@ impl Shell {
                                     .text_size(px(12.))
                                     .text_color(rgb(t.secondary))
                                     .child(s.to_owned())
+                                    .into_any_element()
                             }),
-                    ),
+                    }),
             )
             .on_mouse_move(cx.listener(move |this, _, _, cx| this.quick_highlight(zone, i, cx)))
             .on_click(cx.listener(move |this, _, window, cx| this.quick_pick(zone, i, window, cx)))
