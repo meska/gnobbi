@@ -134,32 +134,26 @@ pub async fn recover_all_with(
     .map_err(|_| RecoveryError::Deadline)??;
     let rooms: Vec<matrix_sdk::ruma::OwnedRoomId> = client.rooms().iter().map(|r| r.room_id().to_owned()).collect();
     let backups = client.encryption().backups();
-    // Keys the backup hands over arrive on the SDK's per-room stream; their sessions are the count.
-    let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let counters: Vec<_> = rooms
-        .iter()
-        .map(|id| {
-            let (mut stream, count) = (Box::pin(backups.room_keys_for_room_stream(id)), count.clone());
-            tokio::spawn(async move {
-                while let Some(Ok(keys)) = futures_util::StreamExt::next(&mut stream).await {
-                    count.fetch_add(keys.values().map(|s| s.len()).sum(), std::sync::atomic::Ordering::Relaxed);
-                }
-            })
-        })
-        .collect();
+    // Keys the backup hands over arrive on the SDK's per-room broadcast, which buffers from the
+    // subscribe: streams made before the downloads are drained synchronously after them.
+    let mut streams: Vec<_> = rooms.iter().map(|id| Box::pin(backups.room_keys_for_room_stream(id))).collect();
     let failed = futures_util::stream::iter(rooms.iter().cloned())
         .map(|id| download_one(&backups, id))
         .buffer_unordered(8)
         .filter(|ok| std::future::ready(!ok))
         .count()
         .await;
-    tokio::task::yield_now().await;
-    counters.iter().for_each(|t| t.abort());
+    let mut count = 0;
+    for stream in &mut streams {
+        while let Some(Some(Ok(keys))) = futures_util::FutureExt::now_or_never(stream.next()) {
+            count += keys.values().map(|s| s.len()).sum::<usize>();
+        }
+    }
     // Every room failing is a network problem the user can retry; some failing is not.
     if failed > 0 && failed == rooms.len() {
         return Err(RecoveryError::Transport);
     }
-    Ok(count.load(std::sync::atomic::Ordering::Relaxed))
+    Ok(count)
 }
 
 // shortcut: 10 s per room, 8 rooms at once; a failed room is retried by AfterDecryptionFailure.

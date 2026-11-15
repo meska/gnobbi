@@ -179,7 +179,8 @@ async fn run(config: &serde_json::Value) {
     assert!(!keys_recovered(&b).await, "wrong key leaves the recovery incomplete");
 
     // The new command path: recovery key, B already syncing.
-    recover_all_with(b.clone(), zeroize::Zeroizing::new(key.clone()), false).await.expect("recovery with the key");
+    let n = recover_all_with(b.clone(), zeroize::Zeroizing::new(key.clone()), false).await.expect("recovery with the key");
+    assert!(n > 0, "the recovery brought the backed-up sessions, got {n}");
     let rows = rows_until(&rb1, &t1, 40, |r| r.iter().all(|x| !x.utd)).await;
     assert!(rows.iter().all(|r| !r.utd), "no UTD row left in R1 after the recovery, same timeline, no restart");
     for label in ["old-O", "old-A"] {
@@ -190,7 +191,8 @@ async fn run(config: &serde_json::Value) {
     assert!(own.is_cross_signed_by_owner(), "own device signed by its owner");
 
     // Repeated recovery: succeeds again, nothing regresses.
-    recover_all_with(b.clone(), zeroize::Zeroizing::new(key.clone()), false).await.expect("second recovery");
+    let n = recover_all_with(b.clone(), zeroize::Zeroizing::new(key.clone()), false).await.expect("second recovery");
+    assert_eq!(n, 0, "a repeated recovery brings no new key");
     let rows = rows_until(&rb1, &t1, 5, |r| r.iter().any(|x| x.utd)).await;
     assert!(rows.iter().all(|r| !r.utd) && row(&rows, "old-O").is_some(), "rows stay readable after a repeated recovery");
 
