@@ -3310,7 +3310,7 @@ fn main() {
                                         for event in events {
                                             match event {
                                                 RoomListEvent::Alert(scope) => {
-                                                    if let Some(alert) = this.notifications.alert(&scope)
+                                                    if let Some(alert) = this.notifications.alert(&scope, None)
                                                         && let Some(handle) = &this.notification_handle
                                                     {
                                                         handle.submit(Shell::alert_from(&this.accounts, this.active_id, alert));

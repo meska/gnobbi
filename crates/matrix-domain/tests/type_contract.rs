@@ -77,6 +77,8 @@ fn compiler_enforces_identity_kinds_and_required_scope() {
                     "--extern",
                 ])
                 .arg(format!("matrix_domain={}", library.display()))
+                .arg("-L")
+                .arg(format!("dependency={}", deps.display()))
                 .arg(&source)
                 .arg("-o")
                 .arg(directory.join(format!("{name}.rmeta")))
