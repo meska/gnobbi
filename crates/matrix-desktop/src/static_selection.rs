@@ -32,6 +32,10 @@ impl StaticSelection {
         };
     }
 
+    pub fn select_all(&mut self, text: &str) {
+        (self.text, self.anchor, self.head) = (text.to_owned(), 0, text.len());
+    }
+
     pub fn drag(&mut self, text: &str, index: usize) {
         if self.text == text {
             self.head = text.floor_char_boundary(index.min(text.len()));
@@ -125,6 +129,17 @@ mod tests {
         s.press(t, 1, 1);
         s.drag(t, 99);
         assert_eq!(s.copy(t), Some("àb"));
+    }
+
+    #[test]
+    fn select_all_covers_the_text_and_only_that_text() {
+        let t = "àb\nc";
+        let mut s = StaticSelection::default();
+        s.select_all(t);
+        assert_eq!(s.copy(t), Some(t));
+        assert_eq!(s.range("altro"), None);
+        s.select_all("");
+        assert_eq!(s.range(""), None);
     }
 
     #[test]

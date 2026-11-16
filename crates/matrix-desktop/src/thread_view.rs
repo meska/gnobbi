@@ -114,6 +114,9 @@ pub(crate) struct ThreadPanel {
     anchor: Option<gpui::Pixels>,
     stick_bottom: bool,
     scroll: ScrollHandle,
+    /// Mouse selection over one text of the panel; `sel_row` says which row it belongs to (equal texts stay apart).
+    selection: matrix_desktop::static_selection::StaticSelection,
+    sel_row: u64,
 }
 
 const SIDE_PANEL_WIDTH: f32 = 360.;
@@ -143,7 +146,53 @@ fn resume_due(resume: &mut Option<(RoomScope, EventId)>, active: &RoomScope, ope
     resume.as_ref().filter(|(scope, _)| scope == active).map(|(_, root)| root.clone())
 }
 
+/// Selection key of an outgoing line; replies are `1 + index`, the root is 0.
+const OUTGOING_KEY: u64 = 1 << 32;
+
 impl ThreadPanel {
+    fn row_text(&self, key: u64) -> Option<&str> {
+        match key {
+            0 => Some(&self.root_row.text),
+            k if k < OUTGOING_KEY => self.replies.get(k as usize - 1).map(|r| r.text.as_str()),
+            k => self.outgoing.get((k - OUTGOING_KEY) as usize).map(|o| o.body.as_str()),
+        }
+    }
+
+    /// The text the mouse selected in the panel, for Cmd/Ctrl+C.
+    pub(crate) fn selected_text(&self) -> Option<String> {
+        self.selection.copy(self.row_text(self.sel_row)?).map(str::to_owned)
+    }
+
+    /// One row's text, selectable by mouse: press / drag / double and triple click (no links here).
+    fn selectable(&self, key: u64, text: &str, t: matrix_desktop::DesignTokens, cx: &mut Context<Shell>) -> gpui::AnyElement {
+        let range = (self.sel_row == key).then(|| self.selection.range(text)).flatten();
+        let runs = matrix_desktop::static_selection::highlight_runs(text.len(), &[], range);
+        let body = gpui::StyledText::new(text.to_owned()).with_highlights(runs.into_iter().map(|(range, _, _)| {
+            (range, gpui::HighlightStyle { background_color: Some(rgb(t.selection).into()), ..Default::default() })
+        }));
+        let (down, drag) = (body.layout().clone(), body.layout().clone());
+        let (down_text, drag_text) = (text.to_owned(), text.to_owned());
+        div()
+            .on_mouse_down(gpui::MouseButton::Left, cx.listener(move |this, e: &gpui::MouseDownEvent, window, cx| {
+                this.thread_focus.focus(window);
+                if let Some(p) = &mut this.thread {
+                    p.sel_row = key;
+                    p.selection.press(&down_text, down.index_for_position(e.position).unwrap_or_else(|i| i), e.click_count);
+                    cx.notify();
+                }
+            }))
+            .on_mouse_move(cx.listener(move |this, e: &gpui::MouseMoveEvent, _, cx| {
+                if e.pressed_button == Some(gpui::MouseButton::Left)
+                    && let Some(p) = this.thread.as_mut().filter(|p| p.sel_row == key)
+                {
+                    p.selection.drag(&drag_text, drag.index_for_position(e.position).unwrap_or_else(|i| i));
+                    cx.notify();
+                }
+            }))
+            .child(body)
+            .into_any_element()
+    }
+
     pub(crate) fn new(scope: RoomScope, root: EventId, root_row: ThreadRow, total: u32) -> Self {
         Self {
             composer: None, reply_to: None, outgoing: Vec::new(),
@@ -152,6 +201,7 @@ impl ThreadPanel {
             read_done: false, read_pending: false, read_failed: false, read_at: None,
             stalled: false, at_start: false, growing: None, anchor: None,
             stick_bottom: true, scroll: ScrollHandle::new(),
+            selection: Default::default(), sel_row: 0,
         }
     }
 
@@ -449,9 +499,10 @@ impl Shell {
         if std::mem::take(&mut p.stick_bottom) {
             p.scroll.scroll_to_bottom();
         }
+        let p: &ThreadPanel = p;
         let timeline = self.timeline.as_ref();
         let root = p.root.clone();
-        let row = |r: &ThreadRow| {
+        let row = |key: u64, r: &ThreadRow, cx: &mut Context<Self>| {
             // An image root: the bubbles' picture (the room timeline loads it); the label stands in only without one.
             // shortcut: replies that are images keep the label, the timeline loads thumbnails of its own rows only.
             let image = r.media.as_ref().is_some_and(|m| m.kind == matrix_engine::history::MediaKind::Image);
@@ -462,7 +513,7 @@ impl Shell {
                     .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(matrix_desktop::row_text::one_line(&r.who)))
                     .child(r.time.clone()))
                 .children(picture)
-                .children(caption.then(|| div().child(r.text.clone())))
+                .children(caption.then(|| p.selectable(key, &r.text, t, cx)))
         };
         let answer = |index: usize, r: &ThreadRow, cx: &mut Context<Self>| {
             let target = r.id.clone()?;
@@ -485,17 +536,17 @@ impl Shell {
                 .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child("Thread"))
                 .child(div().id("thread-close").w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer().hover(|s| s.bg(rgb(t.border))).child(crate::composer_icons::icon(crate::composer_icons::Icon::Close, t.accent))
                     .on_click(cx.listener(|this, _, _, cx| { this.close_thread(); cx.notify(); }))))
-            .child(div().id("thread-content").flex_1().min_h_0().overflow_y_scroll().track_scroll(&p.scroll)
+            .child(div().id("thread-content").track_focus(&self.thread_focus).flex_1().min_h_0().overflow_y_scroll().track_scroll(&p.scroll)
                 .p_4().flex().flex_col().gap_4()
-                .child(row(&p.root_row))
+                .child(row(0, &p.root_row, cx))
                 .child(div().h(px(1.)).w_full().bg(rgb(t.border)))
                 .children(status.map(|s| div().text_size(px(12.)).text_color(rgb(t.accent)).child(s)))
-                .children(p.replies.iter().enumerate().map(|(i, r)| row(r).children(answer(i, r, cx))))
+                .children(p.replies.iter().enumerate().map(|(i, r)| row(1 + i as u64, r, cx).children(answer(i, r, cx))))
                 .children(p.outgoing.iter().enumerate().map(|(i, o)| {
                     let failed = matches!(o.delivery, Delivery::Failed);
                     div().id(("thread-outgoing", i)).flex().flex_col().gap_1().text_color(rgb(t.secondary))
                         .child(div().text_size(px(12.)).child(if failed { "Non inviato · tocca per riprovare" } else { "Invio…" }))
-                        .child(div().child(o.body.clone()))
+                        .child(p.selectable(OUTGOING_KEY + i as u64, &o.body, t, cx))
                         .when(failed, |d| d.cursor_pointer().on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(o) = this.thread.as_mut().and_then(|p| p.outgoing.get_mut(i)) {
                                 o.delivery = Delivery::Queued;
@@ -557,6 +608,23 @@ mod tests {
         let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:t") };
         let root = ThreadRow { who: "x".into(), text: "radice".into(), ..Default::default() };
         ThreadPanel::new(scope, EventId::new("$root"), root, total)
+    }
+
+    #[test]
+    fn selection_copies_from_its_row_and_not_from_a_missing_one() {
+        let mut p = panel(0);
+        p.replies = vec![
+            ThreadRow { text: "ok".into(), ..Default::default() },
+            ThreadRow { text: "ok".into(), ..Default::default() },
+        ];
+        assert_eq!(p.selected_text(), None);
+        p.sel_row = 2;
+        p.selection.select_all("ok");
+        assert_eq!(p.selected_text().as_deref(), Some("ok"));
+        p.sel_row = 0; // the root's text is not the selected one
+        assert_eq!(p.selected_text(), None);
+        p.sel_row = 99; // row gone (list changed)
+        assert_eq!(p.selected_text(), None);
     }
 
     #[test]

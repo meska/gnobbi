@@ -210,6 +210,8 @@ struct Shell {
     details_focus: matrix_desktop::accessibility::details::DetailsControl,
     /// Focus zone of the non-modal «Informazioni stanza» panel; the composer keeps the keyboard until F6 or a click moves it here.
     details_zone: FocusHandle,
+    /// Focus of the thread panel's text, so Cmd/Ctrl+C reaches its selection.
+    thread_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_details_bounds: [Option<accesskit::Rect>; 8],
     spaces_ui: spaces_view::SpacesUi,
@@ -981,6 +983,15 @@ impl Shell {
             cx.stop_propagation();
             return;
         }
+        if key.key == "c"
+            && (if cfg!(target_os = "macos") { key.modifiers.platform } else { key.modifiers.control })
+            && self.thread_focus.contains_focused(window, cx)
+            && let Some(text) = self.thread.as_ref().and_then(|p| p.selected_text())
+        {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+            cx.stop_propagation();
+            return;
+        }
         if self.rail_key(event, window, cx) {
             cx.stop_propagation();
             return;
@@ -1080,6 +1091,17 @@ impl Shell {
                 && let Some(text) = self.topic_selection.borrow().copy(&topic)
             {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.to_owned()));
+                cx.stop_propagation();
+                return;
+            }
+            if self.profile.is_none()
+                && topic_focused
+                && key.key == "a"
+                && copy_modifier
+                && let Some((_, topic)) = self.topic_source()
+            {
+                self.topic_selection.borrow_mut().select_all(&topic);
+                cx.notify();
                 cx.stop_propagation();
                 return;
             }
@@ -3654,6 +3676,7 @@ fn main() {
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         details_focus: Default::default(),
                         details_zone: cx.focus_handle(),
+                        thread_focus: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_details_bounds: [None; 8],
                         spaces_ui,
