@@ -624,9 +624,6 @@ async fn device_list(client: &Client) -> Result<Vec<VerificationDevice>, Verific
         if Some(device.device_id()) == client.device_id() {
             continue;
         }
-        if result.len() == 128 {
-            return Err(VerificationError::TooManyDevices);
-        }
         result.push(describe(user_id.as_str(), &meta, device.device_id(), device.is_verified()));
     }
     sort_devices(&mut result);
@@ -671,6 +668,13 @@ mod rename_tests {
         assert!(valid_device_name("  ").is_err());
         assert!(valid_device_name("a\nb").is_err());
         assert!(valid_device_name(&"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn long_device_lists_are_not_truncated_or_rejected() {
+        let mut v: Vec<_> = (0..300).map(|i| describe("@a:x", &[], format!("D{i}").as_str().into(), false)).collect();
+        sort_devices(&mut v);
+        assert_eq!(v.len(), 300);
     }
 
     #[test]

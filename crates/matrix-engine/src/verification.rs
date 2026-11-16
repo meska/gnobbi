@@ -11,7 +11,6 @@ pub enum VerificationError {
     UnknownFlow,
     WrongScope,
     Busy,
-    TooManyDevices,
     InvalidName,
 }
 
