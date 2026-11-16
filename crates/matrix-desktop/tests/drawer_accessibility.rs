@@ -112,3 +112,19 @@ fn staged_update_is_labelled_and_actionable_until_dismissed() {
     assert!(!snap.tree().nodes.iter().any(|(_, n)| n.label() == Some("Aggiorna ora")));
     assert_eq!(snap.action(&click(now)), None);
 }
+
+#[test]
+fn new_space_sits_right_below_new_room_and_opens_its_dialog() {
+    let snap = DrawerSnapshot { connected: true, ..Default::default() };
+    let tree = snap.tree();
+    let labels: Vec<_> = tree.nodes.iter().filter_map(|(_, n)| n.label()).collect();
+    let at = labels.iter().position(|l| *l == "Nuova stanza").unwrap();
+    assert_eq!(labels[at + 1], "Nuovo spazio");
+    let node = find(&tree, "Nuovo spazio");
+    assert_eq!(tree.nodes.iter().find(|(id, _)| *id == node).unwrap().1.role(), Role::Button);
+    assert_eq!(snap.action(&click(node)), Some(DrawerAction::Item(DrawerItem::NewSpace)));
+    // Offline the entry is neither exported nor allowed.
+    let off = DrawerSnapshot::default();
+    assert!(!off.allows(&DrawerAction::Item(DrawerItem::NewSpace)));
+    assert!(!off.tree().nodes.iter().any(|(_, n)| n.label() == Some("Nuovo spazio")));
+}

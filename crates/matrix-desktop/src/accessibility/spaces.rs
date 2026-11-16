@@ -9,6 +9,9 @@ pub const ALL: NodeId = NodeId(61);
 pub const EDIT: NodeId = NodeId(62);
 /// Rail «Non lette»: the first choice of the persistent rail (scope None like «Tutte le chat», told apart by this id).
 pub const UNREAD: NodeId = NodeId(63);
+/// Header buttons of the rail panel opened by «Modifica»; they exist only while it is open.
+pub const CREATE_SPACE: NodeId = NodeId(64);
+pub const CREATE_GROUP: NodeId = NodeId(65);
 
 #[derive(Clone)]
 pub struct SpaceChoice {
@@ -26,6 +29,9 @@ pub struct SpacesSnapshot {
     pub active: Option<RoomScope>,
     /// «Non lette» is the shown view (no Space is active then).
     pub unread_active: bool,
+    /// The «Modifica» panel is open: «Crea spazio» (if `can_create_space`) and «Crea gruppo» exist.
+    pub edit_open: bool,
+    pub can_create_space: bool,
     pub focused: Option<NodeId>,
     pub bounds: HashMap<NodeId, Rect>,
     pub choices: Vec<SpaceChoice>,
@@ -118,6 +124,12 @@ pub enum SpacesAction {
         scope: Option<RoomScope>,
         previous: Option<RoomScope>,
     },
+    /// «Crea spazio» or «Crea gruppo» (`id`) in the rail panel.
+    Create {
+        revision: u64,
+        account: AccountId,
+        id: NodeId,
+    },
 }
 
 impl SpacesSnapshot {
@@ -132,6 +144,18 @@ impl SpacesSnapshot {
         } else {
             !self.unread_active && choice.scope == self.active
         }
+    }
+
+    /// Header buttons present now, in Tab order.
+    pub fn header_ids(&self) -> Vec<NodeId> {
+        if !(self.persistent && self.edit_open) {
+            return vec![];
+        }
+        let mut ids = vec![CREATE_GROUP];
+        if self.can_create_space {
+            ids.insert(0, CREATE_SPACE);
+        }
+        ids
     }
 
     /// None means leave the filter, never trap Tab within a menu.
@@ -163,6 +187,13 @@ impl SpacesSnapshot {
                 account: self.account,
                 id,
             });
+        }
+        if self.header_ids().contains(&id) {
+            return match request.action {
+                Action::Focus => Some(SpacesAction::Focus { revision: self.revision, account: self.account, id }),
+                Action::Click => Some(SpacesAction::Create { revision: self.revision, account: self.account, id }),
+                _ => None,
+            };
         }
         let known = (id == TOGGLE && !self.persistent)
             || (self.open && self.choices.iter().any(|choice| choice.id == id));
@@ -200,15 +231,19 @@ impl SpacesSnapshot {
         let revision = match action {
             SpacesAction::Focus { revision, .. }
             | SpacesAction::SetOpen { revision, .. }
-            | SpacesAction::Choose { revision, .. } => *revision,
+            | SpacesAction::Choose { revision, .. }
+            | SpacesAction::Create { revision, .. } => *revision,
         };
         if revision != self.revision {
             return false;
         }
         match action {
+            SpacesAction::Create { account, id, .. } => {
+                *account == self.account && self.header_ids().contains(id)
+            }
             SpacesAction::Focus { account, id, .. } => {
                 *account == self.account
-                    && ((*id == EDIT && self.persistent)
+                    && (self.header_ids().contains(id) || (*id == EDIT && self.persistent)
                         || (*id == TOGGLE && !self.persistent)
                         || (self.open && self.choices.iter().any(|choice| choice.id == *id)))
             }
@@ -274,6 +309,16 @@ impl SpacesSnapshot {
                 }
                 nodes.push((choice.id, node));
             }
+        }
+        for id in self.header_ids() {
+            let mut node = Node::new(Role::Button);
+            node.set_label(if id == CREATE_SPACE { "Crea spazio" } else { "Crea gruppo" });
+            node.add_action(Action::Click);
+            node.add_action(Action::Focus);
+            if let Some(bounds) = self.bounds.get(&id) {
+                node.set_bounds(*bounds);
+            }
+            nodes.push((id, node));
         }
         if self.persistent {
             let mut edit = Node::new(Role::Button);

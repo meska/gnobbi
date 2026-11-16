@@ -49,8 +49,8 @@ pub(crate) fn dialog_shell(
                 .on_click(|_, _, cx| cx.stop_propagation()),
         )
 }
-/// Settings, Devices, Notifications, Add account, New chat, New room, Join, Quick search, version line (after the account rows).
-pub(crate) const DRAWER_ROWS: usize = 9;
+/// Settings, Devices, Notifications, Add account, New chat, New room, New space, Join, Quick search, version line (after the account rows).
+pub(crate) const DRAWER_ROWS: usize = 10;
 
 impl Shell {
     pub(crate) fn set_menu_open(
@@ -153,6 +153,7 @@ impl Shell {
                 DrawerItem::AddAccount => self.add_account(window, cx),
                 DrawerItem::NewChat => self.open_new_room(true, window, cx),
                 DrawerItem::NewRoom => self.open_new_room(false, window, cx),
+                DrawerItem::NewSpace => self.open_new_space(window, cx),
                 DrawerItem::About => self.set_about_open(true, window, cx),
             },
         }
@@ -310,11 +311,12 @@ impl Shell {
                         Some(3) if self.connected => self.add_account(window, cx),
                         Some(4) if self.connected => self.open_new_room(true, window, cx),
                         Some(5) if self.connected => self.open_new_room(false, window, cx),
-                        Some(6) if self.connected => self.open_join_room(window, cx),
-                        Some(7) if self.connected => self.open_quick_search(window, cx),
-                        Some(8) => self.set_about_open(true, window, cx),
-                        Some(9) if update => self.update_now(cx),
-                        Some(10) if update => self.update_later(cx),
+                        Some(6) if self.connected => self.open_new_space(window, cx),
+                        Some(7) if self.connected => self.open_join_room(window, cx),
+                        Some(8) if self.connected => self.open_quick_search(window, cx),
+                        Some(9) => self.set_about_open(true, window, cx),
+                        Some(10) if update => self.update_now(cx),
+                        Some(11) if update => self.update_later(cx),
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }
@@ -497,8 +499,8 @@ impl Shell {
                     div()
                         .flex()
                         .gap_1()
-                        .child(action("menu-update-now", "Aggiorna ora", n + 9).on_click(cx.listener(|this, _, _, cx| this.update_now(cx))))
-                        .child(action("menu-update-later", "Più tardi", n + 10).on_click(cx.listener(|this, _, _, cx| this.update_later(cx)))),
+                        .child(action("menu-update-now", "Aggiorna ora", n + 10).on_click(cx.listener(|this, _, _, cx| this.update_now(cx))))
+                        .child(action("menu-update-later", "Più tardi", n + 11).on_click(cx.listener(|this, _, _, cx| this.update_later(cx)))),
                 ))
                 .into_any_element(),
         )
@@ -552,7 +554,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let focused = input_modality::ring(&self.drawer_focus, window, cx)
-            && self.drawer_row == self.drawer_accounts().len() + 8;
+            && self.drawer_row == self.drawer_accounts().len() + 9;
         div()
             .id("menu-about")
             .flex_shrink_0()

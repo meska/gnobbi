@@ -95,6 +95,9 @@ pub(crate) struct RailUi {
     pub(crate) focus: FocusHandle,
     pub(crate) edit_focus: FocusHandle,
     pub(crate) edit_panel_focus: FocusHandle,
+    /// Header buttons of the panel: «Crea spazio» and «Crea gruppo».
+    pub(crate) create_space_focus: FocusHandle,
+    pub(crate) create_group_focus: FocusHandle,
     pub(crate) edit_open: bool,
     pub(crate) edit_cursor: usize,
     pub(crate) layouts: matrix_desktop::RailLayouts,
@@ -113,6 +116,8 @@ impl RailUi {
             focus: cx.focus_handle(),
             edit_focus: cx.focus_handle(),
             edit_panel_focus: cx.focus_handle(),
+            create_space_focus: cx.focus_handle(),
+            create_group_focus: cx.focus_handle(),
             edit_open: false,
             edit_cursor: 0,
             layouts: Default::default(),
@@ -365,6 +370,38 @@ impl Shell {
             || self.verification_open
         {
             return false;
+        }
+        if self.rail_ui.edit_open
+            && !key.modifiers.control
+            && !key.modifiers.alt
+            && !key.modifiers.platform
+            && !event.is_held
+        {
+            // Tab ring of the open panel: the list, then «Crea spazio» and «Crea gruppo».
+            let ring: Vec<_> = std::iter::once((self.rail_ui.edit_panel_focus.clone(), None))
+                .chain(self.rail_header_stops())
+                .collect();
+            if let Some(at) = ring.iter().position(|(f, _)| f.is_focused(window)) {
+                let to = match key.key.as_str() {
+                    "tab" if ring.len() > 1 => Some((at + if key.modifiers.shift { ring.len() - 1 } else { 1 }) % ring.len()),
+                    "enter" | "space" if at > 0 => {
+                        self.rail_create(ring[at].1 == Some(true), window, cx);
+                        return true;
+                    }
+                    "escape" if at > 0 => {
+                        self.rail_ui.edit_open = false;
+                        self.rail_ui.edit_focus.focus(window);
+                        cx.notify();
+                        return true;
+                    }
+                    _ => None,
+                };
+                if let Some(to) = to {
+                    ring[to].0.focus(window);
+                    cx.notify();
+                    return true;
+                }
+            }
         }
         let at = if self.rail_ui.edit_focus.is_focused(window) {
             Some(EditFocus::Button)
@@ -790,6 +827,49 @@ impl Shell {
             .into_any_element()
     }
 
+    /// Focus stops of the panel header; the flag tells «Crea spazio» (true) from «Crea gruppo».
+    fn rail_header_stops(&self) -> Vec<(FocusHandle, Option<bool>)> {
+        let mut stops = vec![(self.rail_ui.create_group_focus.clone(), Some(false))];
+        if self.connected {
+            stops.insert(0, (self.rail_ui.create_space_focus.clone(), Some(true)));
+        }
+        stops
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    pub(crate) fn rail_header_focused(&self, window: &Window) -> Option<accesskit::NodeId> {
+        use matrix_desktop::accessibility::spaces::{CREATE_GROUP, CREATE_SPACE};
+        if !self.rail_ui.edit_open {
+            return None;
+        }
+        self.rail_header_stops().into_iter().find(|(f, _)| f.is_focused(window)).map(|(_, space)| if space == Some(true) { CREATE_SPACE } else { CREATE_GROUP })
+    }
+
+    /// «Crea spazio» opens the «Nuovo spazio» dialog; «Crea gruppo» the personal-group editor (unchanged).
+    pub(crate) fn rail_create(&mut self, space: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if !space {
+            return self.open_groups_edit(window, cx);
+        }
+        self.open_new_space(window, cx);
+        if let Some(room) = self.new_room.as_mut() {
+            room.opener = Some(self.rail_ui.create_space_focus.clone());
+        }
+    }
+
+    /// Reports the painted bounds of a header button to the semantic tree.
+    fn header_observer(&self, space: bool, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        {
+            use matrix_desktop::accessibility::spaces::{CREATE_GROUP, CREATE_SPACE};
+            Some(self.space_observer(if space { CREATE_SPACE } else { CREATE_GROUP }, cx))
+        }
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        {
+            let _ = (space, cx);
+            None
+        }
+    }
+
     pub(crate) fn rail_edit_open(&self) -> bool {
         self.rail_ui.edit_open
     }
@@ -800,9 +880,23 @@ impl Shell {
         let spaces: Vec<_> = self.rail_arranged().into_iter().skip(1).collect();
         let last = spaces.len().saturating_sub(1);
         let cursor = self.rail_ui.edit_cursor.min(last);
-        let header_button = |id: &'static str, label: &'static str| {
-            div().id(id).px_2().py_1().rounded_md().cursor_pointer().text_size(px(14.)).text_color(rgb(t.accent)).child(label)
+        let ring_space = input_modality::only_keys(self.rail_ui.create_space_focus.is_focused(window), cx);
+        let ring_group = input_modality::only_keys(self.rail_ui.create_group_focus.is_focused(window), cx);
+        let (observe_space, observe_group) = (self.header_observer(true, cx), self.header_observer(false, cx));
+        let header_button = |id: &'static str, label: &'static str, focus: &FocusHandle, ring: bool| {
+            div().id(id).relative().track_focus(focus).px_2().py_1().rounded_md().border_1().border_color(rgb(if ring { t.accent } else { t.surface })).cursor_pointer().text_size(px(14.)).text_color(rgb(t.accent)).child(label)
         };
+        // Mouse only: the key-up of Enter/Space would click again the button the key already used.
+        let create_space = cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
+            if !e.is_keyboard() {
+                this.rail_create(true, window, cx);
+            }
+        });
+        let create_group = cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
+            if !e.is_keyboard() {
+                this.rail_create(false, window, cx);
+            }
+        });
         let edge = self.rail_ui.edge.clone();
         let scroll = self.rail_ui.edit_scroll.clone();
         let panel = div()
@@ -820,9 +914,10 @@ impl Shell {
                     .border_b_1()
                     .border_color(rgb(t.border))
                     .child(div().flex_1().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.text)).child("Gruppi"))
-                    .child(header_button("rail-edit-groups", "Crea").on_click(cx.listener(|this, _, window, cx| {
-                        this.open_groups_edit(window, cx);
-                    })))
+                    .when(self.connected, |d| {
+                        d.child(header_button("rail-edit-space", "Crea spazio", &self.rail_ui.create_space_focus, ring_space).on_click(create_space).children(observe_space))
+                    })
+                    .child(header_button("rail-edit-groups", "Crea gruppo", &self.rail_ui.create_group_focus, ring_group).on_click(create_group).children(observe_group))
                     .child(
                         div().id("rail-edit-close").w(px(32.)).h(px(32.)).flex().items_center().justify_center().cursor_pointer()
                             .hover(|s| s.bg(rgb(t.border)))

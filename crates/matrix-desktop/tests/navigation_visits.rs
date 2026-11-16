@@ -50,6 +50,8 @@ fn navigation(
             open,
             active: sidebar.active_space().cloned(),
             unread_active: sidebar.unread_view(),
+            edit_open: false,
+            can_create_space: false,
             focused: None,
             bounds: Default::default(),
             choices: spaces.rail_choices(sidebar),

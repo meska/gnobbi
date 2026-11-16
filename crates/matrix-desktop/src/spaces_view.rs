@@ -277,8 +277,13 @@ impl Shell {
             open: persistent || self.spaces_open,
             active: self.sidebar.active_space().cloned(),
             unread_active: persistent && self.sidebar.unread_view(),
+            edit_open: persistent && self.rail_ui.edit_open,
+            // Creating a space needs no Matrix permission, only a signed-in account.
+            can_create_space: self.connected,
             focused: if self.menu_focus.is_focused(window) {
                 Some(matrix_desktop::accessibility::MENU)
+            } else if let Some(id) = self.rail_header_focused(window) {
+                Some(id)
             } else if persistent && self.rail_ui.edit_focus.is_focused(window) {
                 Some(matrix_desktop::accessibility::spaces::EDIT)
             } else if persistent {
@@ -320,6 +325,19 @@ impl Shell {
             return;
         };
         match action {
+            SpacesAction::Focus { id, .. } | SpacesAction::Create { id, .. } if view.header_ids().contains(&id) => {
+                let (space, group) = (matrix_desktop::accessibility::spaces::CREATE_SPACE, &self.rail_ui.create_group_focus);
+                if matches!(action, SpacesAction::Create { .. }) {
+                    self.rail_create(id == space, window, cx);
+                } else if id == space {
+                    self.rail_ui.create_space_focus.focus(window);
+                } else {
+                    group.focus(window);
+                }
+                cx.notify();
+                return;
+            }
+            SpacesAction::Create { .. } => return,
             SpacesAction::Focus { id, .. } if id == matrix_desktop::accessibility::spaces::EDIT => {
                 self.rail_ui.edit_focus.focus(window);
             }
@@ -550,6 +568,8 @@ mod tests {
             open: false,
             active: None,
             unread_active: false,
+            edit_open: false,
+            can_create_space: false,
             focused: None,
             bounds: Default::default(),
             choices: vec![],

@@ -558,9 +558,19 @@ impl Shell {
                             })),
                     )
                     .child(
-                        row("menu-join-room")
+                        row("menu-new-space")
                             .border_1()
                             .border_color(ring(n + 6))
+                            .text_color(rgb(t.text))
+                            .child("Nuovo spazio")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_new_space(window, cx)
+                            })),
+                    )
+                    .child(
+                        row("menu-join-room")
+                            .border_1()
+                            .border_color(ring(n + 7))
                             .text_color(rgb(t.text))
                             .child("Unisciti")
                             .on_click(cx.listener(|this, _, window, cx| {
@@ -570,7 +580,7 @@ impl Shell {
                     .child(
                         row("menu-quick-search")
                             .border_1()
-                            .border_color(ring(n + 7))
+                            .border_color(ring(n + 8))
                             .text_color(rgb(t.text))
                             .child("Ricerca rapida")
                             .on_click(cx.listener(|this, _, window, cx| {

@@ -22,16 +22,18 @@ pub enum DrawerItem {
     AddAccount,
     NewChat,
     NewRoom,
+    NewSpace,
     About,
 }
 impl DrawerItem {
-    const ALL: [(Self, &'static str); 7] = [
+    const ALL: [(Self, &'static str); 8] = [
         (Self::Settings, "Impostazioni"),
         (Self::Devices, "Dispositivi"),
         (Self::Notifications, "Notifiche"),
         (Self::AddAccount, "Aggiungi account"),
         (Self::NewChat, "Nuova chat"),
         (Self::NewRoom, "Nuova stanza"),
+        (Self::NewSpace, "Nuovo spazio"),
         (Self::About, "Informazioni su Gnobbi"),
     ];
 }

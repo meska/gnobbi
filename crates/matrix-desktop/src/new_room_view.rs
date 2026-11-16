@@ -11,6 +11,8 @@ use matrix_engine::operations::{DirectoryRoom, OperationCommand, OperationError,
 
 pub(crate) struct NewRoom {
     dm: bool,
+    /// Where Esc/«Annulla» return the focus; the ☰ button when None.
+    pub(crate) opener: Option<FocusHandle>,
     /// «Nuovo spazio»: the room fields and «Pubblica», plus an optional picture (name shown, bytes read).
     space: bool,
     avatar: Option<(String, SpaceAvatar)>,
@@ -118,8 +120,6 @@ impl Shell {
         self.open_dialog(dm, false, false, window, cx)
     }
 
-    // The drawer entry that calls it is another card; until then only tests open it.
-    #[allow(dead_code)]
     pub(crate) fn open_new_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_dialog(false, false, true, window, cx)
     }
@@ -157,6 +157,7 @@ impl Shell {
         fields[0].read(cx).focus.focus(window);
         self.new_room = Some(NewRoom {
             dm,
+            opener: None,
             join,
             space,
             avatar: None,
@@ -196,8 +197,8 @@ impl Shell {
     }
 
     fn close_new_room(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.new_room = None;
-        self.menu_focus.focus(window);
+        let opener = self.new_room.take().and_then(|room| room.opener);
+        opener.as_ref().unwrap_or(&self.menu_focus).focus(window);
         cx.notify();
     }
 

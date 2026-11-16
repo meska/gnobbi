@@ -17,6 +17,8 @@ fn snapshot() -> SpacesSnapshot {
         open: true,
         active: Some(scope(17, "!space:test")),
         unread_active: false,
+        edit_open: false,
+        can_create_space: false,
         focused: Some(TOGGLE),
         bounds: Default::default(),
         choices: vec![
@@ -591,4 +593,32 @@ fn unread_choice_is_selected_only_when_the_unread_view_is_shown() {
     assert_eq!(toggled(&view, UNREAD), Some(accesskit::Toggled::True));
     assert_eq!(toggled(&view, all), Some(accesskit::Toggled::False));
     assert_eq!(toggled(&view, space), Some(accesskit::Toggled::False));
+}
+
+#[test]
+fn rail_panel_header_buttons_are_named_like_their_labels_and_create() {
+    use matrix_desktop::accessibility::spaces::{CREATE_GROUP, CREATE_SPACE, SpacesAction};
+    let request = |id, action| accesskit::ActionRequest { action, target_node: id, target_tree: accesskit::TreeId::ROOT, data: None };
+    let mut view = snapshot();
+    view.persistent = true;
+    view.can_create_space = true;
+    // Panel closed: no header nodes, no action.
+    assert!(!view.nodes().iter().any(|(id, _)| *id == CREATE_SPACE || *id == CREATE_GROUP));
+    assert!(view.action(&request(CREATE_SPACE, Action::Click)).is_none());
+    view.edit_open = true;
+    let nodes = view.nodes();
+    for (id, label) in [(CREATE_SPACE, "Crea spazio"), (CREATE_GROUP, "Crea gruppo")] {
+        let node = &nodes.iter().find(|(n, _)| *n == id).unwrap().1;
+        assert_eq!((node.role(), node.label()), (Role::Button, Some(label)));
+        assert!(node.supports_action(Action::Click) && node.supports_action(Action::Focus));
+        let action = view.action(&request(id, Action::Click)).unwrap();
+        assert!(matches!(&action, SpacesAction::Create { id: got, .. } if *got == id));
+        assert!(view.allows(&action));
+        assert!(matches!(view.action(&request(id, Action::Focus)), Some(SpacesAction::Focus { .. })));
+    }
+    // Not allowed to create: «Crea spazio» disappears, «Crea gruppo» stays.
+    view.can_create_space = false;
+    assert!(!view.nodes().iter().any(|(id, _)| *id == CREATE_SPACE));
+    assert!(view.action(&request(CREATE_SPACE, Action::Click)).is_none());
+    assert!(view.nodes().iter().any(|(id, _)| *id == CREATE_GROUP));
 }
