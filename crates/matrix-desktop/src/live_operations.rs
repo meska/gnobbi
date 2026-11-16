@@ -251,6 +251,7 @@ impl LiveOperations {
             OperationResult::RoomMarked { .. }
             | OperationResult::TagsEdited { .. }
             | OperationResult::RoomStarted { .. }
+            | OperationResult::SpaceCreated { .. }
             | OperationResult::Join { .. }
             | OperationResult::RoomEdited { .. }
             | OperationResult::InviteAnswered { .. }

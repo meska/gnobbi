@@ -103,6 +103,37 @@ pub enum MessageSearchState {
     Error { term: String },
 }
 
+/// Avatar of a new space: the image bytes and their MIME type, already read by the caller.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SpaceAvatar {
+    pub data: Vec<u8>,
+    pub mime: String,
+}
+
+/// A space that exists but not exactly as asked; never fatal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpaceNotice {
+    /// The server refused the directory listing (e.g. Synapse `room_list_publication_rules`).
+    NotPublished,
+    AvatarFailed(OperationError),
+}
+
+impl SpaceNotice {
+    /// The one line the UI shows.
+    pub fn line(self) -> &'static str {
+        match self {
+            Self::NotPublished => "Spazio creato, non pubblicato nella directory",
+            Self::AvatarFailed(_) => "Spazio creato, immagine non caricata",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceCreated {
+    pub scope: RoomScope,
+    pub notices: Vec<SpaceNotice>,
+}
+
 pub enum OperationCommand {
     /// Search the messages of one room; an empty term closes the search. Answered with
     /// `OperationResult::MessageSearch` as it progresses.
@@ -142,6 +173,13 @@ pub enum OperationCommand {
         name: String,
         topic: Option<String>,
         public: bool,
+    },
+    /// New space (`m.space`); `public` lists it in the directory, otherwise it is private and not encrypted.
+    CreateSpace {
+        name: String,
+        topic: Option<String>,
+        public: bool,
+        avatar: Option<SpaceAvatar>,
     },
     /// «Modifica stanza»: only the parts that changed; avatar is an image file read here.
     EditRoom {
@@ -295,6 +333,9 @@ pub enum OperationResult {
     },
     RoomStarted {
         result: Result<RoomScope, OperationError>,
+    },
+    SpaceCreated {
+        result: Result<SpaceCreated, OperationError>,
     },
     /// Progress of a `JoinRoom`; `target` is the command's string, echoed unchanged.
     Join {
@@ -919,6 +960,70 @@ pub async fn create_room(
     Ok(RoomScope {
         account_id: account,
         room_id: matrix_domain::RoomId::new(room.room_id().as_str()),
+    })
+}
+
+/// A space has no messages, so unlike `create_room` it never gets `m.room.encryption`.
+/// Public ones are created private and listed afterwards, so a refused listing leaves a space, not an error.
+#[cfg(feature = "sdk")]
+fn space_request(name: &str, topic: Option<&str>, public: bool) -> matrix_sdk::ruma::api::client::room::create_room::v3::Request {
+    use matrix_sdk::ruma::{
+        api::client::room::{
+            Visibility,
+            create_room::v3::{CreationContent, Request, RoomPreset},
+        },
+        room::RoomType,
+        serde::Raw,
+    };
+    let mut creation = CreationContent::new();
+    creation.room_type = Some(RoomType::Space);
+    let mut request = Request::new();
+    request.name = Some(name.to_owned());
+    request.topic = topic.map(str::trim).filter(|t| !t.is_empty()).map(str::to_owned);
+    request.creation_content = Raw::new(&creation).ok();
+    request.visibility = Visibility::Private;
+    request.preset = Some(if public { RoomPreset::PublicChat } else { RoomPreset::PrivateChat });
+    request
+}
+
+#[cfg(feature = "sdk")]
+pub async fn create_space(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    name: &str,
+    topic: Option<&str>,
+    public: bool,
+    avatar: Option<&SpaceAvatar>,
+) -> Result<SpaceCreated, OperationError> {
+    let name = name.trim();
+    let mime = match avatar {
+        Some(a) => Some(a.mime.parse::<mime_guess::mime::Mime>().map_err(|_| OperationError::InvalidInput)?),
+        None => None,
+    };
+    if name.is_empty() || mime.as_ref().is_some_and(|m| m.type_() != mime_guess::mime::IMAGE) {
+        return Err(OperationError::InvalidInput);
+    }
+    let room = timeout_create(client.create_room(space_request(name, topic, public))).await?;
+    let mut notices = Vec::new();
+    // Any refusal or timeout of the listing is the same outcome for the user: created, not listed.
+    if public
+        && within(room.privacy_settings().update_room_visibility(matrix_sdk::ruma::api::client::room::Visibility::Public))
+            .await
+            .is_err()
+    {
+        notices.push(SpaceNotice::NotPublished);
+    }
+    if let (Some(a), Some(mime)) = (avatar, mime.as_ref())
+        && let Err(e) = within(room.upload_avatar(mime, a.data.clone(), None)).await
+    {
+        notices.push(SpaceNotice::AvatarFailed(e));
+    }
+    Ok(SpaceCreated {
+        scope: RoomScope {
+            account_id: account,
+            room_id: matrix_domain::RoomId::new(room.room_id().as_str()),
+        },
+        notices,
     })
 }
 
@@ -1659,6 +1764,27 @@ async fn own_reaction(
 }
 #[cfg(all(test, feature = "sdk"))]
 mod tests {
+
+    #[test]
+    fn space_request_is_an_unencrypted_private_m_space() {
+        use matrix_sdk::ruma::{api::client::room::{Visibility, create_room::v3::RoomPreset}, room::RoomType};
+        for (public, preset) in [(false, RoomPreset::PrivateChat), (true, RoomPreset::PublicChat)] {
+            let r = space_request("Casa", Some(" tema "), public);
+            assert_eq!(r.creation_content.unwrap().deserialize().unwrap().room_type, Some(RoomType::Space));
+            assert_eq!(r.preset, Some(preset));
+            // Public is only requested after creation.
+            assert_eq!(r.visibility, Visibility::Private);
+            assert!(r.initial_state.is_empty());
+            assert_eq!(r.topic.as_deref(), Some("tema"));
+        }
+    }
+
+    #[test]
+    fn partial_space_outcomes_are_distinct_one_line_notices() {
+        assert_eq!(SpaceNotice::NotPublished.line(), "Spazio creato, non pubblicato nella directory");
+        assert_ne!(SpaceNotice::AvatarFailed(OperationError::Transport), SpaceNotice::NotPublished);
+        assert!(!SpaceNotice::AvatarFailed(OperationError::Forbidden).line().contains('\n'));
+    }
     #[cfg(feature = "sdk")]
     #[test]
     fn only_a_join_content_counts_as_still_joined() {

@@ -659,6 +659,18 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
+                                OperationCommand::CreateSpace { name, topic, public, avatar } => {
+                                    let result = crate::operations::create_space(
+                                        &operation_client,
+                                        account,
+                                        &name,
+                                        topic.as_deref(),
+                                        public,
+                                        avatar.as_ref(),
+                                    )
+                                    .await;
+                                    OperationResult::SpaceCreated { result }
+                                }
                                 OperationCommand::JoinRoom { target, via } => {
                                     // Not awaited here: a slow join must not stall search and the other commands.
                                     // A second request for a target already in flight is a no-op.

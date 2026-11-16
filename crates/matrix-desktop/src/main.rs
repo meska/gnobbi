@@ -1932,6 +1932,9 @@ impl Shell {
                             target,
                             phase: matrix_engine::join::JoinPhase::Refused(OperationError::Unavailable),
                         },
+                        OperationCommand::CreateSpace { .. } => OperationResult::SpaceCreated {
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::StartDm { .. } | OperationCommand::CreateRoom { .. } => {
                             OperationResult::RoomStarted {
                                 result: Err(OperationError::Unavailable),
