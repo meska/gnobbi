@@ -4,6 +4,10 @@ use matrix_desktop::update::startup;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
+// Same directory names as the platform layouts: lowercase on Linux, capitalized on macOS/Windows.
+const APP: &str = if cfg!(target_os = "linux") { "gnobbi" } else { "Gnobbi" };
+const OLD: &str = if cfg!(target_os = "linux") { "dime" } else { "Dime" };
+
 struct Fixture(PathBuf);
 impl Fixture {
     fn new(name: &str) -> Self {
@@ -13,9 +17,9 @@ impl Fixture {
         Self(root)
     }
     fn dirs(&self) -> AppDirs {
-        AppDirs { config: self.0.join("gnobbi"), data: self.0.join("data"), cache: self.0.join("cache") }
+        AppDirs { config: self.0.join(APP), data: self.0.join("data"), cache: self.0.join("cache") }
     }
-    fn legacy(&self) -> PathBuf { self.0.join("dime/settings.json") }
+    fn legacy(&self) -> PathBuf { self.0.join(OLD).join("settings.json") }
     fn write(path: &Path, bytes: &[u8]) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, bytes).unwrap();
