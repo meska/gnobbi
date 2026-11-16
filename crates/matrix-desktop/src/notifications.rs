@@ -35,6 +35,11 @@ pub enum NotificationError {
     Worker,
 }
 
+/// True when the alert is for the room the user is looking at in a focused window; other rooms and accounts still alert.
+pub fn reading(window_active: bool, selected: Option<&RoomScope>, alert: &RoomScope) -> bool {
+    window_active && selected == Some(alert)
+}
+
 /// The last clicked alert: its catalog account (None: the shown one) and room.
 type Click = Arc<Mutex<Option<(Option<AccountId>, RoomScope)>>>;
 

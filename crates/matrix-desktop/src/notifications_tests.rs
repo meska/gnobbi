@@ -182,3 +182,14 @@ fn delivered_alert_names_its_account_and_a_click_is_handed_back_once() {
     assert!(handle.take_click().is_none(), "a click is taken once");
     worker.shutdown().unwrap();
 }
+
+#[test]
+fn open_room_alert_is_suppressed_only_with_an_active_window() {
+    let scope = |a: u64, r: &str| RoomScope { account_id: AccountId::new(a), room_id: RoomId::new(r) };
+    let open = scope(1, "!open:x");
+    assert!(reading(true, Some(&open), &open));
+    assert!(!reading(false, Some(&open), &open), "inactive window: alert");
+    assert!(!reading(true, Some(&open), &scope(1, "!other:x")), "other room: alert");
+    assert!(!reading(true, Some(&open), &scope(2, "!open:x")), "background account: alert");
+    assert!(!reading(true, None, &open));
+}

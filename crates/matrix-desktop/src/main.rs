@@ -224,6 +224,8 @@ struct Shell {
     tray: Option<matrix_desktop::tray::Tray>,
     /// Not minimized to the tray; the menu entry reads «Riduci» or «Mostra».
     window_visible: bool,
+    /// The window's own focus flag (xdg `activated`), kept by render and the activation observer.
+    window_active: bool,
     notification_handle: Option<matrix_desktop::notifications::NotificationHandle>,
     notifications_open: bool,
     notification_failed: bool,
@@ -2157,6 +2159,7 @@ impl Shell {
         if self.restore.waiting() {
             self.sidebar.clear_selection();
         }
+        self.window_active = window.is_window_active();
         let pinned_picker = self.composer.read(cx).pinned_picker();
         if std::mem::take(&mut self.refocus_menu) {
             self.menu_focus.focus(window);
@@ -3312,8 +3315,9 @@ fn main() {
                                             match event {
                                                 RoomListEvent::Alert(scope, preview) => {
                                                     this.notifications.set_message_preview(this.prefs.message_preview);
-                                                    // The user is reading that room right now: no alert for it.
-                                                    let reading = cx.active_window().is_some() && this.sidebar.selected().is_some_and(|r| r.scope == scope);
+                                                    // The user is reading that room right now: no alert for it. `cx.active_window()` is the
+                                                    // compositor's keyboard focus and stays None on a seat without keyboard (sway headless).
+                                                    let reading = matrix_desktop::notifications::reading(this.window_active, this.sidebar.selected().map(|r| &r.scope), &scope);
                                                     if !reading && let Some(alert) = this.notifications.alert(&scope, preview)
                                                         && let Some(handle) = &this.notification_handle
                                                     {
@@ -3496,7 +3500,8 @@ fn main() {
                         }
                     }).detach();
                     cx.observe_window_activation(window, |this: &mut Shell, window, _| {
-                        if window.is_window_active() {
+                        this.window_active = window.is_window_active();
+                        if this.window_active {
                             this.window_visible = true;
                         }
                     }).detach();
@@ -3695,6 +3700,7 @@ fn main() {
                             matrix_desktop::tray::Tray::start()
                         },
                         window_visible: true,
+                        window_active: true,
                         notification_handle: notification_handle.take(),
                         notifications_open: false,
                         room_details_open: false,
