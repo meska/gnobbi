@@ -44,6 +44,29 @@ fn missing_file_gives_defaults() {
 }
 
 #[test]
+fn notifications_default_off_and_survive_restart() {
+    let _gate = no_spawn();
+    assert!(!Preferences::default().notifications);
+    let d = dirs(&tmp("notif"));
+    assert!(!Preferences::load(&d).notifications, "missing file");
+    Preferences::update(&d, |p| p.notifications = true).unwrap();
+    assert!(Preferences::load(&d).notifications, "written then re-read");
+    Preferences::update(&d, |p| p.notifications = false).unwrap();
+    assert!(!Preferences::load(&d).notifications);
+}
+
+#[test]
+fn notifications_corrupt_file_or_value_is_off() {
+    let _gate = no_spawn();
+    let d = dirs(&tmp("notif-bad"));
+    std::fs::create_dir_all(&d.config).unwrap();
+    for body in ["{not json", "[]", r#"{"notifications":"yes"}"#, r#"{"notifications":1}"#] {
+        std::fs::write(d.config.join("settings.json"), body).unwrap();
+        assert!(!Preferences::load(&d).notifications, "{body}");
+    }
+}
+
+#[test]
 fn roundtrip_keeps_values() {
     let _gate = no_spawn();
     let d = dirs(&tmp("roundtrip"));
@@ -57,6 +80,7 @@ fn roundtrip_keeps_values() {
         icon: matrix_desktop::IconChoice::Monster,
         hide_redacted: false,
         close_to_tray: true,
+        notifications: true,
         desktop_entry_dont_ask: true,
         update_check_enabled: false,
         last_check: Some(1_700_000_000),

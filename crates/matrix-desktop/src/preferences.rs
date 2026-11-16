@@ -222,6 +222,8 @@ pub struct Preferences {
     pub hide_redacted: bool,
     /// «Riduci nel tray alla chiusura»: off by default, so closing the window keeps quitting.
     pub close_to_tray: bool,
+    /// «Notifiche» (tray and panel): one choice for all accounts; off by default.
+    pub notifications: bool,
     /// «Non chiedere più» on the launcher-entry proposal (Linux); «Aggiungi al menu» clears it.
     pub desktop_entry_dont_ask: bool,
     /// «Cerca aggiornamenti»: on by default, also when the saved value is missing or not a boolean.
@@ -250,6 +252,7 @@ impl Default for Preferences {
             icon: IconChoice::MinimalMark,
             hide_redacted: true,
             close_to_tray: false,
+            notifications: false,
             desktop_entry_dont_ask: false,
             update_check_enabled: true,
             last_check: None,
@@ -359,6 +362,10 @@ impl Preferences {
                 .get("close_to_tray")
                 .and_then(Value::as_bool)
                 .unwrap_or_default(),
+            notifications: map
+                .get("notifications")
+                .and_then(Value::as_bool)
+                .unwrap_or_default(),
             desktop_entry_dont_ask: map
                 .get("desktop_entry_dont_ask")
                 .and_then(Value::as_bool)
@@ -403,7 +410,7 @@ impl Preferences {
     }
 
     fn encode(&self, map: &mut serde_json::Map<String, Value>) {
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width });
         if let Value::Object(own) = body {
             map.extend(own);
         }

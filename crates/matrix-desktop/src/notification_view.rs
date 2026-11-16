@@ -106,7 +106,7 @@ impl Shell {
                 self.set_notifications_open(false);
                 self.list_focus.focus(window);
             }
-            NotificationAction::SetEnabled(value) => self.notifications.set_enabled(value),
+            NotificationAction::SetEnabled(value) => self.set_notifications_enabled(value),
             NotificationAction::SetPreview(value) => self.notifications.set_count_preview(value),
             NotificationAction::SetMuted { scope, muted } => self.set_room_muted(scope, muted),
         }
@@ -124,14 +124,32 @@ impl Shell {
         }
     }
 
+    /// The one «Notifiche» choice (tray and panel), global for all accounts: shown and parked
+    /// policies follow it, and it is saved in settings.json.
+    pub(crate) fn set_notifications_enabled(&mut self, on: bool) {
+        self.notifications.set_enabled(on);
+        for state in self.parked.values_mut() {
+            state.notifications.set_enabled(on);
+        }
+        let Some(dirs) = &self.prefs_dirs else {
+            self.prefs.notifications = on;
+            return;
+        };
+        match matrix_desktop::Preferences::update(dirs, |p| p.notifications = on) {
+            Ok(prefs) => self.prefs = prefs,
+            Err(error) => {
+                eprintln!("Gnobbi: cannot save preferences: {error}");
+                self.settings_error = Some("Impossibile salvare le impostazioni. Riprova.");
+            }
+        }
+    }
+
     pub(crate) fn change_notification_preference(&mut self, preference: u8) {
         if let Some(handle) = &self.notification_handle {
             handle.cancel_pending();
         }
         match preference {
-            0 => self
-                .notifications
-                .set_enabled(!self.notifications.enabled()),
+            0 => self.set_notifications_enabled(!self.notifications.enabled()),
             1 => {
                 if let Some(room) = self.sidebar.selected() {
                     let (scope, muted) = (room.scope.clone(), !room.info.muted);

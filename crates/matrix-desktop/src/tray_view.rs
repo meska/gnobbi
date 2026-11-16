@@ -47,8 +47,7 @@ impl Shell {
             }
             TrayAction::ToggleWindow | TrayAction::ShowWindow => self.show_window(window, cx),
             TrayAction::ToggleNotifications => {
-                self.notifications
-                    .set_enabled(!self.notifications.enabled());
+                self.set_notifications_enabled(!self.notifications.enabled());
                 if let Some(handle) = &self.notification_handle {
                     handle.cancel_pending();
                 }

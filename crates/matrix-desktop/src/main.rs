@@ -3059,6 +3059,7 @@ fn main() {
                         });
                     let prefs_dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok());
                     let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
+                    let notifications_on = prefs.notifications;
                     rail_ui.layouts = prefs_dirs.as_ref().map(matrix_desktop::RailLayouts::load).unwrap_or_default();
                     matrix_desktop::set_accent(prefs.effective_accent());
                     matrix_desktop::set_font(prefs.font);
@@ -3124,6 +3125,7 @@ fn main() {
                                             this.joins.clear();
                                             this.active_scope.account_id = account;
                                             this.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
+                                            this.notifications.set_enabled(this.prefs.notifications);
                                             this.verification = matrix_desktop::DeviceVerification::new(account);
                                             this.composer.update(cx, |editor, cx| editor.switch_room(this.active_scope.clone(), cx));
                                             cx.notify();
@@ -3620,9 +3622,11 @@ fn main() {
                         a11y_rooms: Default::default(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_history: Default::default(),
-                        notifications: matrix_domain::notifications::NotificationPolicy::new(
-                            account_id,
-                        ),
+                        notifications: {
+                            let mut policy = matrix_domain::notifications::NotificationPolicy::new(account_id);
+                            policy.set_enabled(notifications_on);
+                            policy
+                        },
                         // Fixture and test windows must not register a tray on the desktop.
                         tray: if cfg!(any(test, feature = "gui-fixture", feature = "perf-probe")) {
                             None
@@ -3659,7 +3663,10 @@ fn main() {
                             matrix_desktop::LiveDelivery::with_control(routes.send_control.clone()),
                         )),
                         routes: std::mem::take(&mut routes),
-                        parked: background.drain(..).collect(),
+                        parked: background.drain(..).map(|(id, mut state)| {
+                            state.notifications.set_enabled(notifications_on);
+                            (id, state)
+                        }).collect(),
                         control: active_control.take(),
                         confirm_removal: None,
                         switch_error: None,
