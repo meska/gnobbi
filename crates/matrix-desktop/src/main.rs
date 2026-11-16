@@ -150,6 +150,9 @@ struct Shell {
     room_edit: Option<room_edit_view::RoomEdit>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
+    /// A just-created space, selected in the bar as soon as the sync lists it.
+    pending_space: Option<RoomScope>,
+    space_notice: Option<&'static str>,
     restore: matrix_desktop::last_room_restore::LastRoomRestore,
     groups_edit: Option<groups_edit_view::GroupsEdit>,
     /// Set when the new-room dialog closed from an engine result: the next render restores focus.
@@ -2617,6 +2620,7 @@ impl Shell {
                             )
                         })
                         .children(self.render_join_notice(t, cx))
+                        .children(self.render_space_notice(t))
                 )
             })
             // Tab stop of the divider: between the list and the chat, like its place on screen.
@@ -3251,6 +3255,10 @@ fn main() {
                                                 this.room_started(result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::SpaceCreated { result } = result {
+                                                this.space_created(result, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::InviteAnswered { .. } = result {
                                                 this.invite_answered(result, cx);
                                                 continue;
@@ -3577,6 +3585,8 @@ fn main() {
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
                         pending_open: None,
+                        pending_space: None,
+                        space_notice: None,
                         restore: Default::default(),
                         groups_edit: None,
                         refocus_menu: false,

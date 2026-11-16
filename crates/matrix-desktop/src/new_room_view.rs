@@ -7,10 +7,14 @@ use matrix_desktop::directory_servers::{Choice as ServerChoice, SavedServers, Se
 use matrix_desktop::new_chat::Picker;
 use crate::directory_servers_view::render_server_picker;
 use matrix_desktop::search_list::{Choice, SearchList};
-use matrix_engine::operations::{DirectoryRoom, OperationCommand, OperationError, SearchState};
+use matrix_engine::operations::{DirectoryRoom, OperationCommand, OperationError, SearchState, SpaceAvatar, SpaceCreated};
 
 pub(crate) struct NewRoom {
     dm: bool,
+    /// «Nuovo spazio»: the room fields and «Pubblica», plus an optional picture (name shown, bytes read).
+    space: bool,
+    avatar: Option<(String, SpaceAvatar)>,
+    avatar_focus: FocusHandle,
     /// «Unisciti»: one field, directory hits below it.
     join: bool,
     /// «Unisciti»: the public rooms found for the field (shared result list), the server whose
@@ -54,10 +58,23 @@ pub(crate) fn error_text(dm: bool, join: bool, error: OperationError) -> &'stati
 }
 
 impl NewRoom {
+    /// A space's name is checked before sending, so its InvalidInput is the picture.
+    fn error_line(&self, error: OperationError) -> &'static str {
+        if self.space && error == OperationError::InvalidInput {
+            return "Immagine non valida";
+        }
+        error_text(self.dm, self.join, error)
+    }
+
+    fn avatar_label(&self) -> String {
+        self.avatar.as_ref().map_or_else(|| "Immagine".to_owned(), |(name, _)| name.clone())
+    }
+
     fn title(&self) -> &'static str {
         match (self.join, self.dm) {
             (true, _) => "Unisciti",
             (_, true) => "Nuova chat",
+            _ if self.space => "Nuovo spazio",
             _ => "Nuova stanza",
         }
     }
@@ -81,6 +98,9 @@ impl NewRoom {
             ring.push(self.server_focus.clone());
         }
         ring.extend(self.add_field.iter().map(|f| f.read(cx).focus.clone()));
+        if self.space {
+            ring.push(self.avatar_focus.clone());
+        }
         if !self.dm && !self.join {
             ring.push(self.public_focus.clone());
         }
@@ -95,14 +115,20 @@ impl NewRoom {
 
 impl Shell {
     pub(crate) fn open_new_room(&mut self, dm: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_dialog(dm, false, window, cx)
+        self.open_dialog(dm, false, false, window, cx)
+    }
+
+    // The drawer entry that calls it is another card; until then only tests open it.
+    #[allow(dead_code)]
+    pub(crate) fn open_new_space(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_dialog(false, false, true, window, cx)
     }
 
     pub(crate) fn open_join_room(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_dialog(false, true, window, cx)
+        self.open_dialog(false, true, false, window, cx)
     }
 
-    fn open_dialog(&mut self, dm: bool, join: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_dialog(&mut self, dm: bool, join: bool, space: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.set_menu_open(false, window, cx);
         let labels: &[&'static str] = if join {
             &["Alias o nome"]
@@ -132,6 +158,9 @@ impl Shell {
         self.new_room = Some(NewRoom {
             dm,
             join,
+            space,
+            avatar: None,
+            avatar_focus: cx.focus_handle(),
             rooms: SearchList::default(),
             servers: join.then(|| self.directory_picker()).flatten(),
             server_focus: cx.focus_handle(),
@@ -213,11 +242,12 @@ impl Shell {
         } else if room.dm {
             OperationCommand::StartDm { user_id: first }
         } else {
-            let topic = text(1);
-            OperationCommand::CreateRoom {
-                name: first,
-                topic: (!topic.is_empty()).then_some(topic),
-                public: room.public,
+            let topic = (!text(1).is_empty()).then(|| text(1));
+            if room.space {
+                let avatar = room.avatar.as_ref().map(|(_, a)| a.clone());
+                OperationCommand::CreateSpace { name: first, topic, public: room.public, avatar }
+            } else {
+                OperationCommand::CreateRoom { name: first, topic, public: room.public }
             }
         };
         if let OperationCommand::JoinRoom { target, .. } = &command
@@ -232,6 +262,78 @@ impl Shell {
         }
         self.pending_operation_command = Some(command);
         cx.notify();
+    }
+
+    /// «Immagine»: the file is read here; the engine uploads it after the space exists.
+    fn pick_space_avatar(&mut self, cx: &mut Context<Self>) {
+        let picked = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
+        cx.spawn(async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = picked.await
+                && let Some(path) = paths.into_iter().next()
+            {
+                let mime = match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+                    Some("png") => "image/png",
+                    Some("jpg" | "jpeg") => "image/jpeg",
+                    Some("gif") => "image/gif",
+                    Some("webp") => "image/webp",
+                    _ => "",
+                };
+                let data = std::fs::read(&path).ok().filter(|_| !mime.is_empty());
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(room) = this.new_room.as_mut().filter(|r| r.space && !r.busy) {
+                        match data {
+                            Some(data) => (room.avatar, room.error) = (Some((name, SpaceAvatar { data, mime: mime.into() })), None),
+                            None => room.error = Some(OperationError::InvalidInput),
+                        }
+                        cx.notify();
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// The engine's answer for «Nuovo spazio»: it closes the dialog, selects the space in the bar once the
+    /// sync lists it, and keeps one line when the space exists but not exactly as asked.
+    pub(crate) fn space_created(&mut self, result: Result<SpaceCreated, OperationError>, cx: &mut Context<Self>) {
+        let Some(room) = self.new_room.as_mut().filter(|r| r.busy && r.space) else {
+            return;
+        };
+        room.busy = false;
+        match result {
+            Ok(created) => {
+                self.new_room = None;
+                self.refocus_menu = true;
+                self.pending_space = Some(created.scope);
+                self.open_started_room(cx);
+                if let Some(notice) = created.notices.first() {
+                    self.space_notice = Some(notice.line());
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(std::time::Duration::from_secs(6)).await;
+                        this.update(cx, |this, cx| {
+                            this.space_notice = None;
+                            cx.notify();
+                        })
+                        .ok();
+                    })
+                    .detach();
+                }
+            }
+            Err(error) => {
+                room.error = Some(error);
+                for field in &room.fields {
+                    field.update(cx, |f, _| f.enabled = true);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// The one-line outcome under the room list, e.g. «Spazio creato, non pubblicato nella directory».
+    pub(crate) fn render_space_notice(&self, t: matrix_desktop::DesignTokens) -> Option<gpui::AnyElement> {
+        let line = self.space_notice?;
+        Some(div().id("space-notice").mx_4().my_2().px_3().py_2().rounded_lg().bg(rgb(t.input)).text_size(px(13.)).text_color(rgb(t.text)).truncate().child(line).into_any_element())
     }
 
     /// The server picker of «Unisciti»: this account's server first (the one searched by default).
@@ -708,6 +810,9 @@ impl Shell {
             let f = field.read(cx);
             items.push(item(Role::TextInput, f.placeholder, None, &f.focus, f.semantic_bounds));
         }
+        if room.space {
+            items.push(item(Role::Button, &room.avatar_label(), None, &room.avatar_focus, None));
+        }
         if !room.dm && !room.join {
             let focus = &room.public_focus;
             items.push(item(
@@ -735,7 +840,7 @@ impl Shell {
         if let Some(error) = room.error {
             items.push(Item {
                 role: Role::Label,
-                label: error_text(room.dm, room.join, error).to_owned(),
+                label: room.error_line(error).to_owned(),
                 checked: None,
                 focused: false,
                 bounds: None,
@@ -757,6 +862,12 @@ impl Shell {
 
     /// Selects the room created by the dialog as soon as it is in the list.
     pub(crate) fn open_started_room(&mut self, cx: &mut Context<Self>) {
+        if let Some(scope) = &self.pending_space
+            && self.choose_view(false, Some(scope.clone()))
+        {
+            self.pending_space = None;
+            cx.notify();
+        }
         if let Some(scope) = &self.pending_open
             && self.sidebar.is_joined(scope)
             && self.sidebar.select(scope)
@@ -803,6 +914,8 @@ impl Shell {
         {
             self.close_new_room(window, cx);
         } else if room.join && matches!(key, "up" | "down") && room.rooms.key(key) {
+        } else if matches!(key, "enter" | "space") && room.space && room.avatar_focus.is_focused(window) {
+            self.pick_space_avatar(cx);
         } else if matches!(key, "enter" | "space") && room.public_focus.is_focused(window) {
             room.public = !room.public;
         } else if room.dm && matches!(key, "up" | "down") && room.picker.key(key) {
@@ -974,7 +1087,7 @@ impl Shell {
             field.update(cx, |f, _| f.theme = t);
         }
         let kbd = input_modality::is_keyboard(cx);
-        let button = |id: &'static str, label: &'static str, color: u32, focus: &FocusHandle| {
+        let button = |id: &'static str, label: gpui::SharedString, color: u32, focus: &FocusHandle| {
             div()
                 .id(id)
                 .track_focus(focus)
@@ -1031,6 +1144,12 @@ impl Shell {
                         .when(room.dm, |d| {
                             d.child(self.render_new_chat_results(room, t, window, cx))
                         })
+                        .when(room.space, |d| {
+                            d.child(
+                                button("new-space-avatar", room.avatar_label().into(), t.accent, &room.avatar_focus)
+                                    .on_click(cx.listener(|this, _, _, cx| this.pick_space_avatar(cx))),
+                            )
+                        })
                         .when(!room.dm && !room.join, |d| {
                             d.child(
                                 switch_row(
@@ -1051,7 +1170,7 @@ impl Shell {
                             div()
                                 .text_size(px(13.))
                                 .text_color(rgb(t.error))
-                                .child(error_text(room.dm, room.join, error))
+                                .child(room.error_line(error))
                         }))
                         .child(
                             div()
@@ -1061,7 +1180,7 @@ impl Shell {
                                 .child(
                                     button(
                                         "new-room-cancel",
-                                        "Annulla",
+                                        "Annulla".into(),
                                         t.accent,
                                         &room.cancel_focus,
                                     )
@@ -1072,7 +1191,7 @@ impl Shell {
                                 .child(
                                     button(
                                         "new-room-submit",
-                                        room.submit_label(),
+                                        room.submit_label().into(),
                                         if room.busy { t.disabled } else { t.accent },
                                         &room.submit_focus,
                                     )

@@ -314,6 +314,7 @@ impl Shell {
         self.new_room = None;
         self.quick = None;
         self.pending_open = None;
+        self.pending_space = None;
         self.groups_edit = None;
         self.members_requested = None;
         self.room_members.clear();

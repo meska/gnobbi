@@ -155,6 +155,27 @@ mod tests {
     }
 
     #[test]
+    fn space_dialog_names_match_visible_labels_in_tab_order() {
+        let snapshot = Snapshot {
+            items: vec![
+                item(Role::TextInput, "Nome", None, false),
+                item(Role::TextInput, "Argomento", None, false),
+                item(Role::Button, "Immagine", None, true),
+                item(Role::Switch, "Pubblica", Some(false), false),
+                item(Role::Button, "Annulla", None, false),
+                item(Role::Button, "Crea", None, false),
+                item(Role::Label, "Spazio creato, non pubblicato nella directory", None, false),
+            ],
+            join: None,
+        };
+        let tree = snapshot.tree();
+        let got: Vec<_> = tree.nodes[1..].iter().map(|(_, n)| (n.role(), n.label().unwrap().to_owned(), n.toggled())).collect();
+        assert_eq!(got[2], (Role::Button, "Immagine".into(), None));
+        assert_eq!(got[3], (Role::Switch, "Pubblica".into(), Some(Toggled::False)));
+        assert_eq!(tree.focus, tree.nodes[3].0, "focus on «Immagine»");
+    }
+
+    #[test]
     fn room_dialog_exposes_fields_switch_buttons_error_and_focus() {
         let snapshot = Snapshot {
             items: vec![
