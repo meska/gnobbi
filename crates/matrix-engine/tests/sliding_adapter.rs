@@ -173,7 +173,15 @@ fn push_rules_decide_alerts_and_the_room_mute_is_a_server_rule() {
                         _ = tokio::time::sleep_until(end) => break,
                         event = rx.recv() => match event.unwrap() {
                             RoomListEvent::Status(RoomSyncStatus::Ready) => ready = true,
-                            RoomListEvent::Alert(s) => { assert_eq!(s, scope); alerts += 1 }
+                            RoomListEvent::Alert(s, preview) => {
+                                assert_eq!(s, scope);
+                                alerts += 1;
+                                if alerts == 1 {
+                                    // The real SDK event reaches the OS body: text of someone else, from the engine.
+                                    let body = matrix_domain::notifications::notification_body(preview.as_ref(), true, false);
+                                    assert!(body.ends_with("ping"), "preview text must arrive, got a fixed body");
+                                }
+                            }
                             RoomListEvent::Diff(RoomListDiff::Upsert(r)) if r.scope == scope => muted = Some(r.info.muted),
                             _ => {}
                         },
@@ -499,7 +507,7 @@ async fn collect(
                 RoomListEvent::Status(RoomSyncStatus::Connecting) => {}
                 RoomListEvent::Status(_) => panic!("adapter reported a failure"),
                 RoomListEvent::TimelineActivity(s) => seen.activity.push(s),
-                RoomListEvent::Order(_) | RoomListEvent::Alert(_) => {}
+                RoomListEvent::Order(_) | RoomListEvent::Alert(..) => {}
             }
         }
     })

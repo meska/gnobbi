@@ -79,7 +79,7 @@ async fn until(
                 Some(RoomListEvent::Status(RoomSyncStatus::Ready)) => st.ready = true,
                 Some(RoomListEvent::Status(RoomSyncStatus::Connecting)) => {}
                 Some(RoomListEvent::Status(_)) => st.failed = true,
-                Some(RoomListEvent::TimelineActivity(_) | RoomListEvent::Alert(_)) => {}
+                Some(RoomListEvent::TimelineActivity(_) | RoomListEvent::Alert(..)) => {}
                 Some(RoomListEvent::Order(order)) => {
                     st.order = order
                         .iter()

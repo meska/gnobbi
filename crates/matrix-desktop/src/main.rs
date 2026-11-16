@@ -3310,11 +3310,11 @@ fn main() {
                                         }
                                         for event in events {
                                             match event {
-                                                RoomListEvent::Alert(scope) => {
+                                                RoomListEvent::Alert(scope, preview) => {
                                                     this.notifications.set_message_preview(this.prefs.message_preview);
                                                     // The user is reading that room right now: no alert for it.
                                                     let reading = cx.active_window().is_some() && this.sidebar.selected().is_some_and(|r| r.scope == scope);
-                                                    if !reading && let Some(alert) = this.notifications.alert(&scope, None)
+                                                    if !reading && let Some(alert) = this.notifications.alert(&scope, preview)
                                                         && let Some(handle) = &this.notification_handle
                                                     {
                                                         handle.submit(Shell::alert_from(&this.accounts, this.active_id, alert));

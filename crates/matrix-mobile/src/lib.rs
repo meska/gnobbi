@@ -281,7 +281,7 @@ impl RoomsView {
                 self.rooms_dirty = true;
             }
             RoomListEvent::Status(status) => self.status = Some(status),
-            RoomListEvent::TimelineActivity(_) | RoomListEvent::Alert(_) => (),
+            RoomListEvent::TimelineActivity(_) | RoomListEvent::Alert(..) => (),
         }
     }
 

@@ -195,7 +195,7 @@ fn an_alert_from_a_background_account_opens_that_room_when_the_account_is_shown(
     assert!(tx.try_send(room(1, "!y:test", 0, 0)).is_ok());
     state.pump();
     assert!(
-        tx.try_send(RoomListEvent::Alert(scope(1, "!y:test")))
+        tx.try_send(RoomListEvent::Alert(scope(1, "!y:test"), None))
             .is_ok()
     );
     let alerts = state.pump();

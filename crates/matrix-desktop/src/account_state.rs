@@ -166,7 +166,7 @@ impl AccountState {
                 RoomListEvent::Diff(diff) => {
                     self.sidebar.apply_diff(diff);
                 }
-                RoomListEvent::Alert(scope) => alerts.extend(self.notifications.alert(&scope, None)),
+                RoomListEvent::Alert(scope, preview) => alerts.extend(self.notifications.alert(&scope, preview)),
                 RoomListEvent::Order(order) => self.sidebar.set_order(order),
                 RoomListEvent::Status(status) => {
                     if status == RoomSyncStatus::AuthenticationFailed {

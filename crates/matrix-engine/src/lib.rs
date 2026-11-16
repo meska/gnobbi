@@ -134,8 +134,9 @@ pub enum RoomListEvent {
     /// Every listed room, most recent first: the `RoomListService` sorter order (unsent
     /// message, then recency, then name). Sent after the diffs it refers to.
     Order(Vec<RoomScope>),
-    /// The push rules say a new message in this room notifies (content-free).
-    Alert(RoomScope),
+    /// The push rules say a new message in this room notifies. The preview is None only when the
+    /// engine could not read the event; the policy decides what of it the OS may show.
+    Alert(RoomScope, Option<matrix_domain::notifications::MessagePreview>),
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RoomSyncStatus {

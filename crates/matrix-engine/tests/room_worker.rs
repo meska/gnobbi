@@ -18,7 +18,7 @@ fn failed_restore_reports_fixed_status_then_closes_the_route() {
                 RoomListEvent::Diff(_)
                 | RoomListEvent::TimelineActivity(_)
                 | RoomListEvent::Order(_)
-                | RoomListEvent::Alert(_),
+                | RoomListEvent::Alert(..),
             ) => {
                 panic!("failed restore must not invent room activity")
             }
