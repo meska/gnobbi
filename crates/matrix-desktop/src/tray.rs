@@ -257,6 +257,10 @@ impl Tray {
         let builder = TrayIconBuilder::new()
             .with_tooltip("Gnobbi")
             .with_menu_on_left_click(false);
+        // Linux SNI: hosts show Title, falling back to the Id ("<pid>-<n>") when it is empty.
+        // Not on macOS, where the title is the unread count next to the icon.
+        #[cfg(target_os = "linux")]
+        let builder = builder.with_id("gnobbi").with_title("Gnobbi");
         let icon = Self::icon(0)?;
         // Template images exist on macOS only (they follow the menu bar's light/dark by themselves).
         #[cfg(target_os = "macos")]
