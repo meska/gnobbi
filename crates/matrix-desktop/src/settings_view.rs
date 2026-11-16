@@ -300,7 +300,7 @@ impl Shell {
         let success = match result {
             Ok(prefs) => { self.prefs = prefs; self.settings_error = None; true }
             Err(error) => {
-                eprintln!("Gnobbi: cannot save preferences: {error}");
+                eprintln!("Gnobbi: settings_write {:?}", error.kind());
                 self.settings_error = Some("Impossibile salvare le impostazioni. Riprova.");
                 false
             }

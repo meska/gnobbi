@@ -131,14 +131,14 @@ impl Shell {
         for state in self.parked.values_mut() {
             state.notifications.set_enabled(on);
         }
+        self.prefs.notifications = on;
         let Some(dirs) = &self.prefs_dirs else {
-            self.prefs.notifications = on;
             return;
         };
         match matrix_desktop::Preferences::update(dirs, |p| p.notifications = on) {
             Ok(prefs) => self.prefs = prefs,
             Err(error) => {
-                eprintln!("Gnobbi: cannot save preferences: {error}");
+                eprintln!("Gnobbi: settings_write {:?}", error.kind());
                 self.settings_error = Some("Impossibile salvare le impostazioni. Riprova.");
             }
         }

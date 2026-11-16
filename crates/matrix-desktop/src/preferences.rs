@@ -293,13 +293,31 @@ pub(crate) fn spawn_gate() -> std::sync::RwLockWriteGuard<'static, ()> {
 impl Preferences {
     /// Missing, corrupt or invalid input yields defaults, field by field; unknown keys are ignored.
     pub fn load(dirs: &AppDirs) -> Preferences {
-        let Ok(bytes) = std::fs::read(dirs.config.join(FILE)) else {
-            return Self::default();
+        let read = || -> std::io::Result<Option<serde_json::Map<String, Value>>> {
+            match std::fs::read(dirs.config.join(FILE)) {
+                Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
+                    Ok(Value::Object(map)) => Ok(Some(map)),
+                    _ => Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid settings")),
+                },
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e),
+            }
         };
-        let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(&bytes) else {
-            return Self::default();
-        };
-        Self::from_map(&map)
+        // Steady state: current schema, no lock needed. Otherwise migrate once (best effort: a busy
+        // lock or invalid update fields must not hide the user's notification choices).
+        let current = |m: &serde_json::Map<String, Value>| m.get("settings_version").and_then(Value::as_u64) == Some(1);
+        if let Ok(Some(map)) = read() {
+            if current(&map) {
+                return Self::from_map(&map);
+            }
+        }
+        if let Err(error) = prepare_settings(dirs, None) {
+            eprintln!("{}", diag("settings_migrate", &error));
+        }
+        match read() {
+            Ok(Some(map)) => Self::from_map(&map),
+            _ => Self::default(),
+        }
     }
 
     /// Strict read for automatic network operations; only a missing file uses defaults.
@@ -417,8 +435,14 @@ impl Preferences {
     }
 }
 
+/// One log line: stable code + ErrorKind only, never paths, JSON or ids.
+fn diag(code: &str, error: &std::io::Error) -> String {
+    format!("Gnobbi: {code} {:?}", error.kind())
+}
+
 fn validate_update_settings(map: &serde_json::Map<String, Value>) -> std::io::Result<()> {
-    let valid = map.get("update_check_enabled").is_none_or(Value::is_boolean)
+    let valid = map.get("settings_version").is_none_or(|v| v.as_u64().is_some_and(|n| n <= 1))
+        && map.get("update_check_enabled").is_none_or(Value::is_boolean)
         && map.get("update_base").is_none_or(|v| v.is_null() || v.is_string())
         && map.get("last_check").is_none_or(|v| v.is_null() || v.as_u64().is_some())
         && map.get("max_build_seen").is_none_or(|v| v.as_u64().is_some())
@@ -439,6 +463,13 @@ pub(crate) fn update_settings(
     dirs: &AppDirs,
     change: impl FnOnce(&mut serde_json::Map<String, Value>),
 ) -> std::io::Result<()> {
+    prepare_settings(dirs, Some(Box::new(change)))
+}
+
+fn prepare_settings(
+    dirs: &AppDirs,
+    change: Option<Box<dyn FnOnce(&mut serde_json::Map<String, Value>) + '_>>,
+) -> std::io::Result<()> {
     #[cfg(test)]
     let _no_spawn = no_spawn();
     #[cfg(unix)]
@@ -458,25 +489,47 @@ pub(crate) fn update_settings(
     validate_regular(&lock.metadata()?)?;
     lock.try_lock().map_err(std::io::Error::from)?;
     reject_non_file(&path)?;
-    let mut read_opts = std::fs::OpenOptions::new();
-    read_opts.read(true);
-    no_follow(&mut read_opts);
-    let mut map = match read_opts.open(&path).and_then(|mut file| {
+    let read = |path: &std::path::Path| -> std::io::Result<Vec<u8>> {
+        reject_non_file(path)?;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.read(true);
+        no_follow(&mut opts);
+        let mut file = opts.open(path)?;
         validate_regular(&file.metadata()?)?;
         let mut bytes = Vec::new();
         std::io::Read::read_to_end(&mut file, &mut bytes)?;
         Ok(bytes)
-    }) {
-        Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
-            Ok(Value::Object(map)) => map,
-            Ok(_) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "settings must be an object")),
-            Err(error) => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, error)),
+    };
+    let legacy = if dirs.config.file_name().is_some_and(|n| n == if cfg!(target_os = "linux") { "gnobbi" } else { "Gnobbi" }) {
+        Some(dirs.config.with_file_name(if cfg!(target_os = "linux") { "dime" } else { "Dime" }).join(FILE))
+    } else {
+        None
+    };
+    let bytes = match read(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => match legacy {
+            Some(ref path) => match read(path) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                result => Some(result?),
+            },
+            None => None,
         },
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Default::default(),
-        Err(error) => return Err(error),
+        result => Some(result?),
+    };
+    let had_file = bytes.is_some();
+    let mut map = match bytes {
+        Some(bytes) => match serde_json::from_slice::<Value>(&bytes) {
+            Ok(Value::Object(map)) => map,
+            _ => return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid settings")),
+        },
+        None => Default::default(),
     };
     validate_update_settings(&map)?;
-    change(&mut map);
+    let needs_migration = had_file && (map.get("settings_version").is_none() || !path.exists());
+    if change.is_none() && !needs_migration {
+        return Ok(());
+    }
+    map.insert("settings_version".into(), json!(1));
+    if let Some(change) = change { change(&mut map); }
     static NEXT_TEMP: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let (tmp, mut file) = loop {
         let n = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
@@ -536,4 +589,13 @@ fn no_follow(opts: &mut std::fs::OpenOptions) {
     std::os::unix::fs::OpenOptionsExt::custom_flags(opts, 0x100 | 0x4);
     #[cfg(windows)]
     std::os::windows::fs::OpenOptionsExt::custom_flags(opts, 0x0020_0000);
+}
+
+#[cfg(test)]
+mod diag_tests {
+    #[test]
+    fn diag_line_has_code_and_kind_only() {
+        let e = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "/home/u/secret.json @user:srv");
+        assert_eq!(super::diag("settings_migrate", &e), "Gnobbi: settings_migrate PermissionDenied");
+    }
 }

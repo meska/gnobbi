@@ -2833,6 +2833,7 @@ fn main() {
     // Background update check; a no-op (no thread, no network) outside AppImage/Windows portable.
     #[cfg(feature = "live")]
     if let Some(dirs) = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok()) {
+        let _ = matrix_desktop::Preferences::load(&dirs);
         matrix_desktop::update::scheduler::start(dirs, matrix_desktop::update::shared_state(), Default::default());
     }
     let (args, link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
