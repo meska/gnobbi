@@ -10,6 +10,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         self.settings_open = open;
+        self.privacy_open = false;
         if open {
             self.settings_row = 0;
             #[cfg(target_os = "linux")]
@@ -27,7 +28,7 @@ impl Shell {
     pub(crate) fn semantic_settings(
         &self,
     ) -> Option<matrix_desktop::accessibility::settings::SettingsSnapshot> {
-        if self.settings_open {
+        if self.settings_open && !self.privacy_open {
             Some(matrix_desktop::accessibility::settings::SettingsSnapshot {
                 focus: self.settings_row,
                 on: [
@@ -60,6 +61,11 @@ impl Shell {
                 self.settings_focus.focus(window);
                 cx.notify();
             }
+            SettingsAction::OpenPrivacy => {
+                self.settings_row = matrix_desktop::SETTINGS_PRIVACY_ROW;
+                self.privacy_open = true;
+                cx.notify();
+            }
             SettingsAction::Set(row, on) => {
                 self.settings_row = row;
                 let update_check = self.show_update_check();
@@ -79,9 +85,21 @@ impl Shell {
         matrix_desktop::update::channel::detect_channel(&matrix_desktop::update::channel::Env::from_process()).self_updates()
     }
 
-    /// Settings rows in screen order: 0 debug, 1 read receipts, 2 hide deleted messages, 3 close to tray.
+    /// Keyboard stops in screen order; row 5 is the «Privacy e sicurezza» entry, which sits between debug and the privacy switches.
+    pub(crate) fn settings_ring(&self) -> Vec<usize> {
+        let mut ring = vec![0, matrix_desktop::SETTINGS_PRIVACY_ROW, 1, 2, 3];
+        ring.extend(self.show_update_check().then_some(4));
+        ring.extend(cfg!(target_os = "linux").then(|| self.settings_rows() - 1));
+        ring
+    }
+
+    /// Settings rows: 0 debug, 1 read receipts, 2 hide deleted messages, 3 close to tray, 4 update check, 5 privacy page.
     pub(crate) fn toggle_setting(&mut self, row: usize, cx: &mut Context<Self>) {
         match row {
+            matrix_desktop::SETTINGS_PRIVACY_ROW => {
+                self.privacy_open = true;
+                cx.notify();
+            }
             0 => self.toggle_debug(cx),
             1 => self.toggle_read_receipts(cx),
             2 => self.toggle_hide_redacted(cx),
@@ -558,6 +576,41 @@ impl Shell {
                 })
                 .into_any_element();
         }
+        if self.privacy_open {
+            let ring = input_modality::only_keys(self.settings_focus.is_focused(window), cx);
+            return div()
+                .child(
+                    div()
+                        .id("privacy-back")
+                        .h(px(t.header))
+                        .px_4()
+                        .flex()
+                        .items_center()
+                        .cursor_pointer()
+                        .text_color(rgb(t.text))
+                        .child("‹ Privacy e sicurezza")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.privacy_open = false;
+                            cx.notify()
+                        })),
+                )
+                .child(
+                    row("privacy-devices")
+                        .track_focus(&self.settings_focus)
+                        .border_1()
+                        .border_color(rgb(if ring { t.accent } else { t.surface }))
+                        .text_color(rgb(t.text))
+                        .hover(|h| h.bg(rgb(t.selected)))
+                        .child("Dispositivi")
+                        .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
+                            // Enter/Space are handled in menu_key; the key-up click of the focused row would fire twice.
+                            if !event.is_keyboard() {
+                                this.open_from_drawer(window, cx, Shell::open_devices_panel)
+                            }
+                        })),
+                )
+                .into_any_element();
+        }
         div()
             .when_some(self.settings_error, |d, error| {
                 d.child(div().px_4().text_color(rgb(t.error)).child(error))
@@ -658,13 +711,19 @@ impl Shell {
                 Self::choose_font,
             ))
             .child(
-                div()
-                    .h(px(t.header))
-                    .px_4()
-                    .flex()
-                    .items_center()
+                row("settings-privacy")
+                    .border_1()
+                    .border_color(rgb(
+                        if input_modality::only_keys(self.settings_row == matrix_desktop::SETTINGS_PRIVACY_ROW && self.settings_focus.is_focused(window), cx) { t.accent } else { t.surface },
+                    ))
                     .text_color(rgb(t.text))
-                    .child("Privacy e sicurezza"),
+                    .hover(|h| h.bg(rgb(t.selected)))
+                    .child("Privacy e sicurezza")
+                    .child("›")
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.privacy_open = true;
+                        cx.notify()
+                    })),
             )
             .child(
                 switch_row(

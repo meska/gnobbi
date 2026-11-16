@@ -67,6 +67,7 @@ impl Shell {
             self.accounts = matrix_desktop::AccountCatalog::load(dirs);
         }
         self.settings_open = false;
+        self.privacy_open = false;
         self.about_open = false;
         self.confirm_removal = None;
         self.switch_error = None;
@@ -270,7 +271,17 @@ impl Shell {
             let update = matrix_desktop::update::announced().is_some() && !self.settings_open;
             let activate = !m.modified() && matches!(key.key.as_str(), "enter" | "space");
             match key.key.as_str() {
+                "escape" if self.privacy_open => {
+                    self.privacy_open = false;
+                    cx.notify()
+                }
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
+                // The privacy page has one stop, «Dispositivi».
+                "enter" | "space" if activate && self.privacy_open => {
+                    self.swallow_menu_key_up = true;
+                    self.open_from_drawer(window, cx, Shell::open_devices_panel)
+                }
+                "up" | "down" | "tab" if self.privacy_open => {}
                 "escape" => self.set_menu_open(false, window, cx),
                 "enter" | "space" if activate && self.settings_open => {
                     self.toggle_setting(self.settings_row, cx)
@@ -278,8 +289,9 @@ impl Shell {
                 // Settings keep one focus stop; Up/Down/Tab (Shift+Tab backwards) walk its four switches.
                 "up" | "down" | "tab" if self.settings_open => {
                     let back = key.key == "up" || m.shift;
-                    let rows = self.settings_rows();
-                    self.settings_row = (self.settings_row + if back { rows - 1 } else { 1 }) % rows;
+                    let ring = self.settings_ring();
+                    let at = ring.iter().position(|r| *r == self.settings_row).unwrap_or(0);
+                    self.settings_row = ring[(at + if back { ring.len() - 1 } else { 1 }) % ring.len()];
                     self.settings_focus.focus(window);
                     cx.notify();
                 }

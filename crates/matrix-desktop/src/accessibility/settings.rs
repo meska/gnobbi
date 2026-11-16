@@ -8,6 +8,8 @@ pub const LABELS: [&str; 4] = [
     "Messaggi eliminati",
     "Riduci nel tray alla chiusura",
 ];
+/// Row of the «Privacy e sicurezza» button (not a switch).
+pub const PRIVACY: usize = crate::SETTINGS_PRIVACY_ROW;
 const BASE: u64 = 70;
 
 fn id(row: usize) -> NodeId {
@@ -23,6 +25,7 @@ pub struct SettingsSnapshot {
 #[derive(Debug, PartialEq)]
 pub enum SettingsAction {
     Focus(usize),
+    OpenPrivacy,
     /// Explicit target state: a stale or duplicated request cannot toggle back.
     Set(usize, bool),
 }
@@ -48,6 +51,14 @@ impl SettingsSnapshot {
             node.add_action(Action::Focus);
             root.push_child(id(row));
             nodes.push((id(row), node));
+            if row == 0 {
+                let mut node = Node::new(Role::Button);
+                node.set_label("Privacy e sicurezza");
+                node.add_action(Action::Click);
+                node.add_action(Action::Focus);
+                root.push_child(id(PRIVACY));
+                nodes.push((id(PRIVACY), node));
+            }
         }
         if let Some(on) = self.update_check {
             let mut node = Node::new(Role::Switch);
@@ -63,12 +74,19 @@ impl SettingsSnapshot {
             nodes,
             tree: Some(Tree::new(ROOT)),
             tree_id: TreeId::ROOT,
-            focus: id(self.focus.min(if self.update_check.is_some() { 4 } else { 3 })),
+            focus: id(if self.focus == PRIVACY { PRIVACY } else { self.focus.min(if self.update_check.is_some() { 4 } else { 3 }) }),
         }
     }
     pub fn action(&self, request: &ActionRequest) -> Option<SettingsAction> {
         if request.target_tree != TreeId::ROOT || request.data.is_some() {
             return None;
+        }
+        if request.target_node == id(PRIVACY) {
+            return match request.action {
+                Action::Focus => Some(SettingsAction::Focus(PRIVACY)),
+                Action::Click => Some(SettingsAction::OpenPrivacy),
+                _ => None,
+            };
         }
         let row = (0..5).find(|r| id(*r) == request.target_node && self.state(*r).is_some())?;
         match request.action {

@@ -1,5 +1,8 @@
 //! Original desktop presentation contract; no network or SDK state.
 
+/// Settings row of the «Privacy e sicurezza» entry (rows 0-4 are the switches).
+pub const SETTINGS_PRIVACY_ROW: usize = 6;
+
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
 pub mod build_info;

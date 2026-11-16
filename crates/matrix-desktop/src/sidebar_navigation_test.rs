@@ -1592,6 +1592,8 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             this.update_in(cx, |this, _, _| assert!(this.prefs.hide_redacted, "deleted messages are hidden by default")).unwrap();
             // Ring of three: debug, read receipts, hide deleted. Each key press must change exactly one switch.
             key!("tab");
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, matrix_desktop::SETTINGS_PRIVACY_ROW, "the privacy entry sits between debug and read receipts")).unwrap();
+            key!("tab");
             key!("space");
             this.update_in(cx, |this, _, _| {
                 assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "Tab then Space turns read receipts off and saves");
@@ -1608,17 +1610,17 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             key!("space");
             this.update_in(cx, |this, _, _| assert!(this.prefs.read_receipts && saved(&dirs).read_receipts && !this.prefs.debug, "Shift+Tab walks back to read receipts")).unwrap();
             key!("up");
-            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "Up from read receipts reaches debug")).unwrap();
-            key!("tab");
-            key!("tab");
-            key!("tab");
-            key!("tab");
+            key!("up");
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "Up from read receipts passes the privacy entry and reaches debug")).unwrap();
+            for _ in 0..5 {
+                key!("tab");
+            }
             this.update_in(cx, |this, _, _| {
                 if this.show_update_check() {
                     assert_eq!(this.settings_row, 4);
                     assert!(this.prefs.update_check_enabled && saved(&dirs).update_check_enabled);
                 } else {
-                    assert_eq!(this.settings_row, if cfg!(target_os = "linux") { 4 } else { 0 }, "the ring is four switches, plus «Aggiungi al menu» on Linux");
+                    assert_eq!(this.settings_row, if cfg!(target_os = "linux") { this.settings_rows() - 1 } else { 0 }, "the ring is the switches, plus «Aggiungi al menu» on Linux");
                 }
             }).unwrap();
             if this.update_in(cx, |this, _, _| this.show_update_check()).unwrap() {
@@ -1629,6 +1631,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 key!("tab");
                 this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, if cfg!(target_os = "linux") { 5 } else { 0 })).unwrap();
             }
+            if cfg!(target_os = "linux") {
+                key!("tab"); // past «Aggiungi al menu» the ring wraps to debug
+            }
+            key!("tab");
+            key!("enter");
+            this.update_in(cx, |this, _, _| assert!(this.privacy_open && this.settings_open, "Enter on the privacy entry opens its page")).unwrap();
+            key!("escape");
+            this.update_in(cx, |this, _, _| assert!(!this.privacy_open && this.settings_open, "Esc returns to Settings")).unwrap();
+            key!("shift-tab");
             wait(300).await;
             shot("p242-receipts-off");
             key!("escape");

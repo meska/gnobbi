@@ -111,6 +111,17 @@ mod a11y {
     }
 
     #[test]
+    fn privacy_entry_is_a_button_that_opens_its_page() {
+        use matrix_desktop::accessibility::settings::PRIVACY;
+        let snap = SettingsSnapshot { focus: PRIVACY, on: [false; 4], update_check: None };
+        let tree = snap.tree();
+        let (id, n) = tree.nodes.iter().find(|(_, n)| n.role() == Role::Button).expect("button");
+        assert_eq!(n.label(), Some("Privacy e sicurezza"));
+        assert_eq!(snap.action(&click(*id)), Some(SettingsAction::OpenPrivacy));
+        assert_eq!(tree.focus, *id);
+    }
+
+    #[test]
     fn new_chat_scope_switch_has_one_label_and_follows_the_state() {
         let mk = |all| {
             NewChatView::Open(Box::new(Snapshot { text: String::new(), entries: vec![], active: 0, status: None, all }))
