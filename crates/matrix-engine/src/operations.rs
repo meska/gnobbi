@@ -827,11 +827,13 @@ pub fn directory_page(
 
 /// Transport failure = our homeserver is down; 400 = it rejected the server name; 401/403/404 =
 /// the remote refuses its directory to us (many servers do, or do not federate it); the rest
-/// (5xx relayed: the remote does not answer) = unreachable.
+/// (5xx relayed: the remote does not answer) = unreachable. No status but `answered` (our server replied,
+/// the body was not a Matrix error, e.g. an unreadable 2xx) is unreachable too, not a connection failure.
 #[cfg(feature = "sdk")]
-pub fn directory_error(status: Option<u16>, kind: Option<&ErrorKind>) -> crate::search::SearchError {
+pub fn directory_error(status: Option<u16>, kind: Option<&ErrorKind>, answered: bool) -> crate::search::SearchError {
     use crate::search::SearchError::*;
     match (status, kind) {
+        (None, _) if answered => Unreachable,
         (None, _) => Network,
         (_, Some(ErrorKind::InvalidParam)) | (Some(400), _) => InvalidServer,
         (_, Some(ErrorKind::Forbidden | ErrorKind::Unrecognized | ErrorKind::NotFound)) => Refused,
@@ -858,7 +860,7 @@ pub async fn public_rooms(
     // The SDK retries 5xx; a home server's 502 for a dead remote must surface at once, not as a 20 s timeout.
     let response = client.send(request).with_request_config(matrix_sdk::config::RequestConfig::new().disable_retry()).await.map_err(|e| {
         let api = e.as_client_api_error();
-        directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind())
+        directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind(), matches!(e, matrix_sdk::HttpError::Api(_)))
     })?;
     let mut response = response;
     response.chunk.retain(|d| kind_matches(kind, d.room_type.as_ref()));
