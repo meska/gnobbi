@@ -316,6 +316,7 @@ pub struct DeviceOverview {
     /// Open «Disconnetti» or «Rinomina» dialog: title and last outcome. The password is never here.
     dialog: Option<(String, Option<&'static str>)>,
     dialog_rename: bool,
+    confirm_enabled: bool,
     can_inactive: bool,
     /// «Disconnetti inattivi…» dialog: selector text, counter, unknown-activity line, one label per device.
     dialog_inactive: Option<InactiveDialogView>,
@@ -366,6 +367,7 @@ impl DeviceOverview {
                 .map(|d| (d.name.clone(), d.error))
                 .or_else(|| model.rename_dialog().map(|d| ("Rinomina".to_owned(), d.error))),
             dialog_rename: model.rename_dialog().is_some(),
+            confirm_enabled: model.delete_dialog().is_none_or(|d| d.confirm_enabled()),
             can_inactive: model.has_inactive(crate::time_fmt::now_ms()),
             dialog_inactive: model.delete_dialog().and_then(|d| {
                 Some(InactiveDialogView {
@@ -496,6 +498,9 @@ impl DeviceOverview {
             node.add_action(Action::Focus);
             if control != DeviceControl::DialogField {
                 node.add_action(Action::Click);
+            }
+            if control == DeviceControl::DialogConfirm && !self.confirm_enabled {
+                node.set_disabled();
             }
             dialog.push_child(control.id());
             nodes.push((control.id(), node));

@@ -46,6 +46,10 @@ pub struct DeleteDialog {
 }
 
 impl DeleteDialog {
+    /// One rule for colour, a11y and submit: something to sign out and no request in flight (the typed text is checked by the view).
+    pub fn confirm_enabled(&self) -> bool {
+        !self.busy && !self.device_ids.is_empty()
+    }
     pub fn counter(&self) -> String {
         match self.device_ids.len() {
             1 => "1 dispositivo da disconnettere".to_owned(),
@@ -305,7 +309,7 @@ impl DeviceVerification {
     }
     /// «Disconnetti» is live only with a typed password and no request in flight; the view checks it before emptying the field.
     pub fn can_submit_delete(&self, has_text: bool) -> bool {
-        has_text && self.pending.is_none() && self.delete.as_ref().is_some_and(|d| !d.busy && !d.device_ids.is_empty())
+        has_text && self.pending.is_none() && self.delete.as_ref().is_some_and(DeleteDialog::confirm_enabled)
     }
     /// Queues the sign-out with the password typed now; the password lives only in the command.
     pub fn submit_delete(&mut self, mut password: zeroize::Zeroizing<String>) -> bool {

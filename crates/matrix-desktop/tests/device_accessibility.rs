@@ -614,7 +614,6 @@ fn disconnect_inactive_link_and_dialog_have_labelled_nodes() {
 }
 
 #[test]
-#[ignore = "BUG: «Disconnetti» del popup inattivi non e' disabilitato (ne' a11y ne' colore) con lista vuota o richiesta in corso; togliere l'ignore col fix"]
 fn inactive_dialog_confirm_is_disabled_without_targets_or_while_busy() {
     use matrix_desktop::accessibility::devices::{DeviceNodes, DeviceView};
     let account = AccountId::new(21);

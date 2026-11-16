@@ -327,11 +327,13 @@ impl Shell {
     }
 
     fn render_device_delete(&self, t: matrix_desktop::DesignTokens, cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
-        let (title, error, busy, confirm) = match (self.verification.delete_dialog(), self.verification.rename_dialog()) {
+        let (title, error, mut busy, confirm) = match (self.verification.delete_dialog(), self.verification.rename_dialog()) {
             (Some(d), _) => (d.name.clone(), d.error, d.busy, "Disconnetti"),
             (None, Some(d)) => ("Rinomina".to_owned(), d.error, d.busy, "Salva"),
             _ => return None,
         };
+        // Same rule as the a11y node and the submit: an empty target list greys the button too.
+        busy |= self.verification.delete_dialog().is_some_and(|d| !d.confirm_enabled());
         let field = self.delete_field.clone()?;
         field.update(cx, |f, _| f.theme = t);
         let refocus = self.verification.delete_dialog().is_some_and(|d| d.take_refocus());
