@@ -1935,6 +1935,22 @@ impl Shell {
                             target,
                             phase: matrix_engine::join::JoinPhase::Refused(OperationError::Unavailable),
                         },
+                        OperationCommand::SpaceChoices { scope } => OperationResult::SpaceChoices {
+                            scope,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::AddToSpace { scope, space } => OperationResult::SpaceChanged {
+                            scope,
+                            space,
+                            added: true,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::RemoveFromSpace { scope, space } => OperationResult::SpaceChanged {
+                            scope,
+                            space,
+                            added: false,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::CreateSpace { .. } => OperationResult::SpaceCreated {
                             result: Err(OperationError::Unavailable),
                         },

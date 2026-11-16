@@ -659,6 +659,18 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomStarted { result }
                                 }
+                                OperationCommand::SpaceChoices { scope } => {
+                                    let result = crate::operations::space_choices(&operation_client, account, &scope).await;
+                                    OperationResult::SpaceChoices { scope, result }
+                                }
+                                OperationCommand::AddToSpace { scope, space } => {
+                                    let result = crate::operations::add_to_space(&operation_client, account, &scope, &space).await;
+                                    OperationResult::SpaceChanged { scope, space, added: true, result }
+                                }
+                                OperationCommand::RemoveFromSpace { scope, space } => {
+                                    let result = crate::operations::remove_from_space(&operation_client, account, &scope, &space).await;
+                                    OperationResult::SpaceChanged { scope, space, added: false, result }
+                                }
                                 OperationCommand::CreateSpace { name, topic, public, avatar } => {
                                     let result = crate::operations::create_space(
                                         &operation_client,

@@ -134,7 +134,49 @@ pub struct SpaceCreated {
     pub notices: Vec<SpaceNotice>,
 }
 
+/// A space as offered to the user for one room.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceRef {
+    pub scope: RoomScope,
+    pub name: String,
+    /// The user may send `m.space.child` there (read from the power levels, never assumed).
+    pub editable: bool,
+}
+
+/// Spaces for one room, from `SpaceService`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpaceChoices {
+    /// Spaces the user can edit that do not contain the room yet («Aggiungi a uno spazio…»).
+    pub addable: Vec<SpaceRef>,
+    /// Joined spaces that contain the room; «Togli da <spazio>» only for the `editable` ones.
+    pub containing: Vec<SpaceRef>,
+}
+
+/// The one line the UI shows when adding to or removing from a space failed.
+pub fn space_error_line(error: OperationError) -> &'static str {
+    match error {
+        OperationError::Forbidden => "Non consentito dal server",
+        OperationError::Unavailable | OperationError::WrongScope | OperationError::InvalidInput => "Spazio non trovato",
+        OperationError::Transport => "Operazione non riuscita, riprova",
+    }
+}
+
 pub enum OperationCommand {
+    /// Spaces that can take / already hold `scope`; answered with `OperationResult::SpaceChoices`.
+    SpaceChoices {
+        scope: RoomScope,
+    },
+    /// Put `scope` under `space` (`m.space.child`; `m.space.parent` too when the room's levels allow it).
+    /// Needs the right on the space only, not on the room. Answered with `OperationResult::SpaceChanged`.
+    AddToSpace {
+        scope: RoomScope,
+        space: RoomScope,
+    },
+    /// Take `scope` out of `space`; answered with `OperationResult::SpaceChanged`.
+    RemoveFromSpace {
+        scope: RoomScope,
+        space: RoomScope,
+    },
     /// Search the messages of one room; an empty term closes the search. Answered with
     /// `OperationResult::MessageSearch` as it progresses.
     SearchMessages {
@@ -336,6 +378,17 @@ pub enum OperationResult {
     },
     SpaceCreated {
         result: Result<SpaceCreated, OperationError>,
+    },
+    SpaceChoices {
+        scope: RoomScope,
+        result: Result<SpaceChoices, OperationError>,
+    },
+    /// `added` tells which command it answers. The space list changes at the next sync.
+    SpaceChanged {
+        scope: RoomScope,
+        space: RoomScope,
+        added: bool,
+        result: Result<(), OperationError>,
     },
     /// Progress of a `JoinRoom`; `target` is the command's string, echoed unchanged.
     Join {
@@ -1060,6 +1113,115 @@ async fn timeout_create(
 }
 
 #[cfg(feature = "sdk")]
+fn room_id_of(account: matrix_domain::AccountId, scope: &RoomScope) -> Result<matrix_sdk::ruma::OwnedRoomId, OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| OperationError::WrongScope)
+}
+
+/// Error of a `SpaceService` call by what the server said (403 stays distinct from a network fault).
+#[cfg(feature = "sdk")]
+fn classify_space(error: &matrix_sdk_ui::spaces::Error) -> OperationError {
+    use matrix_sdk_ui::spaces::Error as E;
+    match error {
+        E::UpdateRelationship(e) | E::UpdateInverseRelationship(e) | E::LeaveSpace(e) | E::LoadRoomMembers(e) => classify(e),
+        E::RoomNotFound(_) | E::MissingState(..) => OperationError::Unavailable,
+        E::UserIdNotFound => OperationError::Transport,
+    }
+}
+
+/// One `SpaceService` write with the usual 20 s limit. A failed `m.space.parent` after the `m.space.child`
+/// change is not an error: the parent link is optional and the change the user asked for is done.
+#[cfg(feature = "sdk")]
+async fn space_write(
+    call: impl std::future::Future<Output = Result<(), matrix_sdk_ui::spaces::Error>>,
+) -> Result<(), OperationError> {
+    match tokio::time::timeout(std::time::Duration::from_secs(20), call)
+        .await
+        .map_err(|_| OperationError::Transport)?
+    {
+        Err(matrix_sdk_ui::spaces::Error::UpdateInverseRelationship(_)) | Ok(()) => Ok(()),
+        Err(e) => Err(classify_space(&e)),
+    }
+}
+
+/// Puts `room` under `space` with `SpaceService::add_child_to_space`, which writes `m.space.parent` only when
+/// the room's own power levels allow it. Only the right on the space is needed (not admin of the room).
+/// Idempotent: adding twice rewrites the same state.
+#[cfg(feature = "sdk")]
+pub async fn add_to_space(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    room: &RoomScope,
+    space: &RoomScope,
+) -> Result<(), OperationError> {
+    let (room, space) = (room_id_of(account, room)?, room_id_of(account, space)?);
+    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
+    space_write(service.add_child_to_space(room, space)).await
+}
+
+/// Takes `room` out of `space` with `SpaceService::remove_child_from_space` (an empty `m.space.child`,
+/// and an empty `m.space.parent` when allowed). A room that is not in the space is a no-op.
+#[cfg(feature = "sdk")]
+pub async fn remove_from_space(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    room: &RoomScope,
+    space: &RoomScope,
+) -> Result<(), OperationError> {
+    let (room, space) = (room_id_of(account, room)?, room_id_of(account, space)?);
+    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
+    space_write(service.remove_child_from_space(room, space)).await
+}
+
+/// Whether the user may send `m.space.child` in `space`, from its power levels (the defaults differ per server).
+#[cfg(feature = "sdk")]
+pub async fn can_edit_space(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    space: &RoomScope,
+) -> Result<bool, OperationError> {
+    let id = room_id_of(account, space)?;
+    let me = client.user_id().ok_or(OperationError::Unavailable)?;
+    let room = client.get_room(&id).filter(|r| r.state() == matrix_sdk::RoomState::Joined).ok_or(OperationError::Unavailable)?;
+    let levels = room.power_levels().await.map_err(|_| OperationError::Unavailable)?;
+    Ok(levels.user_can_send_state(me, matrix_sdk::ruma::events::StateEventType::SpaceChild))
+}
+
+/// Spaces that can take `room` and spaces that already hold it. The SDK graph is rebuilt on each call, so
+/// the answer follows the last sync; a built `SpaceService` is not kept because the command task has no `RoomSync`.
+#[cfg(feature = "sdk")]
+pub async fn space_choices(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    room: &RoomScope,
+) -> Result<SpaceChoices, OperationError> {
+    let id = room_id_of(account, room)?;
+    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
+    service.top_level_joined_spaces().await;
+    let editable = service.editable_spaces().await;
+    let parents = service.joined_parent_ids_of_child(&id).await;
+    let of = |room_id: &matrix_sdk::ruma::RoomId, name: String, editable: bool| SpaceRef {
+        scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(room_id.as_str()) },
+        name,
+        editable,
+    };
+    let addable = editable
+        .iter()
+        .filter(|s| s.room_id != id && !parents.contains(&s.room_id))
+        .map(|s| of(&s.room_id, s.display_name.clone(), true))
+        .collect();
+    let mut containing = Vec::new();
+    for parent in &parents {
+        if let Some(space) = service.get_space_room(parent).await {
+            containing.push(of(parent, space.display_name, editable.iter().any(|e| &e.room_id == parent)));
+        }
+    }
+    Ok(SpaceChoices { addable, containing })
+}
+
+#[cfg(feature = "sdk")]
 pub async fn members(
     client: &matrix_sdk::Client,
     account: matrix_domain::AccountId,
@@ -1764,6 +1926,42 @@ async fn own_reaction(
 }
 #[cfg(all(test, feature = "sdk"))]
 mod tests {
+
+    #[cfg(feature = "sdk")]
+    fn api_error(status: u16, kind: Option<matrix_sdk::ruma::api::error::ErrorKind>) -> matrix_sdk::Error {
+        use matrix_sdk::ruma::api::error::{Error, ErrorBody, FromHttpResponseError, StandardErrorBody};
+        let body = match kind {
+            Some(kind) => ErrorBody::Standard(StandardErrorBody::new(kind, "no".into())),
+            None => ErrorBody::Json(serde_json::json!({})),
+        };
+        let status = matrix_sdk::reqwest::StatusCode::from_u16(status).unwrap();
+        let error = Error::new(status, body);
+        matrix_sdk::Error::Http(Box::new(matrix_sdk::HttpError::Api(Box::new(FromHttpResponseError::Server(matrix_sdk::ruma::api::client::uiaa::UiaaResponse::MatrixError(error))))))
+    }
+    #[cfg(feature = "sdk")]
+    #[test]
+    fn space_errors_keep_forbidden_apart_from_the_network() {
+        use matrix_sdk_ui::spaces::Error as E;
+        let forbidden = api_error(403, Some(ErrorKind::Forbidden));
+        assert_eq!(classify_space(&E::UpdateRelationship(forbidden)), OperationError::Forbidden);
+        assert_eq!(classify_space(&E::UpdateRelationship(api_error(502, None))), OperationError::Transport);
+        assert_eq!(classify_space(&E::RoomNotFound(matrix_sdk::ruma::owned_room_id!("!a:b.c"))), OperationError::Unavailable);
+        assert_eq!(classify_space(&E::UserIdNotFound), OperationError::Transport);
+        assert_eq!(space_error_line(OperationError::Forbidden), "Non consentito dal server");
+        assert!(!space_error_line(OperationError::Transport).contains('\n'));
+    }
+    #[cfg(feature = "sdk")]
+    #[tokio::test(start_paused = true)]
+    async fn space_write_times_out_and_tolerates_a_missing_parent_link() {
+        use matrix_sdk_ui::spaces::Error as E;
+        let slow = space_write(std::future::pending());
+        assert_eq!(slow.await, Err(OperationError::Transport));
+        assert_eq!(space_write(async { Err(E::UpdateInverseRelationship(api_error(403, Some(ErrorKind::Forbidden)))) }).await, Ok(()));
+        assert_eq!(
+            space_write(async { Err(E::UpdateRelationship(api_error(403, Some(ErrorKind::Forbidden)))) }).await,
+            Err(OperationError::Forbidden)
+        );
+    }
 
     #[test]
     fn space_request_is_an_unencrypted_private_m_space() {

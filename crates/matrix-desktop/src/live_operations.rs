@@ -252,6 +252,8 @@ impl LiveOperations {
             | OperationResult::TagsEdited { .. }
             | OperationResult::RoomStarted { .. }
             | OperationResult::SpaceCreated { .. }
+            | OperationResult::SpaceChoices { .. }
+            | OperationResult::SpaceChanged { .. }
             | OperationResult::Join { .. }
             | OperationResult::RoomEdited { .. }
             | OperationResult::InviteAnswered { .. }
