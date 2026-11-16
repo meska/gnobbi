@@ -273,15 +273,18 @@ impl Shell {
             match key.key.as_str() {
                 "escape" if self.privacy_open => {
                     self.privacy_open = false;
+                    self.settings_row = matrix_desktop::SETTINGS_PRIVACY_ROW;
                     cx.notify()
                 }
                 "escape" if self.settings_open => self.set_settings_open(false, window, cx),
-                // The privacy page has one stop, «Dispositivi».
+                // The privacy page: «Dispositivi» opens the panel, «Conferme di lettura» toggles.
+                "enter" | "space" if activate && self.privacy_open && self.settings_row == 1 => {
+                    self.toggle_setting(1, cx)
+                }
                 "enter" | "space" if activate && self.privacy_open => {
                     self.swallow_menu_key_up = true;
                     self.open_from_drawer(window, cx, Shell::open_devices_panel)
                 }
-                "up" | "down" | "tab" if self.privacy_open => {}
                 "escape" => self.set_menu_open(false, window, cx),
                 "enter" | "space" if activate && self.settings_open => {
                     self.toggle_setting(self.settings_row, cx)
@@ -438,7 +441,7 @@ impl Shell {
                 })
                 .when(!self.settings_open && !self.about_open, |d| d.children(self.render_drawer_header(t)))
                 // Scrolls so that Settings stays reachable on short windows (150%); the footer stays put.
-                .child(div().id("drawer-body").flex_1().min_h_0().overflow_y_scroll().child(self.render_drawer_body(t, window, cx)))
+                .child(div().id("drawer-body").track_scroll(&self.drawer_scroll).flex_1().min_h_0().overflow_y_scroll().child(self.render_drawer_body(t, window, cx)))
                 .children(self.render_update_row(t, window, cx))
                 .when(!self.about_open, |d| d.child(self.render_version_line(t, window, cx))),
             t,

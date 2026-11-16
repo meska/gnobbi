@@ -93,27 +93,29 @@ mod a11y {
     #[test]
     fn settings_switches_keep_their_labels_for_every_state_and_expose_it() {
         let mut seen = vec![];
-        for bits in 0..16u8 {
+        // Settings lists debug / deleted / tray; read receipts (row 1) are on the privacy page.
+        for (bits, privacy_page) in (0..16u8).flat_map(|b| [(b, false), (b, true)]) {
+            let rows: Vec<usize> = if privacy_page { vec![1] } else { vec![0, 2, 3] };
             let on = [0, 1, 2, 3].map(|i| bits >> i & 1 == 1);
-            let tree = SettingsSnapshot { focus: 0, on, update_check: None }.tree();
+            let tree = SettingsSnapshot { focus: 0, on, update_check: None, privacy_page }.tree();
             let sw: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Switch).collect();
             let labels: Vec<_> = sw.iter().map(|(_, n)| n.label().unwrap().to_owned()).collect();
-            assert_eq!(labels, LABELS, "state {bits:04b}");
-            for (i, (id, n)) in sw.iter().enumerate() {
+            assert_eq!(labels, rows.iter().map(|r| LABELS[*r]).collect::<Vec<_>>(), "state {bits:04b}");
+            for (&i, (id, n)) in rows.iter().zip(sw.iter()) {
                 assert_eq!(n.toggled(), Some(if on[i] { Toggled::True } else { Toggled::False }));
                 // Click/Space/Enter all arrive as Click: explicit target = the opposite of what is shown.
-                let want = SettingsSnapshot { focus: 0, on, update_check: None }.action(&click(*id));
+                let want = SettingsSnapshot { focus: 0, on, update_check: None, privacy_page }.action(&click(*id));
                 assert_eq!(want, Some(SettingsAction::Set(i, !on[i])));
             }
-            seen.push(labels);
+            seen.push((privacy_page, labels));
         }
-        assert!(seen.windows(2).all(|w| w[0] == w[1]));
+        assert!(seen.windows(2).all(|w| w[0].0 != w[1].0 || w[0].1 == w[1].1));
     }
 
     #[test]
     fn privacy_entry_is_a_button_that_opens_its_page() {
         use matrix_desktop::accessibility::settings::PRIVACY;
-        let snap = SettingsSnapshot { focus: PRIVACY, on: [false; 4], update_check: None };
+        let snap = SettingsSnapshot { focus: PRIVACY, on: [false; 4], update_check: None, privacy_page: false };
         let tree = snap.tree();
         let (id, n) = tree.nodes.iter().find(|(_, n)| n.role() == Role::Button).expect("button");
         assert_eq!(n.label(), Some("Privacy e sicurezza"));

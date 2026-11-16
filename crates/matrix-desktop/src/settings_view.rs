@@ -28,7 +28,7 @@ impl Shell {
     pub(crate) fn semantic_settings(
         &self,
     ) -> Option<matrix_desktop::accessibility::settings::SettingsSnapshot> {
-        if self.settings_open && !self.privacy_open {
+        if self.settings_open {
             Some(matrix_desktop::accessibility::settings::SettingsSnapshot {
                 focus: self.settings_row,
                 on: [
@@ -38,6 +38,7 @@ impl Shell {
                     self.prefs.close_to_tray,
                 ],
                 update_check: self.show_update_check().then_some(self.prefs.update_check_enabled),
+                privacy_page: self.privacy_open,
             })
         } else {
             None
@@ -85,18 +86,21 @@ impl Shell {
         matrix_desktop::update::channel::detect_channel(&matrix_desktop::update::channel::Env::from_process()).self_updates()
     }
 
-    /// Keyboard stops in screen order; row 5 is the «Privacy e sicurezza» entry, which sits between debug and the privacy switches.
+    /// Keyboard stops in screen order; the «Privacy e sicurezza» entry sits after debug. On its page: «Dispositivi» (same row id), then «Conferme di lettura».
     pub(crate) fn settings_ring(&self) -> Vec<usize> {
-        let mut ring = vec![0, matrix_desktop::SETTINGS_PRIVACY_ROW, 1, 2, 3];
+        if self.privacy_open {
+            return vec![matrix_desktop::SETTINGS_PRIVACY_ROW, 1];
+        }
+        let mut ring = vec![0, matrix_desktop::SETTINGS_PRIVACY_ROW, 2, 3];
         ring.extend(self.show_update_check().then_some(4));
         ring.extend(cfg!(target_os = "linux").then(|| self.settings_rows() - 1));
         ring
     }
 
-    /// Settings rows: 0 debug, 1 read receipts, 2 hide deleted messages, 3 close to tray, 4 update check, 5 privacy page.
+    /// Settings rows: 0 debug, 1 read receipts (privacy page), 2 hide deleted messages, 3 close to tray, 4 update check, 6 privacy entry / «Dispositivi».
     pub(crate) fn toggle_setting(&mut self, row: usize, cx: &mut Context<Self>) {
         match row {
-            matrix_desktop::SETTINGS_PRIVACY_ROW => {
+            matrix_desktop::SETTINGS_PRIVACY_ROW if !self.privacy_open => {
                 self.privacy_open = true;
                 cx.notify();
             }
@@ -577,7 +581,7 @@ impl Shell {
                 .into_any_element();
         }
         if self.privacy_open {
-            let ring = input_modality::only_keys(self.settings_focus.is_focused(window), cx);
+            let focused = |r: usize| input_modality::only_keys(self.settings_row == r && self.settings_focus.is_focused(window), cx);
             return div()
                 .child(
                     div()
@@ -591,6 +595,7 @@ impl Shell {
                         .child("‹ Privacy e sicurezza")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.privacy_open = false;
+                            this.settings_row = matrix_desktop::SETTINGS_PRIVACY_ROW;
                             cx.notify()
                         })),
                 )
@@ -598,7 +603,7 @@ impl Shell {
                     row("privacy-devices")
                         .track_focus(&self.settings_focus)
                         .border_1()
-                        .border_color(rgb(if ring { t.accent } else { t.surface }))
+                        .border_color(rgb(if focused(matrix_desktop::SETTINGS_PRIVACY_ROW) { t.accent } else { t.surface }))
                         .text_color(rgb(t.text))
                         .hover(|h| h.bg(rgb(t.selected)))
                         .child("Dispositivi")
@@ -608,6 +613,10 @@ impl Shell {
                                 this.open_from_drawer(window, cx, Shell::open_devices_panel)
                             }
                         })),
+                )
+                .child(
+                    switch_row("settings-read-receipts", "Conferme di lettura", self.prefs.read_receipts, true, focused(1), t)
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
                 )
                 .into_any_element();
         }
@@ -722,15 +731,9 @@ impl Shell {
                     .child("›")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.privacy_open = true;
+                        this.settings_row = matrix_desktop::SETTINGS_PRIVACY_ROW;
                         cx.notify()
                     })),
-            )
-            .child(
-                switch_row(
-                    "settings-read-receipts", "Conferme di lettura", self.prefs.read_receipts, true,
-                    input_modality::only_keys(self.settings_row == 1 && self.settings_focus.is_focused(window), cx), t,
-                )
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
             )
             .child(
                 switch_row(

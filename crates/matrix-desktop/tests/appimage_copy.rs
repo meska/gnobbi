@@ -130,7 +130,7 @@ fn other_io_errors_are_one_line() {
         &|| unreachable!(),
     )
     .unwrap_err();
-    assert!(!err.is_empty() && !err.contains('\n'));
+    assert_eq!(err, "Impossibile aggiungere al menu", "no raw OS text");
 }
 
 #[test]

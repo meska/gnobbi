@@ -132,6 +132,7 @@ struct Shell {
     settings_open: bool,
     /// The «Privacy e sicurezza» page inside Settings.
     privacy_open: bool,
+    drawer_scroll: gpui::ScrollHandle,
     settings_error: Option<&'static str>,
     about_open: bool,
     about_row: usize,
@@ -3534,6 +3535,7 @@ fn main() {
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
                         privacy_open: false,
+                        drawer_scroll: gpui::ScrollHandle::new(),
                         settings_error: None,
                         about_open: false,
                         about_row: 0,

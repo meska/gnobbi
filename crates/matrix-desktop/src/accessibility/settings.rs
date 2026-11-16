@@ -1,4 +1,4 @@
-//! Drawer settings: four on/off switches (debug, read receipts, show deleted messages, close to tray).
+//! Drawer settings: on/off switches (debug, show deleted messages, close to tray; read receipts live on the privacy page).
 use super::ROOT;
 use accesskit::{Action, ActionRequest, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
 
@@ -21,6 +21,8 @@ pub struct SettingsSnapshot {
     pub focus: usize,
     pub on: [bool; 4],
     pub update_check: Option<bool>,
+    /// «Privacy e sicurezza» page: only «Conferme di lettura» is exposed; Settings no longer lists it.
+    pub privacy_page: bool,
 }
 #[derive(Debug, PartialEq)]
 pub enum SettingsAction {
@@ -40,6 +42,9 @@ impl SettingsSnapshot {
         root.set_label("Impostazioni");
         let mut nodes = vec![];
         for (row, label) in LABELS.into_iter().enumerate() {
+            if self.privacy_page != (row == 1) {
+                continue;
+            }
             let mut node = Node::new(Role::Switch);
             node.set_label(label);
             node.set_toggled(if self.on[row] {
@@ -60,7 +65,7 @@ impl SettingsSnapshot {
                 nodes.push((id(PRIVACY), node));
             }
         }
-        if let Some(on) = self.update_check {
+        if let Some(on) = self.update_check.filter(|_| !self.privacy_page) {
             let mut node = Node::new(Role::Switch);
             node.set_label(crate::update::label::update_check_label());
             node.set_toggled(if on { Toggled::True } else { Toggled::False });
@@ -74,21 +79,25 @@ impl SettingsSnapshot {
             nodes,
             tree: Some(Tree::new(ROOT)),
             tree_id: TreeId::ROOT,
-            focus: id(if self.focus == PRIVACY { PRIVACY } else { self.focus.min(if self.update_check.is_some() { 4 } else { 3 }) }),
+            focus: if self.privacy_page {
+                if self.focus == 1 { id(1) } else { ROOT } // «Dispositivi» has no node yet
+            } else {
+                id(if self.focus == PRIVACY { PRIVACY } else { self.focus.min(if self.update_check.is_some() { 4 } else { 3 }) })
+            },
         }
     }
     pub fn action(&self, request: &ActionRequest) -> Option<SettingsAction> {
         if request.target_tree != TreeId::ROOT || request.data.is_some() {
             return None;
         }
-        if request.target_node == id(PRIVACY) {
+        if request.target_node == id(PRIVACY) && !self.privacy_page {
             return match request.action {
                 Action::Focus => Some(SettingsAction::Focus(PRIVACY)),
                 Action::Click => Some(SettingsAction::OpenPrivacy),
                 _ => None,
             };
         }
-        let row = (0..5).find(|r| id(*r) == request.target_node && self.state(*r).is_some())?;
+        let row = (0..5).find(|r| id(*r) == request.target_node && self.state(*r).is_some() && self.privacy_page == (*r == 1))?;
         match request.action {
             Action::Focus => Some(SettingsAction::Focus(row)),
             Action::Click => Some(SettingsAction::Set(row, !self.state(row)?)),

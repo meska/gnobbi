@@ -1590,29 +1590,21 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 assert!(!this.prefs.debug && !saved(&dirs).debug, "Space toggles it off and saves");
             }).unwrap();
             this.update_in(cx, |this, _, _| assert!(this.prefs.hide_redacted, "deleted messages are hidden by default")).unwrap();
-            // Ring of three: debug, read receipts, hide deleted. Each key press must change exactly one switch.
+            // Settings ring: debug, privacy entry, hide deleted, close to tray. Each key press must change exactly one switch.
             key!("tab");
-            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, matrix_desktop::SETTINGS_PRIVACY_ROW, "the privacy entry sits between debug and read receipts")).unwrap();
-            key!("tab");
-            key!("space");
-            this.update_in(cx, |this, _, _| {
-                assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "Tab then Space turns read receipts off and saves");
-                assert!(!this.prefs.debug && this.prefs.hide_redacted, "and nothing else");
-            }).unwrap();
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, matrix_desktop::SETTINGS_PRIVACY_ROW, "the privacy entry follows debug")).unwrap();
             key!("tab");
             key!("space");
             this.update_in(cx, |this, _, _| {
-                assert!(!this.prefs.hide_redacted && !saved(&dirs).hide_redacted && !this.prefs.debug && !this.prefs.read_receipts, "second Tab then Space shows deleted messages and saves");
+                assert!(!this.prefs.hide_redacted && !saved(&dirs).hide_redacted, "Tab then Space shows deleted messages and saves");
+                assert!(!this.prefs.debug && this.prefs.read_receipts, "and nothing else: read receipts are no longer in Settings");
             }).unwrap();
             key!("enter");
             this.update_in(cx, |this, _, _| assert!(this.prefs.hide_redacted && saved(&dirs).hide_redacted, "Enter toggles it back")).unwrap();
-            key!("shift-tab");
-            key!("space");
-            this.update_in(cx, |this, _, _| assert!(this.prefs.read_receipts && saved(&dirs).read_receipts && !this.prefs.debug, "Shift+Tab walks back to read receipts")).unwrap();
             key!("up");
             key!("up");
-            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "Up from read receipts passes the privacy entry and reaches debug")).unwrap();
-            for _ in 0..5 {
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, 0, "Up from hide deleted passes the privacy entry and reaches debug")).unwrap();
+            for _ in 0..4 {
                 key!("tab");
             }
             this.update_in(cx, |this, _, _| {
@@ -1637,9 +1629,17 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             key!("tab");
             key!("enter");
             this.update_in(cx, |this, _, _| assert!(this.privacy_open && this.settings_open, "Enter on the privacy entry opens its page")).unwrap();
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, matrix_desktop::SETTINGS_PRIVACY_ROW, "the page starts on «Dispositivi»")).unwrap();
+            key!("tab");
+            key!("space");
+            this.update_in(cx, |this, _, _| {
+                assert!(!this.prefs.read_receipts && !saved(&dirs).read_receipts, "Tab then Space on the page turns read receipts off and saves");
+                assert!(this.privacy_open && this.settings_row == 1);
+            }).unwrap();
+            key!("tab");
+            this.update_in(cx, |this, _, _| assert_eq!(this.settings_row, matrix_desktop::SETTINGS_PRIVACY_ROW, "the page ring wraps")).unwrap();
             key!("escape");
-            this.update_in(cx, |this, _, _| assert!(!this.privacy_open && this.settings_open, "Esc returns to Settings")).unwrap();
-            key!("shift-tab");
+            this.update_in(cx, |this, _, _| assert!(!this.privacy_open && this.settings_open && this.settings_row == matrix_desktop::SETTINGS_PRIVACY_ROW, "Esc returns to Settings on the privacy entry")).unwrap();
             wait(300).await;
             shot("p242-receipts-off");
             key!("escape");

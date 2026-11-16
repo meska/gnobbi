@@ -42,6 +42,8 @@ impl Shell {
             self.install_offer.open = true;
             self.install_offer.error = Some("Impossibile salvare le impostazioni. Riprova.".into());
         }
+        // The outcome renders under the row, below the fold on short windows: the next paint clamps this to the bottom.
+        self.drawer_scroll.set_offset(gpui::point(gpui::px(0.), gpui::px(-1e6)));
         cx.notify();
     }
 

@@ -17,7 +17,7 @@ pub enum Outcome {
 /// when it lives elsewhere) if set, else `current_exe`.
 pub fn install_for_current_user(icon: IconChoice, replace: bool) -> Result<Outcome, String> {
     let var = |k| std::env::var_os(k).filter(|v| !v.is_empty());
-    let home = std::env::var_os("HOME").ok_or("HOME unknown")?;
+    let home = std::env::var_os("HOME").ok_or(FAILED)?;
     let home = Path::new(&home);
     let share = user_share(home, var("XDG_DATA_HOME").as_deref().map(Path::new));
     // $APPIMAGE is the AppImage file; current_exe would point into the temporary mount.
@@ -46,7 +46,7 @@ pub fn install_resolved(
 ) -> Result<Outcome, String> {
     let mut exec = appimage
         .or(exe)
-        .ok_or("executable path unknown")?
+        .ok_or(FAILED)?
         .to_path_buf();
     #[cfg(target_os = "linux")]
     if let Some(a) = appimage {
@@ -59,7 +59,7 @@ pub fn install_resolved(
     #[cfg(not(target_os = "linux"))]
     let _ = (home, replace, &mut exec);
     install_desktop_entry_with(share, &exec.to_string_lossy(), icon, run)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| one_line(&e))?;
     Ok(Outcome::Done)
 }
 
@@ -115,12 +115,14 @@ pub fn place_appimage(
     Ok(Placed::At(dest))
 }
 
-#[cfg(target_os = "linux")]
+const FAILED: &str = "Impossibile aggiungere al menu";
+
+/// Short Italian line for the Settings row; the raw OS text stays out of the UI.
 fn one_line(e: &io::Error) -> String {
-    if e.kind() == io::ErrorKind::StorageFull {
-        "Spazio su disco insufficiente".into()
-    } else {
-        e.to_string().lines().next().unwrap_or_default().into()
+    match e.kind() {
+        io::ErrorKind::StorageFull => "Spazio su disco insufficiente".into(),
+        io::ErrorKind::PermissionDenied => format!("{FAILED}: permesso negato"),
+        _ => FAILED.into(),
     }
 }
 
