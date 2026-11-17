@@ -105,7 +105,7 @@ impl Snapshot {
             nodes.extend(menu);
             nodes.extend(join.list.iter().cloned());
             nodes.push(join.status.clone());
-            if join.menu_focused {
+            if join.menu_focused || join.menu.add_focused {
                 focus = menu_focus;
             }
             if let Some((_, input)) = nodes.first_mut().filter(|_| join.at > 0) {

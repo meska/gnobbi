@@ -105,11 +105,12 @@ impl AddError {
     }
 }
 
-// The engine cannot tell "not Matrix" or TLS apart yet: those variants come from a richer probe.
+// TLS classification needs a richer probe.
 impl From<SearchError> for AddError {
     fn from(e: SearchError) -> Self {
         match e {
             SearchError::InvalidServer => Self::InvalidName(NameError::Invalid),
+            SearchError::NotMatrix => Self::NotMatrix,
             SearchError::Refused => Self::DirectoryHidden,
             SearchError::Unreachable | SearchError::Timeout | SearchError::Network => Self::NoResponse,
         }
@@ -277,6 +278,7 @@ mod tests {
 
     #[test]
     fn search_errors_map_to_reasons() {
+        assert_eq!(AddError::from(SearchError::NotMatrix), AddError::NotMatrix);
         assert_eq!(AddError::from(SearchError::Refused), AddError::DirectoryHidden);
         assert_eq!(AddError::from(SearchError::Timeout), AddError::NoResponse);
         assert_eq!(AddError::from(SearchError::InvalidServer), AddError::InvalidName(NameError::Invalid));

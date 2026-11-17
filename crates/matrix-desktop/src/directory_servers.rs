@@ -235,6 +235,7 @@ impl ServerPicker {
             }
             Some(Row::Remove(s)) if !s.eq_ignore_ascii_case(&self.active) => {
                 self.store.remove(self.account, &s);
+                self.adding = None;
                 if self.selected.as_deref() == Some(s.as_str()) && !self.rows().iter().any(|r| matches!(r, Row::Server(x) if x.eq_ignore_ascii_case(&s))) {
                     self.selected = None;
                 }
@@ -504,6 +505,18 @@ mod tests {
         assert_eq!(p.confirm_add("b.org"), None);
         assert_eq!(p.value(), Some("b.org".into()));
         assert!(p.is_adding(), "field stays open with «Già presente»");
+    }
+
+    #[test]
+    fn removing_an_existing_server_clears_the_duplicate_error() {
+        let mut p = picker(&["b.org"]);
+        let add = p.rows().iter().position(|r| *r == Row::Add).unwrap();
+        p.choose(add);
+        assert_eq!(p.confirm_add("b.org"), None);
+        assert_eq!(p.add_error(), Some("Già presente"));
+        let remove = p.rows().iter().position(|r| *r == Row::Remove("b.org".into())).unwrap();
+        assert_eq!(p.choose(remove), Choice::Removed);
+        assert_eq!(p.add_error(), None);
     }
 
     #[test]

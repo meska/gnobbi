@@ -93,7 +93,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == '/final-login':
             status, payload = 200, {'flows': [{'type': 'm.login.password'}]}
         body = json.dumps(payload).encode()
-        if mode == 'bad-json':
+        if self.path == '/_matrix/federation/v1/version':
+            if mode == 'missing-server':
+                status, body = 200, b'{}'
+            elif mode == 'bad-json':
+                status, body = 200, b'<html>not matrix</html>'
+            elif mode == 'valid-federation':
+                status, body = 200, b'{"server":{"name":"test","version":"1"}}'
+        elif mode == 'bad-json':
             body = b'not-json-fixture-sensitive-marker'
         if mode in ['oversized', 'oversized-stream']:
             body = b' ' * 65537 + body

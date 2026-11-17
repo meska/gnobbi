@@ -6,6 +6,7 @@ use accesskit::{Action, ActionRequest, HasPopup, Live, Node, NodeId, Role, Toggl
 pub const BUTTON: NodeId = NodeId(1200);
 pub const MENU: NodeId = NodeId(1201);
 pub const ERROR: NodeId = NodeId(1202);
+pub const ADD: NodeId = NodeId(1203);
 /// Row `i` of the menu is node `ITEM + i`.
 pub const ITEM: u64 = 1210;
 
@@ -24,12 +25,16 @@ pub struct ServerMenu {
     pub highlighted: usize,
     /// The one error line of «Aggiungi nuovo server…».
     pub error: Option<&'static str>,
+    pub adding: bool,
+    pub add_enabled: bool,
+    pub add_focused: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ServerAction {
     Toggle,
     Choose(usize),
+    Add,
 }
 
 impl ServerMenu {
@@ -47,7 +52,10 @@ impl ServerMenu {
             open: p.is_open(),
             items,
             highlighted: p.highlighted(),
-            error: p.add_error(),
+            error: if p.is_probing() { Some("Controllo…") } else { p.add_error() },
+            adding: p.is_adding(),
+            add_enabled: false,
+            add_focused: false,
         }
     }
 
@@ -85,9 +93,17 @@ impl ServerMenu {
             nodes.push((MENU, menu));
             top.push(MENU);
         }
+        if self.adding {
+            let mut add = Node::new(Role::Button);
+            add.set_label("Aggiungi");
+            if self.add_enabled { add.add_action(Action::Click); } else { add.set_disabled(); }
+            if self.add_focused { focus = ADD; }
+            nodes.push((ADD, add));
+            top.push(ADD);
+        }
         if let Some(text) = self.error {
             let mut e = Node::new(Role::Label);
-            e.set_value(text);
+            e.set_label(text);
             e.set_live(Live::Polite);
             nodes.push((ERROR, e));
             top.push(ERROR);
@@ -104,6 +120,7 @@ impl ServerMenu {
         }
         match request.target_node {
             BUTTON => Some(ServerAction::Toggle),
+            ADD if self.adding && self.add_enabled => Some(ServerAction::Add),
             NodeId(n) if self.open && n >= ITEM && ((n - ITEM) as usize) < self.items.len() => {
                 Some(ServerAction::Choose((n - ITEM) as usize))
             }
@@ -133,6 +150,26 @@ mod tests {
     }
     fn node(nodes: &[(NodeId, Node)], id: NodeId) -> &Node {
         &nodes.iter().find(|(i, _)| *i == id).unwrap().1
+    }
+
+    #[test]
+    fn add_button_is_exposed_and_clickable_only_when_enabled() {
+        let mut p = picker();
+        p.open();
+        p.choose(4);
+        let mut menu = ServerMenu::of(&p);
+        let (top, nodes, _) = menu.nodes();
+        let button = nodes.iter().find(|(_, n)| n.role() == Role::Button && n.label() == Some("Aggiungi"));
+        assert!(button.is_some(), "the add form exposes its button");
+        assert!(top.contains(&button.unwrap().0));
+        assert!(node(&nodes, ADD).is_disabled());
+        assert_eq!(menu.action(&click(ADD)), None);
+        menu.add_enabled = true;
+        menu.add_focused = true;
+        let (_, nodes, focus) = menu.nodes();
+        assert!(!node(&nodes, ADD).is_disabled());
+        assert_eq!(focus, ADD);
+        assert_eq!(menu.action(&click(ADD)), Some(ServerAction::Add));
     }
 
     #[test]
@@ -193,10 +230,12 @@ mod tests {
         assert_eq!(v.action(&click(ERROR)), None);
         p.choose(4);
         p.confirm_add("x.org");
+        let (_, nodes, _) = ServerMenu::of(&p).nodes();
+        assert_eq!(node(&nodes, ERROR).label(), Some("Controllo…"));
         p.probed("x.org", Err(SearchError::Unreachable));
         let (top, nodes, _) = ServerMenu::of(&p).nodes();
         assert_eq!(top.last(), Some(&ERROR));
         let e = node(&nodes, ERROR);
-        assert_eq!((e.value(), e.live()), (Some("Il server non risponde"), Some(Live::Polite)));
+        assert_eq!((e.label(), e.live()), (Some("Il server non risponde"), Some(Live::Polite)));
     }
 }

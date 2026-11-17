@@ -59,6 +59,7 @@ impl Status {
             Self::Partial => "Risultati parziali",
             Self::Error(e) => match e {
                 SearchError::InvalidServer => "Nome del server non valido",
+                SearchError::NotMatrix => "Non è un server Matrix",
                 SearchError::Refused => "Il server non mostra le sue stanze",
                 SearchError::Unreachable => "Il server non risponde",
                 SearchError::Timeout => "Tempo scaduto",

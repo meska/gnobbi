@@ -140,6 +140,22 @@ impl Discovery {
         })
     }
 
+    pub(crate) fn with_http(http: reqwest::Client) -> Self {
+        Self { http }
+    }
+
+    pub(crate) async fn probe_federation(&self, name: &str) -> Result<(), crate::search::SearchError> {
+        use crate::search::SearchError;
+        let base = HomeserverUrl::parse(&format!("https://{name}"))
+            .map_err(|_| SearchError::InvalidServer)?;
+        let url = base.0.join("_matrix/federation/v1/version").map_err(|_| SearchError::InvalidServer)?;
+        match self.json(url).await {
+            Ok(value) if value.get("server").is_some_and(|v| v.is_object()) => Ok(()),
+            Ok(_) | Err(DiscoveryError::InvalidResponse | DiscoveryError::HttpStatus(404)) => Err(SearchError::NotMatrix),
+            Err(_) => Err(SearchError::Network),
+        }
+    }
+
     /// Sign-in entry point. A bare server name resolves `.well-known` first; a full URL
     /// is probed as typed, but an origin answering 404 falls back to its delegation.
     pub async fn resolve(

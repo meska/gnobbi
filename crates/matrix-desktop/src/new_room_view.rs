@@ -26,6 +26,7 @@ pub(crate) struct NewRoom {
     server_focus: FocusHandle,
     /// «Aggiungi nuovo server…»: the name field, while it is open.
     add_field: Option<gpui::Entity<crate::login_field::LoginField>>,
+    add_focus: FocusHandle,
     rooms_sent: Option<(String, Option<String>)>,
     public: bool,
     /// DM: user ID. Room: name, then topic.
@@ -100,6 +101,7 @@ impl NewRoom {
             ring.push(self.server_focus.clone());
         }
         ring.extend(self.add_field.iter().map(|f| f.read(cx).focus.clone()));
+        if self.add_field.is_some() { ring.push(self.add_focus.clone()); }
         if self.space {
             ring.push(self.avatar_focus.clone());
         }
@@ -166,6 +168,7 @@ impl Shell {
             servers: join.then(|| self.directory_picker()).flatten(),
             server_focus: cx.focus_handle(),
             add_field: None,
+            add_focus: cx.focus_handle(),
             rooms_sent: None,
             public: false,
             fields,
@@ -396,7 +399,11 @@ impl Shell {
                 field.read(cx).focus.focus(window);
                 *add = Some(field);
             }
-            ServerChoice::Removed => self.save_servers(),
+            ServerChoice::Removed => {
+                *add = None;
+                self.save_servers();
+                self.focus_dialog_field(window, cx);
+            }
             ServerChoice::Selected | ServerChoice::Nothing => {}
         }
         cx.notify();
@@ -457,6 +464,7 @@ impl Shell {
         &self,
         field: gpui::Entity<crate::login_field::LoginField>,
         picker: &ServerPicker,
+        focus: &FocusHandle,
         t: matrix_desktop::DesignTokens,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
@@ -476,6 +484,7 @@ impl Shell {
                     .child(
                         div()
                             .id("add-server-submit")
+                            .track_focus(focus)
                             .px_3()
                             .py_1()
                             .text_color(rgb(if enabled { t.accent } else { t.disabled }))
@@ -712,6 +721,7 @@ impl Shell {
                     room.server_focus.focus(window);
                 }
             }
+            NewRoomAction::Server(ServerAction::Add) => self.confirm_server(window, cx),
             NewRoomAction::Server(ServerAction::Choose(i)) => {
                 if let Some(choice) = room.servers.as_mut().map(|p| p.choose(i)) {
                     self.server_choice(choice, window, cx);
@@ -915,7 +925,9 @@ impl Shell {
             use matrix_desktop::accessibility::directory_servers::ServerMenu;
             Join::new(
                 at,
-                ServerMenu::of(p),
+                { let mut m = ServerMenu::of(p);
+                  if let Some(f) = &room.add_field { m.add_enabled = p.can_add(&f.read(cx).input.display_text()); }
+                  m.add_focused = room.add_focus.is_focused(window); m },
                 room.server_focus.is_focused(window),
                 &room.rooms.rows(),
                 room.rooms.active(),
@@ -974,6 +986,10 @@ impl Shell {
             && room.add_field.as_ref().is_some_and(|f| f.read(cx).focus.is_focused(window))
         {
             self.confirm_server(window, cx);
+        } else if matches!(key, "enter" | "space") && room.add_field.is_some() && room.add_focus.is_focused(window) {
+            if room.servers.as_ref().zip(room.add_field.as_ref()).is_some_and(|(p, f)| p.can_add(&f.read(cx).input.display_text())) {
+                self.confirm_server(window, cx);
+            }
         } else if key == "escape"
             || (matches!(key, "enter" | "space") && room.cancel_focus.is_focused(window))
         {
@@ -1097,7 +1113,7 @@ impl Shell {
             .flex_col()
             .gap_1()
             .child(menu)
-            .children(room.add_field.clone().map(|f| self.add_server_block(f, picker, t, cx)))
+            .children(room.add_field.clone().map(|f| self.add_server_block(f, picker, &room.add_focus, t, cx)))
             .into_any_element()
     }
 

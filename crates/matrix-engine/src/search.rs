@@ -25,6 +25,8 @@ pub struct Page<H> {
 pub enum SearchError {
     /// Not a Matrix server name; caught before any request.
     InvalidServer,
+    /// A federation endpoint did not identify a Matrix server.
+    NotMatrix,
     /// The remote server refused to show its directory to us (401/403/404 relayed by our server).
     Refused,
     /// Our server could not reach the remote one (5xx relayed by our server).

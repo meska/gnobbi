@@ -107,6 +107,7 @@ pub(crate) struct QuickSearch {
     pub(crate) servers: Option<ServerPicker>,
     server_focus: FocusHandle,
     pub(crate) add_field: Option<gpui::Entity<crate::login_field::LoginField>>,
+    pub(crate) add_focus: FocusHandle,
     /// A join or DM is waiting for the engine: the entry to remember on success, and whether it is a DM.
     busy: Option<(Recent, bool)>,
     /// The room joined by the last click on a directory row: its success opens the room only while this popup is open.
@@ -436,6 +437,7 @@ impl Shell {
             servers: self.directory_picker(),
             server_focus: cx.focus_handle(),
             add_field: None,
+            add_focus: cx.focus_handle(),
             busy: None,
             joining: None,
             error: None,
@@ -697,6 +699,29 @@ impl Shell {
             }
             return true;
         }
+        if let Some(field) = &q.add_field {
+            let field_focused = field.read(cx).focus.is_focused(window);
+            let button_focused = q.add_focus.is_focused(window);
+            if key == "tab" && q.field.read(cx).focus.is_focused(window) {
+                if m.shift { q.add_focus.focus(window); } else { field.read(cx).focus.focus(window); }
+                cx.notify();
+                return true;
+            }
+            if key == "tab" && (field_focused || button_focused) {
+                if field_focused && !m.shift { q.add_focus.focus(window); }
+                else if button_focused && m.shift { field.read(cx).focus.focus(window); }
+                else { q.focus_field(window, cx); }
+                cx.notify();
+                return true;
+            }
+            if button_focused && matches!(key, "enter" | "space") {
+                if q.servers.as_ref().is_some_and(|p| p.can_add(&field.read(cx).input.display_text())) {
+                    self.confirm_server(window, cx);
+                }
+                return true;
+            }
+            if button_focused && key == "escape" { self.cancel_server_add(window, cx); return true; }
+        }
         // «Aggiungi nuovo server…»: Enter probes the name, Esc drops it, other keys type.
         if q.add_field.as_ref().is_some_and(|f| f.read(cx).focus.is_focused(window)) {
             match key {
@@ -845,8 +870,10 @@ impl Shell {
             use matrix_desktop::accessibility::directory_servers::ServerMenu;
             matrix_desktop::accessibility::new_room::Join::new(
                 at,
-                ServerMenu::of(p),
-                q.zone == Zone::Server || p.is_open(),
+                { let mut m = ServerMenu::of(p);
+                  if let Some(f) = &q.add_field { m.add_enabled = p.can_add(&f.read(cx).input.display_text()); }
+                  m.add_focused = q.add_focus.is_focused(window); m },
+                (q.zone == Zone::Server || p.is_open()) && !q.add_field.as_ref().is_some_and(|f| f.read(cx).focus.is_focused(window)) && !q.add_focus.is_focused(window),
                 &q.rooms.rows(),
                 q.rooms.active(),
                 q.rooms.status(),
@@ -888,8 +915,7 @@ impl Shell {
                 bounds: f.semantic_bounds,
             });
         }
-        let add_error = q.servers.as_ref().filter(|_| q.add_field.is_some()).and_then(|p| p.add_error());
-        for e in q.error.into_iter().chain(add_error) {
+        if let Some(e) = q.error {
             items.push(Item { role: Role::Label, label: e.to_owned(), checked: None, focused: false, bounds: None });
         }
         Some(Snapshot { items, join })
@@ -914,6 +940,7 @@ impl Shell {
                     if p.is_open() { p.close() } else { p.open() }
                 }
             }
+            NewRoomAction::Server(ServerAction::Add) => self.confirm_server(window, cx),
             NewRoomAction::Server(ServerAction::Choose(i)) => {
                 if let Some(choice) = q.servers.as_mut().map(|p| p.choose(i)) {
                     self.server_choice(choice, window, cx);
@@ -1182,7 +1209,7 @@ impl Shell {
                                 .child(div().flex_1().min_w_0().child(q.field.clone()))
                                 .children(self.quick_server_picker(t, cx)),
                         )
-                        .children(q.add_field.clone().zip(q.servers.as_ref()).map(|(f, p)| self.add_server_block(f, p, t, cx)))
+                        .children(q.add_field.clone().zip(q.servers.as_ref()).map(|(f, p)| self.add_server_block(f, p, &q.add_focus, t, cx)))
                         .children(q.error.map(|e| div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
                         .children(seen)
                         .children(searched_header)

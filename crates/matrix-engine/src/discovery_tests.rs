@@ -82,6 +82,28 @@ fn run<F: std::future::Future>(future: F) -> F::Output {
         .block_on(future)
 }
 
+#[test]
+fn federation_version_rejects_html_404_and_missing_server() {
+    for mode in ["bad-json", "missing-server", "missing-version"] {
+        let f = Fixture::start(mode);
+        let name = f.base.strip_prefix("https://").unwrap();
+        assert_eq!(run(f.discovery().probe_federation(name)), Err(crate::search::SearchError::NotMatrix), "{mode}");
+        let requests = f.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["path"], "/_matrix/federation/v1/version");
+        assert_eq!(requests[0]["authorization"], false);
+    }
+}
+
+#[test]
+fn federation_version_accepts_server_and_keeps_transport_distinct() {
+    let f = Fixture::start("valid-federation");
+    let name = f.base.strip_prefix("https://").unwrap();
+    assert_eq!(run(f.discovery().probe_federation(name)), Ok(()));
+    assert_eq!(f.requests()[0]["authorization"], false);
+    assert_eq!(run(Discovery::new().unwrap().probe_federation(name)), Err(crate::search::SearchError::Network));
+}
+
 #[cfg(unix)]
 #[test]
 fn signin_explicit_ca_keeps_hostname_and_expiry_verification() {

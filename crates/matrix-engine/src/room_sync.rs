@@ -714,7 +714,19 @@ impl RoomListWorker {
                                 OperationCommand::ProbeServer { server } => {
                                     let result = tokio::time::timeout(
                                         crate::search::TIMEOUT,
-                                        crate::operations::public_rooms(&operation_client, "", Some(&server), None, 1, None),
+                                        async {
+                                            let result = crate::operations::public_rooms(&operation_client, "", Some(&server), None, 1, None).await.map(|_| ());
+                                            // shortcut: bare names may delegate, probe only explicit ports until federation discovery is implemented.
+                                            if result == Err(crate::search::SearchError::Unreachable)
+                                                && crate::operations::parse_server(&server).is_ok_and(|s| s.port().is_some())
+                                            {
+                                                let discovery = crate::discovery::Discovery::with_http(operation_client.http_client().clone());
+                                                if discovery.probe_federation(&server).await == Err(crate::search::SearchError::NotMatrix) {
+                                                    return Err(crate::search::SearchError::NotMatrix);
+                                                }
+                                            }
+                                            result
+                                        },
                                     )
                                     .await
                                     .unwrap_or(Err(crate::search::SearchError::Timeout))
