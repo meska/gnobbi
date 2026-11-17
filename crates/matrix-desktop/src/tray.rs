@@ -312,6 +312,12 @@ impl Tray {
         crate::tray_menu::drain_tray_actions(&self.rx)
     }
 
+    /// Forces the next `update` to rebuild the native menu (a check item flips itself on click,
+    /// so after a refused toggle the model equals the cache but the widget does not).
+    pub fn invalidate_menu(&mut self) {
+        self.menu = None;
+    }
+
     /// Cheap when nothing changed: the native menu and icon are rebuilt only on a difference.
     pub fn update(
         &mut self,

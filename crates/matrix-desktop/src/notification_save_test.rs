@@ -20,15 +20,15 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         std::fs::create_dir_all(&dirs.config).unwrap();
         std::fs::write(dirs.config.join("settings.json"), "not json at all").unwrap();
         for (entry, toggle) in [
-            ("tray", (|s: &mut Shell| s.set_notifications_enabled(!s.notifications.enabled())) as fn(&mut Shell)),
-            ("panel", |s: &mut Shell| s.change_notification_preference(0)),
+            ("tray", (|s: &mut Shell, _: &mut Context<Shell>| s.set_notifications_enabled(!s.notifications.enabled())) as fn(&mut Shell, &mut Context<Shell>)),
+            ("panel", |s: &mut Shell, cx: &mut Context<Shell>| s.change_notification_preference(0, cx)),
         ] {
-            let (shown, error) = this.update_in(cx, |this, _, _| {
+            let (shown, error) = this.update_in(cx, |this, _, cx| {
                 this.prefs_dirs = Some(dirs.clone());
                 this.notifications.set_enabled(false);
                 this.prefs.notifications = false;
                 this.settings_error = None;
-                toggle(this);
+                toggle(this, cx);
                 (this.notifications.enabled(), this.settings_error)
             }).unwrap();
             // The error is rendered only in Impostazioni, never in the Notifiche panel: the shown state must stay OFF like the disk.

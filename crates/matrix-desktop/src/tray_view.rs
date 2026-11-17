@@ -51,6 +51,9 @@ impl Shell {
                 if let Some(handle) = &self.notification_handle {
                     handle.cancel_pending();
                 }
+                if let Some(tray) = &mut self.tray {
+                    tray.invalidate_menu();
+                }
             }
             TrayAction::Quit => cx.quit(),
             TrayAction::SwitchAccount(id) => {
