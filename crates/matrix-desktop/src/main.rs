@@ -66,6 +66,8 @@ mod link_jump_test;
 #[cfg(test)]
 mod drawer_active_test;
 #[cfg(test)]
+mod notification_save_test;
+#[cfg(test)]
 mod rail_ring_test;
 #[cfg(test)]
 mod details_panel_test;
@@ -2912,6 +2914,7 @@ fn main() {
         || list_divider_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || verification_popup_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || drawer_active_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
+        || notification_save_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || rail_ring_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
         || switch_rows_test::ACTIVE.load(std::sync::atomic::Ordering::SeqCst)
     {
@@ -3571,6 +3574,8 @@ fn main() {
                     verification_popup_test::install(window, cx);
                     #[cfg(test)]
                     drawer_active_test::install(window, cx);
+                    #[cfg(test)]
+                    notification_save_test::install(window, cx);
                     #[cfg(test)]
                     rail_ring_test::install(window, cx);
                     #[cfg(test)]
