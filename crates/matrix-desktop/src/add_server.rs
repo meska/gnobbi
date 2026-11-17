@@ -7,6 +7,8 @@ use std::net::Ipv4Addr;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NameError {
     Empty,
+    /// `@user:server` or a user link.
+    User,
     NotHttps,
     Path,
     Credentials,
@@ -18,15 +20,46 @@ pub enum NameError {
 impl NameError {
     pub fn text(self) -> &'static str {
         match self {
-            Self::Empty => "Scrivi il nome del server",
+            Self::Empty => "Serve il nome del server, ad esempio matrix.org",
+            Self::User => "Questo è un ID utente: serve il nome del server, ad esempio matrix.org",
             Self::NotHttps => "Sono ammessi solo indirizzi https",
             Self::Path => "Scrivi solo il nome del server, senza percorso",
-            Self::Credentials => "Il nome del server non deve contenere utente o password",
+            Self::Credentials => "Serve il nome del server, senza utente o password",
             Self::InvalidPort => "Porta non valida",
             Self::InvalidIp => "Indirizzo IP non valido",
-            Self::Invalid => "Nome del server non valido",
+            Self::Invalid => "Serve il nome del server, ad esempio matrix.org",
         }
     }
+}
+
+/// What a pasted Matrix link/alias/ID points at; the parsing is the project's `parse_matrix_link`.
+enum Pasted {
+    Room(String),
+    User,
+}
+
+// shortcut: without the `live` feature (no SDK, so no link parser) nothing is recognized and the
+// text goes through `normalize_server` as before; every shipped build is `live`.
+#[cfg(feature = "live")]
+fn pasted(input: &str) -> Option<Pasted> {
+    use matrix_engine::matrix_link::{MatrixLink, parse_matrix_link};
+    let s = input.trim();
+    let raw = if s.starts_with(['#', '!', '@']) {
+        format!("https://matrix.to/#/{s}")
+    } else if s.get(..10).is_some_and(|p| p.eq_ignore_ascii_case("matrix.to/")) {
+        format!("https://{s}")
+    } else {
+        s.to_owned()
+    };
+    match parse_matrix_link(&raw).ok()? {
+        MatrixLink::Room { target, .. } => Some(Pasted::Room(target)),
+        MatrixLink::User { .. } => Some(Pasted::User),
+    }
+}
+
+#[cfg(not(feature = "live"))]
+fn pasted(_: &str) -> Option<Pasted> {
+    None
 }
 
 /// Canonical `host` or `host:port`, lowercase. Accepts `matrix.org`, `https://matrix.org/`, spaces.
@@ -122,6 +155,8 @@ pub enum AddState {
     Idle,
     /// Canonical name being probed.
     Probing(String),
+    /// A room alias/ID was pasted: not a server, the «Unisciti» field takes it (see `take_join`).
+    Join(String),
     Ok(String),
     Error(AddError),
 }
@@ -138,6 +173,17 @@ impl AddState {
         if !self.can_submit(text) {
             return None;
         }
+        match pasted(text) {
+            Some(Pasted::Room(target)) => {
+                *self = Self::Join(target);
+                return None;
+            }
+            Some(Pasted::User) => {
+                *self = Self::Error(AddError::InvalidName(NameError::User));
+                return None;
+            }
+            None => {}
+        }
         match normalize_server(text) {
             Ok(name) => {
                 *self = Self::Probing(name.clone());
@@ -145,6 +191,17 @@ impl AddState {
             }
             Err(e) => {
                 *self = Self::Error(AddError::InvalidName(e));
+                None
+            }
+        }
+    }
+
+    /// The room alias/ID to hand to «Unisciti», once.
+    pub fn take_join(&mut self) -> Option<String> {
+        match std::mem::replace(self, Self::Idle) {
+            Self::Join(target) => Some(target),
+            other => {
+                *self = other;
                 None
             }
         }
@@ -282,5 +339,27 @@ mod tests {
         assert_eq!(AddError::from(SearchError::Refused), AddError::DirectoryHidden);
         assert_eq!(AddError::from(SearchError::Timeout), AddError::NoResponse);
         assert_eq!(AddError::from(SearchError::InvalidServer), AddError::InvalidName(NameError::Invalid));
+    }
+
+    #[cfg(feature = "live")]
+    #[test]
+    fn pasted_room_goes_to_join_and_user_gets_its_message() {
+        for (text, target) in [
+            ("https://matrix.to/#/%23fedibar:fedimedia.it", "#fedibar:fedimedia.it"),
+            ("#fedibar:fedimedia.it", "#fedibar:fedimedia.it"),
+            ("matrix:r/fedibar:fedimedia.it", "#fedibar:fedimedia.it"),
+            ("matrix:roomid/abc:fedimedia.it", "!abc:fedimedia.it"),
+        ] {
+            let mut s = AddState::Idle;
+            assert_eq!(s.submit(text), None, "{text}");
+            assert_eq!(s.take_join().as_deref(), Some(target), "{text}");
+            assert_eq!(s, AddState::Idle, "{text}");
+        }
+        let mut s = AddState::Idle;
+        assert_eq!(s.submit("@x:y"), None);
+        assert_eq!(s.error(), Some(AddError::InvalidName(NameError::User)));
+        assert_eq!(s.take_join(), None);
+        assert_eq!(s.submit("fedimedia.it").as_deref(), Some("fedimedia.it"));
+        assert_eq!(s.take_join(), None);
     }
 }

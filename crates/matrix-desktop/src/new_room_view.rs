@@ -409,6 +409,18 @@ impl Shell {
         cx.notify();
     }
 
+    fn fill_dialog_field(&self, text: &str, cx: &mut Context<Self>) {
+        let field = match (&self.new_room, &self.quick) {
+            (Some(room), _) => room.fields[0].clone(),
+            (_, Some(q)) => q.field_entity(),
+            _ => return,
+        };
+        field.update(cx, |f, _| {
+            let all = f.input.display_text().encode_utf16().count();
+            f.input.replace(Some(0..all), text);
+        });
+    }
+
     pub(crate) fn focus_dialog_field(&self, window: &mut Window, cx: &gpui::App) {
         if let Some(room) = &self.new_room {
             room.fields[0].read(cx).focus.focus(window);
@@ -446,9 +458,14 @@ impl Shell {
             }
             None => {}
         }
+        // A pasted room alias/link is not a server: «Unisciti» takes it (decided on the task).
+        let join = picker.take_join();
         let done = !picker.is_adding();
         if done {
             *add = None;
+        }
+        if let Some(target) = &join {
+            self.fill_dialog_field(target, cx);
         }
         if let Some(server) = probe {
             self.pending_operation_command = Some(OperationCommand::ProbeServer { server });

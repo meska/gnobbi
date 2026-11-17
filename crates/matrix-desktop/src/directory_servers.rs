@@ -291,6 +291,13 @@ impl ServerPicker {
         self.adding.as_mut()?.submit(name)
     }
 
+    /// A room alias/ID was pasted in the name field: the add is over, the caller moves it to «Unisciti».
+    pub fn take_join(&mut self) -> Option<String> {
+        let target = self.adding.as_mut()?.take_join()?;
+        self.adding = None;
+        Some(target)
+    }
+
     /// The name field changed: clears a shown error.
     pub fn add_edited(&mut self) {
         if let Some(a) = self.adding.as_mut() {

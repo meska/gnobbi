@@ -136,6 +136,10 @@ impl QuickSearch {
         self.chip.is_some_and(|c| c.kind().is_some())
     }
 
+    pub(crate) fn field_entity(&self) -> gpui::Entity<crate::login_field::LoginField> {
+        self.field.clone()
+    }
+
     pub(crate) fn focus_field(&self, window: &mut Window, cx: &gpui::App) {
         self.field.read(cx).focus.focus(window);
     }
