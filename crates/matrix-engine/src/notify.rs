@@ -57,7 +57,12 @@ fn content_of(event: &matrix_sdk::ruma::serde::Raw<matrix_sdk::ruma::events::Any
         "m.poll.start" | "org.matrix.msc3381.poll.start" => PreviewContent::Poll,
         "m.room.message" => {
             let content = event.get_field::<serde_json::Value>("content").ok().flatten().unwrap_or_default();
-            let body = || content["body"].as_str().map(strip_reply_fallback).unwrap_or_default();
+            // The sender's HTML (markdown arrives as HTML) goes through the room-row renderer, which drops
+            // the reply fallback; no formatted body: the plain body.
+            let body = || match content["formatted_body"].as_str().filter(|_| content["format"] == "org.matrix.custom.html") {
+                Some(html) => crate::rich_text::from_html(html).0,
+                None => content["body"].as_str().map(strip_reply_fallback).unwrap_or_default(),
+            };
             match content["msgtype"].as_str() {
                 Some("m.text" | "m.notice" | "m.emote") => PreviewContent::Text(body()),
                 Some("m.image") => PreviewContent::Image,
@@ -92,6 +97,10 @@ mod tests {
         let msg = |c: serde_json::Value| serde_json::json!({"type": "m.room.message", "content": c});
         assert!(matches!(of(msg(serde_json::json!({"msgtype": "m.text", "body": "ciao"}))), PreviewContent::Text(t) if t == "ciao"));
         assert!(matches!(of(msg(serde_json::json!({"msgtype": "m.text", "body": "> <@a:b> x\n\nrisposta"}))), PreviewContent::Text(t) if t == "risposta"));
+        let html = |b: &str, f: &str| of(msg(serde_json::json!({"msgtype": "m.text", "body": b, "format": "org.matrix.custom.html", "formatted_body": f})));
+        assert!(matches!(html("**ciao** _a_ [link](u)", "<strong>ciao</strong> <em>a</em> <a href=\"u\">link</a>"), PreviewContent::Text(t) if t == "ciao a link"));
+        assert!(matches!(html("x\ny", "<b>x</b><br>y"), PreviewContent::Text(t) if t == "x\ny"));
+        assert!(matches!(html("> <@a:b> q\n\nrisposta", "<mx-reply><blockquote>q</blockquote></mx-reply>risposta"), PreviewContent::Text(t) if t == "risposta"));
         assert!(matches!(of(msg(serde_json::json!({"msgtype": "m.image", "body": "a.png"}))), PreviewContent::Image));
         assert!(matches!(of(msg(serde_json::json!({"msgtype": "m.audio", "body": "v", "org.matrix.msc3245.voice": {}}))), PreviewContent::Voice));
         assert!(matches!(of(msg(serde_json::json!({"msgtype": "m.audio", "body": "v"}))), PreviewContent::Audio));
