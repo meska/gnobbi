@@ -44,6 +44,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
             payload = {'m.homeserver': {'base_url': base+'/delegated'}}
             if mode == 'missing':
                 status, payload = 404, {}
+        elif self.path == '/.well-known/matrix/server':
+            payload = {'m.server': base.removeprefix('https://')}
+            if mode != 'delegation':
+                status, payload = 404, {}
         elif self.path in ['/hop1', '/hop2', '/hop3']:
             payload = {'m.homeserver': {'base_url': base+'/delegated'}}
         elif self.path.endswith('/_matrix/client/versions'):
@@ -98,7 +102,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 status, body = 200, b'{}'
             elif mode == 'bad-json':
                 status, body = 200, b'<html>not matrix</html>'
-            elif mode == 'valid-federation':
+            elif mode in ['valid-federation', 'delegation']:
                 status, body = 200, b'{"server":{"name":"test","version":"1"}}'
         elif mode == 'bad-json':
             body = b'not-json-fixture-sensitive-marker'

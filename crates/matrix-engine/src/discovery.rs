@@ -11,6 +11,8 @@ pub enum DiscoveryError {
     InvalidUrl,
     InvalidServerName,
     Transport,
+    /// The server's certificate was rejected (unknown issuer, wrong host, expired).
+    Tls,
     HttpStatus(u16),
     InvalidResponse,
     InvalidRedirect,
@@ -148,12 +150,31 @@ impl Discovery {
         use crate::search::SearchError;
         let base = HomeserverUrl::parse(&format!("https://{name}"))
             .map_err(|_| SearchError::InvalidServer)?;
+        // An explicit port is not delegated (spec); a bare name may be.
+        // shortcut: no SRV lookup, a delegation by SRV alone is probed on 8448; add when a real server needs it.
+        let target = if base.0.port().is_some() { name.to_owned() } else { self.delegated(&base).await? };
+        let base = HomeserverUrl::parse(&format!("https://{target}")).map_err(|_| SearchError::InvalidServer)?;
         let url = base.0.join("_matrix/federation/v1/version").map_err(|_| SearchError::InvalidServer)?;
         match self.json(url).await {
             Ok(value) if value.get("server").is_some_and(|v| v.is_object()) => Ok(()),
             Ok(_) | Err(DiscoveryError::InvalidResponse | DiscoveryError::HttpStatus(404)) => Err(SearchError::NotMatrix),
+            Err(DiscoveryError::Tls) => Err(SearchError::Tls),
             Err(_) => Err(SearchError::Network),
         }
+    }
+
+    /// `host:port` that serves federation for `origin`: `m.server` of its .well-known, else port 8448.
+    async fn delegated(&self, origin: &HomeserverUrl) -> Result<String, crate::search::SearchError> {
+        let host = origin.0.host_str().ok_or(crate::search::SearchError::InvalidServer)?;
+        let url = origin.0.join(".well-known/matrix/server").map_err(|_| crate::search::SearchError::InvalidServer)?;
+        let target = match self.json(url).await {
+            Ok(v) => v.get("m.server").and_then(|v| v.as_str()).map(str::to_owned),
+            Err(DiscoveryError::Tls) => return Err(crate::search::SearchError::Tls),
+            Err(_) => None,
+        }
+        .unwrap_or_else(|| host.to_owned());
+        // Delegated or not, a name without a port is served on 8448.
+        Ok(if HomeserverUrl::parse(&format!("https://{target}")).is_ok_and(|u| u.0.port().is_some()) { target } else { format!("{target}:8448") })
     }
 
     /// Sign-in entry point. A bare server name resolves `.well-known` first; a full URL
@@ -265,7 +286,7 @@ impl Discovery {
                 .get(url.clone())
                 .send()
                 .await
-                .map_err(|_| DiscoveryError::Transport)?;
+                .map_err(|e| if is_certificate_error(&e) { DiscoveryError::Tls } else { DiscoveryError::Transport })?;
             if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
                 if hops == 3 {
                     return Err(DiscoveryError::RedirectLimit);
@@ -318,6 +339,18 @@ impl Discovery {
         Err(DiscoveryError::RedirectLimit)
     }
 }
+/// shortcut: matches rustls' "invalid peer certificate" text in the source chain; revisit if reqwest/rustls change it.
+fn is_certificate_error(error: &reqwest::Error) -> bool {
+    let mut source = std::error::Error::source(error);
+    while let Some(e) = source {
+        if e.to_string().contains("invalid peer certificate") {
+            return true;
+        }
+        source = e.source();
+    }
+    false
+}
+
 fn string_array(value: Option<&serde_json::Value>) -> Result<Vec<String>, DiscoveryError> {
     value
         .and_then(|v| v.as_array())

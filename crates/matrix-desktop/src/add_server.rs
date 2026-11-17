@@ -121,6 +121,7 @@ pub enum AddError {
     NotMatrix,
     DirectoryHidden,
     Tls,
+    OurServerBlocked,
     InvalidName(NameError),
     Present,
 }
@@ -132,19 +133,21 @@ impl AddError {
             Self::NotMatrix => "Non è un server Matrix",
             Self::DirectoryHidden => "Il server non mostra le sue stanze",
             Self::Tls => "Certificato del server non valido",
+            Self::OurServerBlocked => "Il tuo server non raggiunge questo server",
             Self::InvalidName(e) => e.text(),
             Self::Present => "Già presente",
         }
     }
 }
 
-// TLS classification needs a richer probe.
 impl From<SearchError> for AddError {
     fn from(e: SearchError) -> Self {
         match e {
             SearchError::InvalidServer => Self::InvalidName(NameError::Invalid),
             SearchError::NotMatrix => Self::NotMatrix,
             SearchError::Refused => Self::DirectoryHidden,
+            SearchError::Tls => Self::Tls,
+            SearchError::OurServerBlocked => Self::OurServerBlocked,
             SearchError::Unreachable | SearchError::Timeout | SearchError::Network => Self::NoResponse,
         }
     }
@@ -337,6 +340,8 @@ mod tests {
     fn search_errors_map_to_reasons() {
         assert_eq!(AddError::from(SearchError::NotMatrix), AddError::NotMatrix);
         assert_eq!(AddError::from(SearchError::Refused), AddError::DirectoryHidden);
+        assert_eq!(AddError::from(SearchError::Tls), AddError::Tls);
+        assert_eq!(AddError::from(SearchError::OurServerBlocked), AddError::OurServerBlocked);
         assert_eq!(AddError::from(SearchError::Timeout), AddError::NoResponse);
         assert_eq!(AddError::from(SearchError::InvalidServer), AddError::InvalidName(NameError::Invalid));
     }

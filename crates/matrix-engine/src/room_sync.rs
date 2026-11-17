@@ -716,14 +716,13 @@ impl RoomListWorker {
                                         crate::search::TIMEOUT,
                                         async {
                                             let result = crate::operations::public_rooms(&operation_client, "", Some(&server), None, 1, None).await.map(|_| ());
-                                            // shortcut: bare names may delegate, probe only explicit ports until federation discovery is implemented.
-                                            if result == Err(crate::search::SearchError::Unreachable)
-                                                && crate::operations::parse_server(&server).is_ok_and(|s| s.port().is_some())
-                                            {
+                                            if result == Err(crate::search::SearchError::Unreachable) {
                                                 let discovery = crate::discovery::Discovery::with_http(operation_client.http_client().clone());
-                                                if discovery.probe_federation(&server).await == Err(crate::search::SearchError::NotMatrix) {
-                                                    return Err(crate::search::SearchError::NotMatrix);
-                                                }
+                                                return match discovery.probe_federation(&server).await {
+                                                    Ok(()) => Err(crate::search::SearchError::OurServerBlocked),
+                                                    Err(e @ (crate::search::SearchError::NotMatrix | crate::search::SearchError::Tls)) => Err(e),
+                                                    Err(_) => result,
+                                                };
                                             }
                                             result
                                         },

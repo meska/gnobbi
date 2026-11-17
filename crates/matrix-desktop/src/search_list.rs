@@ -62,6 +62,8 @@ impl Status {
                 SearchError::NotMatrix => "Non è un server Matrix",
                 SearchError::Refused => "Il server non mostra le sue stanze",
                 SearchError::Unreachable => "Il server non risponde",
+                SearchError::OurServerBlocked => "Il tuo server non raggiunge questo server",
+                SearchError::Tls => "Certificato del server non valido",
                 SearchError::Timeout => "Tempo scaduto",
                 SearchError::Network => "Connessione non riuscita",
             },

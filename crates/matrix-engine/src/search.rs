@@ -31,6 +31,10 @@ pub enum SearchError {
     Refused,
     /// Our server could not reach the remote one (5xx relayed by our server).
     Unreachable,
+    /// The server answers us directly but our own server cannot reach it.
+    OurServerBlocked,
+    /// The server's certificate is not valid.
+    Tls,
     /// No answer within `TIMEOUT`.
     Timeout,
     /// Our own homeserver is not reachable.

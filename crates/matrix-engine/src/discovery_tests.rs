@@ -101,8 +101,27 @@ fn federation_version_accepts_server_and_keeps_transport_distinct() {
     let name = f.base.strip_prefix("https://").unwrap();
     assert_eq!(run(f.discovery().probe_federation(name)), Ok(()));
     assert_eq!(f.requests()[0]["authorization"], false);
-    assert_eq!(run(Discovery::new().unwrap().probe_federation(name)), Err(crate::search::SearchError::Network));
+    assert_eq!(run(Discovery::new().unwrap().probe_federation(name)), Err(crate::search::SearchError::Tls));
 }
+
+#[test]
+fn well_known_server_delegation_and_8448_default() {
+    for (mode, want) in [("delegation", None), ("valid-federation", Some("127.0.0.1:8448"))] {
+        let f = Fixture::start(mode);
+        let origin = HomeserverUrl::parse(&f.base).unwrap();
+        let got = run(f.discovery().delegated(&origin)).unwrap();
+        assert_eq!(got, want.map_or_else(|| f.base.strip_prefix("https://").unwrap().to_owned(), str::to_owned), "{mode}");
+        assert_eq!(f.requests()[0]["path"], "/.well-known/matrix/server");
+    }
+}
+
+#[test]
+fn federation_404_is_not_matrix() {
+    let f = Fixture::start("valid");
+    let name = f.base.strip_prefix("https://").unwrap();
+    assert_eq!(run(f.discovery().probe_federation(name)), Err(crate::search::SearchError::NotMatrix));
+}
+
 
 #[cfg(unix)]
 #[test]
@@ -269,7 +288,7 @@ fn default_trust_rejects_the_fixture_ca_before_any_http_request() {
     let result = run(Discovery::new()
         .unwrap()
         .probe_url(HomeserverUrl::parse(&f.base).unwrap()));
-    assert!(matches!(result, Err(DiscoveryError::Transport)));
+    assert!(matches!(result, Err(DiscoveryError::Tls)));
     assert!(f.requests().is_empty());
 }
 
@@ -279,7 +298,7 @@ fn trusted_ca_does_not_bypass_hostname_verification() {
     let result = run(f
         .discovery()
         .probe_url(HomeserverUrl::parse(&f.base).unwrap()));
-    assert!(matches!(result, Err(DiscoveryError::Transport)));
+    assert!(matches!(result, Err(DiscoveryError::Tls)));
     assert!(f.requests().is_empty());
 }
 
@@ -289,7 +308,7 @@ fn trusted_ca_does_not_bypass_expiry_verification() {
     let result = run(f
         .discovery()
         .discover_server_name(f.base.strip_prefix("https://").unwrap()));
-    assert!(matches!(result, Err(DiscoveryError::Transport)));
+    assert!(matches!(result, Err(DiscoveryError::Tls)));
     assert!(f.requests().is_empty());
 }
 
