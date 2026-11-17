@@ -957,6 +957,7 @@ impl Shell {
 
     pub(crate) fn render_quick_search(
         &self,
+        window: &Window,
         t: matrix_desktop::DesignTokens,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {

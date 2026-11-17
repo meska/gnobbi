@@ -2753,7 +2753,7 @@ impl Shell {
             .children(self.poll_dialog.clone().inspect(|dialog| {
                 dialog.update(cx, |d, _| d.theme = t);
             }))
-            .children(self.render_quick_search(t, cx))
+            .children(self.render_quick_search(window, t, cx))
             .children(self.render_room_edit(t, window, cx))
             .children(self.render_groups_edit(t, window, cx))
             .children(self.timeline.as_ref().and_then(|timeline| timeline.render_viewer(t)))

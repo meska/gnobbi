@@ -16,7 +16,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         let add = cx.new(|cx| crate::login_field::LoginField::new(false, cx));
         this.quick.as_mut().unwrap().add_field = Some(add.clone());
         for t in [matrix_desktop::LIGHT, matrix_desktop::DARK, matrix_desktop::DAY, matrix_desktop::NIGHT] {
-            let _ = this.render_quick_search(t, cx);
+            let _ = this.render_quick_search(window, t, cx);
             assert_eq!(add.read(cx).theme.input, t.input, "server field background follows theme");
             assert_eq!(add.read(cx).theme.text, t.text, "server field text follows theme");
         }
