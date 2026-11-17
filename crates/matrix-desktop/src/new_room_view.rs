@@ -258,7 +258,7 @@ impl Shell {
         }
         room.busy = true;
         room.error = None;
-        for field in &room.fields {
+        for field in room.fields.iter().filter(|_| locks_fields_while_busy(room.space)) {
             field.update(cx, |f, _| f.enabled = false);
         }
         self.pending_operation_command = Some(command);
@@ -1207,9 +1207,21 @@ impl Shell {
     }
 }
 
+/// «Nuovo spazio» keeps Nome and Argomento editable while CreateSpace is pending (only Crea is blocked,
+/// the request already carries its snapshot); the other dialogs still lock their fields.
+fn locks_fields_while_busy(space: bool) -> bool {
+    !space
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn space_fields_stay_enabled_while_pending() {
+        assert!(!locks_fields_while_busy(true));
+        assert!(locks_fields_while_busy(false));
+    }
 
     #[test]
     fn one_line_per_failure() {
