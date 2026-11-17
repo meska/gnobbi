@@ -2026,11 +2026,12 @@ impl Shell {
         div().flex_shrink_0().px_4().py_2().bg(rgb(t.surface)).border_t_1().border_color(rgb(t.selection))
             .when(ending, |d| d.child(div().text_size(px(12.)).text_color(rgb(t.accent)).child("Chiudere il sondaggio?")))
             .when(notice != matrix_desktop::LiveOperations::IDLE_NOTICE, |d| d.child(div().text_size(px(11.)).text_color(rgb(t.secondary)).whitespace_normal().child(notice)))
-            .child(div().flex().flex_wrap().gap_2().children(controls.into_iter().map(|(name,label,enabled)| {
+            .child(div().flex().flex_wrap().gap_2().children(controls.into_iter().filter(|(_, _, enabled)| *enabled).map(|(name,label,enabled)| {
                 let d = div().id(name).relative().px_2().h(px(28.)).flex().items_center().text_size(px(12.))
                     .text_color(rgb(if enabled { t.accent } else { t.secondary }))
                     .when(enabled, |d| d.cursor_pointer())
-                    .child(if enabled { label.to_owned() } else { format!("{label} · n/d") })
+                    .when(name == "close", |d| d.ml_auto().child(composer_icons::icon(composer_icons::Icon::Close, if enabled { t.accent } else { t.secondary })))
+                    .when(name != "close", |d| d.child(label.to_owned()))
                     .on_click(cx.listener(move |this, event, _window, cx| {
                         if !enabled { return; }
                         // Semantic key-down owns these controls. GPUI synthesizes
