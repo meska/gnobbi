@@ -77,7 +77,8 @@ impl Snapshot {
         for (i, item) in self.items.iter().enumerate() {
             let id = NodeId(FIRST + i as u64);
             let mut node = Node::new(item.role);
-            node.set_label(item.label.as_str());
+            // Role::Label is read from the value by accesskit, not from the label.
+            if item.role == Role::Label { node.set_value(item.label.as_str()); } else { node.set_label(item.label.as_str()); }
             if let Some(checked) = item.checked {
                 node.set_toggled(if checked {
                     Toggled::True
@@ -169,7 +170,7 @@ mod tests {
             join: None,
         };
         let tree = snapshot.tree();
-        let got: Vec<_> = tree.nodes[1..].iter().map(|(_, n)| (n.role(), n.label().unwrap().to_owned(), n.toggled())).collect();
+        let got: Vec<_> = tree.nodes[1..].iter().map(|(_, n)| (n.role(), n.label().or(n.value()).unwrap().to_owned(), n.toggled())).collect();
         assert_eq!(got[2], (Role::Button, "Immagine".into(), None));
         assert_eq!(got[3], (Role::Switch, "Pubblica".into(), Some(Toggled::False)));
         assert_eq!(tree.focus, tree.nodes[3].0, "focus on «Immagine»");
@@ -191,7 +192,7 @@ mod tests {
         let tree = snapshot.tree();
         let got: Vec<_> = tree.nodes[1..]
             .iter()
-            .map(|(_, n)| (n.role(), n.label().unwrap().to_owned(), n.toggled()))
+            .map(|(_, n)| (n.role(), n.label().or(n.value()).unwrap().to_owned(), n.toggled()))
             .collect();
         assert_eq!(
             got,

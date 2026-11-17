@@ -103,7 +103,7 @@ impl ServerMenu {
         }
         if let Some(text) = self.error {
             let mut e = Node::new(Role::Label);
-            e.set_label(text);
+            e.set_value(text);
             e.set_live(Live::Polite);
             nodes.push((ERROR, e));
             top.push(ERROR);
@@ -231,11 +231,11 @@ mod tests {
         p.choose(4);
         p.confirm_add("x.org");
         let (_, nodes, _) = ServerMenu::of(&p).nodes();
-        assert_eq!(node(&nodes, ERROR).label(), Some("Controllo…"));
+        assert_eq!(node(&nodes, ERROR).value(), Some("Controllo…"));
         p.probed("x.org", Err(SearchError::Unreachable));
         let (top, nodes, _) = ServerMenu::of(&p).nodes();
         assert_eq!(top.last(), Some(&ERROR));
         let e = node(&nodes, ERROR);
-        assert_eq!((e.label(), e.live()), (Some("Il server non risponde"), Some(Live::Polite)));
+        assert_eq!((e.value(), e.live()), (Some("Il server non risponde"), Some(Live::Polite)));
     }
 }

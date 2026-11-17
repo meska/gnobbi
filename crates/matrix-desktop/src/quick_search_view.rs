@@ -1213,7 +1213,7 @@ impl Shell {
                                 .child(div().flex_1().min_w_0().child(q.field.clone()))
                                 .children(self.quick_server_picker(t, cx)),
                         )
-                        .children(q.add_field.clone().zip(q.servers.as_ref()).map(|(f, p)| self.add_server_block(f, p, &q.add_focus, t, cx)))
+                        .children(q.add_field.clone().zip(q.servers.as_ref()).map(|(f, p)| self.add_server_block(f, p, &q.add_focus, window, t, cx)))
                         .children(q.error.map(|e| div().text_size(px(13.)).text_color(rgb(t.error)).child(e)))
                         .children(seen)
                         .children(searched_header)

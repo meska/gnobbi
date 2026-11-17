@@ -482,6 +482,7 @@ impl Shell {
         field: gpui::Entity<crate::login_field::LoginField>,
         picker: &ServerPicker,
         focus: &FocusHandle,
+        window: &Window,
         t: matrix_desktop::DesignTokens,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
@@ -504,6 +505,9 @@ impl Shell {
                             .track_focus(focus)
                             .px_3()
                             .py_1()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(if input_modality::ring(focus, window, cx) { t.accent } else { t.surface }))
                             .text_color(rgb(if enabled { t.accent } else { t.disabled }))
                             .child("Aggiungi")
                             .when(enabled, |d| {
@@ -1130,7 +1134,7 @@ impl Shell {
             .flex_col()
             .gap_1()
             .child(menu)
-            .children(room.add_field.clone().map(|f| self.add_server_block(f, picker, &room.add_focus, t, cx)))
+            .children(room.add_field.clone().map(|f| self.add_server_block(f, picker, &room.add_focus, window, t, cx)))
             .into_any_element()
     }
 
