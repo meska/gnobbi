@@ -132,20 +132,21 @@ impl Shell {
     /// The one «Notifiche» choice (tray and panel), global for all accounts: shown and parked
     /// policies follow it, and it is saved in settings.json.
     pub(crate) fn set_notifications_enabled(&mut self, on: bool) {
+        if let Some(dirs) = &self.prefs_dirs {
+            match matrix_desktop::Preferences::update(dirs, |p| p.notifications = on) {
+                Ok(prefs) => self.prefs = prefs,
+                Err(error) => {
+                    eprintln!("Gnobbi: settings_write {:?}", error.kind());
+                    self.settings_error = Some("Impossibile salvare le impostazioni. Riprova.");
+                    return;
+                }
+            }
+        } else {
+            self.prefs.notifications = on;
+        }
         self.notifications.set_enabled(on);
         for state in self.parked.values_mut() {
             state.notifications.set_enabled(on);
-        }
-        self.prefs.notifications = on;
-        let Some(dirs) = &self.prefs_dirs else {
-            return;
-        };
-        match matrix_desktop::Preferences::update(dirs, |p| p.notifications = on) {
-            Ok(prefs) => self.prefs = prefs,
-            Err(error) => {
-                eprintln!("Gnobbi: settings_write {:?}", error.kind());
-                self.settings_error = Some("Impossibile salvare le impostazioni. Riprova.");
-            }
         }
     }
 
