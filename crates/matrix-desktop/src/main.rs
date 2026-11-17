@@ -3131,6 +3131,7 @@ fn main() {
                     let prefs_dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok());
                     let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
                     let notifications_on = prefs.notifications;
+                    let count_accounts = prefs.count_preview_accounts.clone();
                     rail_ui.layouts = prefs_dirs.as_ref().map(matrix_desktop::RailLayouts::load).unwrap_or_default();
                     matrix_desktop::set_accent(prefs.effective_accent());
                     matrix_desktop::set_font(prefs.font);
@@ -3731,6 +3732,7 @@ fn main() {
                         notifications: {
                             let mut policy = matrix_domain::notifications::NotificationPolicy::new(account_id);
                             policy.set_enabled(notifications_on);
+                            policy.set_count_preview(active_id.is_some_and(|id| count_accounts.contains(&id.as_u64())));
                             policy
                         },
                         // Fixture and test windows must not register a tray on the desktop.
@@ -3773,6 +3775,7 @@ fn main() {
                         routes: std::mem::take(&mut routes),
                         parked: background.drain(..).map(|(id, mut state)| {
                             state.notifications.set_enabled(notifications_on);
+                            state.notifications.set_count_preview(count_accounts.contains(&id.as_u64()));
                             (id, state)
                         }).collect(),
                         control: active_control.take(),

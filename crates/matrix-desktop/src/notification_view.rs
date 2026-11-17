@@ -110,7 +110,7 @@ impl Shell {
                 self.list_focus.focus(window);
             }
             NotificationAction::SetEnabled(value) => self.set_notifications_enabled(value),
-            NotificationAction::SetPreview(value) => self.notifications.set_count_preview(value),
+            NotificationAction::SetPreview(value) => self.set_count_preview(value),
             NotificationAction::SetMessagePreview(value) => {
                 self.update_prefs(cx, |p| p.message_preview = value);
             }
@@ -148,6 +148,22 @@ impl Shell {
         }
     }
 
+    /// «Conteggio» of the shown account: applied at once, saved under its catalog ID (an account
+    /// not yet in the catalog keeps it for this run only).
+    pub(crate) fn set_count_preview(&mut self, on: bool) {
+        self.notifications.set_count_preview(on);
+        let (Some(dirs), Some(id)) = (&self.prefs_dirs, self.active_id) else {
+            return;
+        };
+        match matrix_desktop::Preferences::set_count_preview(dirs, id.as_u64(), on) {
+            Ok(prefs) => self.prefs = prefs,
+            Err(error) => {
+                eprintln!("Gnobbi: settings_write {:?}", error.kind());
+                self.settings_error = Some("Impossibile salvare le impostazioni. Riprova.");
+            }
+        }
+    }
+
     pub(crate) fn change_notification_preference(&mut self, preference: u8, cx: &mut Context<Self>) {
         if let Some(handle) = &self.notification_handle {
             handle.cancel_pending();
@@ -160,9 +176,7 @@ impl Shell {
                     self.set_room_muted(scope, muted);
                 }
             }
-            2 => self
-                .notifications
-                .set_count_preview(!self.notifications.count_preview()),
+            2 => self.set_count_preview(!self.notifications.count_preview()),
             3 => {
                 self.update_prefs(cx, |p| p.message_preview = !p.message_preview);
             }

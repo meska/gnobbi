@@ -185,6 +185,9 @@ impl Shell {
         self.active_id = catalog
             .id_for_root(dirs, root)
             .or_else(|| catalog.id_for_user(user_id));
+        if let Some(id) = self.active_id {
+            self.notifications.set_count_preview(self.prefs.count_preview_accounts.contains(&id.as_u64()));
+        }
         if let Some(id) = self.active_id
             && catalog.record_avatar(id, self.verification.profile_avatar())
             && catalog.save(dirs).is_ok()
