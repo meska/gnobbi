@@ -86,6 +86,28 @@ fn strip_reply_fallback(body: &str) -> String {
     body.split_once("\n\n").map_or(String::new(), |(_, rest)| rest.to_owned())
 }
 
+/// Mutes or unmutes `scope` with the account's push rules (server side, shared by every device).
+pub async fn set_muted(
+    client: &Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    muted: bool,
+) -> Result<(), OperationError> {
+    if scope.account_id != account {
+        return Err(OperationError::WrongScope);
+    }
+    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| OperationError::WrongScope)?;
+    let room = client.get_room(&id).ok_or(OperationError::Unavailable)?;
+    let settings = client.notification_settings().await;
+    if muted {
+        settings.set_room_notification_mode(&id, RoomNotificationMode::Mute).await
+    } else {
+        let encrypted = IsEncrypted::from(room.encryption_state().is_encrypted());
+        settings.unmute_room(&id, encrypted, IsOneToOne::from(room.active_members_count() == 2)).await
+    }
+    .map_err(|_| OperationError::Transport)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -107,26 +129,4 @@ mod tests {
         assert!(matches!(of(serde_json::json!({"type": "m.room.encrypted", "content": {"ciphertext": "x"}})), PreviewContent::Undecrypted));
         assert!(matches!(of(serde_json::json!({"type": "m.room.member"})), PreviewContent::Other));
     }
-}
-
-/// Mutes or unmutes `scope` with the account's push rules (server side, shared by every device).
-pub async fn set_muted(
-    client: &Client,
-    account: matrix_domain::AccountId,
-    scope: &RoomScope,
-    muted: bool,
-) -> Result<(), OperationError> {
-    if scope.account_id != account {
-        return Err(OperationError::WrongScope);
-    }
-    let id = matrix_sdk::ruma::RoomId::parse(scope.room_id.as_str()).map_err(|_| OperationError::WrongScope)?;
-    let room = client.get_room(&id).ok_or(OperationError::Unavailable)?;
-    let settings = client.notification_settings().await;
-    if muted {
-        settings.set_room_notification_mode(&id, RoomNotificationMode::Mute).await
-    } else {
-        let encrypted = IsEncrypted::from(room.encryption_state().is_encrypted());
-        settings.unmute_room(&id, encrypted, IsOneToOne::from(room.active_members_count() == 2)).await
-    }
-    .map_err(|_| OperationError::Transport)
 }
