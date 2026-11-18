@@ -31,7 +31,7 @@ pub fn switch(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -
 pub fn show(ctx: &egui::Context, open: &mut bool, prefs: &Preferences, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
     let mut p = prefs.clone();
     let mut changed = false;
-    egui::Window::new("Impostazioni").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
+    egui::Window::new("Impostazioni").open(open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(320.);
         let theme_name = p.theme.map_or("Sistema", Theme::label);
         egui::ComboBox::from_label("Tema").selected_text(theme_name).show_ui(ui, |ui| {

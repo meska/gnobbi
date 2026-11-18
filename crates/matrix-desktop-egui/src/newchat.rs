@@ -14,7 +14,7 @@ pub struct Form {
 
 pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_desktop::DesignTokens) {
     let mut open = true;
-    egui::Window::new("Nuova chat").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+    egui::Window::new("Nuova chat").open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(340.);
         ui.horizontal(|ui| {
             for (i, label) in ["Chat diretta", "Stanza", "Unisciti"].into_iter().enumerate() {

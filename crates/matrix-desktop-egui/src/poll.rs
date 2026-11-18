@@ -13,7 +13,7 @@ pub struct Form {
 
 pub fn show(ctx: &egui::Context, s: &mut Session, f: &mut Form, t: &matrix_desktop::DesignTokens) {
     let mut open = true;
-    egui::Window::new("Nuovo sondaggio").open(&mut open).collapsible(false).resizable(false).show(ctx, |ui| {
+    egui::Window::new("Nuovo sondaggio").open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(320.);
         ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut f.question).hint_text("Domanda"));
         for (i, a) in f.answers.iter_mut().enumerate() {

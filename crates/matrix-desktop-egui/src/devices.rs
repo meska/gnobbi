@@ -15,7 +15,7 @@ pub struct Fields {
 }
 
 pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, f: &mut Fields, t: &DesignTokens) {
-    egui::Window::new("Dispositivi").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
+    egui::Window::new("Dispositivi").open(open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(380.);
         let secondary = egui::Color32::from_rgb((t.secondary >> 16) as u8, (t.secondary >> 8) as u8, t.secondary as u8);
         let time = |ms: u64| matrix_desktop::time_fmt::day_or_time(ms);
@@ -97,19 +97,16 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, f:
             let mut begin = None;
             let mut delete = None;
             for (i, (title, detail, verified)) in rows.iter().enumerate() {
+                // Buttons under the text: the detail line (time, IP, id) is long and would run under them.
+                ui.label(title);
+                ui.label(RichText::new(detail).size(12.).color(secondary));
                 ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.label(title);
-                        ui.label(RichText::new(detail).size(12.).color(secondary));
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Disconnetti").clicked() {
-                            delete = Some(i);
-                        }
-                        if !verified && ui.button("Verifica").clicked() {
-                            begin = Some(i);
-                        }
-                    });
+                    if !verified && ui.button("Verifica").clicked() {
+                        begin = Some(i);
+                    }
+                    if ui.button("Disconnetti").clicked() {
+                        delete = Some(i);
+                    }
                 });
                 ui.separator();
             }
