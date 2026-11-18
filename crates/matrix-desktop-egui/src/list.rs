@@ -5,7 +5,7 @@ use matrix_desktop::{DesignTokens, Sidebar};
 const ROW: f32 = 52.;
 const RAIL: f32 = 64.;
 
-fn rgb(c: u32) -> Color32 {
+pub fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
@@ -58,12 +58,18 @@ pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, t: &DesignTokens) {
 }
 
 /// Header with the search field, then the rows. Returns nothing: selection goes through `Sidebar::select`.
-pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, t: &DesignTokens) {
+pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_chat: &mut bool, t: &DesignTokens) {
     let (title, _, _) = sidebar.list_header();
     ui.add_space(12.);
     ui.horizontal(|ui| {
         ui.add_space(16.);
         ui.heading(title);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(12.);
+            if ui.button("＋").clicked() {
+                *new_chat = true;
+            }
+        });
     });
     ui.add_space(8.);
     ui.horizontal(|ui| {

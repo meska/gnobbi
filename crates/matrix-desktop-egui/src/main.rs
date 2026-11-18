@@ -12,6 +12,7 @@ use std::time::Duration;
 mod composer;
 mod info;
 mod list;
+mod newchat;
 mod session;
 mod settings;
 mod timeline;
@@ -53,6 +54,7 @@ struct App {
     prefs: Preferences,
     dirs: Option<AppDirs>,
     settings_open: bool,
+    new_form: newchat::Form,
     theme: Theme,
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
@@ -71,7 +73,7 @@ impl App {
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, new_form: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -134,7 +136,9 @@ impl App {
                 list::rail(ui, &mut session.sidebar, t);
             });
             egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
-                list::rooms(ui, &mut session.sidebar, &mut session.query, t);
+                let mut new_chat = false;
+                list::rooms(ui, &mut session.sidebar, &mut session.query, &mut new_chat, t);
+                session.new_open |= new_chat;
             });
         }
         let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
@@ -220,6 +224,11 @@ impl App {
         if let Some(s) = &mut self.session {
             message_menu(ui.ctx(), s, t);
         }
+        if let Some(s) = &mut self.session
+            && s.new_open
+        {
+            newchat::show(ui.ctx(), s, &mut self.new_form, t);
+        }
         if self.settings_open
             && let Some(new) = settings::show(ui.ctx(), &mut self.settings_open, &self.prefs, self.dirs.as_ref(), t)
         {
@@ -227,7 +236,22 @@ impl App {
             self.applied = None;
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
-            if let Some(s) = &mut self.session
+            let invite = self.session.as_ref().and_then(|s| s.sidebar.selected_invite().map(|r| (r.scope.clone(), r.name.clone())));
+            if let (Some((scope, name)), Some(s)) = (invite, &mut self.session) {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(ui.available_height() / 3.);
+                    ui.heading(name);
+                    ui.add_space(12.);
+                    ui.horizontal(|ui| {
+                        if ui.button("Accetta").clicked() {
+                            s.answer_invite(scope.clone(), true);
+                        }
+                        if ui.button("Rifiuta").clicked() {
+                            s.answer_invite(scope, false);
+                        }
+                    });
+                });
+            } else if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
             {
                 let (first, menu, save) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);

@@ -33,6 +33,12 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    pub new_open: bool,
+    pub new_term: String,
+    new_sent: String,
+    pub users: matrix_engine::operations::SearchState,
+    pub new_failed: bool,
+    pending_select: Option<matrix_domain::RoomScope>,
     /// Commands from the UI waiting for the single send slot.
     op_queue: Vec<OperationCommand>,
     /// Member whose card is open and what the engine answered about them.
@@ -108,6 +114,12 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            new_open: false,
+            new_term: String::new(),
+            new_sent: String::new(),
+            users: matrix_engine::operations::SearchState::Idle,
+            new_failed: false,
+            pending_select: None,
             op_queue: Vec::new(),
             profile: None,
             search_open: false,
@@ -286,6 +298,13 @@ impl Session {
 
     fn drive_operations(&mut self) -> bool {
         let mut changed = false;
+        // The new room shows up in the list with the next sync: select it as soon as it does.
+        if let Some(scope) = self.pending_select.clone()
+            && self.sidebar.select(&scope)
+        {
+            self.pending_select = None;
+            changed = true;
+        }
         if self.op_pending.is_none()
             && let Some(scope) = &self.draft_scope
             && self.members_requested.as_ref() != Some(scope)
@@ -301,6 +320,11 @@ impl Session {
         {
             self.op_pending = Some(OperationCommand::SearchMessages { scope: scope.clone(), term: wanted.clone() });
             self.search_sent = wanted;
+        }
+        let wanted = if self.new_open { self.new_term.trim().to_owned() } else { String::new() };
+        if self.op_pending.is_none() && wanted != self.new_sent {
+            self.op_pending = Some(OperationCommand::SearchUsers { term: wanted.clone(), all: false });
+            self.new_sent = wanted;
         }
         if self.op_pending.is_none() && !self.op_queue.is_empty() {
             self.op_pending = Some(self.op_queue.remove(0));
@@ -322,6 +346,23 @@ impl Session {
         }
         for result in results {
             match &result {
+                OperationResult::UserSearch { state, .. } => {
+                    self.users = state.clone();
+                    changed = true;
+                    continue;
+                }
+                OperationResult::RoomStarted { result } => {
+                    match result {
+                        Ok(scope) => {
+                            self.pending_select = Some(scope.clone());
+                            self.new_open = false;
+                            self.new_failed = false;
+                        }
+                        Err(_) => self.new_failed = true,
+                    }
+                    changed = true;
+                    continue;
+                }
                 OperationResult::Profile { user_id, result } => {
                     if let Some((open, slot)) = &mut self.profile
                         && open == user_id
@@ -370,6 +411,27 @@ impl Session {
             changed |= self.ops.apply(result) | done;
         }
         changed
+    }
+
+    pub fn start_dm(&mut self, user_id: String) {
+        self.new_failed = false;
+        self.op_queue.push(OperationCommand::StartDm { user_id });
+    }
+
+    pub fn create_room(&mut self, name: String, topic: String, public: bool) {
+        self.new_failed = false;
+        let topic = Some(topic.trim().to_owned()).filter(|t| !t.is_empty());
+        self.op_queue.push(OperationCommand::CreateRoom { name: name.trim().to_owned(), topic, public });
+    }
+
+    pub fn join(&mut self, target: String) {
+        self.new_failed = false;
+        self.op_queue.push(OperationCommand::JoinRoom { target: target.trim().to_owned(), via: Vec::new() });
+        self.new_open = false;
+    }
+
+    pub fn answer_invite(&mut self, scope: matrix_domain::RoomScope, accept: bool) {
+        self.op_queue.push(OperationCommand::AnswerInvite { scope, accept });
     }
 
     pub fn open_profile(&mut self, user_id: String) {
