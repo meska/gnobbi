@@ -60,7 +60,8 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, f:
             ui.separator();
         }
         let rows: Vec<(String, String, bool)> = v.devices().iter().map(|d| (device_title(d).to_owned(), device_detail(d, time), d.verified)).collect();
-        if rows.is_empty() {
+        // Only while the list has not arrived: an account with a single session has no other devices.
+        if rows.is_empty() && v.own().is_none() {
             ui.spinner();
         }
         egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
