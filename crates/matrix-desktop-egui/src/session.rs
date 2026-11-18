@@ -54,6 +54,8 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    /// People picked from the «@» list in the text being written.
+    pub mentions: Vec<matrix_engine::sending::Mention>,
     pub aliases: Option<matrix_engine::alias::RoomAliases>,
     aliases_requested: Option<matrix_domain::RoomScope>,
     pub alias_error: Option<&'static str>,
@@ -155,6 +157,7 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            mentions: Vec::new(),
             aliases: None,
             aliases_requested: None,
             alias_error: None,
@@ -803,7 +806,7 @@ impl Session {
             body,
             attachment: self.attachment.take().map(|(filename, data)| matrix_engine::sending::Attachment { filename, data, voice: None }),
             poll: None,
-            mentions: Vec::new(),
+            mentions: std::mem::take(&mut self.mentions),
         };
         if tx.try_send(request).is_ok() {
             self.history.activity(&scope);

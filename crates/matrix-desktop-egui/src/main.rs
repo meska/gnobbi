@@ -80,6 +80,7 @@ struct App {
     auto_login: Option<serde_json::Value>,
     shot_sent: bool,
     hook_sent: bool,
+    hook_type: bool,
     hook_alias: bool,
     alias_input: String,
     hook_keys: bool,
@@ -98,7 +99,7 @@ impl App {
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
         App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            shot_sent: false, hook_sent: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+            shot_sent: false, hook_sent: false, hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
     }
 
@@ -187,7 +188,7 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
         self.tray(&ctx);
-        self.test_hooks();
+        self.test_hooks(&ctx);
         let t = self.tokens;
         if self.session.as_ref().is_some_and(|s| s.account.is_some()) {
             self.shell(ui, &t);
@@ -199,7 +200,7 @@ impl eframe::App for App {
 
 impl App {
     /// Test hooks (env only): sign in with the given account, then open the view named in GNOBBI_EGUI_VIEW.
-    fn test_hooks(&mut self) {
+    fn test_hooks(&mut self, ctx: &egui::Context) {
         let Some(s) = &mut self.session else { return };
         if let Some(login) = &self.auto_login
             && s.account.is_none()
@@ -242,6 +243,21 @@ impl App {
             {
                 s.alias_action(matrix_engine::alias::AliasAction::Add { local, make_canonical: None });
                 self.hook_alias = true;
+            }
+            // GNOBBI_EGUI_TYPE=<text>: puts the text in the composer and focuses it (to see the «@» list).
+            if !self.hook_type
+                && s.messages.is_some()
+                && s.members.is_some()
+                && let Ok(text) = std::env::var("GNOBBI_EGUI_TYPE")
+            {
+                s.draft = text;
+                ctx.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
+                self.hook_type = true;
+            }
+            // A headless seat never focuses the window, and egui drops the text focus with it: say it is focused.
+            if self.hook_type && std::env::var_os("GNOBBI_EGUI_TYPE").is_some() {
+                ctx.input_mut(|i| i.events.push(egui::Event::WindowFocused(true)));
+                ctx.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
             }
             // GNOBBI_EGUI_SEND=<text>: sends it once into the open room (disposable servers only).
             if !self.hook_sent
@@ -449,7 +465,8 @@ impl App {
                 if let Some(notice) = &s.notice {
                     ui.label(notice);
                 }
-                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll);
+                let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
+                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &members, &mut s.mentions);
                 if drop_file {
                     s.attachment = None;
                 }
