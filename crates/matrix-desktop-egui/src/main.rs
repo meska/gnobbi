@@ -168,7 +168,24 @@ impl App {
             && let Some(room) = s.sidebar.selected()
         {
             let members = s.members.as_ref().map(|(_, m)| m.as_slice());
-            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| info::show(ui, room, members, t));
+            let mut opened = None;
+            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| opened = info::show(ui, room, members, t).open_profile);
+            if let (Some(user), Some(s)) = (opened, &mut self.session) {
+                s.open_profile(user);
+            }
+        }
+        if let Some(s) = &mut self.session
+            && s.info_open
+            && let Some((id, profile)) = s.profile.clone()
+        {
+            let (mut close, mut flip) = (false, None);
+            egui::Panel::right("member").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), &mut close, t));
+            if let Some(ignore) = flip {
+                s.set_ignored(id, ignore);
+            }
+            if close {
+                s.profile = None;
+            }
         }
         if let Some(s) = &mut self.session
             && s.search_open

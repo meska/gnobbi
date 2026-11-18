@@ -33,6 +33,10 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    /// Commands from the UI waiting for the single send slot.
+    op_queue: Vec<OperationCommand>,
+    /// Member whose card is open and what the engine answered about them.
+    pub profile: Option<(String, Option<matrix_engine::operations::UserProfile>)>,
     pub search_open: bool,
     pub search_term: String,
     search_sent: String,
@@ -104,6 +108,8 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            op_queue: Vec::new(),
+            profile: None,
             search_open: false,
             search_term: String::new(),
             search_sent: String::new(),
@@ -296,6 +302,9 @@ impl Session {
             self.op_pending = Some(OperationCommand::SearchMessages { scope: scope.clone(), term: wanted.clone() });
             self.search_sent = wanted;
         }
+        if self.op_pending.is_none() && !self.op_queue.is_empty() {
+            self.op_pending = Some(self.op_queue.remove(0));
+        }
         if self.op_pending.is_none() {
             self.op_pending = self.ops.take_command();
         }
@@ -312,6 +321,28 @@ impl Session {
             }
         }
         for result in results {
+            match &result {
+                OperationResult::Profile { user_id, result } => {
+                    if let Some((open, slot)) = &mut self.profile
+                        && open == user_id
+                    {
+                        *slot = result.clone().ok();
+                        changed = true;
+                    }
+                    continue;
+                }
+                OperationResult::Ignored { user_id, ignore, result: Ok(_) } => {
+                    if let Some((open, Some(p))) = &mut self.profile
+                        && open == user_id
+                    {
+                        p.ignored = *ignore;
+                        changed = true;
+                    }
+                    continue;
+                }
+                OperationResult::Ignored { .. } => continue,
+                _ => {}
+            }
             if let OperationResult::MessageSearch { scope, state } = result {
                 if self.draft_scope.as_ref() == Some(&scope) {
                     self.search = state;
@@ -339,6 +370,15 @@ impl Session {
             changed |= self.ops.apply(result) | done;
         }
         changed
+    }
+
+    pub fn open_profile(&mut self, user_id: String) {
+        self.op_queue.push(OperationCommand::Profile { user_id: user_id.clone() });
+        self.profile = Some((user_id, None));
+    }
+
+    pub fn set_ignored(&mut self, user_id: String, ignore: bool) {
+        self.op_queue.push(OperationCommand::Ignore { user_id, ignore });
     }
 
     /// Opens the menu for a right-clicked message and asks the engine what the user may do with it.

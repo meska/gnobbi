@@ -7,7 +7,7 @@ fn rgb(c: u32) -> Color32 {
 }
 
 /// The shared switch: fixed positive label, track on the right, on means active.
-fn switch(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -> bool {
+pub fn switch(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(label);

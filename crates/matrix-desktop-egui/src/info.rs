@@ -7,7 +7,14 @@ fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
-pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t: &DesignTokens) {
+/// What the user did in the panel this frame.
+#[derive(Default)]
+pub struct Out {
+    pub open_profile: Option<String>,
+}
+
+pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t: &DesignTokens) -> Out {
+    let mut out = Out::default();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(16.);
         ui.horizontal(|ui| {
@@ -34,7 +41,13 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t
             return;
         };
         for m in members {
-            let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::hover());
+            let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
+            if resp.hovered() {
+                ui.painter().rect_filled(rect, 0., rgb(t.input));
+            }
+            if resp.clicked() {
+                out.open_profile = Some(m.user_id.clone());
+            }
             let c = egui::pos2(rect.left() + 28., rect.center().y);
             let initials: String = m.name.trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
             ui.painter().circle_filled(c, 14., rgb(matrix_desktop::AVATAR_FALLBACK));
@@ -43,6 +56,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t
             ui.painter().galley(egui::pos2(rect.left() + 52., rect.center().y - galley.size().y / 2.), galley, rgb(t.text));
         }
     });
+    out
 }
 
 /// Message search of the open room: term box and hits (a hit cannot be jumped to yet: the timeline only holds what was paged in).
@@ -83,4 +97,45 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
             });
         }
     }
+}
+
+/// A member's card: name, id with the small copy icon, trust and the ignore switch. Returns `Some(ignore)` when it was flipped; `close` is set by the X.
+pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
+    let mut flip = None;
+    ui.add_space(16.);
+    ui.horizontal(|ui| {
+        ui.add_space(16.);
+        if ui.small_button("✕").clicked() {
+            *close = true;
+        }
+    });
+    let Some(p) = profile else {
+        ui.add_space(16.);
+        ui.vertical_centered(|ui| ui.spinner());
+        return None;
+    };
+    ui.horizontal(|ui| {
+        ui.add_space(16.);
+        ui.vertical(|ui| {
+            ui.set_max_width(ui.available_width() - 16.);
+            ui.heading(&p.name);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(id).color(rgb(t.secondary)));
+                if ui.small_button("⧉").clicked() {
+                    ui.ctx().copy_text(id.to_owned());
+                }
+            });
+            match p.verified {
+                Some(true) => ui.label("Verificato"),
+                Some(false) => ui.label(RichText::new("Non verificato").color(rgb(t.error))),
+                None => ui.label(""),
+            };
+            ui.add_space(8.);
+            let mut ignored = p.ignored;
+            if crate::settings::switch(ui, "Ignora", &mut ignored, t) {
+                flip = Some(ignored);
+            }
+        });
+    });
+    flip
 }
