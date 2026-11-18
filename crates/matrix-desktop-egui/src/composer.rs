@@ -36,10 +36,25 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         if ui.button("📊").clicked() {
             *poll = true;
         }
-        let w = ui.available_width() - 12.;
+        let w = ui.available_width() - 56.;
         let id = egui::Id::new("composer-text");
         let out = egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).show(ui);
         mention_popup(ui, id, &out, draft, members, mentions);
+        // The 32 emoji of the GPUI picker; one is appended to the text and the box keeps the focus.
+        ui.menu_button("☺", |ui| {
+            egui::Grid::new("emoji-grid").show(ui, |ui| {
+                for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
+                    if ui.button(*emoji).on_hover_text(*name).clicked() {
+                        draft.push_str(emoji);
+                        ui.memory_mut(|m| m.request_focus(id));
+                        ui.close();
+                    }
+                    if i % 8 == 7 {
+                        ui.end_row();
+                    }
+                }
+            });
+        });
     });
     if enter && (attachment.is_some() || !draft.trim().is_empty()) {
         return Some(std::mem::take(draft));
