@@ -11,6 +11,7 @@ use std::time::Duration;
 
 mod list;
 mod session;
+mod timeline;
 use session::Session;
 
 /// Avatar fallback colour (identity, not theme).
@@ -130,7 +131,13 @@ impl App {
             });
         });
         egui::Panel::bottom("composer").exact_size(t.bottom_bar).frame(bar(t)).show(ui, |_| {});
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |_| {});
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
+            if let Some(s) = &mut self.session
+                && let Some(messages) = &s.messages
+            {
+                s.first_visible = timeline::show(ui, messages.events(), messages, &mut s.heights, 3, t);
+            }
+        });
     }
 
     fn sign_in(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
