@@ -128,3 +128,12 @@ fn new_space_sits_right_below_new_room_and_opens_its_dialog() {
     assert!(!off.allows(&DrawerAction::Item(DrawerItem::NewSpace)));
     assert!(!off.tree().nodes.iter().any(|(_, n)| n.label() == Some("Nuovo spazio")));
 }
+
+#[test]
+fn edit_profile_follows_new_space_and_needs_a_session() {
+    let snap = DrawerSnapshot { connected: true, ..Default::default() };
+    let tree = snap.tree();
+    let node = find(&tree, "Modifica profilo");
+    assert_eq!(snap.action(&click(node)), Some(DrawerAction::Item(DrawerItem::EditProfile)));
+    assert!(!DrawerSnapshot::default().allows(&DrawerAction::Item(DrawerItem::EditProfile)));
+}

@@ -39,6 +39,7 @@ mod navigation_resize_test;
 mod new_room_view;
 mod quick_search_view;
 mod search_list_view;
+mod profile_edit_view;
 mod room_edit_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
@@ -150,6 +151,7 @@ struct Shell {
     quick: Option<quick_search_view::QuickSearch>,
     recents: matrix_desktop::quick_search::RecentsStore,
     room_edit: Option<room_edit_view::RoomEdit>,
+    profile_edit: Option<profile_edit_view::ProfileEdit>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
     /// A just-created space, selected in the bar as soon as the sync lists it.
@@ -2242,7 +2244,7 @@ impl Shell {
                 navigation_revision: self.sidebar.navigation_revision(),
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
                 disconnected: self.disconnected_shown(),
-                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_room_edit(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
+                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_room_edit(window, cx)).or_else(|| self.semantic_profile_edit(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
@@ -2755,6 +2757,7 @@ impl Shell {
             }))
             .children(self.render_quick_search(window, t, cx))
             .children(self.render_room_edit(t, window, cx))
+            .children(self.render_profile_edit(t, window, cx))
             .children(self.render_groups_edit(t, window, cx))
             .children(self.timeline.as_ref().and_then(|timeline| timeline.render_viewer(t)))
             .children({
@@ -3308,6 +3311,9 @@ fn main() {
                                             if let matrix_engine::verification::VerificationEvent::KeysRecovered { count, .. } = &event {
                                                 this.keys_notice = Some((matrix_desktop::keys_recovered_text(*count), std::time::Instant::now()));
                                             }
+                                            if let matrix_engine::verification::VerificationEvent::ProfileSaved { result, .. } = &event {
+                                                this.profile_saved(*result, cx);
+                                            }
                                             this.verification.apply(event);
                                             this.record_profile();
                                         }
@@ -3615,6 +3621,7 @@ fn main() {
                         quick: None,
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
+                        profile_edit: None,
                         pending_open: None,
                         pending_space: None,
                         space_notice: None,

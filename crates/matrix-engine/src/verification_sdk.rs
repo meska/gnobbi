@@ -449,6 +449,18 @@ pub(crate) async fn run_service(
                             Err(error) => Err(error),
                         }
                     }
+                    VerificationCommand::SaveProfile { account_id: requested, name, avatar } if requested == account_id => {
+                        let result = save_own_profile(&client, name, avatar).await;
+                        // Re-read at once: the card, the account list and the saved catalog follow this event.
+                        if let Some(profile) = own_profile(&client).await {
+                            shown = Some(profile.clone());
+                            let (user_id, display_name, avatar) = profile;
+                            let device_id = client.device_id().map(|d| d.to_string());
+                            if events.send(VerificationEvent::Profile { account_id, user_id, display_name, device_id, avatar }).await.is_err() { break; }
+                        }
+                        if events.send(VerificationEvent::ProfileSaved { account_id, result }).await.is_err() { break; }
+                        Ok(())
+                    }
                     VerificationCommand::RecoverKeys { account_id: requested, key } if requested == account_id => {
                         if events.send(VerificationEvent::KeysRecovery { account_id, state: crate::signin::RecoveryState::Pending }).await.is_err() { break; }
                         // The key lives only in this call; dropping it zeroizes it.
@@ -588,6 +600,39 @@ async fn own_profile(client: &Client) -> Option<(String, Option<String>, Option<
         account.get_avatar_url().await.ok()?.map(|uri| uri.to_string()),
     );
     Some((user_id, display_name, avatar))
+}
+
+/// Runs `profile::save_profile`; errors become the closed `OperationError` (no path, no text).
+async fn save_own_profile(
+    client: &Client,
+    name: Option<String>,
+    avatar: crate::verification::ProfileAvatar,
+) -> Result<(), crate::operations::OperationError> {
+    use crate::{operations::OperationError as E, profile::{self, AvatarEdit}, verification::ProfileAvatar};
+    let account = client.account();
+    let current_name = account.get_display_name().await.map_err(|_| E::Transport)?;
+    let has_avatar = account.get_avatar_url().await.map_err(|_| E::Transport)?.is_some();
+    // Unchanged name: hand the current one back (none set yet: the user id) so only the avatar is written.
+    let unchanged = current_name.clone().or_else(|| client.user_id().map(|u| u.to_string())).unwrap_or_default();
+    let current = profile::Current { name: Some(unchanged.clone()), has_avatar };
+    let avatar = match avatar {
+        ProfileAvatar::Keep => AvatarEdit::Keep,
+        ProfileAvatar::Remove => AvatarEdit::Remove,
+        ProfileAvatar::Set(path) => AvatarEdit::Set(profile::prepare_avatar(path).await.map_err(map_profile_error)?),
+    };
+    profile::save_profile(client, &current, name.as_deref().unwrap_or(&unchanged), avatar)
+        .await
+        .map(drop)
+        .map_err(|e| map_profile_error(e.error))
+}
+
+fn map_profile_error(error: crate::profile::ProfileError) -> crate::operations::OperationError {
+    use crate::{operations::OperationError as E, profile::ProfileError as P};
+    match error {
+        P::NameEmpty | P::NameTooLong | P::FileUnreadable | P::FileTooLarge | P::FileInvalid => E::InvalidInput,
+        P::NotAllowed | P::Rejected => E::Forbidden,
+        P::Network => E::Transport,
+    }
 }
 
 async fn rename_own_device(client: &Client, name: &str) -> Result<(), VerificationError> {

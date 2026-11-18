@@ -307,6 +307,14 @@ impl DeviceVerification {
         });
         true
     }
+    /// Queues «Modifica profilo»; false while another command waits (the dialog stays open to retry).
+    pub fn save_profile(&mut self, name: Option<String>, avatar: matrix_engine::verification::ProfileAvatar) -> bool {
+        if self.pending.is_some() {
+            return false;
+        }
+        self.pending = Some(VerificationCommand::SaveProfile { account_id: self.account, name, avatar });
+        true
+    }
     /// «Disconnetti» is live only with a typed password and no request in flight; the view checks it before emptying the field.
     pub fn can_submit_delete(&self, has_text: bool) -> bool {
         has_text && self.pending.is_none() && self.delete.as_ref().is_some_and(DeleteDialog::confirm_enabled)
@@ -781,6 +789,15 @@ mod profile_tests {
             avatar: None,
         });
         assert_eq!(v.profile_avatar(), None);
+    }
+
+    #[test]
+    fn save_profile_queues_one_command_for_own_account() {
+        use matrix_engine::verification::ProfileAvatar;
+        let mut v = DeviceVerification::new(AccountId::new(3));
+        assert!(v.save_profile(Some("Ada".into()), ProfileAvatar::Remove));
+        assert!(matches!(v.pending(), Some(VerificationCommand::SaveProfile { account_id, name, avatar: ProfileAvatar::Remove }) if *account_id == AccountId::new(3) && name.as_deref() == Some("Ada")));
+        assert!(!v.save_profile(None, ProfileAvatar::Keep), "one command at a time");
     }
 
     fn dev(name: Option<&str>, verified: bool, ts: Option<u64>, ip: Option<&str>) -> matrix_engine::verification::VerificationDevice {

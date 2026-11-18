@@ -587,6 +587,16 @@ impl Shell {
                                 this.open_quick_search(window, cx)
                             })),
                     )
+                    .child(
+                        row("menu-edit-profile")
+                            .border_1()
+                            .border_color(ring(n + 9))
+                            .text_color(rgb(t.text))
+                            .child("Modifica profilo")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_profile_from_drawer(window, cx)
+                            })),
+                    )
                 })
                 .into_any_element();
         }
