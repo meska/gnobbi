@@ -5218,6 +5218,7 @@ dependencies = [
  "eframe",
  "matrix-desktop",
  "matrix-domain",
+ "image",
  "matrix-engine",
  "zeroize",
 ]

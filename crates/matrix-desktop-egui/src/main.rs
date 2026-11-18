@@ -74,6 +74,8 @@ struct App {
     /// What `visuals` was last built for: rebuilt only when it changes.
     applied: Option<(Theme, u32)>,
     session: Option<Session>,
+    /// Test hook: GNOBBI_EGUI_SHOT=<file.png> saves what the window paints after a few frames and exits.
+    shot: Option<(std::path::PathBuf, u32)>,
     /// Why the backend could not start, shown instead of the form.
     start_error: Option<String>,
 }
@@ -87,7 +89,7 @@ impl App {
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), 0)), session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -112,6 +114,19 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.refresh(&ctx);
         ctx.request_repaint_after(Duration::from_secs(60));
+        if let Some((path, frame)) = &mut self.shot {
+            *frame += 1;
+            if *frame == 40 {
+                let path = path.clone();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
+                    let [w, h] = img.size;
+                    let rgba: Vec<u8> = img.pixels.iter().flat_map(|p| p.to_array()).collect();
+                    let _ = image::save_buffer(&path, &rgba, w as u32, h as u32, image::ColorType::Rgba8);
+                    std::process::exit(0);
+                })));
+            }
+            ctx.request_repaint();
+        }
         let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
         if let Some(session) = &mut self.session {
             if let Some(path) = dropped.first() {
@@ -529,7 +544,7 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session) {
     ui.add_space(12.);
     let mut enter = false;
     let mut field = |ui: &mut egui::Ui, text: &mut String, hint: &str, secret: bool| {
-        let r = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(text).hint_text(hint).password(secret));
+        let r = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(text).hint_text(hint).password(secret).align(egui::Align2::LEFT_CENTER));
         enter |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.add_space(8.);
     };
