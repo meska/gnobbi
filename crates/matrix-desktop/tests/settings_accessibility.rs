@@ -19,6 +19,7 @@ fn switches_are_labelled_checkboxes_with_state_and_set_explicitly() {
         on: [false, true, false, false],
         update_check: None,
         privacy_page: false,
+        keys_rows: false,
     };
     let tree = snapshot.tree();
     let boxes: Vec<_> = tree
@@ -51,7 +52,7 @@ fn switches_are_labelled_checkboxes_with_state_and_set_explicitly() {
 #[test]
 fn update_switch_is_optional_and_exposes_its_state_and_action() {
     for value in [None, Some(false), Some(true)] {
-        let snapshot = SettingsSnapshot { focus: 4, on: [false; 4], update_check: value, privacy_page: false };
+        let snapshot = SettingsSnapshot { focus: 4, on: [false; 4], update_check: value, privacy_page: false, keys_rows: false };
         let tree = snapshot.tree();
         let switches: Vec<_> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::Switch).collect();
         assert_eq!(switches.len(), if value.is_some() { 4 } else { 3 });
@@ -65,4 +66,22 @@ fn update_switch_is_optional_and_exposes_its_state_and_action() {
             assert_eq!(snapshot.action(&click(accesskit::NodeId(74), Action::Click)), None);
         }
     }
+}
+
+#[test]
+fn privacy_page_lists_the_two_key_buttons_only_on_a_live_session() {
+    let page = |keys_rows| SettingsSnapshot { focus: 7, on: [false; 4], update_check: None, privacy_page: true, keys_rows };
+    let buttons = |s: &SettingsSnapshot| -> Vec<String> {
+        s.tree().nodes.iter().filter(|(_, n)| n.role() == Role::Button).filter_map(|(_, n)| n.label().map(str::to_owned)).collect()
+    };
+    assert!(buttons(&page(false)).is_empty());
+    assert_eq!(buttons(&page(true)), ["Esporta chiavi…", "Rigenera chiave di recupero…"]);
+    let snapshot = page(true);
+    let tree = snapshot.tree();
+    let id_of = |label: &str| tree.nodes.iter().find(|(_, n)| n.label() == Some(label)).unwrap().0;
+    let request = click;
+    assert_eq!(snapshot.action(&request(id_of("Esporta chiavi…"), Action::Click)), Some(SettingsAction::ExportKeys));
+    assert_eq!(snapshot.action(&request(id_of("Rigenera chiave di recupero…"), Action::Click)), Some(SettingsAction::ResetRecovery));
+    assert_eq!(snapshot.action(&request(id_of("Esporta chiavi…"), Action::Focus)), Some(SettingsAction::Focus(7)));
+    assert_eq!(tree.focus, id_of("Esporta chiavi…"));
 }

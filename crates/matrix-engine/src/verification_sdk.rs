@@ -349,8 +349,10 @@ pub(crate) async fn run_service(
     account_id: AccountId,
     mut commands: crate::Receiver<VerificationCommand>,
     mut events: crate::Sender<VerificationEvent>,
+    // The account directory: scratch file of the key export and local-phrase check (legacy profiles).
+    account_dir: Option<std::path::PathBuf>,
 ) {
-    let session = AccountSession {
+    let mut session = AccountSession {
         account_id,
         client: Some(client.clone()),
         store: None,
@@ -475,24 +477,26 @@ pub(crate) async fn run_service(
                         if events.send(VerificationEvent::KeysComplete { account_id, complete }).await.is_err() { break; }
                         Ok(())
                     }
-                    VerificationCommand::ExportKeys { account_id: requested, path, passphrase } if requested == account_id => {
-                        let result = tokio::time::timeout(
-                            std::time::Duration::from_secs(120),
-                            client.encryption().export_room_keys(path, &passphrase.0, |_| true),
-                        )
-                        .await
-                        .map_err(|_| VerificationError::Transport)
-                        .and_then(|r| r.map_err(|_| VerificationError::Transport));
-                        drop(passphrase);
+                    VerificationCommand::ExportRoomKeys { account_id: requested, dest, passphrase, phrase } if requested == account_id => {
+                        let result = crate::key_export::run_export(&client, account_id, account_dir.as_deref(), &dest, &passphrase.0, phrase.as_ref().map(|p| p.0.as_str())).await;
+                        drop((passphrase, phrase));
+                        match &result {
+                            Ok(count) => tracing::info!("key_export ok count={count}"),
+                            Err(kind) => tracing::info!("key_export failed kind={kind:?}"),
+                        }
                         if events.send(VerificationEvent::KeysExported { account_id, result }).await.is_err() { break; }
                         Ok(())
                     }
-                    VerificationCommand::NewRecoveryKey { account_id: requested } if requested == account_id => {
-                        // A timeout can leave a half-made secret storage on the server: nothing is deleted to roll back.
-                        let result = tokio::time::timeout(std::time::Duration::from_secs(60), client.encryption().recovery().reset_key())
-                            .await
-                            .map_err(|_| VerificationError::Transport)
-                            .and_then(|r| r.map(crate::recovery::RecoverySecret::from_sdk).map_err(|_| VerificationError::Transport));
+                    VerificationCommand::ResetRecoveryKey { account_id: requested, phrase } if requested == account_id => {
+                        let result = match crate::key_export::check_phrase_async(account_dir.as_deref(), account_id, phrase.as_ref().map(|p| p.0.as_str())).await {
+                            Ok(()) => session.reset_recovery_key().await,
+                            Err(_) => Err(crate::recovery::RecoveryError::WrongPhrase),
+                        };
+                        drop(phrase);
+                        match &result {
+                            Ok(_) => tracing::info!("recovery_reset ok"),
+                            Err(kind) => tracing::info!("recovery_reset failed kind={kind:?}"),
+                        }
                         if events.send(VerificationEvent::RecoveryKeyReset { account_id, result }).await.is_err() { break; }
                         Ok(())
                     }

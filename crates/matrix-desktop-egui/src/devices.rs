@@ -56,23 +56,25 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, f:
                 let path = std::path::Path::new(&home).join("Downloads").join("gnobbi-chiavi.txt");
                 let _ = std::fs::create_dir_all(path.parent().unwrap());
                 f.export_path = Some(path.clone());
-                v.export_keys(path, zeroize::Zeroizing::new(std::mem::take(&mut f.export_pass)));
+                let pass = zeroize::Zeroizing::new(std::mem::take(&mut f.export_pass));
+                // The engine reauthenticates legacy profiles by phrase; this window has no phrase field, so it answers «Frase di sblocco errata» there.
+                start_export(v, path, &pass);
             }
         });
-        match (v.key_export(), &f.export_path) {
-            (Some(true), Some(p)) => {
-                ui.label(format!("Esportate in {}", p.display()));
+        if let Some(page) = &mut v.keys {
+            // The refill copy is for the GPUI fields; here nothing refills, so nothing is kept.
+            page.held = None;
+            if let Some((text, error)) = &page.line {
+                match (error, &f.export_path) {
+                    (false, Some(p)) => ui.label(format!("{text} in {}", p.display())),
+                    (true, _) => ui.colored_label(ui.visuals().error_fg_color, text.as_str()),
+                    _ => ui.label(text.as_str()),
+                };
             }
-            (Some(false), _) => {
-                ui.colored_label(ui.visuals().error_fg_color, "Esportazione non riuscita");
-            }
-            _ => {}
         }
         if ui.button("Rigenera chiave di recupero").clicked() {
-            v.new_recovery_key();
-        }
-        if v.new_key_failed() {
-            ui.colored_label(ui.visuals().error_fg_color, "Non riuscito");
+            v.keys = Some(matrix_desktop::key_export::KeysPage::new(matrix_desktop::key_export::KeysKind::Reset));
+            v.reset_recovery(None);
         }
         ui.separator();
         if v.offers_recover_keys(true) {
@@ -222,9 +224,23 @@ pub fn dialogs(ctx: &egui::Context, v: &mut DeviceVerification, f: &mut Fields) 
     }
 }
 
+/// Opens the export page and queues the export, or leaves the password error on the page.
+pub fn start_export(v: &mut DeviceVerification, path: std::path::PathBuf, pass: &zeroize::Zeroizing<String>) {
+    use matrix_desktop::key_export::{KeysKind, KeysPage, check_password};
+    let mut page = KeysPage::new(KeysKind::Export);
+    let check = check_password(pass, pass);
+    if let Err(error) = check {
+        page.line = Some((error.text().into(), true));
+    }
+    v.keys = Some(page);
+    if check.is_ok() {
+        v.export_keys(path, pass, None);
+    }
+}
+
 /// The new recovery key, shown once: readable, selectable and with the small copy icon; closing wipes it.
 pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
-    let Some(key) = v.new_key().map(str::to_owned) else { return };
+    let Some(key) = v.keys.as_ref().and_then(|p| p.secret.as_ref()).map(|s| s.expose().to_owned()) else { return };
     let mut close = false;
     egui::Window::new("Nuova chiave di recupero").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_max_width(380.);
@@ -240,6 +256,6 @@ pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
         }
     });
     if close {
-        v.forget_new_key();
+        v.confirm_key_saved();
     }
 }

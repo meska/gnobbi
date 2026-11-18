@@ -18,6 +18,8 @@ pub enum RecoveryError {
     Transport,
     /// The account has no secret storage, so there is nothing to recover from.
     NoSecretStorage,
+    /// The local unlock phrase of a legacy profile is wrong.
+    WrongPhrase,
 }
 
 fn classify(error: &matrix_sdk::encryption::recovery::RecoveryError) -> RecoveryError {
@@ -84,9 +86,6 @@ impl RecoverySecret {
     #[doc(hidden)]
     pub fn fixture(key: &str) -> Self {
         Self(zeroize::Zeroizing::new(key.to_owned()))
-    }
-    pub(crate) fn from_sdk(key: String) -> Self {
-        Self(zeroize::Zeroizing::new(key))
     }
     /// The recovery key must never be formatted into diagnostics.
     /// ```compile_fail
@@ -274,6 +273,27 @@ impl AccountSession {
         })
         .await
         .map_err(|_| RecoveryError::Deadline)?
+    }
+    /// «Rigenera chiave di recupero»: a new key replaces the old one, which stops working.
+    /// Enabled: the SDK re-encrypts the local secrets under the new key (account data only, no
+    /// UIAA). Disabled: a first-time `enable_new_recovery`. Incomplete: refused, this device lacks
+    /// secrets and the new store would stay empty. No rollback on failure.
+    pub async fn reset_recovery_key(&mut self) -> Result<RecoverySecret, RecoveryError> {
+        use matrix_sdk::encryption::recovery::RecoveryState as State;
+        let client = self.client.clone().ok_or(RecoveryError::LoggedOut)?;
+        if !client.encryption().cross_signing_status().await.is_some_and(|s| s.is_complete()) {
+            return Err(RecoveryError::IdentityRequired);
+        }
+        match client.encryption().recovery().state() {
+            State::Enabled => tokio::time::timeout(Duration::from_secs(30), client.encryption().recovery().reset_key())
+                .await
+                .map_err(|_| RecoveryError::Deadline)?
+                .map(|key| RecoverySecret(zeroize::Zeroizing::new(key)))
+                .map_err(|e| classify(&e)),
+            State::Disabled => self.enable_new_recovery().await,
+            State::Incomplete => Err(RecoveryError::IdentityRequired),
+            _ => Err(RecoveryError::Failed),
+        }
     }
     /// First-time setup of secret storage and key backup, only when both are absent on the server.
     /// Uses the SDK bootstrap (which also creates a missing identity); a required interactive

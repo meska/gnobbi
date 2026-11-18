@@ -372,8 +372,13 @@ impl AccountStore {
     }
 
     pub(crate) fn unseal(&self, passphrase: &str) -> Result<Value, StoreError> {
-        Self::private_directory(&self.path)?;
-        let path = self.path.join("session.sealed");
+        Self::unseal_at(&self.path, self.account_id, passphrase)
+    }
+
+    /// Read-only check of the local phrase against an account directory (no store lock needed).
+    pub(crate) fn unseal_at(dir: &Path, account_id: AccountId, passphrase: &str) -> Result<Value, StoreError> {
+        Self::private_directory(dir)?;
+        let path = dir.join("session.sealed");
         let meta = fs::symlink_metadata(&path).map_err(|_| StoreError::Io)?;
         if !meta.is_file() || !crate::fsx::mode_is(&meta, 0o600) || meta.len() > 1_048_576 {
             return Err(StoreError::UnsafePath);
@@ -401,7 +406,7 @@ impl AccountStore {
         let plain: Value = cipher
             .decrypt_value(&payload)
             .map_err(|_| StoreError::LockedOrCorrupt)?;
-        if plain["account"].as_u64() != Some(self.account_id.as_u64()) {
+        if plain["account"].as_u64() != Some(account_id.as_u64()) {
             return Err(StoreError::AccountMismatch);
         }
         Ok(plain["value"].clone())

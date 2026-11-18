@@ -439,7 +439,7 @@ async fn service_snapshot(
 fn serve(client: &matrix_sdk::Client, account: u64, tasks: &mut Vec<tokio::task::JoinHandle<()>>) -> Route {
     let (command_tx, command_rx) = crate::bounded(std::num::NonZeroUsize::new(8).unwrap());
     let (event_tx, event_rx) = crate::bounded(std::num::NonZeroUsize::new(64).unwrap());
-    tasks.push(tokio::spawn(crate::verification::run_service(client.clone(), AccountId::new(account), command_rx, event_tx)));
+    tasks.push(tokio::spawn(crate::verification::run_service(client.clone(), AccountId::new(account), command_rx, event_tx, None)));
     let syncing = client.clone();
     tasks.push(tokio::spawn(async move {
         loop {

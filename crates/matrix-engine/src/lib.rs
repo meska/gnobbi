@@ -20,6 +20,8 @@ pub mod avatar_cache;
 #[cfg(feature = "sdk")]
 pub mod profile;
 #[cfg(feature = "sdk")]
+pub mod key_export;
+#[cfg(feature = "sdk")]
 pub mod recovery;
 #[cfg(feature = "sdk")]
 mod outbox;

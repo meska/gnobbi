@@ -257,10 +257,11 @@ impl App {
             {
                 if let Ok(pass) = std::env::var("GNOBBI_EGUI_EXPORT") {
                     let path = std::env::var_os("GNOBBI_EGUI_EXPORT_PATH").map(std::path::PathBuf::from).unwrap_or_default();
-                    v.export_keys(path, zeroize::Zeroizing::new(pass));
+                    devices::start_export(v, path, &zeroize::Zeroizing::new(pass));
                     self.hook_keys = true;
                 } else if std::env::var_os("GNOBBI_EGUI_NEWKEY").is_some() {
-                    v.new_recovery_key();
+                    v.keys = Some(matrix_desktop::key_export::KeysPage::new(matrix_desktop::key_export::KeysKind::Reset));
+                    v.reset_recovery(None);
                     self.hook_keys = true;
                 }
             }
