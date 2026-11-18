@@ -103,7 +103,13 @@ impl eframe::App for App {
         let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
         if let Some(session) = &mut self.session {
             if let Some(path) = dropped.first() {
-                session.attach(path);
+                // With the devices window open a dropped picture is the profile photo, otherwise an attachment.
+                match &mut session.verification {
+                    Some(v) if session.devices_open => {
+                        v.save_profile(None, matrix_engine::verification::ProfileAvatar::Set(path.clone()));
+                    }
+                    _ => session.attach(path),
+                }
             }
             session.poll(&ctx);
             if let Some(messages) = &mut session.messages
