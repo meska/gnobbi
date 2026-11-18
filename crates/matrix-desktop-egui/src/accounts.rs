@@ -12,7 +12,7 @@ pub enum Launch {
 pub fn show(ctx: &egui::Context, open: &mut bool, dirs: &AppDirs, current: &std::path::Path, t: &DesignTokens) -> Option<Launch> {
     let mut out = None;
     let catalog = AccountCatalog::load(dirs);
-    egui::Window::new("Account").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
+    egui::Window::new("Account").open(open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(320.);
         let secondary = egui::Color32::from_rgb((t.secondary >> 16) as u8, (t.secondary >> 8) as u8, t.secondary as u8);
         for entry in catalog.accounts() {
