@@ -2,6 +2,9 @@
 
 /// Settings row of the «Privacy e sicurezza» entry (rows 0-4 are the switches).
 pub const SETTINGS_PRIVACY_ROW: usize = 6;
+/// Rows 7 and 8 of the «Privacy e sicurezza» page (live session only): «Esporta chiavi…», «Rigenera chiave di recupero…».
+pub const SETTINGS_EXPORT_KEYS_ROW: usize = 7;
+pub const SETTINGS_RESET_RECOVERY_ROW: usize = 8;
 
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
@@ -33,6 +36,7 @@ pub const MONO_FONT: &str = "DejaVu Sans Mono";
 pub const MONO_FONT: &str = "Consolas";
 mod verification;
 pub mod inactive;
+pub mod key_export;
 pub mod recover_keys;
 pub use recover_keys::keys_recovered_text;
 pub mod app_id;

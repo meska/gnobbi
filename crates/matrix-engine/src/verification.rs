@@ -167,6 +167,21 @@ pub enum VerificationCommand {
         account_id: AccountId,
         key: crate::signin::Secret,
     },
+    /// «Esporta chiavi…»: Element key file at `dest` (0600). The answer is `KeysExported`. `phrase` is
+    /// the local unlock phrase, required only on legacy (non-vault) profiles.
+    #[cfg(feature = "sdk")]
+    ExportRoomKeys {
+        account_id: AccountId,
+        dest: std::path::PathBuf,
+        passphrase: crate::signin::Secret,
+        phrase: Option<crate::signin::Secret>,
+    },
+    /// «Rigenera chiave di recupero…»: the answer is `RecoveryKeyReset`.
+    #[cfg(feature = "sdk")]
+    ResetRecoveryKey {
+        account_id: AccountId,
+        phrase: Option<crate::signin::Secret>,
+    },
     /// Sign out other devices in one request (UIA password). On success a fresh `Devices` event follows.
     DeleteDevice {
         account_id: AccountId,
@@ -205,6 +220,18 @@ pub enum VerificationEvent {
     KeysRecovered {
         account_id: AccountId,
         count: usize,
+    },
+    /// Answer to `ExportRoomKeys`: how many keys were written.
+    #[cfg(feature = "sdk")]
+    KeysExported {
+        account_id: AccountId,
+        result: Result<usize, crate::key_export::KeyExportError>,
+    },
+    /// Answer to `ResetRecoveryKey`: the new key, shown once by the UI and wiped on drop.
+    #[cfg(feature = "sdk")]
+    RecoveryKeyReset {
+        account_id: AccountId,
+        result: Result<crate::recovery::RecoverySecret, crate::recovery::RecoveryError>,
     },
     /// Whether key recovery is complete (see `recovery::keys_recovered`); sent at start, on change and after a recovery.
     KeysComplete {

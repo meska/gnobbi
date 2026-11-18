@@ -388,6 +388,7 @@ impl RoomListWorker {
                         account,
                         verification_requests,
                         verification_results,
+                        sync.session.store.as_ref().map(|s| s.path.clone()),
                     ));
                     let operation_client = client.clone();
                     let timelines = Timelines::default();

@@ -279,6 +279,11 @@ impl Shell {
         if self.menu_open && self.about_open {
             return self.about_key(event, window, cx);
         }
+        // A key sub-page has text fields: only Esc, Tab, arrows, Enter and copy are ours.
+        #[cfg(feature = "live")]
+        if self.menu_open && self.settings_open && self.privacy_open && self.keys_ui.is_some() {
+            return self.keys_key(event, window, cx);
+        }
         if self.menu_open {
             let accounts = self.drawer_accounts();
             let update = matrix_desktop::update::announced().is_some() && !self.settings_open;
@@ -293,6 +298,15 @@ impl Shell {
                 // The privacy page: «Dispositivi» opens the panel, «Conferme di lettura» toggles.
                 "enter" | "space" if activate && self.privacy_open && self.settings_row == 1 => {
                     self.toggle_setting(1, cx)
+                }
+                "enter" | "space"
+                    if activate
+                        && self.privacy_open
+                        && self.keys_rows()
+                        && matches!(self.settings_row, matrix_desktop::SETTINGS_EXPORT_KEYS_ROW | matrix_desktop::SETTINGS_RESET_RECOVERY_ROW) =>
+                {
+                    self.swallow_menu_key_up = true;
+                    self.open_keys_row(self.settings_row, window, cx)
                 }
                 "enter" | "space" if activate && self.privacy_open => {
                     self.swallow_menu_key_up = true;

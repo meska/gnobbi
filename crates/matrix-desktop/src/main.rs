@@ -54,6 +54,8 @@ mod room_menu_view;
 mod room_search_view;
 mod scrollbar_view;
 mod settings_view;
+#[cfg(feature = "live")]
+mod key_export_view;
 mod switch_row;
 #[cfg(test)]
 mod switch_rows_test;
@@ -140,6 +142,9 @@ struct Shell {
     settings_open: bool,
     /// The «Privacy e sicurezza» page inside Settings.
     privacy_open: bool,
+    /// Widgets of the «Esporta chiavi» / «Chiave di recupero» sub-page; its state is `verification.keys`.
+    #[cfg(feature = "live")]
+    keys_ui: Option<key_export_view::KeysUi>,
     drawer_scroll: gpui::ScrollHandle,
     settings_error: Option<&'static str>,
     about_open: bool,
@@ -3354,6 +3359,8 @@ fn main() {
                                                 this.profile_saved(*result, cx);
                                             }
                                             this.verification.apply(event);
+                                            #[cfg(feature = "live")]
+                                            this.sync_keys_fields(cx);
                                             this.record_profile();
                                         }
                                         for event in deliveries {
@@ -3651,6 +3658,8 @@ fn main() {
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
                         privacy_open: false,
+                        #[cfg(feature = "live")]
+                        keys_ui: None,
                         drawer_scroll: gpui::ScrollHandle::new(),
                         settings_error: None,
                         about_open: false,
