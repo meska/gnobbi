@@ -3341,7 +3341,13 @@ fn main() {
                                                     }
                                                     let anchor = this.reading_anchor();
                                                     let gone = matches!(&diff, matrix_engine::RoomListDiff::Remove(s) if s.account_id == this.active_scope.account_id && this.restore.lost(&s.room_id));
+                                                    let count = |this: &Shell| this.sidebar.selected().map(|r| (r.scope.clone(), r.info.joined_members));
+                                                    let before = count(this);
                                                     this.sidebar.apply_diff(diff);
+                                                    let after = count(this);
+                                                    if before.as_ref().map(|b| &b.0) == after.as_ref().map(|a| &a.0) {
+                                                        this.members_count_moved(before.map(|b| b.1), after.map(|a| a.1));
+                                                    }
                                                     if gone { this.sidebar.clear_selection(); }
                                                     this.reconcile_topic_links();
                                                     this.open_started_room(cx);

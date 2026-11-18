@@ -283,7 +283,15 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
 
     // 7. Outcomes: success updates the profile, failure flashes and changes nothing; kick/ban leave the list.
     shell!(|this, window, cx| {
+        this.members_requested = Some(this.active_scope.clone());
         this.set_room_details_open(true);
+        assert!(this.members_requested.is_none(), "opening the panel asks for the members again");
+        // A leave (count 2 -> 1) with the panel already open rereads the roster; an unchanged count does not.
+        this.members_requested = Some(this.active_scope.clone());
+        this.members_count_moved(Some(2), Some(2));
+        assert!(this.members_requested.is_some(), "same count: roster kept");
+        this.members_count_moved(Some(2), Some(1));
+        assert!(this.members_requested.is_none(), "count moved with the panel open: roster is requested again");
         this.details_zone.focus(window);
         load(this, profile(ADA, "Ada", Some(false), false), Some(mod_rights()));
         this.ignored_set(ADA.into(), true, Err(OperationError::Forbidden), cx);
