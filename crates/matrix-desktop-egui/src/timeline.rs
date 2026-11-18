@@ -21,7 +21,7 @@ pub struct Heights {
 }
 
 /// True when the message was right-clicked (or long-pressed).
-fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str>, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool) {
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str>, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(12.).color(rgb(t.secondary))));
@@ -29,12 +29,13 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str
     }
     if e.status {
         ui.vertical_centered(|ui| ui.label(RichText::new(&e.text).size(12.).color(rgb(t.secondary))));
-        return (None, false);
+        return (None, false, false);
     }
     let max = (ui.available_width() * 0.72).max(120.);
     let layout = if e.outgoing { Layout::right_to_left(Align::TOP) } else { Layout::left_to_right(Align::TOP) };
     let mut opened = None;
     let mut save = false;
+    let mut thread = false;
     ui.with_layout(layout, |ui| {
         ui.add_space(12.);
         let fill = if e.highlighted { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
@@ -62,6 +63,11 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str
                 {
                     save = true;
                 }
+                if let Some(th) = &e.thread
+                    && ui.link(format!("{} risposte", th.num_replies)).clicked()
+                {
+                    thread = true;
+                }
                 if e.redacted {
                     ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {
@@ -75,13 +81,14 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str
             opened = hit.interact_pointer_pos();
         }
     });
-    (opened, save)
+    (opened, save, thread)
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>) {
+pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     let mut menu = None;
     let mut save = None;
+    let mut thread = None;
     if (heights.width - ui.available_width()).abs() > 1. {
         heights.width = ui.available_width();
         heights.rows.clear();
@@ -100,7 +107,10 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                let (opened, wants_save) = row(ui, e, pictures, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t);
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t);
+                if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
+                    thread = Some(id.clone());
+                }
                 if let Some(pos) = opened {
                     menu = Some((e.id.clone(), pos));
                 }
@@ -118,5 +128,5 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
         }
         ui.add_space(GAP);
     });
-    (first, menu, save)
+    (first, menu, save, thread)
 }

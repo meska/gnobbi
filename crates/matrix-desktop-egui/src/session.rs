@@ -12,6 +12,17 @@ use matrix_engine::{
     signin::{self, RecoveryState, SignInCommand, SignInEvent, SignInMode, SignInUi},
 };
 
+/// The open thread: its page as last read, and the line being typed.
+pub struct ThreadState {
+    pub root: EventId,
+    views: matrix_engine::ViewRequests,
+    pub page: Option<Box<matrix_engine::history::ThreadPage>>,
+    pub failed: bool,
+    pub draft: String,
+    /// Next re-read; the thread has no live feed of its own here.
+    next_read: std::time::Instant,
+}
+
 pub struct Session {
     pub form: SignInForm,
     ui: SignInUi,
@@ -33,6 +44,7 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    pub thread: Option<ThreadState>,
     pub verification: Option<matrix_desktop::DeviceVerification>,
     ver_route: Option<(matrix_engine::Sender<matrix_engine::verification::VerificationCommand>, Receiver<matrix_engine::verification::VerificationEvent>)>,
     pub devices_open: bool,
@@ -118,6 +130,7 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            thread: None,
             verification: None,
             ver_route,
             devices_open: false,
@@ -257,6 +270,7 @@ impl Session {
             self.media.clear();
             self.pictures.clear();
             self.members = None;
+            self.thread = None;
             self.upload_limit = None;
             self.search_sent.clear();
             self.search = matrix_engine::operations::MessageSearchState::Idle;
@@ -343,6 +357,13 @@ impl Session {
             self.op_pending = Some(OperationCommand::SearchUsers { term: wanted.clone(), all: false });
             self.new_sent = wanted;
         }
+        if let (Some(th), Some(scope)) = (&mut self.thread, &self.draft_scope)
+            && th.next_read <= std::time::Instant::now()
+            && let Ok(tag) = th.views.start(scope.clone())
+        {
+            th.next_read = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            self.op_queue.push(OperationCommand::Thread { tag, root: th.root.clone(), want: 50 });
+        }
         if self.op_pending.is_none() && !self.op_queue.is_empty() {
             self.op_pending = Some(self.op_queue.remove(0));
         }
@@ -362,6 +383,28 @@ impl Session {
             }
         }
         for result in results {
+            if let OperationResult::Thread { tag, root, result } = result {
+                if let Some(th) = &mut self.thread
+                    && th.root == root
+                    && th.views.accepts(&tag)
+                {
+                    match result {
+                        Ok(page) => {
+                            th.page = Some(page);
+                            th.failed = false;
+                        }
+                        Err(_) => th.failed = true,
+                    }
+                    changed = true;
+                }
+                continue;
+            }
+            if matches!(result, OperationResult::ThreadRead { .. } | OperationResult::ThreadSent { .. }) {
+                if let Some(th) = &mut self.thread {
+                    th.next_read = std::time::Instant::now();
+                }
+                continue;
+            }
             match &result {
                 OperationResult::UserSearch { state, .. } => {
                     self.users = state.clone();
@@ -449,6 +492,17 @@ impl Session {
 
     pub fn answer_invite(&mut self, scope: matrix_domain::RoomScope, accept: bool) {
         self.op_queue.push(OperationCommand::AnswerInvite { scope, accept });
+    }
+
+    pub fn open_thread(&mut self, root: EventId) {
+        self.thread = Some(ThreadState { root, views: Default::default(), page: None, failed: false, draft: String::new(), next_read: std::time::Instant::now() });
+        self.info_open = false;
+        self.search_open = false;
+    }
+
+    pub fn send_thread(&mut self, body: String) {
+        let (Some(th), Some(scope)) = (&self.thread, self.draft_scope.clone()) else { return };
+        self.op_queue.push(OperationCommand::ThreadSend { scope, root: th.root.clone(), reply_to: None, body });
     }
 
     pub fn open_profile(&mut self, user_id: String) {

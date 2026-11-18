@@ -139,3 +139,53 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
     });
     flip
 }
+
+/// Thread panel: the root, its replies (oldest first) and a line to answer in the thread. Returns the text to send.
+pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &mut bool, t: &DesignTokens) -> Option<String> {
+    let mut send = None;
+    ui.add_space(12.);
+    ui.horizontal(|ui| {
+        ui.add_space(12.);
+        if ui.small_button("✕").clicked() {
+            *close = true;
+        }
+    });
+    egui::Panel::bottom("thread-input").frame(egui::Frame::NONE).show_inside(ui, |ui| {
+        ui.add_space(6.);
+        let r = ui.add_sized([ui.available_width() - 12., 32.], egui::TextEdit::singleline(&mut th.draft).hint_text("Rispondi nel thread"));
+        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !th.draft.trim().is_empty() {
+            send = Some(std::mem::take(&mut th.draft));
+            r.request_focus();
+        }
+        ui.add_space(6.);
+    });
+    let Some(page) = &th.page else {
+        ui.add_space(16.);
+        if th.failed {
+            ui.colored_label(rgb(t.error), "Thread non disponibile");
+        } else {
+            ui.vertical_centered(|ui| ui.spinner());
+        }
+        return send;
+    };
+    egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show(ui, |ui| {
+        for e in page.root.iter().chain(page.replies.iter()) {
+            ui.add_space(6.);
+            ui.horizontal(|ui| {
+                ui.add_space(12.);
+                ui.vertical(|ui| {
+                    ui.set_max_width(ui.available_width() - 12.);
+                    let name = e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone());
+                    ui.label(RichText::new(name).strong().size(12.).color(rgb(t.accent)));
+                    if e.redacted {
+                        ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
+                    } else {
+                        ui.label(&e.body);
+                    }
+                });
+            });
+            ui.separator();
+        }
+    });
+    send
+}

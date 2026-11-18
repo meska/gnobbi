@@ -117,10 +117,9 @@ impl eframe::App for App {
             {
                 session.heights = Default::default();
             }
-            // The backend answers off-thread: wake up soon while waiting for it.
-            if session.account.is_none() {
-                ctx.request_repaint_after(Duration::from_millis(100));
-            }
+            // The backend answers off-thread and cannot wake the UI: poll it ten times a second.
+            // shortcut: a fixed tick, replace by a repaint signal from the workers when idle power matters.
+            ctx.request_repaint_after(Duration::from_millis(100));
         }
         let t = self.tokens;
         if self.session.as_ref().is_some_and(|s| s.account.is_some()) {
@@ -213,6 +212,18 @@ impl App {
             let state = s.search.clone();
             egui::Panel::right("search").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| info::search(ui, &mut s.search_term, &state, t));
         }
+        if let Some(s) = &mut self.session
+            && let Some(mut th) = s.thread.take()
+        {
+            let (mut close, mut body) = (false, None);
+            egui::Panel::right("thread").exact_size(320.).resizable(false).frame(bar(t)).show(ui, |ui| body = info::thread(ui, &mut th, &mut close, t));
+            if !close {
+                s.thread = Some(th);
+            }
+            if let Some(body) = body {
+                s.send_thread(body);
+            }
+        }
         let mut to_send = None;
         egui::Panel::bottom("composer").min_size(t.bottom_bar).frame(bar(t)).show(ui, |ui| {
             if let Some(s) = &mut self.session
@@ -279,13 +290,16 @@ impl App {
             } else if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
             {
-                let (first, menu, save) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
+                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);
                 }
                 if let Some((id, name)) = save {
                     s.save(id, &name);
+                }
+                if let Some(root) = thread {
+                    s.open_thread(root);
                 }
             }
         });
