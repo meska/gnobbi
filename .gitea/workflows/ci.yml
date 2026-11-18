@@ -1,7 +1,8 @@
 name: ci
 on:
   push:
-    branches: [main, 'ci/**']
+    branches: ['ci/**']
+    tags: ['v*.*.0']
   pull_request:
 concurrency:
   group: ci-${{ gitea.ref }}
@@ -17,7 +18,7 @@ jobs:
       # Debounce (owner 05/11): build only the last push on a ref. A newer push
       # cancels this run via workflow concurrency, or makes it stale here.
       - name: Wait 30 minutes
-        if: gitea.event_name == 'push'
+        if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/heads/')
         run: sleep 1800
       - name: Check ref freshness
         id: check
@@ -62,7 +63,7 @@ jobs:
       - name: Composer rendered geometry (Xvfb, xauth, D-Bus)
         run: sh packaging/linux/test-composer-render.sh
       - name: AppImage
-        if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main'
+        if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v')
         run: |
           cargo build --locked -j4 -p matrix-desktop --features live,linux-vault --profile dist
           out="$HOME/ci/out/${{ gitea.sha }}"
@@ -79,7 +80,7 @@ jobs:
           printf '%s %s linux\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci/out/${{ gitea.sha }}.linux.status"
   windows:
     needs: [debounce, linux]
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
+    if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v') && needs.debounce.outputs.stale != 'true'
     runs-on: windows-x64
     env:
       # rustc va in STATUS_STACK_BUFFER_OVERRUN (0xc0000409) su crate grossi come windows 0.61 (run 2290): stack dei thread del compiler a 32 MiB.
@@ -114,7 +115,7 @@ jobs:
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\publish-tester-zip.ps1
   ios-mobile:
     needs: [debounce, linux]
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
+    if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v') && needs.debounce.outputs.stale != 'true'
     runs-on: macos-arm64
     steps:
       - name: Checkout
@@ -145,7 +146,7 @@ jobs:
           printf '%s %s ios-mobile\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.ios-mobile.status"
   macos-desktop:
     needs: [debounce, linux]
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
+    if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v') && needs.debounce.outputs.stale != 'true'
     runs-on: macos-arm64
     steps:
       - name: Checkout
@@ -168,7 +169,7 @@ jobs:
           printf '%s %s macos-desktop\n' "${{ job.status }}" "$(date -u +%FT%TZ)" > "$HOME/ci-runners/gitea/out/${{ gitea.sha }}.macos-desktop.status"
   publish:
     needs: [debounce, linux]
-    if: gitea.event_name == 'push' && gitea.ref == 'refs/heads/main' && needs.debounce.outputs.stale != 'true'
+    if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v') && needs.debounce.outputs.stale != 'true'
     runs-on: linux-x86_64
     concurrency:
       group: publish-main
