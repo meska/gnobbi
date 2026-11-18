@@ -167,7 +167,7 @@ pub struct DeviceVerification {
     profile_avatar: Option<String>,
     /// Key recovery complete (backup on, cross-signing keys held); None until the engine says.
     keys_complete: Option<bool>,
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     key_recovery: Option<matrix_engine::signin::RecoveryState>,
     /// «Esporta chiavi…» / «Rigenera chiave di recupero…» sub-page of «Privacy e sicurezza».
     pub keys: Option<crate::key_export::KeysPage>,
@@ -195,7 +195,7 @@ impl DeviceVerification {
             own: None,
             profile_avatar: None,
             keys_complete: None,
-            #[cfg(feature = "live")]
+            #[cfg(feature = "core-live")]
             key_recovery: None,
             keys: None,
         }
@@ -341,17 +341,17 @@ impl DeviceVerification {
     pub fn offers_recover_keys(&self, utd: bool) -> bool {
         utd && self.keys_complete == Some(false)
     }
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     /// State of the last «Recupera chiavi» attempt, for the key field.
     pub fn key_recovery(&self) -> Option<matrix_engine::signin::RecoveryState> {
         self.key_recovery
     }
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     /// One-line failure shown by the key field: the same wording as the sign-in step.
     pub fn key_recovery_message(&self) -> Option<&'static str> {
         self.key_recovery.and_then(crate::signin_form::recovery_message)
     }
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     /// Queues the recovery with the key typed now; the key lives only in the command (same checks as sign-in).
     pub fn recover_keys(&mut self, mut key: zeroize::Zeroizing<String>) -> bool {
         use matrix_engine::signin::{RecoveryFailure, RecoveryState, Secret};
@@ -368,7 +368,7 @@ impl DeviceVerification {
     }
     /// Queues the export once the file is chosen. The passphrase and the phrase live in the command;
     /// copies are kept in the page only to refill the fields after a failure.
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     pub fn export_keys(
         &mut self,
         dest: std::path::PathBuf,
@@ -408,7 +408,7 @@ impl DeviceVerification {
         });
         true
     }
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     pub fn reset_recovery(&mut self, phrase: Option<&zeroize::Zeroizing<String>>) -> bool {
         use matrix_engine::signin::Secret;
         let Some(page) = self.keys.as_mut().filter(|p| p.kind == crate::key_export::KeysKind::Reset && !p.busy && !p.shown()) else {
@@ -431,7 +431,7 @@ impl DeviceVerification {
         true
     }
     /// «L'ho salvata»: the key is dropped (wiped) and the page closes.
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     pub fn confirm_key_saved(&mut self) {
         self.keys = None;
     }
@@ -573,11 +573,11 @@ impl DeviceVerification {
                     _ => "Non riuscito. Riprova.",
                 });
             }
-            #[cfg(feature = "live")]
+            #[cfg(feature = "core-live")]
             VerificationEvent::KeysRecovery { account_id, state } if account_id == self.account => {
                 self.key_recovery = Some(state);
             }
-            #[cfg(feature = "live")]
+            #[cfg(feature = "core-live")]
             VerificationEvent::KeysExported { account_id, result } if account_id == self.account => {
                 if let Some(page) = self.keys.as_mut().filter(|p| p.kind == crate::key_export::KeysKind::Export) {
                     page.busy = false;
@@ -592,7 +592,7 @@ impl DeviceVerification {
                     }
                 }
             }
-            #[cfg(feature = "live")]
+            #[cfg(feature = "core-live")]
             VerificationEvent::RecoveryKeyReset { account_id, result } if account_id == self.account => {
                 if let Some(page) = self.keys.as_mut().filter(|p| p.kind == crate::key_export::KeysKind::Reset) {
                     page.busy = false;
@@ -604,7 +604,7 @@ impl DeviceVerification {
             }
             VerificationEvent::KeysComplete { account_id, complete } if account_id == self.account => {
                 self.keys_complete = Some(complete);
-                #[cfg(feature = "live")]
+                #[cfg(feature = "core-live")]
                 if complete {
                     self.key_recovery = None;
                 }
@@ -1156,7 +1156,7 @@ mod profile_tests {
 #[cfg(test)]
 mod key_recovery_tests {
     use super::*;
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     use matrix_engine::signin::{RecoveryFailure, RecoveryState};
 
     fn complete(account: u64, complete: bool) -> VerificationEvent {
@@ -1176,7 +1176,7 @@ mod key_recovery_tests {
         assert!(!v.offers_recover_keys(true), "gone everywhere once complete");
     }
 
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     #[test]
     fn key_goes_into_one_command_and_failures_use_the_sign_in_wording() {
         let mut v = DeviceVerification::new(AccountId::new(1));
@@ -1195,7 +1195,7 @@ mod key_recovery_tests {
         assert_eq!(v.key_recovery(), None);
     }
 
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     #[test]
     fn export_goes_into_one_command_and_failure_keeps_the_secrets_for_a_retry() {
         use crate::key_export::{KeysKind, KeysPage};
@@ -1221,7 +1221,7 @@ mod key_recovery_tests {
         assert_eq!(page.line.as_ref().map(|l| l.0.as_str()), Some("Esportate 3 chiavi"));
     }
 
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     #[test]
     fn reset_shows_the_new_key_once_and_only_confirmation_closes_the_page() {
         use crate::key_export::{KeysKind, KeysPage};

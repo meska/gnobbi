@@ -3,6 +3,8 @@
 
 /// Shortest export password, counted in characters. One constant to change.
 pub const EXPORT_MIN_CHARS: usize = 12;
+/// Longest password in bytes: the limit of the engine's `Secret::new`.
+pub const EXPORT_MAX_BYTES: usize = 4096;
 /// Declared delay after which a copied recovery key is wiped from the clipboard.
 pub const CLIPBOARD_SECONDS: u64 = 60;
 pub const EXPORT_ROW_LABEL: &str = "Esporta chiavi…";
@@ -16,12 +18,14 @@ pub const COPY_KEY_LABEL: &str = "Copia chiave di recupero";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasswordError {
     TooShort,
+    TooLong,
     Mismatch,
 }
 impl PasswordError {
     pub fn text(self) -> &'static str {
         match self {
             Self::TooShort => "Password troppo corta: almeno 12 caratteri",
+            Self::TooLong => "Password troppo lunga: al massimo 4096 byte",
             Self::Mismatch => "Le password non coincidono",
         }
     }
@@ -31,6 +35,8 @@ impl PasswordError {
 pub fn check_password(first: &str, second: &str) -> Result<(), PasswordError> {
     if first.chars().count() < EXPORT_MIN_CHARS {
         Err(PasswordError::TooShort)
+    } else if first.len() > EXPORT_MAX_BYTES {
+        Err(PasswordError::TooLong)
     } else if first != second {
         Err(PasswordError::Mismatch)
     } else {
@@ -45,7 +51,7 @@ pub fn exported_text(count: usize) -> String {
     }
 }
 
-#[cfg(feature = "live")]
+#[cfg(feature = "core-live")]
 pub fn export_error_text(error: matrix_engine::key_export::KeyExportError) -> &'static str {
     use matrix_engine::key_export::KeyExportError::*;
     match error {
@@ -56,7 +62,7 @@ pub fn export_error_text(error: matrix_engine::key_export::KeyExportError) -> &'
     }
 }
 
-#[cfg(feature = "live")]
+#[cfg(feature = "core-live")]
 pub fn reset_error_text(error: matrix_engine::recovery::RecoveryError) -> &'static str {
     use matrix_engine::recovery::RecoveryError::*;
     match error {
@@ -89,7 +95,7 @@ pub struct KeysPage {
     /// Set by the engine answer: the view refills (error) or clears (ok) the fields once.
     pub refill: bool,
     /// The new recovery key while it is shown; never read from anywhere else.
-    #[cfg(feature = "live")]
+    #[cfg(feature = "core-live")]
     pub secret: Option<matrix_engine::recovery::RecoverySecret>,
 }
 
@@ -101,15 +107,15 @@ impl KeysPage {
             line: None,
             held: None,
             refill: false,
-            #[cfg(feature = "live")]
+            #[cfg(feature = "core-live")]
             secret: None,
         }
     }
     /// The new key is on screen: the only way out is «L'ho salvata».
     pub fn shown(&self) -> bool {
-        #[cfg(feature = "live")]
+        #[cfg(feature = "core-live")]
         return self.secret.is_some();
-        #[cfg(not(feature = "live"))]
+        #[cfg(not(feature = "core-live"))]
         false
     }
     /// Esc and the header close the page, except while the new key is shown or being made
@@ -156,7 +162,7 @@ mod tests {
         page.busy = true;
         assert!(!page.closable());
         page.busy = false;
-        #[cfg(feature = "live")]
+        #[cfg(feature = "core-live")]
         {
             page.secret = Some(matrix_engine::recovery::RecoverySecret::fixture(
                 "EsTx fixt",
@@ -177,19 +183,21 @@ mod tests {
         assert_eq!(check_password("", "abcdefghijkl"), Err(PasswordError::TooShort));
         assert_eq!(check_password("abcdefghijkl ", "abcdefghijkl"), Err(PasswordError::Mismatch));
         assert_eq!(check_password("            ", "            "), Ok(())); // 12 spaces: length only, by design
-        assert_eq!(check_password(&"x".repeat(100_000), &"x".repeat(100_000)), Ok(()));
+        assert_eq!(check_password(&"x".repeat(4096), &"x".repeat(4096)), Ok(()));
+        assert_eq!(check_password(&"x".repeat(4097), &"x".repeat(4097)), Err(PasswordError::TooLong));
+        assert_eq!(check_password(&"x".repeat(100_000), &"x".repeat(100_000)), Err(PasswordError::TooLong));
         assert_eq!(check_password("e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}", "e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}"), Ok(()));
     }
 
     #[test]
     fn user_texts_never_echo_the_password() {
         let secret = "hunter2-hunter2";
-        let mut texts: Vec<String> = [PasswordError::TooShort, PasswordError::Mismatch]
+        let mut texts: Vec<String> = [PasswordError::TooShort, PasswordError::TooLong, PasswordError::Mismatch]
             .iter()
             .map(|e| e.text().to_owned())
             .collect();
         texts.extend([exported_text(0), exported_text(3), WRONG_PHRASE.into(), RESET_WARNING.into()]);
-        #[cfg(feature = "live")]
+        #[cfg(feature = "core-live")]
         {
             use matrix_engine::key_export::KeyExportError::*;
             for e in [WrongPhrase, WrongPassword, NoKeys, NotWritable, Deadline, Failed] {

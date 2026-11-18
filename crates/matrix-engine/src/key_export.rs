@@ -383,6 +383,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn logs_and_errors_never_carry_passphrase_keys_or_paths() {
+        // Set up first: the SDK logs the room id when the fixture key is imported, which is not the code under test.
+        let (client, id, session_key) = client_with_key().await;
         let sink = Sink::default();
         let writer = sink.clone();
         let _guard = tracing::subscriber::set_default(
@@ -391,7 +393,6 @@ mod tests {
                 .with_writer(move || writer.clone())
                 .finish(),
         );
-        let (client, id, session_key) = client_with_key().await;
         let dir = temp("leaks-SECRETDIR");
         let (scratch, dest) = (dir.join("key-export.pending"), dir.join("out-SECRETNAME.txt"));
         let mut errors = vec![

@@ -5,7 +5,7 @@ use matrix_desktop::{DesignTokens, Sidebar};
 const ROW: f32 = 52.;
 const RAIL: f32 = 64.;
 
-fn rgb(c: u32) -> Color32 {
+pub fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
@@ -58,19 +58,42 @@ pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, t: &DesignTokens) {
 }
 
 /// Header with the search field, then the rows. Returns nothing: selection goes through `Sidebar::select`.
-pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, t: &DesignTokens) {
+pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_chat: &mut bool, focus: &mut bool, t: &DesignTokens) {
     let (title, _, _) = sidebar.list_header();
     ui.add_space(12.);
     ui.horizontal(|ui| {
         ui.add_space(16.);
         ui.heading(title);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.add_space(12.);
+            if ui.button("+").clicked() {
+                *new_chat = true;
+            }
+        });
     });
     ui.add_space(8.);
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        if ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca")).changed() {
+        let r = ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca").align(egui::Align2::LEFT_CENTER));
+        if std::mem::take(focus) {
+            r.request_focus();
+        }
+        if r.changed() {
             sidebar.set_query(query);
+        }
+        // Enter opens the first match, Escape clears the search: the keyboard way to change room.
+        if r.has_focus() {
+            if ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && let Some(&first) = sidebar.visible_indices().first()
+            {
+                let scope = sidebar.rooms()[first].scope.clone();
+                sidebar.select(&scope);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                query.clear();
+                sidebar.set_query(query);
+            }
         }
     });
     ui.add_space(8.);

@@ -5218,7 +5218,10 @@ dependencies = [
  "eframe",
  "matrix-desktop",
  "matrix-domain",
+ "image",
  "matrix-engine",
+ "serde_json",
+ "zeroize",
 ]
 
 [[package]]

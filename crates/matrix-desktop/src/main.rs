@@ -145,6 +145,8 @@ struct Shell {
     /// Widgets of the «Esporta chiavi» / «Chiave di recupero» sub-page; its state is `verification.keys`.
     #[cfg(feature = "live")]
     keys_ui: Option<key_export_view::KeysUi>,
+    /// Bumped by every key copy; see `copy_recovery_key`.
+    clip_gen: u64,
     drawer_scroll: gpui::ScrollHandle,
     settings_error: Option<&'static str>,
     about_open: bool,
@@ -3217,6 +3219,7 @@ fn main() {
                                             this.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
                                             this.notifications.set_enabled(this.prefs.notifications);
                                             this.verification = matrix_desktop::DeviceVerification::new(account);
+                                            this.keys_ui = None;
                                             this.composer.update(cx, |editor, cx| editor.switch_room(this.active_scope.clone(), cx));
                                             cx.notify();
                                         }
@@ -3660,6 +3663,7 @@ fn main() {
                         privacy_open: false,
                         #[cfg(feature = "live")]
                         keys_ui: None,
+                        clip_gen: 0,
                         drawer_scroll: gpui::ScrollHandle::new(),
                         settings_error: None,
                         about_open: false,

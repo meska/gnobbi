@@ -16,8 +16,6 @@ pub(crate) struct KeysUi {
     copy_focus: FocusHandle,
     stop: usize,
     selection: Rc<RefCell<matrix_desktop::static_selection::StaticSelection>>,
-    /// Bumped by every copy; only the timer of the latest one may wipe the clipboard.
-    copy_gen: u64,
 }
 
 impl Shell {
@@ -72,7 +70,6 @@ impl Shell {
             copy_focus: cx.focus_handle(),
             stop: 0,
             selection: Default::default(),
-            copy_gen: 0,
         };
         self.keys_ui = Some(ui);
         self.focus_keys_stop(0, window, cx);
@@ -345,23 +342,21 @@ impl Shell {
             return;
         };
         let text = text.unwrap_or_else(|| secret.expose().to_owned());
+        // The timer owns its own copy: it must wipe even after the page, the selection or the account changed.
+        let copied = zeroize::Zeroizing::new(text.clone());
         cx.write_to_clipboard(ClipboardItem::new_string(text));
-        let Some(ui) = self.keys_ui.as_mut() else {
-            return;
-        };
-        ui.copy_gen += 1;
-        let generation = ui.copy_gen;
+        self.clip_gen += 1;
+        let generation = self.clip_gen;
         cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_secs(CLIPBOARD_SECONDS))
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if this
-                    .keys_ui
-                    .as_ref()
-                    .is_some_and(|u| u.copy_gen == generation)
+                // Only the latest copy's timer wipes, and only if the clipboard still holds that text.
+                if this.clip_gen == generation
+                    && cx.read_from_clipboard().and_then(|item| item.text()).is_some_and(|clip| clip == *copied)
                 {
-                    this.wipe_key_clipboard(cx);
+                    cx.write_to_clipboard(ClipboardItem::new_string(String::new()));
                 }
             });
         })

@@ -3,6 +3,14 @@
 use eframe::egui::{self, Align, Color32, CornerRadius, Layout, RichText, Vec2};
 use matrix_desktop::{DemoEvent, DesignTokens};
 
+/// Poll clicks of this frame: (poll start, option index).
+#[derive(Default)]
+pub struct Acts {
+    pub vote: Option<(matrix_domain::EventId, usize)>,
+}
+
+pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::TextureHandle>;
+
 const GAP: f32 = 8.;
 const TIGHT: f32 = 2.;
 const GUESS: f32 = 56.;
@@ -18,7 +26,8 @@ pub struct Heights {
     rows: Vec<f32>,
 }
 
-fn row(ui: &mut egui::Ui, e: &DemoEvent, label: Option<&str>, day: Option<&str>, t: &DesignTokens) {
+/// True when the message was right-clicked (or long-pressed).
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, label: Option<&str>, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(12.).color(rgb(t.secondary))));
@@ -26,20 +35,70 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, label: Option<&str>, day: Option<&str>,
     }
     if e.status {
         ui.vertical_centered(|ui| ui.label(RichText::new(&e.text).size(12.).color(rgb(t.secondary))));
-        return;
+        return (None, false, false);
     }
     let max = (ui.available_width() * 0.72).max(120.);
     let layout = if e.outgoing { Layout::right_to_left(Align::TOP) } else { Layout::left_to_right(Align::TOP) };
+    let mut opened = None;
+    let mut save = false;
+    let mut thread = false;
     ui.with_layout(layout, |ui| {
         ui.add_space(12.);
         let fill = if e.highlighted { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
-        egui::Frame::NONE.fill(fill).corner_radius(CornerRadius::same(12)).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
-            ui.set_max_width(max);
+        let frame = egui::Frame::NONE.fill(fill).corner_radius(CornerRadius::same(12)).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
+            // Shrink-wrap: as wide as the longest of text, sender and time (at most `max`), not the whole column.
+            let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
+            let inner = max - 24.;
+            let measure = |text: &str, size: f32| ui.painter().layout(text.to_owned(), egui::FontId::proportional(size), Color32::WHITE, inner).size().x;
+            let mut w = measure(&matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state), 11.);
+            w = w.max(if e.redacted { measure("Messaggio eliminato", 15.) } else { measure(&e.text, 15.) });
+            if let Some(name) = label {
+                w = w.max(measure(name, 12.));
+            }
+            ui.set_width(if wide { inner.min(320.).max(w) } else { w.min(inner) + 1. });
             ui.vertical(|ui| {
                 if let Some(name) = label {
                     ui.label(RichText::new(name).size(12.).strong().color(rgb(t.accent)));
                 }
-                if e.redacted {
+                if let (Some(media), matrix_domain::TimelineId::Server(id)) = (&e.media, &e.id.id) {
+                    match pictures.get(id) {
+                        Some(tex) => {
+                            let size = tex.size_vec2();
+                            let scale = (max.min(320.) / size.x).min(1.).min(320. / size.y);
+                            ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)));
+                        }
+                        None => {
+                            ui.label(RichText::new(&media.label).color(rgb(t.secondary)));
+                        }
+                    }
+                }
+                if let Some(name) = &e.attachment_name
+                    && !e.redacted
+                    && ui.button(format!("⬇ {name}")).clicked()
+                {
+                    save = true;
+                }
+                if let Some(th) = &e.thread
+                    && ui.link(format!("{} risposte", th.num_replies)).clicked()
+                {
+                    thread = true;
+                }
+                if let (Some(poll), matrix_domain::TimelineId::Server(id)) = (&e.poll, &e.id.id)
+                    && !e.redacted
+                {
+                    ui.label(RichText::new(&poll.question).strong());
+                    ui.add_space(4.);
+                    for (ix, answer) in poll.answers.iter().enumerate() {
+                        let share = if poll.results_visible() { poll.share(ix) } else { 0. };
+                        let r = ui.add_enabled(!poll.ended, egui::Button::new(poll.option_label(ix)).selected(answer.own).min_size(Vec2::new(200., 26.)));
+                        let bar = egui::Rect::from_min_size(r.rect.left_bottom() - Vec2::new(0., 3.), Vec2::new(r.rect.width() * share, 3.));
+                        ui.painter().rect_filled(bar, 1., rgb(t.accent));
+                        if r.clicked() {
+                            acts.vote = Some((id.clone(), ix));
+                        }
+                    }
+                    ui.label(RichText::new(poll.footer()).size(11.).color(rgb(t.secondary)));
+                } else if e.redacted {
                     ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {
                     ui.label(RichText::new(&e.text).size(15.));
@@ -47,11 +106,19 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, label: Option<&str>, day: Option<&str>,
                 ui.label(RichText::new(matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state)).size(11.).color(rgb(t.secondary)));
             });
         });
+        let hit = ui.interact(frame.response.rect, ui.next_auto_id().with("menu").with(&e.id.id), egui::Sense::click());
+        if hit.secondary_clicked() {
+            opened = hit.interact_pointer_pos();
+        }
     });
+    (opened, save, thread)
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, members: u64, t: &DesignTokens) -> usize {
+pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, acts: &mut Acts, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+    let mut menu = None;
+    let mut save = None;
+    let mut thread = None;
     if (heights.width - ui.available_width()).abs() > 1. {
         heights.width = ui.available_width();
         heights.rows.clear();
@@ -70,7 +137,16 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                row(ui, e, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t);
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, acts, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t);
+                if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
+                    thread = Some(id.clone());
+                }
+                if let Some(pos) = opened {
+                    menu = Some((e.id.clone(), pos));
+                }
+                if let (true, matrix_domain::TimelineId::Server(id), Some(name)) = (wants_save, &e.id.id, &e.attachment_name) {
+                    save = Some((id.clone(), name.clone()));
+                }
                 heights.rows[i] = ui.cursor().top() - top;
                 ui.add_space(gap);
             }
@@ -82,5 +158,5 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
         }
         ui.add_space(GAP);
     });
-    first
+    (first, menu, save, thread)
 }
