@@ -253,6 +253,7 @@ impl Shell {
             && self.new_room.is_none()
             && self.room_edit.is_none()
             && self.profile_edit.is_none()
+            && self.alias_add.is_none()
             && self.groups_edit.is_none()
             && self.confirm_removal.is_none()
         {

@@ -648,6 +648,11 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomEdited { result }
                                 }
+                                OperationCommand::Aliases { scope, action } => {
+                                    let (result, aliases) =
+                                        crate::alias_ops::alias_action(&operation_client, account, &scope, &action).await;
+                                    OperationResult::Aliases { scope, action, result, aliases }
+                                }
                                 OperationCommand::CreateRoom { name, topic, public } => {
                                     let result = crate::operations::create_room(
                                         &operation_client,

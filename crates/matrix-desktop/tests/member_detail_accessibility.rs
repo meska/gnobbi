@@ -44,6 +44,7 @@ fn profile_panel(acts: Vec<A>) -> DetailsSnapshot {
         low_priority: false,
         links: vec![],
         confirmation: None,
+        aliases: Default::default(),
     }
 }
 

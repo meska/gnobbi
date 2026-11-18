@@ -57,6 +57,11 @@ impl Shell {
                         bounds: [None; 3],
                     }
                 }),
+                aliases: matrix_desktop::accessibility::details::AliasRing {
+                    labels: if self.profile.is_some() { vec![] } else { self.alias_commands().into_iter().map(|(_, _, l)| l).collect() },
+                    bounds: self.a11y_alias_bounds.clone(),
+                    focus: self.alias_focus,
+                },
             }))
         } else if window.viewport_size().width >= px(800.) || self.compact_chat {
             DetailsView::Closed(room.scope.clone())
@@ -81,11 +86,27 @@ impl Shell {
         match action {
             DetailsAction::Open(_) => {
                 self.set_room_details_open(true);
+                self.alias_focus = None;
                 self.details_focus = Default::default();
                 self.a11y_details_bounds = [None; 9];
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
-            DetailsAction::Focus { control, .. } => self.details_focus = control,
+            DetailsAction::Focus { control, .. } => {
+                self.alias_focus = None;
+                self.details_focus = control;
+            }
+            DetailsAction::AliasFocus { index, .. } => {
+                self.alias_focus = Some(index);
+                self.details_focus = DetailsControl::Copy;
+            }
+            DetailsAction::AliasAct { index, .. } => {
+                self.alias_focus = Some(index);
+                self.details_focus = DetailsControl::Copy;
+                if self.alias_act(index, window, cx) {
+                    // The add dialog took the focus.
+                    return;
+                }
+            }
             DetailsAction::Link { instance, focus_only, .. } => {
                 self.details_focus = DetailsControl::Topic;
                 // Current links only: a node of an older topic text finds no target here.
@@ -268,38 +289,77 @@ impl Shell {
     fn details_observer(&self, _index: usize, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
-            let entity = _cx.entity();
-            Some(
-                gpui::canvas(
-                    |_, _, _| (),
-                    move |bounds, _, window, cx| {
-                        let scale = f64::from(window.scale_factor());
-                        let rect = accesskit::Rect::new(
-                            f64::from(f32::from(bounds.left())) * scale,
-                            f64::from(f32::from(bounds.top())) * scale,
-                            f64::from(f32::from(bounds.right())) * scale,
-                            f64::from(f32::from(bounds.bottom())) * scale,
-                        );
-                        if entity.read(cx).a11y_details_bounds[_index] != Some(rect) {
-                            let entity = entity.clone();
-                            window.on_next_frame(move |_, cx| {
-                                entity.update(cx, |this, cx| {
-                                    this.a11y_details_bounds[_index] = Some(rect);
-                                    cx.notify();
-                                })
-                            });
-                        }
-                    },
-                )
-                .absolute()
-                .inset_0()
-                .into_any_element(),
+            self.bounds_observer(
+                _index,
+                |this, i| this.a11y_details_bounds[i],
+                |this, i, rect| this.a11y_details_bounds[i] = Some(rect),
+                _cx,
             )
         }
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         {
             None
         }
+    }
+
+    /// Same as `details_observer`, for the `index`th command of «Indirizzi».
+    pub(crate) fn alias_observer(&self, _index: usize, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        {
+            self.bounds_observer(
+                _index,
+                |this, i| this.a11y_alias_bounds.get(i).copied().flatten(),
+                |this, i, rect| {
+                    if this.a11y_alias_bounds.len() <= i {
+                        this.a11y_alias_bounds.resize(i + 1, None);
+                    }
+                    this.a11y_alias_bounds[i] = Some(rect);
+                },
+                _cx,
+            )
+        }
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        {
+            None
+        }
+    }
+
+    /// Invisible overlay that reports its screen rectangle to the accessibility tree.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn bounds_observer(
+        &self,
+        index: usize,
+        get: fn(&Self, usize) -> Option<accesskit::Rect>,
+        put: fn(&mut Self, usize, accesskit::Rect),
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let entity = cx.entity();
+        Some(
+            gpui::canvas(
+                |_, _, _| (),
+                move |bounds, _, window, cx| {
+                    let scale = f64::from(window.scale_factor());
+                    let rect = accesskit::Rect::new(
+                        f64::from(f32::from(bounds.left())) * scale,
+                        f64::from(f32::from(bounds.top())) * scale,
+                        f64::from(f32::from(bounds.right())) * scale,
+                        f64::from(f32::from(bounds.bottom())) * scale,
+                    );
+                    if get(entity.read(cx), index) != Some(rect) {
+                        let entity = entity.clone();
+                        window.on_next_frame(move |_, cx| {
+                            entity.update(cx, |this, cx| {
+                                put(this, index, rect);
+                                cx.notify();
+                            })
+                        });
+                    }
+                },
+            )
+            .absolute()
+            .inset_0()
+            .into_any_element(),
+        )
     }
 
     pub(crate) fn render_spaces(
@@ -545,7 +605,7 @@ impl Shell {
             return div().into_any_element();
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        let focused_control = Some(self.details_focus as usize);
+        let focused_control = if self.alias_focus.is_some() { None } else { Some(self.details_focus as usize) };
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         let topic_links = self.reconcile_topic_links();
@@ -797,6 +857,7 @@ impl Shell {
                                     ),
                             ),
                     )
+                    .children(self.render_aliases(t, cx))
                     .child(div().flex().flex_col()
                     .child(
                         switch_row(

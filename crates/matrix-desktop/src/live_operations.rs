@@ -257,6 +257,7 @@ impl LiveOperations {
             | OperationResult::SpaceChanged { .. }
             | OperationResult::Join { .. }
             | OperationResult::RoomEdited { .. }
+            | OperationResult::Aliases { .. }
             | OperationResult::InviteAnswered { .. }
             | OperationResult::RoomSearch { .. }
             | OperationResult::ServerProbed { .. }

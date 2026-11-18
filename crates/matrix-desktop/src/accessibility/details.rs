@@ -40,6 +40,9 @@ pub enum DetailsAction {
         scope: RoomScope,
         control: DetailsControl,
     },
+    /// Focus / activation of the `index`th command of «Indirizzi».
+    AliasFocus { scope: RoomScope, index: usize },
+    AliasAct { scope: RoomScope, index: usize },
     /// Focus/Click on a link of «Argomento»: a click only asks for the confirmation.
     Link {
         scope: RoomScope,
@@ -108,6 +111,15 @@ impl DetailsView {
                     user_id: panel.person(request.target_node)?.to_owned(),
                 })
             }
+            Self::Open(panel) if !panel.back && panel.alias_index(request.target_node).is_some() => {
+                let index = panel.alias_index(request.target_node)?;
+                let scope = panel.scope.clone();
+                match request.action {
+                    Action::Focus => Some(DetailsAction::AliasFocus { scope, index }),
+                    Action::Click => Some(DetailsAction::AliasAct { scope, index }),
+                    _ => None,
+                }
+            }
             Self::Open(panel) => {
                 let control = DetailsControl::ALL
                     .into_iter()
@@ -154,6 +166,8 @@ impl DetailsView {
                 | DetailsAction::Members(scope)
                 | DetailsAction::Act { scope, .. }
                 | DetailsAction::Focus { scope, .. }
+                | DetailsAction::AliasFocus { scope, .. }
+                | DetailsAction::AliasAct { scope, .. }
                 | DetailsAction::Link { scope, .. }
                 | DetailsAction::LinkConfirmation { scope, .. }
                 | DetailsAction::FocusRing { scope, .. },
@@ -205,6 +219,21 @@ impl DetailsControl {
         }
     }
 }
+/// Commands of «Indirizzi» (set main, copy, remove, add), one screen-reader label each, in row order.
+/// They sit in the Tab ring right after «Copia ID»; empty while a profile is open.
+#[derive(Clone, Default)]
+pub struct AliasRing {
+    pub labels: Vec<String>,
+    pub bounds: Vec<Option<accesskit::Rect>>,
+    pub focus: Option<usize>,
+}
+/// A stop of the Tab ring: one of the fixed controls or an alias command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stop {
+    Control(DetailsControl),
+    Alias(usize),
+}
+const ALIAS_ID: u64 = 1 << 41;
 #[derive(Clone)]
 pub struct DetailsSnapshot {
     pub scope: RoomScope,
@@ -229,8 +258,49 @@ pub struct DetailsSnapshot {
     pub links: Vec<links::Snapshot>,
     /// Pending open-in-browser confirmation of a topic link.
     pub confirmation: Option<links::ConfirmationSnapshot>,
+    pub aliases: AliasRing,
 }
 impl DetailsSnapshot {
+    fn alias_index(&self, id: NodeId) -> Option<usize> {
+        let i = id.0.checked_sub(ALIAS_ID)? as usize;
+        (i < self.aliases.labels.len()).then_some(i)
+    }
+    fn alias_focus(&self) -> Option<usize> {
+        self.aliases.focus.filter(|i| *i < self.aliases.labels.len())
+    }
+    /// Where the keyboard focus is now.
+    pub fn stop(&self) -> Stop {
+        self.alias_focus().map_or(Stop::Control(self.focus), Stop::Alias)
+    }
+    /// Node a Return/Space press clicks.
+    pub fn stop_id(&self) -> NodeId {
+        match self.stop() {
+            Stop::Alias(i) => NodeId(ALIAS_ID + i as u64),
+            Stop::Control(c) => c.id(),
+        }
+    }
+    /// Focus order = visual order; the alias commands follow «Copia ID».
+    pub fn ring(&self) -> Vec<Stop> {
+        let mut ring = vec![];
+        for c in DetailsControl::ALL.into_iter().filter(|c| self.shown(*c)) {
+            ring.push(Stop::Control(c));
+            if c == DetailsControl::Copy {
+                ring.extend((0..self.aliases.labels.len()).map(Stop::Alias));
+            }
+        }
+        ring
+    }
+    /// Tab / Shift+Tab: the action that moves the focus to the next stop.
+    pub fn tab(&self, reverse: bool) -> DetailsAction {
+        let (ring, scope) = (self.ring(), self.scope.clone());
+        let Some(at) = ring.iter().position(|s| *s == self.stop()) else {
+            return DetailsAction::Focus { scope, control: self.next_focus(reverse) };
+        };
+        match ring[if reverse { (at + ring.len() - 1) % ring.len() } else { (at + 1) % ring.len() }] {
+            Stop::Control(control) => DetailsAction::Focus { scope, control },
+            Stop::Alias(index) => DetailsAction::AliasFocus { scope, index },
+        }
+    }
     /// User id behind a member row's node.
     fn person(&self, id: NodeId) -> Option<&str> {
         let index = id.0.checked_sub(33 + FIXED_LABELS)? as usize;
@@ -380,6 +450,18 @@ impl DetailsSnapshot {
             root.push_child(control.id());
             nodes.push((control.id(), node));
         }
+        for (i, label) in self.aliases.labels.iter().enumerate().filter(|_| !self.back) {
+            let id = NodeId(ALIAS_ID + i as u64);
+            let mut node = Node::new(Role::Button);
+            node.set_label(label.as_str());
+            node.add_action(Action::Click);
+            node.add_action(Action::Focus);
+            if let Some(Some(bounds)) = self.aliases.bounds.get(i) {
+                node.set_bounds(*bounds);
+            }
+            root.push_child(id);
+            nodes.push((id, node));
+        }
         for (i, act) in self.acts.iter().enumerate() {
             let mut node = Node::new(Role::Button);
             node.set_label(act.label());
@@ -401,7 +483,13 @@ impl DetailsSnapshot {
             nodes,
             tree: Some(Tree::new(ROOT)),
             tree_id: TreeId::ROOT,
-            focus: if self.back { self.ring_node(self.profile_focus) } else { self.focus_node() },
+            focus: if self.back {
+                self.ring_node(self.profile_focus)
+            } else if let Some(i) = self.alias_focus() {
+                NodeId(ALIAS_ID + i as u64)
+            } else {
+                self.focus_node()
+            },
         };
         if let Some(confirmation) = &self.confirmation {
             confirmation.append_to(&mut tree);

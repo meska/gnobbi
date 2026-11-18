@@ -62,6 +62,7 @@ impl Shell {
             || self.quick.is_some()
             || self.room_edit.is_some()
             || self.profile_edit.is_some()
+            || self.alias_add.is_some()
             || self.groups_edit.is_some()
             || self.confirm_removal.is_some()
             || self.confirm_redaction.is_some()

@@ -230,6 +230,11 @@ pub enum OperationCommand {
         topic: Option<String>,
         avatar: Option<std::path::PathBuf>,
     },
+    /// Indirizzi (alias) di una stanza: lettura e modifica, risposta `OperationResult::Aliases`.
+    Aliases {
+        scope: RoomScope,
+        action: crate::alias::AliasAction,
+    },
     /// Join by alias (`#a:server`) or room ID (`!id:server`), typed or taken from the directory.
     JoinRoom {
         target: String,
@@ -415,6 +420,13 @@ pub enum OperationResult {
     },
     RoomEdited {
         result: Result<(), OperationError>,
+    },
+    /// `aliases`: l'elenco riletto dal server (anche dopo un errore); `None` se la rilettura è fallita.
+    Aliases {
+        scope: RoomScope,
+        action: crate::alias::AliasAction,
+        result: Result<(), crate::alias::AliasOpError>,
+        aliases: Option<crate::alias::RoomAliases>,
     },
     Members {
         scope: RoomScope,

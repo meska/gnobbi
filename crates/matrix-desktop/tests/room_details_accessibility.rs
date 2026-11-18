@@ -87,6 +87,7 @@ fn panel() -> DetailsSnapshot {
         low_priority: false,
         links: vec![],
         confirmation: None,
+        aliases: Default::default(),
     }
 }
 
@@ -585,4 +586,33 @@ fn edit_control_appears_and_vanishes_with_rights_at_runtime() {
     p.info.edit_rights = matrix_engine::EditRights::default();
     assert!(!has_edit(&p), "demoted");
     assert_eq!(p.next_focus(false), DetailsControl::Close);
+}
+
+#[test]
+fn alias_commands_sit_in_the_tab_ring_after_copy_and_are_named() {
+    use matrix_desktop::accessibility::details::Stop;
+    let mut panel = panel();
+    panel.focus = DetailsControl::Copy;
+    panel.aliases.labels = vec!["Copia #a:s".into(), "Rimuovi #a:s".into(), "Aggiungi indirizzo".into()];
+    let scope = panel.scope.clone();
+    // Forward: Copy -> the three commands -> HideStatus; backward is the mirror.
+    for i in 0..3 {
+        assert_eq!(panel.tab(false), DetailsAction::AliasFocus { scope: scope.clone(), index: i });
+        panel.aliases.focus = Some(i);
+        assert_eq!(panel.stop(), Stop::Alias(i));
+    }
+    assert_eq!(panel.tab(false), DetailsAction::Focus { scope: scope.clone(), control: DetailsControl::HideStatus });
+    panel.aliases.focus = Some(0);
+    assert_eq!(panel.tab(true), DetailsAction::Focus { scope: scope.clone(), control: DetailsControl::Copy });
+    // A focus left past the end (list shrank) falls back to «Copia ID».
+    panel.aliases.focus = Some(9);
+    assert_eq!(panel.stop(), Stop::Control(DetailsControl::Copy));
+    panel.aliases.focus = Some(1);
+    let tree = panel.tree();
+    let node = tree.nodes.iter().find(|(id, _)| *id == panel.stop_id()).unwrap();
+    assert_eq!(tree.focus, node.0);
+    assert_eq!(node.1.label(), Some("Rimuovi #a:s"));
+    assert!(node.1.supports_action(accesskit::Action::Click) && node.1.supports_action(accesskit::Action::Focus));
+    let click = accesskit::ActionRequest { action: accesskit::Action::Click, target_tree: accesskit::TreeId::ROOT, target_node: node.0, data: None };
+    assert!(matches!(DetailsView::Open(Box::new(panel)).action(&click), Some(DetailsAction::AliasAct { index: 1, .. })));
 }

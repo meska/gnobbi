@@ -25,6 +25,9 @@ pub mod recovery;
 mod outbox;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
+pub mod alias;
+#[cfg(feature = "sdk")]
+pub mod alias_ops;
 pub mod join;
 pub mod message_match;
 #[cfg(feature = "sdk")]

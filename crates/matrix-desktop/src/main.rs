@@ -41,6 +41,7 @@ mod quick_search_view;
 mod search_list_view;
 mod profile_edit_view;
 mod room_edit_view;
+mod alias_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 mod operation_panel_view;
@@ -156,6 +157,8 @@ struct Shell {
     recents: matrix_desktop::quick_search::RecentsStore,
     room_edit: Option<room_edit_view::RoomEdit>,
     profile_edit: Option<profile_edit_view::ProfileEdit>,
+    aliases: Option<alias_view::AliasPanel>,
+    alias_add: Option<alias_view::AliasAdd>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
     /// A just-created space, selected in the bar as soon as the sync lists it.
@@ -225,6 +228,11 @@ struct Shell {
     thread_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
     a11y_details_bounds: [Option<accesskit::Rect>; 9],
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    /// Keyboard focus on a command of «Indirizzi» (index in `alias_commands`); `details_focus` stays on «Copia ID».
+    alias_focus: Option<usize>,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    a11y_alias_bounds: Vec<Option<accesskit::Rect>>,
     spaces_ui: spaces_view::SpacesUi,
     spaces_open: bool,
     navigation_wide: bool,
@@ -1125,19 +1133,16 @@ impl Shell {
             }
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             if matches!(key.key.as_str(), "tab" | "space" | "enter") {
-                use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
+                use matrix_desktop::accessibility::details::DetailsView;
                 let view = self.semantic_details(window);
                 if let DetailsView::Open(panel) = &view {
                     let action = if key.key == "tab" {
-                        Some(DetailsAction::Focus {
-                            scope: panel.scope.clone(),
-                            control: panel.next_focus(key.modifiers.shift),
-                        })
+                        Some(panel.tab(key.modifiers.shift))
                     } else {
                         view.action(&accesskit::ActionRequest {
                             action: accesskit::Action::Click,
                             target_tree: accesskit::TreeId::ROOT,
-                            target_node: panel.focus.id(),
+                            target_node: panel.stop_id(),
                             data: None,
                         })
                     };
@@ -1831,6 +1836,7 @@ impl Shell {
         self.flush_directory();
         self.flush_quick_users();
         self.flush_quick_rooms();
+        self.ensure_aliases();
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
@@ -1901,6 +1907,12 @@ impl Shell {
                         OperationCommand::SetNotificationMode { scope, .. } => OperationResult::NotificationModeSet {
                             scope,
                             result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::Aliases { scope, action } => OperationResult::Aliases {
+                            scope,
+                            action,
+                            result: Err(matrix_engine::alias::AliasOpError::Unavailable),
+                            aliases: None,
                         },
                         OperationCommand::EditRoom { .. } => OperationResult::RoomEdited {
                             result: Err(OperationError::Unavailable),
@@ -2770,6 +2782,7 @@ impl Shell {
             .children(self.render_quick_search(window, t, cx))
             .children(self.render_room_edit(t, window, cx))
             .children(self.render_profile_edit(t, window, cx))
+            .children(self.render_alias_add(t, window, cx))
             .children(self.render_groups_edit(t, window, cx))
             .children(self.timeline.as_ref().and_then(|timeline| timeline.render_viewer(t)))
             .children({
@@ -3272,6 +3285,10 @@ fn main() {
                                                 this.groups_edited(result, cx);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::Aliases { scope, action, result, aliases } = result {
+                                                this.aliases_answered(scope, action, result, aliases, cx);
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::RoomEdited { result } = result {
                                                 this.room_edited(result, cx);
                                                 continue;
@@ -3651,6 +3668,8 @@ fn main() {
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
                         profile_edit: None,
+                        aliases: None,
+                        alias_add: None,
                         pending_open: None,
                         pending_space: None,
                         space_notice: None,
@@ -3761,6 +3780,10 @@ fn main() {
                         thread_focus: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                         a11y_details_bounds: [None; 9],
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        alias_focus: None,
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        a11y_alias_bounds: Vec::new(),
                         spaces_ui,
                         spaces_open: false,
                         navigation_wide: true,
