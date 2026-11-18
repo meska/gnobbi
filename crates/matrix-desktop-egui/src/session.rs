@@ -39,6 +39,10 @@ pub struct Session {
     parked: String,
     /// Right-click menu: where it opened; "delete" waits for a second click.
     pub menu: Option<eframe::egui::Pos2>,
+    /// File dropped on the window, sent with the next Enter (the text is its caption).
+    pub attachment: Option<(String, Vec<u8>)>,
+    /// Short result line for the last save or refused attachment.
+    pub notice: Option<String>,
     pub confirm_delete: bool,
     /// The menu opened this frame: the click that opened it must not close it.
     pub menu_fresh: bool,
@@ -95,6 +99,8 @@ impl Session {
             target: None,
             parked: String::new(),
             menu: None,
+            attachment: None,
+            notice: None,
             confirm_delete: false,
             menu_fresh: false,
             draft_scope: None,
@@ -169,6 +175,11 @@ impl Session {
             }
             self.media.mark_videos(videos);
             self.media.next_inline(scope.clone(), wanted);
+        }
+        if let Some((name, ok)) = self.media.take_saved().map(|(_, r)| (String::new(), r.is_ok())) {
+            let _ = name;
+            self.notice = Some(if ok { "Salvato in Download".to_owned() } else { "Salvataggio non riuscito".to_owned() });
+            changed = true;
         }
         if let Some((tx, rx)) = &mut self.media_route {
             self.media.flush(tx);
@@ -290,6 +301,39 @@ impl Session {
         self.ops.clear_selection();
     }
 
+    /// Saves an attachment into the Download folder under a safe, unused name.
+    pub fn save(&mut self, event: EventId, name: &str) {
+        let Some(scope) = self.draft_scope.clone() else { return };
+        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+        let dir = std::path::Path::new(&home).join("Downloads");
+        // Only the last component of what the sender wrote, never a path.
+        let base = std::path::Path::new(name).file_name().map_or("file".into(), |n| n.to_string_lossy().into_owned());
+        let base = base.trim_start_matches('.');
+        let base = if base.is_empty() { "file" } else { base };
+        let mut path = dir.join(base);
+        for n in 2.. {
+            if !path.exists() {
+                break;
+            }
+            path = dir.join(format!("{n}-{base}"));
+        }
+        let _ = std::fs::create_dir_all(&dir);
+        self.notice = (!self.media.request_save(scope, event, path)).then(|| "Un salvataggio è già in corso".to_owned());
+    }
+
+    /// Takes a dropped file as the pending attachment (up to 50 MB, shortcut: the room's own limit is not read here).
+    pub fn attach(&mut self, path: &std::path::Path) {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= 50 << 20).and_then(|_| std::fs::read(path).ok());
+        match (name, data) {
+            (Some(name), Some(data)) => {
+                self.attachment = Some((name, data));
+                self.notice = None;
+            }
+            _ => self.notice = Some("File non allegabile".to_owned()),
+        }
+    }
+
     /// Reply or edit: the composer works on the selected message until Enter or X.
     pub fn begin(&mut self, mode: crate::composer::Mode) {
         let Some(id) = self.ops.selection().cloned() else { return };
@@ -344,7 +388,7 @@ impl Session {
             scope: scope.clone(),
             transaction_id: matrix_engine::sending::fresh_transaction_id(),
             body,
-            attachment: None,
+            attachment: self.attachment.take().map(|(filename, data)| matrix_engine::sending::Attachment { filename, data, voice: None }),
             poll: None,
             mentions: Vec::new(),
         };

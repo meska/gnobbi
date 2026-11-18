@@ -92,7 +92,11 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.refresh(&ctx);
         ctx.request_repaint_after(Duration::from_secs(60));
+        let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
         if let Some(session) = &mut self.session {
+            if let Some(path) = dropped.first() {
+                session.attach(path);
+            }
             session.poll(&ctx);
             // The backend answers off-thread: wake up soon while waiting for it.
             if session.account.is_none() {
@@ -138,7 +142,15 @@ impl App {
             {
                 let mode = s.target.as_ref().map_or(composer::Mode::Send, |(_, m)| *m);
                 let mut cancel = false;
-                to_send = composer::show(ui, &mut s.draft, mode, &mut cancel);
+                let mut drop_file = false;
+                let name = s.attachment.as_ref().map(|(n, _)| n.clone());
+                if let Some(notice) = &s.notice {
+                    ui.label(notice);
+                }
+                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file);
+                if drop_file {
+                    s.attachment = None;
+                }
                 if cancel {
                     s.cancel_target();
                 }
@@ -154,10 +166,13 @@ impl App {
             if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
             {
-                let (first, menu) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, 3, t);
+                let (first, menu, save) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, 3, t);
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);
+                }
+                if let Some((id, name)) = save {
+                    s.save(id, &name);
                 }
             }
         });
