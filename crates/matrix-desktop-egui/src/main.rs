@@ -10,6 +10,7 @@ use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
 mod composer;
+mod devices;
 mod info;
 mod list;
 mod newchat;
@@ -152,6 +153,14 @@ impl App {
                     if ui.button("⚙").clicked() {
                         self.settings_open = !self.settings_open;
                     }
+                    if ui.button("🖥").clicked()
+                        && let Some(s) = &mut self.session
+                    {
+                        s.devices_open = !s.devices_open;
+                        if let Some(v) = &mut s.verification {
+                            v.refresh();
+                        }
+                    }
                     if has_room && ui.button("ⓘ").clicked()
                         && let Some(s) = &mut self.session
                     {
@@ -228,6 +237,14 @@ impl App {
             && s.new_open
         {
             newchat::show(ui.ctx(), s, &mut self.new_form, t);
+        }
+        if let Some(s) = &mut self.session
+            && let Some(v) = &mut s.verification
+        {
+            if s.devices_open {
+                devices::show(ui.ctx(), v, &mut s.devices_open, t);
+            }
+            devices::popup(ui.ctx(), v);
         }
         if self.settings_open
             && let Some(new) = settings::show(ui.ctx(), &mut self.settings_open, &self.prefs, self.dirs.as_ref(), t)

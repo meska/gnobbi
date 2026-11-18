@@ -33,6 +33,9 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    pub verification: Option<matrix_desktop::DeviceVerification>,
+    ver_route: Option<(matrix_engine::Sender<matrix_engine::verification::VerificationCommand>, Receiver<matrix_engine::verification::VerificationEvent>)>,
+    pub devices_open: bool,
     pub new_open: bool,
     pub new_term: String,
     new_sent: String,
@@ -94,6 +97,7 @@ impl Session {
         let route = worker.take_history_route();
         let send = worker.take_send_route();
         let op_route = worker.take_operation_route();
+        let ver_route = worker.take_verification_route();
         let media_route = worker.take_media_route();
         let mut form = SignInForm::default();
         form.vault = with_vault;
@@ -114,6 +118,9 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            verification: None,
+            ver_route,
+            devices_open: false,
             new_open: false,
             new_term: String::new(),
             new_sent: String::new(),
@@ -166,6 +173,9 @@ impl Session {
                 SignInEvent::Prompt(p) if p.mode == SignInMode::UnlockVault && p.error.is_none() => self.send_submit(),
                 SignInEvent::Authenticated(account) => {
                     self.account = Some(account);
+                    let mut v = matrix_desktop::DeviceVerification::new(account);
+                    v.refresh();
+                    self.verification = Some(v);
                     self.sidebar.set_navigation_context(account, true);
                 }
                 SignInEvent::Recovery(RecoveryState::Offered | RecoveryState::Failed(_) | RecoveryState::Unsupported) => {
@@ -185,6 +195,13 @@ impl Session {
                 // Alerts and timeline activity belong to later slices.
                 _ => {}
             }
+        }
+        if let (Some(v), Some((tx, rx))) = (&mut self.verification, &mut self.ver_route) {
+            while let Ok(event) = rx.try_recv() {
+                v.apply(event);
+                changed = true;
+            }
+            v.flush(tx);
         }
         changed |= self.drive_history();
         changed |= self.drive_media(ctx);

@@ -1,0 +1,90 @@
+//! «Dispositivi» window and the verification popup, driven by the toolkit-free `DeviceVerification`.
+use eframe::egui::{self, RichText};
+use matrix_desktop::{DesignTokens, DeviceVerification, PopupBody, PopupButton, device_detail, device_title};
+
+pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, t: &DesignTokens) {
+    egui::Window::new("Dispositivi").open(open).collapsible(false).resizable(false).show(ctx, |ui| {
+        ui.set_min_width(380.);
+        let secondary = egui::Color32::from_rgb((t.secondary >> 16) as u8, (t.secondary >> 8) as u8, t.secondary as u8);
+        let time = |ms: u64| matrix_desktop::time_fmt::day_or_time(ms);
+        if let Some(own) = v.own() {
+            ui.label(RichText::new("Questo dispositivo").strong());
+            ui.label(device_title(own));
+            ui.label(RichText::new(device_detail(own, time)).color(secondary));
+            ui.separator();
+        }
+        let rows: Vec<(String, String, bool)> = v.devices().iter().map(|d| (device_title(d).to_owned(), device_detail(d, time), d.verified)).collect();
+        if rows.is_empty() {
+            ui.spinner();
+        }
+        egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
+            let mut begin = None;
+            for (i, (title, detail, verified)) in rows.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(title);
+                        ui.label(RichText::new(detail).size(12.).color(secondary));
+                    });
+                    if !verified {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Verifica").clicked() {
+                                begin = Some(i);
+                            }
+                        });
+                    }
+                });
+                ui.separator();
+            }
+            if let Some(i) = begin {
+                v.begin(i);
+            }
+        });
+    });
+}
+
+/// The verification popup while a flow is open.
+pub fn popup(ctx: &egui::Context, v: &mut DeviceVerification) {
+    let Some(view) = v.popup_view() else { return };
+    let mut pressed = None;
+    egui::Window::new(view.title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        ui.set_min_width(320.);
+        match &view.body {
+            PopupBody::Waiting => {
+                ui.spinner();
+            }
+            PopupBody::Empty => {}
+            PopupBody::Request(who) => {
+                ui.label(who);
+            }
+            PopupBody::Emoji(list) => {
+                ui.horizontal_wrapped(|ui| {
+                    for (symbol, name) in list {
+                        ui.vertical(|ui| {
+                            ui.label(RichText::new(symbol).size(30.));
+                            ui.label(RichText::new(name).size(11.));
+                        });
+                    }
+                });
+            }
+            PopupBody::Decimals((a, b, c)) => {
+                ui.label(RichText::new(format!("{a}  {b}  {c}")).size(26.));
+            }
+            PopupBody::Outcome(text) => {
+                ui.label(*text);
+            }
+        }
+        ui.add_space(8.);
+        ui.horizontal(|ui| {
+            for button in &view.buttons {
+                if ui.button(button.label()).clicked() {
+                    pressed = Some(*button);
+                }
+            }
+        });
+    });
+    if let Some(button) = pressed {
+        v.popup_press(button);
+    } else if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        v.popup_press(PopupButton::Close);
+    }
+}
