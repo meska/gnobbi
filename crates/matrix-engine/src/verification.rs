@@ -167,6 +167,17 @@ pub enum VerificationCommand {
         account_id: AccountId,
         key: crate::signin::Secret,
     },
+    /// «Esporta chiavi»: the room keys into `path`, encrypted with `passphrase` (Element's export format).
+    /// The answer is `KeysExported`.
+    #[cfg(feature = "sdk")]
+    ExportKeys {
+        account_id: AccountId,
+        path: std::path::PathBuf,
+        passphrase: DevicePassword,
+    },
+    /// «Rigenera chiave di recupero»: a new recovery key, answered once with `RecoveryKeyReset`.
+    #[cfg(feature = "sdk")]
+    NewRecoveryKey { account_id: AccountId },
     /// Sign out other devices in one request (UIA password). On success a fresh `Devices` event follows.
     DeleteDevice {
         account_id: AccountId,
@@ -200,6 +211,18 @@ pub enum VerificationEvent {
     KeysRecovery {
         account_id: AccountId,
         state: crate::signin::RecoveryState,
+    },
+    /// Answer to `ExportKeys`.
+    #[cfg(feature = "sdk")]
+    KeysExported {
+        account_id: AccountId,
+        result: Result<(), VerificationError>,
+    },
+    /// Answer to `NewRecoveryKey`: the key is shown once and wiped when dropped.
+    #[cfg(feature = "sdk")]
+    RecoveryKeyReset {
+        account_id: AccountId,
+        result: Result<crate::recovery::RecoverySecret, VerificationError>,
     },
     /// A `RecoverKeys` that succeeded: how many room keys it brought (0 = the backup had nothing new).
     KeysRecovered {

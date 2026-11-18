@@ -475,6 +475,27 @@ pub(crate) async fn run_service(
                         if events.send(VerificationEvent::KeysComplete { account_id, complete }).await.is_err() { break; }
                         Ok(())
                     }
+                    VerificationCommand::ExportKeys { account_id: requested, path, passphrase } if requested == account_id => {
+                        let result = tokio::time::timeout(
+                            std::time::Duration::from_secs(120),
+                            client.encryption().export_room_keys(path, &passphrase.0, |_| true),
+                        )
+                        .await
+                        .map_err(|_| VerificationError::Transport)
+                        .and_then(|r| r.map_err(|_| VerificationError::Transport));
+                        drop(passphrase);
+                        if events.send(VerificationEvent::KeysExported { account_id, result }).await.is_err() { break; }
+                        Ok(())
+                    }
+                    VerificationCommand::NewRecoveryKey { account_id: requested } if requested == account_id => {
+                        // A timeout can leave a half-made secret storage on the server: nothing is deleted to roll back.
+                        let result = tokio::time::timeout(std::time::Duration::from_secs(60), client.encryption().recovery().reset_key())
+                            .await
+                            .map_err(|_| VerificationError::Transport)
+                            .and_then(|r| r.map(crate::recovery::RecoverySecret::from_sdk).map_err(|_| VerificationError::Transport));
+                        if events.send(VerificationEvent::RecoveryKeyReset { account_id, result }).await.is_err() { break; }
+                        Ok(())
+                    }
                     VerificationCommand::DeleteDevice { account_id: requested, device_ids, password } if requested == account_id => {
                         match session.delete_devices(&device_ids, password).await {
                             Ok(()) => {

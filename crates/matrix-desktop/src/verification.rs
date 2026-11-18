@@ -167,6 +167,11 @@ pub struct DeviceVerification {
     profile_avatar: Option<String>,
     /// Key recovery complete (backup on, cross-signing keys held); None until the engine says.
     keys_complete: Option<bool>,
+    /// Outcome of the last «Esporta chiavi» (None = none yet / running).
+    key_export: Option<bool>,
+    #[cfg(feature = "core-live")]
+    new_key: Option<matrix_engine::recovery::RecoverySecret>,
+    new_key_failed: bool,
     #[cfg(feature = "core-live")]
     key_recovery: Option<matrix_engine::signin::RecoveryState>,
 }
@@ -193,6 +198,10 @@ impl DeviceVerification {
             own: None,
             profile_avatar: None,
             keys_complete: None,
+            key_export: None,
+            #[cfg(feature = "core-live")]
+            new_key: None,
+            new_key_failed: false,
             #[cfg(feature = "core-live")]
             key_recovery: None,
         }
@@ -413,6 +422,47 @@ impl DeviceVerification {
         self.start_popup();
         true
     }
+    /// Queues «Esporta chiavi» into `path`; the passphrase lives only in the command.
+    #[cfg(feature = "core-live")]
+    pub fn export_keys(&mut self, path: std::path::PathBuf, mut passphrase: zeroize::Zeroizing<String>) -> bool {
+        if self.pending.is_some() || passphrase.is_empty() {
+            return false;
+        }
+        self.key_export = None;
+        self.pending = Some(VerificationCommand::ExportKeys {
+            account_id: self.account,
+            path,
+            passphrase: matrix_engine::verification::DevicePassword::new(std::mem::take(&mut *passphrase)),
+        });
+        true
+    }
+    /// `Some(true)` exported, `Some(false)` failed, None while nothing was asked or it is running.
+    pub fn key_export(&self) -> Option<bool> {
+        self.key_export
+    }
+    /// Queues «Rigenera chiave di recupero».
+    #[cfg(feature = "core-live")]
+    pub fn new_recovery_key(&mut self) -> bool {
+        if self.pending.is_some() {
+            return false;
+        }
+        self.new_key = None;
+        self.new_key_failed = false;
+        self.pending = Some(VerificationCommand::NewRecoveryKey { account_id: self.account });
+        true
+    }
+    /// The freshly made recovery key, for the one display; `forget_new_key` wipes it.
+    #[cfg(feature = "core-live")]
+    pub fn new_key(&self) -> Option<&str> {
+        self.new_key.as_ref().map(|k| k.expose())
+    }
+    #[cfg(feature = "core-live")]
+    pub fn forget_new_key(&mut self) {
+        self.new_key = None;
+    }
+    pub fn new_key_failed(&self) -> bool {
+        self.new_key_failed
+    }
     pub fn pending(&self) -> Option<&VerificationCommand> {
         self.pending.as_ref()
     }
@@ -505,6 +555,15 @@ impl DeviceVerification {
             VerificationEvent::KeysRecovery { account_id, state } if account_id == self.account => {
                 self.key_recovery = Some(state);
             }
+            #[cfg(feature = "core-live")]
+            VerificationEvent::KeysExported { account_id, result } if account_id == self.account => {
+                self.key_export = Some(result.is_ok());
+            }
+            #[cfg(feature = "core-live")]
+            VerificationEvent::RecoveryKeyReset { account_id, result } if account_id == self.account => match result {
+                Ok(key) => self.new_key = Some(key),
+                Err(_) => self.new_key_failed = true,
+            },
             VerificationEvent::KeysComplete { account_id, complete } if account_id == self.account => {
                 self.keys_complete = Some(complete);
                 #[cfg(feature = "core-live")]

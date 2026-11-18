@@ -80,6 +80,7 @@ struct App {
     auto_login: Option<serde_json::Value>,
     shot_sent: bool,
     hook_sent: bool,
+    hook_keys: bool,
     hook_menu_at: Option<std::time::Instant>,
     /// Why the backend could not start, shown instead of the form.
     start_error: Option<String>,
@@ -95,7 +96,7 @@ impl App {
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
         App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            shot_sent: false, hook_sent: false, hook_menu_at: None,
+            shot_sent: false, hook_sent: false, hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
     }
 
@@ -217,6 +218,20 @@ impl App {
             {
                 let scope = s.sidebar.rooms()[first].scope.clone();
                 s.sidebar.select(&scope);
+            }
+            // GNOBBI_EGUI_EXPORT=<passphrase> / GNOBBI_EGUI_NEWKEY=1: the two key actions of the Devices window, once.
+            if !self.hook_keys
+                && let Some(v) = &mut s.verification
+                && v.own().is_some()
+            {
+                if let Ok(pass) = std::env::var("GNOBBI_EGUI_EXPORT") {
+                    let path = std::env::var_os("GNOBBI_EGUI_EXPORT_PATH").map(std::path::PathBuf::from).unwrap_or_default();
+                    v.export_keys(path, zeroize::Zeroizing::new(pass));
+                    self.hook_keys = true;
+                } else if std::env::var_os("GNOBBI_EGUI_NEWKEY").is_some() {
+                    v.new_recovery_key();
+                    self.hook_keys = true;
+                }
             }
             // GNOBBI_EGUI_SEND=<text>: sends it once into the open room (disposable servers only).
             if !self.hook_sent
@@ -445,6 +460,7 @@ impl App {
             }
             devices::dialogs(ui.ctx(), v, &mut self.device_fields);
             devices::popup(ui.ctx(), v);
+            devices::new_key(ui.ctx(), v);
         }
         if let Some(s) = &mut self.session
             && s.poll_open

@@ -10,6 +10,8 @@ pub struct Fields {
     key: String,
     name: String,
     seeded: bool,
+    export_pass: String,
+    export_path: Option<std::path::PathBuf>,
 }
 
 pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, f: &mut Fields, t: &DesignTokens) {
@@ -46,6 +48,33 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, f:
             }
             ui.separator();
         }
+        ui.label(RichText::new("Chiavi").strong());
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut f.export_pass).password(true).hint_text("Password dell'export"));
+            if ui.button("Esporta chiavi").clicked() && !f.export_pass.is_empty() {
+                let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+                let path = std::path::Path::new(&home).join("Downloads").join("gnobbi-chiavi.txt");
+                let _ = std::fs::create_dir_all(path.parent().unwrap());
+                f.export_path = Some(path.clone());
+                v.export_keys(path, zeroize::Zeroizing::new(std::mem::take(&mut f.export_pass)));
+            }
+        });
+        match (v.key_export(), &f.export_path) {
+            (Some(true), Some(p)) => {
+                ui.label(format!("Esportate in {}", p.display()));
+            }
+            (Some(false), _) => {
+                ui.colored_label(ui.visuals().error_fg_color, "Esportazione non riuscita");
+            }
+            _ => {}
+        }
+        if ui.button("Rigenera chiave di recupero").clicked() {
+            v.new_recovery_key();
+        }
+        if v.new_key_failed() {
+            ui.colored_label(ui.visuals().error_fg_color, "Non riuscito");
+        }
+        ui.separator();
         if v.offers_recover_keys(true) {
             ui.label(RichText::new("Recupera chiavi").strong());
             ui.horizontal(|ui| {
@@ -193,5 +222,27 @@ pub fn dialogs(ctx: &egui::Context, v: &mut DeviceVerification, f: &mut Fields) 
         if cancel {
             v.cancel_rename();
         }
+    }
+}
+
+/// The new recovery key, shown once: readable, selectable and with the small copy icon; closing wipes it.
+pub fn new_key(ctx: &egui::Context, v: &mut DeviceVerification) {
+    let Some(key) = v.new_key().map(str::to_owned) else { return };
+    let mut close = false;
+    egui::Window::new("Nuova chiave di recupero").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        ui.set_max_width(380.);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(&key).monospace().size(15.));
+            if crate::info::copy_icon(ui).clicked() {
+                ctx.copy_text(key.clone());
+            }
+        });
+        ui.add_space(8.);
+        if ui.button("Fatto").clicked() {
+            close = true;
+        }
+    });
+    if close {
+        v.forget_new_key();
     }
 }

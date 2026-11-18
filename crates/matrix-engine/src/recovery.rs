@@ -85,6 +85,9 @@ impl RecoverySecret {
     pub fn fixture(key: &str) -> Self {
         Self(zeroize::Zeroizing::new(key.to_owned()))
     }
+    pub(crate) fn from_sdk(key: String) -> Self {
+        Self(zeroize::Zeroizing::new(key))
+    }
     /// The recovery key must never be formatted into diagnostics.
     /// ```compile_fail
     /// fn leak(secret: matrix_engine::recovery::RecoverySecret) {

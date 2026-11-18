@@ -125,7 +125,7 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
             ui.heading(&p.name);
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(id).color(rgb(t.secondary)));
-                if ui.small_button("⧉").clicked() {
+                if copy_icon(ui).clicked() {
                     ui.ctx().copy_text(id.to_owned());
                 }
             });
@@ -231,4 +231,15 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
         }
     });
     send
+}
+
+/// The small copy icon (two sheets), drawn: the font has no glyph for it everywhere.
+pub fn copy_icon(ui: &mut egui::Ui) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.), egui::Sense::click());
+    let color = if resp.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
+    let stroke = egui::Stroke::new(1.3, color);
+    let c = rect.center();
+    ui.painter().rect_stroke(egui::Rect::from_min_size(c + Vec2::new(-6., -7.), Vec2::new(9., 11.)), 1.5, stroke, egui::StrokeKind::Inside);
+    ui.painter().rect_stroke(egui::Rect::from_min_size(c + Vec2::new(-3., -4.), Vec2::new(9., 11.)), 1.5, stroke, egui::StrokeKind::Inside);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
