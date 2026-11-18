@@ -56,6 +56,7 @@ struct App {
     dirs: Option<AppDirs>,
     settings_open: bool,
     new_form: newchat::Form,
+    device_fields: devices::Fields,
     theme: Theme,
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
@@ -74,7 +75,7 @@ impl App {
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, new_form: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, new_form: Default::default(), device_fields: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -242,8 +243,9 @@ impl App {
             && let Some(v) = &mut s.verification
         {
             if s.devices_open {
-                devices::show(ui.ctx(), v, &mut s.devices_open, t);
+                devices::show(ui.ctx(), v, &mut s.devices_open, &mut self.device_fields, t);
             }
+            devices::dialogs(ui.ctx(), v, &mut self.device_fields);
             devices::popup(ui.ctx(), v);
         }
         if self.settings_open

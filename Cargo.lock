@@ -5219,6 +5219,7 @@ dependencies = [
  "matrix-desktop",
  "matrix-domain",
  "matrix-engine",
+ "zeroize",
 ]
 
 [[package]]

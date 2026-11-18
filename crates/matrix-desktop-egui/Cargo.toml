@@ -8,6 +8,7 @@ license.workspace = true
 # Toolkit-free app layer of matrix-desktop (no GPUI); the egui forks are vendored, see the root Cargo.toml.
 [dependencies]
 matrix-desktop = { path = "../matrix-desktop", default-features = false, features = ["core-live"] }
+zeroize = "=1.9.1"
 matrix-domain = { path = "../matrix-domain" }
 matrix-engine = { path = "../matrix-engine", features = ["sdk"] }
 eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "system_fonts", "wayland", "wgpu", "x11"] }
