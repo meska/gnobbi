@@ -1,6 +1,10 @@
 //! Sign-in and restore for the egui frontend: the same engine route and form state machine as the
 //! GPUI app (`SignInForm`), so messages, vault restore and error categories stay identical.
-use matrix_desktop::{AppDirs, DemoHistory, FormStatus, HistorySession, LiveOperations, SignInForm};
+use eframe::egui;
+use matrix_desktop::{AppDirs, DemoHistory, FormStatus, HistorySession, LiveMedia, LiveOperations, SignInForm};
+use matrix_domain::{EventId, TimelineId};
+use matrix_engine::history::MediaKind;
+use matrix_engine::media::{MediaCommand, MediaEvent};
 use matrix_engine::operations::{Operation, OperationCommand, OperationResult};
 use matrix_engine::{
     Receiver, RoomListEvent, RoomSyncStatus,
@@ -24,6 +28,10 @@ pub struct Session {
     drafts: std::collections::HashMap<matrix_domain::RoomScope, String>,
     pub draft: String,
     pub ops: LiveOperations,
+    media: LiveMedia,
+    media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
+    /// Thumbnails of the open room's pictures and videos, by event.
+    pub pictures: std::collections::HashMap<EventId, egui::TextureHandle>,
     op_route: Option<(matrix_engine::Sender<OperationCommand>, Receiver<OperationResult>)>,
     op_pending: Option<OperationCommand>,
     /// Message the next Enter replies to or edits; the draft it replaced waits in `parked`.
@@ -63,6 +71,7 @@ impl Session {
         let route = worker.take_history_route();
         let send = worker.take_send_route();
         let op_route = worker.take_operation_route();
+        let media_route = worker.take_media_route();
         let mut form = SignInForm::default();
         form.vault = with_vault;
         Ok(Session {
@@ -78,6 +87,9 @@ impl Session {
             drafts: Default::default(),
             draft: String::new(),
             ops: LiveOperations::default(),
+            media: LiveMedia::default(),
+            media_route,
+            pictures: Default::default(),
             op_route,
             op_pending: None,
             target: None,
@@ -100,7 +112,7 @@ impl Session {
     }
 
     /// Drains what the backend sent since the last frame. True when something changed.
-    pub fn poll(&mut self) -> bool {
+    pub fn poll(&mut self, ctx: &egui::Context) -> bool {
         let mut changed = false;
         // First-time recovery setup is not offered here (S7); a key that arrives is dropped, which zeroizes it.
         while self.ui.setup.try_recv().is_ok() {
@@ -134,6 +146,42 @@ impl Session {
             }
         }
         changed |= self.drive_history();
+        changed |= self.drive_media(ctx);
+        changed
+    }
+
+    /// One thumbnail at a time, newest first; a picture that failed stays a text row.
+    fn drive_media(&mut self, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        if let (Some(messages), Some(scope)) = (&self.messages, &self.draft_scope) {
+            let mut videos = Vec::new();
+            let mut wanted = Vec::new();
+            for e in messages.events().iter().rev() {
+                let (Some(media), TimelineId::Server(id)) = (&e.media, &e.id.id) else { continue };
+                match media.kind {
+                    MediaKind::Video => videos.push(id.clone()),
+                    MediaKind::Image => {}
+                    _ => continue,
+                }
+                if !self.pictures.contains_key(id) {
+                    wanted.push(id.clone());
+                }
+            }
+            self.media.mark_videos(videos);
+            self.media.next_inline(scope.clone(), wanted);
+        }
+        if let Some((tx, rx)) = &mut self.media_route {
+            self.media.flush(tx);
+            while let Ok(event) = rx.try_recv() {
+                if self.media.apply(event) {
+                    changed = true;
+                    if let (Some(p), Some(id)) = (self.media.take_preview(), self.media.event().cloned()) {
+                        let image = egui::ColorImage::from_rgba_unmultiplied([p.width as usize, p.height as usize], &p.rgba);
+                        self.pictures.insert(id.clone(), ctx.load_texture(id.as_str(), image, Default::default()));
+                    }
+                }
+            }
+        }
         changed
     }
 
@@ -143,6 +191,8 @@ impl Session {
         let scope = self.sidebar.selected().map(|r| r.scope.clone());
         if let Some(request) = self.history.select(scope.clone()) {
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
+            self.media.clear();
+            self.pictures.clear();
             self.heights = Default::default();
             self.pending = Some(request);
             changed = true;

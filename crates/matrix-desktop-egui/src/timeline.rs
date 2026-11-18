@@ -3,6 +3,8 @@
 use eframe::egui::{self, Align, Color32, CornerRadius, Layout, RichText, Vec2};
 use matrix_desktop::{DemoEvent, DesignTokens};
 
+pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::TextureHandle>;
+
 const GAP: f32 = 8.;
 const TIGHT: f32 = 2.;
 const GUESS: f32 = 56.;
@@ -19,7 +21,7 @@ pub struct Heights {
 }
 
 /// True when the message was right-clicked (or long-pressed).
-fn row(ui: &mut egui::Ui, e: &DemoEvent, label: Option<&str>, day: Option<&str>, t: &DesignTokens) -> Option<egui::Pos2> {
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str>, day: Option<&str>, t: &DesignTokens) -> Option<egui::Pos2> {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(12.).color(rgb(t.secondary))));
@@ -41,6 +43,18 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, label: Option<&str>, day: Option<&str>,
                 if let Some(name) = label {
                     ui.label(RichText::new(name).size(12.).strong().color(rgb(t.accent)));
                 }
+                if let (Some(media), matrix_domain::TimelineId::Server(id)) = (&e.media, &e.id.id) {
+                    match pictures.get(id) {
+                        Some(tex) => {
+                            let size = tex.size_vec2();
+                            let scale = (max.min(320.) / size.x).min(1.).min(320. / size.y);
+                            ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)));
+                        }
+                        None => {
+                            ui.label(RichText::new(&media.label).color(rgb(t.secondary)));
+                        }
+                    }
+                }
                 if e.redacted {
                     ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {
@@ -58,7 +72,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, label: Option<&str>, day: Option<&str>,
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>) {
+pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>) {
     let mut menu = None;
     if (heights.width - ui.available_width()).abs() > 1. {
         heights.width = ui.available_width();
@@ -78,7 +92,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                if let Some(pos) = row(ui, e, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t) {
+                if let Some(pos) = row(ui, e, pictures, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t) {
                     menu = Some((e.id.clone(), pos));
                 }
                 heights.rows[i] = ui.cursor().top() - top;

@@ -93,7 +93,7 @@ impl eframe::App for App {
         self.refresh(&ctx);
         ctx.request_repaint_after(Duration::from_secs(60));
         if let Some(session) = &mut self.session {
-            session.poll();
+            session.poll(&ctx);
             // The backend answers off-thread: wake up soon while waiting for it.
             if session.account.is_none() {
                 ctx.request_repaint_after(Duration::from_millis(100));
@@ -154,7 +154,7 @@ impl App {
             if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
             {
-                let (first, menu) = timeline::show(ui, messages.events(), messages, &mut s.heights, 3, t);
+                let (first, menu) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, 3, t);
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);
