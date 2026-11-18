@@ -1,7 +1,7 @@
 [workspace]
-members = ["crates/matrix-domain", "crates/matrix-engine", "crates/matrix-desktop", "crates/matrix-mobile"]
+members = ["crates/matrix-domain", "crates/matrix-engine", "crates/matrix-desktop", "crates/matrix-desktop-egui", "crates/matrix-mobile"]
 default-members = ["crates/matrix-domain", "crates/matrix-engine"]
-exclude = ["vendor/matrix-sdk-0.19.1", "vendor/gpui-0.2.2"]
+exclude = ["vendor/matrix-sdk-0.19.1", "vendor/gpui-0.2.2", "vendor/egui-6d518fc", "vendor/winit-a517b38"]
 resolver = "3"
 
 [workspace.package]
@@ -30,3 +30,16 @@ codegen-units = 16
 matrix-sdk = { path = "vendor/matrix-sdk-0.19.1" }
 # Wayland: modifiers/key before keymap panicked (client.rs unwrap); see vendor/gpui-0.2.2.patch.
 gpui = { path = "vendor/gpui-0.2.2" }
+
+# egui frontend: storytold forks of egui (rev 6d518fc) and winit (rev a517b38), vendored like gpui.
+ecolor = { path = "vendor/egui-6d518fc/crates/ecolor" }
+emath = { path = "vendor/egui-6d518fc/crates/emath" }
+epaint = { path = "vendor/egui-6d518fc/crates/epaint" }
+epaint_default_fonts = { path = "vendor/egui-6d518fc/crates/epaint_default_fonts" }
+egui = { path = "vendor/egui-6d518fc/crates/egui" }
+egui-winit = { path = "vendor/egui-6d518fc/crates/egui-winit" }
+egui-wgpu = { path = "vendor/egui-6d518fc/crates/egui-wgpu" }
+egui_glow = { path = "vendor/egui-6d518fc/crates/egui_glow" }
+eframe = { path = "vendor/egui-6d518fc/crates/eframe" }
+egui_system_font_provider = { path = "vendor/egui-6d518fc/crates/egui_system_font_provider" }
+winit = { path = "vendor/winit-a517b38" }

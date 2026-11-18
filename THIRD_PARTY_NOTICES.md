@@ -991,3 +991,7 @@ The Linux AppImage bundles only the application binary (which embeds the font ab
 ## App icons
 
 The Gnobbi app icons (the default "minimal mark", the gnome and the monster variants) were generated with an AI image model and then only cropped and resized. They are offered under the project license (MIT OR Apache-2.0). They are not a registered trademark.
+
+## egui frontend (crates/matrix-desktop-egui)
+
+The egui stack (eframe/egui 0.37 and the storytold winit fork, both vendored under vendor/, provenance in their GNOBBI-VENDOR.md) and its dependencies are not yet in the list above. epaint_default_fonts bundles fonts under OFL-1.1 and Ubuntu-font-1.0 (full texts in vendor/egui-6d518fc/crates/epaint_default_fonts/).

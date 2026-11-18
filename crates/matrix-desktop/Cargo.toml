@@ -68,8 +68,12 @@ accesskit_unix = { version = "=0.22.1", optional = true }
 # Experimental, incomplete Linux semantic adapter; not a release accessibility claim.
 linux-a11y = ["dep:accesskit", "dep:accesskit_unix"]
 default = ["desktop"]
-desktop = ["dep:gpui", "dep:image", "dep:tray-icon", "dep:zbus"]
-live = ["desktop", "matrix-engine/sdk", "dep:tracing-subscriber", "dep:reqwest", "dep:tokio"]
+desktop = ["dep:gpui", "dep:image", "tray"]
+# Toolkit-free live app layer (engine sdk, update check, runtime) for a UI that is not GPUI.
+core-live = ["matrix-engine/sdk", "dep:tracing-subscriber", "dep:reqwest", "dep:tokio"]
+# System tray (tray-icon, ksni over zbus); no GPUI.
+tray = ["dep:tray-icon", "dep:image", "dep:zbus"]
+live = ["desktop", "core-live"]
 # Test-only fixture driver, absent from ordinary/default/live desktop builds.
 perf-probe = ["desktop"]
 # Test-only fixture hook (src/rail_drag_test.rs) for builds that must run as a plain binary: macOS has no libtest main thread for gpui.

@@ -35,6 +35,7 @@ mod verification;
 pub mod inactive;
 pub mod recover_keys;
 pub use recover_keys::keys_recovered_text;
+pub mod app_id;
 #[cfg(feature = "desktop")]
 pub mod window;
 pub use verification::{DeviceVerification, PopupBody, PopupButton, PopupView, device_detail, device_label, device_title};
@@ -147,7 +148,7 @@ pub mod row_text;
 pub mod time_fmt;
 mod sidebar;
 pub mod tray_menu;
-#[cfg(feature = "desktop")]
+#[cfg(feature = "tray")]
 pub mod tray;
 pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 
