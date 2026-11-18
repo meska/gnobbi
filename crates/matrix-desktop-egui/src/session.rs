@@ -99,8 +99,7 @@ pub struct Session {
 
 impl Session {
     /// Opens the default profile under the app data directory; a saved account unlocks by itself through the OS vault.
-    pub fn start(dirs: &AppDirs) -> Result<Session, String> {
-        let root = dirs.data.join("profile");
+    pub fn start(dirs: &AppDirs, root: std::path::PathBuf) -> Result<Session, String> {
         matrix_desktop::create_private_dir(&root).map_err(|e| e.to_string())?;
         let vault = signin::platform_source();
         let with_vault = vault.is_some();

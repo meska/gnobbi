@@ -9,6 +9,7 @@ use matrix_desktop::{
 use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
+mod accounts;
 mod composer;
 mod devices;
 mod info;
@@ -56,6 +57,10 @@ struct App {
     prefs: Preferences,
     dirs: Option<AppDirs>,
     settings_open: bool,
+    accounts_open: bool,
+    /// Profile folder this window runs on, and whether its login is already in the catalog.
+    root: std::path::PathBuf,
+    recorded: bool,
     tray: Option<matrix_desktop::tray::Tray>,
     quitting: bool,
     window_visible: bool,
@@ -72,15 +77,15 @@ struct App {
 }
 
 impl App {
-    fn new(dirs: Option<&AppDirs>) -> App {
+    fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf) -> App {
         let prefs = dirs.map(Preferences::load).unwrap_or_else(Preferences::default);
         let theme = Theme::Classic;
-        let (session, start_error) = match dirs.map(Session::start) {
+        let (session, start_error) = match dirs.map(|d| Session::start(d, root.clone())) {
             Some(Ok(s)) => (Some(s), None),
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -117,6 +122,16 @@ impl eframe::App for App {
                 }
             }
             session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
+            if !self.recorded
+                && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)
+                && let Some((id, name)) = v.profile()
+            {
+                let mut catalog = matrix_desktop::AccountCatalog::load(dirs);
+                if catalog.record_login(dirs, &self.root, id, name.as_deref().unwrap_or(id)) {
+                    let _ = catalog.save(dirs);
+                }
+                self.recorded = true;
+            }
             if let Some(v) = &session.verification
                 && let Some((id, name)) = v.profile()
             {
@@ -222,6 +237,9 @@ impl App {
                     ui.add_space(12.);
                     if ui.button("⚙").clicked() {
                         self.settings_open = !self.settings_open;
+                    }
+                    if ui.button("👤").clicked() {
+                        self.accounts_open = !self.accounts_open;
                     }
                     if ui.button("🖥").clicked()
                         && let Some(s) = &mut self.session
@@ -335,6 +353,18 @@ impl App {
             && s.poll_open
         {
             poll::show(ui.ctx(), s, &mut self.poll_form, t);
+        }
+        if self.accounts_open
+            && let Some(dirs) = &self.dirs
+        {
+            match accounts::show(ui.ctx(), &mut self.accounts_open, dirs, &self.root, t) {
+                Some(accounts::Launch::Open(dir)) => accounts::launch(&dir),
+                Some(accounts::Launch::Add) => {
+                    let next = matrix_desktop::AccountCatalog::load(dirs).next_root(dirs);
+                    accounts::launch(&next);
+                }
+                None => {}
+            }
         }
         if self.settings_open
             && let Some(new) = settings::show(ui.ctx(), &mut self.settings_open, &self.prefs, self.dirs.as_ref(), t)
@@ -536,8 +566,29 @@ fn single_instance_gate() {
 fn single_instance_gate() {}
 
 fn main() -> eframe::Result {
-    single_instance_gate();
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let dirs = matrix_desktop::app_dirs(Platform::CURRENT, |k| std::env::var(k).ok());
+    let default_root = dirs.as_ref().map(|d| d.data.join("profile"));
+    // `--signin <folder>` runs another account's profile; the default profile is the first install's.
+    let root = match matrix_desktop::SignInOptions::parse(&args) {
+        Ok(Some(o)) => o.root,
+        Ok(None) => default_root.clone().unwrap_or_default(),
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(2);
+        }
+    };
+    // Another profile is its own window: only the default one hands launches over to a running instance.
+    if Some(&root) == default_root.as_ref() {
+        single_instance_gate();
+        if let Some(dirs) = &dirs {
+            // A pre-catalog install is listed in place; the profile folder does not move.
+            let mut catalog = matrix_desktop::AccountCatalog::load(dirs);
+            if catalog.migrate_legacy(dirs) {
+                let _ = catalog.save(dirs);
+            }
+        }
+    }
     let first = Theme::Classic.tokens();
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
@@ -547,7 +598,7 @@ fn main() -> eframe::Result {
             .with_app_id(APP_ID),
         ..Default::default()
     };
-    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref())))))
+    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref(), root)))))
 }
 
 #[cfg(test)]
