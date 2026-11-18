@@ -56,6 +56,9 @@ struct App {
     prefs: Preferences,
     dirs: Option<AppDirs>,
     settings_open: bool,
+    tray: Option<matrix_desktop::tray::Tray>,
+    quitting: bool,
+    window_visible: bool,
     new_form: newchat::Form,
     device_fields: devices::Fields,
     poll_form: poll::Form,
@@ -77,7 +80,7 @@ impl App {
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -131,6 +134,7 @@ impl eframe::App for App {
             // shortcut: a fixed tick, replace by a repaint signal from the workers when idle power matters.
             ctx.request_repaint_after(Duration::from_millis(100));
         }
+        self.tray(&ctx);
         let t = self.tokens;
         if self.session.as_ref().is_some_and(|s| s.account.is_some()) {
             self.shell(ui, &t);
@@ -141,6 +145,56 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// Tray clicks, the menu and icon state, and what closing the window does (hide when the tray can be reached).
+    fn tray(&mut self, ctx: &egui::Context) {
+        use matrix_desktop::tray_menu::{CloseAction, TrayAction, close_action, tray_menu};
+        let show = |ctx: &egui::Context| {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        };
+        let reachable = self.tray.as_ref().is_some_and(|t| t.host_present());
+        if let Some(tray) = &self.tray {
+            for action in tray.actions() {
+                match action {
+                    TrayAction::ToggleWindow if self.window_visible => {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+                    }
+                    TrayAction::ToggleWindow | TrayAction::ShowWindow => {
+                        show(ctx);
+                        self.window_visible = true;
+                    }
+                    TrayAction::ToggleNotifications => {
+                        let on = !self.prefs.notifications;
+                        self.prefs.notifications = on;
+                        if let Some(dirs) = &self.dirs {
+                            let _ = Preferences::update(dirs, |p| p.notifications = on);
+                        }
+                    }
+                    TrayAction::Quit => {
+                        self.quitting = true;
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    // One account per window until multi-account arrives.
+                    TrayAction::SwitchAccount(_) => {}
+                }
+            }
+        }
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.quitting
+            && close_action(self.prefs.close_to_tray, reachable) == CloseAction::HideToTray
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.window_visible = false;
+        }
+        if let Some(tray) = &mut self.tray {
+            let unread = self.session.as_ref().and_then(|s| s.sidebar.navigation_entries().first().map(|e| e.unread)).unwrap_or(0);
+            let items = tray_menu(self.window_visible, self.prefs.notifications, &[]);
+            tray.update(&items, unread, Vec::new());
+        }
+    }
+
     fn shell(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
         let state = match self.session.as_ref().and_then(|s| s.sync) {
             Some(RoomSyncStatus::Ready) => "Connesso",
