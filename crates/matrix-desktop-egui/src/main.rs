@@ -68,6 +68,7 @@ struct App {
     new_form: newchat::Form,
     device_fields: devices::Fields,
     poll_form: poll::Form,
+    confirm: Option<&'static str>,
     theme: Theme,
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
@@ -86,7 +87,7 @@ impl App {
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -288,8 +289,12 @@ impl App {
             && s.info_open
             && let Some((id, profile)) = s.profile.clone()
         {
-            let (mut close, mut flip) = (false, None);
-            egui::Panel::right("member").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), &mut close, t));
+            let (mut close, mut flip, mut moderation) = (false, None, None);
+            let (rights, failed) = (s.rights.clone(), s.moderation_failed);
+            egui::Panel::right("member").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, &mut self.confirm, &mut moderation, &mut close, t));
+            if let Some(action) = moderation {
+                s.moderate(id.clone(), action);
+            }
             if let Some(ignore) = flip {
                 s.set_ignored(id, ignore);
             }

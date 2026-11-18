@@ -104,7 +104,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
 }
 
 /// A member's card: name, id with the small copy icon, trust and the ignore switch. Returns `Some(ignore)` when it was flipped; `close` is set by the X.
-pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
+pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, rights: Option<&matrix_engine::operations::MemberRights>, failed: bool, confirm: &mut Option<&'static str>, moderation: &mut Option<matrix_engine::operations::Moderation>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
     let mut flip = None;
     ui.add_space(16.);
     ui.horizontal(|ui| {
@@ -138,6 +138,45 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
             let mut ignored = p.ignored;
             if crate::settings::switch(ui, "Ignora", &mut ignored, t) {
                 flip = Some(ignored);
+            }
+            if let Some(r) = rights {
+                use matrix_engine::operations::Moderation;
+                ui.add_space(8.);
+                ui.separator();
+                // Each destructive action asks once more before it goes out.
+                let mut ask = |ui: &mut egui::Ui, key: &'static str, label: &str, action: Moderation| {
+                    let label = if *confirm == Some(key) { "Conferma" } else { label };
+                    if ui.button(RichText::new(label).color(rgb(t.error))).clicked() {
+                        if *confirm == Some(key) {
+                            *moderation = Some(action);
+                            *confirm = None;
+                        } else {
+                            *confirm = Some(key);
+                        }
+                    }
+                };
+                if r.kick {
+                    ask(ui, "kick", "Espelli", Moderation::Kick);
+                }
+                if r.ban {
+                    ask(ui, "ban", "Blocca", Moderation::Ban);
+                }
+                if !r.recent.is_empty() {
+                    ask(ui, "redact", &format!("Elimina {} messaggi", r.recent.len()), Moderation::RedactMessages(r.recent.clone()));
+                }
+                for level in &r.levels {
+                    let name = match level {
+                        100 => "Amministratore",
+                        50 => "Moderatore",
+                        _ => "Utente",
+                    };
+                    if ui.button(format!("Ruolo: {name}")).clicked() {
+                        *moderation = Some(Moderation::SetPower(*level));
+                    }
+                }
+                if failed {
+                    ui.colored_label(rgb(t.error), "Non riuscito");
+                }
             }
         });
     });
