@@ -1911,6 +1911,27 @@ impl TimelineView {
                             .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::status_with_time(&event.text, &event.time))).into_any_element().pipe_day(day, t, index);
                     }
                     let sender_label = history.sender_label(index, members);
+                    if event.redacted {
+                        // Compact deleted row (like the status rows): «Name: Messaggio eliminato … time», one line, no bubble.
+                        let avatar_gutter = members > 2 && !event.outgoing && event.sender.is_some();
+                        let menu = event.menu_available(live).then(|| (event.id.clone(), operations.clone()));
+                        return div().id(gpui::SharedString::from(format!("redacted-{index}"))).relative().w_full().px_6()
+                            .pt(px(if history.continues_series(index) { SERIES_GAP_SAME_PX } else { SERIES_GAP_NEW_PX / 2. }))
+                            .pb(px(if history.continues_series(index + 1) { 0. } else { SERIES_GAP_NEW_PX / 2. }))
+                            .flex().items_center().gap_2().overflow_hidden().text_size(px(12.)).line_height(px(16.)).text_color(rgb(t.secondary))
+                            // Own messages sit on the right like the bubble, so a two-person chat still says who deleted.
+                            .when(event.outgoing, |d| d.justify_end())
+                            // Space only: the series avatar column keeps its alignment, nothing is redrawn.
+                            .when(avatar_gutter, |d| d.child(div().w(px(SENDER_AVATAR_PX)).flex_shrink_0()))
+                            // max_w: a long name must not eat the «Messaggio eliminato» text.
+                            .when_some(sender_label, |d, name| d.child(div().max_w(relative(0.4)).flex_shrink().truncate().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(matrix_desktop::row_text::redacted_name(&name))))
+                            .child(div().min_w_0().truncate().when(!event.outgoing, |d| d.flex_1()).child(matrix_desktop::row_text::REDACTED_LABEL))
+                            .child(div().flex_shrink_0().child(event.time.clone()))
+                            .when_some(menu, |d, (id, operations)| d.on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                                if let Some(actions) = &operations { actions.borrow_mut().select(id.clone()); window.refresh(); cx.stop_propagation(); }
+                            }))
+                            .into_any_element().pipe_day(day, t, index);
+                    }
                     let sender_user = event.sender.as_ref().map(|s| s.id.clone());
                     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
                     let profile_bounds = { let (map, id) = (profile_painted.clone(), event.id.clone()); move |b: Bounds<Pixels>| { map.borrow_mut().insert(id.clone(), b); } };

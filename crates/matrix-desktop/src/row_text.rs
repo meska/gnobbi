@@ -24,6 +24,14 @@ pub fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Visible text of a deleted message row (the screen-reader label keeps the descriptive one).
+pub const REDACTED_LABEL: &str = "Messaggio eliminato";
+
+/// Sender prefix of the compact deleted row: «Anna:», one line.
+pub fn redacted_name(name: &str) -> String {
+    format!("{}:", one_line(name))
+}
+
 /// Status row text with the event time after it («Anna è entrato/a nella stanza · 01:20»);
 /// one string, so a long row wraps and centres as a whole. `time` is the bubble stamp's.
 pub fn status_with_time(text: &str, time: &str) -> String {
@@ -34,6 +42,12 @@ pub fn status_with_time(text: &str, time: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redacted_row_text_is_plain_one_line() {
+        assert_eq!(REDACTED_LABEL, "Messaggio eliminato");
+        assert_eq!(redacted_name("Anna\nRossi"), "Anna Rossi:");
+    }
 
     /// Lines the row paints: both texts are forced to one line; an empty one still reserves its line.
     fn content_height(name: &str, preview: &str) -> f32 {
