@@ -46,7 +46,16 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, l
         ui.add_space(12.);
         let fill = if e.highlighted { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
         let frame = egui::Frame::NONE.fill(fill).corner_radius(CornerRadius::same(12)).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
-            ui.set_max_width(max);
+            // Shrink-wrap: as wide as the longest of text, sender and time (at most `max`), not the whole column.
+            let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
+            let inner = max - 24.;
+            let measure = |text: &str, size: f32| ui.painter().layout(text.to_owned(), egui::FontId::proportional(size), Color32::WHITE, inner).size().x;
+            let mut w = measure(&matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state), 11.);
+            w = w.max(if e.redacted { measure("Messaggio eliminato", 15.) } else { measure(&e.text, 15.) });
+            if let Some(name) = label {
+                w = w.max(measure(name, 12.));
+            }
+            ui.set_width(if wide { inner.min(320.).max(w) } else { w.min(inner) + 1. });
             ui.vertical(|ui| {
                 if let Some(name) = label {
                     ui.label(RichText::new(name).size(12.).strong().color(rgb(t.accent)));

@@ -79,6 +79,8 @@ struct App {
     /// Test hook: GNOBBI_EGUI_LOGIN=<json {homeserver,user,password,phrase?}> signs in by itself (disposable servers only).
     auto_login: Option<serde_json::Value>,
     shot_sent: bool,
+    hook_sent: bool,
+    hook_menu_at: Option<std::time::Instant>,
     /// Why the backend could not start, shown instead of the form.
     start_error: Option<String>,
 }
@@ -93,7 +95,7 @@ impl App {
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
         App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            shot_sent: false,
+            shot_sent: false, hook_sent: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
     }
 
@@ -215,6 +217,25 @@ impl App {
             {
                 let scope = s.sidebar.rooms()[first].scope.clone();
                 s.sidebar.select(&scope);
+            }
+            // GNOBBI_EGUI_SEND=<text>: sends it once into the open room (disposable servers only).
+            if !self.hook_sent
+                && s.messages.as_ref().is_some_and(|m| !m.events().is_empty())
+                && let Ok(text) = std::env::var("GNOBBI_EGUI_SEND")
+            {
+                s.send(text);
+                self.hook_sent = true;
+                self.hook_menu_at = Some(std::time::Instant::now());
+            }
+            // View «menu»: right-click menu of the newest message, a few seconds after the send.
+            if view == "menu"
+                && let Some(at) = self.hook_menu_at
+                && at.elapsed().as_secs() >= 6
+                && s.menu.is_none()
+                && let Some(id) = s.messages.as_ref().and_then(|m| m.events().last().map(|e| e.id.clone()))
+            {
+                s.open_menu(id, egui::pos2(900., 300.));
+                self.hook_menu_at = None;
             }
             match view.as_str() {
                 "info" => s.info_open = true,
