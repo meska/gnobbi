@@ -54,6 +54,10 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    pub aliases: Option<matrix_engine::alias::RoomAliases>,
+    aliases_requested: Option<matrix_domain::RoomScope>,
+    pub alias_error: Option<&'static str>,
+    pub alias_input: String,
     pub focus_search: bool,
     pub edit: Option<RoomEdit>,
     notifications: matrix_domain::notifications::NotificationPolicy,
@@ -151,6 +155,10 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            aliases: None,
+            aliases_requested: None,
+            alias_error: None,
+            alias_input: String::new(),
             focus_search: false,
             edit: None,
             notifications: matrix_domain::notifications::NotificationPolicy::new(matrix_domain::AccountId::new(0)),
@@ -419,6 +427,16 @@ impl Session {
             th.next_read = std::time::Instant::now() + std::time::Duration::from_secs(5);
             self.op_queue.push(OperationCommand::Thread { tag, root: th.root.clone(), want: 50 });
         }
+        // The addresses of the room shown in the Info panel are read once per room.
+        if self.info_open
+            && let Some(scope) = self.draft_scope.clone()
+            && self.aliases_requested.as_ref() != Some(&scope)
+        {
+            self.aliases_requested = Some(scope.clone());
+            self.aliases = None;
+            self.alias_error = None;
+            self.op_queue.push(OperationCommand::Aliases { scope, action: matrix_engine::alias::AliasAction::Load });
+        }
         if self.op_pending.is_none() && !self.op_queue.is_empty() {
             self.op_pending = Some(self.op_queue.remove(0));
         }
@@ -438,6 +456,22 @@ impl Session {
             }
         }
         for result in results {
+            if let OperationResult::Aliases { scope, result, aliases, .. } = &result {
+                if self.draft_scope.as_ref() == Some(scope) {
+                    if aliases.is_some() {
+                        self.aliases = aliases.clone();
+                    }
+                    use matrix_engine::alias::AliasOpError as E;
+                    self.alias_error = result.as_ref().err().map(|e| match e {
+                        E::AliasInUse => "Indirizzo già in uso",
+                        E::Forbidden => "Non consentito",
+                        E::InvalidName => "Nome non valido",
+                        _ => "Non riuscito",
+                    });
+                    changed = true;
+                }
+                continue;
+            }
             match &result {
                 OperationResult::MemberRights { user_id, result, .. } => {
                     if self.profile.as_ref().is_some_and(|(open, _)| open == user_id) {
@@ -632,6 +666,12 @@ impl Session {
         e.busy = true;
         e.failed = false;
         self.op_queue.push(OperationCommand::EditRoom { scope, name, topic, avatar: e.avatar.take() });
+    }
+
+    pub fn alias_action(&mut self, action: matrix_engine::alias::AliasAction) {
+        let Some(scope) = self.draft_scope.clone() else { return };
+        self.alias_error = None;
+        self.op_queue.push(OperationCommand::Aliases { scope, action });
     }
 
     pub fn open_profile(&mut self, user_id: String) {

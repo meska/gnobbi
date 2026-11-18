@@ -14,7 +14,7 @@ pub struct Out {
     pub edit: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t: &DesignTokens) -> Out {
+pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, aliases: &mut AliasView, t: &DesignTokens) -> Out {
     let mut out = Out::default();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(16.);
@@ -39,6 +39,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t
         });
         ui.add_space(12.);
         ui.separator();
+        addresses(ui, aliases, t);
         let Some(members) = members else {
             ui.add_space(12.);
             ui.vertical_centered(|ui| ui.spinner());
@@ -242,4 +243,62 @@ pub fn copy_icon(ui: &mut egui::Ui) -> egui::Response {
     ui.painter().rect_stroke(egui::Rect::from_min_size(c + Vec2::new(-6., -7.), Vec2::new(9., 11.)), 1.5, stroke, egui::StrokeKind::Inside);
     ui.painter().rect_stroke(egui::Rect::from_min_size(c + Vec2::new(-3., -4.), Vec2::new(9., 11.)), 1.5, stroke, egui::StrokeKind::Inside);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// What the panel needs for the room's addresses and what the user did with them this frame.
+pub struct AliasView<'a> {
+    pub data: Option<&'a matrix_engine::alias::RoomAliases>,
+    pub error: Option<&'static str>,
+    pub input: &'a mut String,
+    pub action: Option<matrix_engine::alias::AliasAction>,
+}
+
+fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
+    use matrix_engine::alias::AliasAction;
+    let Some(data) = view.data else { return };
+    // Main first, then the other published ones, then the local ones that are not published.
+    let mut list: Vec<String> = data.canonical.main.iter().cloned().collect();
+    for a in data.canonical.alts.iter().chain(&data.local) {
+        if !list.contains(a) {
+            list.push(a.clone());
+        }
+    }
+    if list.is_empty() && !data.can_edit_aliases {
+        return;
+    }
+    ui.add_space(8.);
+    ui.horizontal(|ui| {
+        ui.add_space(16.);
+        ui.vertical(|ui| {
+            ui.label(RichText::new("Indirizzi").strong());
+            for alias in &list {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(alias);
+                    if data.canonical.main.as_deref() == Some(alias) {
+                        ui.label(RichText::new("principale").size(11.).color(rgb(t.secondary)));
+                    } else if data.can_edit_aliases && ui.small_button("Principale").clicked() {
+                        view.action = Some(AliasAction::SetCanonical { alias: alias.clone() });
+                    }
+                    if data.can_edit_aliases && ui.small_button("✕").clicked() {
+                        view.action = Some(AliasAction::Remove { alias: alias.clone() });
+                    }
+                });
+            }
+            if data.can_edit_aliases {
+                ui.horizontal(|ui| {
+                    ui.add(egui::TextEdit::singleline(view.input).desired_width(110.).hint_text("nome").align(egui::Align2::LEFT_CENTER));
+                    ui.label(RichText::new(format!(":{}", data.server)).color(rgb(t.secondary)));
+                    if ui.button("Aggiungi").clicked() && !view.input.trim().is_empty() {
+                        view.action = Some(AliasAction::Add { local: view.input.trim().to_owned(), make_canonical: None });
+                        view.input.clear();
+                    }
+                });
+            }
+            if let Some(e) = view.error {
+                ui.colored_label(rgb(t.error), e);
+            }
+        });
+    });
+    ui.add_space(4.);
+    ui.separator();
 }

@@ -80,6 +80,8 @@ struct App {
     auto_login: Option<serde_json::Value>,
     shot_sent: bool,
     hook_sent: bool,
+    hook_alias: bool,
+    alias_input: String,
     hook_keys: bool,
     hook_menu_at: Option<std::time::Instant>,
     /// Why the backend could not start, shown instead of the form.
@@ -96,7 +98,7 @@ impl App {
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
         App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            shot_sent: false, hook_sent: false, hook_keys: false, hook_menu_at: None,
+            shot_sent: false, hook_sent: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
     }
 
@@ -232,6 +234,14 @@ impl App {
                     v.new_recovery_key();
                     self.hook_keys = true;
                 }
+            }
+            // GNOBBI_EGUI_ALIAS=<local>: adds that address to the open room once its addresses are loaded.
+            if !self.hook_alias
+                && s.aliases.is_some()
+                && let Ok(local) = std::env::var("GNOBBI_EGUI_ALIAS")
+            {
+                s.alias_action(matrix_engine::alias::AliasAction::Add { local, make_canonical: None });
+                self.hook_alias = true;
             }
             // GNOBBI_EGUI_SEND=<text>: sends it once into the open room (disposable servers only).
             if !self.hook_sent
@@ -375,7 +385,15 @@ impl App {
         {
             let members = s.members.as_ref().map(|(_, m)| m.as_slice());
             let mut out = info::Out::default();
-            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, t));
+            let mut alias_input = std::mem::take(&mut self.alias_input);
+            let mut alias_action = None;
+            let mut view = info::AliasView { data: s.aliases.as_ref(), error: s.alias_error, input: &mut alias_input, action: None };
+            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, &mut view, t));
+            alias_action = view.action.take();
+            self.alias_input = alias_input;
+            if let (Some(action), Some(s)) = (alias_action, &mut self.session) {
+                s.alias_action(action);
+            }
             if let (Some(user), Some(s)) = (out.open_profile, &mut self.session) {
                 s.open_profile(user);
             }
