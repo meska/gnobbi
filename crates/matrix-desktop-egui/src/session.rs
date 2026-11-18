@@ -14,6 +14,8 @@ pub struct Session {
     _worker: RoomListWorker,
     rooms: Receiver<RoomListEvent>,
     pub account: Option<matrix_domain::AccountId>,
+    pub sidebar: matrix_desktop::Sidebar,
+    pub query: String,
     pub sync: Option<RoomSyncStatus>,
     pub homeserver: String,
     pub user: String,
@@ -44,6 +46,8 @@ impl Session {
             _worker: worker,
             rooms,
             account: None,
+            sidebar: matrix_desktop::Sidebar::connected(matrix_domain::AccountId::new(0)),
+            query: String::new(),
             sync: None,
             homeserver: String::new(),
             user: String::new(),
@@ -64,18 +68,26 @@ impl Session {
             self.form.apply(event);
             match event {
                 SignInEvent::Prompt(p) if p.mode == SignInMode::UnlockVault && p.error.is_none() => self.send_submit(),
-                SignInEvent::Authenticated(account) => self.account = Some(account),
+                SignInEvent::Authenticated(account) => {
+                    self.account = Some(account);
+                    self.sidebar.set_navigation_context(account, true);
+                }
                 SignInEvent::Recovery(RecoveryState::Offered | RecoveryState::Failed(_) | RecoveryState::Unsupported) => {
                     let _ = self.ui.commands.try_send(SignInCommand::DeferRecovery);
                 }
                 _ => {}
             }
         }
-        // The room list itself is S3; only the connection state is read here.
         while let Ok(event) = self.rooms.try_recv() {
-            if let RoomListEvent::Status(s) = event {
-                self.sync = Some(s);
-                changed = true;
+            changed = true;
+            match event {
+                RoomListEvent::Status(s) => self.sync = Some(s),
+                RoomListEvent::Diff(diff) => {
+                    self.sidebar.apply_diff(diff);
+                }
+                RoomListEvent::Order(order) => self.sidebar.set_order(order),
+                // Alerts and timeline activity belong to later slices.
+                _ => {}
             }
         }
         changed

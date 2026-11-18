@@ -9,8 +9,12 @@ use matrix_desktop::{
 use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
+mod list;
 mod session;
 use session::Session;
+
+/// Avatar fallback colour (identity, not theme).
+pub const AVATAR: u32 = matrix_desktop::AVATAR_FALLBACK;
 
 fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
@@ -110,17 +114,19 @@ impl App {
             Some(RoomSyncStatus::SyncFailed) => "Sincronizzazione interrotta",
             _ => "Connessione…",
         };
-        egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
-            ui.add_space(16.);
-            ui.horizontal(|ui| {
-                ui.add_space(16.);
-                ui.heading(TITLE);
+        if let Some(session) = &mut self.session {
+            egui::Panel::left("rail").exact_size(64.).resizable(false).frame(bar(t)).show(ui, |ui| {
+                list::rail(ui, &mut session.sidebar, t);
             });
-        });
+            egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
+                list::rooms(ui, &mut session.sidebar, &mut session.query, t);
+            });
+        }
+        let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
         egui::Panel::top("header").exact_size(t.header).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(16.);
-                ui.label(state);
+                ui.label(title.as_deref().unwrap_or(state));
             });
         });
         egui::Panel::bottom("composer").exact_size(t.bottom_bar).frame(bar(t)).show(ui, |_| {});
