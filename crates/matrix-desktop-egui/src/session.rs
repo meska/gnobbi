@@ -44,6 +44,7 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    pub poll_open: bool,
     pub thread: Option<ThreadState>,
     pub verification: Option<matrix_desktop::DeviceVerification>,
     ver_route: Option<(matrix_engine::Sender<matrix_engine::verification::VerificationCommand>, Receiver<matrix_engine::verification::VerificationEvent>)>,
@@ -130,6 +131,7 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            poll_open: false,
             thread: None,
             verification: None,
             ver_route,
@@ -505,6 +507,26 @@ impl Session {
         self.op_queue.push(OperationCommand::ThreadSend { scope, root: th.root.clone(), reply_to: None, body });
     }
 
+    /// Votes for option `ix` of the poll started by `target` (the engine replaces own votes; the same option again withdraws).
+    pub fn vote(&mut self, target: EventId, ix: usize) {
+        let (Some(scope), Some(messages)) = (self.draft_scope.clone(), &self.messages) else { return };
+        let Some(poll) = messages.events().iter().find(|e| e.id.id == TimelineId::Server(target.clone())).and_then(|e| e.poll.clone()) else { return };
+        self.ops.vote(scope, target, &poll, ix, matrix_engine::sending::fresh_transaction_id());
+    }
+
+    pub fn send_poll(&mut self, draft: matrix_domain::PollDraft) {
+        let (Some(scope), Some((tx, _))) = (self.draft_scope.clone(), &mut self.send) else { return };
+        let request = matrix_engine::sending::SendRequest {
+            scope,
+            transaction_id: matrix_engine::sending::fresh_transaction_id(),
+            body: String::new(),
+            attachment: None,
+            poll: Some(draft),
+            mentions: Vec::new(),
+        };
+        let _ = tx.try_send(request);
+    }
+
     pub fn open_profile(&mut self, user_id: String) {
         self.op_queue.push(OperationCommand::Profile { user_id: user_id.clone() });
         self.profile = Some((user_id, None));
@@ -584,6 +606,11 @@ impl Session {
 
     pub fn react(&mut self, key: &str) {
         self.ops.toggle_reaction(key, matrix_engine::sending::fresh_transaction_id());
+        self.close_menu_keep_selection();
+    }
+
+    pub fn end_poll(&mut self) {
+        self.ops.submit(Operation::EndPoll, matrix_engine::sending::fresh_transaction_id());
         self.close_menu_keep_selection();
     }
 

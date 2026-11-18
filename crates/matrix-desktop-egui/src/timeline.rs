@@ -3,6 +3,12 @@
 use eframe::egui::{self, Align, Color32, CornerRadius, Layout, RichText, Vec2};
 use matrix_desktop::{DemoEvent, DesignTokens};
 
+/// Poll clicks of this frame: (poll start, option index).
+#[derive(Default)]
+pub struct Acts {
+    pub vote: Option<(matrix_domain::EventId, usize)>,
+}
+
 pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::TextureHandle>;
 
 const GAP: f32 = 8.;
@@ -21,7 +27,7 @@ pub struct Heights {
 }
 
 /// True when the message was right-clicked (or long-pressed).
-fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str>, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, label: Option<&str>, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(12.).color(rgb(t.secondary))));
@@ -68,7 +74,22 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str
                 {
                     thread = true;
                 }
-                if e.redacted {
+                if let (Some(poll), matrix_domain::TimelineId::Server(id)) = (&e.poll, &e.id.id)
+                    && !e.redacted
+                {
+                    ui.label(RichText::new(&poll.question).strong());
+                    ui.add_space(4.);
+                    for (ix, answer) in poll.answers.iter().enumerate() {
+                        let share = if poll.results_visible() { poll.share(ix) } else { 0. };
+                        let r = ui.add_enabled(!poll.ended, egui::Button::new(poll.option_label(ix)).selected(answer.own).min_size(Vec2::new(200., 26.)));
+                        let bar = egui::Rect::from_min_size(r.rect.left_bottom() - Vec2::new(0., 3.), Vec2::new(r.rect.width() * share, 3.));
+                        ui.painter().rect_filled(bar, 1., rgb(t.accent));
+                        if r.clicked() {
+                            acts.vote = Some((id.clone(), ix));
+                        }
+                    }
+                    ui.label(RichText::new(poll.footer()).size(11.).color(rgb(t.secondary)));
+                } else if e.redacted {
                     ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {
                     ui.label(RichText::new(&e.text).size(15.));
@@ -85,7 +106,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, label: Option<&str
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, acts: &mut Acts, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     let mut menu = None;
     let mut save = None;
     let mut thread = None;
@@ -107,7 +128,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                let (opened, wants_save, wants_thread) = row(ui, e, pictures, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t);
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, acts, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t);
                 if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
                     thread = Some(id.clone());
                 }

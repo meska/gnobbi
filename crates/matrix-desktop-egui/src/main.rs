@@ -14,6 +14,7 @@ mod devices;
 mod info;
 mod list;
 mod newchat;
+mod poll;
 mod session;
 mod settings;
 mod timeline;
@@ -57,6 +58,7 @@ struct App {
     settings_open: bool,
     new_form: newchat::Form,
     device_fields: devices::Fields,
+    poll_form: poll::Form,
     theme: Theme,
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
@@ -75,7 +77,7 @@ impl App {
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, new_form: Default::default(), device_fields: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -232,14 +234,16 @@ impl App {
                 let mode = s.target.as_ref().map_or(composer::Mode::Send, |(_, m)| *m);
                 let mut cancel = false;
                 let mut drop_file = false;
+                let mut open_poll = false;
                 let name = s.attachment.as_ref().map(|(n, _)| n.clone());
                 if let Some(notice) = &s.notice {
                     ui.label(notice);
                 }
-                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file);
+                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll);
                 if drop_file {
                     s.attachment = None;
                 }
+                s.poll_open |= open_poll;
                 if cancel {
                     s.cancel_target();
                 }
@@ -264,6 +268,11 @@ impl App {
             }
             devices::dialogs(ui.ctx(), v, &mut self.device_fields);
             devices::popup(ui.ctx(), v);
+        }
+        if let Some(s) = &mut self.session
+            && s.poll_open
+        {
+            poll::show(ui.ctx(), s, &mut self.poll_form, t);
         }
         if self.settings_open
             && let Some(new) = settings::show(ui.ctx(), &mut self.settings_open, &self.prefs, self.dirs.as_ref(), t)
@@ -290,7 +299,8 @@ impl App {
             } else if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
             {
-                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
+                let mut acts = timeline::Acts::default();
+                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &mut acts, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);
@@ -300,6 +310,9 @@ impl App {
                 }
                 if let Some(root) = thread {
                     s.open_thread(root);
+                }
+                if let Some((id, ix)) = acts.vote {
+                    s.vote(id, ix);
                 }
             }
         });
@@ -356,6 +369,10 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
             if p.edit && ui.button("Modifica").clicked() {
                 action = Some("edit");
             }
+            let poll = s.ops.selection().and_then(|id| s.messages.as_ref()?.events().iter().find(|e| e.id == *id)?.poll.clone());
+            if s.ops.can_end_poll(poll.as_ref()) && ui.button("Chiudi sondaggio").clicked() {
+                action = Some("end");
+            }
             if p.redact {
                 let label = if s.confirm_delete { "Conferma eliminazione" } else { "Elimina" };
                 if ui.button(RichText::new(label).color(rgb(t.error))).clicked() {
@@ -371,6 +388,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         Some("reply") => s.begin(composer::Mode::Reply),
         Some("edit") => s.begin(composer::Mode::Edit),
         Some("delete") => s.delete(),
+        Some("end") => s.end_poll(),
         Some(key) => s.react(key),
         None => {
             let outside = !fresh && ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
