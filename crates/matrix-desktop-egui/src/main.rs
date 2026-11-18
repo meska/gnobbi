@@ -128,6 +128,10 @@ impl eframe::App for App {
                     _ => session.attach(path),
                 }
             }
+            // Ctrl/Cmd+K: jump to the room search.
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
+                session.focus_search = true;
+            }
             session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
             if !self.recorded
                 && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)
@@ -230,7 +234,7 @@ impl App {
             });
             egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
                 let mut new_chat = false;
-                list::rooms(ui, &mut session.sidebar, &mut session.query, &mut new_chat, t);
+                list::rooms(ui, &mut session.sidebar, &mut session.query, &mut new_chat, &mut session.focus_search, t);
                 session.new_open |= new_chat;
             });
         }

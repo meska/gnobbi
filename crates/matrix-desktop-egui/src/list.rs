@@ -58,7 +58,7 @@ pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, t: &DesignTokens) {
 }
 
 /// Header with the search field, then the rows. Returns nothing: selection goes through `Sidebar::select`.
-pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_chat: &mut bool, t: &DesignTokens) {
+pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_chat: &mut bool, focus: &mut bool, t: &DesignTokens) {
     let (title, _, _) = sidebar.list_header();
     ui.add_space(12.);
     ui.horizontal(|ui| {
@@ -75,8 +75,25 @@ pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_c
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        if ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca")).changed() {
+        let r = ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca"));
+        if std::mem::take(focus) {
+            r.request_focus();
+        }
+        if r.changed() {
             sidebar.set_query(query);
+        }
+        // Enter opens the first match, Escape clears the search: the keyboard way to change room.
+        if r.has_focus() {
+            if ui.input(|i| i.key_pressed(egui::Key::Enter))
+                && let Some(&first) = sidebar.visible_indices().first()
+            {
+                let scope = sidebar.rooms()[first].scope.clone();
+                sidebar.select(&scope);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                query.clear();
+                sidebar.set_query(query);
+            }
         }
     });
     ui.add_space(8.);
