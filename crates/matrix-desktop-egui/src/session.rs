@@ -234,7 +234,8 @@ impl Session {
                     // Rooms are scoped by account: the list must be built for the account that signed in.
                     self.sidebar = matrix_desktop::Sidebar::connected(account);
                 }
-                SignInEvent::Recovery(RecoveryState::Offered | RecoveryState::Failed(_) | RecoveryState::Unsupported) => {
+                // Offered / Failed are answered by the user on the «Cronologia cifrata» screen; an account with no recovery has nothing to ask.
+                SignInEvent::Recovery(RecoveryState::Unsupported) => {
                     let _ = self.ui.commands.try_send(SignInCommand::DeferRecovery);
                 }
                 _ => {}
@@ -826,6 +827,26 @@ impl Session {
 
     fn send_submit(&mut self) {
         if let Some(command) = self.form.submit() {
+            let _ = self.ui.commands.try_send(command);
+        }
+    }
+
+    /// The «Cronologia cifrata» step is open: signed in, recovery offered, being checked or failed.
+    pub fn recovering(&self) -> bool {
+        matches!(self.form.recovery(), Some(RecoveryState::Offered | RecoveryState::Pending | RecoveryState::Failed(_)))
+    }
+
+    pub fn defer_recovery(&mut self) {
+        if let Some(command) = self.form.source().and_then(|src| self.form.defer_source(src)) {
+            let _ = self.ui.commands.try_send(command);
+        }
+    }
+
+    /// Sends the recovery key typed in `phrase`; it never stays in the form.
+    pub fn recover(&mut self) {
+        self.form.phrase.replace(None, &self.phrase);
+        self.phrase.clear();
+        if let Some(command) = self.form.source().and_then(|src| self.form.recover_source(src)) {
             let _ = self.ui.commands.try_send(command);
         }
     }
