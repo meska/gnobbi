@@ -19,6 +19,10 @@ pub struct Session {
     pending: Option<matrix_engine::history::HistoryRequest>,
     route: Option<(matrix_engine::Sender<matrix_engine::history::HistoryRequest>, Receiver<matrix_engine::history::HistoryResult>)>,
     pub messages: Option<DemoHistory>,
+    send: Option<(matrix_engine::Sender<matrix_engine::sending::SendRequest>, Receiver<matrix_engine::sending::SendEvent>)>,
+    drafts: std::collections::HashMap<matrix_domain::RoomScope, String>,
+    pub draft: String,
+    draft_scope: Option<matrix_domain::RoomScope>,
     pub heights: crate::timeline::Heights,
     pub first_visible: usize,
     pub query: String,
@@ -45,6 +49,7 @@ impl Session {
         })
         .map_err(|e| e.to_string())?;
         let route = worker.take_history_route();
+        let send = worker.take_send_route();
         let mut form = SignInForm::default();
         form.vault = with_vault;
         Ok(Session {
@@ -56,6 +61,10 @@ impl Session {
             history: HistorySession::new(),
             pending: None,
             route,
+            send,
+            drafts: Default::default(),
+            draft: String::new(),
+            draft_scope: None,
             messages: None,
             heights: Default::default(),
             first_visible: usize::MAX,
@@ -119,6 +128,18 @@ impl Session {
         } else if scope.is_none() && self.messages.take().is_some() {
             changed = true;
         }
+        // The draft follows the room: stored when leaving, restored when coming back.
+        if self.draft_scope != scope {
+            if let Some(old) = self.draft_scope.take() {
+                self.drafts.insert(old, std::mem::take(&mut self.draft));
+            }
+            self.draft = scope.as_ref().and_then(|s| self.drafts.remove(s)).unwrap_or_default();
+            self.draft_scope = scope;
+        }
+        if let Some((_, rx)) = &mut self.send {
+            // Outcomes show up as the message's own row once the live view refreshes (S5: no separate failure UI yet).
+            while rx.try_recv().is_ok() {}
+        }
         let mut pages = Vec::new();
         if let Some((_, rx)) = &mut self.route {
             while let Ok(result) = rx.try_recv() {
@@ -148,6 +169,22 @@ impl Session {
             }
         }
         changed
+    }
+
+    /// Sends the text to the open room; the live view picks up the echo.
+    pub fn send(&mut self, body: String) {
+        let (Some(scope), Some((tx, _))) = (self.draft_scope.clone(), &mut self.send) else { return };
+        let request = matrix_engine::sending::SendRequest {
+            scope: scope.clone(),
+            transaction_id: matrix_engine::sending::fresh_transaction_id(),
+            body,
+            attachment: None,
+            poll: None,
+            mentions: Vec::new(),
+        };
+        if tx.try_send(request).is_ok() {
+            self.history.activity(&scope);
+        }
     }
 
     /// Hands the typed fields to the form and sends the command it builds, if it is ready.

@@ -9,6 +9,7 @@ use matrix_desktop::{
 use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
+mod composer;
 mod list;
 mod session;
 mod timeline;
@@ -130,7 +131,17 @@ impl App {
                 ui.label(title.as_deref().unwrap_or(state));
             });
         });
-        egui::Panel::bottom("composer").exact_size(t.bottom_bar).frame(bar(t)).show(ui, |_| {});
+        let mut to_send = None;
+        egui::Panel::bottom("composer").min_size(t.bottom_bar).frame(bar(t)).show(ui, |ui| {
+            if let Some(s) = &mut self.session
+                && s.messages.is_some()
+            {
+                to_send = composer::show(ui, &mut s.draft);
+            }
+        });
+        if let (Some(body), Some(s)) = (to_send, &mut self.session) {
+            s.send(body);
+        }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
             if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
