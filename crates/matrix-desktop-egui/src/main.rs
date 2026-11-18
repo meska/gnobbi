@@ -12,6 +12,7 @@ use std::time::Duration;
 mod composer;
 mod list;
 mod session;
+mod settings;
 mod timeline;
 use session::Session;
 
@@ -49,6 +50,8 @@ fn visuals(t: &DesignTokens, dark: bool) -> Visuals {
 
 struct App {
     prefs: Preferences,
+    dirs: Option<AppDirs>,
+    settings_open: bool,
     theme: Theme,
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
@@ -67,7 +70,7 @@ impl App {
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -98,6 +101,11 @@ impl eframe::App for App {
                 session.attach(path);
             }
             session.poll(&ctx);
+            if let Some(messages) = &mut session.messages
+                && messages.set_hide_redacted(self.prefs.hide_redacted)
+            {
+                session.heights = Default::default();
+            }
             // The backend answers off-thread: wake up soon while waiting for it.
             if session.account.is_none() {
                 ctx.request_repaint_after(Duration::from_millis(100));
@@ -133,6 +141,12 @@ impl App {
             ui.horizontal_centered(|ui| {
                 ui.add_space(16.);
                 ui.label(title.as_deref().unwrap_or(state));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_space(12.);
+                    if ui.button("⚙").clicked() {
+                        self.settings_open = !self.settings_open;
+                    }
+                });
             });
         });
         let mut to_send = None;
@@ -161,6 +175,12 @@ impl App {
         }
         if let Some(s) = &mut self.session {
             message_menu(ui.ctx(), s, t);
+        }
+        if self.settings_open
+            && let Some(new) = settings::show(ui.ctx(), &mut self.settings_open, &self.prefs, self.dirs.as_ref(), t)
+        {
+            self.prefs = new;
+            self.applied = None;
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
             if let Some(s) = &mut self.session
