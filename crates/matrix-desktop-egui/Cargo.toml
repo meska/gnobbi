@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 matrix-desktop = { path = "../matrix-desktop", default-features = false, features = ["core-live", "tray"] }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
+serde_json = "=1.0.151"
 zeroize = "=1.9.1"
 matrix-domain = { path = "../matrix-domain" }
 matrix-engine = { path = "../matrix-engine", features = ["sdk"] }

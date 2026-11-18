@@ -114,13 +114,13 @@ pub struct Session {
 
 impl Session {
     /// Opens the default profile under the app data directory; a saved account unlocks by itself through the OS vault.
-    pub fn start(dirs: &AppDirs, root: std::path::PathBuf) -> Result<Session, String> {
+    pub fn start(dirs: &AppDirs, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> Result<Session, String> {
         matrix_desktop::create_private_dir(&root).map_err(|e| e.to_string())?;
         let vault = signin::platform_source();
         let with_vault = vault.is_some();
         let (ui, pending) = match vault {
-            Some(source) => signin::interactive_with_source(root, None, source),
-            None => signin::interactive(root, None),
+            Some(source) => signin::interactive_with_source(root, trust, source),
+            None => signin::interactive(root, trust),
         };
         let (mut worker, rooms) = RoomListWorker::spawn(move || async move {
             pending.run().await.map_err(|_| matrix_engine::auth::AuthError::Storage)
@@ -220,7 +220,8 @@ impl Session {
                     v.refresh();
                     self.verification = Some(v);
                     self.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
-                    self.sidebar.set_navigation_context(account, true);
+                    // Rooms are scoped by account: the list must be built for the account that signed in.
+                    self.sidebar = matrix_desktop::Sidebar::connected(account);
                 }
                 SignInEvent::Recovery(RecoveryState::Offered | RecoveryState::Failed(_) | RecoveryState::Unsupported) => {
                     let _ = self.ui.commands.try_send(SignInCommand::DeferRecovery);

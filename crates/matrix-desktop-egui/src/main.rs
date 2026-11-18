@@ -75,21 +75,26 @@ struct App {
     applied: Option<(Theme, u32)>,
     session: Option<Session>,
     /// Test hook: GNOBBI_EGUI_SHOT=<file.png> saves what the window paints after a few frames and exits.
-    shot: Option<(std::path::PathBuf, u32)>,
+    shot: Option<(std::path::PathBuf, std::time::Instant)>,
+    /// Test hook: GNOBBI_EGUI_LOGIN=<json {homeserver,user,password,phrase?}> signs in by itself (disposable servers only).
+    auto_login: Option<serde_json::Value>,
+    shot_sent: bool,
     /// Why the backend could not start, shown instead of the form.
     start_error: Option<String>,
 }
 
 impl App {
-    fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf) -> App {
+    fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> App {
         let prefs = dirs.map(Preferences::load).unwrap_or_else(Preferences::default);
         let theme = Theme::Classic;
-        let (session, start_error) = match dirs.map(|d| Session::start(d, root.clone())) {
+        let (session, start_error) = match dirs.map(|d| Session::start(d, root.clone(), trust.clone())) {
             Some(Ok(s)) => (Some(s), None),
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), 0)), session, start_error }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+            shot_sent: false,
+            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -115,8 +120,9 @@ impl eframe::App for App {
         self.refresh(&ctx);
         ctx.request_repaint_after(Duration::from_secs(60));
         if let Some((path, frame)) = &mut self.shot {
-            *frame += 1;
-            if *frame == 40 {
+            let secs: u64 = std::env::var("GNOBBI_EGUI_SHOT_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+            if frame.elapsed().as_secs() >= secs && !self.shot_sent {
+                self.shot_sent = true;
                 let path = path.clone();
                 ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
                     let [w, h] = img.size;
@@ -176,6 +182,7 @@ impl eframe::App for App {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
         self.tray(&ctx);
+        self.test_hooks();
         let t = self.tokens;
         if self.session.as_ref().is_some_and(|s| s.account.is_some()) {
             self.shell(ui, &t);
@@ -186,6 +193,42 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// Test hooks (env only): sign in with the given account, then open the view named in GNOBBI_EGUI_VIEW.
+    fn test_hooks(&mut self) {
+        let Some(s) = &mut self.session else { return };
+        if let Some(login) = &self.auto_login
+            && s.account.is_none()
+            && matches!(s.status(), FormStatus::Prompt(_))
+        {
+            let get = |k: &str| login.get(k).and_then(|v| v.as_str()).unwrap_or("").to_owned();
+            s.homeserver = get("homeserver");
+            s.user = get("user");
+            s.password = get("password");
+            s.phrase = get("phrase");
+            s.submit();
+        }
+        if s.account.is_some() && std::env::var_os("GNOBBI_EGUI_VIEW").is_some() {
+            let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
+            // The first room with something to read, once the list has arrived.
+            if s.sidebar.selected().is_none()
+                && let Some(&first) = s.sidebar.visible_indices().first()
+            {
+                let scope = s.sidebar.rooms()[first].scope.clone();
+                s.sidebar.select(&scope);
+            }
+            match view.as_str() {
+                "info" => s.info_open = true,
+                "search" => s.search_open = true,
+                "devices" => s.devices_open = true,
+                "new" => s.new_open = true,
+                "poll" => s.poll_open = true,
+                "settings" => self.settings_open = true,
+                "accounts" => self.accounts_open = true,
+                _ => {}
+            }
+        }
+    }
+
     /// Tray clicks, the menu and icon state, and what closing the window does (hide when the tray can be reached).
     fn tray(&mut self, ctx: &egui::Context) {
         use matrix_desktop::tray_menu::{CloseAction, TrayAction, close_action, tray_menu};
@@ -609,8 +652,21 @@ fn main() -> eframe::Result {
     let dirs = matrix_desktop::app_dirs(Platform::CURRENT, |k| std::env::var(k).ok());
     let default_root = dirs.as_ref().map(|d| d.data.join("profile"));
     // `--signin <folder>` runs another account's profile; the default profile is the first install's.
+    let mut trust = None;
     let root = match matrix_desktop::SignInOptions::parse(&args) {
-        Ok(Some(o)) => o.root,
+        Ok(Some(o)) => {
+            // An explicit CA (a test homeserver); read once, at most 1 MiB, like the GPUI app.
+            trust = o.ca_file.as_ref().map(|p| {
+                use std::io::Read;
+                let mut pem = Vec::new();
+                std::fs::File::open(p).and_then(|f| f.take(1 << 20).read_to_end(&mut pem)).unwrap_or_else(|_| {
+                    eprintln!("Could not read explicit trust root");
+                    std::process::exit(2);
+                });
+                pem
+            });
+            o.root
+        }
         Ok(None) => default_root.clone().unwrap_or_default(),
         Err(e) => {
             eprintln!("{e}");
@@ -637,7 +693,7 @@ fn main() -> eframe::Result {
             .with_app_id(APP_ID),
         ..Default::default()
     };
-    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref(), root)))))
+    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref(), root, trust)))))
 }
 
 #[cfg(test)]
