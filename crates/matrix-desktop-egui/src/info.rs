@@ -11,6 +11,7 @@ fn rgb(c: u32) -> Color32 {
 #[derive(Default)]
 pub struct Out {
     pub open_profile: Option<String>,
+    pub edit: bool,
 }
 
 pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t: &DesignTokens) -> Out {
@@ -25,6 +26,9 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t
                 if let Some(topic) = room.info.topic.as_deref().filter(|t| !t.is_empty()) {
                     ui.add_space(4.);
                     ui.label(RichText::new(topic).color(rgb(t.secondary)));
+                }
+                if room.info.edit_rights.any() && ui.button("Modifica").clicked() {
+                    out.edit = true;
                 }
                 ui.add_space(8.);
                 ui.label(RichText::new(format!("{} membri", room.info.joined_members)).color(rgb(t.secondary)));

@@ -23,6 +23,16 @@ pub struct ThreadState {
     next_read: std::time::Instant,
 }
 
+/// «Modifica stanza» form: what is typed, the picture dropped on it and whether the last try failed.
+pub struct RoomEdit {
+    pub name: String,
+    pub topic: String,
+    pub avatar: Option<std::path::PathBuf>,
+    pub failed: bool,
+    pub busy: bool,
+    original: (String, String),
+}
+
 pub struct Session {
     pub form: SignInForm,
     ui: SignInUi,
@@ -44,6 +54,7 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    pub edit: Option<RoomEdit>,
     notifications: matrix_domain::notifications::NotificationPolicy,
     _notify_worker: Option<matrix_desktop::notifications::NotificationWorker>,
     notify: Option<matrix_desktop::notifications::NotificationHandle>,
@@ -136,6 +147,7 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            edit: None,
             notifications: matrix_domain::notifications::NotificationPolicy::new(matrix_domain::AccountId::new(0)),
             notify: notify_worker.as_ref().map(|w| w.handle()),
             _notify_worker: notify_worker,
@@ -418,6 +430,18 @@ impl Session {
             }
         }
         for result in results {
+            if let OperationResult::RoomEdited { result } = &result {
+                match (result, &mut self.edit) {
+                    (Ok(()), _) => self.edit = None,
+                    (Err(_), Some(e)) => {
+                        e.failed = true;
+                        e.busy = false;
+                    }
+                    _ => {}
+                }
+                changed = true;
+                continue;
+            }
             if let OperationResult::Thread { tag, root, result } = result {
                 if let Some(th) = &mut self.thread
                     && th.root == root
@@ -558,6 +582,26 @@ impl Session {
             mentions: Vec::new(),
         };
         let _ = tx.try_send(request);
+    }
+
+    pub fn open_edit(&mut self) {
+        let Some(room) = self.sidebar.selected() else { return };
+        let (name, topic) = (room.name.clone(), room.info.topic.clone().unwrap_or_default());
+        self.edit = Some(RoomEdit { name: name.clone(), topic: topic.clone(), avatar: None, failed: false, busy: false, original: (name, topic) });
+    }
+
+    /// Sends only what changed, so a field the user may not edit is never touched.
+    pub fn save_edit(&mut self) {
+        let (Some(scope), Some(e)) = (self.draft_scope.clone(), &mut self.edit) else { return };
+        let changed = |new: &str, old: &str| (new.trim() != old).then(|| new.trim().to_owned());
+        let (name, topic) = (changed(&e.name, &e.original.0), changed(&e.topic, &e.original.1));
+        if name.is_none() && topic.is_none() && e.avatar.is_none() {
+            self.edit = None;
+            return;
+        }
+        e.busy = true;
+        e.failed = false;
+        self.op_queue.push(OperationCommand::EditRoom { scope, name, topic, avatar: e.avatar.take() });
     }
 
     pub fn open_profile(&mut self, user_id: String) {

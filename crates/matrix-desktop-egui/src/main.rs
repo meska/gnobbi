@@ -16,6 +16,7 @@ mod info;
 mod list;
 mod newchat;
 mod poll;
+mod roomedit;
 mod session;
 mod settings;
 mod timeline;
@@ -115,6 +116,11 @@ impl eframe::App for App {
             if let Some(path) = dropped.first() {
                 // With the devices window open a dropped picture is the profile photo, otherwise an attachment.
                 match &mut session.verification {
+                    _ if session.edit.is_some() => {
+                        if let Some(e) = &mut session.edit {
+                            e.avatar = Some(path.clone());
+                        }
+                    }
                     Some(v) if session.devices_open => {
                         v.save_profile(None, matrix_engine::verification::ProfileAvatar::Set(path.clone()));
                     }
@@ -269,10 +275,13 @@ impl App {
             && let Some(room) = s.sidebar.selected()
         {
             let members = s.members.as_ref().map(|(_, m)| m.as_slice());
-            let mut opened = None;
-            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| opened = info::show(ui, room, members, t).open_profile);
-            if let (Some(user), Some(s)) = (opened, &mut self.session) {
+            let mut out = info::Out::default();
+            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, t));
+            if let (Some(user), Some(s)) = (out.open_profile, &mut self.session) {
                 s.open_profile(user);
+            }
+            if out.edit && let Some(s) = &mut self.session {
+                s.open_edit();
             }
         }
         if let Some(s) = &mut self.session
@@ -353,6 +362,12 @@ impl App {
             && s.poll_open
         {
             poll::show(ui.ctx(), s, &mut self.poll_form, t);
+        }
+        if let Some(s) = &mut self.session
+            && s.edit.is_some()
+            && let Some(rights) = s.sidebar.selected().map(|r| r.info.edit_rights)
+        {
+            roomedit::show(ui.ctx(), s, rights);
         }
         if self.accounts_open
             && let Some(dirs) = &self.dirs
