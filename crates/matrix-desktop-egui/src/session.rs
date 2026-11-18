@@ -33,6 +33,10 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    pub search_open: bool,
+    pub search_term: String,
+    search_sent: String,
+    pub search: matrix_engine::operations::MessageSearchState,
     media: LiveMedia,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
     /// Thumbnails of the open room's pictures and videos, by event.
@@ -100,6 +104,10 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            search_open: false,
+            search_term: String::new(),
+            search_sent: String::new(),
+            search: matrix_engine::operations::MessageSearchState::Idle,
             media: LiveMedia::default(),
             media_route,
             pictures: Default::default(),
@@ -215,6 +223,8 @@ impl Session {
             self.pictures.clear();
             self.members = None;
             self.upload_limit = None;
+            self.search_sent.clear();
+            self.search = matrix_engine::operations::MessageSearchState::Idle;
             self.heights = Default::default();
             self.pending = Some(request);
             changed = true;
@@ -277,6 +287,15 @@ impl Session {
             self.op_pending = Some(OperationCommand::Members { scope: scope.clone() });
             self.members_requested = Some(scope.clone());
         }
+        // The term in the box follows to the engine; closing the panel sends an empty one, which ends the search.
+        let wanted = if self.search_open { self.search_term.trim().to_owned() } else { String::new() };
+        if self.op_pending.is_none()
+            && wanted != self.search_sent
+            && let Some(scope) = &self.draft_scope
+        {
+            self.op_pending = Some(OperationCommand::SearchMessages { scope: scope.clone(), term: wanted.clone() });
+            self.search_sent = wanted;
+        }
         if self.op_pending.is_none() {
             self.op_pending = self.ops.take_command();
         }
@@ -293,6 +312,13 @@ impl Session {
             }
         }
         for result in results {
+            if let OperationResult::MessageSearch { scope, state } = result {
+                if self.draft_scope.as_ref() == Some(&scope) {
+                    self.search = state;
+                    changed = true;
+                }
+                continue;
+            }
             if let OperationResult::Members { scope, members, upload_limit } = result {
                 // An answer for a room already left is dropped.
                 if self.draft_scope.as_ref() == Some(&scope) {

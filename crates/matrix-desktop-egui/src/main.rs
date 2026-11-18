@@ -152,6 +152,13 @@ impl App {
                         && let Some(s) = &mut self.session
                     {
                         s.info_open = !s.info_open;
+                        s.search_open = false;
+                    }
+                    if has_room && ui.button("🔍").clicked()
+                        && let Some(s) = &mut self.session
+                    {
+                        s.search_open = !s.search_open;
+                        s.info_open = false;
                     }
                 });
             });
@@ -162,6 +169,12 @@ impl App {
         {
             let members = s.members.as_ref().map(|(_, m)| m.as_slice());
             egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| info::show(ui, room, members, t));
+        }
+        if let Some(s) = &mut self.session
+            && s.search_open
+        {
+            let state = s.search.clone();
+            egui::Panel::right("search").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| info::search(ui, &mut s.search_term, &state, t));
         }
         let mut to_send = None;
         egui::Panel::bottom("composer").min_size(t.bottom_bar).frame(bar(t)).show(ui, |ui| {

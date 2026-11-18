@@ -44,3 +44,43 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, t
         }
     });
 }
+
+/// Message search of the open room: term box and hits (a hit cannot be jumped to yet: the timeline only holds what was paged in).
+pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::operations::MessageSearchState, t: &DesignTokens) {
+    use matrix_engine::operations::MessageSearchState as S;
+    ui.add_space(12.);
+    ui.horizontal(|ui| {
+        ui.add_space(12.);
+        let w = ui.available_width() - 12.;
+        ui.add_sized([w, 32.], egui::TextEdit::singleline(term).hint_text("Cerca nella stanza"));
+    });
+    ui.add_space(8.);
+    match state {
+        S::Idle => {}
+        S::Searching { .. } => {
+            ui.vertical_centered(|ui| ui.spinner());
+        }
+        S::NoResults { .. } => {
+            ui.label(RichText::new("Nessun risultato").color(rgb(t.secondary)));
+        }
+        S::Error { .. } => {
+            ui.colored_label(rgb(t.error), "Ricerca non riuscita");
+        }
+        S::Results { hits, .. } => {
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                for h in hits {
+                    ui.add_space(6.);
+                    ui.horizontal(|ui| {
+                        ui.add_space(12.);
+                        ui.vertical(|ui| {
+                            ui.set_max_width(ui.available_width() - 12.);
+                            ui.label(RichText::new(&h.sender_name).strong().size(12.).color(rgb(t.accent)));
+                            ui.label(&h.excerpt);
+                        });
+                    });
+                    ui.separator();
+                }
+            });
+        }
+    }
+}
