@@ -741,6 +741,11 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomLeft { scope, result }
                                 }
+                                OperationCommand::LeaveSpace { scope, forget } => {
+                                    let (is_last_owner, result) =
+                                        crate::operations::leave_space(&operation_client, account, &scope, forget).await;
+                                    OperationResult::SpaceLeft { scope, is_last_owner, result }
+                                }
                                 OperationCommand::AnswerInvite { scope, accept } => {
                                     let result = crate::operations::answer_invite(
                                         &operation_client,

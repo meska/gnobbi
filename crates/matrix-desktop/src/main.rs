@@ -1938,6 +1938,11 @@ impl Shell {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::LeaveSpace { scope, .. } => OperationResult::SpaceLeft {
+                            scope,
+                            is_last_owner: None,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::JoinRoom { target, .. } => OperationResult::Join {
                             target,
                             phase: matrix_engine::join::JoinPhase::Refused(OperationError::Unavailable),
@@ -3292,6 +3297,10 @@ fn main() {
                                             }
                                             if let matrix_engine::operations::OperationResult::RoomLeft { scope, result } = result {
                                                 this.sidebar.room_left(&scope, result);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::SpaceLeft { scope, result, .. } = result {
+                                                this.sidebar.space_left(&scope, result.map(drop));
                                                 continue;
                                             }
                                             this.operations.borrow_mut().apply(result);

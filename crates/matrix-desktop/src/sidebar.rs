@@ -104,6 +104,8 @@ pub struct Sidebar {
     leave_error: Option<(RoomScope, &'static str)>,
     /// The tag toggle in flight: the room and ALL its tags and pin order before the optimistic flip.
     tag: Option<(RoomScope, Vec<String>, Option<u64>)>,
+    /// The space whose «Esci dallo spazio» request is in flight (disables the control, nothing else).
+    space_leaving: Option<RoomScope>,
     /// One-line reason of the last failed toggle, until the next one.
     tag_error: Option<&'static str>,
 }
@@ -127,6 +129,7 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
+            space_leaving: None,
             tag: None,
             tag_error: None,
         }
@@ -249,6 +252,7 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
+            space_leaving: None,
             tag: None,
             tag_error: None,
         }
@@ -363,6 +367,24 @@ impl Sidebar {
             };
             (scope.clone(), text)
         });
+    }
+
+    /// Marks the leave of `scope` as in flight; false (do not send) when one already is.
+    pub fn begin_space_leave(&mut self, scope: RoomScope) -> bool {
+        self.leave_error = None;
+        self.space_leaving.replace(scope).is_none()
+    }
+
+    /// True only while the request runs: the control stays disabled exactly that long.
+    pub fn space_leaving(&self) -> bool {
+        self.space_leaving.is_some()
+    }
+
+    /// Outcome of «Esci dallo spazio», any result frees the control. Success drops the space from the rail and,
+    /// when it was selected, returns the list to «Tutte» (as `room_left`); failure leaves the one-line error.
+    pub fn space_left(&mut self, scope: &RoomScope, result: Result<(), matrix_engine::operations::OperationError>) {
+        self.space_leaving = None;
+        self.room_left(scope, result);
     }
 
     /// The failure of the last «Esci» on this row, until the next click or menu.
@@ -919,6 +941,30 @@ mod tests {
             ["x", "y", "space"][..names(&sidebar).len()]
         );
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
+    }
+
+    #[test]
+    fn space_leave_disables_only_while_running_and_success_returns_to_tutte() {
+        use matrix_engine::operations::OperationError::Forbidden;
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+            scope: scope(&account, "bots"),
+            name: "Bots".into(),
+            unread: 0,
+            info: RoomInfo { is_space: true, ..Default::default() },
+        })));
+        let bots = scope(&account, "bots");
+        assert!(sidebar.set_space(Some(bots.clone())));
+        assert!(sidebar.begin_space_leave(bots.clone()) && sidebar.space_leaving());
+        assert!(!sidebar.begin_space_leave(bots.clone()), "no second request while one runs");
+        sidebar.space_left(&bots, Err(Forbidden));
+        assert!(!sidebar.space_leaving() && sidebar.leave_error(&bots) == Some("Non consentito dal server"));
+        assert_eq!(sidebar.active_space(), Some(&bots));
+        assert!(sidebar.begin_space_leave(bots.clone()));
+        sidebar.space_left(&bots, Ok(()));
+        assert!(!sidebar.space_leaving() && sidebar.leave_error(&bots).is_none());
+        assert_eq!((sidebar.active_space(), sidebar.spaces().count()), (None, 0));
     }
 
     #[test]

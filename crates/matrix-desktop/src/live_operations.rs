@@ -260,6 +260,7 @@ impl LiveOperations {
             | OperationResult::RoomSearch { .. }
             | OperationResult::ServerProbed { .. }
             | OperationResult::RoomLeft { .. }
+            | OperationResult::SpaceLeft { .. }
             | OperationResult::Profile { .. }
             | OperationResult::Ignored { .. }
             | OperationResult::MemberRights { .. }

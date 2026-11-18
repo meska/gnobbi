@@ -254,6 +254,11 @@ pub enum OperationCommand {
     LeaveRoom {
         scope: RoomScope,
     },
+    /// «Esci dallo spazio»: leaves only the space (never the rooms inside); `forget` = «Dimentica» switch.
+    LeaveSpace {
+        scope: RoomScope,
+        forget: bool,
+    },
     /// Answer to an invitation, only on the user's click: accept joins, reject leaves (both SDK).
     AnswerInvite {
         scope: RoomScope,
@@ -365,6 +370,13 @@ pub enum OperationResult {
     RoomLeft {
         scope: RoomScope,
         result: Result<(), OperationError>,
+    },
+    /// `is_last_owner`: the SDK handle's answer for the space (None when the handle was not obtained);
+    /// `Ok(forgot)`: the leave is done or confirmed, `forgot` = `Room::forget` ran too.
+    SpaceLeft {
+        scope: RoomScope,
+        is_last_owner: Option<bool>,
+        result: Result<bool, OperationError>,
     },
     UserSearch {
         state: SearchState,
@@ -888,17 +900,68 @@ pub async fn leave_room(
         .ok_or(OperationError::Unavailable)?;
     let left = tokio::time::timeout(std::time::Duration::from_secs(30), room.leave())
         .await
-        .map_err(|_| OperationError::Transport)?;
-    // The vendored SDK returns Forbidden without touching the local state; only the server decides
-    // whether we are still in: already out (kicked/left elsewhere) counts as a completed leave.
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e));
+    left_or_refused(client, &id, left).await
+}
+
+/// The vendored SDK returns Forbidden without touching the local state; only the server decides
+/// whether we are still in: already out (kicked/left elsewhere) counts as a completed leave.
+#[cfg(feature = "sdk")]
+async fn left_or_refused(
+    client: &matrix_sdk::Client,
+    id: &matrix_sdk::ruma::RoomId,
+    left: Result<(), OperationError>,
+) -> Result<(), OperationError> {
     match left {
-        Err(e) if !matches!(classify(&e), OperationError::Forbidden) => Err(classify(&e)),
-        _ => match membership(client, &id).await {
+        Err(e) if e != OperationError::Forbidden => Err(e),
+        _ => match membership(client, id).await {
             Membership::NotJoined => Ok(()),
             // Still in, or unreadable: the row must stay, with the error line.
             Membership::Joined | Membership::Unknown => Err(OperationError::Forbidden),
         },
     }
+}
+
+/// «Esci dallo spazio»: `SpaceService::leave_space` → handle (whose `is_last_owner` is returned for the
+/// confirmation text) → `handle.leave` filtered to the space itself, so the contained rooms stay joined.
+/// Same already-out recheck as `leave_room` (Synapse 403, Tuwunel 200). `Room::forget` only after a leave
+/// that succeeded or was confirmed by the recheck; a failing forget does not undo the leave (`Ok(false)`).
+#[cfg(feature = "sdk")]
+pub async fn leave_space(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    forget: bool,
+) -> (Option<bool>, Result<bool, OperationError>) {
+    let id = match room_id_of(account, scope) {
+        Ok(id) => id,
+        Err(e) => return (None, Err(e)),
+    };
+    // The space graph also holds the plain rooms a space lists as children: only a space may be left here.
+    if !client.get_room(&id).is_some_and(|r| r.is_space()) {
+        return (None, Err(OperationError::Unavailable));
+    }
+    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
+    service.top_level_joined_spaces().await; // fills the space graph, as in `space_choices`
+    let handle = match tokio::time::timeout(std::time::Duration::from_secs(20), service.leave_space(&id)).await {
+        Ok(Ok(handle)) => handle,
+        Ok(Err(e)) => return (None, Err(classify_space(&e))),
+        Err(_) => return (None, Err(OperationError::Transport)),
+    };
+    let is_last_owner = handle.rooms().iter().find(|r| r.space_room.room_id == id).map(|r| r.is_last_owner);
+    let left = match tokio::time::timeout(std::time::Duration::from_secs(30), handle.leave(|r| r.space_room.room_id == id)).await {
+        Ok(left) => left.map_err(|e| classify_space(&e)),
+        Err(_) => Err(OperationError::Transport),
+    };
+    if let Err(e) = left_or_refused(client, &id, left).await {
+        return (is_last_owner, Err(e));
+    }
+    let forgot = match client.get_room(&id).filter(|_| forget) {
+        Some(room) => room.forget().await.map_err(|e| tracing::warn!(%e, "forget after leaving a space failed")).is_ok(),
+        None => false,
+    };
+    (is_last_owner, Ok(forgot))
 }
 
 #[cfg(feature = "sdk")]
