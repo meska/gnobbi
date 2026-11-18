@@ -358,3 +358,45 @@ fn topic_and_timeline_registries_do_not_share_sources() {
     sources.retain_event(&event());
     assert!(!sources.is_current(&topic), "timeline retention never keeps a topic source");
 }
+
+fn labelled(text: &str, links: &[(std::ops::Range<usize>, &str)]) -> matrix_engine::rich_text::Topic {
+    matrix_engine::rich_text::Topic {
+        text: text.into(),
+        links: links
+            .iter()
+            .map(|(range, href)| matrix_engine::rich_text::LinkSpan { range: range.clone(), href: (*href).into() })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn topic_label_links_carry_their_real_address_and_only_safe_web_urls() {
+    let scope = room("!topic:test");
+    let text = "use #offtopic:grin.hu, x, y, https://buono.example (https://cattivo.example/)";
+    let topic = labelled(
+        text,
+        &[
+            (4..21, "https://matrix.to/#/#offtopic:grin.hu"),
+            (23..24, "javascript:alert(1)"),
+            (26..27, "mailto:a@b.it"),
+            (29..50, "https://cattivo.example/"),
+        ],
+    );
+    let mut sources = MessageLinkRequests::default();
+    let targets = sources.topic_rich_targets(&scope, &topic);
+    let shown: Vec<_> = targets.iter().map(|t| (&text[t.range()], t.url().as_str())).collect();
+    assert_eq!(
+        shown,
+        [
+            ("#offtopic:grin.hu", "https://matrix.to/#/#offtopic:grin.hu"),
+            // The label says buono, the target is cattivo; the bare address in the suffix is cattivo too.
+            ("https://buono.example", "https://cattivo.example/"),
+            ("https://cattivo.example/", "https://cattivo.example/"),
+        ]
+    );
+    // Same text and addresses: the same occurrences; another address behind a label: new ones.
+    assert_eq!(sources.topic_rich_targets(&scope, &topic)[0].instance(), targets[0].instance());
+    let moved = labelled(text, &[(4..21, "https://matrix.to/#/#other:grin.hu")]);
+    assert_ne!(sources.topic_rich_targets(&scope, &moved)[0].instance(), targets[0].instance());
+}

@@ -249,6 +249,7 @@ impl LiveOperations {
         match result {
             // Room markers are fire and forget: the next sync projects the outcome.
             OperationResult::RoomMarked { .. }
+            | OperationResult::NotificationModeSet { .. }
             | OperationResult::TagsEdited { .. }
             | OperationResult::RoomStarted { .. }
             | OperationResult::SpaceCreated { .. }
@@ -256,10 +257,12 @@ impl LiveOperations {
             | OperationResult::SpaceChanged { .. }
             | OperationResult::Join { .. }
             | OperationResult::RoomEdited { .. }
+            | OperationResult::Aliases { .. }
             | OperationResult::InviteAnswered { .. }
             | OperationResult::RoomSearch { .. }
             | OperationResult::ServerProbed { .. }
             | OperationResult::RoomLeft { .. }
+            | OperationResult::SpaceLeft { .. }
             | OperationResult::Profile { .. }
             | OperationResult::Ignored { .. }
             | OperationResult::MemberRights { .. }

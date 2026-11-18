@@ -71,13 +71,16 @@ fn last_page_has_no_next_batch() {
 
 #[test]
 fn errors_are_told_apart() {
-    assert_eq!(directory_error(None, None), Network);
-    assert_eq!(directory_error(Some(400), Some(&ErrorKind::InvalidParam)), InvalidServer);
-    assert_eq!(directory_error(Some(403), Some(&ErrorKind::Forbidden)), Refused);
-    assert_eq!(directory_error(Some(404), None), Refused);
-    assert_eq!(directory_error(Some(404), Some(&ErrorKind::Unrecognized)), Refused);
-    assert_eq!(directory_error(Some(502), None), Unreachable);
-    assert_eq!(directory_error(Some(500), Some(&ErrorKind::Unknown)), Unreachable);
+    assert_eq!(directory_error(None, None, false), Network);
+    assert_eq!(directory_error(Some(400), Some(&ErrorKind::InvalidParam), false), InvalidServer);
+    assert_eq!(directory_error(Some(403), Some(&ErrorKind::Forbidden), false), Refused);
+    assert_eq!(directory_error(Some(404), None, false), Refused);
+    assert_eq!(directory_error(Some(404), Some(&ErrorKind::Unrecognized), false), Refused);
+    assert_eq!(directory_error(Some(502), None, false), Unreachable);
+    assert_eq!(directory_error(Some(500), Some(&ErrorKind::Unknown), false), Unreachable);
+    // Our server answered but the body was unreadable (2xx not decodable, non-Matrix error body): not «Connessione non riuscita».
+    assert_eq!(directory_error(None, None, true), Unreachable);
+    assert_eq!(directory_error(Some(429), Some(&ErrorKind::Unknown), true), Unreachable);
 }
 
 #[test]

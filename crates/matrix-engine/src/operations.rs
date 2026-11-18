@@ -230,6 +230,11 @@ pub enum OperationCommand {
         topic: Option<String>,
         avatar: Option<std::path::PathBuf>,
     },
+    /// Indirizzi (alias) di una stanza: lettura e modifica, risposta `OperationResult::Aliases`.
+    Aliases {
+        scope: RoomScope,
+        action: crate::alias::AliasAction,
+    },
     /// Join by alias (`#a:server`) or room ID (`!id:server`), typed or taken from the directory.
     JoinRoom {
         target: String,
@@ -254,6 +259,11 @@ pub enum OperationCommand {
     LeaveRoom {
         scope: RoomScope,
     },
+    /// «Esci dallo spazio»: leaves only the space (never the rooms inside); `forget` = «Dimentica» switch.
+    LeaveSpace {
+        scope: RoomScope,
+        forget: bool,
+    },
     /// Answer to an invitation, only on the user's click: accept joins, reject leaves (both SDK).
     AnswerInvite {
         scope: RoomScope,
@@ -266,10 +276,11 @@ pub enum OperationCommand {
     },
     /// Group (room tag) change asked for by the user in «Modifica»; the only writer of tags.
     EditTags(TagEdit),
-    /// «Silenzia»: the room push rule; the outcome comes back as `RoomMarked` and the next sync projects it.
-    SetMuted {
+    /// The room's notification mode as an account push rule; the outcome comes back as
+    /// `NotificationModeSet` and the next sync projects it.
+    SetNotificationMode {
         scope: RoomScope,
-        muted: bool,
+        mode: matrix_domain::notifications::RoomNotifyMode,
     },
     /// Read-only thread panel: the root and the newest `want` replies (SDK thread timeline).
     /// The page proves nothing about the receipt; the panel asks for that separately with `ThreadRead`.
@@ -366,6 +377,13 @@ pub enum OperationResult {
         scope: RoomScope,
         result: Result<(), OperationError>,
     },
+    /// `is_last_owner`: the SDK handle's answer for the space (None when the handle was not obtained);
+    /// `Ok(forgot)`: the leave is done or confirmed, `forgot` = `Room::forget` ran too.
+    SpaceLeft {
+        scope: RoomScope,
+        is_last_owner: Option<bool>,
+        result: Result<bool, OperationError>,
+    },
     UserSearch {
         state: SearchState,
         all_available: bool,
@@ -403,6 +421,13 @@ pub enum OperationResult {
     RoomEdited {
         result: Result<(), OperationError>,
     },
+    /// `aliases`: l'elenco riletto dal server (anche dopo un errore); `None` se la rilettura è fallita.
+    Aliases {
+        scope: RoomScope,
+        action: crate::alias::AliasAction,
+        result: Result<(), crate::alias::AliasOpError>,
+        aliases: Option<crate::alias::RoomAliases>,
+    },
     Members {
         scope: RoomScope,
         members: Result<Vec<Member>, OperationError>,
@@ -410,6 +435,10 @@ pub enum OperationResult {
         upload_limit: Option<u64>,
     },
     RoomMarked {
+        scope: RoomScope,
+        result: Result<(), OperationError>,
+    },
+    NotificationModeSet {
         scope: RoomScope,
         result: Result<(), OperationError>,
     },
@@ -827,11 +856,13 @@ pub fn directory_page(
 
 /// Transport failure = our homeserver is down; 400 = it rejected the server name; 401/403/404 =
 /// the remote refuses its directory to us (many servers do, or do not federate it); the rest
-/// (5xx relayed: the remote does not answer) = unreachable.
+/// (5xx relayed: the remote does not answer) = unreachable. No status but `answered` (our server replied,
+/// the body was not a Matrix error, e.g. an unreadable 2xx) is unreachable too, not a connection failure.
 #[cfg(feature = "sdk")]
-pub fn directory_error(status: Option<u16>, kind: Option<&ErrorKind>) -> crate::search::SearchError {
+pub fn directory_error(status: Option<u16>, kind: Option<&ErrorKind>, answered: bool) -> crate::search::SearchError {
     use crate::search::SearchError::*;
     match (status, kind) {
+        (None, _) if answered => Unreachable,
         (None, _) => Network,
         (_, Some(ErrorKind::InvalidParam)) | (Some(400), _) => InvalidServer,
         (_, Some(ErrorKind::Forbidden | ErrorKind::Unrecognized | ErrorKind::NotFound)) => Refused,
@@ -858,7 +889,7 @@ pub async fn public_rooms(
     // The SDK retries 5xx; a home server's 502 for a dead remote must surface at once, not as a 20 s timeout.
     let response = client.send(request).with_request_config(matrix_sdk::config::RequestConfig::new().disable_retry()).await.map_err(|e| {
         let api = e.as_client_api_error();
-        directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind())
+        directory_error(api.map(|a| a.status_code.as_u16()), e.client_api_error_kind(), matches!(e, matrix_sdk::HttpError::Api(_)))
     })?;
     let mut response = response;
     response.chunk.retain(|d| kind_matches(kind, d.room_type.as_ref()));
@@ -886,17 +917,68 @@ pub async fn leave_room(
         .ok_or(OperationError::Unavailable)?;
     let left = tokio::time::timeout(std::time::Duration::from_secs(30), room.leave())
         .await
-        .map_err(|_| OperationError::Transport)?;
-    // The vendored SDK returns Forbidden without touching the local state; only the server decides
-    // whether we are still in: already out (kicked/left elsewhere) counts as a completed leave.
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e));
+    left_or_refused(client, &id, left).await
+}
+
+/// The vendored SDK returns Forbidden without touching the local state; only the server decides
+/// whether we are still in: already out (kicked/left elsewhere) counts as a completed leave.
+#[cfg(feature = "sdk")]
+async fn left_or_refused(
+    client: &matrix_sdk::Client,
+    id: &matrix_sdk::ruma::RoomId,
+    left: Result<(), OperationError>,
+) -> Result<(), OperationError> {
     match left {
-        Err(e) if !matches!(classify(&e), OperationError::Forbidden) => Err(classify(&e)),
-        _ => match membership(client, &id).await {
+        Err(e) if e != OperationError::Forbidden => Err(e),
+        _ => match membership(client, id).await {
             Membership::NotJoined => Ok(()),
             // Still in, or unreadable: the row must stay, with the error line.
             Membership::Joined | Membership::Unknown => Err(OperationError::Forbidden),
         },
     }
+}
+
+/// «Esci dallo spazio»: `SpaceService::leave_space` → handle (whose `is_last_owner` is returned for the
+/// confirmation text) → `handle.leave` filtered to the space itself, so the contained rooms stay joined.
+/// Same already-out recheck as `leave_room` (Synapse 403, Tuwunel 200). `Room::forget` only after a leave
+/// that succeeded or was confirmed by the recheck; a failing forget does not undo the leave (`Ok(false)`).
+#[cfg(feature = "sdk")]
+pub async fn leave_space(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    forget: bool,
+) -> (Option<bool>, Result<bool, OperationError>) {
+    let id = match room_id_of(account, scope) {
+        Ok(id) => id,
+        Err(e) => return (None, Err(e)),
+    };
+    // The space graph also holds the plain rooms a space lists as children: only a space may be left here.
+    if !client.get_room(&id).is_some_and(|r| r.is_space()) {
+        return (None, Err(OperationError::Unavailable));
+    }
+    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
+    service.top_level_joined_spaces().await; // fills the space graph, as in `space_choices`
+    let handle = match tokio::time::timeout(std::time::Duration::from_secs(20), service.leave_space(&id)).await {
+        Ok(Ok(handle)) => handle,
+        Ok(Err(e)) => return (None, Err(classify_space(&e))),
+        Err(_) => return (None, Err(OperationError::Transport)),
+    };
+    let is_last_owner = handle.rooms().iter().find(|r| r.space_room.room_id == id).map(|r| r.is_last_owner);
+    let left = match tokio::time::timeout(std::time::Duration::from_secs(30), handle.leave(|r| r.space_room.room_id == id)).await {
+        Ok(left) => left.map_err(|e| classify_space(&e)),
+        Err(_) => Err(OperationError::Transport),
+    };
+    if let Err(e) = left_or_refused(client, &id, left).await {
+        return (is_last_owner, Err(e));
+    }
+    let forgot = match client.get_room(&id).filter(|_| forget) {
+        Some(room) => room.forget().await.map_err(|e| tracing::warn!(%e, "forget after leaving a space failed")).is_ok(),
+        None => false,
+    };
+    (is_last_owner, Ok(forgot))
 }
 
 #[cfg(feature = "sdk")]

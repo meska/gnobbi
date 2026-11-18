@@ -1,0 +1,23 @@
+[package]
+name = "matrix-desktop-egui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# Toolkit-free app layer of matrix-desktop (no GPUI); the egui forks are vendored, see the root Cargo.toml.
+[dependencies]
+matrix-desktop = { path = "../matrix-desktop", default-features = false, features = ["core-live"] }
+matrix-domain = { path = "../matrix-domain" }
+matrix-engine = { path = "../matrix-engine", features = ["sdk"] }
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "system_fonts", "wayland", "wgpu", "x11"] }
+
+[[bin]]
+name = "gnobbi-egui"
+path = "src/main.rs"
+
+[features]
+# New profiles keep their protection secret in the OS vault (same switches as matrix-desktop).
+linux-vault = ["matrix-engine/linux-vault"]
+mac-vault = ["matrix-engine/mac-vault"]
+windows-vault = ["matrix-engine/windows-vault"]

@@ -39,7 +39,9 @@ mod navigation_resize_test;
 mod new_room_view;
 mod quick_search_view;
 mod search_list_view;
+mod profile_edit_view;
 mod room_edit_view;
+mod alias_view;
 mod notification_view;
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 mod operation_panel_view;
@@ -52,6 +54,8 @@ mod room_menu_view;
 mod room_search_view;
 mod scrollbar_view;
 mod settings_view;
+#[cfg(feature = "live")]
+mod key_export_view;
 mod switch_row;
 #[cfg(test)]
 mod switch_rows_test;
@@ -63,6 +67,8 @@ mod verification_popup_test;
 mod member_profile_test;
 #[cfg(test)]
 mod link_jump_test;
+#[cfg(all(test, feature = "linux-a11y", target_os = "linux"))]
+mod status_focus_test;
 #[cfg(test)]
 mod drawer_active_test;
 #[cfg(test)]
@@ -128,12 +134,17 @@ struct Shell {
     room_search: Option<room_search_view::RoomSearch>,
     /// «Esci dalla stanza» was clicked once; the second click leaves.
     confirm_leave: Option<RoomScope>,
+    /// The drawer's notification-mode rows are open (under the bell).
+    notify_menu: bool,
     menu_open: bool,
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
     settings_open: bool,
     /// The «Privacy e sicurezza» page inside Settings.
     privacy_open: bool,
+    /// Widgets of the «Esporta chiavi» / «Chiave di recupero» sub-page; its state is `verification.keys`.
+    #[cfg(feature = "live")]
+    keys_ui: Option<key_export_view::KeysUi>,
     drawer_scroll: gpui::ScrollHandle,
     settings_error: Option<&'static str>,
     about_open: bool,
@@ -150,6 +161,9 @@ struct Shell {
     quick: Option<quick_search_view::QuickSearch>,
     recents: matrix_desktop::quick_search::RecentsStore,
     room_edit: Option<room_edit_view::RoomEdit>,
+    profile_edit: Option<profile_edit_view::ProfileEdit>,
+    aliases: Option<alias_view::AliasPanel>,
+    alias_add: Option<alias_view::AliasAdd>,
     /// A just-created room, opened as soon as the sync lists it.
     pending_open: Option<RoomScope>,
     /// A just-created space, selected in the bar as soon as the sync lists it.
@@ -218,7 +232,12 @@ struct Shell {
     /// Focus of the thread panel's text, so Cmd/Ctrl+C reaches its selection.
     thread_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_details_bounds: [Option<accesskit::Rect>; 8],
+    a11y_details_bounds: [Option<accesskit::Rect>; 9],
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    /// Keyboard focus on a command of «Indirizzi» (index in `alias_commands`); `details_focus` stays on «Copia ID».
+    alias_focus: Option<usize>,
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    a11y_alias_bounds: Vec<Option<accesskit::Rect>>,
     spaces_ui: spaces_view::SpacesUi,
     spaces_open: bool,
     navigation_wide: bool,
@@ -1095,7 +1114,7 @@ impl Shell {
                 && key.key == "c"
                 && copy_modifier
                 && let Some((_, topic)) = self.topic_source()
-                && let Some(text) = self.topic_selection.borrow().copy(&topic)
+                && let Some(text) = self.topic_selection.borrow().copy(&topic.text)
             {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.to_owned()));
                 cx.stop_propagation();
@@ -1107,7 +1126,7 @@ impl Shell {
                 && copy_modifier
                 && let Some((_, topic)) = self.topic_source()
             {
-                self.topic_selection.borrow_mut().select_all(&topic);
+                self.topic_selection.borrow_mut().select_all(&topic.text);
                 cx.notify();
                 cx.stop_propagation();
                 return;
@@ -1119,19 +1138,16 @@ impl Shell {
             }
             #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
             if matches!(key.key.as_str(), "tab" | "space" | "enter") {
-                use matrix_desktop::accessibility::details::{DetailsAction, DetailsView};
+                use matrix_desktop::accessibility::details::DetailsView;
                 let view = self.semantic_details(window);
                 if let DetailsView::Open(panel) = &view {
                     let action = if key.key == "tab" {
-                        Some(DetailsAction::Focus {
-                            scope: panel.scope.clone(),
-                            control: panel.next_focus(key.modifiers.shift),
-                        })
+                        Some(panel.tab(key.modifiers.shift))
                     } else {
                         view.action(&accesskit::ActionRequest {
                             action: accesskit::Action::Click,
                             target_tree: accesskit::TreeId::ROOT,
-                            target_node: panel.focus.id(),
+                            target_node: panel.stop_id(),
                             data: None,
                         })
                     };
@@ -1825,6 +1841,7 @@ impl Shell {
         self.flush_directory();
         self.flush_quick_users();
         self.flush_quick_rooms();
+        self.ensure_aliases();
         if self.pending_operation_command.is_none() {
             self.pending_operation_command = self.operations.borrow_mut().take_command();
         }
@@ -1892,9 +1909,15 @@ impl Shell {
                             target,
                             result: Err(OperationError::Unavailable),
                         },
-                        OperationCommand::SetMuted { scope, .. } => OperationResult::RoomMarked {
+                        OperationCommand::SetNotificationMode { scope, .. } => OperationResult::NotificationModeSet {
                             scope,
                             result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::Aliases { scope, action } => OperationResult::Aliases {
+                            scope,
+                            action,
+                            result: Err(matrix_engine::alias::AliasOpError::Unavailable),
+                            aliases: None,
                         },
                         OperationCommand::EditRoom { .. } => OperationResult::RoomEdited {
                             result: Err(OperationError::Unavailable),
@@ -1934,6 +1957,11 @@ impl Shell {
                         },
                         OperationCommand::LeaveRoom { scope } => OperationResult::RoomLeft {
                             scope,
+                            result: Err(OperationError::Unavailable),
+                        },
+                        OperationCommand::LeaveSpace { scope, .. } => OperationResult::SpaceLeft {
+                            scope,
+                            is_last_owner: None,
                             result: Err(OperationError::Unavailable),
                         },
                         OperationCommand::JoinRoom { target, .. } => OperationResult::Join {
@@ -2017,11 +2045,12 @@ impl Shell {
         div().flex_shrink_0().px_4().py_2().bg(rgb(t.surface)).border_t_1().border_color(rgb(t.selection))
             .when(ending, |d| d.child(div().text_size(px(12.)).text_color(rgb(t.accent)).child("Chiudere il sondaggio?")))
             .when(notice != matrix_desktop::LiveOperations::IDLE_NOTICE, |d| d.child(div().text_size(px(11.)).text_color(rgb(t.secondary)).whitespace_normal().child(notice)))
-            .child(div().flex().flex_wrap().gap_2().children(controls.into_iter().map(|(name,label,enabled)| {
+            .child(div().flex().flex_wrap().gap_2().children(controls.into_iter().filter(|(_, _, enabled)| *enabled).map(|(name,label,enabled)| {
                 let d = div().id(name).relative().px_2().h(px(28.)).flex().items_center().text_size(px(12.))
                     .text_color(rgb(if enabled { t.accent } else { t.secondary }))
                     .when(enabled, |d| d.cursor_pointer())
-                    .child(if enabled { label.to_owned() } else { format!("{label} · n/d") })
+                    .when(name == "close", |d| d.ml_auto().child(composer_icons::icon(composer_icons::Icon::Close, if enabled { t.accent } else { t.secondary })))
+                    .when(name != "close", |d| d.child(label.to_owned()))
                     .on_click(cx.listener(move |this, event, _window, cx| {
                         if !enabled { return; }
                         // Semantic key-down owns these controls. GPUI synthesizes
@@ -2242,7 +2271,7 @@ impl Shell {
                 navigation_revision: self.sidebar.navigation_revision(),
                 icon_choice: self.settings_open.then_some(self.prefs.icon),
                 disconnected: self.disconnected_shown(),
-                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_room_edit(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
+                new_room: self.semantic_new_room(window, cx).or_else(|| self.semantic_poll(window, cx)).or_else(|| self.semantic_room_edit(window, cx)).or_else(|| self.semantic_profile_edit(window, cx)).or_else(|| self.semantic_quick_search(window, cx)),
                 devices: self.semantic_devices(window),
                 details: self.semantic_details(window),
                 notifications: self.semantic_notifications(window),
@@ -2619,7 +2648,9 @@ impl Shell {
                                                             .when(!(this.connected && (room.unread > 0 || room.info.marked_unread)) && (room.pinned() || room.low_priority()), |d| {
                                                                 let kind = if room.pinned() { composer_icons::Icon::PinFilled } else { composer_icons::Icon::LowPriority };
                                                                 d.child(div().flex_shrink_0().flex().items_center().h(px(matrix_desktop::row_text::PREVIEW_LINE_PX)).child(composer_icons::icon_sized(kind, t.secondary, 16.)))
-                                                            }),
+                                                            })
+                                                            // Muted: a discreet struck bell; the unread badge stays as it is. Name: «Silenziata» in the row label.
+                                                            .when(room.info.muted(), |d| d.child(div().flex_shrink_0().flex().items_center().h(px(matrix_desktop::row_text::PREVIEW_LINE_PX)).child(composer_icons::icon_sized(composer_icons::Icon::BellOff, t.secondary, 16.)))),
                                                     ),
                                             )
                                             .children(invite_buttons)
@@ -2755,6 +2786,8 @@ impl Shell {
             }))
             .children(self.render_quick_search(window, t, cx))
             .children(self.render_room_edit(t, window, cx))
+            .children(self.render_profile_edit(t, window, cx))
+            .children(self.render_alias_add(t, window, cx))
             .children(self.render_groups_edit(t, window, cx))
             .children(self.timeline.as_ref().and_then(|timeline| timeline.render_viewer(t)))
             .children({
@@ -3116,6 +3149,7 @@ fn main() {
                     let prefs_dirs = matrix_desktop::app_dirs(matrix_desktop::Platform::CURRENT, |k| std::env::var(k).ok());
                     let prefs = prefs_dirs.as_ref().map(matrix_desktop::Preferences::load).unwrap_or_default();
                     let notifications_on = prefs.notifications;
+                    let count_accounts = prefs.count_preview_accounts.clone();
                     rail_ui.layouts = prefs_dirs.as_ref().map(matrix_desktop::RailLayouts::load).unwrap_or_default();
                     matrix_desktop::set_accent(prefs.effective_accent());
                     matrix_desktop::set_font(prefs.font);
@@ -3247,8 +3281,17 @@ fn main() {
                                                 }
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::NotificationModeSet { result, .. } = result {
+                                                this.sidebar.mode_done(result);
+                                                cx.notify();
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::TagsEdited { result } = result {
                                                 this.groups_edited(result, cx);
+                                                continue;
+                                            }
+                                            if let matrix_engine::operations::OperationResult::Aliases { scope, action, result, aliases } = result {
+                                                this.aliases_answered(scope, action, result, aliases, cx);
                                                 continue;
                                             }
                                             if let matrix_engine::operations::OperationResult::RoomEdited { result } = result {
@@ -3291,6 +3334,10 @@ fn main() {
                                                 this.sidebar.room_left(&scope, result);
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::SpaceLeft { scope, result, .. } = result {
+                                                this.sidebar.space_left(&scope, result.map(drop));
+                                                continue;
+                                            }
                                             this.operations.borrow_mut().apply(result);
                                         }
                                         for event in media {
@@ -3308,7 +3355,12 @@ fn main() {
                                             if let matrix_engine::verification::VerificationEvent::KeysRecovered { count, .. } = &event {
                                                 this.keys_notice = Some((matrix_desktop::keys_recovered_text(*count), std::time::Instant::now()));
                                             }
+                                            if let matrix_engine::verification::VerificationEvent::ProfileSaved { result, .. } = &event {
+                                                this.profile_saved(*result, cx);
+                                            }
                                             this.verification.apply(event);
+                                            #[cfg(feature = "live")]
+                                            this.sync_keys_fields(cx);
                                             this.record_profile();
                                         }
                                         for event in deliveries {
@@ -3335,7 +3387,13 @@ fn main() {
                                                     }
                                                     let anchor = this.reading_anchor();
                                                     let gone = matches!(&diff, matrix_engine::RoomListDiff::Remove(s) if s.account_id == this.active_scope.account_id && this.restore.lost(&s.room_id));
+                                                    let count = |this: &Shell| this.sidebar.selected().map(|r| (r.scope.clone(), r.info.joined_members));
+                                                    let before = count(this);
                                                     this.sidebar.apply_diff(diff);
+                                                    let after = count(this);
+                                                    if before.as_ref().map(|b| &b.0) == after.as_ref().map(|a| &a.0) {
+                                                        this.members_count_moved(before.map(|b| b.1), after.map(|a| a.1));
+                                                    }
                                                     if gone { this.sidebar.clear_selection(); }
                                                     this.reconcile_topic_links();
                                                     this.open_started_room(cx);
@@ -3594,11 +3652,14 @@ fn main() {
                         room_search_requests: 0,
                         room_search: None,
                         confirm_leave: None,
+                        notify_menu: false,
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
                         settings_open: false,
                         privacy_open: false,
+                        #[cfg(feature = "live")]
+                        keys_ui: None,
                         drawer_scroll: gpui::ScrollHandle::new(),
                         settings_error: None,
                         about_open: false,
@@ -3615,6 +3676,9 @@ fn main() {
                         quick: None,
                         recents: prefs_dirs.as_ref().map(matrix_desktop::quick_search::RecentsStore::load).unwrap_or_default(),
                         room_edit: None,
+                        profile_edit: None,
+                        aliases: None,
+                        alias_add: None,
                         pending_open: None,
                         pending_space: None,
                         space_notice: None,
@@ -3696,6 +3760,7 @@ fn main() {
                         notifications: {
                             let mut policy = matrix_domain::notifications::NotificationPolicy::new(account_id);
                             policy.set_enabled(notifications_on);
+                            policy.set_count_preview(active_id.is_some_and(|id| count_accounts.contains(&id.as_u64())));
                             policy
                         },
                         // Fixture and test windows must not register a tray on the desktop.
@@ -3723,7 +3788,11 @@ fn main() {
                         details_zone: cx.focus_handle(),
                         thread_focus: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_details_bounds: [None; 8],
+                        a11y_details_bounds: [None; 9],
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        alias_focus: None,
+                        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                        a11y_alias_bounds: Vec::new(),
                         spaces_ui,
                         spaces_open: false,
                         navigation_wide: true,
@@ -3738,6 +3807,7 @@ fn main() {
                         routes: std::mem::take(&mut routes),
                         parked: background.drain(..).map(|(id, mut state)| {
                             state.notifications.set_enabled(notifications_on);
+                            state.notifications.set_count_preview(count_accounts.contains(&id.as_u64()));
                             (id, state)
                         }).collect(),
                         control: active_control.take(),

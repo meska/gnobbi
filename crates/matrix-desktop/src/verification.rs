@@ -169,6 +169,8 @@ pub struct DeviceVerification {
     keys_complete: Option<bool>,
     #[cfg(feature = "live")]
     key_recovery: Option<matrix_engine::signin::RecoveryState>,
+    /// «Esporta chiavi…» / «Rigenera chiave di recupero…» sub-page of «Privacy e sicurezza».
+    pub keys: Option<crate::key_export::KeysPage>,
 }
 impl DeviceVerification {
     pub fn new(account: AccountId) -> Self {
@@ -195,6 +197,7 @@ impl DeviceVerification {
             keys_complete: None,
             #[cfg(feature = "live")]
             key_recovery: None,
+            keys: None,
         }
     }
     /// (user id, display name) from the SDK; None until the first sync starts.
@@ -307,6 +310,14 @@ impl DeviceVerification {
         });
         true
     }
+    /// Queues «Modifica profilo»; false while another command waits (the dialog stays open to retry).
+    pub fn save_profile(&mut self, name: Option<String>, avatar: matrix_engine::verification::ProfileAvatar) -> bool {
+        if self.pending.is_some() {
+            return false;
+        }
+        self.pending = Some(VerificationCommand::SaveProfile { account_id: self.account, name, avatar });
+        true
+    }
     /// «Disconnetti» is live only with a typed password and no request in flight; the view checks it before emptying the field.
     pub fn can_submit_delete(&self, has_text: bool) -> bool {
         has_text && self.pending.is_none() && self.delete.as_ref().is_some_and(DeleteDialog::confirm_enabled)
@@ -354,6 +365,75 @@ impl DeviceVerification {
         self.key_recovery = Some(RecoveryState::Pending);
         self.pending = Some(VerificationCommand::RecoverKeys { account_id: self.account, key });
         true
+    }
+    /// Queues the export once the file is chosen. The passphrase and the phrase live in the command;
+    /// copies are kept in the page only to refill the fields after a failure.
+    #[cfg(feature = "live")]
+    pub fn export_keys(
+        &mut self,
+        dest: std::path::PathBuf,
+        password: &zeroize::Zeroizing<String>,
+        phrase: Option<&zeroize::Zeroizing<String>>,
+    ) -> bool {
+        use matrix_engine::signin::Secret;
+        let Some(page) = self.keys.as_mut().filter(|p| p.kind == crate::key_export::KeysKind::Export) else {
+            return false;
+        };
+        if self.pending.is_some() {
+            page.busy = false;
+            return false;
+        }
+        let Ok(passphrase) = Secret::new(password.to_string()) else {
+            page.busy = false;
+            page.line = Some((crate::key_export::PasswordError::TooShort.text().into(), true));
+            return false;
+        };
+        let phrase_secret = match phrase.as_ref().map(|p| Secret::new(p.to_string())) {
+            Some(Ok(secret)) => Some(secret),
+            Some(Err(_)) => {
+                page.busy = false;
+                page.line = Some((crate::key_export::WRONG_PHRASE.into(), true));
+                return false;
+            }
+            None => None,
+        };
+        page.held = Some(crate::key_export::Held { password: password.clone(), phrase: phrase.cloned() });
+        page.busy = true;
+        page.line = None;
+        self.pending = Some(VerificationCommand::ExportRoomKeys {
+            account_id: self.account,
+            dest,
+            passphrase,
+            phrase: phrase_secret,
+        });
+        true
+    }
+    #[cfg(feature = "live")]
+    pub fn reset_recovery(&mut self, phrase: Option<&zeroize::Zeroizing<String>>) -> bool {
+        use matrix_engine::signin::Secret;
+        let Some(page) = self.keys.as_mut().filter(|p| p.kind == crate::key_export::KeysKind::Reset && !p.busy && !p.shown()) else {
+            return false;
+        };
+        let phrase = match phrase.map(|p| Secret::new(p.to_string())) {
+            Some(Err(_)) => {
+                page.line = Some((crate::key_export::WRONG_PHRASE.into(), true));
+                return false;
+            }
+            Some(Ok(p)) => Some(p),
+            None => None,
+        };
+        if self.pending.is_some() {
+            return false;
+        }
+        page.busy = true;
+        page.line = None;
+        self.pending = Some(VerificationCommand::ResetRecoveryKey { account_id: self.account, phrase });
+        true
+    }
+    /// «L'ho salvata»: the key is dropped (wiped) and the page closes.
+    #[cfg(feature = "live")]
+    pub fn confirm_key_saved(&mut self) {
+        self.keys = None;
     }
     pub fn can_begin(&self) -> bool {
         self.pending.is_none()
@@ -496,6 +576,31 @@ impl DeviceVerification {
             #[cfg(feature = "live")]
             VerificationEvent::KeysRecovery { account_id, state } if account_id == self.account => {
                 self.key_recovery = Some(state);
+            }
+            #[cfg(feature = "live")]
+            VerificationEvent::KeysExported { account_id, result } if account_id == self.account => {
+                if let Some(page) = self.keys.as_mut().filter(|p| p.kind == crate::key_export::KeysKind::Export) {
+                    page.busy = false;
+                    page.refill = true;
+                    page.line = Some(match result {
+                        Ok(count) => (crate::key_export::exported_text(count), false),
+                        Err(error) => (crate::key_export::export_error_text(error).into(), true),
+                    });
+                    // Success wipes the typed password; a failure leaves it for the retry.
+                    if result.is_ok() {
+                        page.held = None;
+                    }
+                }
+            }
+            #[cfg(feature = "live")]
+            VerificationEvent::RecoveryKeyReset { account_id, result } if account_id == self.account => {
+                if let Some(page) = self.keys.as_mut().filter(|p| p.kind == crate::key_export::KeysKind::Reset) {
+                    page.busy = false;
+                    match result {
+                        Ok(secret) => (page.secret, page.line) = (Some(secret), None),
+                        Err(error) => page.line = Some((crate::key_export::reset_error_text(error).into(), true)),
+                    }
+                }
             }
             VerificationEvent::KeysComplete { account_id, complete } if account_id == self.account => {
                 self.keys_complete = Some(complete);
@@ -781,6 +886,15 @@ mod profile_tests {
             avatar: None,
         });
         assert_eq!(v.profile_avatar(), None);
+    }
+
+    #[test]
+    fn save_profile_queues_one_command_for_own_account() {
+        use matrix_engine::verification::ProfileAvatar;
+        let mut v = DeviceVerification::new(AccountId::new(3));
+        assert!(v.save_profile(Some("Ada".into()), ProfileAvatar::Remove));
+        assert!(matches!(v.pending(), Some(VerificationCommand::SaveProfile { account_id, name, avatar: ProfileAvatar::Remove }) if *account_id == AccountId::new(3) && name.as_deref() == Some("Ada")));
+        assert!(!v.save_profile(None, ProfileAvatar::Keep), "one command at a time");
     }
 
     fn dev(name: Option<&str>, verified: bool, ts: Option<u64>, ip: Option<&str>) -> matrix_engine::verification::VerificationDevice {
@@ -1079,5 +1193,56 @@ mod key_recovery_tests {
         assert!(v.key_recovery_message().is_some_and(|m| m.starts_with("Server non raggiungibile")));
         v.apply(complete(1, true));
         assert_eq!(v.key_recovery(), None);
+    }
+
+    #[cfg(feature = "live")]
+    #[test]
+    fn export_goes_into_one_command_and_failure_keeps_the_secrets_for_a_retry() {
+        use crate::key_export::{KeysKind, KeysPage};
+        use matrix_engine::key_export::KeyExportError;
+        let a = AccountId::new(1);
+        let z = |s: &str| zeroize::Zeroizing::new(s.to_owned());
+        let mut v = DeviceVerification::new(a);
+        assert!(!v.export_keys("/tmp/k".into(), &z("long enough pass"), None), "no page open");
+        v.keys = Some(KeysPage::new(KeysKind::Export));
+        assert!(v.export_keys("/tmp/k".into(), &z("long enough pass"), None));
+        assert!(matches!(v.pending, Some(VerificationCommand::ExportRoomKeys { .. })));
+        assert!(v.keys.as_ref().unwrap().busy);
+        v.pending = None;
+        v.apply(VerificationEvent::KeysExported { account_id: a, result: Err(KeyExportError::NoKeys) });
+        let page = v.keys.as_ref().unwrap();
+        assert!(!page.busy && page.refill && page.held.is_some(), "the page stays open and retryable");
+        assert_eq!(page.line.as_ref().map(|l| (l.0.as_str(), l.1)), Some(("Nessuna chiave da esportare su questo dispositivo", true)));
+        assert!(v.export_keys("/tmp/k".into(), &z("long enough pass"), None));
+        v.pending = None;
+        v.apply(VerificationEvent::KeysExported { account_id: a, result: Ok(3) });
+        let page = v.keys.as_ref().unwrap();
+        assert!(page.held.is_none(), "success wipes the kept copy");
+        assert_eq!(page.line.as_ref().map(|l| l.0.as_str()), Some("Esportate 3 chiavi"));
+    }
+
+    #[cfg(feature = "live")]
+    #[test]
+    fn reset_shows_the_new_key_once_and_only_confirmation_closes_the_page() {
+        use crate::key_export::{KeysKind, KeysPage};
+        use matrix_engine::recovery::{RecoveryError, RecoverySecret};
+        let a = AccountId::new(1);
+        let mut v = DeviceVerification::new(a);
+        v.keys = Some(KeysPage::new(KeysKind::Reset));
+        assert!(v.reset_recovery(None));
+        assert!(matches!(v.pending, Some(VerificationCommand::ResetRecoveryKey { .. })));
+        assert!(!v.keys.as_ref().unwrap().closable(), "no way out while the new key is being made");
+        v.pending = None;
+        v.apply(VerificationEvent::RecoveryKeyReset { account_id: a, result: Err(RecoveryError::IdentityRequired) });
+        let page = v.keys.as_ref().unwrap();
+        assert!(page.closable() && page.line.as_ref().is_some_and(|l| l.1));
+        assert!(v.reset_recovery(None));
+        v.pending = None;
+        v.apply(VerificationEvent::RecoveryKeyReset { account_id: a, result: Ok(RecoverySecret::fixture("EsTx abcd")) });
+        let page = v.keys.as_ref().unwrap();
+        assert!(page.shown() && !page.closable());
+        assert!(!v.reset_recovery(None), "no second reset while the key is shown");
+        v.confirm_key_saved();
+        assert!(v.keys.is_none());
     }
 }

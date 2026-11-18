@@ -14,6 +14,14 @@ pub enum VerificationError {
     InvalidName,
 }
 
+/// What «Modifica profilo» does with the picture; the path is read once by the engine and never logged.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProfileAvatar {
+    Keep,
+    Remove,
+    Set(std::path::PathBuf),
+}
+
 /// Why a remote device could not be signed out. One-line user messages live in the UI.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceDeleteError {
@@ -146,12 +154,33 @@ pub enum VerificationCommand {
         account_id: AccountId,
         display_name: String,
     },
+    /// «Modifica profilo»: `name` None = unchanged. The answer is `ProfileSaved`, after a fresh `Profile`.
+    SaveProfile {
+        account_id: AccountId,
+        name: Option<String>,
+        avatar: ProfileAvatar,
+    },
     /// «Recupera chiavi» after sign-in: the recovery key is consumed by this one call. The answer is
     /// `KeysRecovery` events (same states and failures as the sign-in step).
     #[cfg(feature = "sdk")]
     RecoverKeys {
         account_id: AccountId,
         key: crate::signin::Secret,
+    },
+    /// «Esporta chiavi…»: Element key file at `dest` (0600). The answer is `KeysExported`. `phrase` is
+    /// the local unlock phrase, required only on legacy (non-vault) profiles.
+    #[cfg(feature = "sdk")]
+    ExportRoomKeys {
+        account_id: AccountId,
+        dest: std::path::PathBuf,
+        passphrase: crate::signin::Secret,
+        phrase: Option<crate::signin::Secret>,
+    },
+    /// «Rigenera chiave di recupero…»: the answer is `RecoveryKeyReset`.
+    #[cfg(feature = "sdk")]
+    ResetRecoveryKey {
+        account_id: AccountId,
+        phrase: Option<crate::signin::Secret>,
     },
     /// Sign out other devices in one request (UIA password). On success a fresh `Devices` event follows.
     DeleteDevice {
@@ -192,6 +221,18 @@ pub enum VerificationEvent {
         account_id: AccountId,
         count: usize,
     },
+    /// Answer to `ExportRoomKeys`: how many keys were written.
+    #[cfg(feature = "sdk")]
+    KeysExported {
+        account_id: AccountId,
+        result: Result<usize, crate::key_export::KeyExportError>,
+    },
+    /// Answer to `ResetRecoveryKey`: the new key, shown once by the UI and wiped on drop.
+    #[cfg(feature = "sdk")]
+    RecoveryKeyReset {
+        account_id: AccountId,
+        result: Result<crate::recovery::RecoverySecret, crate::recovery::RecoveryError>,
+    },
     /// Whether key recovery is complete (see `recovery::keys_recovered`); sent at start, on change and after a recovery.
     KeysComplete {
         account_id: AccountId,
@@ -205,6 +246,11 @@ pub enum VerificationEvent {
         account_id: AccountId,
         device_ids: Vec<String>,
         error: DeviceDeleteError,
+    },
+    /// Answer to `SaveProfile` (the new `Profile` event came first on success).
+    ProfileSaved {
+        account_id: AccountId,
+        result: Result<(), crate::operations::OperationError>,
     },
     /// Sign-out succeeded but the list could not be re-read: the UI drops the row itself.
     DeviceDeleted {

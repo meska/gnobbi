@@ -80,13 +80,14 @@ fn panel() -> DetailsSnapshot {
         acts: vec![],
         focus: DetailsControl::Close,
         profile_focus: 0,
-        bounds: [None; 8],
+        bounds: [None; 9],
         hide_status: false,
         hide_redacted: false,
         favourite: false,
         low_priority: false,
         links: vec![],
         confirmation: None,
+        aliases: Default::default(),
     }
 }
 
@@ -97,7 +98,7 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
     panel.info.topic = Some("Argomento visibile".into());
     panel.info.joined_members = 2;
     panel.info.encrypted = None;
-    panel.bounds[4] = Some(accesskit::Rect::new(800., 400., 900., 430.));
+    panel.bounds[5] = Some(accesskit::Rect::new(800., 400., 900., 430.));
     panel.people = vec![("Membro: Bruno, @bruno:x".into(), None)];
     let tree = panel.tree();
     assert_eq!(tree.nodes[0].1.label(), Some("Informazioni stanza"));
@@ -130,7 +131,7 @@ fn details_tree_exposes_exact_read_only_room_metadata_and_controls() {
         .1;
     assert_eq!(copy.role(), Role::Button);
     assert_eq!(copy.label(), Some("Copia ID stanza"));
-    assert_eq!(copy.bounds(), panel.bounds[4]);
+    assert_eq!(copy.bounds(), panel.bounds[5]);
     assert_eq!(panel.next_focus(false), DetailsControl::Favourite);
 }
 
@@ -313,15 +314,15 @@ fn toggles_and_edit_are_in_the_focus_cycle_and_follow_the_visible_label() {
         panel.focus = panel.next_focus(false);
         order.push(panel.focus);
     }
-    assert_eq!(order[..8], DetailsControl::ALL);
-    assert_eq!(order[8], DetailsControl::Close);
+    assert_eq!(order[..9], DetailsControl::ALL);
+    assert_eq!(order[9], DetailsControl::Close);
     // Shift+Tab is the exact inverse, wrapping from Close to Edit.
     for want in order.iter().rev().skip(1) {
         panel.focus = panel.next_focus(true);
         assert_eq!(panel.focus, *want);
     }
     let ids: std::collections::HashSet<_> = DetailsControl::ALL.iter().map(|c| c.id()).collect();
-    assert_eq!(ids.len(), 8);
+    assert_eq!(ids.len(), 9);
     panel.people = vec![("Membro: Ada, @ada:x".into(), Some("@ada:x".into()))];
     let label = |panel: &DetailsSnapshot, c: DetailsControl| {
         let tree = panel.tree();
@@ -470,22 +471,36 @@ fn without_a_topic_tab_skips_the_hidden_argomento_and_the_tree_has_no_node_for_i
     let mut panel = panel();
     panel.info.topic = None;
     assert_eq!(panel.next_focus(false), DetailsControl::Favourite);
-    panel.focus = DetailsControl::LowPriority;
+    panel.focus = DetailsControl::Notify;
     assert_eq!(panel.next_focus(false), DetailsControl::Copy);
     panel.focus = DetailsControl::Copy;
-    assert_eq!(panel.next_focus(true), DetailsControl::LowPriority);
+    assert_eq!(panel.next_focus(true), DetailsControl::Notify);
     panel.info.topic = Some("  ".into());
-    assert_eq!(panel.next_focus(true), DetailsControl::LowPriority);
+    assert_eq!(panel.next_focus(true), DetailsControl::Notify);
     // The topic vanished while it had focus: both directions and the tree land on existing controls.
     panel.focus = DetailsControl::Topic;
     assert_eq!(panel.next_focus(false), DetailsControl::Copy);
-    assert_eq!(panel.next_focus(true), DetailsControl::LowPriority);
+    assert_eq!(panel.next_focus(true), DetailsControl::Notify);
     let tree = panel.tree();
     assert!(!tree.nodes.iter().any(|(id, _)| *id == DetailsControl::Topic.id()));
     assert_eq!(tree.focus, DetailsControl::Copy.id());
     panel.info.topic = Some("Ciao".into());
-    panel.focus = DetailsControl::LowPriority;
+    panel.focus = DetailsControl::Notify;
     assert_eq!(panel.next_focus(false), DetailsControl::Topic);
+}
+
+#[test]
+fn bell_is_named_with_the_mode_and_clicks_to_step_it() {
+    use matrix_domain::notifications::RoomNotifyMode;
+    for mode in RoomNotifyMode::ALL {
+        let mut p = panel();
+        p.info.notification_mode = mode;
+        let tree = p.tree();
+        let node = &tree.nodes.iter().find(|(id, _)| *id == DetailsControl::Notify.id()).unwrap().1;
+        assert_eq!((node.role(), node.label()), (accesskit::Role::Button, Some(format!("Notifiche: {}", mode.label()).as_str())));
+        let click = accesskit::ActionRequest { action: accesskit::Action::Click, target_tree: accesskit::TreeId::ROOT, target_node: DetailsControl::Notify.id(), data: None };
+        assert_eq!(DetailsView::Open(Box::new(p.clone())).action(&click), Some(DetailsAction::Notify(p.scope.clone())));
+    }
 }
 
 #[test]
@@ -516,8 +531,10 @@ fn tab_reaches_the_star_right_after_close() {
     assert_eq!(p.next_focus(false), DetailsControl::LowPriority);
     assert_eq!(p.next_focus(true), DetailsControl::Close);
     p.focus = DetailsControl::LowPriority;
+    assert_eq!(p.next_focus(false), DetailsControl::Notify);
+    p.focus = DetailsControl::Notify;
     assert_eq!(p.next_focus(false), DetailsControl::Topic);
-    assert_eq!(p.next_focus(true), DetailsControl::Favourite);
+    assert_eq!(p.next_focus(true), DetailsControl::LowPriority);
 }
 
 #[test]
@@ -569,4 +586,33 @@ fn edit_control_appears_and_vanishes_with_rights_at_runtime() {
     p.info.edit_rights = matrix_engine::EditRights::default();
     assert!(!has_edit(&p), "demoted");
     assert_eq!(p.next_focus(false), DetailsControl::Close);
+}
+
+#[test]
+fn alias_commands_sit_in_the_tab_ring_after_copy_and_are_named() {
+    use matrix_desktop::accessibility::details::Stop;
+    let mut panel = panel();
+    panel.focus = DetailsControl::Copy;
+    panel.aliases.labels = vec!["Copia #a:s".into(), "Rimuovi #a:s".into(), "Aggiungi indirizzo".into()];
+    let scope = panel.scope.clone();
+    // Forward: Copy -> the three commands -> HideStatus; backward is the mirror.
+    for i in 0..3 {
+        assert_eq!(panel.tab(false), DetailsAction::AliasFocus { scope: scope.clone(), index: i });
+        panel.aliases.focus = Some(i);
+        assert_eq!(panel.stop(), Stop::Alias(i));
+    }
+    assert_eq!(panel.tab(false), DetailsAction::Focus { scope: scope.clone(), control: DetailsControl::HideStatus });
+    panel.aliases.focus = Some(0);
+    assert_eq!(panel.tab(true), DetailsAction::Focus { scope: scope.clone(), control: DetailsControl::Copy });
+    // A focus left past the end (list shrank) falls back to «Copia ID».
+    panel.aliases.focus = Some(9);
+    assert_eq!(panel.stop(), Stop::Control(DetailsControl::Copy));
+    panel.aliases.focus = Some(1);
+    let tree = panel.tree();
+    let node = tree.nodes.iter().find(|(id, _)| *id == panel.stop_id()).unwrap();
+    assert_eq!(tree.focus, node.0);
+    assert_eq!(node.1.label(), Some("Rimuovi #a:s"));
+    assert!(node.1.supports_action(accesskit::Action::Click) && node.1.supports_action(accesskit::Action::Focus));
+    let click = accesskit::ActionRequest { action: accesskit::Action::Click, target_tree: accesskit::TreeId::ROOT, target_node: node.0, data: None };
+    assert!(matches!(DetailsView::Open(Box::new(panel)).action(&click), Some(DetailsAction::AliasAct { index: 1, .. })));
 }

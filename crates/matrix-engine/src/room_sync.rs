@@ -388,6 +388,7 @@ impl RoomListWorker {
                         account,
                         verification_requests,
                         verification_results,
+                        sync.session.store.as_ref().map(|s| s.path.clone()),
                     ));
                     let operation_client = client.clone();
                     let timelines = Timelines::default();
@@ -648,6 +649,11 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomEdited { result }
                                 }
+                                OperationCommand::Aliases { scope, action } => {
+                                    let (result, aliases) =
+                                        crate::alias_ops::alias_action(&operation_client, account, &scope, &action).await;
+                                    OperationResult::Aliases { scope, action, result, aliases }
+                                }
                                 OperationCommand::CreateRoom { name, topic, public } => {
                                     let result = crate::operations::create_room(
                                         &operation_client,
@@ -741,6 +747,11 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::RoomLeft { scope, result }
                                 }
+                                OperationCommand::LeaveSpace { scope, forget } => {
+                                    let (is_last_owner, result) =
+                                        crate::operations::leave_space(&operation_client, account, &scope, forget).await;
+                                    OperationResult::SpaceLeft { scope, is_last_owner, result }
+                                }
                                 OperationCommand::AnswerInvite { scope, accept } => {
                                     let result = crate::operations::answer_invite(
                                         &operation_client,
@@ -797,9 +808,9 @@ impl RoomListWorker {
                                     let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body).await;
                                     OperationResult::ThreadSent { scope, root, result }
                                 }
-                                OperationCommand::SetMuted { scope, muted } => {
-                                    let result = crate::notify::set_muted(&operation_client, account, &scope, muted).await;
-                                    OperationResult::RoomMarked { scope, result }
+                                OperationCommand::SetNotificationMode { scope, mode } => {
+                                    let result = crate::notify::set_notification_mode(&operation_client, account, &scope, mode).await;
+                                    OperationResult::NotificationModeSet { scope, result }
                                 }
                                 OperationCommand::EditTags(edit) => OperationResult::TagsEdited {
                                     result: crate::room_tags::edit(&operation_client, &edit).await,
@@ -1464,6 +1475,7 @@ impl RoomSync {
                         last_event_ts: latest_event_ts(&latest),
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
+                        topic_view: room_topic_view(&room).await,
                         avatar: room_avatar(&room).await,
                         marked_unread: room.is_marked_unread(),
                         joined_members: room.joined_members_count(),
@@ -1474,8 +1486,7 @@ impl RoomSync {
                             .then(|| room.encryption_state().is_encrypted()),
                         tags,
                         favourite_order,
-                        muted: room.cached_user_defined_notification_mode()
-                            == Some(matrix_sdk::notification_settings::RoomNotificationMode::Mute),
+                        notification_mode: crate::notify::mode_from_sdk(room.cached_user_defined_notification_mode()),
                         aliases: room
                             .canonical_alias()
                             .into_iter()
@@ -1588,6 +1599,26 @@ fn room_label(name: Option<matrix_sdk::RoomDisplayName>, id: &str) -> String {
         Some(N::Empty) => "Stanza vuota".to_owned(),
         _ => id.to_owned(),
     }
+}
+
+/// The topic rendered for the details panel: `m.topic` text/html if the state event has it, else the plain text as markdown.
+async fn room_topic_view(room: &matrix_sdk::Room) -> Option<crate::rich_text::Topic> {
+    let plain = room.topic().filter(|t| !t.trim().is_empty())?;
+    // Read from the local state store; invites carry stripped state and the plain text only.
+    let event = room
+        .get_state_event_static::<matrix_sdk::ruma::events::room::topic::RoomTopicEventContent>()
+        .await
+        .ok()
+        .flatten()
+        .and_then(|e| serde_json::to_value(e).ok());
+    let html = event
+        .as_ref()
+        .and_then(|e| e.pointer("/content/m.topic/m.text"))
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.iter().find(|r| r.get("mimetype").and_then(|m| m.as_str()) == Some("text/html")))
+        .and_then(|r| r.get("body"))
+        .and_then(|b| b.as_str());
+    Some(crate::rich_text::topic(&plain, html))
 }
 
 /// Avatar to show: the room's own, else for a 1:1 DM the other person's (as Element X does).
@@ -2019,7 +2050,7 @@ async fn status_row(
     event: &matrix_sdk_ui::timeline::EventTimelineItem,
     id: &matrix_sdk::ruma::EventId,
 ) -> Option<crate::history::HistoryEvent> {
-    use crate::status_line::{Status, status_text};
+    use crate::status_line::{Status, status_spans};
     use matrix_sdk::ruma::events::{StateEventContentChange::Original, room::member::MembershipState};
     use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange as State, MembershipChange as M, TimelineItemContent as C};
     let actor = history_sender(room, event.sender()).await;
@@ -2066,7 +2097,11 @@ async fn status_row(
                 State::RoomCreate(Original { .. }) if room.is_direct().await.unwrap_or(false) => Status::CreatedDirect,
                 State::RoomCreate(Original { .. }) => Status::Created,
                 State::RoomName(Original { content, .. }) => Status::RoomName(content.name.clone()),
-                State::RoomTopic(Original { content, .. }) => Status::RoomTopic(content.topic.clone()),
+                State::RoomTopic(Original { content, .. }) => Status::RoomTopic(if content.topic.is_empty() {
+                    String::new()
+                } else {
+                    crate::rich_text::topic(&content.topic, content.topic_block.text.find_html()).text.replace('\n', " ")
+                }),
                 State::RoomAvatar(Original { .. }) => Status::RoomAvatar,
                 _ => return None,
             };
@@ -2075,10 +2110,17 @@ async fn status_row(
         }
         _ => return None,
     };
+    // Actor and subject are clickable names: the actor is the event sender, the subject the person shown.
+    let (text, actor_at, subject_at) = status_spans(&status, &label(&actor), &subject);
+    let mut mentions: Vec<_> = [(actor_at, &actor), (subject_at, &shown)]
+        .into_iter()
+        .filter_map(|(range, who)| Some(crate::rich_text::MentionSpan { range: range?, kind: crate::rich_text::MentionKind::User { sender: who.clone(), me: false } }))
+        .collect();
+    mentions.sort_by_key(|m| m.range.start);
     Some(crate::history::HistoryEvent {
         poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
-        body: crate::status_line::with_reason(status_text(&status, &label(&actor), &subject), reason.as_deref()),
+        body: crate::status_line::with_reason(text, reason.as_deref()),
         outgoing: false,
         redacted: false,
         timestamp_ms: event.timestamp().0.into(),
@@ -2087,7 +2129,7 @@ async fn status_row(
         audio: None,
         media: None,
         styles: Vec::new(),
-        mentions: Vec::new(),
+        mentions,
         highlighted: false,
         thread: None,
         thread_root: None,

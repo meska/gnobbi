@@ -60,6 +60,15 @@ jobs:
         run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
       - name: Test desktop
         run: cargo test --locked -j4 -p matrix-desktop --features live
+      - name: Layering (no UI toolkit below the frontends)
+        run: |
+          cargo check --locked -j4 -p matrix-desktop --no-default-features --features core-live --lib
+          ! { cargo tree --locked -e normal -p matrix-domain; cargo tree --locked -e normal -p matrix-engine; cargo tree --locked -e normal -p matrix-desktop --no-default-features --features core-live; } | grep -E 'egui|eframe|winit|wgpu|gpui'
+          ! cargo tree --locked -e normal -p matrix-desktop --no-default-features --features core-live | grep -E 'tray-icon'
+      - name: Build and test egui frontend
+        run: |
+          cargo build --locked -j4 -p matrix-desktop-egui
+          cargo test --locked -j4 -p matrix-desktop-egui
       - name: Composer rendered geometry (Xvfb, xauth, D-Bus)
         run: sh packaging/linux/test-composer-render.sh
       - name: AppImage
@@ -100,6 +109,10 @@ jobs:
         run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
       - name: Test desktop update
         run: cargo test --locked -j4 -p matrix-desktop --features windows-vault --lib "update::"
+      - name: Build and test egui frontend
+        run: |
+          cargo build --locked -j4 -p matrix-desktop-egui
+          cargo test --locked -j4 -p matrix-desktop-egui
       - name: Package zip
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\make-tester-package.ps1
       - name: Upload zip artifact

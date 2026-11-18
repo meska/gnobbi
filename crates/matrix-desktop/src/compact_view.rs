@@ -154,9 +154,20 @@ impl Shell {
 
     pub(crate) fn set_room_details_open(&mut self, open: bool) {
         self.room_details_open = open;
+        if open {
+            self.members_requested = None; // reread the roster: a profile change after the first load must show
+        }
+        self.notify_menu = false;
         self.profile = None;
         self.reconcile_topic_links();
         self.refresh_navigation_visibility();
+    }
+
+    /// The joined count of the open room moved while its panel is open (someone joined or left): reread the roster.
+    pub(crate) fn members_count_moved(&mut self, before: Option<u64>, after: Option<u64>) {
+        if self.room_details_open && before != after {
+            self.members_requested = None;
+        }
     }
 
     pub(crate) fn set_notifications_open(&mut self, open: bool) {

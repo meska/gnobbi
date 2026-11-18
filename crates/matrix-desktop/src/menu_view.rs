@@ -49,8 +49,8 @@ pub(crate) fn dialog_shell(
                 .on_click(|_, _, cx| cx.stop_propagation()),
         )
 }
-/// Settings, Devices, Notifications, Add account, New chat, New room, New space, Join, Quick search, version line (after the account rows).
-pub(crate) const DRAWER_ROWS: usize = 10;
+/// Settings, Devices, Notifications, Add account, New chat, New room, New space, Join, Quick search, Edit profile, version line (after the account rows).
+pub(crate) const DRAWER_ROWS: usize = 11;
 
 impl Shell {
     pub(crate) fn set_menu_open(
@@ -86,6 +86,12 @@ impl Shell {
     }
 
     /// Closes the drawer, then lets `open` show a panel (which takes focus).
+    /// Capabilities are not read from the SDK yet: the dialog opens allowed.
+    pub(crate) fn open_profile_from_drawer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_menu_open(false, window, cx);
+        self.open_profile_edit(true, window, cx);
+    }
+
     pub(crate) fn open_from_drawer(
         &mut self,
         window: &mut Window,
@@ -154,6 +160,7 @@ impl Shell {
                 DrawerItem::NewChat => self.open_new_room(true, window, cx),
                 DrawerItem::NewRoom => self.open_new_room(false, window, cx),
                 DrawerItem::NewSpace => self.open_new_space(window, cx),
+                DrawerItem::EditProfile => self.open_profile_from_drawer(window, cx),
                 DrawerItem::About => self.set_about_open(true, window, cx),
             },
         }
@@ -178,6 +185,9 @@ impl Shell {
         self.active_id = catalog
             .id_for_root(dirs, root)
             .or_else(|| catalog.id_for_user(user_id));
+        if let Some(id) = self.active_id {
+            self.notifications.set_count_preview(self.prefs.count_preview_accounts.contains(&id.as_u64()));
+        }
         if let Some(id) = self.active_id
             && catalog.record_avatar(id, self.verification.profile_avatar())
             && catalog.save(dirs).is_ok()
@@ -242,6 +252,8 @@ impl Shell {
             && key.key == "k"
             && self.new_room.is_none()
             && self.room_edit.is_none()
+            && self.profile_edit.is_none()
+            && self.alias_add.is_none()
             && self.groups_edit.is_none()
             && self.confirm_removal.is_none()
         {
@@ -267,6 +279,11 @@ impl Shell {
         if self.menu_open && self.about_open {
             return self.about_key(event, window, cx);
         }
+        // A key sub-page has text fields: only Esc, Tab, arrows, Enter and copy are ours.
+        #[cfg(feature = "live")]
+        if self.menu_open && self.settings_open && self.privacy_open && self.keys_ui.is_some() {
+            return self.keys_key(event, window, cx);
+        }
         if self.menu_open {
             let accounts = self.drawer_accounts();
             let update = matrix_desktop::update::announced().is_some() && !self.settings_open;
@@ -281,6 +298,15 @@ impl Shell {
                 // The privacy page: «Dispositivi» opens the panel, «Conferme di lettura» toggles.
                 "enter" | "space" if activate && self.privacy_open && self.settings_row == 1 => {
                     self.toggle_setting(1, cx)
+                }
+                "enter" | "space"
+                    if activate
+                        && self.privacy_open
+                        && self.keys_rows()
+                        && matches!(self.settings_row, matrix_desktop::SETTINGS_EXPORT_KEYS_ROW | matrix_desktop::SETTINGS_RESET_RECOVERY_ROW) =>
+                {
+                    self.swallow_menu_key_up = true;
+                    self.open_keys_row(self.settings_row, window, cx)
                 }
                 "enter" | "space" if activate && self.privacy_open => {
                     self.swallow_menu_key_up = true;
@@ -314,9 +340,10 @@ impl Shell {
                         Some(6) if self.connected => self.open_new_space(window, cx),
                         Some(7) if self.connected => self.open_join_room(window, cx),
                         Some(8) if self.connected => self.open_quick_search(window, cx),
-                        Some(9) => self.set_about_open(true, window, cx),
-                        Some(10) if update => self.update_now(cx),
-                        Some(11) if update => self.update_later(cx),
+                        Some(9) if self.connected => self.open_profile_from_drawer(window, cx),
+                        Some(10) => self.set_about_open(true, window, cx),
+                        Some(11) if update => self.update_now(cx),
+                        Some(12) if update => self.update_later(cx),
                         _ => self.set_settings_open(true, window, cx),
                     }
                 }
@@ -554,7 +581,7 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let focused = input_modality::ring(&self.drawer_focus, window, cx)
-            && self.drawer_row == self.drawer_accounts().len() + 9;
+            && self.drawer_row == self.drawer_accounts().len() + 10;
         div()
             .id("menu-about")
             .flex_shrink_0()

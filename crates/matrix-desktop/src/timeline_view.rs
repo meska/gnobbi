@@ -701,13 +701,13 @@ impl TimelineView {
                 let event = &history.events()[at];
                 message.pills = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions)
                     .filter_map(|m| match &m.kind {
-                        matrix_engine::rich_text::MentionKind::User { sender, .. } => Some((m.range.start, sender)),
+                        matrix_engine::rich_text::MentionKind::User { sender, .. } => Some((m.range.start, m.range.clone(), sender)),
                         _ => None,
                     })
                     .take(matrix_desktop::accessibility::PILLS)
-                    .map(|(start, sender)| matrix_desktop::accessibility::PillLink {
+                    .map(|(start, range, sender)| matrix_desktop::accessibility::PillLink {
                         user_id: sender.id.clone(),
-                        name: sender.name.clone().unwrap_or_else(|| sender.id.clone()),
+                        name: if event.status { format!("Apri scheda di {}", &event.text[range.clone()]) } else { sender.name.clone().unwrap_or_else(|| sender.id.clone()) },
                         start,
                         bounds: self.pill_bounds.borrow().get(&(message.event.clone(), start)).map(|b| accesskit::Rect::new(
                             f64::from(f32::from(b.left())) * scale,
@@ -1002,6 +1002,10 @@ impl TimelineView {
     pub(crate) fn step_icons(&self, shift: bool, window: &mut gpui::Window, cx: &gpui::App) -> IconStep {
         let on_icon = self.focus.contains_focused(window, cx) && !self.focus.is_focused(window);
         if self.viewing().is_some() {
+            return IconStep::Ignored;
+        }
+        // A focused link or name owns Tab: the stops of the message come before the icons (a11y link_key).
+        if !on_icon && (self.pill_cursor.borrow().is_some() || self.link_cursor.get().is_some()) {
             return IconStep::Ignored;
         }
         if !on_icon && (shift || !self.focus.is_focused(window)) {
@@ -1896,6 +1900,10 @@ impl TimelineView {
                     let history = history.borrow();
                     let event = &history.events()[index];
                     let day = history.day_separator(index);
+                    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                    let profile_bounds = { let (map, id) = (profile_painted.clone(), event.id.clone()); move |b: Bounds<Pixels>| { map.borrow_mut().insert(id.clone(), b); } };
+                    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+                    let profile_bounds = |_: Bounds<Pixels>| ();
                     if event.status {
                         // Quiet centred line like Element: small round avatar + grey text, no bubble.
                         let avatar = event.sender.as_ref().map(|s| {
@@ -1905,17 +1913,80 @@ impl TimelineView {
                                 None => div().flex().items_center().justify_center().size(px(STATUS_AVATAR_PX)).flex_shrink_0().rounded_full().bg(rgb(matrix_desktop::AVATAR_FALLBACK)).text_color(rgb(t.avatar_text)).text_size(px(7.)).font_weight(gpui::FontWeight::SEMIBOLD).child(initials).into_any_element(),
                             }
                         });
+                        // Actor and subject names open the profile like the avatar; the rest of the line stays plain text.
+                        let (status_user, avatar) = (event.sender.as_ref().map(|s| s.id.clone()), avatar);
+                        let avatar = match (avatar, status_user) {
+                            (Some(a), Some(user)) => Some(profile_target(div().id(("status-avatar", index)).flex_shrink_0(), user, want_profile.clone(), &profile_bounds, a).into_any_element()),
+                            (a, _) => a,
+                        };
+                        let shown = matrix_desktop::row_text::status_with_time(&event.text, &event.time);
+                        // The shown text is the event text plus the time, so the ranges hold only when nothing was collapsed.
+                        let names: Vec<_> = if shown.starts_with(&event.text) { matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions).filter_map(|m| match &m.kind {
+                            matrix_engine::rich_text::MentionKind::User { sender, .. } => Some((m.range.clone(), sender.id.clone())),
+                            _ => None,
+                        }).collect() } else { Vec::new() };
+                        let text = if names.is_empty() { div().min_w_0().text_center().child(shown).into_any_element() } else {
+                            let (ranges, users): (Vec<_>, Vec<_>) = names.into_iter().unzip();
+                            let (want, hover, id, hover_ranges) = (want_profile.clone(), pill_hover.clone(), event.id.clone(), ranges.clone());
+                            let over = pill_hover.borrow().as_ref() == Some(&event.id);
+                            let styled = StyledText::new(shown);
+                            let layout = styled.layout().clone();
+                            // Keyboard focus on a name: the accent ring of the message pills, and the bounds the a11y tree reports.
+                            let (bounds_map, ring, accent) = (self_pill_bounds.clone(), pill_cursor.borrow().as_ref().filter(|(e, _)| *e == event.id).map(|(_, s)| *s), t.accent);
+                            let event_id = event.id.clone();
+                            div().relative().min_w_0().text_center().cursor(if over { gpui::CursorStyle::PointingHand } else { gpui::CursorStyle::Arrow })
+                                .child(gpui::InteractiveText::new(("status-text", index), styled)
+                                    .on_click(ranges.clone(), move |i, window, _| { *want.borrow_mut() = Some(users[i].clone()); window.refresh(); })
+                                    .on_hover(move |ix, _, window, _| {
+                                        let on = ix.is_some_and(|ix| hover_ranges.iter().any(|r| r.contains(&ix)));
+                                        if on != (hover.borrow().as_ref() == Some(&id)) { *hover.borrow_mut() = on.then(|| id.clone()); window.refresh(); }
+                                    }))
+                                .child(canvas(|_, _, _| (), move |bounds, _, window, _| {
+                                    let lh = layout.line_height();
+                                    for range in &ranges {
+                                        let (Some(a), Some(b)) = (layout.position_for_index(range.start), layout.position_for_index(range.end)) else { continue };
+                                        let right = if b.y == a.y { b.x } else { bounds.right() };
+                                        let name = Bounds::from_corners(a, gpui::point(right, a.y + lh));
+                                        bounds_map.borrow_mut().insert((event_id.clone(), range.start), name);
+                                        if ring == Some(range.start) {
+                                            let mut quad = gpui::fill(Bounds::from_corners(gpui::point(a.x - px(2.), a.y), gpui::point(right + px(2.), a.y + lh)), gpui::transparent_black());
+                                            quad.corner_radii = (lh / 2.).into();
+                                            quad.border_widths = px(1.5).into();
+                                            quad.border_color = rgb(accent).into();
+                                            window.paint_quad(quad);
+                                        }
+                                    }
+                                }).absolute().inset_0())
+                                .into_any_element()
+                        };
                         return div().id(gpui::SharedString::from(format!("status-{index}"))).w_full().px_4().py(px(1.)).flex().justify_center().items_center().gap_1p5().overflow_hidden()
                             .text_size(px(11.)).text_color(rgb(t.secondary))
                             // min_w_0 + text_center: long bridge texts wrap inside the column instead of overflowing it.
-                            .children(avatar).child(div().min_w_0().text_center().child(matrix_desktop::row_text::status_with_time(&event.text, &event.time))).into_any_element().pipe_day(day, t, index);
+                            .children(avatar).child(text).into_any_element().pipe_day(day, t, index);
                     }
                     let sender_label = history.sender_label(index, members);
+                    if event.redacted {
+                        // Compact deleted row (like the status rows): «Name: Messaggio eliminato … time», one line, no bubble.
+                        let avatar_gutter = members > 2 && !event.outgoing && event.sender.is_some();
+                        let menu = event.menu_available(live).then(|| (event.id.clone(), operations.clone()));
+                        return div().id(gpui::SharedString::from(format!("redacted-{index}"))).relative().w_full().px_6()
+                            .pt(px(if history.continues_series(index) { SERIES_GAP_SAME_PX } else { SERIES_GAP_NEW_PX / 2. }))
+                            .pb(px(if history.continues_series(index + 1) { 0. } else { SERIES_GAP_NEW_PX / 2. }))
+                            .flex().items_center().gap_2().overflow_hidden().text_size(px(12.)).line_height(px(16.)).text_color(rgb(t.secondary))
+                            // Own messages sit on the right like the bubble, so a two-person chat still says who deleted.
+                            .when(event.outgoing, |d| d.justify_end())
+                            // Space only: the series avatar column keeps its alignment, nothing is redrawn.
+                            .when(avatar_gutter, |d| d.child(div().w(px(SENDER_AVATAR_PX)).flex_shrink_0()))
+                            // max_w: a long name must not eat the «Messaggio eliminato» text.
+                            .when_some(sender_label, |d, name| d.child(div().max_w(relative(0.4)).flex_shrink().truncate().font_weight(gpui::FontWeight::SEMIBOLD).text_color(rgb(t.accent)).child(matrix_desktop::row_text::redacted_name(&name))))
+                            .child(div().min_w_0().truncate().when(!event.outgoing, |d| d.flex_1()).child(matrix_desktop::row_text::REDACTED_LABEL))
+                            .child(div().flex_shrink_0().child(event.time.clone()))
+                            .when_some(menu, |d, (id, operations)| d.on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                                if let Some(actions) = &operations { actions.borrow_mut().select(id.clone()); window.refresh(); cx.stop_propagation(); }
+                            }))
+                            .into_any_element().pipe_day(day, t, index);
+                    }
                     let sender_user = event.sender.as_ref().map(|s| s.id.clone());
-                    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                    let profile_bounds = { let (map, id) = (profile_painted.clone(), event.id.clone()); move |b: Bounds<Pixels>| { map.borrow_mut().insert(id.clone(), b); } };
-                    #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
-                    let profile_bounds = |_: Bounds<Pixels>| ();
                     let sender_avatar = history.sender_avatar(index, members).map(|(mxc, initials)| {
                         let avatar = match mxc.and_then(|m| sender_pictures.borrow().get(m).cloned()) {
                             Some(image) => crate::avatar_view::round(image, SENDER_AVATAR_PX),
@@ -2070,6 +2141,7 @@ impl TimelineView {
                     }).flatten();
                     let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions, &matrix_desktop::mention_gaps::avatar_gap(space));
                     let gaps = Rc::new(gaps);
+                    let paint_drawn: Rc<str> = Rc::from(drawn.as_str());
                     let mut body = StyledText::new(drawn);
                     let pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions).collect();
                     let pill_paint: Vec<_> = pills.iter().map(|m| {
@@ -2102,17 +2174,14 @@ impl TimelineView {
                         let range = pair[0]..pair[1];
                         let is_link = links.iter().any(|link| link.range.contains(&range.start));
                         let pill = pill_paint.iter().find(|(r, ..)| r.contains(&range.start));
-                        use matrix_engine::rich_text::Style;
                         let has = |kind| styles.iter().any(|s| s.style == kind && s.range.contains(&range.start));
+                        let base = span_style(t, has);
                         let style = HighlightStyle {
-                            font_weight: has(Style::Bold).then_some(gpui::FontWeight::BOLD),
-                            font_style: has(Style::Italic).then_some(gpui::FontStyle::Italic),
-                            strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
-                            color: if let Some((_, bg, ..)) = pill { Some(rgb(if *bg == t.error { t.surface } else { t.text }).into()) } else if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
+                            color: if let Some((_, bg, ..)) = pill { Some(rgb(if *bg == t.error { t.surface } else { t.text }).into()) } else if is_link { Some(rgb(t.accent).into()) } else { base.color },
                             underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
                             background_color: if found.iter().any(|r| r.contains(&range.start)) || selected.as_ref().is_some_and(|r| r.contains(&range.start))
-                                || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { has(Style::Code).then(|| rgb(t.input).into()) },
-                            ..Default::default()
+                                || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { base.background_color },
+                            ..base
                         };
                         (gaps.start(range.start)..gaps.end(range.end), style)
                     }));
@@ -2197,7 +2266,7 @@ impl TimelineView {
                         .child(
                             div()
                                 .w(relative(0.85))
-                                .max_w(px(520.))
+                                .max_w(px(720.))
                                 .min_w_0()
                                 .px_4()
                                 .py_3()
@@ -2278,6 +2347,11 @@ impl TimelineView {
                                         for (range, bg, picture, user, uid, ring) in &pill_paint {
                                             let from = if *user { pill_layout.layout.position_for_index(pill_layout.gaps.gap_start(range.start)) } else { pill_layout.position_for_index(range.start) };
                                             let (Some(a), Some(b)) = (from, pill_layout.layout.position_for_index(pill_layout.gaps.end(range.end))) else { continue };
+                                            // A pill that wrapped whole is reported at the end of the line above: start it where it is drawn.
+                                            let first_ix = if *user { pill_layout.gaps.gap_start(range.start) } else { pill_layout.gaps.start(range.start) };
+                                            let first = paint_drawn.get(first_ix..).and_then(|s| s.chars().next()).and_then(|c| pill_layout.layout.position_for_index(first_ix + c.len_utf8()));
+                                            let (ax, ay) = matrix_desktop::mention_gaps::wrapped_start((f32::from(a.x), f32::from(a.y)), first.map(|p| (f32::from(p.x), f32::from(p.y))), f32::from(bounds.left()));
+                                            let a = gpui::point(px(ax), px(ay));
                                             let left = a.x - if *user { px(2.) } else { px(3.) };
                                             let lines = if b.y == a.y { vec![(a.y, left, b.x + px(3.))] } else { vec![(a.y, left, bounds.right()), (b.y, bounds.left(), b.x + px(3.))] };
                                             for (y, l, r) in lines {
@@ -2678,6 +2752,20 @@ fn event_id_copy_callback(
     target: matrix_desktop::EventIdCopyTarget,
 ) -> impl Fn() -> Option<String> {
     move || copies.borrow().resolve(&target).map(str::to_owned)
+}
+
+/// Weight, slant, strike, quote colour and code background of the styles a text position has
+/// (the timeline adds links, pills, search and selection on top; the room topic uses it as is).
+pub(crate) fn span_style(t: DesignTokens, has: impl Fn(matrix_engine::rich_text::Style) -> bool) -> HighlightStyle {
+    use matrix_engine::rich_text::Style;
+    HighlightStyle {
+        font_weight: has(Style::Bold).then_some(gpui::FontWeight::BOLD),
+        font_style: has(Style::Italic).then_some(gpui::FontStyle::Italic),
+        strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
+        color: has(Style::Quote).then(|| rgb(t.secondary).into()),
+        background_color: has(Style::Code).then(|| rgb(t.input).into()),
+        ..Default::default()
+    }
 }
 
 // Capture at paint, not dispatch: a queued callback must never read a newer request.
@@ -3715,6 +3803,134 @@ mod tests {
             .detach();
         });
     }
+
+    /// Three status rows (invite: two users; a user who left; creation), real X11 clicks swept along each row's centre line:
+    /// the runs of hits must be avatar, gap, name, gap, name, then plain text/time with nothing. Row heights must all be equal
+    /// and match the pre-feature value (`STATUS_ROW_PX`, measured on b72d9d1 with this very sweep-free measurement).
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn status_rows_click(dark: bool) {
+        use matrix_engine::{history::{HistoryEvent, HistorySender}, rich_text::{MentionKind, MentionSpan}};
+        // 20 px = 2 px padding + the 11 px text line; a row with no names keeps the old plain-text path, so it is the reference.
+        const STATUS_ROW_PX: f32 = 20.;
+        gpui::Application::new().run(move |cx| {
+            let (anna, bea, ghost) = ("@anna:fixture.invalid", "@bea:fixture.invalid", "@ghost:fixture.invalid");
+            let tokens = if dark { matrix_desktop::DARK } else { matrix_desktop::LIGHT };
+            let title = if dark { "Gnobbi status dark" } else { "Gnobbi status light" };
+            let view = cx
+                .open_window(gpui::WindowOptions::default(), |window, cx| {
+                    window.set_window_title(title);
+                    cx.new(|cx| {
+                        let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!status:fixture.invalid") };
+                        let v = TimelineView::with_history(DemoHistory::new(scope, 0), cx.focus_handle(), false);
+                        let row = |id: &str, who: &str, body: &str, names: &[(&str, &str)]| HistoryEvent {
+                            poll: None, redacted: false, utd: false, event_id: EventId::new(id), body: body.into(), outgoing: false, timestamp_ms: 0,
+                            sender: HistorySender::new(who, None), video: None, audio: None, styles: Vec::new(),
+                            mentions: names.iter().map(|(n, u)| { let i = body.find(n).unwrap(); MentionSpan { range: i..i + n.len(), kind: MentionKind::User { sender: HistorySender::new(u, Some(n)), me: false } } }).collect(),
+                            highlighted: false, thread: None, thread_root: None, status: true, attachment_name: None, attachment_size: None, media: None,
+                        };
+                        v.append_server(vec![
+                            row("$invite", anna, "Anna ha invitato Bea", &[("Anna", anna), ("Bea", bea)]),
+                            row("$left", ghost, "Ghost è uscito/a dalla stanza", &[("Ghost", ghost)]),
+                            row("$made", anna, "Anna ha creato questa stanza.", &[("Anna", anna)]),
+                            row("$plain", anna, "La stanza è cambiata", &[]),
+                        ]);
+                        ThemedHost(v, tokens)
+                    })
+                })
+                .unwrap();
+            let executor = cx.background_executor().clone();
+            cx.spawn(async move |cx| {
+                executor.timer(std::time::Duration::from_millis(800)).await;
+                // The avatar is centred in its row: the distance between two avatars is the row height (the list's own bounds are not available above the scroll top).
+                let (rows, width) = view.update(cx, |host, window, _| {
+                    let ids: Vec<_> = host.0.history.borrow().events().iter().map(|e| e.id.clone()).collect();
+                    (ids.iter().map(|id| *host.0.profile_painted.borrow().get(id).expect("avatar painted")).collect::<Vec<_>>(), f32::from(window.viewport_size().width))
+                }).unwrap();
+                let heights: Vec<f32> = rows.windows(2).map(|w| f32::from(w[1].center().y - w[0].center().y)).collect();
+                println!("status row heights {heights:?}");
+                assert!(heights.windows(2).all(|w| (w[0] - w[1]).abs() < 0.5), "the status rows are equally tall: {heights:?}");
+                assert!(heights.iter().all(|h| (h - STATUS_ROW_PX).abs() < 0.5), "row height changed from the pre-feature {STATUS_ROW_PX}: {heights:?}");
+                let win = String::from_utf8(std::process::Command::new("xdotool").args(["search", "--name", title]).output().unwrap().stdout).unwrap();
+                let win = win.lines().next().expect("window found").to_owned();
+                let xdo = |args: &[&str]| assert!(std::process::Command::new("xdotool").args(args).status().unwrap().success());
+                let mut click = async |x: f32, y: f32| {
+                    view.update(cx, |host, _, _| { host.0.want_profile.replace(None); }).unwrap();
+                    xdo(&["mousemove", "--window", &win, &x.round().to_string(), &y.round().to_string(), "click", "1"]);
+                    executor.timer(std::time::Duration::from_millis(25)).await;
+                    view.update(cx, |host, _, _| host.0.want_profile.borrow().clone()).unwrap()
+                };
+                // Runs of hits along the row: (user or None, first x, last x).
+                let mut sweep = async |row: usize| {
+                    let (mut runs, y) = (Vec::<(Option<String>, f32, f32)>::new(), f32::from(rows[row].center().y));
+                    // From just left of the avatar to 150 px past the last hit (action text and time): the rest of the wide row is empty.
+                    let (mut x, mut last) = (f32::from(rows[row].left()) - 20., f32::MAX);
+                    while x < width - 2. && x < last + 150. {
+                        let hit = click(x, y).await;
+                        if hit.is_some() { last = x }
+                        match runs.last_mut() { Some(r) if r.0 == hit => r.2 = x, _ => runs.push((hit, x, x)) }
+                        x += 3.;
+                    }
+                    runs
+                };
+                let users = |runs: &[(Option<String>, f32, f32)]| runs.iter().map(|r| r.0.as_deref().map(|u| u.split(':').next().unwrap().to_owned())).collect::<Vec<_>>();
+                let s = |u: &str| Some(u.to_owned());
+                // Invite: avatar(actor) · gap · actor name · action · target name · action/time. Actor and target open distinct profiles.
+                let invite = sweep(0).await;
+                println!("invite runs {invite:?}");
+                assert_eq!(users(&invite), [None, s("@anna"), None, s("@anna"), None, s("@bea"), None], "avatar, name and target, nothing else: {invite:?}");
+                // Compact gap between avatar and text is unchanged (gap_1p5 = 6 px; sweep step 2 px).
+                let gap = invite[3].1 - invite[1].2;
+                assert!((4.0..=10.0).contains(&gap), "avatar→name gap {gap}");
+                // Left room: the name still opens that user's request (the sheet shows the engine's answer / Failed fallback).
+                let left = sweep(1).await;
+                println!("left runs {left:?}");
+                assert_eq!(users(&left), [None, s("@ghost"), None, s("@ghost"), None], "{left:?}");
+                let made = sweep(2).await;
+                assert_eq!(users(&sweep(3).await), [None, s("@anna"), None], "a row with no names: only the avatar is a target");
+                assert_eq!(users(&made), [None, s("@anna"), None, s("@anna"), None], "{made:?}");
+                // A drag from the action text onto the target name opens nothing (press and release are not on one name).
+                let (from, to) = ((invite[4].1 + invite[4].2) / 2., (invite[5].1 + invite[5].2) / 2.);
+                let y = f32::from(rows[0].center().y);
+                view.update(cx, |host, _, _| { host.0.want_profile.replace(None); }).unwrap();
+                xdo(&["mousemove", "--window", &win, &from.round().to_string(), &y.round().to_string(), "mousedown", "1", "mousemove", "--window", &win, &to.round().to_string(), &y.round().to_string(), "mouseup", "1"]);
+                executor.timer(std::time::Duration::from_millis(300)).await;
+                assert_eq!(view.update(cx, |host, _, _| host.0.want_profile.borrow().clone()).unwrap(), None, "drag action→name opens nothing");
+                // The a11y tree: one «Apri scheda di <nome>» button per name, in text order, Enter and Space open that user.
+                #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+                view.update(cx, |host, window, _| {
+                    // The projection starts at the semantic cursor: put it on the first row so all three are in the tree.
+                    *host.0.semantic_cursor.borrow_mut() = Some(host.0.history.borrow().events()[0].id.clone());
+                    let mut snap = host.0.semantic_snapshot(&mut matrix_desktop::accessibility::HistoryNodes::default(), window);
+                    let names = |m: &matrix_desktop::accessibility::SemanticMessage| m.pills.iter().map(|p| (p.name.clone(), p.user_id.clone())).collect::<Vec<_>>();
+                    let inv = snap.messages.iter().find(|m| m.text.starts_with("Anna ha invitato Bea")).unwrap_or_else(|| panic!("invite message in {:?}", snap.messages.iter().map(|m| m.text.clone()).collect::<Vec<_>>()));
+                    assert_eq!(names(inv), [("Apri scheda di Anna".into(), anna.into()), ("Apri scheda di Bea".into(), bea.into())]);
+                    let gone = snap.messages.iter().find(|m| m.text.starts_with("Ghost")).expect("left message");
+                    assert_eq!(names(gone), [("Apri scheda di Ghost".into(), ghost.into())]);
+                    let at = snap.messages.iter().position(|m| m.text.starts_with("Anna ha invitato Bea")).unwrap();
+                    let m = &mut snap.messages[at];
+                    m.pills[0].focused = false;
+                    m.pills[1].focused = true;
+                    for k in ["enter", "space"] {
+                        assert!(matches!(snap.link_key(k, false), Some(matrix_desktop::accessibility::NavigationAction::OpenProfile(u)) if u == bea), "{k} opens the focused name");
+                    }
+                    assert!(matches!(snap.link_key("tab", true), Some(matrix_desktop::accessibility::NavigationAction::FocusPill(_, 0..=3))), "Shift+Tab goes back to the actor");
+                })
+                .unwrap();
+                view.update(cx, |_, _, cx| cx.quit()).unwrap();
+            })
+            .detach();
+        });
+    }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_status_rows_click_light() { status_rows_click(false) }
+
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    #[test]
+    #[ignore = "requires private display"]
+    fn painted_status_rows_click_dark() { status_rows_click(true) }
 
     struct NarrowHost(TimelineView);
     impl Render for NarrowHost {

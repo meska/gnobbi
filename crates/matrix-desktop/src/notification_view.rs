@@ -1,5 +1,6 @@
 //! Session-local privacy preferences; no message content enters this screen.
 use crate::*;
+use matrix_domain::notifications::RoomNotifyMode;
 
 impl Shell {
     fn notification_observer(
@@ -64,7 +65,7 @@ impl Shell {
                 selected: self
                     .sidebar
                     .selected()
-                    .map(|room| (room.scope.clone(), room.info.muted)),
+                    .map(|room| (room.scope.clone(), room.info.muted())),
                 room_name: self.sidebar.selected().map(|room| room.name.clone()).unwrap_or_default(),
                 service_failed: self.notification_failed,
             }))
@@ -109,7 +110,7 @@ impl Shell {
                 self.list_focus.focus(window);
             }
             NotificationAction::SetEnabled(value) => self.set_notifications_enabled(value),
-            NotificationAction::SetPreview(value) => self.notifications.set_count_preview(value),
+            NotificationAction::SetPreview(value) => self.set_count_preview(value),
             NotificationAction::SetMessagePreview(value) => {
                 self.update_prefs(cx, |p| p.message_preview = value);
             }
@@ -123,10 +124,7 @@ impl Shell {
 
     /// «Silenzia»: the room push rule is written on the account; the next sync shows the result.
     fn set_room_muted(&mut self, scope: RoomScope, muted: bool) {
-        if self.pending_operation_command.is_none() {
-            self.pending_operation_command =
-                Some(matrix_engine::operations::OperationCommand::SetMuted { scope, muted });
-        }
+        self.set_room_mode(scope, if muted { RoomNotifyMode::Mute } else { RoomNotifyMode::AllMessages });
     }
 
     /// The one «Notifiche» choice (tray and panel), global for all accounts: shown and parked
@@ -150,6 +148,22 @@ impl Shell {
         }
     }
 
+    /// «Conteggio» of the shown account: applied at once, saved under its catalog ID (an account
+    /// not yet in the catalog keeps it for this run only).
+    pub(crate) fn set_count_preview(&mut self, on: bool) {
+        self.notifications.set_count_preview(on);
+        let (Some(dirs), Some(id)) = (&self.prefs_dirs, self.active_id) else {
+            return;
+        };
+        match matrix_desktop::Preferences::set_count_preview(dirs, id.as_u64(), on) {
+            Ok(prefs) => self.prefs = prefs,
+            Err(error) => {
+                eprintln!("Gnobbi: settings_write {:?}", error.kind());
+                self.settings_error = Some("Impossibile salvare le impostazioni. Riprova.");
+            }
+        }
+    }
+
     pub(crate) fn change_notification_preference(&mut self, preference: u8, cx: &mut Context<Self>) {
         if let Some(handle) = &self.notification_handle {
             handle.cancel_pending();
@@ -158,13 +172,11 @@ impl Shell {
             0 => self.set_notifications_enabled(!self.notifications.enabled()),
             1 => {
                 if let Some(room) = self.sidebar.selected() {
-                    let (scope, muted) = (room.scope.clone(), !room.info.muted);
+                    let (scope, muted) = (room.scope.clone(), !room.info.muted());
                     self.set_room_muted(scope, muted);
                 }
             }
-            2 => self
-                .notifications
-                .set_count_preview(!self.notifications.count_preview()),
+            2 => self.set_count_preview(!self.notifications.count_preview()),
             3 => {
                 self.update_prefs(cx, |p| p.message_preview = !p.message_preview);
             }
@@ -178,7 +190,7 @@ impl Shell {
         let preview = self.notifications.count_preview();
         let message_preview = self.prefs.message_preview;
         let selected = self.sidebar.selected();
-        let muted = selected.is_some_and(|room| room.info.muted);
+        let muted = selected.is_some_and(|room| room.info.muted());
         let room_available = selected.is_some();
         let room_name = selected.map(|room| room.name.clone());
         let focused_control = Some(self.notification_focus as usize);

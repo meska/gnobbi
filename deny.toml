@@ -17,6 +17,8 @@ allow = [
     "LGPL-2.1-or-later",  # only ever reachable inside an OR with MIT/Apache
 ]
 confidence-threshold = 0.8
+# egui default fonts (Hack, Ubuntu-Light, NotoEmoji, emoji-icon-font): free font licences, fonts only.
+exceptions = [{ crate = "epaint_default_fonts", allow = ["OFL-1.1", "Ubuntu-font-1.0"] }]
 
 [bans]
 multiple-versions = "warn"

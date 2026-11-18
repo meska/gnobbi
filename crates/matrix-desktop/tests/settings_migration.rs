@@ -192,3 +192,36 @@ fn invalid_update_field_does_not_reset_notifications_on_read() {
     Fixture::write(&settings(&d), br#"{"settings_version":1,"notifications":true,"update_check_enabled":"x"}"#);
     assert!(Preferences::load(&d).notifications);
 }
+
+#[test]
+fn count_preview_is_per_catalog_account_survives_restart_and_leaves_the_rest_alone() {
+    let f = Fixture::new("count-preview");
+    let d = f.dirs();
+    Fixture::write(&settings(&d), br#"{"settings_version":1,"theme":"dark","accent":"blue","notifications":true,"notification_accounts":{"7":{"count_preview":true,"future":1}},"future":{"x":9}}"#);
+    assert_eq!(Preferences::load(&d).count_preview_accounts, [7].into());
+    // Account 2 on, account 7 off: independent, global switch and unknown keys intact.
+    Preferences::set_count_preview(&d, 2, true).unwrap();
+    let p = Preferences::set_count_preview(&d, 7, false).unwrap();
+    assert_eq!(p.count_preview_accounts, [2].into());
+    // A later snapshot/field write (theme, notifications) must not drop the choice.
+    Preferences::update(&d, |p| p.notifications = false).unwrap();
+    // "Restart": a fresh load sees exactly what was saved.
+    let p = Preferences::load(&d);
+    assert_eq!(p.count_preview_accounts, [2].into());
+    assert!(!p.notifications && p.theme == Some(Theme::Dark));
+    let v = read(&d);
+    assert_eq!(v["future"], json!({"x":9}));
+    assert_eq!(v["notification_accounts"]["7"], json!({"count_preview":false,"future":1}));
+    assert_eq!(v["notification_accounts"]["2"], json!({"count_preview":true}));
+}
+
+#[test]
+fn count_preview_defaults_off_and_never_overwrites_a_rejected_file() {
+    let f = Fixture::new("count-preview-reject");
+    let d = f.dirs();
+    assert!(Preferences::load(&d).count_preview_accounts.is_empty());
+    let future = br#"{"settings_version":9,"notification_accounts":{"1":{"count_preview":true}}}"#;
+    Fixture::write(&settings(&d), future);
+    assert!(Preferences::set_count_preview(&d, 1, false).is_err());
+    assert_eq!(std::fs::read(settings(&d)).unwrap(), future);
+}

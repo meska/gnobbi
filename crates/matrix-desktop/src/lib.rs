@@ -2,6 +2,9 @@
 
 /// Settings row of the «Privacy e sicurezza» entry (rows 0-4 are the switches).
 pub const SETTINGS_PRIVACY_ROW: usize = 6;
+/// Rows 7 and 8 of the «Privacy e sicurezza» page (live session only): «Esporta chiavi…», «Rigenera chiave di recupero…».
+pub const SETTINGS_EXPORT_KEYS_ROW: usize = 7;
+pub const SETTINGS_RESET_RECOVERY_ROW: usize = 8;
 
 #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
 pub mod accessibility;
@@ -33,20 +36,22 @@ pub const MONO_FONT: &str = "DejaVu Sans Mono";
 pub const MONO_FONT: &str = "Consolas";
 mod verification;
 pub mod inactive;
+pub mod key_export;
 pub mod recover_keys;
 pub use recover_keys::keys_recovered_text;
+pub mod app_id;
 #[cfg(feature = "desktop")]
 pub mod window;
 pub use verification::{DeviceVerification, PopupBody, PopupButton, PopupView, device_detail, device_label, device_title};
-#[cfg(feature = "live")]
+#[cfg(feature = "core-live")]
 mod signin_form;
-#[cfg(feature = "live")]
+#[cfg(feature = "core-live")]
 pub use signin_form::{
     COPY_LABEL, DEFER_LABEL, RECOVER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_NOTE, RECOVERY_PENDING,
     RECOVERY_WARNING, RETRY_LABEL, SAVED_LABEL, SETUP_KEY_LABEL, SETUP_KEY_MASKED, SETUP_KEY_NOTE,
     SETUP_LABEL, SETUP_NOTE, SETUP_PENDING, SETUP_RETRY_LABEL,
 };
-#[cfg(feature = "live")]
+#[cfg(feature = "core-live")]
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput, line_range, word_range};
@@ -147,7 +152,7 @@ pub mod row_text;
 pub mod time_fmt;
 mod sidebar;
 pub mod tray_menu;
-#[cfg(feature = "desktop")]
+#[cfg(feature = "tray")]
 pub mod tray;
 pub use sidebar::{InviteState, Navigation, group_label, NavigationEntry, Sidebar, SidebarRoom, reading_offset};
 

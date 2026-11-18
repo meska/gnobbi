@@ -57,6 +57,11 @@ impl Shell {
                         bounds: [None; 3],
                     }
                 }),
+                aliases: matrix_desktop::accessibility::details::AliasRing {
+                    labels: if self.profile.is_some() { vec![] } else { self.alias_commands().into_iter().map(|(_, _, l)| l).collect() },
+                    bounds: self.a11y_alias_bounds.clone(),
+                    focus: self.alias_focus,
+                },
             }))
         } else if window.viewport_size().width >= px(800.) || self.compact_chat {
             DetailsView::Closed(room.scope.clone())
@@ -81,11 +86,27 @@ impl Shell {
         match action {
             DetailsAction::Open(_) => {
                 self.set_room_details_open(true);
+                self.alias_focus = None;
                 self.details_focus = Default::default();
-                self.a11y_details_bounds = [None; 8];
+                self.a11y_details_bounds = [None; 9];
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
-            DetailsAction::Focus { control, .. } => self.details_focus = control,
+            DetailsAction::Focus { control, .. } => {
+                self.alias_focus = None;
+                self.details_focus = control;
+            }
+            DetailsAction::AliasFocus { index, .. } => {
+                self.alias_focus = Some(index);
+                self.details_focus = DetailsControl::Copy;
+            }
+            DetailsAction::AliasAct { index, .. } => {
+                self.alias_focus = Some(index);
+                self.details_focus = DetailsControl::Copy;
+                if self.alias_act(index, window, cx) {
+                    // The add dialog took the focus.
+                    return;
+                }
+            }
             DetailsAction::Link { instance, focus_only, .. } => {
                 self.details_focus = DetailsControl::Topic;
                 // Current links only: a node of an older topic text finds no target here.
@@ -93,7 +114,7 @@ impl Shell {
                 if let Some(target) = target
                     && !focus_only
                 {
-                    self.topic_links.borrow_mut().request(&target, &mut self.topic_confirm.borrow_mut());
+                    self.open_topic_link(&target, cx);
                 }
             }
             DetailsAction::LinkConfirmation { generation, control, focus_only, .. } => {
@@ -146,6 +167,13 @@ impl Shell {
                 self.details_focus = DetailsControl::LowPriority;
                 self.toggle_tag(&scope, "m.lowpriority", cx);
             }
+            DetailsAction::Notify(scope) => {
+                // Screen readers step through the modes; the painted rows pick one directly.
+                use matrix_domain::notifications::RoomNotifyMode;
+                self.details_focus = DetailsControl::Notify;
+                let at = RoomNotifyMode::ALL.iter().position(|m| *m == self.sidebar.notify_mode(&scope)).unwrap_or(0);
+                self.set_room_mode(scope, RoomNotifyMode::ALL[(at + 1) % RoomNotifyMode::ALL.len()]);
+            }
             DetailsAction::Copy(scope) => {
                 self.details_focus = DetailsControl::Copy;
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(
@@ -189,7 +217,7 @@ impl Shell {
     }
 
     /// The topic a link may come from: only while the panel really shows it.
-    pub(crate) fn topic_source(&self) -> Option<(RoomScope, String)> {
+    pub(crate) fn topic_source(&self) -> Option<(RoomScope, matrix_engine::rich_text::Topic)> {
         if !self.connected
             || !self.room_details_open
             || self.profile.is_some()
@@ -199,14 +227,14 @@ impl Shell {
             return None;
         }
         let room = self.sidebar.selected()?;
-        Some((room.scope.clone(), room.info.topic.clone()?))
+        Some((room.scope.clone(), room.info.shown_topic()?))
     }
 
     /// Re-read the shown topic and drop every link and confirmation that no longer matches it.
     /// Called on each state change and again before any effect, so a stale target never opens.
     pub(crate) fn reconcile_topic_links(&self) -> Vec<matrix_desktop::MessageLinkTarget> {
         let targets = match self.topic_source() {
-            Some((scope, text)) => self.topic_links.borrow_mut().topic_targets(&scope, &text),
+            Some((scope, topic)) => self.topic_links.borrow_mut().topic_rich_targets(&scope, &topic),
             None => {
                 self.topic_links.borrow_mut().clear();
                 Vec::new()
@@ -224,6 +252,21 @@ impl Shell {
             self.topic_hover.set(None);
         }
         targets
+    }
+
+    /// A topic link: a matrix.to address the app understands goes to the in-app path (room, «Unisciti», profile);
+    /// anything else asks the external-browser confirmation. True if something changed on screen.
+    pub(crate) fn open_topic_link(&mut self, target: &matrix_desktop::MessageLinkTarget, cx: &mut Context<Self>) -> bool {
+        #[cfg(feature = "live")]
+        if matrix_engine::matrix_link::parse_matrix_link(target.url().as_str()).is_ok() {
+            if !self.topic_links.borrow_mut().focus(target) {
+                return false;
+            }
+            self.open_matrix_link(target.url().as_str(), cx);
+            return true;
+        }
+        let _ = &cx;
+        self.topic_links.borrow_mut().request(target, &mut self.topic_confirm.borrow_mut())
     }
 
     /// Up/Down/PageUp/PageDown scroll the focused «Argomento» area.
@@ -246,38 +289,77 @@ impl Shell {
     fn details_observer(&self, _index: usize, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
         {
-            let entity = _cx.entity();
-            Some(
-                gpui::canvas(
-                    |_, _, _| (),
-                    move |bounds, _, window, cx| {
-                        let scale = f64::from(window.scale_factor());
-                        let rect = accesskit::Rect::new(
-                            f64::from(f32::from(bounds.left())) * scale,
-                            f64::from(f32::from(bounds.top())) * scale,
-                            f64::from(f32::from(bounds.right())) * scale,
-                            f64::from(f32::from(bounds.bottom())) * scale,
-                        );
-                        if entity.read(cx).a11y_details_bounds[_index] != Some(rect) {
-                            let entity = entity.clone();
-                            window.on_next_frame(move |_, cx| {
-                                entity.update(cx, |this, cx| {
-                                    this.a11y_details_bounds[_index] = Some(rect);
-                                    cx.notify();
-                                })
-                            });
-                        }
-                    },
-                )
-                .absolute()
-                .inset_0()
-                .into_any_element(),
+            self.bounds_observer(
+                _index,
+                |this, i| this.a11y_details_bounds[i],
+                |this, i, rect| this.a11y_details_bounds[i] = Some(rect),
+                _cx,
             )
         }
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         {
             None
         }
+    }
+
+    /// Same as `details_observer`, for the `index`th command of «Indirizzi».
+    pub(crate) fn alias_observer(&self, _index: usize, _cx: &mut Context<Self>) -> Option<gpui::AnyElement> {
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        {
+            self.bounds_observer(
+                _index,
+                |this, i| this.a11y_alias_bounds.get(i).copied().flatten(),
+                |this, i, rect| {
+                    if this.a11y_alias_bounds.len() <= i {
+                        this.a11y_alias_bounds.resize(i + 1, None);
+                    }
+                    this.a11y_alias_bounds[i] = Some(rect);
+                },
+                _cx,
+            )
+        }
+        #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
+        {
+            None
+        }
+    }
+
+    /// Invisible overlay that reports its screen rectangle to the accessibility tree.
+    #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+    fn bounds_observer(
+        &self,
+        index: usize,
+        get: fn(&Self, usize) -> Option<accesskit::Rect>,
+        put: fn(&mut Self, usize, accesskit::Rect),
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        let entity = cx.entity();
+        Some(
+            gpui::canvas(
+                |_, _, _| (),
+                move |bounds, _, window, cx| {
+                    let scale = f64::from(window.scale_factor());
+                    let rect = accesskit::Rect::new(
+                        f64::from(f32::from(bounds.left())) * scale,
+                        f64::from(f32::from(bounds.top())) * scale,
+                        f64::from(f32::from(bounds.right())) * scale,
+                        f64::from(f32::from(bounds.bottom())) * scale,
+                    );
+                    if get(entity.read(cx), index) != Some(rect) {
+                        let entity = entity.clone();
+                        window.on_next_frame(move |_, cx| {
+                            entity.update(cx, |this, cx| {
+                                put(this, index, rect);
+                                cx.notify();
+                            })
+                        });
+                    }
+                },
+            )
+            .absolute()
+            .inset_0()
+            .into_any_element(),
+        )
     }
 
     pub(crate) fn render_spaces(
@@ -420,26 +502,42 @@ impl Shell {
         }
     }
 
-    /// The topic text; its links are drawn inline and open only through the confirmation.
+    /// The topic text with its styles; its links are drawn inline and open only through `open_topic_link`.
     fn topic_text(
         &self,
-        topic: &Option<String>,
+        topic: &Option<matrix_engine::rich_text::Topic>,
         targets: &[matrix_desktop::MessageLinkTarget],
         t: matrix_desktop::DesignTokens,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let Some(text) = topic else {
+        let Some(topic) = topic else {
             return div().child("Nessun argomento").into_any_element();
         };
+        let text = &topic.text;
+        // Only spans that fit the text: a stale range must never slice inside a character.
+        let styles: Vec<_> = topic.styles.iter().filter(|s| s.range.start < s.range.end && s.range.end <= text.len() && text.is_char_boundary(s.range.start) && text.is_char_boundary(s.range.end)).collect();
         let sel = self.topic_selection.borrow().range(text);
-        let link_ranges: Vec<_> = targets.iter().map(|l| l.range()).collect();
-        let runs = matrix_desktop::static_selection::highlight_runs(text.len(), &link_ranges, sel);
-        let body = gpui::StyledText::new(text.clone()).with_highlights(runs.into_iter().map(|(range, link, selected)| {
+        let mut cuts = vec![0, text.len()];
+        for s in &styles {
+            cuts.extend([s.range.start, s.range.end]);
+        }
+        for l in targets {
+            cuts.extend([l.range().start, l.range().end]);
+        }
+        cuts.extend(sel.iter().flat_map(|r| [r.start.min(text.len()), r.end.min(text.len())]));
+        cuts.sort_unstable();
+        cuts.dedup();
+        let body = gpui::StyledText::new(text.clone()).with_highlights(cuts.windows(2).map(|pair| {
+            let range = pair[0]..pair[1];
+            let is_link = targets.iter().any(|l| l.range().contains(&range.start));
+            let selected = sel.as_ref().is_some_and(|r| r.contains(&range.start));
+            let base = crate::timeline_view::span_style(t, |k| styles.iter().any(|s| s.style == k && s.range.contains(&range.start)));
             let style = gpui::HighlightStyle {
-                color: link.then(|| rgb(t.accent).into()),
-                underline: link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
-                background_color: selected.then(|| rgb(t.selection).into()),
-                ..Default::default()
+                color: if is_link { Some(rgb(t.accent).into()) } else { base.color },
+                underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
+                // The selection wins over the code background.
+                background_color: if selected { Some(rgb(t.selection).into()) } else { base.background_color },
+                ..base
             };
             (range, style)
         }));
@@ -457,7 +555,7 @@ impl Shell {
                 this.details_zone.focus(window);
                 if let Some((_, topic)) = this.topic_source() {
                     let index = down_layout.index_for_position(e.position).unwrap_or_else(|i| i);
-                    this.topic_selection.borrow_mut().press(&topic, index, e.click_count);
+                    this.topic_selection.borrow_mut().press(&topic.text, index, e.click_count);
                 }
                 this.topic_confirm.borrow_mut().cancel();
                 this.topic_pressed.set(at(&down_layout, &down_targets, e.position).map(|l| l.instance()));
@@ -468,11 +566,11 @@ impl Shell {
                 // Re-read the shown topic first: only a link of the current text, pressed and released on the same spot, asks for confirmation.
                 this.reconcile_topic_links();
                 // A drag or a double/triple click that selected text is not a click on a link.
-                let selecting = this.topic_source().is_some_and(|(_, topic)| this.topic_selection.borrow().range(&topic).is_some());
+                let selecting = this.topic_source().is_some_and(|(_, topic)| this.topic_selection.borrow().range(&topic.text).is_some());
                 if !selecting
                     && let Some(target) = at(&up_layout, &up_targets, e.position)
                     && pressed == Some(target.instance())
-                    && this.topic_links.borrow_mut().request(&target, &mut this.topic_confirm.borrow_mut())
+                    && this.open_topic_link(&target, cx)
                 {
                     cx.notify();
                 }
@@ -483,7 +581,7 @@ impl Shell {
                     && let Some((_, topic)) = this.topic_source()
                 {
                     let index = move_layout.index_for_position(e.position).unwrap_or_else(|i| i);
-                    this.topic_selection.borrow_mut().drag(&topic, index);
+                    this.topic_selection.borrow_mut().drag(&topic.text, index);
                     cx.notify();
                 }
                 if over != this.topic_hover.get() {
@@ -507,7 +605,7 @@ impl Shell {
             return div().into_any_element();
         }
         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-        let focused_control = Some(self.details_focus as usize);
+        let focused_control = if self.alias_focus.is_some() { None } else { Some(self.details_focus as usize) };
         #[cfg(not(all(feature = "linux-a11y", target_os = "linux")))]
         let focused_control: Option<usize> = None;
         let topic_links = self.reconcile_topic_links();
@@ -653,10 +751,33 @@ impl Shell {
                                     .cursor_pointer()
                                     .child(composer_icons::icon_sized(composer_icons::Icon::LowPriority, if low { t.accent } else { t.secondary }, HEADER_ICON_PX))
                                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_tag(&scope, "m.lowpriority", cx)))
+                            })
+                            // Name for screen readers («Notifiche: <modo>») lives in the a11y tree.
+                            .child({
+                                let muted = room.info.muted();
+                                div()
+                                    .id("room-details-notify")
+                                    .relative()
+                                    .children(self.details_observer(3, cx))
+                                    .flex_shrink_0()
+                                    .w(px(32.)).h(px(32.)).flex().items_center().justify_center()
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(if input_modality::only_keys(focused_control == Some(3), cx) { rgb(t.accent) } else { gpui::rgba(0) })
+                                    .when(self.notify_menu, |d| d.bg(gpui::rgba((t.accent << 8) | 0x33)))
+                                    .hover(|s| s.bg(rgb(t.border)))
+                                    .cursor_pointer()
+                                    .child(composer_icons::icon_sized(if muted { composer_icons::Icon::BellOff } else { composer_icons::Icon::Bell }, if muted { t.accent } else { t.secondary }, HEADER_ICON_PX))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.notify_menu = !this.notify_menu;
+                                        cx.notify();
+                                    }))
                             }),
                     )
+                    .when(self.notify_menu, |d| d.child(div().flex().flex_col().children(self.notify_rows(&room.scope, t, "room-details-notify-row", cx))))
+                    .children(self.sidebar.mode_error().map(|e| div().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
                     .children(self.sidebar.tag_error().map(|e| div().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
-                    .children(room.info.topic.as_deref().filter(|s| !s.trim().is_empty()).map(|_| 
+                    .children(room.info.shown_topic().filter(|t| !t.text.trim().is_empty()).map(|_| 
                         div().child("Argomento").child(
                             // At most a third of the sheet below the header, then it scrolls (short text: natural height, no thumb).
                             div()
@@ -668,8 +789,8 @@ impl Shell {
                                     #[cfg(not(test))]
                                     { None::<gpui::AnyElement> }
                                 })
-                                .children(self.details_observer(3, cx))
-                                .when(focused_control == Some(3), |d| {
+                                .children(self.details_observer(4, cx))
+                                .when(focused_control == Some(4), |d| {
                                     d.border_1().border_color(rgb(t.accent))
                                 })
                                 .child(
@@ -679,7 +800,7 @@ impl Shell {
                                         .overflow_y_scroll()
                                         .track_scroll(&self.topic_scroll.0.borrow().base_handle)
                                         .when(self.topic_hover.get().is_some(), |d| d.cursor_pointer())
-                                        .child(self.topic_text(&room.info.topic, &topic_links, t, cx)),
+                                        .child(self.topic_text(&room.info.shown_topic(), &topic_links, t, cx)),
                                 )
                                 .child(self.topic_scrollbar.render(
                                     "room-topic-scrollbar",
@@ -709,7 +830,7 @@ impl Shell {
                                         div()
                                             .id("copy-room-id")
                                             .relative()
-                                            .children(self.details_observer(4, cx))
+                                            .children(self.details_observer(5, cx))
                                             .flex_shrink_0()
                                             .w(px(36.))
                                             .h(px(36.))
@@ -718,7 +839,7 @@ impl Shell {
                                             .justify_center()
                                             .rounded_lg()
                                             .border_1()
-                                            .border_color(if input_modality::only_keys(focused_control == Some(4), cx) {
+                                            .border_color(if input_modality::only_keys(focused_control == Some(5), cx) {
                                                 rgb(t.accent)
                                             } else {
                                                 gpui::rgba(0)
@@ -736,29 +857,30 @@ impl Shell {
                                     ),
                             ),
                     )
+                    .children(self.render_aliases(t, cx))
                     .child(div().flex().flex_col()
                     .child(
                         switch_row(
-                            "room-hide-status", "Messaggi di stato", !hide_status, true, input_modality::only_keys(focused_control == Some(5), cx), t,
+                            "room-hide-status", "Messaggi di stato", !hide_status, true, input_modality::only_keys(focused_control == Some(6), cx), t,
                         )
                         .relative()
-                        .children(self.details_observer(5, cx))
+                        .children(self.details_observer(6, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
                     )
                     .child(
                         switch_row(
-                            "room-hide-redacted", "Messaggi eliminati", !hide_redacted, true, input_modality::only_keys(focused_control == Some(6), cx), t,
+                            "room-hide-redacted", "Messaggi eliminati", !hide_redacted, true, input_modality::only_keys(focused_control == Some(7), cx), t,
                         )
                         .relative()
-                        .children(self.details_observer(6, cx))
+                        .children(self.details_observer(7, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
                     ))
                     .when(room.info.edit_rights.any(), |d| d.child(
                         div()
                             .id("room-edit-open")
                             .relative()
-                            .children(self.details_observer(7, cx))
-                            .when(focused_control == Some(7), |d| d.border_1().border_color(rgb(t.accent)))
+                            .children(self.details_observer(8, cx))
+                            .when(focused_control == Some(8), |d| d.border_1().border_color(rgb(t.accent)))
                             .cursor_pointer()
                             .text_color(rgb(t.accent))
                             .child("Modifica")

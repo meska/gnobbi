@@ -82,6 +82,45 @@ pub fn notification_body(
     }
 }
 
+/// What the account's push rules say about one room (server side, shared by every device).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RoomNotifyMode {
+    #[default]
+    AllMessages,
+    MentionsAndKeywordsOnly,
+    Mute,
+}
+impl RoomNotifyMode {
+    pub const ALL: [Self; 3] = [Self::AllMessages, Self::MentionsAndKeywordsOnly, Self::Mute];
+    /// On-screen label and accessibility name.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::AllMessages => "Tutti i messaggi",
+            Self::MentionsAndKeywordsOnly => "Solo menzioni",
+            Self::Mute => "Silenziata",
+        }
+    }
+}
+
+/// What kind of event wants to notify.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotifyKind {
+    Normal,
+    Mention,
+    Keyword,
+    Invite,
+}
+
+/// The one notification decision; the alert and the preview both ask it, and when it is false nothing is built.
+pub fn should_notify(mode: RoomNotifyMode, low_priority: bool, kind: NotifyKind) -> bool {
+    match mode {
+        RoomNotifyMode::Mute => false,
+        RoomNotifyMode::MentionsAndKeywordsOnly if kind == NotifyKind::Normal => false,
+        // Low priority keeps only direct mentions and invites; keywords stay quiet (product choice).
+        _ => !low_priority || matches!(kind, NotifyKind::Mention | NotifyKind::Invite),
+    }
+}
+
 /// What the OS may show; which messages notify (and which rooms are muted) is decided by the
 /// account's push rules, through the SDK.
 pub struct NotificationPolicy {
@@ -150,5 +189,43 @@ impl Notification {
     }
     pub fn body(&self) -> String {
         self.body.clone()
+    }
+}
+
+#[cfg(test)]
+mod decision_tests {
+    use super::{NotifyKind::*, RoomNotifyMode::*, *};
+
+    #[test]
+    fn decision_table() {
+        for low in [false, true] {
+            for kind in [Normal, Mention, Keyword, Invite] {
+                assert!(!should_notify(Mute, low, kind), "Mute never notifies");
+            }
+        }
+        // (mode, low priority, kind) -> expected
+        for (mode, low, kind, want) in [
+            (AllMessages, false, Normal, true),
+            (AllMessages, true, Normal, false),
+            (AllMessages, true, Keyword, false),
+            (AllMessages, true, Mention, true),
+            (AllMessages, true, Invite, true),
+            (AllMessages, false, Keyword, true),
+            (MentionsAndKeywordsOnly, false, Normal, false),
+            (MentionsAndKeywordsOnly, false, Keyword, true),
+            (MentionsAndKeywordsOnly, false, Mention, true),
+            (MentionsAndKeywordsOnly, true, Normal, false),
+            (MentionsAndKeywordsOnly, true, Keyword, false),
+            (MentionsAndKeywordsOnly, true, Mention, true),
+            (MentionsAndKeywordsOnly, false, Invite, true),
+            (MentionsAndKeywordsOnly, true, Invite, true),
+        ] {
+            assert_eq!(should_notify(mode, low, kind), want, "{mode:?} low={low} {kind:?}");
+        }
+    }
+
+    #[test]
+    fn labels_are_the_agreed_ones() {
+        assert_eq!(RoomNotifyMode::ALL.map(RoomNotifyMode::label), ["Tutti i messaggi", "Solo menzioni", "Silenziata"]);
     }
 }

@@ -11,6 +11,17 @@ impl Shell {
     ) {
         self.settings_open = open;
         self.privacy_open = false;
+        // A sub-page closes with the drawer, except while a new recovery key is shown or being made:
+        // reopening Settings brings that page back (the old key is already void).
+        #[cfg(feature = "live")]
+        if let Some(page) = &self.verification.keys {
+            if page.closable() {
+                self.verification.keys = None;
+                self.keys_ui = None;
+            } else {
+                self.privacy_open = open;
+            }
+        }
         if open {
             self.settings_row = 0;
             #[cfg(target_os = "linux")]
@@ -39,6 +50,7 @@ impl Shell {
                 ],
                 update_check: self.show_update_check().then_some(self.prefs.update_check_enabled),
                 privacy_page: self.privacy_open,
+                keys_rows: self.keys_rows(),
             })
         } else {
             None
@@ -67,6 +79,8 @@ impl Shell {
                 self.privacy_open = true;
                 cx.notify();
             }
+            SettingsAction::ExportKeys => self.open_keys_row(matrix_desktop::SETTINGS_EXPORT_KEYS_ROW, window, cx),
+            SettingsAction::ResetRecovery => self.open_keys_row(matrix_desktop::SETTINGS_RESET_RECOVERY_ROW, window, cx),
             SettingsAction::Set(row, on) => {
                 self.settings_row = row;
                 let update_check = self.show_update_check();
@@ -82,6 +96,14 @@ impl Shell {
         }
     }
 
+    #[cfg(not(feature = "live"))]
+    pub(crate) fn keys_rows(&self) -> bool {
+        false
+    }
+
+    #[cfg(not(feature = "live"))]
+    pub(crate) fn open_keys_row(&mut self, _: usize, _: &mut Window, _: &mut Context<Self>) {}
+
     pub(crate) fn show_update_check(&self) -> bool {
         matrix_desktop::update::channel::detect_channel(&matrix_desktop::update::channel::Env::from_process()).self_updates()
     }
@@ -89,7 +111,11 @@ impl Shell {
     /// Keyboard stops in screen order; the «Privacy e sicurezza» entry sits after debug. On its page: «Dispositivi» (same row id), then «Conferme di lettura».
     pub(crate) fn settings_ring(&self) -> Vec<usize> {
         if self.privacy_open {
-            return vec![matrix_desktop::SETTINGS_PRIVACY_ROW, 1];
+            let mut ring = vec![matrix_desktop::SETTINGS_PRIVACY_ROW, 1];
+            if self.keys_rows() {
+                ring.extend([matrix_desktop::SETTINGS_EXPORT_KEYS_ROW, matrix_desktop::SETTINGS_RESET_RECOVERY_ROW]);
+            }
+            return ring;
         }
         let mut ring = vec![0, matrix_desktop::SETTINGS_PRIVACY_ROW, 2, 3];
         ring.extend(self.show_update_check().then_some(4));
@@ -587,8 +613,24 @@ impl Shell {
                                 this.open_quick_search(window, cx)
                             })),
                     )
+                    .child(
+                        row("menu-edit-profile")
+                            .border_1()
+                            .border_color(ring(n + 9))
+                            .text_color(rgb(t.text))
+                            .child("Modifica profilo")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_profile_from_drawer(window, cx)
+                            })),
+                    )
                 })
                 .into_any_element();
+        }
+        #[cfg(feature = "live")]
+        if self.privacy_open
+            && let Some(page) = self.render_keys_page(t, window, cx)
+        {
+            return page;
         }
         if self.privacy_open {
             let focused = |r: usize| input_modality::only_keys(self.settings_row == r && self.settings_focus.is_focused(window), cx);
@@ -628,6 +670,35 @@ impl Shell {
                     switch_row("settings-read-receipts", "Conferme di lettura", self.prefs.read_receipts, true, focused(1), t)
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_read_receipts(cx))),
                 )
+                .when(self.keys_rows(), |d| {
+                    d.child(
+                        row("privacy-export-keys")
+                            .border_1()
+                            .border_color(rgb(if focused(matrix_desktop::SETTINGS_EXPORT_KEYS_ROW) { t.accent } else { t.surface }))
+                            .text_color(rgb(t.text))
+                            .hover(|h| h.bg(rgb(t.selected)))
+                            .child(matrix_desktop::key_export::EXPORT_ROW_LABEL)
+                            .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
+                                // Enter/Space are handled in menu_key; the key-up click of the focused row would fire twice.
+                                if !event.is_keyboard() {
+                                    this.open_keys_row(matrix_desktop::SETTINGS_EXPORT_KEYS_ROW, window, cx)
+                                }
+                            })),
+                    )
+                    .child(
+                        row("privacy-reset-recovery")
+                            .border_1()
+                            .border_color(rgb(if focused(matrix_desktop::SETTINGS_RESET_RECOVERY_ROW) { t.accent } else { t.surface }))
+                            .text_color(rgb(t.text))
+                            .hover(|h| h.bg(rgb(t.selected)))
+                            .child(matrix_desktop::key_export::RESET_ROW_LABEL)
+                            .on_click(cx.listener(|this, event: &gpui::ClickEvent, window, cx| {
+                                if !event.is_keyboard() {
+                                    this.open_keys_row(matrix_desktop::SETTINGS_RESET_RECOVERY_ROW, window, cx)
+                                }
+                            })),
+                    )
+                })
                 .into_any_element();
         }
         div()

@@ -1,9 +1,7 @@
 //! The one place that builds `WindowOptions`, so every window carries the same app id.
 use gpui::{Pixels, TitlebarOptions, WindowOptions, px};
 
-/// Wayland app_id / X11 WM_CLASS; matches the installed desktop entry.
-pub const APP_ID: &str = "net.meskatech.gnobbi";
-pub const TITLE: &str = "Gnobbi";
+pub use crate::app_id::{APP_ID, TITLE};
 
 /// The one place that derives the window title from the current view:
 /// `None` is the signed-in shell, `Some((section, error))` a sign-in step.

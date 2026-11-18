@@ -1,6 +1,6 @@
 //! `--install-desktop-entry`: explicit, idempotent per-user install of the launcher and icons.
 use crate::IconChoice;
-use crate::window::APP_ID;
+use crate::app_id::APP_ID;
 use std::{fs, io, path::Path};
 
 const DESKTOP: &str = include_str!("../../../packaging/linux/net.meskatech.gnobbi.desktop");

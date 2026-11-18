@@ -89,6 +89,7 @@ fn roundtrip_keeps_values() {
         bad_builds: [7, 3].into(),
         update_base: Some("http://lan/dl/".into()),
         list_width: Some(412),
+        count_preview_accounts: Default::default(),
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);

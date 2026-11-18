@@ -18,11 +18,18 @@ pub mod avatar;
 #[cfg(feature = "sdk")]
 pub mod avatar_cache;
 #[cfg(feature = "sdk")]
+pub mod profile;
+#[cfg(feature = "sdk")]
+pub mod key_export;
+#[cfg(feature = "sdk")]
 pub mod recovery;
 #[cfg(feature = "sdk")]
 mod outbox;
 #[cfg(feature = "sdk")]
 pub mod room_sync;
+pub mod alias;
+#[cfg(feature = "sdk")]
+pub mod alias_ops;
 pub mod join;
 pub mod message_match;
 #[cfg(feature = "sdk")]
@@ -86,6 +93,8 @@ pub struct RoomInfo {
     /// Observed public peer markers only; empty means no known marker, not unread.
     pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
     pub topic: Option<String>,
+    /// The topic as shown (markdown / `m.topic` html rendered); None = not computed, see `shown_topic`.
+    pub topic_view: Option<rich_text::Topic>,
     /// mxc URI of the avatar to show: the room's own, else the other person's in a 1:1 DM; None means initials. Not downloaded here.
     pub avatar: Option<String>,
     /// Text of the SDK latest event when it is a message; None otherwise.
@@ -110,13 +119,27 @@ pub struct RoomInfo {
     /// `order` of the `m.favourite` tag (0..=1, lowest = pinned highest) as f64 bits: bits of a non-negative
     /// finite f64 sort like the number, and RoomInfo stays `Eq`. None: not a favourite, or one without `order`.
     pub favourite_order: Option<u64>,
-    /// Muted by the user's push rules (`NotificationSettings`), on every device.
-    pub muted: bool,
+    /// The user's push rules for the room (`NotificationSettings`), on every device; no rule = all messages.
+    pub notification_mode: matrix_domain::notifications::RoomNotifyMode,
     /// Canonical alias then alternative aliases, as the SDK room info has them (may hold
     /// empty strings from servers that send them; callers drop those).
     pub aliases: Vec<String>,
     /// Direct room: the peer's Matrix user ID from `m.direct` (SDK `direct_targets`).
     pub dm_user_id: Option<String>,
+}
+impl RoomInfo {
+    pub fn muted(&self) -> bool {
+        self.notification_mode == matrix_domain::notifications::RoomNotifyMode::Mute
+    }
+}
+
+impl RoomInfo {
+    /// The topic to draw: the rendered one, else the plain text unstyled.
+    pub fn shown_topic(&self) -> Option<rich_text::Topic> {
+        self.topic_view
+            .clone()
+            .or_else(|| self.topic.clone().map(|text| rich_text::Topic { text, ..Default::default() }))
+    }
 }
 
 /// Stable-ID updates independent of the current UI filter or selection.

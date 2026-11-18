@@ -240,6 +240,9 @@ pub struct Preferences {
     pub list_width: Option<u32>,
     /// «Anteprima messaggi»: on by default, also when the saved value is missing or not a boolean.
     pub message_preview: bool,
+    /// «Conteggio» per account: catalog IDs with it on. Stored as `notification_accounts`, which
+    /// `encode` never writes, so only `set_count_preview` touches it.
+    pub count_preview_accounts: BTreeSet<u64>,
 }
 
 impl Default for Preferences {
@@ -263,6 +266,7 @@ impl Default for Preferences {
             update_base: None,
             list_width: None,
             message_preview: true,
+            count_preview_accounts: BTreeSet::new(),
         }
     }
 }
@@ -412,7 +416,35 @@ impl Preferences {
                 .map(str::to_owned),
             list_width: map.get("list_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
             message_preview: map.get("message_preview").and_then(Value::as_bool).unwrap_or(true),
+            count_preview_accounts: map
+                .get("notification_accounts")
+                .and_then(Value::as_object)
+                .map(|m| {
+                    m.iter()
+                        .filter(|(_, v)| v.get("count_preview").and_then(Value::as_bool) == Some(true))
+                        .filter_map(|(k, _)| k.parse().ok())
+                        .collect()
+                })
+                .unwrap_or_default(),
         }
+    }
+
+    /// Saves «Conteggio» for one catalog account; other accounts and unknown keys stay as they are.
+    pub fn set_count_preview(dirs: &AppDirs, account: u64, on: bool) -> std::io::Result<Preferences> {
+        let mut saved = None;
+        update_settings(dirs, |map| {
+            let accounts = map.entry("notification_accounts").or_insert_with(|| json!({}));
+            if !accounts.is_object() {
+                *accounts = json!({});
+            }
+            let entry = accounts.as_object_mut().expect("object").entry(account.to_string()).or_insert_with(|| json!({}));
+            if !entry.is_object() {
+                *entry = json!({});
+            }
+            entry["count_preview"] = json!(on);
+            saved = Some(Self::from_map(map));
+        })?;
+        Ok(saved.expect("transaction closure executed"))
     }
 
     pub fn update(dirs: &AppDirs, change: impl FnOnce(&mut Preferences)) -> std::io::Result<Preferences> {

@@ -104,8 +104,13 @@ pub struct Sidebar {
     leave_error: Option<(RoomScope, &'static str)>,
     /// The tag toggle in flight: the room and ALL its tags and pin order before the optimistic flip.
     tag: Option<(RoomScope, Vec<String>, Option<u64>)>,
+    /// The space whose «Esci dallo spazio» request is in flight (disables the control, nothing else).
+    space_leaving: Option<RoomScope>,
     /// One-line reason of the last failed toggle, until the next one.
     tag_error: Option<&'static str>,
+    /// A notification-mode write in flight: the room and the mode it had before.
+    mode: Option<(RoomScope, matrix_domain::notifications::RoomNotifyMode)>,
+    mode_error: Option<&'static str>,
 }
 
 impl Sidebar {
@@ -127,8 +132,11 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
+            space_leaving: None,
             tag: None,
             tag_error: None,
+            mode: None,
+            mode_error: None,
         }
     }
 
@@ -249,8 +257,11 @@ impl Sidebar {
             failed: Default::default(),
             reject_armed: None,
             leave_error: None,
+            space_leaving: None,
             tag: None,
             tag_error: None,
+            mode: None,
+            mode_error: None,
         }
     }
 
@@ -365,6 +376,24 @@ impl Sidebar {
         });
     }
 
+    /// Marks the leave of `scope` as in flight; false (do not send) when one already is.
+    pub fn begin_space_leave(&mut self, scope: RoomScope) -> bool {
+        self.leave_error = None;
+        self.space_leaving.replace(scope).is_none()
+    }
+
+    /// True only while the request runs: the control stays disabled exactly that long.
+    pub fn space_leaving(&self) -> bool {
+        self.space_leaving.is_some()
+    }
+
+    /// Outcome of «Esci dallo spazio», any result frees the control. Success drops the space from the rail and,
+    /// when it was selected, returns the list to «Tutte» (as `room_left`); failure leaves the one-line error.
+    pub fn space_left(&mut self, scope: &RoomScope, result: Result<(), matrix_engine::operations::OperationError>) {
+        self.space_leaving = None;
+        self.room_left(scope, result);
+    }
+
     /// The failure of the last «Esci» on this row, until the next click or menu.
     pub fn leave_error(&self, scope: &RoomScope) -> Option<&'static str> {
         self.leave_error.as_ref().filter(|(s, _)| s == scope).map(|(_, t)| *t)
@@ -451,6 +480,41 @@ impl Sidebar {
         }
     }
 
+    pub fn notify_mode(&self, scope: &RoomScope) -> matrix_domain::notifications::RoomNotifyMode {
+        self.rooms.iter().find(|r| r.scope == *scope).map(|r| r.info.notification_mode).unwrap_or_default()
+    }
+
+    pub fn mode_error(&self) -> Option<&'static str> {
+        self.mode_error
+    }
+
+    /// The single notification-mode action (context menu, drawer, Notifications panel): the row changes now.
+    /// True when the command must be sent; false for an unknown room, an unchanged mode or a write in flight.
+    pub fn set_mode(&mut self, scope: &RoomScope, mode: matrix_domain::notifications::RoomNotifyMode) -> bool {
+        let Some(room) = self.rooms.iter_mut().find(|r| r.scope == *scope) else { return false };
+        if self.mode.is_some() || room.info.notification_mode == mode {
+            return false;
+        }
+        self.mode = Some((scope.clone(), room.info.notification_mode));
+        self.mode_error = None;
+        room.info.notification_mode = mode;
+        true
+    }
+
+    /// The engine's answer: on failure the room gets its real mode back and one line says why.
+    pub fn mode_done(&mut self, result: Result<(), matrix_engine::operations::OperationError>) {
+        let Some((scope, before)) = self.mode.take() else { return };
+        if let Err(e) = result {
+            if let Some(room) = self.rooms.iter_mut().find(|r| r.scope == scope) {
+                room.info.notification_mode = before;
+            }
+            self.mode_error = Some(match e {
+                matrix_engine::operations::OperationError::Forbidden => "Non consentito dal server",
+                _ => "Connessione non riuscita",
+            });
+        }
+    }
+
     /// The invitation under the cursor, if the cursor is on one.
     pub fn selected_invite(&self) -> Option<&SidebarRoom> {
         self.selected.map(|i| &self.rooms[i]).filter(|r| r.info.invited)
@@ -488,7 +552,7 @@ impl Sidebar {
             self.rooms
                 .iter()
                 // Muted rooms never count: same rule for the list, the drawer and the tray.
-                .filter(|room| !room.info.muted && keep(room))
+                .filter(|room| !room.info.muted() && keep(room))
                 .fold((0u64, 0u64), |(u, m), room| {
                     (
                         u.saturating_add(room.unread),
@@ -560,7 +624,7 @@ impl Sidebar {
 
     /// A joined, unmuted room that counts for «Non lette» (same muted rule as the other badges).
     fn in_unread_view(room: &SidebarRoom) -> bool {
-        !room.info.invited && !room.info.is_space && !room.info.muted && (room.unread > 0 || room.info.marked_unread)
+        !room.info.invited && !room.info.is_space && !room.info.muted() && (room.unread > 0 || room.info.marked_unread)
     }
 
     /// How many rooms «Non lette» holds (rooms, not messages, like Telegram's chat counter).
@@ -809,7 +873,7 @@ mod tests {
                 scope: RoomScope { account_id: account, room_id: RoomId::new(format!("!{id}:t.invalid")) },
                 name: id.into(),
                 unread,
-                info: RoomInfo { muted, mentions: unread, ..Default::default() },
+                info: RoomInfo { notification_mode: if muted { matrix_domain::notifications::RoomNotifyMode::Mute } else { Default::default() }, mentions: unread, ..Default::default() },
             })));
         }
         let all = &sidebar.navigation_entries()[0];
@@ -919,6 +983,30 @@ mod tests {
             ["x", "y", "space"][..names(&sidebar).len()]
         );
         assert_eq!(sidebar.selected().map(|r| r.name.as_str()), Some("x"));
+    }
+
+    #[test]
+    fn space_leave_disables_only_while_running_and_success_returns_to_tutte() {
+        use matrix_engine::operations::OperationError::Forbidden;
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        sidebar.apply_diff(RoomListDiff::Upsert(Box::new(RoomSummary {
+            scope: scope(&account, "bots"),
+            name: "Bots".into(),
+            unread: 0,
+            info: RoomInfo { is_space: true, ..Default::default() },
+        })));
+        let bots = scope(&account, "bots");
+        assert!(sidebar.set_space(Some(bots.clone())));
+        assert!(sidebar.begin_space_leave(bots.clone()) && sidebar.space_leaving());
+        assert!(!sidebar.begin_space_leave(bots.clone()), "no second request while one runs");
+        sidebar.space_left(&bots, Err(Forbidden));
+        assert!(!sidebar.space_leaving() && sidebar.leave_error(&bots) == Some("Non consentito dal server"));
+        assert_eq!(sidebar.active_space(), Some(&bots));
+        assert!(sidebar.begin_space_leave(bots.clone()));
+        sidebar.space_left(&bots, Ok(()));
+        assert!(!sidebar.space_leaving() && sidebar.leave_error(&bots).is_none());
+        assert_eq!((sidebar.active_space(), sidebar.spaces().count()), (None, 0));
     }
 
     #[test]
@@ -1390,6 +1478,20 @@ mod favourite_tests {
         });
         sidebar.set_query("");
         (sidebar, scope)
+    }
+
+    #[test]
+    fn mode_flips_at_once_and_a_failed_write_restores_it_with_one_line() {
+        use matrix_domain::notifications::RoomNotifyMode::*;
+        let (mut s, scope) = one();
+        assert!(s.set_mode(&scope, Mute) && s.rooms()[0].info.muted());
+        assert!(!s.set_mode(&scope, AllMessages), "one write at a time");
+        s.mode_done(Err(matrix_engine::operations::OperationError::Forbidden));
+        assert_eq!((s.notify_mode(&scope), s.mode_error()), (AllMessages, Some("Non consentito dal server")));
+        assert!(!s.set_mode(&scope, AllMessages), "unchanged mode sends nothing");
+        assert!(s.set_mode(&scope, MentionsAndKeywordsOnly) && s.mode_error().is_none());
+        s.mode_done(Ok(()));
+        assert_eq!(s.notify_mode(&scope), MentionsAndKeywordsOnly);
     }
 
     #[test]
