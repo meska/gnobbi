@@ -5217,6 +5217,8 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "matrix-desktop",
+ "matrix-domain",
+ "matrix-engine",
 ]
 
 [[package]]

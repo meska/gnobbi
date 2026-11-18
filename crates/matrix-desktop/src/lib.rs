@@ -39,15 +39,15 @@ pub mod app_id;
 #[cfg(feature = "desktop")]
 pub mod window;
 pub use verification::{DeviceVerification, PopupBody, PopupButton, PopupView, device_detail, device_label, device_title};
-#[cfg(feature = "live")]
+#[cfg(feature = "core-live")]
 mod signin_form;
-#[cfg(feature = "live")]
+#[cfg(feature = "core-live")]
 pub use signin_form::{
     COPY_LABEL, DEFER_LABEL, RECOVER_LABEL, RECOVERY_KEY_LABEL, RECOVERY_NOTE, RECOVERY_PENDING,
     RECOVERY_WARNING, RETRY_LABEL, SAVED_LABEL, SETUP_KEY_LABEL, SETUP_KEY_MASKED, SETUP_KEY_NOTE,
     SETUP_LABEL, SETUP_NOTE, SETUP_PENDING, SETUP_RETRY_LABEL,
 };
-#[cfg(feature = "live")]
+#[cfg(feature = "core-live")]
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod credential_input;
 pub use credential_input::{CredentialInput, LoginInput, line_range, word_range};

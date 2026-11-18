@@ -1,11 +1,16 @@
+#![recursion_limit = "256"]
 //! Gnobbi, egui frontend. S1: shell with the saved theme and accent, window identity and the
 //! single-instance gate shared with the GPUI app (same profile, never two processes on it).
 use eframe::egui::{self, Color32, CornerRadius, Stroke, ViewportBuilder, Visuals};
 use matrix_desktop::{
-    AppDirs, DesignTokens, Platform, Preferences, Theme,
+    AppDirs, DesignTokens, FormStatus, Platform, Preferences, Theme,
     app_id::{APP_ID, TITLE},
 };
+use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
+
+mod session;
+use session::Session;
 
 fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
@@ -42,13 +47,21 @@ struct App {
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
     applied: Option<(Theme, u32)>,
+    session: Option<Session>,
+    /// Why the backend could not start, shown instead of the form.
+    start_error: Option<String>,
 }
 
 impl App {
     fn new(dirs: Option<&AppDirs>) -> App {
         let prefs = dirs.map(Preferences::load).unwrap_or_else(Preferences::default);
         let theme = Theme::Classic;
-        App { prefs, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None }
+        let (session, start_error) = match dirs.map(Session::start) {
+            Some(Ok(s)) => (Some(s), None),
+            Some(Err(e)) => (None, Some(e)),
+            None => (None, Some("Cartella dati non disponibile".to_owned())),
+        };
+        App { prefs, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, session, start_error }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -73,22 +86,113 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.refresh(&ctx);
         ctx.request_repaint_after(Duration::from_secs(60));
+        if let Some(session) = &mut self.session {
+            session.poll();
+            // The backend answers off-thread: wake up soon while waiting for it.
+            if session.account.is_none() {
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
+        }
         let t = self.tokens;
-        egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(&t)).show(ui, |ui| {
+        if self.session.as_ref().is_some_and(|s| s.account.is_some()) {
+            self.shell(ui, &t);
+        } else {
+            self.sign_in(ui, &t);
+        }
+    }
+}
+
+impl App {
+    fn shell(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
+        let state = match self.session.as_ref().and_then(|s| s.sync) {
+            Some(RoomSyncStatus::Ready) => "Connesso",
+            Some(RoomSyncStatus::AuthenticationFailed) => "Accesso non riuscito",
+            Some(RoomSyncStatus::SyncFailed) => "Sincronizzazione interrotta",
+            _ => "Connessione…",
+        };
+        egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
             ui.add_space(16.);
             ui.horizontal(|ui| {
                 ui.add_space(16.);
                 ui.heading(TITLE);
             });
         });
-        egui::Panel::top("header").exact_size(t.header).frame(bar(&t)).show(ui, |ui| {
+        egui::Panel::top("header").exact_size(t.header).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(16.);
-                ui.label(self.theme.label());
+                ui.label(state);
             });
         });
-        egui::Panel::bottom("composer").exact_size(t.bottom_bar).frame(bar(&t)).show(ui, |_| {});
+        egui::Panel::bottom("composer").exact_size(t.bottom_bar).frame(bar(t)).show(ui, |_| {});
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |_| {});
+    }
+
+    fn sign_in(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space((ui.available_height() / 4.).max(24.));
+                egui::Frame::NONE
+                    .fill(rgb(t.surface))
+                    .stroke(Stroke::new(1., rgb(t.border)))
+                    .corner_radius(CornerRadius::same(12))
+                    .inner_margin(24.)
+                    .show(ui, |ui| {
+                        ui.set_width(360.);
+                        match &mut self.session {
+                            Some(session) => sign_in_form(ui, session),
+                            None => {
+                                ui.label(self.start_error.as_deref().unwrap_or("Avvio non riuscito"));
+                            }
+                        }
+                    });
+            });
+        });
+    }
+}
+
+/// The form for the flow the backend asked for: new profile (server, user, password) or unlock.
+fn sign_in_form(ui: &mut egui::Ui, s: &mut Session) {
+    use matrix_engine::signin::SignInMode;
+    let status = s.status();
+    let prompt = match status {
+        FormStatus::Prompt(p) => Some(p),
+        _ => None,
+    };
+    let mode = prompt.map_or(SignInMode::UnlockVault, |p| p.mode);
+    let unlock = mode != SignInMode::Password;
+    ui.heading(if unlock { "Sblocca Gnobbi" } else { "Accedi a Gnobbi" });
+    ui.add_space(12.);
+    let mut enter = false;
+    let mut field = |ui: &mut egui::Ui, text: &mut String, hint: &str, secret: bool| {
+        let r = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(text).hint_text(hint).password(secret));
+        enter |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        ui.add_space(8.);
+    };
+    if let Some(p) = prompt {
+        match (p.mode, s.form.vault) {
+            (SignInMode::Password, vault) => {
+                field(ui, &mut s.homeserver, "Homeserver HTTPS", false);
+                field(ui, &mut s.user, "ID Matrix completo", false);
+                field(ui, &mut s.password, "Password Matrix", true);
+                if !vault {
+                    field(ui, &mut s.phrase, "Frase locale · almeno 16 caratteri", true);
+                }
+            }
+            (SignInMode::Unlock, _) => field(ui, &mut s.phrase, "Frase locale · almeno 16 caratteri", true),
+            (SignInMode::UnlockVault, _) => {}
+        }
+    }
+    if let Some(message) = s.form.status().error_message() {
+        ui.colored_label(ui.visuals().error_fg_color, message);
+        ui.add_space(8.);
+    }
+    if prompt.is_some() {
+        let label = if unlock { "Sblocca" } else { "Accedi" };
+        if ui.add_sized([ui.available_width(), 36.], egui::Button::new(label)).clicked() || enter {
+            s.submit();
+        }
+    } else {
+        ui.spinner();
     }
 }
 
