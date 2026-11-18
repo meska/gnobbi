@@ -83,6 +83,17 @@ impl Gaps {
     }
 }
 
+/// Where a pill really starts. A pill label that does not fit the rest of the line wraps whole to the
+/// next one, but the text layout reports its start as the end of the *previous* line: the fill and the
+/// avatar would be drawn there, an empty bar on the line above. `first` is the reported position of the
+/// pill's second character; on a lower line, the pill begins at `left` on that line. Positions are `(x, y)`.
+pub fn wrapped_start(start: (f32, f32), first: Option<(f32, f32)>, left: f32) -> (f32, f32) {
+    match first {
+        Some((_, y)) if y > start.1 + 0.5 => (left, y),
+        _ => start,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +135,13 @@ mod tests {
     fn no_pills_no_change_and_stale_spans_are_ignored() {
         let (gaps, drawn) = Gaps::new("àb", &[user(1..2), user(0..99)], AVATAR_GAP);
         assert_eq!((gaps.inserts.is_empty(), drawn.as_str()), (true, "àb"));
+    }
+    #[test]
+    fn a_pill_wrapped_whole_starts_on_the_line_below() {
+        // Reported at the end of line one (y 0), but its second character is on line two (y 20).
+        assert_eq!(wrapped_start((300., 0.), Some((12., 20.)), 8.), (8., 20.));
+        // On one line, or a single-character pill (no probe): untouched.
+        assert_eq!(wrapped_start((300., 20.), Some((312., 20.)), 8.), (300., 20.));
+        assert_eq!(wrapped_start((300., 20.), None, 8.), (300., 20.));
     }
 }

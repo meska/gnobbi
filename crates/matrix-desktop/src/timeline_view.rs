@@ -2141,6 +2141,7 @@ impl TimelineView {
                     }).flatten();
                     let (gaps, drawn) = matrix_desktop::mention_gaps::Gaps::new(&event.text, &event.mentions, &matrix_desktop::mention_gaps::avatar_gap(space));
                     let gaps = Rc::new(gaps);
+                    let paint_drawn: Rc<str> = Rc::from(drawn.as_str());
                     let mut body = StyledText::new(drawn);
                     let pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&event.text, &event.mentions).collect();
                     let pill_paint: Vec<_> = pills.iter().map(|m| {
@@ -2265,7 +2266,7 @@ impl TimelineView {
                         .child(
                             div()
                                 .w(relative(0.85))
-                                .max_w(px(520.))
+                                .max_w(px(720.))
                                 .min_w_0()
                                 .px_4()
                                 .py_3()
@@ -2346,6 +2347,11 @@ impl TimelineView {
                                         for (range, bg, picture, user, uid, ring) in &pill_paint {
                                             let from = if *user { pill_layout.layout.position_for_index(pill_layout.gaps.gap_start(range.start)) } else { pill_layout.position_for_index(range.start) };
                                             let (Some(a), Some(b)) = (from, pill_layout.layout.position_for_index(pill_layout.gaps.end(range.end))) else { continue };
+                                            // A pill that wrapped whole is reported at the end of the line above: start it where it is drawn.
+                                            let first_ix = if *user { pill_layout.gaps.gap_start(range.start) } else { pill_layout.gaps.start(range.start) };
+                                            let first = paint_drawn.get(first_ix..).and_then(|s| s.chars().next()).and_then(|c| pill_layout.layout.position_for_index(first_ix + c.len_utf8()));
+                                            let (ax, ay) = matrix_desktop::mention_gaps::wrapped_start((f32::from(a.x), f32::from(a.y)), first.map(|p| (f32::from(p.x), f32::from(p.y))), f32::from(bounds.left()));
+                                            let a = gpui::point(px(ax), px(ay));
                                             let left = a.x - if *user { px(2.) } else { px(3.) };
                                             let lines = if b.y == a.y { vec![(a.y, left, b.x + px(3.))] } else { vec![(a.y, left, bounds.right()), (b.y, bounds.left(), b.x + px(3.))] };
                                             for (y, l, r) in lines {
