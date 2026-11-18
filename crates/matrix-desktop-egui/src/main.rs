@@ -600,7 +600,7 @@ impl App {
                     .show(ui, |ui| {
                         ui.set_width(360.);
                         match &mut self.session {
-                            Some(session) => sign_in_form(ui, session),
+                            Some(session) => sign_in_form(ui, session, t),
                             None => {
                                 ui.label(self.start_error.as_deref().unwrap_or("Avvio non riuscito"));
                             }
@@ -670,7 +670,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
 }
 
 /// The form for the flow the backend asked for: new profile (server, user, password) or unlock.
-fn sign_in_form(ui: &mut egui::Ui, s: &mut Session) {
+fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     use matrix_engine::signin::SignInMode;
     let status = s.status();
     let prompt = match status {
@@ -707,7 +707,8 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session) {
     }
     if prompt.is_some() {
         let label = if unlock { "Sblocca" } else { "Accedi" };
-        if ui.add_sized([ui.available_width(), 36.], egui::Button::new(label)).clicked() || enter {
+        let button = egui::Button::new(egui::RichText::new(label).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent));
+        if ui.add_sized([ui.available_width(), 36.], button).clicked() || enter {
             s.submit();
         }
     } else {
