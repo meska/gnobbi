@@ -113,7 +113,15 @@ impl eframe::App for App {
                     _ => session.attach(path),
                 }
             }
-            session.poll(&ctx);
+            session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
+            if let Some(v) = &session.verification
+                && let Some((id, name)) = v.profile()
+            {
+                let shown = name.clone().unwrap_or_else(|| id.clone());
+                if session.account_name != shown {
+                    session.account_name = shown;
+                }
+            }
             if let Some(messages) = &mut session.messages
                 && messages.set_hide_redacted(self.prefs.hide_redacted)
             {

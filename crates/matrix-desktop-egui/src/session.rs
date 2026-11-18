@@ -44,6 +44,11 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    notifications: matrix_domain::notifications::NotificationPolicy,
+    _notify_worker: Option<matrix_desktop::notifications::NotificationWorker>,
+    notify: Option<matrix_desktop::notifications::NotificationHandle>,
+    /// Name the alerts carry as title (the account's own name once known).
+    pub account_name: String,
     pub poll_open: bool,
     pub thread: Option<ThreadState>,
     pub verification: Option<matrix_desktop::DeviceVerification>,
@@ -110,6 +115,7 @@ impl Session {
         let route = worker.take_history_route();
         let send = worker.take_send_route();
         let op_route = worker.take_operation_route();
+        let notify_worker = matrix_desktop::notifications::NotificationWorker::spawn().ok();
         let ver_route = worker.take_verification_route();
         let media_route = worker.take_media_route();
         let mut form = SignInForm::default();
@@ -131,6 +137,10 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            notifications: matrix_domain::notifications::NotificationPolicy::new(matrix_domain::AccountId::new(0)),
+            notify: notify_worker.as_ref().map(|w| w.handle()),
+            _notify_worker: notify_worker,
+            account_name: String::new(),
             poll_open: false,
             thread: None,
             verification: None,
@@ -175,7 +185,7 @@ impl Session {
     }
 
     /// Drains what the backend sent since the last frame. True when something changed.
-    pub fn poll(&mut self, ctx: &egui::Context) -> bool {
+    pub fn poll(&mut self, ctx: &egui::Context, notifications: bool, preview: bool) -> bool {
         let mut changed = false;
         // First-time recovery setup is not offered here (S7); a key that arrives is dropped, which zeroizes it.
         while self.ui.setup.try_recv().is_ok() {
@@ -191,6 +201,7 @@ impl Session {
                     let mut v = matrix_desktop::DeviceVerification::new(account);
                     v.refresh();
                     self.verification = Some(v);
+                    self.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
                     self.sidebar.set_navigation_context(account, true);
                 }
                 SignInEvent::Recovery(RecoveryState::Offered | RecoveryState::Failed(_) | RecoveryState::Unsupported) => {
@@ -202,11 +213,29 @@ impl Session {
         while let Ok(event) = self.rooms.try_recv() {
             changed = true;
             match event {
-                RoomListEvent::Status(s) => self.sync = Some(s),
+                RoomListEvent::Status(s) => {
+                    if s == RoomSyncStatus::AuthenticationFailed
+                        && let Some(h) = &self.notify
+                    {
+                        h.cancel_pending();
+                    }
+                    self.sync = Some(s);
+                }
                 RoomListEvent::Diff(diff) => {
                     self.sidebar.apply_diff(diff);
                 }
                 RoomListEvent::Order(order) => self.sidebar.set_order(order),
+                RoomListEvent::Alert(scope, message) => {
+                    self.notifications.set_enabled(notifications);
+                    self.notifications.set_message_preview(preview);
+                    let reading = matrix_desktop::notifications::reading(ctx.input(|i| i.focused), self.sidebar.selected().map(|r| &r.scope), &scope);
+                    if !reading
+                        && let (Some(alert), Some(handle), Some(account)) = (self.notifications.alert(&scope, message), &self.notify, self.account)
+                    {
+                        let name = if self.account_name.is_empty() { "Gnobbi".to_owned() } else { self.account_name.clone() };
+                        handle.submit(alert.from_account(account, name));
+                    }
+                }
                 // Alerts and timeline activity belong to later slices.
                 _ => {}
             }
@@ -217,6 +246,11 @@ impl Session {
                 changed = true;
             }
             v.flush(tx);
+        }
+        // A click on an alert opens its room (once it is in the list).
+        if let Some((_, scope)) = self.notify.as_ref().and_then(|h| h.take_click()) {
+            self.pending_select = Some(scope);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         changed |= self.drive_history();
         changed |= self.drive_media(ctx);
