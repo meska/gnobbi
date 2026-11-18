@@ -1,6 +1,7 @@
 //! Sign-in and restore for the egui frontend: the same engine route and form state machine as the
 //! GPUI app (`SignInForm`), so messages, vault restore and error categories stay identical.
-use matrix_desktop::{AppDirs, DemoHistory, FormStatus, HistorySession, SignInForm};
+use matrix_desktop::{AppDirs, DemoHistory, FormStatus, HistorySession, LiveOperations, SignInForm};
+use matrix_engine::operations::{Operation, OperationCommand, OperationResult};
 use matrix_engine::{
     Receiver, RoomListEvent, RoomSyncStatus,
     room_sync::RoomListWorker,
@@ -22,6 +23,17 @@ pub struct Session {
     send: Option<(matrix_engine::Sender<matrix_engine::sending::SendRequest>, Receiver<matrix_engine::sending::SendEvent>)>,
     drafts: std::collections::HashMap<matrix_domain::RoomScope, String>,
     pub draft: String,
+    pub ops: LiveOperations,
+    op_route: Option<(matrix_engine::Sender<OperationCommand>, Receiver<OperationResult>)>,
+    op_pending: Option<OperationCommand>,
+    /// Message the next Enter replies to or edits; the draft it replaced waits in `parked`.
+    pub target: Option<(matrix_domain::ScopedTimelineId, crate::composer::Mode)>,
+    parked: String,
+    /// Right-click menu: where it opened; "delete" waits for a second click.
+    pub menu: Option<eframe::egui::Pos2>,
+    pub confirm_delete: bool,
+    /// The menu opened this frame: the click that opened it must not close it.
+    pub menu_fresh: bool,
     draft_scope: Option<matrix_domain::RoomScope>,
     pub heights: crate::timeline::Heights,
     pub first_visible: usize,
@@ -50,6 +62,7 @@ impl Session {
         .map_err(|e| e.to_string())?;
         let route = worker.take_history_route();
         let send = worker.take_send_route();
+        let op_route = worker.take_operation_route();
         let mut form = SignInForm::default();
         form.vault = with_vault;
         Ok(Session {
@@ -64,6 +77,14 @@ impl Session {
             send,
             drafts: Default::default(),
             draft: String::new(),
+            ops: LiveOperations::default(),
+            op_route,
+            op_pending: None,
+            target: None,
+            parked: String::new(),
+            menu: None,
+            confirm_delete: false,
+            menu_fresh: false,
             draft_scope: None,
             messages: None,
             heights: Default::default(),
@@ -130,12 +151,16 @@ impl Session {
         }
         // The draft follows the room: stored when leaving, restored when coming back.
         if self.draft_scope != scope {
+            self.target = None;
+            self.parked.clear();
+            self.menu = None;
             if let Some(old) = self.draft_scope.take() {
                 self.drafts.insert(old, std::mem::take(&mut self.draft));
             }
             self.draft = scope.as_ref().and_then(|s| self.drafts.remove(s)).unwrap_or_default();
             self.draft_scope = scope;
         }
+        changed |= self.drive_operations();
         if let Some((_, rx)) = &mut self.send {
             // Outcomes show up as the message's own row once the live view refreshes (S5: no separate failure UI yet).
             while rx.try_recv().is_ok() {}
@@ -169,6 +194,97 @@ impl Session {
             }
         }
         changed
+    }
+
+    fn drive_operations(&mut self) -> bool {
+        let mut changed = false;
+        if self.op_pending.is_none() {
+            self.op_pending = self.ops.take_command();
+        }
+        if let (Some(command), Some((tx, _))) = (self.op_pending.take(), &mut self.op_route) {
+            match tx.try_send(command) {
+                Err(matrix_engine::TrySendError::Full(c) | matrix_engine::TrySendError::Busy(c)) => self.op_pending = Some(c),
+                _ => {}
+            }
+        }
+        let mut results = Vec::new();
+        if let Some((_, rx)) = &mut self.op_route {
+            while let Ok(r) = rx.try_recv() {
+                results.push(r);
+            }
+        }
+        for result in results {
+            let done = matches!(&result, OperationResult::Applied { result: Ok(_), .. });
+            if let OperationResult::Applied { request, .. } = &result
+                && done
+            {
+                self.history.activity(&request.scope);
+            }
+            changed |= self.ops.apply(result) | done;
+        }
+        changed
+    }
+
+    /// Opens the menu for a right-clicked message and asks the engine what the user may do with it.
+    pub fn open_menu(&mut self, id: matrix_domain::ScopedTimelineId, pos: eframe::egui::Pos2) {
+        if self.ops.select(id) {
+            self.menu = Some(pos);
+            self.menu_fresh = true;
+            self.confirm_delete = false;
+        }
+    }
+
+    pub fn close_menu(&mut self) {
+        self.menu = None;
+        self.confirm_delete = false;
+        self.ops.clear_selection();
+    }
+
+    /// Reply or edit: the composer works on the selected message until Enter or X.
+    pub fn begin(&mut self, mode: crate::composer::Mode) {
+        let Some(id) = self.ops.selection().cloned() else { return };
+        self.parked = std::mem::take(&mut self.draft);
+        if mode == crate::composer::Mode::Edit
+            && let Some(body) = self.ops.details().map(|d| d.body.clone())
+        {
+            self.draft = body;
+        }
+        self.target = Some((id, mode));
+        self.menu = None;
+    }
+
+    pub fn cancel_target(&mut self) {
+        if self.target.take().is_some() {
+            self.draft = std::mem::take(&mut self.parked);
+            self.ops.clear_selection();
+        }
+    }
+
+    pub fn react(&mut self, key: &str) {
+        self.ops.toggle_reaction(key, matrix_engine::sending::fresh_transaction_id());
+        self.close_menu_keep_selection();
+    }
+
+    pub fn delete(&mut self) {
+        self.ops.submit(Operation::Redact, matrix_engine::sending::fresh_transaction_id());
+        self.close_menu_keep_selection();
+    }
+
+    fn close_menu_keep_selection(&mut self) {
+        self.menu = None;
+        self.confirm_delete = false;
+    }
+
+    /// Enter in the composer: a plain message, or the reply/edit of the chosen one.
+    pub fn submit_draft(&mut self, body: String) {
+        match self.target.take() {
+            Some((_, mode)) => {
+                let op = if mode == crate::composer::Mode::Edit { Operation::Edit { body } } else { Operation::Reply { body } };
+                self.ops.submit(op, matrix_engine::sending::fresh_transaction_id());
+                self.draft = std::mem::take(&mut self.parked);
+            }
+            None => self.send(body),
+        }
     }
 
     /// Sends the text to the open room; the live view picks up the echo.

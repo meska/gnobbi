@@ -1,7 +1,7 @@
 #![recursion_limit = "256"]
 //! Gnobbi, egui frontend. S1: shell with the saved theme and accent, window identity and the
 //! single-instance gate shared with the GPUI app (same profile, never two processes on it).
-use eframe::egui::{self, Color32, CornerRadius, Stroke, ViewportBuilder, Visuals};
+use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, ViewportBuilder, Visuals};
 use matrix_desktop::{
     AppDirs, DesignTokens, FormStatus, Platform, Preferences, Theme,
     app_id::{APP_ID, TITLE},
@@ -136,17 +136,29 @@ impl App {
             if let Some(s) = &mut self.session
                 && s.messages.is_some()
             {
-                to_send = composer::show(ui, &mut s.draft);
+                let mode = s.target.as_ref().map_or(composer::Mode::Send, |(_, m)| *m);
+                let mut cancel = false;
+                to_send = composer::show(ui, &mut s.draft, mode, &mut cancel);
+                if cancel {
+                    s.cancel_target();
+                }
             }
         });
         if let (Some(body), Some(s)) = (to_send, &mut self.session) {
-            s.send(body);
+            s.submit_draft(body);
+        }
+        if let Some(s) = &mut self.session {
+            message_menu(ui.ctx(), s, t);
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
             if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
             {
-                s.first_visible = timeline::show(ui, messages.events(), messages, &mut s.heights, 3, t);
+                let (first, menu) = timeline::show(ui, messages.events(), messages, &mut s.heights, 3, t);
+                s.first_visible = first;
+                if let Some((id, pos)) = menu {
+                    s.open_menu(id, pos);
+                }
             }
         });
     }
@@ -171,6 +183,59 @@ impl App {
                     });
             });
         });
+    }
+}
+
+/// Right-click menu: only what the engine says the user may do with the message.
+fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
+    let Some(pos) = s.menu else { return };
+    let fresh = std::mem::take(&mut s.menu_fresh);
+    let perms = s.ops.details().map(|d| d.permissions);
+    let mut action: Option<&'static str> = None;
+    let area = egui::Area::new(egui::Id::new("message-menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| {
+            ui.set_min_width(160.);
+            let Some(p) = perms else {
+                ui.spinner();
+                return;
+            };
+            if p.react {
+                ui.horizontal(|ui| {
+                    for (key, name) in [("👍", "up"), ("❤️", "heart"), ("😂", "laugh")] {
+                        if ui.button(key).clicked() {
+                            action = Some(match name { "up" => "👍", "heart" => "❤️", _ => "😂" });
+                        }
+                    }
+                });
+            }
+            if p.reply && ui.button("Rispondi").clicked() {
+                action = Some("reply");
+            }
+            if p.edit && ui.button("Modifica").clicked() {
+                action = Some("edit");
+            }
+            if p.redact {
+                let label = if s.confirm_delete { "Conferma eliminazione" } else { "Elimina" };
+                if ui.button(RichText::new(label).color(rgb(t.error))).clicked() {
+                    if s.confirm_delete { action = Some("delete") } else { s.confirm_delete = true }
+                }
+            }
+            if !(p.react || p.reply || p.edit || p.redact) {
+                ui.label("—");
+            }
+        });
+    });
+    match action {
+        Some("reply") => s.begin(composer::Mode::Reply),
+        Some("edit") => s.begin(composer::Mode::Edit),
+        Some("delete") => s.delete(),
+        Some(key) => s.react(key),
+        None => {
+            let outside = !fresh && ctx.input(|i| i.pointer.any_pressed()) && !area.response.contains_pointer();
+            if outside || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                s.close_menu();
+            }
+        }
     }
 }
 
