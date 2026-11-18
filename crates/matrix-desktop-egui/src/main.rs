@@ -79,6 +79,7 @@ struct App {
     /// Test hook: GNOBBI_EGUI_LOGIN=<json {homeserver,user,password,phrase?}> signs in by itself (disposable servers only).
     auto_login: Option<serde_json::Value>,
     shot_sent: bool,
+    pending_link: Option<(matrix_domain::MatrixLink, std::time::Instant)>,
     hook_sent: bool,
     hook_type: bool,
     hook_alias: bool,
@@ -90,7 +91,7 @@ struct App {
 }
 
 impl App {
-    fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> App {
+    fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf, trust: Option<Vec<u8>>, link: Option<matrix_domain::MatrixLink>) -> App {
         let prefs = dirs.map(Preferences::load).unwrap_or_else(Preferences::default);
         let theme = Theme::Classic;
         let (session, start_error) = match dirs.map(|d| Session::start(d, root.clone(), trust.clone())) {
@@ -99,7 +100,7 @@ impl App {
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
         App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            shot_sent: false, hook_sent: false, hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+            pending_link: link.map(|l| (l, std::time::Instant::now())), shot_sent: false, hook_sent: false, hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
     }
 
@@ -202,6 +203,29 @@ impl App {
     /// Test hooks (env only): sign in with the given account, then open the view named in GNOBBI_EGUI_VIEW.
     fn test_hooks(&mut self, ctx: &egui::Context) {
         let Some(s) = &mut self.session else { return };
+        // shortcut: one account, no «Unisciti» dialog and no jump to the message of the link; a room we are not in is only logged. Give up after 60 s.
+        if let Some((link, since)) = &self.pending_link
+            && s.account.is_some()
+            && !s.sidebar.rooms().is_empty()
+        {
+            use matrix_domain::MatrixLink;
+            match link {
+                MatrixLink::Room { target, .. } => {
+                    let found = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == target || r.info.aliases.iter().any(|a| a == target)).map(|r| r.scope.clone());
+                    match found {
+                        Some(scope) => drop(s.sidebar.select(&scope)),
+                        None => eprintln!("Gnobbi: matrix link to a room we are not in"),
+                    }
+                }
+                MatrixLink::User { user_id } => {
+                    s.info_open = true;
+                    s.open_profile(user_id.clone());
+                }
+            }
+            self.pending_link = None;
+        } else if self.pending_link.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() > 60) {
+            self.pending_link = None;
+        }
         if let Some(login) = &self.auto_login
             && s.account.is_none()
             && matches!(s.status(), FormStatus::Prompt(_))
@@ -720,7 +744,9 @@ fn single_instance_gate() {
 fn single_instance_gate() {}
 
 fn main() -> eframe::Result {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
+    let (args, link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
+    let link = link.and_then(|raw| matrix_engine::matrix_link::parse_matrix_link(&raw).map_err(|_| eprintln!("Gnobbi: ignored matrix link")).ok());
     let dirs = matrix_desktop::app_dirs(Platform::CURRENT, |k| std::env::var(k).ok());
     let default_root = dirs.as_ref().map(|d| d.data.join("profile"));
     // `--signin <folder>` runs another account's profile; the default profile is the first install's.
@@ -765,7 +791,7 @@ fn main() -> eframe::Result {
             .with_app_id(APP_ID),
         ..Default::default()
     };
-    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref(), root, trust)))))
+    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref(), root, trust, link)))))
 }
 
 #[cfg(test)]
