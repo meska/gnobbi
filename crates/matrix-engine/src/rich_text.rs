@@ -22,6 +22,21 @@ pub struct StyleSpan {
     pub style: Style,
 }
 
+/// A link in the display text: `range` is the visible label, `href` the real destination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkSpan {
+    pub range: Range<usize>,
+    pub href: String,
+}
+
+/// A room topic as shown: display text, styles and links (no SDK types, so it travels in `RoomInfo`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Topic {
+    pub text: String,
+    pub styles: Vec<StyleSpan>,
+    pub links: Vec<LinkSpan>,
+}
+
 /// What a mention pill stands for (the MATRIX_MENZIONI_UI notes D3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MentionKind {
@@ -68,6 +83,7 @@ struct Rich {
     text: String,
     spans: Vec<StyleSpan>,
     mentions: Vec<MentionSpan>,
+    links: Vec<LinkSpan>,
 }
 
 #[cfg(feature = "sdk")]
@@ -111,6 +127,11 @@ impl Rich {
                 range: m.range.start + base..m.range.end + base,
                 kind: m.kind,
             }));
+        self.links
+            .extend(other.links.into_iter().map(|l| LinkSpan {
+                range: l.range.start + base..l.range.end + base,
+                href: l.href,
+            }));
     }
 
     fn styled(&mut self, inner: Rich, style: Style) {
@@ -135,6 +156,10 @@ impl Rich {
         self.mentions.retain_mut(|m| {
             m.range.end = m.range.end.min(end);
             m.range.start < m.range.end
+        });
+        self.links.retain_mut(|l| {
+            l.range.end = l.range.end.min(end);
+            l.range.start < l.range.end
         });
         self
     }
@@ -176,12 +201,21 @@ impl Rich {
                 kind: m.kind,
             })
             .collect();
+        out.links = self
+            .links
+            .into_iter()
+            .map(|l| LinkSpan {
+                range: shift(l.range.start)..shift(l.range.end.saturating_sub(1)) + 1,
+                href: l.href,
+            })
+            .collect();
         out
     }
 }
 
 #[cfg(feature = "sdk")]
-fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &MentionCtx) -> Rich {
+/// `topic`: the room topic subset: headings and code blocks are plain text, no pills.
+fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &MentionCtx, topic: bool) -> Rich {
     let mut out = Rich::default();
     for node in nodes {
         if let Some(text) = node.as_text() {
@@ -200,7 +234,7 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &Mention
                 .find(|a| &*a.name.local == wanted)
                 .map(|a| a.value.to_string())
         };
-        let inner = |verbatim| render(node.children(), verbatim, ctx);
+        let inner = |verbatim| render(node.children(), verbatim, ctx, topic);
         match name {
             "strong" | "b" => out.styled(inner(verbatim), Style::Bold),
             "em" | "i" => out.styled(inner(verbatim), Style::Italic),
@@ -213,7 +247,11 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &Mention
             }
             "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
                 out.newline();
-                out.styled(inner(false).trimmed(), Style::Bold);
+                if topic {
+                    out.append(inner(false).trimmed());
+                } else {
+                    out.styled(inner(false).trimmed(), Style::Bold);
+                }
                 out.text.push('\n');
             }
             "p" => {
@@ -223,7 +261,13 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &Mention
             }
             "pre" => {
                 out.newline();
-                out.styled(inner(true).trimmed(), Style::Code);
+                if topic {
+                    let mut block = inner(true).trimmed();
+                    block.spans.retain(|s| s.style != Style::Code);
+                    out.append(block);
+                } else {
+                    out.styled(inner(true).trimmed(), Style::Code);
+                }
                 out.text.push('\n');
             }
             "blockquote" => {
@@ -254,7 +298,7 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &Mention
                     };
                     let rest = " ".repeat(marker.chars().count());
                     out.append(
-                        render(item.children(), false, ctx)
+                        render(item.children(), false, ctx, topic)
                             .trimmed()
                             .prefixed(&marker, &rest),
                     );
@@ -271,7 +315,7 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &Mention
                 out.text.push(' ');
             }
             "a" => {
-                if let Some((kind, name)) = attr("href").and_then(|h| mention_of(&h, ctx)) {
+                if let Some((kind, name)) = attr("href").filter(|_| !topic).and_then(|h| mention_of(&h, ctx)) {
                     let start = out.text.len();
                     match name {
                         Some(name) => out.text.push_str(&name),
@@ -284,12 +328,20 @@ fn render(nodes: matrix_sdk::ruma::html::Children, verbatim: bool, ctx: &Mention
                 }
                 let label = inner(verbatim);
                 let shown = label.text.clone();
+                let start = out.text.len();
                 out.append(label);
+                if let Some(href) = attr("href")
+                    && out.text.len() > start
+                {
+                    out.links.push(LinkSpan { range: start..out.text.len(), href });
+                }
                 // The target stays visible: a label must not hide where the link goes.
                 if let Some(href) = attr("href").filter(|h| {
                     (h.starts_with("http://") || h.starts_with("https://"))
                         && !h.starts_with("https://matrix.to/")
                         && !shown.contains(h.as_str())
+                        // An autolink's href is percent-encoded: the same address written bare is not a hidden target.
+                        && !url::Url::parse(h).ok().is_some_and(|u| Some(u) == url::Url::parse(shown.trim()).ok())
                 }) {
                     out.text.push_str(&format!(" ({href})"));
                 }
@@ -337,21 +389,107 @@ pub fn from_html(html: &str) -> (String, Vec<StyleSpan>) {
 /// Like `from_html`, plus the mention pills (user links resolved through `ctx`, «@room» if allowed).
 #[cfg(feature = "sdk")]
 pub fn from_html_mentions(html: &str, ctx: &MentionCtx) -> (String, Vec<StyleSpan>, Vec<MentionSpan>) {
-    use matrix_sdk::ruma::html::{Html, SanitizerConfig};
-    let html = Html::parse(html);
-    html.sanitize_with(
-        &SanitizerConfig::compat()
-            .remove_reply_fallback()
-            .remove_elements(["script", "style"])
-            .max_depth(24),
-    );
-    let mut rich = render(html.children(), false, ctx).trimmed();
+    let mut rich = flatten(html, ctx, false);
     if ctx.at_room {
         let found = at_room_spans(&rich.text, &rich.spans, &rich.mentions);
         rich.mentions.extend(found);
         rich.mentions.sort_by_key(|m| m.range.start);
     }
     (rich.text, rich.spans, rich.mentions)
+}
+
+#[cfg(feature = "sdk")]
+fn flatten(html: &str, ctx: &MentionCtx, topic: bool) -> Rich {
+    use matrix_sdk::ruma::html::{Html, SanitizerConfig};
+    // html5ever builds the tree by its own rules (ignored self-closing, stray end tags, adoption agency), so no
+    // textual guard can bound the depth, and ruma's parse/sanitize/Drop recurse per level. A Matrix event is <= 64 KiB
+    // (<= ~21 800 nested `<i>`): 64 MiB of virtual stack (committed lazily) is ~3 KiB/level, enough even in debug.
+    // The whole life of the `Html` (parse, sanitize, render, drop) stays on this thread.
+    let work = || {
+        let html = Html::parse(html);
+        html.sanitize_with(
+            &SanitizerConfig::compat()
+                .remove_reply_fallback()
+                .remove_elements(["script", "style"])
+                .max_depth(24),
+        );
+        render(html.children(), false, ctx, topic).trimmed()
+    };
+    std::thread::scope(|s| {
+        match std::thread::Builder::new().stack_size(64 << 20).spawn_scoped(s, work).map(|h| h.join()) {
+            Ok(Ok(rich)) => rich,
+            Ok(Err(panic)) => std::panic::resume_unwind(panic),
+            Err(e) => panic!("cannot spawn the HTML worker thread: {e}"),
+        }
+    })
+}
+
+/// Wrap bare `http(s)://` words in `<…>` so markdown keeps them whole (no emphasis inside).
+#[cfg(feature = "sdk")]
+fn wrap_bare_urls(src: &str) -> String {
+    // shortcut: word-level heuristic, a URL inside a multi-word code span may stay wrapped; use pulldown offsets if it shows up.
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    while !rest.is_empty() {
+        let blank = rest.len() - rest.trim_start().len();
+        out.push_str(&rest[..blank]);
+        rest = &rest[blank..];
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let word = &rest[..end];
+        rest = &rest[end..];
+        let core = word.trim_start_matches(['(', '[', '"']);
+        let lead = word.len() - core.len();
+        let mut core = core.trim_end_matches(['.', ',', ';', ':', '!', '?', '"', '\'', ']']);
+        while core.ends_with(')') && core.matches(')').count() > core.matches('(').count() {
+            core = &core[..core.len() - 1];
+        }
+        let url = (core.starts_with("http://") || core.starts_with("https://"))
+            && !core.contains(['<', '>', '`'])
+            && !core.contains("](")
+            && out.matches('`').count().is_multiple_of(2);
+        if url {
+            out.push_str(&word[..lead]);
+            out.push('<');
+            out.push_str(core);
+            out.push('>');
+            out.push_str(&word[lead + core.len()..]);
+        } else {
+            out.push_str(word);
+        }
+    }
+    out
+}
+
+/// Markdown (CommonMark core, no extensions) to HTML; raw HTML in the source stays literal text.
+#[cfg(feature = "sdk")]
+fn markdown_html(src: &str) -> String {
+    use pulldown_cmark::{Event, Options, Parser, html::push_html};
+    let src = wrap_bare_urls(src);
+    let events = Parser::new_ext(&src, Options::empty()).map(|e| match e {
+        Event::SoftBreak => Event::HardBreak,
+        Event::Html(s) | Event::InlineHtml(s) => Event::Text(s),
+        e => e,
+    });
+    let mut html = String::new();
+    push_html(&mut html, events);
+    html
+}
+
+/// The topic as shown: `m.topic` text/html if there is one, else the plain text read as markdown,
+/// else the plain text as it is. Links keep their real href; images and raw HTML are never loaded.
+#[cfg(feature = "sdk")]
+pub fn topic(plain: &str, html: Option<&str>) -> Topic {
+    let users = Default::default();
+    let ctx = MentionCtx { users: &users, me: "", at_room: false };
+    let rich = html
+        .filter(|h| !h.trim().is_empty())
+        .map(|h| flatten(h, &ctx, true))
+        .filter(|r| !r.text.is_empty())
+        .or_else(|| Some(flatten(&markdown_html(plain), &ctx, true)).filter(|r| !r.text.is_empty()));
+    match rich {
+        Some(r) => Topic { text: r.text, styles: r.spans, links: r.links },
+        None => Topic { text: plain.trim().to_owned(), ..Default::default() },
+    }
 }
 
 #[cfg(all(test, feature = "sdk"))]
@@ -401,7 +539,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(windows, ignore = "overflows the 2 MiB test-thread stack inside ruma Html::parse (before max_depth applies): open finding, see the stato notes")]
     fn deep_nesting_is_capped() {
         let html = format!(
             "{}x{}",
@@ -530,5 +667,92 @@ mod tests {
         );
         assert_eq!(text, "▎ • x Anna\nIo");
         assert_eq!(shown.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["Anna", "Io"]);
+    }
+
+    fn topic_of(plain: &str) -> super::Topic {
+        super::topic(plain, None)
+    }
+
+    fn labels(t: &super::Topic) -> Vec<(&str, &str)> {
+        t.links.iter().map(|l| (&t.text[l.range.clone()], l.href.as_str())).collect()
+    }
+
+    #[test]
+    fn topic_screenshot_case_is_a_link_labelled_with_the_alias() {
+        let t = topic_of("Welcome, use [#offtopic:grin.hu](https://matrix.to/#/#offtopic:grin.hu) room!");
+        assert_eq!(t.text, "Welcome, use #offtopic:grin.hu room!");
+        assert_eq!(labels(&t), [("#offtopic:grin.hu", "https://matrix.to/#/#offtopic:grin.hu")]);
+    }
+
+    #[test]
+    fn topic_bare_urls_stay_whole_and_unstyled() {
+        let t = topic_of("Vedi https://x.org/_a_/b*c*d, poi (https://y.org/p).");
+        assert_eq!(t.text, "Vedi https://x.org/_a_/b*c*d, poi (https://y.org/p).");
+        assert!(t.styles.is_empty());
+        assert_eq!(labels(&t), [("https://x.org/_a_/b*c*d", "https://x.org/_a_/b*c*d"), ("https://y.org/p", "https://y.org/p")]);
+    }
+
+    #[test]
+    fn topic_inline_styles_lists_and_breaks() {
+        let t = topic_of("**g** *c* `k`\nseconda\n\nterza\n\n- uno\n- due");
+        assert_eq!(t.text, "g c k\nseconda\n\nterza\n\n• uno\n• due");
+        assert_eq!(styled(&t.text, &t.styles, Style::Bold), ["g"]);
+        assert_eq!(styled(&t.text, &t.styles, Style::Italic), ["c"]);
+        assert_eq!(styled(&t.text, &t.styles, Style::Code), ["k"]);
+    }
+
+    #[test]
+    fn topic_escapes_are_literal() {
+        let t = topic_of("\\*no\\* \\[x\\](https://e.org)");
+        assert_eq!(t.text, "*no* [x](https://e.org)");
+        assert!(t.styles.is_empty());
+    }
+
+    #[test]
+    fn topic_images_html_headings_and_code_blocks_are_plain_text() {
+        let t = topic_of("![alt](https://e.org/i.png) <b>x</b> <script>y</script>");
+        assert_eq!(t.text, "alt <b>x</b> <script>y</script>");
+        assert!(t.styles.is_empty() && t.links.is_empty());
+        let t = topic_of("# Titolo\n\n```\ncodice\n```");
+        assert_eq!(t.text, "Titolo\ncodice");
+        assert!(t.styles.is_empty());
+    }
+
+    #[test]
+    fn topic_bare_non_ascii_url_stays_intact() {
+        let t = topic_of("Vedi https://例え.jp/ä/ö poi");
+        assert_eq!(t.text, "Vedi https://例え.jp/ä/ö poi");
+        assert_eq!(t.links.len(), 1, "{t:?}");
+        assert_eq!(&t.text[t.links[0].range.clone()], "https://例え.jp/ä/ö");
+        assert!(t.styles.is_empty(), "{t:?}");
+    }
+
+    #[test]
+    fn topic_deceptive_label_shows_the_real_address() {
+        let t = topic_of("[https://buono.example](https://cattivo.example)");
+        assert_eq!(t.text, "https://buono.example (https://cattivo.example)");
+        assert_eq!(labels(&t), [("https://buono.example", "https://cattivo.example")]);
+    }
+
+    #[test]
+    fn topic_other_schemes_keep_their_href_for_the_caller_to_refuse() {
+        // The sanitizer drops javascript:; matrix:/mailto stay in `links` and the caller (SafeWebUrl) refuses them.
+        let t = topic_of("[a](javascript:alert(1)) [b](matrix:r/a:s) [c](mailto:a@b.it)");
+        assert!(t.links.iter().all(|l| !l.href.starts_with("javascript:")), "{t:?}");
+        assert_eq!(t.text, "a b c");
+    }
+
+    #[test]
+    fn topic_html_part_wins_and_is_sanitized() {
+        let t = super::topic("x", Some("<h1>T</h1><strong>y</strong> <img src=\"https://e.org/i\" alt=\"a\"><script>z</script><a href=\"javascript:q\">j</a>"));
+        assert_eq!(t.text, "T\ny aj");
+        assert_eq!(styled(&t.text, &t.styles, Style::Bold), ["y"]);
+        assert!(t.links.is_empty());
+        assert_eq!(super::topic("**p**", Some("  ")).text, "p");
+    }
+
+    #[test]
+    fn topic_unrenderable_plain_falls_back_to_itself() {
+        assert_eq!(topic_of("<>").text, "<>");
     }
 }

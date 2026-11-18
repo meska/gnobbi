@@ -1,5 +1,5 @@
 //! Source-bound link occurrences, never an external-opening capability.
-use crate::{LinkConfirmation, SafeWebUrl, message_links};
+use crate::{LinkConfirmation, MessageLink, SafeWebUrl, message_links};
 use matrix_domain::{RoomScope, ScopedTimelineId};
 use std::{
     collections::HashMap,
@@ -60,9 +60,59 @@ impl MessageLinkRequests {
 
     /// The topic is the only source of a topic registry: any other source is dropped.
     pub fn topic_targets(&mut self, scope: &RoomScope, text: &str) -> Vec<MessageLinkTarget> {
+        self.topic_rich_targets(scope, &matrix_engine::rich_text::Topic { text: text.to_owned(), ..Default::default() })
+    }
+
+    /// Like `topic_targets` for a rendered topic: the labelled links first (their real address, only
+    /// if it is a safe web URL), then the bare URLs of the text that do not overlap a label.
+    pub fn topic_rich_targets(
+        &mut self,
+        scope: &RoomScope,
+        topic: &matrix_engine::rich_text::Topic,
+    ) -> Vec<MessageLinkTarget> {
         let source = LinkSource::RoomTopic(scope.clone());
         self.sources.retain(|id, _| *id == source);
-        self.source_targets(source, text)
+        let mut links: Vec<MessageLink> = topic
+            .links
+            .iter()
+            .filter_map(|l| Some(MessageLink { range: l.range.clone(), url: SafeWebUrl::parse(&l.href)? }))
+            .collect();
+        let labels: Vec<_> = links.iter().map(|l| l.range.clone()).collect();
+        links.extend(
+            message_links(&topic.text)
+                .into_iter()
+                .filter(|b| !labels.iter().any(|l| l.start < b.range.end && b.range.start < l.end)),
+        );
+        links.sort_by_key(|l| l.range.start);
+        // Same text with another address behind a label is a new occurrence.
+        let same = self.sources.get(&source).is_some_and(|old| {
+            old.len() == links.len()
+                && old.iter().zip(&links).all(|(t, l)| t.text == topic.text && t.range == l.range && t.url == l.url)
+        });
+        if !same {
+            let targets = self.instances(&source, &topic.text, links);
+            self.sources.insert(source.clone(), targets);
+        }
+        self.sources[&source].clone()
+    }
+
+    fn instances(&self, source: &LinkSource, text: &str, links: Vec<MessageLink>) -> Vec<MessageLinkTarget> {
+        links
+            .into_iter()
+            .map(|link| {
+                static NEXT: AtomicU64 = AtomicU64::new(1);
+                let instance = NEXT
+                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
+                    .expect("link instance IDs exhausted");
+                MessageLinkTarget {
+                    instance,
+                    source: source.clone(),
+                    text: text.to_owned(),
+                    range: link.range,
+                    url: link.url,
+                }
+            })
+            .collect()
     }
 
     fn source_targets(&mut self, source: LinkSource, text: &str) -> Vec<MessageLinkTarget> {
@@ -71,23 +121,8 @@ impl MessageLinkRequests {
             .get(&source)
             .is_none_or(|links| links.first().is_none_or(|l| l.text != text))
         {
-            let links = message_links(text)
-                .into_iter()
-                .map(|link| {
-                    static NEXT: AtomicU64 = AtomicU64::new(1);
-                    let instance = NEXT
-                        .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-                        .expect("link instance IDs exhausted");
-                    MessageLinkTarget {
-                        instance,
-                        source: source.clone(),
-                        text: text.to_owned(),
-                        range: link.range,
-                        url: link.url,
-                    }
-                })
-                .collect();
-            self.sources.insert(source.clone(), links);
+            let targets = self.instances(&source, text, message_links(text));
+            self.sources.insert(source.clone(), targets);
         }
         self.sources[&source].clone()
     }

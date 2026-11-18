@@ -265,7 +265,7 @@ impl DetailsSnapshot {
     }
     /// Same test as the view: the «Argomento» box exists only for a non-blank topic.
     fn has_topic(&self) -> bool {
-        self.info.topic.as_deref().is_some_and(|s| !s.trim().is_empty())
+        self.info.shown_topic().is_some_and(|t| !t.text.trim().is_empty())
     }
     /// A focus left on the vanished «Argomento» box falls back to «Copia ID».
     fn focus_node(&self) -> NodeId {
@@ -298,7 +298,7 @@ impl DetailsSnapshot {
             ),
             format!(
                 "Argomento: {}",
-                self.info.topic.as_deref().unwrap_or("Nessun argomento")
+                self.info.shown_topic().map_or("Nessun argomento".into(), |t| t.text)
             ),
             match self.info.encrypted {
                 Some(true) => "Cifratura attiva",

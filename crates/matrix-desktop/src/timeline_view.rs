@@ -2102,17 +2102,14 @@ impl TimelineView {
                         let range = pair[0]..pair[1];
                         let is_link = links.iter().any(|link| link.range.contains(&range.start));
                         let pill = pill_paint.iter().find(|(r, ..)| r.contains(&range.start));
-                        use matrix_engine::rich_text::Style;
                         let has = |kind| styles.iter().any(|s| s.style == kind && s.range.contains(&range.start));
+                        let base = span_style(t, has);
                         let style = HighlightStyle {
-                            font_weight: has(Style::Bold).then_some(gpui::FontWeight::BOLD),
-                            font_style: has(Style::Italic).then_some(gpui::FontStyle::Italic),
-                            strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
-                            color: if let Some((_, bg, ..)) = pill { Some(rgb(if *bg == t.error { t.surface } else { t.text }).into()) } else if is_link { Some(rgb(t.accent).into()) } else { has(Style::Quote).then(|| rgb(t.secondary).into()) },
+                            color: if let Some((_, bg, ..)) = pill { Some(rgb(if *bg == t.error { t.surface } else { t.text }).into()) } else if is_link { Some(rgb(t.accent).into()) } else { base.color },
                             underline: is_link.then(|| gpui::UnderlineStyle { thickness: px(1.), color: None, wavy: false }),
                             background_color: if found.iter().any(|r| r.contains(&range.start)) || selected.as_ref().is_some_and(|r| r.contains(&range.start))
-                                || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { has(Style::Code).then(|| rgb(t.input).into()) },
-                            ..Default::default()
+                                || targets.iter().any(|l| link_cursor.get() == Some(l.instance()) && l.range().contains(&range.start)) { Some(rgb(t.selection).into()) } else { base.background_color },
+                            ..base
                         };
                         (gaps.start(range.start)..gaps.end(range.end), style)
                     }));
@@ -2678,6 +2675,20 @@ fn event_id_copy_callback(
     target: matrix_desktop::EventIdCopyTarget,
 ) -> impl Fn() -> Option<String> {
     move || copies.borrow().resolve(&target).map(str::to_owned)
+}
+
+/// Weight, slant, strike, quote colour and code background of the styles a text position has
+/// (the timeline adds links, pills, search and selection on top; the room topic uses it as is).
+pub(crate) fn span_style(t: DesignTokens, has: impl Fn(matrix_engine::rich_text::Style) -> bool) -> HighlightStyle {
+    use matrix_engine::rich_text::Style;
+    HighlightStyle {
+        font_weight: has(Style::Bold).then_some(gpui::FontWeight::BOLD),
+        font_style: has(Style::Italic).then_some(gpui::FontStyle::Italic),
+        strikethrough: has(Style::Strike).then(|| gpui::StrikethroughStyle { thickness: px(1.), color: None }),
+        color: has(Style::Quote).then(|| rgb(t.secondary).into()),
+        background_color: has(Style::Code).then(|| rgb(t.input).into()),
+        ..Default::default()
+    }
 }
 
 // Capture at paint, not dispatch: a queued callback must never read a newer request.

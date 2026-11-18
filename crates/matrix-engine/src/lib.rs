@@ -86,6 +86,8 @@ pub struct RoomInfo {
     /// Observed public peer markers only; empty means no known marker, not unread.
     pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
     pub topic: Option<String>,
+    /// The topic as shown (markdown / `m.topic` html rendered); None = not computed, see `shown_topic`.
+    pub topic_view: Option<rich_text::Topic>,
     /// mxc URI of the avatar to show: the room's own, else the other person's in a 1:1 DM; None means initials. Not downloaded here.
     pub avatar: Option<String>,
     /// Text of the SDK latest event when it is a message; None otherwise.
@@ -117,6 +119,15 @@ pub struct RoomInfo {
     pub aliases: Vec<String>,
     /// Direct room: the peer's Matrix user ID from `m.direct` (SDK `direct_targets`).
     pub dm_user_id: Option<String>,
+}
+
+impl RoomInfo {
+    /// The topic to draw: the rendered one, else the plain text unstyled.
+    pub fn shown_topic(&self) -> Option<rich_text::Topic> {
+        self.topic_view
+            .clone()
+            .or_else(|| self.topic.clone().map(|text| rich_text::Topic { text, ..Default::default() }))
+    }
 }
 
 /// Stable-ID updates independent of the current UI filter or selection.

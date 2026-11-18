@@ -1464,6 +1464,7 @@ impl RoomSync {
                         last_event_ts: latest_event_ts(&latest),
                         invited: room.state() == RoomState::Invited,
                         topic: room.topic(),
+                        topic_view: room_topic_view(&room).await,
                         avatar: room_avatar(&room).await,
                         marked_unread: room.is_marked_unread(),
                         joined_members: room.joined_members_count(),
@@ -1588,6 +1589,26 @@ fn room_label(name: Option<matrix_sdk::RoomDisplayName>, id: &str) -> String {
         Some(N::Empty) => "Stanza vuota".to_owned(),
         _ => id.to_owned(),
     }
+}
+
+/// The topic rendered for the details panel: `m.topic` text/html if the state event has it, else the plain text as markdown.
+async fn room_topic_view(room: &matrix_sdk::Room) -> Option<crate::rich_text::Topic> {
+    let plain = room.topic().filter(|t| !t.trim().is_empty())?;
+    // Read from the local state store; invites carry stripped state and the plain text only.
+    let event = room
+        .get_state_event_static::<matrix_sdk::ruma::events::room::topic::RoomTopicEventContent>()
+        .await
+        .ok()
+        .flatten()
+        .and_then(|e| serde_json::to_value(e).ok());
+    let html = event
+        .as_ref()
+        .and_then(|e| e.pointer("/content/m.topic/m.text"))
+        .and_then(|v| v.as_array())
+        .and_then(|a| a.iter().find(|r| r.get("mimetype").and_then(|m| m.as_str()) == Some("text/html")))
+        .and_then(|r| r.get("body"))
+        .and_then(|b| b.as_str());
+    Some(crate::rich_text::topic(&plain, html))
 }
 
 /// Avatar to show: the room's own, else for a 1:1 DM the other person's (as Element X does).
@@ -2066,7 +2087,11 @@ async fn status_row(
                 State::RoomCreate(Original { .. }) if room.is_direct().await.unwrap_or(false) => Status::CreatedDirect,
                 State::RoomCreate(Original { .. }) => Status::Created,
                 State::RoomName(Original { content, .. }) => Status::RoomName(content.name.clone()),
-                State::RoomTopic(Original { content, .. }) => Status::RoomTopic(content.topic.clone()),
+                State::RoomTopic(Original { content, .. }) => Status::RoomTopic(if content.topic.is_empty() {
+                    String::new()
+                } else {
+                    crate::rich_text::topic(&content.topic, content.topic_block.text.find_html()).text.replace('\n', " ")
+                }),
                 State::RoomAvatar(Original { .. }) => Status::RoomAvatar,
                 _ => return None,
             };

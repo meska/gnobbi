@@ -1095,7 +1095,7 @@ impl Shell {
                 && key.key == "c"
                 && copy_modifier
                 && let Some((_, topic)) = self.topic_source()
-                && let Some(text) = self.topic_selection.borrow().copy(&topic)
+                && let Some(text) = self.topic_selection.borrow().copy(&topic.text)
             {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.to_owned()));
                 cx.stop_propagation();
@@ -1107,7 +1107,7 @@ impl Shell {
                 && copy_modifier
                 && let Some((_, topic)) = self.topic_source()
             {
-                self.topic_selection.borrow_mut().select_all(&topic);
+                self.topic_selection.borrow_mut().select_all(&topic.text);
                 cx.notify();
                 cx.stop_propagation();
                 return;

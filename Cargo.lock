@@ -4599,6 +4599,7 @@ dependencies = [
  "matrix-sdk-ui",
  "mime_guess",
  "opus-pure",
+ "pulldown-cmark",
  "reqwest",
  "secret-service",
  "security-framework",
