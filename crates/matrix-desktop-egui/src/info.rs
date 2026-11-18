@@ -70,7 +70,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        ui.add_sized([w, 32.], egui::TextEdit::singleline(term).hint_text("Cerca nella stanza"));
+        ui.add_sized([w, 32.], egui::TextEdit::singleline(term).hint_text("Cerca nella stanza").align(egui::Align2::LEFT_CENTER));
     });
     ui.add_space(8.);
     match state {

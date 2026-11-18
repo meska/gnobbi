@@ -24,7 +24,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
         ui.separator();
         match form.tab {
             0 => {
-                ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut s.new_term).hint_text("Cerca persone"));
+                ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut s.new_term).hint_text("Cerca persone").align(egui::Align2::LEFT_CENTER));
                 ui.add_space(6.);
                 match s.users.clone() {
                     SearchState::Searching { .. } => {

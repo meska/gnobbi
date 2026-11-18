@@ -66,7 +66,7 @@ pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_c
         ui.heading(title);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.);
-            if ui.button("＋").clicked() {
+            if ui.button("+").clicked() {
                 *new_chat = true;
             }
         });
@@ -75,7 +75,7 @@ pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_c
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        let r = ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca"));
+        let r = ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca").align(egui::Align2::LEFT_CENTER));
         if std::mem::take(focus) {
             r.request_focus();
         }
