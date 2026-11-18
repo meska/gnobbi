@@ -113,7 +113,7 @@ cat >"$BIN/sftp" <<'EOF'
 #!/usr/bin/env bash
 while IFS= read -r line; do eval "set -- $line"; cmd="$1"; shift
   case "$cmd" in
-    put) cp "$1" "$2"; [[ -n "${CORRUPT_SIG:-}" && "$2" == *latest.json.minisig.tmp ]] && sed -i '2s/^\(.\{20\}\)./\1Z/' "$2";;
+    put) cp "$1" "$2"; [[ -n "${CORRUPT_SIG:-}" && "$2" == *latest.json.minisig.tmp ]] && sed -i '2{ /^.\{20\}Z/s/^\(.\{20\}\)./\1A/; t; s/^\(.\{20\}\)./\1Z/; }' "$2";;
     rename) mv "$1" "$2";; rm) rm -f "$1";; ls) ls -1 "$SITE";;
   esac; done
 EOF
