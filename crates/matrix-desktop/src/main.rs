@@ -64,6 +64,8 @@ mod verification_popup_test;
 mod member_profile_test;
 #[cfg(test)]
 mod link_jump_test;
+#[cfg(all(test, feature = "linux-a11y", target_os = "linux"))]
+mod status_focus_test;
 #[cfg(test)]
 mod drawer_active_test;
 #[cfg(test)]

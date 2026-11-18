@@ -32,7 +32,7 @@ fn ev(id: &str, thread_root: Option<&str>) -> HistoryEvent {
 }
 
 /// A fresh room whose newest page is `first`; the older pages `older` (newest first) are served on request.
-fn open_room(this: &mut Shell, first: Vec<HistoryEvent>, more: bool, cx: &mut Context<Shell>) {
+pub(crate) fn open_room(this: &mut Shell, first: Vec<HistoryEvent>, more: bool, cx: &mut Context<Shell>) {
     this.thread = None;
     this.link_notice = None;
     this.history = HistorySession::new();

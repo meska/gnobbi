@@ -80,6 +80,14 @@ impl Input {
         }
     }
 
+    /// One key with a held modifier (xdotool `shift+Tab`, wtype `-M shift`).
+    pub(crate) fn chord(&self, modifier: &str, key: &str) {
+        match self {
+            Input::X(_) => drop(run("xdotool", &["key", &format!("{modifier}+{key}")])),
+            Input::Wl(..) => drop(run("wtype", &["-M", modifier, "-k", key, "-m", modifier])),
+        }
+    }
+
     pub(crate) fn key(&self, key: &str) {
         match self {
             Input::X(_) => drop(run("xdotool", &["key", key])),
@@ -104,6 +112,21 @@ impl Input {
         std::fs::create_dir_all(&dir).unwrap();
         let path = format!("{dir}/{tag}-{name}.png");
         run("grim", &[&path]);
+        eprintln!("SHOT {path}");
+    }
+}
+
+impl Input {
+    /// Like `shot`, but grim also paints the pointer (`-c`), so a hover shot shows the cursor shape sway draws.
+    pub(crate) fn shot_cursor(&self, tag: &str, name: &str) {
+        if matches!(self, Input::X(_)) {
+            eprintln!("SHOT {tag}-{name} skipped: Xvfb shows Vulkan presentation black (use the Wayland run)");
+            return;
+        }
+        let dir = std::env::var("SHOT_DIR").unwrap_or_else(|_| format!("{}/shots", std::env::var("HOME").unwrap()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = format!("{dir}/{tag}-{name}.png");
+        run("grim", &["-c", &path]);
         eprintln!("SHOT {path}");
     }
 }

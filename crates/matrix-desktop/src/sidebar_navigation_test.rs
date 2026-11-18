@@ -1748,6 +1748,11 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
             crate::quick_join_row_test::scenario(this, cx, executor).await;
             return;
         }
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        if DYNAMIC.load(Ordering::SeqCst) == 102 {
+            crate::status_focus_test::scenario(this, cx, executor).await;
+            return;
+        }
         if DYNAMIC.load(Ordering::SeqCst) == 97 {
             crate::link_jump_test::scenario(this, cx, executor).await;
             return;
@@ -3441,6 +3446,17 @@ fn pending_restore_arrow_preserves_wait_and_selection() {
 fn member_detail_profile_actions_and_keyboard() {
     assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
     DYNAMIC.store(91, Ordering::SeqCst);
+    CONNECTED.store(true, Ordering::SeqCst);
+    ACTIVE.store(true, Ordering::SeqCst);
+    crate::main();
+}
+
+#[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+#[test]
+#[ignore = "requires private display"]
+fn status_rows_real_keyboard_focus() {
+    assert_eq!(std::env::var("MATRIX_DESKTOP_ISOLATED_RESIZE").as_deref(), Ok("1"));
+    DYNAMIC.store(102, Ordering::SeqCst);
     CONNECTED.store(true, Ordering::SeqCst);
     ACTIVE.store(true, Ordering::SeqCst);
     crate::main();

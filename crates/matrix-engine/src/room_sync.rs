@@ -2045,7 +2045,7 @@ async fn status_row(
     event: &matrix_sdk_ui::timeline::EventTimelineItem,
     id: &matrix_sdk::ruma::EventId,
 ) -> Option<crate::history::HistoryEvent> {
-    use crate::status_line::{Status, status_text};
+    use crate::status_line::{Status, status_spans};
     use matrix_sdk::ruma::events::{StateEventContentChange::Original, room::member::MembershipState};
     use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange as State, MembershipChange as M, TimelineItemContent as C};
     let actor = history_sender(room, event.sender()).await;
@@ -2105,10 +2105,17 @@ async fn status_row(
         }
         _ => return None,
     };
+    // Actor and subject are clickable names: the actor is the event sender, the subject the person shown.
+    let (text, actor_at, subject_at) = status_spans(&status, &label(&actor), &subject);
+    let mut mentions: Vec<_> = [(actor_at, &actor), (subject_at, &shown)]
+        .into_iter()
+        .filter_map(|(range, who)| Some(crate::rich_text::MentionSpan { range: range?, kind: crate::rich_text::MentionKind::User { sender: who.clone(), me: false } }))
+        .collect();
+    mentions.sort_by_key(|m| m.range.start);
     Some(crate::history::HistoryEvent {
         poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
-        body: crate::status_line::with_reason(status_text(&status, &label(&actor), &subject), reason.as_deref()),
+        body: crate::status_line::with_reason(text, reason.as_deref()),
         outgoing: false,
         redacted: false,
         timestamp_ms: event.timestamp().0.into(),
@@ -2117,7 +2124,7 @@ async fn status_row(
         audio: None,
         media: None,
         styles: Vec::new(),
-        mentions: Vec::new(),
+        mentions,
         highlighted: false,
         thread: None,
         thread_root: None,

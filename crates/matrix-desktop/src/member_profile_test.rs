@@ -464,6 +464,49 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         assert!(this.new_room.is_none() && this.pending_operation_command.is_none(), "disposed once");
     });
 
+    // 12. A click on a name in a status row (modelled by its request) opens the same sheet as a members-list row. A user who left
+    // the room still opens a sheet: the engine's answer decides, and a refusal shows the existing «non riuscito» row, never a blank sheet or a crash.
+    shell!(|this, window, cx| {
+        const GONE: &str = "@gone:fixture.test";
+        this.set_room_details_open(false);
+        this.pending_operation_command = None;
+        let timeline = crate::timeline_view::TimelineView::connected(this.active_scope.clone(), cx.focus_handle());
+        timeline.set_member_count(3);
+        let body = "Ada ha rimosso Gone dalla stanza";
+        let at = |w: &str| { let i = body.find(w).unwrap(); i..i + w.len() };
+        let user = |id: &str, n: &str| matrix_engine::rich_text::MentionKind::User { sender: matrix_engine::history::HistorySender::new(id, Some(n)), me: false };
+        timeline.append_server(vec![matrix_engine::history::HistoryEvent {
+            poll: None, redacted: false, utd: false, event_id: matrix_domain::EventId::new("$status:test"), body: body.into(), outgoing: false, timestamp_ms: 0,
+            sender: matrix_engine::history::HistorySender::new(ADA, Some("Ada")), video: None, audio: None, styles: Vec::new(),
+            mentions: vec![
+                matrix_engine::rich_text::MentionSpan { range: at("Ada"), kind: user(ADA, "Ada") },
+                matrix_engine::rich_text::MentionSpan { range: at("Gone"), kind: user(GONE, "Gone") },
+            ],
+            highlighted: false, thread: None, thread_root: None, status: true, attachment_name: None, attachment_size: None, media: None,
+        }]);
+        this.timeline = Some(timeline);
+        this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx));
+        #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
+        {
+            let mut nodes = matrix_desktop::accessibility::HistoryNodes::default();
+            let snap = this.timeline.as_ref().unwrap().semantic_snapshot(&mut nodes, window);
+            let pills: Vec<_> = snap.messages[0].pills.iter().map(|p| (p.name.as_str(), p.user_id.as_str())).collect();
+            assert_eq!(pills, [("Apri scheda di Ada", ADA), ("Apri scheda di Gone", GONE)], "one control per name, in text order");
+        }
+        for who in [ADA, GONE] {
+            this.pending_operation_command = None;
+            *this.timeline.as_ref().unwrap().want_profile.borrow_mut() = Some(who.into());
+            this.drive_profile(cx);
+            assert!(this.room_details_open && matches!(&this.profile, Some(ProfileState::Loading(id)) if id == who), "{who}: sheet opens in Loading");
+            assert!(matches!(&this.pending_operation_command, Some(OperationCommand::Profile { user_id }) if user_id == who));
+        }
+        // The engine cannot answer for the user who left: one failed row, no actions, no blank sheet.
+        this.profile_found(GONE.into(), Err(OperationError::Unavailable), cx);
+        assert!(matches!(&this.profile, Some(ProfileState::Failed(id)) if id == GONE) && this.profile_acts().is_empty(), "failed row for the user who left");
+        this.pending_operation_command = None;
+        this.set_room_details_open(false);
+    });
+
     println!("DEFECTS {known:?}");
     assert!(known.is_empty() || std::env::var_os("MEMBER_PROFILE_STRICT").is_none(), "known defects: {known:?}");
     shell!(|_, _, cx| cx.quit());

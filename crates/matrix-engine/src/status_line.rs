@@ -75,6 +75,29 @@ pub fn status_text(status: &Status, actor: &str, subject: &str) -> String {
     }
 }
 
+/// The row text plus where the actor and the subject names sit in it (byte ranges), so the UI can make
+/// them clickable. Same text as `status_text`; a name that is not in the sentence has no range.
+pub fn status_spans(status: &Status, actor: &str, subject: &str) -> (String, Option<std::ops::Range<usize>>, Option<std::ops::Range<usize>>) {
+    // Placeholders show where each name goes; the real names are put in while walking the template.
+    let template = status_text(status, "\u{1}", "\u{2}");
+    let (mut text, mut a, mut s) = (String::with_capacity(template.len() + actor.len() + subject.len()), None, None);
+    for c in template.chars() {
+        let (name, slot) = match c {
+            '\u{1}' => (actor, &mut a),
+            '\u{2}' => (subject, &mut s),
+            c => { text.push(c); continue; }
+        };
+        *slot = Some(text.len()..text.len() + name.len());
+        text.push_str(name);
+    }
+    // «<old> ha cambiato il nome in <new>»: the person is named by the old name, at the start.
+    if let Status::DisplayName { old: Some(old), new: Some(new) } = status
+        && s.is_none() && !old.trim().is_empty() && !new.trim().is_empty() {
+        s = Some(0..old.trim().len());
+    }
+    (text, a, s)
+}
+
 /// A leave the SDK could not classify (`MembershipChange::None`, e.g. a backfilled event without
 /// `prev_content`): the sender leaving is «Left», anyone else removing them is «Kicked».
 pub fn unclassified_leave(sender_is_subject: bool) -> Status {
@@ -107,6 +130,18 @@ mod tests {
         assert_eq!(row(Status::Invited, "Ann", "Bob", None), "Ann ha invitato Bob");
         // blank reason counts as none
         assert_eq!(row(Status::Joined, "Bob", "Bob", Some("  ")), "Bob è entrato/a nella stanza");
+    }
+
+    #[test]
+    fn spans_point_at_the_names() {
+        let sp = |s: Status| { let (t, a, b) = status_spans(&s, "Ann", "Bob"); (t.clone(), a.map(|r| t[r].to_owned()), b.map(|r| t[r].to_owned())) };
+        assert_eq!(sp(Status::Kicked), ("Ann ha rimosso Bob dalla stanza".into(), Some("Ann".into()), Some("Bob".into())));
+        assert_eq!(sp(Status::Joined), ("Bob è entrato/a nella stanza".into(), None, Some("Bob".into())));
+        assert_eq!(sp(Status::Created), ("Ann ha creato questa stanza.".into(), Some("Ann".into()), None));
+        assert_eq!(sp(Status::DisplayName { old: Some("Bobby".into()), new: Some("Bob".into()) }).2, Some("Bobby".into()));
+        for s in [Status::Invited, Status::RoomName("x".into()), Status::MemberAvatar] {
+            assert_eq!(status_spans(&s, "Ann", "Bob").0, status_text(&s, "Ann", "Bob"));
+        }
     }
 
     #[test]
