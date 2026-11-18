@@ -169,4 +169,38 @@ mod tests {
         export.busy = true;
         assert!(export.closable());
     }
+
+    #[test]
+    fn password_edge_cases() {
+        // Empty second typing never beats the length rule; mismatch is exact (case, spaces, normalization).
+        assert_eq!(check_password("abcdefghijkl", ""), Err(PasswordError::Mismatch));
+        assert_eq!(check_password("", "abcdefghijkl"), Err(PasswordError::TooShort));
+        assert_eq!(check_password("abcdefghijkl ", "abcdefghijkl"), Err(PasswordError::Mismatch));
+        assert_eq!(check_password("            ", "            "), Ok(())); // 12 spaces: length only, by design
+        assert_eq!(check_password(&"x".repeat(100_000), &"x".repeat(100_000)), Ok(()));
+        assert_eq!(check_password("e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}", "e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}e\u{301}"), Ok(()));
+    }
+
+    #[test]
+    fn user_texts_never_echo_the_password() {
+        let secret = "hunter2-hunter2";
+        let mut texts: Vec<String> = [PasswordError::TooShort, PasswordError::Mismatch]
+            .iter()
+            .map(|e| e.text().to_owned())
+            .collect();
+        texts.extend([exported_text(0), exported_text(3), WRONG_PHRASE.into(), RESET_WARNING.into()]);
+        #[cfg(feature = "live")]
+        {
+            use matrix_engine::key_export::KeyExportError::*;
+            for e in [WrongPhrase, WrongPassword, NoKeys, NotWritable, Deadline, Failed] {
+                texts.push(export_error_text(e).into());
+            }
+            assert_eq!(export_error_text(NoKeys), "Nessuna chiave da esportare su questo dispositivo");
+        }
+        for t in texts {
+            assert!(!t.contains(secret) && !t.contains("BEGIN MEGOLM"), "{t}");
+        }
+        let held = Held { password: secret.to_owned().into(), phrase: None };
+        let _ = held; // no Debug impl: the secret cannot reach a log through {:?}
+    }
 }

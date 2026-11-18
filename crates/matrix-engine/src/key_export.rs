@@ -233,4 +233,180 @@ mod tests {
             .is_err()
         );
     }
+
+    // ---- export_room_keys against a real (offline) client ----
+
+    const PASS: &str = "correct horse battery";
+    const ROOM: &str = "!secretroom:x.test";
+
+    async fn client() -> Client {
+        let client = Client::builder()
+            .homeserver_url("http://127.0.0.1:9")
+            .server_versions([matrix_sdk::ruma::api::MatrixVersion::V1_0])
+            .build()
+            .await
+            .unwrap();
+        let session: matrix_sdk::authentication::matrix::MatrixSession =
+            serde_json::from_value(serde_json::json!({
+                "user_id": "@a:x.test", "device_id": "DEV", "access_token": "tok"
+            }))
+            .unwrap();
+        client.restore_session(session).await.unwrap();
+        client
+    }
+
+    /// A real megolm key in Element file form; returns (file, session_id, exported session key).
+    fn key_file(pass: &str) -> (std::path::PathBuf, String, String) {
+        use matrix_sdk_crypto::vodozemac::{megolm::{GroupSession, InboundGroupSession}, olm::Account};
+        let group = GroupSession::new(Default::default());
+        let account = Account::new();
+        let session_key = InboundGroupSession::new(&group.session_key(), Default::default())
+            .export_at_first_known_index()
+            .to_base64();
+        let key: matrix_sdk_crypto::olm::ExportedRoomKey = serde_json::from_value(serde_json::json!({
+            "algorithm": "m.megolm.v1.aes-sha2", "room_id": ROOM,
+            "sender_key": account.curve25519_key().to_base64(),
+            "session_id": group.session_id(), "session_key": session_key,
+            "sender_claimed_keys": {"ed25519": account.ed25519_key().to_base64()},
+            "forwarding_curve25519_key_chain": []
+        }))
+        .unwrap();
+        // unique dir: tests run in parallel and `temp` wipes its directory
+        static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let file = temp(&format!("src{n}")).join("in.txt");
+        std::fs::write(&file, matrix_sdk_crypto::encrypt_room_key_export(&[key], pass, 1000).unwrap()).unwrap();
+        (file, group.session_id(), session_key)
+    }
+
+    async fn client_with_key() -> (Client, String, String) {
+        let client = client().await;
+        let (file, id, key) = key_file("import pass phrase");
+        let r = import_room_keys(&client, &file, "import pass phrase").await.unwrap();
+        assert_eq!(r, (1, 1));
+        (client, id, key)
+    }
+
+    #[derive(Clone, Default)]
+    struct Sink(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl Write for Sink {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn no_keys_is_reported_and_leaves_dest_and_scratch_alone() {
+        let dir = temp("nokeys");
+        let (scratch, dest) = (dir.join("key-export.pending"), dir.join("out.txt"));
+        let r = export_room_keys(&client().await, &scratch, &dest, PASS).await;
+        assert_eq!(r, Err(KeyExportError::NoKeys));
+        assert!(!dest.exists() && !scratch.exists());
+        // An older export at `dest` survives a failed run.
+        std::fs::write(&dest, b"old").unwrap();
+        let r = export_room_keys(&client().await, &scratch, &dest, PASS).await;
+        assert_eq!(r, Err(KeyExportError::NoKeys));
+        assert_eq!(std::fs::read(&dest).unwrap(), b"old");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn export_round_trips_is_private_and_has_no_plaintext_on_disk() {
+        let (client, id, session_key) = client_with_key().await;
+        let dir = temp("roundtrip");
+        let (scratch, dest) = (dir.join("key-export.pending"), dir.join("out.txt"));
+        assert_eq!(export_room_keys(&client, &scratch, &dest, PASS).await, Ok(1));
+        assert!(!scratch.exists(), "scratch file must be removed");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        let bytes = std::fs::read(&dest).unwrap();
+        let text = String::from_utf8(bytes.clone()).unwrap();
+        assert!(text.starts_with("-----BEGIN MEGOLM SESSION DATA-----"));
+        for secret in [PASS, ROOM, id.as_str(), session_key.as_str(), "m.megolm"] {
+            assert!(!text.contains(secret), "plaintext on disk: {secret}");
+            assert!(!bytes.windows(secret.len()).any(|w| w == secret.as_bytes()));
+        }
+        // Correct password opens it; wrong, empty and near-miss passwords do not, with no keys out.
+        let keys = matrix_sdk_crypto::decrypt_room_key_export(Cursor::new(&bytes), PASS).unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].session_id, id);
+        for bad in ["wrong password here", "", "correct horse batterY"] {
+            assert!(matrix_sdk_crypto::decrypt_room_key_export(Cursor::new(&bytes), bad).is_err());
+        }
+        // Import side: wrong password is WrongPassword, right one reads the file back.
+        assert_eq!(import_room_keys(&client, &dest, "wrong password here").await, Err(KeyExportError::WrongPassword));
+        assert_eq!(import_room_keys(&client, &dest, PASS).await.map(|r| r.1), Ok(1));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn truncated_or_foreign_file_is_a_clear_error_not_a_panic() {
+        let (client, ..) = client_with_key().await;
+        let dir = temp("garbage");
+        let (scratch, dest) = (dir.join("p"), dir.join("out.txt"));
+        export_room_keys(&client, &scratch, &dest, PASS).await.unwrap();
+        let text = std::fs::read_to_string(&dest).unwrap();
+        let cut = dir.join("cut.txt");
+        std::fs::write(&cut, &text[..text.len() / 2]).unwrap();
+        let junk = dir.join("junk.txt");
+        std::fs::write(&junk, "hello, not a key file").unwrap();
+        for f in [&cut, &junk] {
+            assert!(matches!(
+                import_room_keys(&client, f, PASS).await,
+                Err(KeyExportError::WrongPassword | KeyExportError::Failed)
+            ));
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn unwritable_destination_fails_cleanly_and_removes_scratch() {
+        let (client, ..) = client_with_key().await;
+        let dir = temp("unwritable");
+        let scratch = dir.join("key-export.pending");
+        let r = export_room_keys(&client, &scratch, &dir.join("no/such/dir/k.txt"), PASS).await;
+        assert_eq!(r, Err(KeyExportError::NotWritable));
+        assert!(!scratch.exists());
+        // A directory as destination is not a file either.
+        let r = export_room_keys(&client, &scratch, &dir, PASS).await;
+        assert!(matches!(r, Err(KeyExportError::NotWritable | KeyExportError::Failed)));
+        assert!(!scratch.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn logs_and_errors_never_carry_passphrase_keys_or_paths() {
+        let sink = Sink::default();
+        let writer = sink.clone();
+        let _guard = tracing::subscriber::set_default(
+            tracing_subscriber::fmt()
+                .with_max_level(tracing::Level::TRACE)
+                .with_writer(move || writer.clone())
+                .finish(),
+        );
+        let (client, id, session_key) = client_with_key().await;
+        let dir = temp("leaks-SECRETDIR");
+        let (scratch, dest) = (dir.join("key-export.pending"), dir.join("out-SECRETNAME.txt"));
+        let mut errors = vec![
+            format!("{:?}", export_room_keys(&client, &scratch, &dir.join("x/y"), PASS).await),
+            format!("{:?}", export_room_keys(&client, &scratch, &dest, PASS).await),
+            format!("{:?}", import_room_keys(&client, &dest, "wrong password here").await),
+            format!("{:?}", export_room_keys(&self::client().await, &scratch, &dest, PASS).await),
+        ];
+        errors.push(format!("{:?}", check_phrase(&dir, matrix_domain::AccountId::new(1), Some("hunter2 phrase"))));
+        let logs = String::from_utf8_lossy(&sink.0.lock().unwrap()).to_string();
+        for out in errors.iter().chain([&logs]) {
+            for secret in [PASS, "wrong password here", "hunter2 phrase", ROOM, id.as_str(), session_key.as_str(), "SECRETDIR", "SECRETNAME"] {
+                assert!(!out.contains(secret), "leaked {secret:?} in {out}");
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
