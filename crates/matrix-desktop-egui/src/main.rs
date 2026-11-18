@@ -388,9 +388,16 @@ impl App {
         }
         let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
+        let badge = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| (r.initials.clone(), r.color)));
         egui::Panel::top("header").exact_size(t.header).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(16.);
+                if let Some((initials, color)) = &badge {
+                    let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(32.), egui::Sense::hover());
+                    ui.painter().circle_filled(rect.center(), 16., rgb(*color));
+                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(13.), rgb(t.avatar_text));
+                    ui.add_space(4.);
+                }
                 ui.label(title.as_deref().unwrap_or(state));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(12.);

@@ -75,7 +75,7 @@ pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_c
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        let r = ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca").align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca conversazioni").align(egui::Align2::LEFT_CENTER));
         if std::mem::take(focus) {
             r.request_focus();
         }
