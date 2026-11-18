@@ -28,6 +28,11 @@ pub struct Session {
     drafts: std::collections::HashMap<matrix_domain::RoomScope, String>,
     pub draft: String,
     pub ops: LiveOperations,
+    /// Joined members of the open room and the server's upload limit.
+    pub members: Option<(matrix_domain::RoomScope, Vec<matrix_engine::operations::Member>)>,
+    members_requested: Option<matrix_domain::RoomScope>,
+    upload_limit: Option<u64>,
+    pub info_open: bool,
     media: LiveMedia,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
     /// Thumbnails of the open room's pictures and videos, by event.
@@ -91,6 +96,10 @@ impl Session {
             drafts: Default::default(),
             draft: String::new(),
             ops: LiveOperations::default(),
+            members: None,
+            members_requested: None,
+            upload_limit: None,
+            info_open: false,
             media: LiveMedia::default(),
             media_route,
             pictures: Default::default(),
@@ -204,6 +213,8 @@ impl Session {
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
             self.media.clear();
             self.pictures.clear();
+            self.members = None;
+            self.upload_limit = None;
             self.heights = Default::default();
             self.pending = Some(request);
             changed = true;
@@ -259,6 +270,13 @@ impl Session {
 
     fn drive_operations(&mut self) -> bool {
         let mut changed = false;
+        if self.op_pending.is_none()
+            && let Some(scope) = &self.draft_scope
+            && self.members_requested.as_ref() != Some(scope)
+        {
+            self.op_pending = Some(OperationCommand::Members { scope: scope.clone() });
+            self.members_requested = Some(scope.clone());
+        }
         if self.op_pending.is_none() {
             self.op_pending = self.ops.take_command();
         }
@@ -275,6 +293,17 @@ impl Session {
             }
         }
         for result in results {
+            if let OperationResult::Members { scope, members, upload_limit } = result {
+                // An answer for a room already left is dropped.
+                if self.draft_scope.as_ref() == Some(&scope) {
+                    self.upload_limit = upload_limit;
+                    if let Ok(list) = members {
+                        self.members = Some((scope, list));
+                    }
+                    changed = true;
+                }
+                continue;
+            }
             let done = matches!(&result, OperationResult::Applied { result: Ok(_), .. });
             if let OperationResult::Applied { request, .. } = &result
                 && done
@@ -321,10 +350,10 @@ impl Session {
         self.notice = (!self.media.request_save(scope, event, path)).then(|| "Un salvataggio è già in corso".to_owned());
     }
 
-    /// Takes a dropped file as the pending attachment (up to 50 MB, shortcut: the room's own limit is not read here).
+    /// Takes a dropped file as the pending attachment (up to the server's upload limit, 50 MB until it is known).
     pub fn attach(&mut self, path: &std::path::Path) {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-        let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= 50 << 20).and_then(|_| std::fs::read(path).ok());
+        let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= self.upload_limit.unwrap_or(50 << 20)).and_then(|_| std::fs::read(path).ok());
         match (name, data) {
             (Some(name), Some(data)) => {
                 self.attachment = Some((name, data));

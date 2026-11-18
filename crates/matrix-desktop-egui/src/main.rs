@@ -10,6 +10,7 @@ use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
 mod composer;
+mod info;
 mod list;
 mod session;
 mod settings;
@@ -136,6 +137,7 @@ impl App {
                 list::rooms(ui, &mut session.sidebar, &mut session.query, t);
             });
         }
+        let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
         egui::Panel::top("header").exact_size(t.header).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
@@ -146,9 +148,21 @@ impl App {
                     if ui.button("⚙").clicked() {
                         self.settings_open = !self.settings_open;
                     }
+                    if has_room && ui.button("ⓘ").clicked()
+                        && let Some(s) = &mut self.session
+                    {
+                        s.info_open = !s.info_open;
+                    }
                 });
             });
         });
+        if let Some(s) = &self.session
+            && s.info_open
+            && let Some(room) = s.sidebar.selected()
+        {
+            let members = s.members.as_ref().map(|(_, m)| m.as_slice());
+            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| info::show(ui, room, members, t));
+        }
         let mut to_send = None;
         egui::Panel::bottom("composer").min_size(t.bottom_bar).frame(bar(t)).show(ui, |ui| {
             if let Some(s) = &mut self.session
@@ -186,7 +200,7 @@ impl App {
             if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
             {
-                let (first, menu, save) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, 3, t);
+                let (first, menu, save) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);
