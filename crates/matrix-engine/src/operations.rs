@@ -271,10 +271,11 @@ pub enum OperationCommand {
     },
     /// Group (room tag) change asked for by the user in «Modifica»; the only writer of tags.
     EditTags(TagEdit),
-    /// «Silenzia»: the room push rule; the outcome comes back as `RoomMarked` and the next sync projects it.
-    SetMuted {
+    /// The room's notification mode as an account push rule; the outcome comes back as
+    /// `NotificationModeSet` and the next sync projects it.
+    SetNotificationMode {
         scope: RoomScope,
-        muted: bool,
+        mode: matrix_domain::notifications::RoomNotifyMode,
     },
     /// Read-only thread panel: the root and the newest `want` replies (SDK thread timeline).
     /// The page proves nothing about the receipt; the panel asks for that separately with `ThreadRead`.
@@ -422,6 +423,10 @@ pub enum OperationResult {
         upload_limit: Option<u64>,
     },
     RoomMarked {
+        scope: RoomScope,
+        result: Result<(), OperationError>,
+    },
+    NotificationModeSet {
         scope: RoomScope,
         result: Result<(), OperationError>,
     },

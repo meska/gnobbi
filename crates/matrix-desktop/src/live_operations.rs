@@ -249,6 +249,7 @@ impl LiveOperations {
         match result {
             // Room markers are fire and forget: the next sync projects the outcome.
             OperationResult::RoomMarked { .. }
+            | OperationResult::NotificationModeSet { .. }
             | OperationResult::TagsEdited { .. }
             | OperationResult::RoomStarted { .. }
             | OperationResult::SpaceCreated { .. }

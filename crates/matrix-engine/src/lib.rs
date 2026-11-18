@@ -114,13 +114,18 @@ pub struct RoomInfo {
     /// `order` of the `m.favourite` tag (0..=1, lowest = pinned highest) as f64 bits: bits of a non-negative
     /// finite f64 sort like the number, and RoomInfo stays `Eq`. None: not a favourite, or one without `order`.
     pub favourite_order: Option<u64>,
-    /// Muted by the user's push rules (`NotificationSettings`), on every device.
-    pub muted: bool,
+    /// The user's push rules for the room (`NotificationSettings`), on every device; no rule = all messages.
+    pub notification_mode: matrix_domain::notifications::RoomNotifyMode,
     /// Canonical alias then alternative aliases, as the SDK room info has them (may hold
     /// empty strings from servers that send them; callers drop those).
     pub aliases: Vec<String>,
     /// Direct room: the peer's Matrix user ID from `m.direct` (SDK `direct_targets`).
     pub dm_user_id: Option<String>,
+}
+impl RoomInfo {
+    pub fn muted(&self) -> bool {
+        self.notification_mode == matrix_domain::notifications::RoomNotifyMode::Mute
+    }
 }
 
 impl RoomInfo {

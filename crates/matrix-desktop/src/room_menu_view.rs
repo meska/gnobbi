@@ -1,4 +1,4 @@
-//! Context menu of a room row: «Segna come letto» / «Segna come non letto» / «Fissa in alto»/«Stacca» / «Esci» (asks «Uscire?» once).
+//! Context menu of a room row: «Segna come letto» / «Segna come non letto» / «Fissa in alto»/«Stacca» / the three notification modes / «Esci» (asks «Uscire?» once).
 use crate::*;
 
 pub(crate) const ITEMS: [&str; 2] = ["Segna come letto", "Segna come non letto"];
@@ -20,6 +20,46 @@ impl Shell {
             }
         }
         cx.notify();
+    }
+
+    /// The one notification-mode action (menu, drawer, Notifications panel): the row flips now, the engine writes it.
+    pub(crate) fn set_room_mode(&mut self, scope: RoomScope, mode: matrix_domain::notifications::RoomNotifyMode) {
+        self.room_menu = None;
+        self.notify_menu = false;
+        if self.pending_operation_command.is_none() && self.sidebar.set_mode(&scope, mode) {
+            self.pending_operation_command = Some(matrix_engine::operations::OperationCommand::SetNotificationMode { scope, mode });
+        }
+    }
+
+    /// The three mode rows, one renderer for the context menu and the drawer; a check marks the current mode.
+    pub(crate) fn notify_rows(&self, scope: &RoomScope, t: matrix_desktop::DesignTokens, id: &'static str, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
+        let current = self.sidebar.notify_mode(scope);
+        matrix_domain::notifications::RoomNotifyMode::ALL
+            .into_iter()
+            .enumerate()
+            .map(|(i, mode)| {
+                let scope = scope.clone();
+                div()
+                    .id((id, i))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .px_4()
+                    .py_2()
+                    .cursor_pointer()
+                    .text_size(px(13.))
+                    .text_color(rgb(t.text))
+                    .hover(|s| s.bg(rgb(t.border)))
+                    .child(mode.label())
+                    .child(div().w(px(14.)).when(mode == current, |d| d.child(crate::composer_icons::icon_sized(crate::composer_icons::Icon::Check, t.accent, 14.))))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_room_mode(scope.clone(), mode);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            })
+            .collect()
     }
 
     /// Opening or receiving in the room on screen: send the marker when the newest message is in view.
@@ -144,6 +184,8 @@ impl Shell {
                                     this.toggle_tag(&scope, "m.lowpriority", cx);
                                 }))
                         })
+                        .children(self.notify_rows(&scope, t, "room-menu-notify", cx))
+                        .children(self.sidebar.mode_error().map(|e| div().px_4().py_1().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
                         .child({
                             let scope = scope.clone();
                             let confirming = self.confirm_leave.as_ref() == Some(&scope);

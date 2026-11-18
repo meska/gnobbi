@@ -582,6 +582,8 @@ pub struct SemanticRoom {
     pub leave: Option<bool>,
     /// «Fissata» or «Bassa priorità»: the icon on the row, read with the name.
     pub mark: Option<&'static str>,
+    /// The room's notifications are muted: «Silenziata» is read with the name.
+    pub muted: bool,
 }
 
 fn invite_state_label(state: crate::InviteState) -> &'static str {
@@ -661,6 +663,7 @@ impl RoomNodes {
                     invite: room.info.invited.then(|| sidebar.invite_state(&room.scope)),
                     leave: None,
                     mark: room.pinned().then_some("Fissata").or(room.low_priority().then_some("Bassa priorità")),
+                    muted: room.info.muted(),
                 }
             })
             .collect()
@@ -1234,10 +1237,11 @@ impl NavigationSnapshot {
                         None => room.name.clone(),
                     },
                 };
-                node.set_label(match room.mark {
+                let label = match room.mark {
                     Some(mark) => format!("{label}, {mark}"),
                     None => label,
-                });
+                };
+                node.set_label(if room.muted { format!("{label}, {}", matrix_domain::notifications::RoomNotifyMode::Mute.label()) } else { label });
                 node.set_description(match room.unread {
                     _ if room.invite.is_some() => "Invito".to_owned(),
                     0 => "Nessun messaggio non letto".to_owned(),

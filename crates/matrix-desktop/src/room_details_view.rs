@@ -82,7 +82,7 @@ impl Shell {
             DetailsAction::Open(_) => {
                 self.set_room_details_open(true);
                 self.details_focus = Default::default();
-                self.a11y_details_bounds = [None; 8];
+                self.a11y_details_bounds = [None; 9];
             }
             DetailsAction::Close(_) => self.set_room_details_open(false),
             DetailsAction::Focus { control, .. } => self.details_focus = control,
@@ -145,6 +145,13 @@ impl Shell {
             DetailsAction::LowPriority(scope) => {
                 self.details_focus = DetailsControl::LowPriority;
                 self.toggle_tag(&scope, "m.lowpriority", cx);
+            }
+            DetailsAction::Notify(scope) => {
+                // Screen readers step through the modes; the painted rows pick one directly.
+                use matrix_domain::notifications::RoomNotifyMode;
+                self.details_focus = DetailsControl::Notify;
+                let at = RoomNotifyMode::ALL.iter().position(|m| *m == self.sidebar.notify_mode(&scope)).unwrap_or(0);
+                self.set_room_mode(scope, RoomNotifyMode::ALL[(at + 1) % RoomNotifyMode::ALL.len()]);
             }
             DetailsAction::Copy(scope) => {
                 self.details_focus = DetailsControl::Copy;
@@ -684,8 +691,31 @@ impl Shell {
                                     .cursor_pointer()
                                     .child(composer_icons::icon_sized(composer_icons::Icon::LowPriority, if low { t.accent } else { t.secondary }, HEADER_ICON_PX))
                                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_tag(&scope, "m.lowpriority", cx)))
+                            })
+                            // Name for screen readers («Notifiche: <modo>») lives in the a11y tree.
+                            .child({
+                                let muted = room.info.muted();
+                                div()
+                                    .id("room-details-notify")
+                                    .relative()
+                                    .children(self.details_observer(3, cx))
+                                    .flex_shrink_0()
+                                    .w(px(32.)).h(px(32.)).flex().items_center().justify_center()
+                                    .rounded_lg()
+                                    .border_1()
+                                    .border_color(if input_modality::only_keys(focused_control == Some(3), cx) { rgb(t.accent) } else { gpui::rgba(0) })
+                                    .when(self.notify_menu, |d| d.bg(gpui::rgba((t.accent << 8) | 0x33)))
+                                    .hover(|s| s.bg(rgb(t.border)))
+                                    .cursor_pointer()
+                                    .child(composer_icons::icon_sized(if muted { composer_icons::Icon::BellOff } else { composer_icons::Icon::Bell }, if muted { t.accent } else { t.secondary }, HEADER_ICON_PX))
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.notify_menu = !this.notify_menu;
+                                        cx.notify();
+                                    }))
                             }),
                     )
+                    .when(self.notify_menu, |d| d.child(div().flex().flex_col().children(self.notify_rows(&room.scope, t, "room-details-notify-row", cx))))
+                    .children(self.sidebar.mode_error().map(|e| div().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
                     .children(self.sidebar.tag_error().map(|e| div().text_size(px(12.)).text_color(rgb(t.error)).child(e)))
                     .children(room.info.shown_topic().filter(|t| !t.text.trim().is_empty()).map(|_| 
                         div().child("Argomento").child(
@@ -699,8 +729,8 @@ impl Shell {
                                     #[cfg(not(test))]
                                     { None::<gpui::AnyElement> }
                                 })
-                                .children(self.details_observer(3, cx))
-                                .when(focused_control == Some(3), |d| {
+                                .children(self.details_observer(4, cx))
+                                .when(focused_control == Some(4), |d| {
                                     d.border_1().border_color(rgb(t.accent))
                                 })
                                 .child(
@@ -740,7 +770,7 @@ impl Shell {
                                         div()
                                             .id("copy-room-id")
                                             .relative()
-                                            .children(self.details_observer(4, cx))
+                                            .children(self.details_observer(5, cx))
                                             .flex_shrink_0()
                                             .w(px(36.))
                                             .h(px(36.))
@@ -749,7 +779,7 @@ impl Shell {
                                             .justify_center()
                                             .rounded_lg()
                                             .border_1()
-                                            .border_color(if input_modality::only_keys(focused_control == Some(4), cx) {
+                                            .border_color(if input_modality::only_keys(focused_control == Some(5), cx) {
                                                 rgb(t.accent)
                                             } else {
                                                 gpui::rgba(0)
@@ -770,26 +800,26 @@ impl Shell {
                     .child(div().flex().flex_col()
                     .child(
                         switch_row(
-                            "room-hide-status", "Messaggi di stato", !hide_status, true, input_modality::only_keys(focused_control == Some(5), cx), t,
+                            "room-hide-status", "Messaggi di stato", !hide_status, true, input_modality::only_keys(focused_control == Some(6), cx), t,
                         )
                         .relative()
-                        .children(self.details_observer(5, cx))
+                        .children(self.details_observer(6, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_hide_status(cx))),
                     )
                     .child(
                         switch_row(
-                            "room-hide-redacted", "Messaggi eliminati", !hide_redacted, true, input_modality::only_keys(focused_control == Some(6), cx), t,
+                            "room-hide-redacted", "Messaggi eliminati", !hide_redacted, true, input_modality::only_keys(focused_control == Some(7), cx), t,
                         )
                         .relative()
-                        .children(self.details_observer(6, cx))
+                        .children(self.details_observer(7, cx))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_room_hide_redacted(cx))),
                     ))
                     .when(room.info.edit_rights.any(), |d| d.child(
                         div()
                             .id("room-edit-open")
                             .relative()
-                            .children(self.details_observer(7, cx))
-                            .when(focused_control == Some(7), |d| d.border_1().border_color(rgb(t.accent)))
+                            .children(self.details_observer(8, cx))
+                            .when(focused_control == Some(8), |d| d.border_1().border_color(rgb(t.accent)))
                             .cursor_pointer()
                             .text_color(rgb(t.accent))
                             .child("Modifica")

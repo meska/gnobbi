@@ -256,6 +256,7 @@ impl RoomsView {
         match event {
             RoomListEvent::Diff(RoomListDiff::Upsert(room)) => {
                 let id = room.scope.room_id.as_str().to_owned();
+                let muted = room.info.muted();
                 let item = RoomItem {
                     room_id: id.clone(),
                     name: room.name,
@@ -264,7 +265,7 @@ impl RoomsView {
                     preview: room.info.preview,
                     is_space: room.info.is_space,
                     invited: room.info.invited,
-                    muted: room.info.muted,
+                    muted,
                 };
                 if self.rooms.insert(id, item.clone()) != Some(item) {
                     self.rooms_dirty = true;

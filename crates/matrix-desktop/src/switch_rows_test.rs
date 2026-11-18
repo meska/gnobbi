@@ -104,7 +104,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                         scope: scope.clone(),
                         name: "Privacy".into(),
                         unread: 0,
-                        info: matrix_engine::RoomInfo { muted, ..Default::default() },
+                        info: matrix_engine::RoomInfo { notification_mode: if muted { matrix_domain::notifications::RoomNotifyMode::Mute } else { Default::default() }, ..Default::default() },
                     })));
                     assert!(this.sidebar.select(&scope));
                 }
@@ -160,7 +160,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 set(true, Some(false), true)(this, window, cx);
                 this.sidebar.apply_diff(matrix_engine::RoomListDiff::Upsert(Box::new(matrix_engine::RoomSummary {
                     scope, name: "Riunione del consiglio di amministrazione sulla privacy e le notifiche locali 2026".into(),
-                    unread: 0, info: matrix_engine::RoomInfo { muted: false, ..Default::default() },
+                    unread: 0, info: matrix_engine::RoomInfo::default(),
                 })));
             }).unwrap();
             wait(500).await;
@@ -191,7 +191,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
         key!("m");
         this.update_in(cx, |this, _, _| {
             check!(matches!(this.pending_operation_command.take(),
-                Some(matrix_engine::operations::OperationCommand::SetMuted { muted: true, .. })), "M did not ask to mute the room");
+                Some(matrix_engine::operations::OperationCommand::SetNotificationMode { mode: matrix_domain::notifications::RoomNotifyMode::Mute, .. })), "M did not ask to mute the room");
         }).unwrap();
         // Keys must not leak to the chat behind (no composer text, panel still open).
         this.update_in(cx, |this, _, _| check!(this.notifications_open, "panel closed by N/M/P")).unwrap();

@@ -30,6 +30,9 @@ pub enum Icon {
     /// Speech bubble with a dot: «Non lette».
     Unread,
     Alert,
+    /// Bell: this room's notification mode; BellOff (struck through) is a muted room.
+    Bell,
+    BellOff,
 }
 
 fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
@@ -105,6 +108,16 @@ fn strokes(icon: Icon) -> Vec<Vec<(f32, f32)>> {
         }
         // Triangle with an exclamation mark: not connected.
         Icon::Alert => vec![vec![(10., 3.), (17.5, 16.5), (2.5, 16.5), (10., 3.)], vec![(10., 8.), (10., 12.)], vec![(10., 14.4), (10., 14.6)]],
+        Icon::Bell | Icon::BellOff => {
+            let mut bell = vec![(3.5, 14.5), (5., 13.), (5., 8.)];
+            bell.extend(arc((10., 8.), 5., PI, 2. * PI));
+            bell.extend([(15., 13.), (16.5, 14.5), (3.5, 14.5)]);
+            let mut v = vec![bell, vec![(8.5, 17.), (11.5, 17.)]];
+            if matches!(icon, Icon::BellOff) {
+                v.push(vec![(3., 3.), (17., 17.)]);
+            }
+            v
+        }
         Icon::Check => vec![vec![(4., 10.5), (8.5, 15.), (16., 5.5)]],
         Icon::Emoji => vec![
             arc((10., 10.), 7.5, 0., 2. * PI),

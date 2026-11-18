@@ -802,9 +802,9 @@ impl RoomListWorker {
                                     let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body).await;
                                     OperationResult::ThreadSent { scope, root, result }
                                 }
-                                OperationCommand::SetMuted { scope, muted } => {
-                                    let result = crate::notify::set_muted(&operation_client, account, &scope, muted).await;
-                                    OperationResult::RoomMarked { scope, result }
+                                OperationCommand::SetNotificationMode { scope, mode } => {
+                                    let result = crate::notify::set_notification_mode(&operation_client, account, &scope, mode).await;
+                                    OperationResult::NotificationModeSet { scope, result }
                                 }
                                 OperationCommand::EditTags(edit) => OperationResult::TagsEdited {
                                     result: crate::room_tags::edit(&operation_client, &edit).await,
@@ -1480,8 +1480,7 @@ impl RoomSync {
                             .then(|| room.encryption_state().is_encrypted()),
                         tags,
                         favourite_order,
-                        muted: room.cached_user_defined_notification_mode()
-                            == Some(matrix_sdk::notification_settings::RoomNotificationMode::Mute),
+                        notification_mode: crate::notify::mode_from_sdk(room.cached_user_defined_notification_mode()),
                         aliases: room
                             .canonical_alias()
                             .into_iter()

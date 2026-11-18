@@ -1,5 +1,6 @@
 //! Session-local privacy preferences; no message content enters this screen.
 use crate::*;
+use matrix_domain::notifications::RoomNotifyMode;
 
 impl Shell {
     fn notification_observer(
@@ -64,7 +65,7 @@ impl Shell {
                 selected: self
                     .sidebar
                     .selected()
-                    .map(|room| (room.scope.clone(), room.info.muted)),
+                    .map(|room| (room.scope.clone(), room.info.muted())),
                 room_name: self.sidebar.selected().map(|room| room.name.clone()).unwrap_or_default(),
                 service_failed: self.notification_failed,
             }))
@@ -123,10 +124,7 @@ impl Shell {
 
     /// «Silenzia»: the room push rule is written on the account; the next sync shows the result.
     fn set_room_muted(&mut self, scope: RoomScope, muted: bool) {
-        if self.pending_operation_command.is_none() {
-            self.pending_operation_command =
-                Some(matrix_engine::operations::OperationCommand::SetMuted { scope, muted });
-        }
+        self.set_room_mode(scope, if muted { RoomNotifyMode::Mute } else { RoomNotifyMode::AllMessages });
     }
 
     /// The one «Notifiche» choice (tray and panel), global for all accounts: shown and parked
@@ -158,7 +156,7 @@ impl Shell {
             0 => self.set_notifications_enabled(!self.notifications.enabled()),
             1 => {
                 if let Some(room) = self.sidebar.selected() {
-                    let (scope, muted) = (room.scope.clone(), !room.info.muted);
+                    let (scope, muted) = (room.scope.clone(), !room.info.muted());
                     self.set_room_muted(scope, muted);
                 }
             }
@@ -178,7 +176,7 @@ impl Shell {
         let preview = self.notifications.count_preview();
         let message_preview = self.prefs.message_preview;
         let selected = self.sidebar.selected();
-        let muted = selected.is_some_and(|room| room.info.muted);
+        let muted = selected.is_some_and(|room| room.info.muted());
         let room_available = selected.is_some();
         let room_name = selected.map(|room| room.name.clone());
         let focused_control = Some(self.notification_focus as usize);

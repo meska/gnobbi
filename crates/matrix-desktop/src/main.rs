@@ -131,6 +131,8 @@ struct Shell {
     room_search: Option<room_search_view::RoomSearch>,
     /// «Esci dalla stanza» was clicked once; the second click leaves.
     confirm_leave: Option<RoomScope>,
+    /// The drawer's notification-mode rows are open (under the bell).
+    notify_menu: bool,
     menu_open: bool,
     menu_focus: FocusHandle,
     drawer_focus: FocusHandle,
@@ -222,7 +224,7 @@ struct Shell {
     /// Focus of the thread panel's text, so Cmd/Ctrl+C reaches its selection.
     thread_focus: FocusHandle,
     #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-    a11y_details_bounds: [Option<accesskit::Rect>; 8],
+    a11y_details_bounds: [Option<accesskit::Rect>; 9],
     spaces_ui: spaces_view::SpacesUi,
     spaces_open: bool,
     navigation_wide: bool,
@@ -1896,7 +1898,7 @@ impl Shell {
                             target,
                             result: Err(OperationError::Unavailable),
                         },
-                        OperationCommand::SetMuted { scope, .. } => OperationResult::RoomMarked {
+                        OperationCommand::SetNotificationMode { scope, .. } => OperationResult::NotificationModeSet {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
@@ -2629,7 +2631,9 @@ impl Shell {
                                                             .when(!(this.connected && (room.unread > 0 || room.info.marked_unread)) && (room.pinned() || room.low_priority()), |d| {
                                                                 let kind = if room.pinned() { composer_icons::Icon::PinFilled } else { composer_icons::Icon::LowPriority };
                                                                 d.child(div().flex_shrink_0().flex().items_center().h(px(matrix_desktop::row_text::PREVIEW_LINE_PX)).child(composer_icons::icon_sized(kind, t.secondary, 16.)))
-                                                            }),
+                                                            })
+                                                            // Muted: a discreet struck bell; the unread badge stays as it is. Name: «Silenziata» in the row label.
+                                                            .when(room.info.muted(), |d| d.child(div().flex_shrink_0().flex().items_center().h(px(matrix_desktop::row_text::PREVIEW_LINE_PX)).child(composer_icons::icon_sized(composer_icons::Icon::BellOff, t.secondary, 16.)))),
                                                     ),
                                             )
                                             .children(invite_buttons)
@@ -3258,6 +3262,11 @@ fn main() {
                                                 }
                                                 continue;
                                             }
+                                            if let matrix_engine::operations::OperationResult::NotificationModeSet { result, .. } = result {
+                                                this.sidebar.mode_done(result);
+                                                cx.notify();
+                                                continue;
+                                            }
                                             if let matrix_engine::operations::OperationResult::TagsEdited { result } = result {
                                                 this.groups_edited(result, cx);
                                                 continue;
@@ -3618,6 +3627,7 @@ fn main() {
                         room_search_requests: 0,
                         room_search: None,
                         confirm_leave: None,
+                        notify_menu: false,
                         menu_open: false,
                         menu_focus: cx.focus_handle(),
                         drawer_focus: cx.focus_handle(),
@@ -3748,7 +3758,7 @@ fn main() {
                         details_zone: cx.focus_handle(),
                         thread_focus: cx.focus_handle(),
                         #[cfg(all(feature = "linux-a11y", target_os = "linux"))]
-                        a11y_details_bounds: [None; 8],
+                        a11y_details_bounds: [None; 9],
                         spaces_ui,
                         spaces_open: false,
                         navigation_wide: true,

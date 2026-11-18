@@ -157,6 +157,7 @@ impl Shell {
         if open {
             self.members_requested = None; // reread the roster: a profile change after the first load must show
         }
+        self.notify_menu = false;
         self.profile = None;
         self.reconcile_topic_links();
         self.refresh_navigation_visibility();
