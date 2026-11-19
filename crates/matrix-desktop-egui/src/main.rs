@@ -408,8 +408,16 @@ impl App {
         if s.account.is_some() && std::env::var_os("GNOBBI_EGUI_VIEW").is_some() {
             let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
             // The first room with something to read, once the list has arrived.
-            if s.sidebar.selected().is_none()
-                && let Some(&first) = s.sidebar.visible_indices().first()
+            // GNOBBI_EGUI_ROOM=<name>: that room instead of the first.
+            let wanted = std::env::var("GNOBBI_EGUI_ROOM").ok();
+            let pick = |s: &Session| {
+                let rooms = s.sidebar.rooms();
+                let by_name = wanted.as_deref().and_then(|w| s.sidebar.visible_indices().iter().copied().find(|&i| rooms[i].name == w));
+                by_name.or_else(|| s.sidebar.visible_indices().first().copied())
+            };
+            let target = wanted.as_deref().and_then(|w| s.sidebar.rooms().iter().find(|r| r.name == w).map(|r| r.scope.clone()));
+            if (s.sidebar.selected().is_none() || target.as_ref().is_some_and(|t| s.sidebar.selected().map(|r| &r.scope) != Some(t)))
+                && let Some(first) = pick(s)
             {
                 let scope = s.sidebar.rooms()[first].scope.clone();
                 s.sidebar.select(&scope);
