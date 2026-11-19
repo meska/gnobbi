@@ -14,6 +14,11 @@ pub fn show(ctx: &egui::Context, s: &mut Session, rights: matrix_engine::EditRig
                 Some(p) => ui.label(format!("Foto: {}", p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())),
                 None => ui.label("Trascina un'immagine qui per la foto"),
             };
+            if ui.button("Scegli foto…").clicked()
+                && let Some(p) = crate::pick::file("Foto della stanza", true)
+            {
+                e.avatar = Some(p);
+            }
         }
         if e.failed {
             ui.colored_label(ui.visuals().error_fg_color, "Non riuscito");

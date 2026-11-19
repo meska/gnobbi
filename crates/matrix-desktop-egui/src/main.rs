@@ -10,6 +10,7 @@ use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
 mod accounts;
+mod pick;
 mod composer;
 mod devices;
 mod info;
@@ -497,16 +498,20 @@ impl App {
                 let mut cancel = false;
                 let mut drop_file = false;
                 let mut open_poll = false;
+                let mut picked_file = None;
                 let name = s.attachment.as_ref().map(|(n, _)| n.clone());
                 if let Some(notice) = &s.notice {
                     ui.label(notice);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
-                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &members, &mut s.mentions);
+                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &members, &mut s.mentions);
                 if drop_file {
                     s.attachment = None;
                 }
                 s.poll_open |= open_poll;
+                if let Some(path) = picked_file {
+                    s.attach(&path);
+                }
                 if cancel {
                     s.cancel_target();
                 }

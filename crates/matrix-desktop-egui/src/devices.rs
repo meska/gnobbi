@@ -36,7 +36,14 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, f:
                     v.save_profile(None, matrix_engine::verification::ProfileAvatar::Remove);
                 }
             });
-            ui.label(RichText::new("Trascina un'immagine qui per la foto").size(12.).color(secondary));
+            ui.horizontal(|ui| {
+                if ui.button("Scegli foto…").clicked()
+                    && let Some(p) = crate::pick::file("Foto del profilo", true)
+                {
+                    v.save_profile(None, matrix_engine::verification::ProfileAvatar::Set(p));
+                }
+                ui.label(RichText::new("o trascina un'immagine").size(12.).color(secondary));
+            });
             ui.separator();
         }
         if let Some(own) = v.own() {

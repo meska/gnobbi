@@ -10,7 +10,7 @@ pub enum Mode {
 }
 
 /// Returns the text to send when Enter was pressed on a non-empty draft; `cancel` is set by the X of the mode bar.
-pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     let enter = ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
     if mode != Mode::Send {
@@ -35,6 +35,9 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         ui.add_space(12.);
         if ui.button("📊").clicked() {
             *poll = true;
+        }
+        if ui.button("📎").clicked() {
+            *picked = crate::pick::file("Allega un file", false);
         }
         let w = ui.available_width() - 56.;
         let id = egui::Id::new("composer-text");
