@@ -20,7 +20,9 @@ pub enum Mode {
 /// Returns the text to send when Enter was pressed on a non-empty draft; `cancel` is set by the X of the mode bar.
 pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
-    let enter = ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+    // consume_key matches Shift loosely, so Shift+Enter is checked on the event and left to the TextEdit (it inserts the newline).
+    let shift_enter = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.shift)));
+    let enter = !shift_enter && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
     // The Enter that confirms an IME / dead-key composition must not send: ignore it while composing and in the frame of the IME event.
     let ime_id = egui::Id::new("composer-ime");
     let ime_event = ui.input(|i| i.events.iter().find_map(|e| match e {
@@ -67,7 +69,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
     ui.horizontal_top(|ui| {
         ui.add_space(12.);
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
-        let w = (ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 40.).max(80.); // 40: left pad, right margin and the TextEdit's own inner margins (else the row overflows a narrow column)
+        let w = (ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 4.).max(80.); // 4: tuned by the right-gap test (icon box ends ~12 px from the panel edge, like the left pad); the row's spacings and the TextEdit's own inner margins (else the row overflows a narrow column)
         let id = egui::Id::new("composer-text");
         if ui.memory(|m| m.has_focus(id)) {
             *pasted = ui.input(|i| i.events.iter().find_map(|e| match e {
@@ -77,11 +79,14 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         }
         format_shortcuts(ui, id, draft);
         // Borderless like Telegram; grows with the text up to 8 rows, then scrolls. The 6 px vertical padding makes one row as tall as the 32 px icons.
-        let max_h = 8. * ui.text_style_height(&egui::TextStyle::Body) + 12.;
+        let row = ui.text_style_height(&egui::TextStyle::Body);
+        let pad = ((32. - row) / 2.).max(0.); // centres one text row on the 32 px icons
+        let max_h = 8. * row + 2. * pad;
         // A child ui with its own max height: inside a horizontal row the available height is one row, which would cap the scroll area.
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(ui.cursor().min, egui::vec2(w + 8., max_h))));
         let scroll = egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(0.).id_salt("composer-scroll").show(&mut child, |ui| {
-            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 6)).show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, pad as i8)).show(ui, |ui| {
+                ui.spacing_mut().interact_size.y = row; // else the editor is 20 px tall and the text sits at its top
                 egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
             }).inner
         });
@@ -92,6 +97,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         // The 32 emoji of the GPUI picker; one is appended to the text and the box keeps the focus.
         // Icons stay at the bottom of a tall box.
         ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 0.; // else the space above adds a gap and the icons sit lower than the text
         ui.add_space((text_h - 32.).max(0.));
         ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
@@ -265,6 +271,57 @@ mod tests {
         let ctx = eframe::egui::Context::default();
         bar_height_with(&ctx, 900., "a\nb\nc");
         assert_eq!(bar_height(&ctx, 900.), one);
+    }
+
+    /// Runs the composer for a few frames with the text box focused; `events` go in the last frame. Returns (sent, draft, hint-text centre y, icon centre y, panel right, mic right).
+    fn run(text: &str, events: Vec<eframe::egui::Event>) -> (Option<String>, String, f32, f32, f32, f32) {
+        use eframe::egui;
+        let ctx = egui::Context::default();
+        let mut draft = text.to_owned();
+        let (mut sent, mut hint_y, mut panel_right) = (None, 0., 0.);
+        for frame in 0..5 {
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900., 600.))), events: if frame == 4 { events.clone() } else { vec![] }, ..Default::default() };
+            if frame == 3 {
+                ctx.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
+            }
+            let mut out = ctx.run_ui(input, |ui| {
+                let r = egui::Panel::bottom("composer").min_size(56.).show(ui, |ui| {
+                    let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, false, false, None, None, None);
+                    sent = super::show(ui, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
+                });
+                panel_right = r.response.rect.right();
+            });
+            out.textures_delta.clear();
+            for s in &out.shapes {
+                if let egui::epaint::Shape::Text(t) = &s.shape {
+                    if t.galley.text() == "Scrivi un messaggio" {
+                        hint_y = (t.pos + t.galley.rect.center().to_vec2()).y;
+                    }
+                }
+            }
+        }
+                let mic = ctx.read_response(egui::Id::new("composer-voice")).or_else(|| ctx.read_response(egui::Id::new("composer-send"))).unwrap().rect;
+        (sent, draft, hint_y, mic.center().y, panel_right, mic.right())
+    }
+
+    fn enter(shift: bool) -> Vec<eframe::egui::Event> {
+        let modifiers = eframe::egui::Modifiers { shift, ..Default::default() };
+        vec![eframe::egui::Event::Key { key: eframe::egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers }]
+    }
+
+    #[test]
+    fn shift_enter_adds_a_line_and_plain_enter_sends() {
+        let (sent, draft, ..) = run("ab", enter(true));
+        assert_eq!((sent, draft.as_str()), (None, "ab\n"));
+        let (sent, ..) = run("ab", enter(false));
+        assert_eq!(sent.as_deref(), Some("ab"));
+    }
+
+    #[test]
+    fn single_row_text_and_icons_share_a_centre_line_with_a_small_right_margin() {
+        let (_, _, text_y, icon_y, panel_right, mic_right) = run("", vec![]);
+        assert!((text_y - icon_y).abs() <= 1., "text {text_y} icons {icon_y}");
+        assert!((6. ..=16.).contains(&(panel_right - mic_right)), "right gap {}", panel_right - mic_right);
     }
 
     #[test]
