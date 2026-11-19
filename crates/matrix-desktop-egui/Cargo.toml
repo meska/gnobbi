@@ -16,6 +16,11 @@ matrix-domain = { path = "../matrix-domain" }
 matrix-engine = { path = "../matrix-engine", features = ["sdk"] }
 eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "system_fonts", "wayland", "wgpu", "x11"] }
 
+# macOS: hide/unhide the whole app (an orderOut window gets no frames, so the tray click would never be seen).
+[target.'cfg(target_os = "macos")'.dependencies]
+cocoa = "=0.26.0"
+objc = "=0.2.7"
+
 [[bin]]
 name = "gnobbi-egui"
 path = "src/main.rs"

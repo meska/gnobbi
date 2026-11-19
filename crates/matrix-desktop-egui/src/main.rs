@@ -428,10 +428,16 @@ impl App {
     fn tray(&mut self, ctx: &egui::Context) {
         use matrix_desktop::tray_menu::{CloseAction, TrayAction, close_action, tray_menu};
         let show = |ctx: &egui::Context| {
+            #[cfg(target_os = "macos")]
+            mac_app(false);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         };
+        // The Dock click (or Cmd+Tab) shows the app without a tray action.
+        if ctx.input(|i| i.focused) {
+            self.window_visible = true;
+        }
         let reachable = self.tray.as_ref().is_some_and(|t| t.host_present());
         if let Some(tray) = &self.tray {
             for action in tray.actions() {
@@ -464,6 +470,9 @@ impl App {
             && close_action(self.prefs.close_to_tray, reachable) == CloseAction::HideToTray
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            #[cfg(target_os = "macos")]
+            mac_app(true);
+            #[cfg(not(target_os = "macos"))]
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.window_visible = false;
         }
@@ -991,6 +1000,24 @@ fn register_emoji_font(ctx: &egui::Context) {
 fn app_icon(choice: matrix_desktop::IconChoice) -> Option<egui::IconData> {
     let img = image::load_from_memory_with_format(choice.runtime_png(), image::ImageFormat::Png).ok()?.into_rgba8();
     Some(egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() })
+}
+
+/// macOS: closing to the tray hides the whole app (like Cmd+H) instead of ordering the window out, because a window that is not
+/// visible gets no frames, so a tray or Dock click would never reach `update`; the Dock click unhides it by itself.
+#[cfg(target_os = "macos")]
+fn mac_app(hide: bool) {
+    use cocoa::{appkit::NSApp, base::{id, nil, YES}};
+    use objc::{msg_send, sel, sel_impl};
+    // SAFETY: called from `update`, i.e. on the main thread, with a live NSApplication.
+    unsafe {
+        let app: id = NSApp();
+        if hide {
+            let _: () = msg_send![app, hide: nil];
+        } else {
+            let _: () = msg_send![app, unhide: nil];
+            let _: () = msg_send![app, activateIgnoringOtherApps: YES];
+        }
+    }
 }
 
 fn main() -> eframe::Result {

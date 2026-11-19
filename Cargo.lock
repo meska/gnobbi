@@ -5217,11 +5217,13 @@ dependencies = [
 name = "matrix-desktop-egui"
 version = "0.1.0"
 dependencies = [
+ "cocoa 0.26.0",
  "eframe",
  "image",
  "matrix-desktop",
  "matrix-domain",
  "matrix-engine",
+ "objc",
  "rfd",
  "serde_json",
  "zeroize",

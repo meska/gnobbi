@@ -250,6 +250,11 @@ impl Tray {
         }));
         TrayIconEvent::set_event_handler(Some(move |event: TrayIconEvent| {
             if let Some(action) = click_action(&event) {
+                // A hidden app gets no frames, so nobody would read the action: bring the app back right here.
+                #[cfg(target_os = "macos")]
+                if matches!(action, TrayAction::ToggleWindow | TrayAction::ShowWindow) {
+                    unhide_app();
+                }
                 let _ = click_tx.send(action);
             }
         }));
@@ -488,5 +493,18 @@ mod tests {
         let mut capped = base.clone();
         draw_badge(&mut capped, side, 99);
         assert_eq!(some, capped);
+    }
+}
+
+/// macOS: unhide and activate the app (the tray click runs on the main thread, through the status item's action).
+#[cfg(target_os = "macos")]
+fn unhide_app() {
+    use cocoa::{appkit::NSApp, base::{id, nil, YES}};
+    use objc::{msg_send, sel, sel_impl};
+    // SAFETY: NSApp() is the live shared application; both messages are plain calls made from the status item's main-thread action.
+    unsafe {
+        let app: id = NSApp();
+        let _: () = msg_send![app, unhide: nil];
+        let _: () = msg_send![app, activateIgnoringOtherApps: YES];
     }
 }
