@@ -147,12 +147,31 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             }
             if resp.secondary_clicked() {
                 session.confirm_leave = None;
+                action = Some((room.scope.clone(), crate::session::RoomAction::Spaces));
             }
             if !room.info.invited {
-                resp.context_menu(|ui| {
+                // Test hook: GNOBBI_EGUI_VIEW=room-menu shows the menu of the open room without a click, room-space-pick the window behind «Aggiungi a uno spazio…».
+                let mut menu = egui::Popup::context_menu(&resp);
+                if selected.as_ref() == Some(&room.scope) && let Ok(view) = std::env::var("GNOBBI_EGUI_VIEW") && view.starts_with("room-") {
+                    match &session.space_choices {
+                        Some((asked, Some(_))) if asked == &room.scope => if view == "room-space-pick" && session.space_pick.is_none() { session.space_pick = Some((room.scope.clone(), None)); },
+                        Some((asked, None)) if asked == &room.scope => {}
+                        _ => action = Some((room.scope.clone(), crate::session::RoomAction::Spaces)),
+                    }
+                    // No pointer in a headless run: the menu is pinned to the row instead.
+                    if view == "room-menu" { menu = menu.open(true).at_position(rect.center()); }
+                }
+                menu.show(|ui| {
                     use crate::session::RoomAction;
                     for (label, choice) in [("Segna come letto", RoomAction::Mark(true)), ("Segna come non letto", RoomAction::Mark(false)), (sidebar.favourite_label(&room.scope), RoomAction::Tag("m.favourite")), (sidebar.low_priority_label(&room.scope), RoomAction::Tag("m.lowpriority"))] {
                         if ui.button(label).clicked() { action = Some((room.scope.clone(), choice)); ui.close(); }
+                    }
+                    if let Some((asked, Some(choices))) = &session.space_choices && asked == &room.scope {
+                        let (add, remove) = space_entries(choices);
+                        if add && ui.button("Aggiungi a uno spazio…").clicked() { session.space_pick = Some((room.scope.clone(), None)); ui.close(); }
+                        for space in remove {
+                            if ui.button(format!("Togli da {}", space.name)).clicked() { action = Some((room.scope.clone(), RoomAction::RemoveFrom(space.scope.clone()))); ui.close(); }
+                        }
                     }
                     for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
                         let label = if sidebar.notify_mode(&room.scope) == mode { format!("✓ {}", mode.label()) } else { mode.label().to_owned() };
@@ -173,8 +192,56 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     if let Some((scope, action)) = action { session.room_action(scope, action); }
 }
 
+/// Space entries of the room menu: whether «Aggiungi a uno spazio…» shows, and the spaces behind «Togli da <spazio>».
+/// A space the user may not edit gives no entry at all.
+fn space_entries(choices: &matrix_engine::operations::SpaceChoices) -> (bool, Vec<&matrix_engine::operations::SpaceRef>) {
+    (choices.addable.iter().any(|s| s.editable), choices.containing.iter().filter(|s| s.editable).collect())
+}
+
+/// «Aggiungi a uno spazio»: the spaces that can take the room, one choice, then «Aggiungi».
+pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) {
+    let Some((room, chosen)) = &mut session.space_pick else { return };
+    let spaces: Vec<_> = match &session.space_choices {
+        Some((asked, Some(choices))) if asked == room => choices.addable.iter().filter(|s| s.editable).collect(),
+        _ => Vec::new(),
+    };
+    let (mut open, mut add, mut cancel) = (true, false, false);
+    egui::Window::new("Aggiungi a uno spazio").open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        ui.set_min_width(300.);
+        egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
+            for space in spaces {
+                ui.radio_value(chosen, Some(space.scope.clone()), &space.name);
+            }
+        });
+        ui.add_space(8.);
+        ui.horizontal(|ui| {
+            add = ui.add_enabled(chosen.is_some(), egui::Button::new("Aggiungi")).clicked();
+            cancel = ui.button("Annulla").clicked();
+        });
+    });
+    if add && let Some((room, Some(space))) = session.space_pick.take() {
+        session.room_action(room, crate::session::RoomAction::AddTo(space));
+    } else if cancel || !open {
+        session.space_pick = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_space_without_the_right_gives_no_menu_entry() {
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        use matrix_engine::operations::{SpaceChoices, SpaceRef};
+        let space = |id: &str, editable| SpaceRef { scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new(id) }, name: id.to_owned(), editable };
+        let choices = SpaceChoices { addable: vec![space("!a:x", true)], containing: vec![space("!b:x", true), space("!c:x", false)] };
+        let (add, remove) = super::space_entries(&choices);
+        assert!(add);
+        assert_eq!(remove.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["!b:x"]);
+        let choices = SpaceChoices { addable: Vec::new(), containing: vec![space("!c:x", false)] };
+        let (add, remove) = super::space_entries(&choices);
+        assert!(!add && remove.is_empty());
+    }
+
     #[test]
     fn leaving_requires_two_clicks_on_the_same_room() {
         use matrix_domain::{AccountId, RoomId, RoomScope};

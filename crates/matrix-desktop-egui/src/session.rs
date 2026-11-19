@@ -48,6 +48,10 @@ pub enum RoomAction {
     Tag(&'static str),
     Mode(matrix_domain::notifications::RoomNotifyMode),
     Leave,
+    /// Ask the engine which spaces can take or already hold the room (the menu shows the entries when the answer is in).
+    Spaces,
+    AddTo(matrix_domain::RoomScope),
+    RemoveFrom(matrix_domain::RoomScope),
 }
 
 pub struct Session {
@@ -60,6 +64,10 @@ pub struct Session {
     pub sidebar: matrix_desktop::Sidebar,
     pub confirm_leave: Option<matrix_domain::RoomScope>,
     pub room_error: Option<String>,
+    /// Spaces for the room whose menu was opened last; `None` inside until the engine answers.
+    pub space_choices: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>,
+    /// «Aggiungi a uno spazio» window: the room and the space picked so far.
+    pub space_pick: Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>,
     history: HistorySession,
     pending: Option<matrix_engine::history::HistoryRequest>,
     route: Option<(matrix_engine::Sender<matrix_engine::history::HistoryRequest>, Receiver<matrix_engine::history::HistoryResult>)>,
@@ -292,6 +300,8 @@ impl Session {
             query: String::new(),
             confirm_leave: None,
             room_error: None,
+            space_choices: None,
+            space_pick: None,
             sync: None,
             homeserver: String::new(),
             user: String::new(),
@@ -728,6 +738,17 @@ impl Session {
                 OperationResult::TagsEdited { result } => { self.sidebar.tag_done(result.clone()); self.room_error = self.sidebar.tag_error().map(str::to_owned); changed = true; continue; }
                 OperationResult::NotificationModeSet { result, .. } => { self.sidebar.mode_done(result.clone()); self.room_error = self.sidebar.mode_error().map(str::to_owned); changed = true; continue; }
                 OperationResult::RoomLeft { scope, result } => { self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
+                OperationResult::SpaceChoices { scope, result } => {
+                    if let (Some((asked, slot)), Ok(choices)) = (&mut self.space_choices, result) && asked == scope { *slot = Some(choices.clone()); }
+                    changed = true;
+                    continue;
+                }
+                OperationResult::SpaceChanged { result, .. } => {
+                    self.space_choices = None;
+                    if let Err(e) = result { self.room_error = Some(matrix_engine::operations::space_error_line(*e).into()); }
+                    changed = true;
+                    continue;
+                }
                 OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some("Operazione non riuscita".into()); changed = true; continue; }
                 _ => {}
             }
@@ -912,6 +933,9 @@ impl Session {
             RoomAction::Tag(tag) => self.sidebar.toggle_tag(&scope, tag).map(OperationCommand::EditTags),
             RoomAction::Mode(mode) => self.sidebar.set_mode(&scope, mode).then_some(OperationCommand::SetNotificationMode { scope, mode }),
             RoomAction::Leave => Some(OperationCommand::LeaveRoom { scope }),
+            RoomAction::Spaces => { self.space_choices = Some((scope.clone(), None)); Some(OperationCommand::SpaceChoices { scope }) }
+            RoomAction::AddTo(space) => Some(OperationCommand::AddToSpace { scope, space }),
+            RoomAction::RemoveFrom(space) => Some(OperationCommand::RemoveFromSpace { scope, space }),
         };
         if let Some(command) = command { self.op_queue.push(command); }
     }
