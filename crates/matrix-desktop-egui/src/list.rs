@@ -20,7 +20,7 @@ fn one_line(ui: &egui::Ui, text: &str, size: f32, color: Color32, width: f32) ->
     ui.painter().layout_job(job)
 }
 
-fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) {
+pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) {
     let g = ui.painter().layout_no_wrap(count(n), FontId::proportional(11.), rgb(t.on_accent));
     let w = (g.size().x + 10.).max(20.);
     let r = egui::Rect::from_center_size(center, Vec2::new(w, 20.));

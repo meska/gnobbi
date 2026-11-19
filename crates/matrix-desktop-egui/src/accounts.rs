@@ -1,4 +1,4 @@
-//! «Account» window: the accounts of the catalog; each one runs in its own window (process), like the GPUI app's "Add account".
+//! «Account» window: the accounts of the catalog, all running in this window; "Apri" brings one on screen.
 use eframe::egui::{self, RichText};
 use matrix_desktop::{AccountCatalog, AppDirs, DesignTokens};
 use std::path::PathBuf;
@@ -42,9 +42,3 @@ pub fn show(ctx: &egui::Context, open: &mut bool, dirs: &AppDirs, current: &std:
     out
 }
 
-/// Starts this app on `root` in a new process (its own window and store lock).
-pub fn launch(root: &std::path::Path) {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe).arg("--signin").arg(root).spawn();
-    }
-}

@@ -85,7 +85,7 @@ pub struct Session {
     new_sent: String,
     pub users: matrix_engine::operations::SearchState,
     pub new_failed: bool,
-    pending_select: Option<matrix_domain::RoomScope>,
+    pub pending_select: Option<matrix_domain::RoomScope>,
     /// Commands from the UI waiting for the single send slot.
     op_queue: Vec<OperationCommand>,
     /// Member whose card is open and what the engine answered about them.

@@ -55,6 +55,13 @@ fn visuals(t: &DesignTokens, dark: bool) -> Visuals {
     v
 }
 
+/// An account that is not on screen: its profile folder and its live session.
+struct Parked {
+    root: std::path::PathBuf,
+    session: Session,
+    recorded: bool,
+}
+
 struct App {
     prefs: Preferences,
     dirs: Option<AppDirs>,
@@ -63,6 +70,11 @@ struct App {
     /// Profile folder this window runs on, and whether its login is already in the catalog.
     root: std::path::PathBuf,
     recorded: bool,
+    /// The other accounts of the catalog, running at the same time as the shown one (own worker, own notifications).
+    parked: Vec<Parked>,
+    trust: Option<Vec<u8>>,
+    /// A parked account to bring forward at the end of the frame (a click on one of its notifications).
+    wake: Option<usize>,
     tray: Option<matrix_desktop::tray::Tray>,
     quitting: bool,
     window_visible: bool,
@@ -82,6 +94,8 @@ struct App {
     shot_sent: bool,
     pending_link: Option<(matrix_domain::MatrixLink, std::time::Instant)>,
     hook_sent: bool,
+    hook_added: bool,
+    auto_login2: Option<serde_json::Value>,
     hook_type: bool,
     hook_alias: bool,
     alias_input: String,
@@ -92,7 +106,7 @@ struct App {
 }
 
 impl App {
-    fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf, trust: Option<Vec<u8>>, link: Option<matrix_domain::MatrixLink>) -> App {
+    fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf, trust: Option<Vec<u8>>, link: Option<matrix_domain::MatrixLink>, multi: bool) -> App {
         let prefs = dirs.map(Preferences::load).unwrap_or_else(Preferences::default);
         let theme = Theme::Classic;
         let (session, start_error) = match dirs.map(|d| Session::start(d, root.clone(), trust.clone())) {
@@ -100,9 +114,54 @@ impl App {
             Some(Err(e)) => (None, Some(e)),
             None => (None, Some("Cartella dati non disponibile".to_owned())),
         };
-        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            pending_link: link.map(|l| (l, std::time::Instant::now())), shot_sent: false, hook_sent: false, hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+        // The default window runs every account of the catalog at once; `--signin <folder>` runs just that one.
+        let mut parked = Vec::new();
+        if multi && let Some(d) = dirs {
+            let catalog = matrix_desktop::AccountCatalog::load(d);
+            for entry in catalog.accounts() {
+                if let Some(dir) = catalog.data_dir(d, entry.id)
+                    && dir != root
+                    && let Ok(session) = Session::start(d, dir.clone(), trust.clone())
+                {
+                    parked.push(Parked { root: dir, session, recorded: true });
+                }
+            }
+        }
+        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+            pending_link: link.map(|l| (l, std::time::Instant::now())), shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
+    }
+
+    /// Brings parked account `i` on screen; the shown one takes its place in the list.
+    fn switch_to(&mut self, i: usize) {
+        let Some(p) = self.parked.get_mut(i) else { return };
+        if let Some(shown) = &mut self.session {
+            std::mem::swap(shown, &mut p.session);
+            std::mem::swap(&mut self.root, &mut p.root);
+            std::mem::swap(&mut self.recorded, &mut p.recorded);
+            // The window states of the account that left must not follow the new one.
+            self.new_form = Default::default();
+            self.device_fields = Default::default();
+            self.poll_form = Default::default();
+            self.confirm = None;
+            self.settings_open = false;
+        }
+    }
+
+    /// Opens the profile in `dir` next to the others (or shows it when it already runs) and brings it on screen.
+    fn open_account(&mut self, dir: std::path::PathBuf) {
+        if dir == self.root {
+            return;
+        }
+        if let Some(i) = self.parked.iter().position(|p| p.root == dir) {
+            return self.switch_to(i);
+        }
+        let Some(d) = &self.dirs else { return };
+        if let Ok(session) = Session::start(d, dir.clone(), self.trust.clone()) {
+            self.parked.push(Parked { root: dir, session, recorded: false });
+            let last = self.parked.len() - 1;
+            self.switch_to(last);
+        }
     }
 
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
@@ -163,6 +222,25 @@ impl eframe::App for App {
             }
             session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
             session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
+            // The other accounts keep syncing: unread counts and notifications go on, read markers do not.
+            let mut wake = None;
+            for (i, p) in self.parked.iter_mut().enumerate() {
+                p.session.reading = (false, false, self.prefs.read_receipts);
+                p.session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
+                if let Some(v) = &p.session.verification
+                    && let Some((id, name)) = v.profile()
+                {
+                    let shown = name.clone().unwrap_or_else(|| id.clone());
+                    if p.session.account_name != shown {
+                        p.session.account_name = shown;
+                    }
+                }
+                // A click on one of its notifications brings that account to the front.
+                if p.session.pending_select.is_some() {
+                    wake = Some(i);
+                }
+            }
+            self.wake = wake;
             if !self.recorded
                 && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)
                 && let Some((id, name)) = v.profile()
@@ -200,6 +278,9 @@ impl eframe::App for App {
                 self.pending_link = Some((link, std::time::Instant::now()));
             }
         }
+        if let Some(i) = self.wake.take() {
+            self.switch_to(i);
+        }
         let t = self.tokens;
         if self.session.as_ref().is_some_and(|s| s.account.is_some() && !s.recovering()) {
             self.shell(ui, &t);
@@ -212,6 +293,16 @@ impl eframe::App for App {
 impl App {
     /// Test hooks (env only): sign in with the given account, then open the view named in GNOBBI_EGUI_VIEW.
     fn test_hooks(&mut self, ctx: &egui::Context) {
+        // GNOBBI_EGUI_ADD=1: once the first account is in the catalog, add a second one (signed in by GNOBBI_EGUI_LOGIN2).
+        if !self.hook_added
+            && self.recorded
+            && std::env::var_os("GNOBBI_EGUI_ADD").is_some()
+            && let Some(d) = &self.dirs
+        {
+            self.hook_added = true;
+            let next = matrix_desktop::AccountCatalog::load(d).next_root(d);
+            self.open_account(next);
+        }
         let Some(s) = &mut self.session else { return };
         // The test accounts have nothing to recover: skip the step so the other views can be reached.
         if self.auto_login.is_some() && s.recovering() && std::env::var_os("GNOBBI_EGUI_KEEP_RECOVERY").is_none() {
@@ -243,7 +334,7 @@ impl App {
         } else if self.pending_link.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() > 60) {
             self.pending_link = None;
         }
-        if let Some(login) = &self.auto_login
+        if let Some(login) = if self.hook_added { &self.auto_login2 } else { &self.auto_login }
             && s.account.is_none()
             && matches!(s.status(), FormStatus::Prompt(_))
         {
@@ -390,6 +481,43 @@ impl App {
             Some(RoomSyncStatus::SyncFailed) => "Sincronizzazione interrotta",
             _ => "Connessione…",
         };
+        // One round button per account when there is more than one; the shown one is highlighted.
+        let mut pick_account = None;
+        if !self.parked.is_empty() {
+            let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
+            let mut entries: Vec<(Option<usize>, String, u64)> = Vec::new();
+            if let Some(s) = &self.session {
+                entries.push((None, s.account_name.clone(), unread(s)));
+            }
+            for (i, p) in self.parked.iter().enumerate() {
+                entries.push((Some(i), p.session.account_name.clone(), unread(&p.session)));
+            }
+            egui::Panel::left("accounts").exact_size(52.).resizable(false).frame(bar(t)).show(ui, |ui| {
+                ui.add_space(8.);
+                for (which, name, n) in &entries {
+                    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(52., 48.), egui::Sense::click());
+                    let c = rect.center();
+                    if which.is_none() {
+                        ui.painter().rect_filled(egui::Rect::from_center_size(c, egui::Vec2::new(44., 44.)), 10., rgb(t.selected));
+                    } else if resp.hovered() {
+                        ui.painter().rect_filled(egui::Rect::from_center_size(c, egui::Vec2::new(44., 44.)), 10., rgb(t.input));
+                    }
+                    let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
+                    ui.painter().circle_filled(c, 16., rgb(AVATAR));
+                    ui.painter().text(c, egui::Align2::CENTER_CENTER, initial, egui::FontId::proportional(15.), rgb(t.on_accent));
+                    if *n > 0 {
+                        list::badge(ui, c + egui::Vec2::new(14., -14.), *n, t);
+                    }
+                    resp.clone().on_hover_text(name.as_str());
+                    if resp.clicked() {
+                        pick_account = *which;
+                    }
+                }
+            });
+        }
+        if let Some(i) = pick_account {
+            self.switch_to(i);
+        }
         if let Some(session) = &mut self.session {
             egui::Panel::left("rail").exact_size(64.).resizable(false).frame(bar(t)).show(ui, |ui| {
                 list::rail(ui, &mut session.sidebar, t);
@@ -576,10 +704,10 @@ impl App {
             && let Some(dirs) = &self.dirs
         {
             match accounts::show(ui.ctx(), &mut self.accounts_open, dirs, &self.root, t) {
-                Some(accounts::Launch::Open(dir)) => accounts::launch(&dir),
+                Some(accounts::Launch::Open(dir)) => self.open_account(dir),
                 Some(accounts::Launch::Add) => {
                     let next = matrix_desktop::AccountCatalog::load(dirs).next_root(dirs);
-                    accounts::launch(&next);
+                    self.open_account(next);
                 }
                 None => {}
             }
@@ -848,8 +976,9 @@ fn main() -> eframe::Result {
             std::process::exit(2);
         }
     };
-    // Another profile is its own window: only the default one hands launches over to a running instance.
-    if Some(&root) == default_root.as_ref() {
+    // Another profile given by hand is its own window: only the default one hands launches over to a running instance.
+    let multi = Some(&root) == default_root.as_ref();
+    if multi {
         single_instance_gate(raw_link);
         if let Some(dirs) = &dirs {
             // A pre-catalog install is listed in place; the profile folder does not move.
@@ -868,7 +997,7 @@ fn main() -> eframe::Result {
             .with_app_id(APP_ID),
         ..Default::default()
     };
-    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref(), root, trust, link)))))
+    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))))
 }
 
 #[cfg(test)]
