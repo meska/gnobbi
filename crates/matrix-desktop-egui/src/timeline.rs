@@ -12,6 +12,7 @@ pub struct Acts {
     /// Set by the app before drawing: the note being played (or loaded) and how far it is.
     pub now_playing: Option<(matrix_domain::EventId, bool, f32)>,
     pub open_link: Option<matrix_desktop::SafeWebUrl>,
+    pub picture: Option<(matrix_domain::EventId, bool, String)>,
 }
 
 fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWebUrl>)> {
@@ -160,10 +161,12 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         Some(tex) => {
                             let size = tex.size_vec2();
                             let scale = (max.min(320.) / size.x).min(1.).min(320. / size.y);
-                            ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)));
+                            if ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click())).clicked() && matches!(media.kind, matrix_engine::history::MediaKind::Image | matrix_engine::history::MediaKind::Video) {
+                                acts.picture = Some((id.clone(), media.kind == matrix_engine::history::MediaKind::Video, e.attachment_name.clone().unwrap_or_else(|| "immagine".into())));
+                            }
                         }
                         None => {
-                            ui.label(RichText::new(&media.label).color(rgb(t.secondary)));
+                            if ui.add(egui::Label::new(RichText::new(&media.label).color(rgb(t.secondary))).sense(egui::Sense::click())).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| "video".into()))); }
                         }
                     }
                 }

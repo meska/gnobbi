@@ -21,6 +21,7 @@ mod roomedit;
 mod session;
 mod settings;
 mod timeline;
+mod viewer;
 use session::Session;
 
 /// Avatar fallback colour (identity, not theme).
@@ -288,6 +289,7 @@ impl eframe::App for App {
         } else {
             self.sign_in(ui, &t);
         }
+        if let Some(s) = &mut self.session { s.show_viewer(&ctx); }
         if let Some(url) = self.pending_web.clone() {
             let mut choice = None;
             let modal = egui::Modal::new(egui::Id::unique("confirm-web-link")).show(&ctx, |ui| {
@@ -457,8 +459,9 @@ impl App {
             self.window_visible = true;
         }
         let reachable = self.tray.as_ref().is_some_and(|t| t.host_present());
-        if let Some(tray) = &self.tray {
-            for action in tray.actions() {
+        let actions = self.tray.as_ref().map(|tray| tray.actions()).unwrap_or_default();
+        if !actions.is_empty() {
+            for action in actions {
                 match action {
                     TrayAction::ToggleWindow if self.window_visible => {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -478,8 +481,16 @@ impl App {
                         self.quitting = true;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
-                    // One account per window until multi-account arrives.
-                    TrayAction::SwitchAccount(_) => {}
+                    TrayAction::SwitchAccount(id) => {
+                        if let Some(dirs) = &self.dirs {
+                            let catalog = matrix_desktop::AccountCatalog::load(dirs);
+                            if let Some(path) = catalog.data_dir(dirs, id) {
+                                if let Some(i) = self.parked.iter().position(|p| p.root == path) { self.switch_to(i); }
+                                show(ctx);
+                                self.window_visible = true;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -495,8 +506,21 @@ impl App {
             self.window_visible = false;
         }
         if let Some(tray) = &mut self.tray {
-            let unread = self.session.as_ref().and_then(|s| s.sidebar.navigation_entries().first().map(|e| e.unread)).unwrap_or(0);
-            let items = tray_menu(self.window_visible, self.prefs.notifications, &[]);
+            let mut rows = Vec::new();
+            if let Some(dirs) = &self.dirs {
+                let catalog = matrix_desktop::AccountCatalog::load(dirs);
+                for entry in catalog.accounts() {
+                    let Some(path) = catalog.data_dir(dirs, entry.id) else { continue };
+                    let current = path == self.root;
+                    let session = if current { self.session.as_ref() } else { self.parked.iter().find(|p| p.root == path).map(|p| &p.session) };
+                    let Some(session) = session else { continue };
+                    let unread = session.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
+                    let name = if unread > 0 { format!("{} ({unread})", session.account_name) } else { session.account_name.clone() };
+                    rows.push(matrix_desktop::AccountRow { id: entry.id, initials: matrix_desktop::initials(&session.account_name), name, user_id: session.user.clone(), avatar: None, current, unread, mentions: 0 });
+                }
+            }
+            let unread = rows.iter().fold(0u64, |n, row| n.saturating_add(row.unread));
+            let items = tray_menu(self.window_visible, self.prefs.notifications, &rows);
             tray.update(&items, unread, Vec::new());
         }
     }
@@ -797,6 +821,7 @@ impl App {
                 if let Some(root) = thread {
                     s.open_thread(root);
                 }
+                if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
                 if let Some(id) = acts.play.take() {
                     s.play_audio(id);
                 }

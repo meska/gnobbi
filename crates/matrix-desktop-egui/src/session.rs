@@ -108,6 +108,7 @@ pub struct Session {
     pub search: matrix_engine::operations::MessageSearchState,
     pub search_jump: Option<(EventId, bool)>,
     media: LiveMedia,
+    viewer: Option<crate::viewer::Viewer>,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
     /// Thumbnails of the open room's pictures and videos, by event.
     pub pictures: std::collections::HashMap<EventId, egui::TextureHandle>,
@@ -218,6 +219,7 @@ impl Session {
             search: matrix_engine::operations::MessageSearchState::Idle,
             search_jump: None,
             media: LiveMedia::default(),
+            viewer: None,
             media_route,
             pictures: Default::default(),
             avatars: Default::default(),
@@ -382,7 +384,7 @@ impl Session {
         }
         if let Some((name, ok)) = self.media.take_saved().map(|(_, r)| (String::new(), r.is_ok())) {
             let _ = name;
-            self.notice = Some(if ok { "Salvato in Download".to_owned() } else { "Salvataggio non riuscito".to_owned() });
+            self.notice = Some(if ok { "Salvato".to_owned() } else { "Salvataggio non riuscito".to_owned() });
             changed = true;
         }
         if let Some((id, result)) = self.media.take_audio() {
@@ -410,6 +412,23 @@ impl Session {
                 }
             }
         }
+        if let Some((id, result)) = self.media.take_original() {
+            if let Some(viewer) = &mut self.viewer && viewer.id == id { viewer.set_original(ctx, result); }
+            changed = true;
+        }
+        if let Some((id, result)) = self.media.take_video() {
+            if let Some(viewer) = &mut self.viewer && viewer.id == id {
+                match result {
+                    Ok(file) => {
+                        let path = file.path().to_owned();
+                        self.media.hold_playing(file);
+                        viewer.open_player(path);
+                    }
+                    Err(_) => { viewer.failed = true; viewer.opening = false; },
+                }
+            }
+            changed = true;
+        }
         changed
     }
 
@@ -421,6 +440,7 @@ impl Session {
             self.read_dirty = true;
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
             self.media.clear();
+            self.viewer = None;
             self.audio = None;
             self.pictures.clear();
             self.members = None;
@@ -837,6 +857,34 @@ impl Session {
         self.menu = None;
         self.confirm_delete = false;
         self.ops.clear_selection();
+    }
+
+    pub fn open_viewer(&mut self, id: EventId, video: bool, name: String) {
+        let Some(scope) = self.draft_scope.clone() else { return };
+        self.media.cancel_original();
+        if !video { self.media.request_original(scope, id.clone()); }
+        self.viewer = Some(crate::viewer::Viewer::new(id, video, name));
+    }
+
+    pub fn show_viewer(&mut self, ctx: &egui::Context) {
+        let Some(viewer) = &mut self.viewer else { return };
+        let action = viewer.show(ctx, self.pictures.get(&viewer.id));
+        match action {
+            crate::viewer::Action::Close => { self.media.cancel_original(); self.viewer = None; }
+            crate::viewer::Action::Save(path) => {
+                if path.exists() {
+                    self.notice = Some("Scegli un file che non esiste già".to_owned());
+                    return;
+                }
+                if let Some(scope) = self.draft_scope.clone() {
+                    self.notice = (!self.media.request_save(scope, viewer.id.clone(), path)).then(|| "Un salvataggio è già in corso".to_owned());
+                }
+            }
+            crate::viewer::Action::Open => {
+                if let Some(scope) = self.draft_scope.clone() { viewer.failed = false; self.media.request_video(scope, viewer.id.clone()); }
+            }
+            crate::viewer::Action::None => {}
+        }
     }
 
     /// Saves an attachment into the Download folder under a safe, unused name.
