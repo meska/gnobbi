@@ -1091,7 +1091,7 @@ impl Session {
         }
     }
 
-    /// The account's own picture, once downloaded (the account strip and the tray draw it).
+    /// The account's own picture, once downloaded (the spaces rail and the tray draw it).
     pub fn own_picture(&self) -> Option<egui::TextureHandle> {
         self.avatars.get(self.verification.as_ref()?.profile_avatar()?)?.clone()
     }
