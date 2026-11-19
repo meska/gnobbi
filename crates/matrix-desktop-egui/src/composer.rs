@@ -55,26 +55,16 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
     let mut send_click = false;
     ui.horizontal_centered(|ui| {
         ui.add_space(12.);
-        if ui.button("📊").clicked() {
-            *poll = true;
-        }
-        if ui.button("📎").clicked() {
-            *picked = crate::pick::file("Allega un file", false);
-        }
-        let w = ui.available_width() - 96.;
+        // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
+        let w = ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 12.;
         let id = egui::Id::new("composer-text");
         format_shortcuts(ui, id, draft);
         let out = egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).show(ui);
         mention_popup(ui, id, &out, draft, members, mentions);
-        if draft.trim().is_empty() && attachment.is_none() {
-            if ui.button("🎤").on_hover_text("Nota vocale").clicked() {
-                *voice = Some(VoiceAct::Start);
-            }
-        } else if ui.button("➤").on_hover_text("Invia").clicked() {
-            send_click = true;
-        }
         // The 32 emoji of the GPUI picker; one is appended to the text and the box keeps the focus.
-        ui.menu_button("☺", |ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
+        let emoji = icon_at(ui, rect, "composer-emoji", &emoji_strokes(), 1., true, "Emoji");
+        egui::Popup::menu(&emoji).show(|ui| {
             egui::Grid::new("emoji-grid").show(ui, |ui| {
                 for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
                     if ui.button(*emoji).on_hover_text(*name).clicked() {
@@ -88,6 +78,24 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
                 }
             });
         });
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
+        if icon_at(ui, rect, "composer-poll", &poll_strokes(), 1., true, "Sondaggio").clicked() {
+            *poll = true;
+        }
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
+        if icon_at(ui, rect, "composer-attach", &attach_strokes(), 1., true, "Allega un file").clicked() {
+            *picked = crate::pick::file("Allega un file", false);
+        }
+        // Voice and Send share one slot and cross-fade; the one fading out is inert.
+        let has_text = !(draft.trim().is_empty() && attachment.is_none());
+        let t = ui.ctx().animate_bool_with_time(egui::Id::new("composer-send-fade"), has_text, 0.15);
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
+        if t < 1. && icon_at(ui, rect, "composer-voice", &voice_strokes(), 1. - t, !has_text, "Nota vocale").clicked() {
+            *voice = Some(VoiceAct::Start);
+        }
+        if t > 0. && icon_at(ui, rect, "composer-send", &send_strokes(), t, has_text, "Invia").clicked() {
+            send_click = true;
+        }
     });
     if (enter || send_click) && (attachment.is_some() || !draft.trim().is_empty()) {
         return Some(std::mem::take(draft));
@@ -182,4 +190,70 @@ mod tests {
         assert_eq!(wrap(&mut t, 1, 1, "`"), (2, 2));
         assert_eq!(t, "a``b");
     }
+}
+
+// Glyph data of crates/matrix-desktop/src/composer_icons.rs (20x20 grid, painted at 1.2x, 1.6 px stroke); that file needs gpui, so it is copied here.
+type Strokes = Vec<Vec<egui::Pos2>>;
+
+fn arc(c: (f32, f32), r: f32, a0: f32, a1: f32) -> Vec<(f32, f32)> {
+    (0..=16).map(|i| { let a = a0 + (a1 - a0) * i as f32 / 16.; (c.0 + r * a.cos(), c.1 + r * a.sin()) }).collect()
+}
+
+fn pts(v: Vec<Vec<(f32, f32)>>) -> Strokes {
+    v.into_iter().map(|l| l.into_iter().map(|(x, y)| egui::pos2(x, y)).collect()).collect()
+}
+
+fn attach_strokes() -> Strokes {
+    use std::f32::consts::PI;
+    let mut clip = vec![(9., 12.), (9., 6.)];
+    clip.extend(arc((11., 6.), 2., PI, 2. * PI));
+    clip.push((13., 13.));
+    clip.extend(arc((10., 13.), 3., 0., PI));
+    clip.push((7., 7.));
+    pts(vec![clip])
+}
+
+fn voice_strokes() -> Strokes {
+    use std::f32::consts::PI;
+    let mut body = arc((10., 5.5), 2.5, PI, 2. * PI);
+    body.extend(arc((10., 9.), 2.5, 0., PI));
+    body.push((7.5, 5.5));
+    pts(vec![body, arc((10., 9.), 5.5, 0., PI), vec![(10., 14.5), (10., 17.5)], vec![(7., 17.5), (13., 17.5)]])
+}
+
+fn send_strokes() -> Strokes {
+    pts(vec![vec![(10., 16.), (10., 4.)], vec![(4.5, 9.5), (10., 4.), (15.5, 9.5)]])
+}
+
+fn poll_strokes() -> Strokes {
+    pts(vec![vec![(4., 5.), (14., 5.)], vec![(4., 10.), (16., 10.)], vec![(4., 15.), (10., 15.)]])
+}
+
+fn emoji_strokes() -> Strokes {
+    use std::f32::consts::PI;
+    pts(vec![arc((10., 10.), 7.5, 0., 2. * PI), vec![(7.5, 8.), (7.5, 9.)], vec![(12.5, 8.), (12.5, 9.)], arc((10., 10.), 4., 0.25 * PI, 0.75 * PI)])
+}
+
+/// Paints `lines` centred (bounding box) in `rect` at opacity `alpha`; clickable only when `active`.
+fn icon_at(ui: &mut egui::Ui, rect: egui::Rect, id: &str, lines: &Strokes, alpha: f32, active: bool, label: &str) -> egui::Response {
+    let resp = ui.interact(rect, egui::Id::new(id), if active { egui::Sense::click() } else { egui::Sense::hover() });
+    let resp = if active { resp.on_hover_text(label) } else { resp };
+    let all = || lines.iter().flatten();
+    let (mut lo, mut hi) = (egui::pos2(f32::MAX, f32::MAX), egui::pos2(f32::MIN, f32::MIN));
+    for p in all() {
+        lo = lo.min(*p);
+        hi = hi.max(*p);
+    }
+    let origin = rect.center() - (lo.to_vec2() + hi.to_vec2()) / 2. * 1.2;
+    let visuals = ui.visuals();
+    let base = if id == "composer-send" { visuals.hyperlink_color } else { visuals.widgets.inactive.fg_stroke.color };
+    let color = if resp.hovered() && active { visuals.strong_text_color() } else { base }.gamma_multiply(alpha);
+    let painter = ui.painter();
+    if resp.hovered() && active {
+        painter.rect_filled(rect, 6., visuals.widgets.hovered.weak_bg_fill.gamma_multiply(alpha));
+    }
+    for line in lines {
+        painter.add(egui::Shape::line(line.iter().map(|p| origin + p.to_vec2() * 1.2).collect(), egui::Stroke::new(1.6, color)));
+    }
+    resp
 }
