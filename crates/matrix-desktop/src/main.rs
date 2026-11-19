@@ -98,7 +98,7 @@ mod timeline_view;
 mod tray_view;
 mod verification_view;
 mod video_player;
-mod audio_player;
+use matrix_desktop::audio_player;
 use matrix_desktop::voice_recorder;
 use composer_view::{ComposerView, OpenPoll, Submitted};
 

@@ -7,6 +7,10 @@ use matrix_desktop::{DemoEvent, DesignTokens};
 #[derive(Default)]
 pub struct Acts {
     pub vote: Option<(matrix_domain::EventId, usize)>,
+    /// The play/pause button of a voice note was pressed.
+    pub play: Option<matrix_domain::EventId>,
+    /// Set by the app before drawing: the note being played (or loaded) and how far it is.
+    pub now_playing: Option<(matrix_domain::EventId, bool, f32)>,
 }
 
 pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::TextureHandle>;
@@ -73,6 +77,15 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, l
                             ui.label(RichText::new(&media.label).color(rgb(t.secondary)));
                         }
                     }
+                }
+                if let (Some(_), matrix_domain::TimelineId::Server(id)) = (&e.audio, &e.id.id) {
+                    let (playing, progress) = acts.now_playing.as_ref().filter(|(p, ..)| p == id).map_or((false, 0.), |(_, pl, pr)| (*pl, *pr));
+                    ui.horizontal(|ui| {
+                        if ui.button(if playing { "⏸" } else { "▶" }).clicked() {
+                            acts.play = Some(id.clone());
+                        }
+                        ui.add(egui::ProgressBar::new(progress).desired_width(140.).desired_height(8.));
+                    });
                 }
                 if let Some(name) = &e.attachment_name
                     && !e.redacted

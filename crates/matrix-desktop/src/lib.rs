@@ -128,6 +128,7 @@ pub use links::{
     LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links,
 };
 mod voice;
+pub mod audio_player;
 pub mod voice_recorder;
 pub use voice::{max_note_samples, voice_attachment};
 mod attachment_save;

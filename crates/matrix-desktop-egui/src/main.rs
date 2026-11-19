@@ -598,7 +598,7 @@ impl App {
             } else if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
             {
-                let mut acts = timeline::Acts::default();
+                let mut acts = timeline::Acts { now_playing: s.audio_now(), ..Default::default() };
                 let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &mut acts, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
@@ -609,6 +609,9 @@ impl App {
                 }
                 if let Some(root) = thread {
                     s.open_thread(root);
+                }
+                if let Some(id) = acts.play.take() {
+                    s.play_audio(id);
                 }
                 if let Some((id, ix)) = acts.vote {
                     s.vote(id, ix);

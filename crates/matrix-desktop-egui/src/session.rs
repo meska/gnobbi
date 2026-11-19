@@ -54,6 +54,8 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    /// The voice note being played; dropping the output stops the sound.
+    audio: Option<(EventId, matrix_desktop::audio_player::AudioOutput)>,
     /// A voice note being recorded (the microphone is open); `voice` is the note waiting to be sent with the next send.
     pub recorder: Option<matrix_desktop::voice_recorder::Recorder>,
     voice: Option<matrix_engine::sending::Voice>,
@@ -163,6 +165,7 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            audio: None,
             recorder: None,
             voice: None,
             reading: (false, false, true),
@@ -331,6 +334,19 @@ impl Session {
             self.notice = Some(if ok { "Salvato in Download".to_owned() } else { "Salvataggio non riuscito".to_owned() });
             changed = true;
         }
+        if let Some((id, result)) = self.media.take_audio() {
+            match result {
+                Ok(opened) => {
+                    let player = matrix_desktop::audio_player::Player::new(opened.samples, opened.sample_rate);
+                    match matrix_desktop::audio_player::AudioOutput::start(player) {
+                        Ok(out) => self.audio = Some((id, out)),
+                        Err(e) => self.notice = Some(e.to_owned()),
+                    }
+                }
+                Err(_) => self.notice = Some("Nota vocale non riproducibile".to_owned()),
+            }
+            changed = true;
+        }
         if let Some((tx, rx)) = &mut self.media_route {
             self.media.flush(tx);
             while let Ok(event) = rx.try_recv() {
@@ -354,6 +370,7 @@ impl Session {
             self.read_dirty = true;
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
             self.media.clear();
+            self.audio = None;
             self.pictures.clear();
             self.members = None;
             self.thread = None;
@@ -908,6 +925,26 @@ impl Session {
             }
             None => self.notice = Some("Nessun audio registrato".to_owned()),
         }
+    }
+
+    /// Play / pause of a voice note; the first press downloads and decodes it, which starts it.
+    pub fn play_audio(&mut self, id: EventId) {
+        if let Some((current, out)) = &self.audio
+            && *current == id
+        {
+            out.player().lock().unwrap_or_else(|e| e.into_inner()).toggle();
+        } else if let Some(scope) = self.draft_scope.clone() {
+            self.audio = None;
+            self.media.request_audio(scope, id);
+        }
+    }
+
+    /// (note, playing, progress) of the loaded note.
+    pub fn audio_now(&self) -> Option<(EventId, bool, f32)> {
+        let (id, out) = self.audio.as_ref()?;
+        let p = out.player();
+        let p = p.lock().unwrap_or_else(|e| e.into_inner());
+        Some((id.clone(), p.is_playing(), p.progress()))
     }
 
     pub fn status(&self) -> FormStatus {
