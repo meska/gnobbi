@@ -857,7 +857,16 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         FormStatus::Prompt(p) => Some(p),
         _ => None,
     };
-    let mode = prompt.map_or(SignInMode::UnlockVault, |p| p.mode);
+    // While no prompt is shown (login in flight, start-up) keep the flow of the last prompt and time the wait.
+    let (mode_id, since_id) = (egui::Id::new("signin_mode"), egui::Id::new("signin_wait"));
+    if let Some(p) = prompt {
+        ui.data_mut(|d| {
+            d.insert_temp(mode_id, p.mode);
+            d.remove::<std::time::Instant>(since_id);
+        });
+    }
+    let mode = prompt.map_or_else(|| ui.data(|d| d.get_temp(mode_id)).unwrap_or(SignInMode::UnlockVault), |p| p.mode);
+    let waited = prompt.is_none().then(|| ui.data_mut(|d| d.get_temp_mut_or_insert_with(since_id, std::time::Instant::now).elapsed()));
     let unlock = mode != SignInMode::Password;
     ui.heading(if unlock { "Sblocca Gnobbi" } else { "Accedi a Gnobbi" });
     ui.add_space(12.);
@@ -881,7 +890,10 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
             (SignInMode::UnlockVault, _) => {}
         }
     }
-    if let Some(message) = s.form.status().error_message() {
+    // The engine gives up on its own only after discovery succeeds: after 20 s say what the form already says for an unreachable server.
+    let stalled = waited.is_some_and(|w| w > std::time::Duration::from_secs(20));
+    let error = if stalled { FormStatus::Failed(matrix_engine::signin::SignInError::Discovery).error_message() } else { s.form.status().error_message() };
+    if let Some(message) = error {
         ui.colored_label(ui.visuals().error_fg_color, message);
         ui.add_space(8.);
     }
@@ -892,7 +904,10 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
             s.submit();
         }
     } else {
-        ui.spinner();
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label(if unlock { "Sblocco in corso…" } else { "Accesso in corso…" });
+        });
     }
 }
 
