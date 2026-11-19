@@ -117,8 +117,11 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
     selected
 }
 
-/// A member's card: name, id with the small copy icon, trust and the ignore switch. Returns `Some(ignore)` when it was flipped; `close` is set by the X.
-pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, rights: Option<&matrix_engine::operations::MemberRights>, failed: bool, confirm: &mut Option<&'static str>, moderation: &mut Option<matrix_engine::operations::Moderation>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
+#[derive(Clone, Copy)]
+pub enum ProfileAction { Message, Mention, Verify, ReadReceipt }
+
+/// A member's card; returns the new ignore state when flipped.
+pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, rights: Option<&matrix_engine::operations::MemberRights>, failed: bool, dm_failed: bool, me: bool, can_verify: bool, action: &mut Option<ProfileAction>, confirm: &mut Option<&'static str>, moderation: &mut Option<matrix_engine::operations::Moderation>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
     let mut flip = None;
     ui.add_space(16.);
     ui.horizontal(|ui| {
@@ -154,6 +157,15 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
                 Some(false) => ui.label(RichText::new("Non verificato").color(rgb(t.error))),
                 None => ui.label(""),
             };
+            if !me {
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Messaggio").clicked() { *action = Some(ProfileAction::Message); }
+                    if ui.button("Menziona").clicked() { *action = Some(ProfileAction::Mention); }
+                    if p.verified == Some(false) && ui.add_enabled(can_verify, egui::Button::new("Verifica")).clicked() { *action = Some(ProfileAction::Verify); }
+                    if rights.is_some_and(|r| r.read_receipt.is_some()) && ui.button("Ultima lettura").clicked() { *action = Some(ProfileAction::ReadReceipt); }
+                });
+                if dm_failed { ui.colored_label(rgb(t.error), "Chat non disponibile"); }
+            }
             ui.add_space(8.);
             let mut ignored = p.ignored;
             if crate::settings::switch(ui, "Ignora", &mut ignored, t) {

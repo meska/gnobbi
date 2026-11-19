@@ -537,6 +537,8 @@ impl Session {
             && self.sidebar.select(&scope)
         {
             self.pending_select = None;
+            self.profile = None;
+            self.info_open = false;
             changed = true;
         }
         // Opening or receiving in the room on screen: the read marker goes out once the newest message is in view (main only, so threads stay unread).
@@ -909,7 +911,12 @@ impl Session {
         self.op_queue.push(OperationCommand::Aliases { scope, action });
     }
 
+    pub fn mention_profile(&mut self, user_id: String, name: &str) {
+        append_profile_mention(&mut self.draft, &mut self.mentions, user_id, name);
+    }
+
     pub fn open_profile(&mut self, user_id: String) {
+        self.new_failed = false;
         self.rights = None;
         self.moderation_failed = false;
         if let Some(scope) = self.draft_scope.clone() {
@@ -1192,6 +1199,24 @@ impl Session {
 
 fn recovery_open(state: Option<RecoveryState>) -> bool {
     matches!(state, Some(RecoveryState::Offered | RecoveryState::Pending | RecoveryState::Failed(_) | RecoveryState::Unsupported))
+}
+
+fn append_profile_mention(draft: &mut String, mentions: &mut Vec<matrix_engine::sending::Mention>, user_id: String, name: &str) {
+    if !draft.is_empty() && !draft.ends_with(char::is_whitespace) { draft.push(' '); }
+    let label = format!("@{}", name.trim_start_matches('@'));
+    draft.push_str(&label);
+    draft.push(' ');
+    mentions.push(matrix_engine::sending::Mention { user_id, label });
+}
+
+#[test]
+fn profile_mention_preserves_draft_and_user() {
+    let mut draft = "Ciao".to_owned();
+    let mut mentions = Vec::new();
+    append_profile_mention(&mut draft, &mut mentions, "@alice:example.org".into(), "@Àlice");
+    assert_eq!(draft, "Ciao @Àlice ");
+    assert_eq!(mentions[0].user_id, "@alice:example.org");
+    assert_eq!(mentions[0].label, "@Àlice");
 }
 
 /// Room-directory answers name their term (engine `SearchState`): one for a term no longer typed is stale.

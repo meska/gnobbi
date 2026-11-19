@@ -689,9 +689,36 @@ impl App {
             && s.info_open
             && let Some((id, profile)) = s.profile.clone()
         {
-            let (mut close, mut flip, mut moderation) = (false, None, None);
+            let (mut close, mut flip, mut moderation, mut action) = (false, None, None, None);
             let (rights, failed) = (s.rights.clone(), s.moderation_failed);
-            egui::Panel::right("member").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, &mut self.confirm, &mut moderation, &mut close, t));
+            let me = id == s.user;
+            let can_verify = s.verification.as_ref().is_some_and(|v| v.can_begin());
+            egui::Panel::right("member").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t));
+            match action {
+                Some(info::ProfileAction::Message) => s.start_dm(id.clone()),
+                Some(info::ProfileAction::Mention) => {
+                    if let Some(p) = &profile {
+                        s.mention_profile(id.clone(), &p.name);
+                        let composer = egui::Id::unique("composer-text");
+                        let mut state = egui::TextEdit::load_state(ui.ctx(), composer).unwrap_or_default();
+                        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(s.draft.chars().count()))));
+                        state.store(ui.ctx(), composer);
+                        ui.ctx().memory_mut(|m| m.request_focus(composer));
+                        s.info_open = false;
+                        close = true;
+                    }
+                }
+                Some(info::ProfileAction::Verify) => { if let Some(v) = &mut s.verification { v.begin_user(id.clone()); } }
+                Some(info::ProfileAction::ReadReceipt) => {
+                    if let Some(event) = rights.as_ref().and_then(|r| r.read_receipt.as_ref()) {
+                        s.search_jump = Some((matrix_domain::EventId::new(event), false));
+                        s.notice = None;
+                        s.info_open = false;
+                        close = true;
+                    }
+                }
+                None => {}
+            }
             if let Some(action) = moderation {
                 s.moderate(id.clone(), action);
             }
