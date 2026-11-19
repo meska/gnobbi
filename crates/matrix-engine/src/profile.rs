@@ -3,7 +3,7 @@
 use image::GenericImageView;
 use std::{io::Read, path::PathBuf, time::Duration};
 
-/// Synapse and Tuwunel both refuse longer names (400); counted in characters.
+/// Synapse refuses longer names (400), Tuwunel accepts them; we cap for both. Counted in characters.
 pub const MAX_NAME_CHARS: usize = 256;
 /// Side of the square picture uploaded (smaller pictures keep their size) and of the preview.
 pub const AVATAR_SIDE: u32 = 512;
