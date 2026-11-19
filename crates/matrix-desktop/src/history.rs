@@ -164,6 +164,10 @@ impl DemoHistory {
             .map(|e| e.id.clone())
     }
 
+    pub fn scope(&self) -> &RoomScope {
+        &self.scope
+    }
+
     pub fn new(scope: RoomScope, count: usize) -> Self {
         let events = (0..count)
             .map(|index| {
