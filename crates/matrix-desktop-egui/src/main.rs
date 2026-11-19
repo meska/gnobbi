@@ -948,6 +948,25 @@ fn single_instance_gate(_link: Option<String>) {
 #[cfg(not(any(target_os = "linux", windows)))]
 fn single_instance_gate(_link: Option<String>) {}
 
+/// Linux: the bundled Noto Color Emoji (SIL OFL 1.1, see THIRD_PARTY_NOTICES.md) as the last fallback, so the emoji set is the
+/// same on every system. macOS and Windows keep their own emoji font (system_fonts).
+fn register_emoji_font(ctx: &egui::Context) {
+    #[cfg(target_os = "linux")]
+    {
+        static NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../matrix-desktop/assets/fonts/NotoColorEmoji.ttf");
+        ctx.add_font(egui::epaint::text::FontInsert::new(
+            "noto-color-emoji",
+            egui::FontData::from_static(NOTO_COLOR_EMOJI),
+            vec![
+                egui::epaint::text::InsertFontFamily { family: egui::FontFamily::Proportional, priority: egui::epaint::text::FontPriority::Lowest },
+                egui::epaint::text::InsertFontFamily { family: egui::FontFamily::Monospace, priority: egui::epaint::text::FontPriority::Lowest },
+            ],
+        ));
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = ctx;
+}
+
 fn main() -> eframe::Result {
     // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
     let (args, raw_link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
@@ -997,7 +1016,10 @@ fn main() -> eframe::Result {
             .with_app_id(APP_ID),
         ..Default::default()
     };
-    eframe::run_native(TITLE, options, Box::new(move |_| Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))))
+    eframe::run_native(TITLE, options, Box::new(move |cc| {
+        register_emoji_font(&cc.egui_ctx);
+        Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))
+    }))
 }
 
 #[cfg(test)]
