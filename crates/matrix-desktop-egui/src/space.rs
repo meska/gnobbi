@@ -36,12 +36,21 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
     let Some(scope) = session.sidebar.active_space().cloned() else { return };
     let can_edit = session.sidebar.spaces().any(|r| r.scope == scope && r.info.edit_rights.any());
     let resp = dots(ui, t, "Menu spazio");
+    if resp.clicked() {
+        session.space_facts_for(scope.clone());
+    }
     let mut popup = egui::Popup::menu(&resp);
     // Test hook: GNOBBI_EGUI_VIEW=sp-menu shows the menu without a click.
     if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("sp-menu") {
         popup = popup.open(true);
     }
     popup.show(|ui| {
+        // Opened by the keyboard or the hook: the click above did not ask.
+        if !session.space_facts.as_ref().is_some_and(|(s, _)| *s == scope) {
+            session.space_facts_for(scope.clone());
+        }
+        // Unknown yet (or the engine failed): not offered, no line.
+        let block = session.space_facts.as_ref().and_then(|(_, c)| c.as_ref()).map(|c| leave_block(session.sidebar.rooms(), &scope, c));
         if ui.button("Info spazio").clicked() {
             session.open_space(scope.clone(), false);
             ui.close();
@@ -54,7 +63,42 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
             session.open_edit_of(&scope);
             ui.close();
         }
+        if ui.add_enabled(block == Some(None) && !session.sidebar.space_leaving(), egui::Button::new("Esci dallo spazio")).clicked() {
+            session.space_exit = Some((scope.clone(), false));
+            ui.close();
+        }
+        if let Some(Some(why)) = block {
+            ui.add(egui::Label::new(RichText::new(why.line()).size(12.).color(rgb(t.secondary))).extend());
+        }
     });
+}
+
+/// Confirmation of «Esci dallo spazio»: the name, the «Dimentica» switch, the two buttons.
+pub fn exit_window(ctx: &egui::Context, session: &mut crate::session::Session, t: &DesignTokens) {
+    let Some((scope, forget)) = &mut session.space_exit else { return };
+    // Left or removed meanwhile: nothing to confirm.
+    let Some(space) = session.sidebar.spaces().find(|r| r.scope == *scope) else {
+        session.space_exit = None;
+        return;
+    };
+    let (mut leave, mut cancel) = (false, false);
+    egui::Window::new("Esci dallo spazio").id(egui::Id::new("space-exit")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        ui.set_width(340.);
+        ui.add(egui::Label::new(RichText::new(&space.name).strong()).truncate());
+        ui.add_space(4.);
+        crate::settings::switch(ui, "Dimentica", forget, t);
+        ui.add_space(8.);
+        ui.horizontal(|ui| {
+            leave = ui.button(RichText::new("Esci").color(rgb(t.error))).clicked();
+            cancel = ui.button("Annulla").clicked();
+        });
+    });
+    if leave || cancel {
+        let (scope, forget) = session.space_exit.take().expect("checked above");
+        if leave {
+            session.leave_space(scope, forget);
+        }
+    }
 }
 
 /// Why «Esci dallo spazio» is not offered; `line` is the one line shown, nothing else.

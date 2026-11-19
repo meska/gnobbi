@@ -540,7 +540,21 @@ impl App {
                 if s.sidebar.active_space().is_none() && first.is_some() {
                     s.sidebar.set_space(first);
                 }
-                if page != "menu" && s.space_view.is_none() && let Some(scope) = s.sidebar.active_space().cloned() {
+                // «sp-exit»: the confirmation window once the space may be left; GNOBBI_EGUI_CONFIRM=forget|keep confirms it, once.
+                if page == "exit" && !self.hook_member && let Some(scope) = s.sidebar.active_space().cloned() {
+                    match &s.space_facts {
+                        None => s.space_facts_for(scope),
+                        Some((_, Some(c))) if space::leave_block(s.sidebar.rooms(), &scope, c).is_none() => {
+                            self.hook_member = true;
+                            match std::env::var("GNOBBI_EGUI_CONFIRM") {
+                                Ok(how) => s.leave_space(scope, how == "forget"),
+                                Err(_) => s.space_exit = Some((scope, false)),
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                if !matches!(page, "menu" | "exit") && s.space_view.is_none() && let Some(scope) = s.sidebar.active_space().cloned() {
                     s.open_space(scope, page == "members");
                 }
                 if page == "add" && let Some(v) = &mut s.space_view && matches!(v.children, Some(Ok(_))) && v.adding.is_none() {
@@ -958,6 +972,7 @@ impl App {
         if let Some(s) = &mut self.session {
             list::space_picker(ui.ctx(), s);
             space::window(ui.ctx(), s, t);
+            space::exit_window(ui.ctx(), s, t);
             members::windows(ui.ctx(), s, t);
         }
         if let Some(s) = &mut self.session

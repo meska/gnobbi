@@ -72,6 +72,10 @@ pub struct Session {
     pub space_pick: Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>,
     /// Window of the selected space («Info spazio» / «Membri»).
     pub space_view: Option<crate::space::SpaceView>,
+    /// What «Esci dallo spazio» is judged on, for the space whose «⋮» was opened last; `None` inside until the engine answers.
+    pub space_facts: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChildren>)>,
+    /// «Esci dallo spazio» window: the space and the «Dimentica» switch.
+    pub space_exit: Option<(matrix_domain::RoomScope, bool)>,
     /// Rights and banned users of the member list on screen.
     pub admin: Option<crate::members::Admin>,
     history: HistorySession,
@@ -309,6 +313,8 @@ impl Session {
             space_choices: None,
             space_pick: None,
             space_view: None,
+            space_facts: None,
+            space_exit: None,
             admin: None,
             sync: None,
             homeserver: String::new(),
@@ -753,6 +759,7 @@ impl Session {
                 OperationResult::TagsEdited { result } => { self.sidebar.tag_done(result.clone()); self.room_error = self.sidebar.tag_error().map(str::to_owned); changed = true; continue; }
                 OperationResult::NotificationModeSet { result, .. } => { self.sidebar.mode_done(result.clone()); self.room_error = self.sidebar.mode_error().map(str::to_owned); changed = true; continue; }
                 OperationResult::RoomLeft { scope, result } => { self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
+                OperationResult::SpaceLeft { scope, result, .. } => { self.sidebar.space_left(scope, result.clone().map(drop)); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
                 OperationResult::SpaceChoices { scope, result } => {
                     if let (Some((asked, slot)), Ok(choices)) = (&mut self.space_choices, result) && asked == scope { *slot = Some(choices.clone()); }
                     changed = true;
@@ -760,6 +767,7 @@ impl Session {
                 }
                 OperationResult::SpaceChildren { scope, result } => {
                     if let Some(v) = &mut self.space_view && &v.scope == scope { v.children = Some(result.clone().map_err(|_| ())); }
+                    if let (Some((asked, slot)), Ok(c)) = (&mut self.space_facts, result) && asked == scope { *slot = Some(c.clone()); }
                     changed = true;
                     continue;
                 }
@@ -1065,6 +1073,19 @@ impl Session {
         let Some(room) = self.sidebar.rooms().iter().find(|r| &r.scope == scope) else { return };
         let (name, topic) = (room.name.clone(), room.info.topic.clone().unwrap_or_default());
         self.edit = Some(RoomEdit { name: name.clone(), topic: topic.clone(), avatar: None, failed: false, busy: false, scope: scope.clone(), original: (name, topic) });
+    }
+
+    /// «⋮» of the space was opened: asks again what «Esci dallo spazio» depends on; the last answer for the same space stays meanwhile.
+    pub fn space_facts_for(&mut self, scope: matrix_domain::RoomScope) {
+        let known = self.space_facts.take().filter(|(s, _)| *s == scope).and_then(|(_, c)| c);
+        self.op_queue.push(OperationCommand::SpaceChildren { scope: scope.clone() });
+        self.space_facts = Some((scope, known));
+    }
+
+    /// «Esci» of the confirmation window; one leave at a time.
+    pub fn leave_space(&mut self, scope: matrix_domain::RoomScope, forget: bool) {
+        self.room_error = None;
+        if self.sidebar.begin_space_leave(scope.clone()) { self.op_queue.push(crate::space::leave_command(scope, forget)); }
     }
 
     /// Opens the space window on its rooms or on its members and asks the engine for that list.
