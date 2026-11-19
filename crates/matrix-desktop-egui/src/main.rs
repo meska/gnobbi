@@ -220,7 +220,10 @@ impl App {
                     let found = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == target || r.info.aliases.iter().any(|a| a == target)).map(|r| r.scope.clone());
                     match found {
                         Some(scope) => drop(s.sidebar.select(&scope)),
-                        None => eprintln!("Gnobbi: matrix link to a room we are not in"),
+                        None => {
+                            s.new_open = true;
+                            self.new_form.prefill_join(target);
+                        }
                     }
                 }
                 MatrixLink::User { user_id } => {

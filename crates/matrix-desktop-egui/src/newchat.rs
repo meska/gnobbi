@@ -12,6 +12,15 @@ pub struct Form {
     target: String,
 }
 
+impl Form {
+    /// A `matrix:` link to a room we are not in: the «Unisciti» tab with its address; nothing is joined until the user clicks.
+    // shortcut: the link's `via` servers are not passed on, so the join goes through the user's own server only.
+    pub fn prefill_join(&mut self, target: &str) {
+        self.tab = 2;
+        self.target = target.to_owned();
+    }
+}
+
 pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_desktop::DesignTokens) {
     let mut open = true;
     egui::Window::new("Nuova chat").open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
