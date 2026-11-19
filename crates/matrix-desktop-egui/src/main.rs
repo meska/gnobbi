@@ -642,7 +642,12 @@ impl App {
             && s.search_open
         {
             let state = s.search.clone();
-            egui::Panel::right("search").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| info::search(ui, &mut s.search_term, &state, t));
+            let mut selected = None;
+            egui::Panel::right("search").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, t));
+            if selected.is_some() {
+                s.search_jump = selected;
+                s.notice = None;
+            }
         }
         if let Some(s) = &mut self.session
             && let Some(mut th) = s.thread.take()
@@ -666,13 +671,17 @@ impl App {
                 let mut drop_file = false;
                 let mut open_poll = false;
                 let mut picked_file = None;
+                let mut pasted_image = None;
                 let mut voice_act = None;
                 let name = s.attachment.as_ref().map(|(n, _)| n.clone());
                 if let Some(notice) = &s.notice {
                     ui.label(notice);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
-                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, s.recorder.as_ref().map(|r| r.elapsed_secs()), &mut voice_act, &members, &mut s.mentions);
+                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, s.recorder.as_ref().map(|r| r.elapsed_secs()), &mut voice_act, &members, &mut s.mentions);
+                if let Some(image) = pasted_image {
+                    s.attach_image(&image);
+                }
                 if drop_file {
                     s.attachment = None;
                 }
@@ -770,7 +779,11 @@ impl App {
                 && let Some(messages) = &s.messages
             {
                 let mut acts = timeline::Acts { now_playing: s.audio_now(), ..Default::default() };
-                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
+                let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
+                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t, jump);
+                if jump.is_some() && let Some((root, open_thread)) = s.search_jump.take() {
+                    if open_thread { s.open_thread(root); }
+                }
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);

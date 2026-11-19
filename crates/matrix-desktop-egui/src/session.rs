@@ -106,6 +106,7 @@ pub struct Session {
     pub search_term: String,
     search_sent: String,
     pub search: matrix_engine::operations::MessageSearchState,
+    pub search_jump: Option<(EventId, bool)>,
     media: LiveMedia,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
     /// Thumbnails of the open room's pictures and videos, by event.
@@ -215,6 +216,7 @@ impl Session {
             search_term: String::new(),
             search_sent: String::new(),
             search: matrix_engine::operations::MessageSearchState::Idle,
+            search_jump: None,
             media: LiveMedia::default(),
             media_route,
             pictures: Default::default(),
@@ -425,6 +427,7 @@ impl Session {
             self.thread = None;
             self.upload_limit = None;
             self.search_sent.clear();
+            self.search_jump = None;
             self.search = matrix_engine::operations::MessageSearchState::Idle;
             self.heights = Default::default();
             self.pending = Some(request);
@@ -465,8 +468,15 @@ impl Session {
         if self.pending.is_none() {
             self.pending = self.history.refresh();
         }
+        if self.search_jump.is_some() && matches!(self.history.status(), matrix_desktop::HistoryStatus::Start | matrix_desktop::HistoryStatus::Failed) {
+            let found = self.search_jump.as_ref().is_some_and(|(id, _)| self.messages.as_ref().is_some_and(|m| m.events().iter().any(|e| e.id.id == TimelineId::Server(id.clone()))));
+            if !found {
+                self.search_jump = None;
+                self.notice = Some("Messaggio non disponibile".to_owned());
+            }
+        }
         if self.pending.is_none() && self.messages.is_some() {
-            self.pending = self.history.load_older_near_top(self.first_visible);
+            self.pending = self.history.load_older_near_top(if self.search_jump.is_some() { 0 } else { self.first_visible });
         }
         if let (Some(request), Some((tx, _))) = (self.pending.take(), &mut self.route) {
             if let Err(e) = tx.try_send(request) {
@@ -859,6 +869,17 @@ impl Session {
                 self.notice = None;
             }
             _ => self.notice = Some("File non allegabile".to_owned()),
+        }
+    }
+
+    pub fn attach_image(&mut self, image: &egui::ColorImage) {
+        match crate::composer::pasted_png(image).filter(|data| !data.is_empty() && data.len() as u64 <= self.upload_limit.unwrap_or(50 << 20)) {
+            Some(data) => {
+                self.attachment = Some(("Immagine.png".to_owned(), data));
+                self.voice = None;
+                self.notice = None;
+            }
+            None => self.notice = Some("Immagine non allegabile".to_owned()),
         }
     }
 

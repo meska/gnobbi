@@ -244,7 +244,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     let mut menu = None;
     let mut save = None;
     let mut thread = None;
@@ -262,7 +262,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
         for (i, e) in events.iter().enumerate() {
             let h = heights.rows[i];
             let gap = if history.continues_series(i) { TIGHT } else { GAP };
-            if y + h < view.min.y - 400. || y > view.max.y + 400. {
+            if jump != Some(i) && (y + h < view.min.y - 400. || y > view.max.y + 400.) {
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
@@ -277,6 +277,10 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                     save = Some((id.clone(), name.clone()));
                 }
                 heights.rows[i] = ui.cursor().top() - top;
+                if jump == Some(i) {
+                    let rect = egui::Rect::from_min_max(egui::pos2(ui.min_rect().left(), top), egui::pos2(ui.min_rect().right(), ui.cursor().top()));
+                    ui.scroll_to_rect(rect, Some(Align::Center));
+                }
                 ui.add_space(gap);
             }
             if !seen_first && y + h >= view.min.y {

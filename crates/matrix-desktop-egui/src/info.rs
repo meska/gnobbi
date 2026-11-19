@@ -64,8 +64,9 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
     out
 }
 
-/// Message search of the open room: term box and hits (a hit cannot be jumped to yet: the timeline only holds what was paged in).
-pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::operations::MessageSearchState, t: &DesignTokens) {
+/// Message search of the open room.
+pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::operations::MessageSearchState, t: &DesignTokens) -> Option<(matrix_domain::EventId, bool)> {
+    let mut selected = None;
     use matrix_engine::operations::MessageSearchState as S;
     ui.add_space(12.);
     ui.horizontal(|ui| {
@@ -89,19 +90,23 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 for h in hits {
                     ui.add_space(6.);
-                    ui.horizontal(|ui| {
+                    let response = ui.horizontal(|ui| {
                         ui.add_space(12.);
                         ui.vertical(|ui| {
                             ui.set_max_width(ui.available_width() - 12.);
                             ui.label(RichText::new(&h.sender_name).strong().size(12.).color(rgb(t.accent)));
                             ui.label(&h.excerpt);
                         });
-                    });
+                    }).response.interact(egui::Sense::click());
+                    if response.clicked() {
+                        selected = Some((matrix_domain::EventId::new(h.thread_root.as_deref().unwrap_or(&h.event_id)), h.thread_root.is_some()));
+                    }
                     ui.separator();
                 }
             });
         }
     }
+    selected
 }
 
 /// A member's card: name, id with the small copy icon, trust and the ignore switch. Returns `Some(ignore)` when it was flipped; `close` is set by the X.

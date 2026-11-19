@@ -18,7 +18,7 @@ pub enum Mode {
 }
 
 /// Returns the text to send when Enter was pressed on a non-empty draft; `cancel` is set by the X of the mode bar.
-pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     let enter = ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
     if mode != Mode::Send {
@@ -58,6 +58,12 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
         let w = ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 12.;
         let id = egui::Id::new("composer-text");
+        if ui.memory(|m| m.has_focus(id)) {
+            *pasted = ui.input(|i| i.events.iter().find_map(|e| match e {
+                egui::Event::PasteImage(image) => Some(image.as_ref().clone()),
+                _ => None,
+            }));
+        }
         format_shortcuts(ui, id, draft);
         let out = egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).show(ui);
         mention_popup(ui, id, &out, draft, members, mentions);
@@ -101,6 +107,16 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         return Some(std::mem::take(draft));
     }
     None
+}
+
+pub fn pasted_png(image: &egui::ColorImage) -> Option<Vec<u8>> {
+    use image::ImageEncoder;
+    let width = u32::try_from(image.size[0]).ok()?;
+    let height = u32::try_from(image.size[1]).ok()?;
+    let rgba: Vec<u8> = image.pixels.iter().flat_map(|p| p.to_srgba_unmultiplied()).collect();
+    let mut png = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png).write_image(&rgba, width, height, image::ExtendedColorType::Rgba8).ok()?;
+    Some(png)
 }
 
 /// «@name»: members matching what is typed after the `@` before the cursor; a click (or Tab) puts «@Name » in the text
@@ -180,6 +196,16 @@ fn wrap(text: &mut String, a: usize, b: usize, mark: &str) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::wrap;
+
+    #[test]
+    fn pasted_image_is_a_png_with_unpremultiplied_alpha() {
+        let image = eframe::egui::ColorImage::from_rgba_unmultiplied([1, 1], &[200, 100, 50, 128]);
+        let png = super::pasted_png(&image).unwrap();
+        let decoded = image::load_from_memory(&png).unwrap().to_rgba8();
+        assert_eq!(decoded.dimensions(), (1, 1));
+        assert_eq!(decoded.as_raw()[3], 128);
+        assert!((decoded.as_raw()[0] as i16 - 200).abs() <= 1);
+    }
 
     #[test]
     fn wraps_selection_and_empty_cursor_by_chars() {
