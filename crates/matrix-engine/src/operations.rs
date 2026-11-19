@@ -168,6 +168,20 @@ pub struct SpaceChildren {
     pub editable: bool,
     /// The user is the last owner of the space (SDK leave handle); false when unknown.
     pub last_owner: bool,
+    /// Joined and invited members besides the user, from the room summary (what «Elimina spazio» would kick).
+    pub other_members: u64,
+}
+
+/// What «Elimina spazio» did; every step is tried on its own and reported, none is silent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceDeleted {
+    pub unlinked: usize,
+    pub unlink_failed: usize,
+    pub kicked: usize,
+    /// Display names of the members that could not be kicked (or `None` when the member list was not readable).
+    pub kick_failed: Option<Vec<String>>,
+    /// `None` = the space was not left because members remain (the user can run it again).
+    pub left: Option<Result<bool, OperationError>>,
 }
 
 /// The one line the UI shows when adding to or removing from a space failed.
@@ -285,6 +299,10 @@ pub enum OperationCommand {
     LeaveSpace {
         scope: RoomScope,
         forget: bool,
+    },
+    /// «Elimina spazio» (soft delete, Matrix has no real one): unlink the children, kick the members, leave and forget.
+    DeleteSpace {
+        scope: RoomScope,
     },
     /// Answer to an invitation, only on the user's click: accept joins, reject leaves (both SDK).
     AnswerInvite {
@@ -417,6 +435,10 @@ pub enum OperationResult {
         scope: RoomScope,
         is_last_owner: Option<bool>,
         result: Result<bool, OperationError>,
+    },
+    SpaceDeleted {
+        scope: RoomScope,
+        result: Result<SpaceDeleted, OperationError>,
     },
     UserSearch {
         state: SearchState,
@@ -1070,6 +1092,47 @@ pub async fn leave_space(
     (is_last_owner, Ok(forgot))
 }
 
+/// «Elimina spazio»: only for the last owner who may edit the space (rechecked here). Standard calls only:
+/// `remove_from_space` for every child (the rooms stay), a kick for every other member, then `leave_space` with
+/// forget. A failed step is counted, not fatal; with members left over the space is NOT left (no orphan without admin).
+#[cfg(feature = "sdk")]
+pub async fn delete_space(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+) -> Result<SpaceDeleted, OperationError> {
+    use matrix_sdk::RoomMemberships;
+    let facts = space_children(client, account, scope).await?;
+    if !facts.last_owner || !facts.editable {
+        return Err(OperationError::Forbidden);
+    }
+    let (mut unlinked, mut unlink_failed) = (0, 0);
+    for child in &facts.children {
+        match remove_from_space(client, account, &child.scope, scope).await {
+            Ok(()) => unlinked += 1,
+            Err(_) => unlink_failed += 1,
+        }
+    }
+    let me = client.user_id().ok_or(OperationError::Unavailable)?;
+    let room = client.get_room(&room_id_of(account, scope)?).filter(|r| r.state() == matrix_sdk::RoomState::Joined).ok_or(OperationError::Unavailable)?;
+    let people = tokio::time::timeout(std::time::Duration::from_secs(15), room.members(RoomMemberships::JOIN | RoomMemberships::INVITE)).await;
+    let (mut kicked, mut failed) = (0, Vec::new());
+    let kick_failed = match people {
+        Ok(Ok(people)) => {
+            for m in people.iter().filter(|m| m.user_id() != me) {
+                match moderate(client, account, scope, m.user_id().as_str(), &Moderation::Kick).await {
+                    Ok(()) => kicked += 1,
+                    Err(_) => failed.push(m.display_name().map_or_else(|| m.user_id().to_string(), str::to_owned)),
+                }
+            }
+            Some(failed)
+        }
+        _ => None,
+    };
+    let left = if kick_failed.as_ref().is_some_and(Vec::is_empty) { Some(leave_space(client, account, scope, true).await.1) } else { None };
+    Ok(SpaceDeleted { unlinked, unlink_failed, kicked, kick_failed, left })
+}
+
 #[cfg(feature = "sdk")]
 pub(crate) enum Membership {
     Joined,
@@ -1375,7 +1438,7 @@ pub async fn space_children(
         Err(_) => false,
     };
     let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
-    let list = service.space_room_list(id).await;
+    let list = service.space_room_list(id.clone()).await;
     // Bounded: a huge space stops at 50 pages rather than holding the command task.
     for _ in 0..50 {
         tokio::time::timeout(std::time::Duration::from_secs(20), list.paginate())
@@ -1397,7 +1460,16 @@ pub async fn space_children(
             joined: r.state == Some(matrix_sdk::RoomState::Joined),
         })
         .collect();
-    Ok(SpaceChildren { children, editable, last_owner })
+    // The member list, not the sync summary counts (Synapse leaves them stale for a while); unknown reads as 0.
+    let other_members = match client.get_room(&id) {
+        Some(r) => tokio::time::timeout(std::time::Duration::from_secs(10), r.members(matrix_sdk::RoomMemberships::JOIN | matrix_sdk::RoomMemberships::INVITE))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .map_or(0, |m| m.iter().filter(|m| Some(m.user_id()) != client.user_id()).count() as u64),
+        None => 0,
+    };
+    Ok(SpaceChildren { children, editable, last_owner, other_members })
 }
 
 /// Spaces that can take `room` and spaces that already hold it. The SDK graph is rebuilt on each call, so

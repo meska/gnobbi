@@ -768,6 +768,10 @@ impl RoomListWorker {
                                         crate::operations::leave_space(&operation_client, account, &scope, forget).await;
                                     OperationResult::SpaceLeft { scope, is_last_owner, result }
                                 }
+                                OperationCommand::DeleteSpace { scope } => {
+                                    let result = crate::operations::delete_space(&operation_client, account, &scope).await;
+                                    OperationResult::SpaceDeleted { scope, result }
+                                }
                                 OperationCommand::AnswerInvite { scope, accept } => {
                                     let result = crate::operations::answer_invite(
                                         &operation_client,

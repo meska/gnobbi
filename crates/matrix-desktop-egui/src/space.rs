@@ -13,6 +13,8 @@ pub struct SpaceView {
     pub members: Option<Vec<Member>>,
     /// «Aggiungi stanza esistente» is open, with the room picked so far.
     pub adding: Option<Option<RoomScope>>,
+    /// The members page offers «Rendi amministratore» (opened by «Passa il ruolo di amministratore…»).
+    pub promote: bool,
 }
 
 /// Three dots, drawn: the glyph is missing from the macOS system font.
@@ -63,12 +65,22 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
             session.open_edit_of(&scope);
             ui.close();
         }
+        let facts = session.space_facts.as_ref().and_then(|(_, c)| c.as_ref());
+        let (promote, delete) = (facts.is_some_and(can_promote), facts.is_some_and(can_delete));
+        if promote && ui.button("Passa il ruolo di amministratore…").clicked() {
+            session.open_promote(scope.clone());
+            ui.close();
+        }
         if ui.add_enabled(block == Some(None) && !session.sidebar.space_leaving(), egui::Button::new("Esci dallo spazio")).clicked() {
             session.space_exit = Some((scope.clone(), false));
             ui.close();
         }
         if let Some(Some(why)) = block {
             ui.add(egui::Label::new(RichText::new(why.line()).size(12.).color(rgb(t.secondary))).extend());
+        }
+        if delete && ui.add_enabled(!session.space_deleting, egui::Button::new(RichText::new("Elimina spazio").color(rgb(t.error)))).clicked() {
+            session.space_delete = Some((scope.clone(), String::new()));
+            ui.close();
         }
     });
 }
@@ -98,6 +110,99 @@ pub fn exit_window(ctx: &egui::Context, session: &mut crate::session::Session, t
         if leave {
             session.leave_space(scope, forget);
         }
+    }
+}
+
+/// «Elimina spazio»: only the last admin who may edit the space (the engine checks again).
+pub fn can_delete(c: &SpaceChildren) -> bool {
+    c.last_owner && c.editable
+}
+
+/// «Passa il ruolo di amministratore…»: only while the user is the last admin and someone else is in.
+pub fn can_promote(c: &SpaceChildren) -> bool {
+    c.last_owner && c.other_members > 0
+}
+
+/// The typed name has to be the space's own (surrounding blanks ignored, case kept).
+pub fn name_confirmed(typed: &str, name: &str) -> bool {
+    !name.trim().is_empty() && typed.trim() == name.trim()
+}
+
+/// Who may be made admin: joined members except the user. Invited members are not in the engine's list;
+/// Matrix has no standard bot flag, so bots cannot be told apart. shortcut: bots listed like people, upgrade if a flag appears.
+pub fn admin_candidates<'a>(members: &'a [Member], me: &str) -> Vec<&'a Member> {
+    members.iter().filter(|m| m.user_id != me).collect()
+}
+
+/// Window of «Elimina spazio»: consequences, the name to type, the red button. Then the report of what was done.
+pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session, t: &DesignTokens) {
+    if let Some((name, result)) = &session.space_report {
+        let mut close = false;
+        egui::Window::new("Elimina spazio").id(egui::Id::new("space-report")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+            ui.set_width(340.);
+            ui.add(egui::Label::new(RichText::new(name).strong()).truncate());
+            match result {
+                Err(_) => drop(ui.colored_label(rgb(t.error), "Non riuscito, nessuna modifica garantita: riprova")),
+                Ok(d) => {
+                    ui.label(format!("Stanze scollegate: {}", d.unlinked));
+                    if d.unlink_failed > 0 {
+                        ui.colored_label(rgb(t.error), format!("Stanze non scollegate: {}", d.unlink_failed));
+                    }
+                    ui.label(format!("Membri espulsi: {}", d.kicked));
+                    match &d.kick_failed {
+                        None => drop(ui.colored_label(rgb(t.error), "Elenco dei membri non letto")),
+                        Some(f) if !f.is_empty() => drop(ui.colored_label(rgb(t.error), format!("Non espulsi: {}", f.join(", ")))),
+                        Some(_) => {}
+                    }
+                    match &d.left {
+                        Some(Ok(_)) => drop(ui.label("Spazio lasciato e dimenticato")),
+                        Some(Err(_)) => drop(ui.colored_label(rgb(t.error), "Spazio non lasciato: riprova")),
+                        None => drop(ui.colored_label(rgb(t.error), "Spazio non lasciato: restano dei membri")),
+                    }
+                }
+            }
+            ui.add_space(8.);
+            close = ui.button("Chiudi").clicked();
+        });
+        if close {
+            session.space_report = None;
+        }
+        return;
+    }
+    let Some((scope, typed)) = &mut session.space_delete else { return };
+    let Some(space) = session.sidebar.spaces().find(|r| r.scope == *scope) else {
+        session.space_delete = None;
+        return;
+    };
+    let facts = session.space_facts.as_ref().filter(|(s, _)| s == scope).and_then(|(_, c)| c.as_ref());
+    let (rooms, people) = facts.map_or((0, 0), |c| (c.children.len(), c.other_members));
+    let (mut go, mut cancel) = (false, false);
+    let busy = session.space_deleting;
+    egui::Window::new("Elimina spazio").id(egui::Id::new("space-delete")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        ui.set_width(340.);
+        ui.add(egui::Label::new(RichText::new(&space.name).strong()).truncate());
+        ui.add_space(4.);
+        ui.label(format!("Membri che verranno espulsi: {people}"));
+        ui.label(format!("Stanze scollegate (restano esistenti): {rooms}"));
+        ui.colored_label(rgb(t.error), "Azione irreversibile");
+        ui.add_space(4.);
+        ui.add_enabled(!busy, egui::TextEdit::singleline(typed).hint_text(space.name.as_str()).desired_width(f32::INFINITY));
+        ui.add_space(8.);
+        ui.horizontal(|ui| {
+            let red = egui::Button::new(RichText::new("Elimina spazio").color(egui::Color32::WHITE)).fill(rgb(t.error));
+            go = ui.add_enabled(name_confirmed(typed, &space.name) && !busy && facts.is_some(), red).clicked();
+            cancel = ui.add_enabled(!busy, egui::Button::new("Annulla")).clicked();
+            if busy {
+                ui.spinner();
+            }
+        });
+    });
+    let scope = scope.clone();
+    if go {
+        session.space_delete = None;
+        session.delete_space(scope);
+    } else if cancel {
+        session.space_delete = None;
     }
 }
 
@@ -158,7 +263,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
         return;
     };
     let secondary = rgb(t.secondary);
-    let (mut open, mut add, mut remove, mut member) = (true, None, None, None);
+    let (mut open, mut add, mut remove, mut member, mut promote) = (true, None, None, None, None);
     egui::Window::new(&space.name).id(egui::Id::new("space-view")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(340.);
         if view.members_page {
@@ -166,7 +271,21 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
             match &view.members {
                 None => drop(ui.vertical_centered(|ui| ui.spinner())),
                 Some(members) => drop(egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
-                    member = crate::members::list(ui, members, session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, t);
+                    if view.promote {
+                        for m in admin_candidates(members, &session.user) {
+                            ui.horizontal(|ui| {
+                                ui.add(egui::Label::new(&m.name).truncate());
+                                if ui.button("Rendi amministratore").clicked() {
+                                    promote = Some(m.user_id.clone());
+                                }
+                            });
+                        }
+                        if session.moderation_failed {
+                            ui.colored_label(rgb(t.error), "Non riuscito");
+                        }
+                    } else {
+                        member = crate::members::list(ui, members, session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, t);
+                    }
                 })),
             }
             return;
@@ -240,6 +359,10 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
         }
     });
     let space = view.scope.clone();
+    if let Some(user) = promote {
+        session.moderation_failed = false;
+        session.moderate_in(space.clone(), user, matrix_engine::operations::Moderation::SetPower(100));
+    }
     if !open {
         session.space_view = None;
     }
@@ -257,6 +380,19 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
 #[cfg(test)]
 mod tests {
     #[test]
+    fn delete_and_promote_follow_the_last_admin_and_the_other_members() {
+        use matrix_engine::operations::{Member, SpaceChildren};
+        let c = |last_owner, editable, other_members| SpaceChildren { last_owner, editable, other_members, ..Default::default() };
+        assert!(super::can_delete(&c(true, true, 0)) && !super::can_delete(&c(true, false, 3)) && !super::can_delete(&c(false, true, 3)));
+        assert!(super::can_promote(&c(true, true, 1)) && !super::can_promote(&c(true, true, 0)) && !super::can_promote(&c(false, true, 5)));
+        assert!(super::name_confirmed("  Casa ", "Casa") && !super::name_confirmed("casa", "Casa") && !super::name_confirmed("", "") && !super::name_confirmed("Cas", "Casa"));
+        let m = |id: &str| Member { user_id: id.into(), name: id.into(), avatar: None };
+        let list = [m("@me:x"), m("@ada:x"), m("@bob:x")];
+        let ids: Vec<_> = super::admin_candidates(&list, "@me:x").iter().map(|m| m.user_id.as_str()).collect();
+        assert_eq!(ids, ["@ada:x", "@bob:x"]);
+    }
+
+    #[test]
     fn only_joined_rooms_outside_the_space_can_be_added() {
         use matrix_domain::{AccountId, RoomId, RoomScope};
         use matrix_engine::operations::{SpaceChild, SpaceChildren};
@@ -272,7 +408,7 @@ mod tests {
             info: matrix_engine::RoomInfo { is_space, invited, ..Default::default() },
         };
         let rooms = [room("!free:x", false, false), room("!child:x", false, false), room("!space:x", true, false), room("!invite:x", false, true)];
-        let children = SpaceChildren { children: vec![SpaceChild { scope: scope("!child:x"), name: "c".into(), avatar_url: None, joined: true }], editable: true, last_owner: false };
+        let children = SpaceChildren { children: vec![SpaceChild { scope: scope("!child:x"), name: "c".into(), avatar_url: None, joined: true }], editable: true, last_owner: false, other_members: 0 };
         assert_eq!(super::candidates(&rooms, &children).iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["!free:x"]);
     }
 

@@ -76,6 +76,12 @@ pub struct Session {
     pub space_facts: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChildren>)>,
     /// «Esci dallo spazio» window: the space and the «Dimentica» switch.
     pub space_exit: Option<(matrix_domain::RoomScope, bool)>,
+    /// «Elimina spazio» window: the space and the name typed so far.
+    pub space_delete: Option<(matrix_domain::RoomScope, String)>,
+    /// The deletion runs (one at a time).
+    pub space_deleting: bool,
+    /// What the last «Elimina spazio» did: the space name and the report; shown until closed.
+    pub space_report: Option<(String, Result<matrix_engine::operations::SpaceDeleted, matrix_engine::operations::OperationError>)>,
     /// Rights and banned users of the member list on screen.
     pub admin: Option<crate::members::Admin>,
     history: HistorySession,
@@ -326,6 +332,9 @@ impl Session {
             space_view: None,
             space_facts: None,
             space_exit: None,
+            space_delete: None,
+            space_deleting: false,
+            space_report: None,
             admin: None,
             sync: None,
             homeserver: String::new(),
@@ -781,6 +790,16 @@ impl Session {
                 OperationResult::NotificationModeSet { result, .. } => { self.sidebar.mode_done(result.clone()); self.room_error = self.sidebar.mode_error().map(str::to_owned); changed = true; continue; }
                 OperationResult::RoomLeft { scope, result } => { self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
                 OperationResult::SpaceLeft { scope, result, .. } => { self.sidebar.space_left(scope, result.clone().map(drop)); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
+                OperationResult::SpaceDeleted { scope, result } => {
+                    let name = self.sidebar.spaces().find(|r| &r.scope == scope).map_or_else(String::new, |r| r.name.clone());
+                    self.space_deleting = false;
+                    // Left for good: the space drops out of the rail; otherwise it stays and the report says why.
+                    if result.as_ref().is_ok_and(|d| matches!(d.left, Some(Ok(_)))) { self.sidebar.space_left(scope, Ok(())); }
+                    self.space_report = Some((name, result.clone()));
+                    self.space_facts_for(scope.clone());
+                    changed = true;
+                    continue;
+                }
                 OperationResult::SpaceChoices { scope, result } => {
                     if let (Some((asked, slot)), Ok(choices)) = (&mut self.space_choices, result) && asked == scope { *slot = Some(choices.clone()); }
                     changed = true;
@@ -847,6 +866,10 @@ impl Session {
                         if let Some(list) = self.space_view.as_mut().filter(|v| &v.scope == scope).and_then(|v| v.members.as_mut()) { list.retain(|m| &m.user_id != user_id); }
                     }
                     self.moderation_failed = result.is_err();
+                    // A new admin: the space is no longer «last admin», «Esci dallo spazio» follows the new facts.
+                    if result.is_ok() && matches!(action, matrix_engine::operations::Moderation::SetPower(_)) && self.space_facts.as_ref().is_some_and(|(s, _)| s == scope) {
+                        self.space_facts_for(scope.clone());
+                    }
                     // The member list and the rights are read again: a kicked member is gone.
                     if result.is_ok()
                         && self.profile.as_ref().is_some_and(|(open, _)| open == user_id)
@@ -1113,7 +1136,21 @@ impl Session {
     pub fn open_space(&mut self, scope: matrix_domain::RoomScope, members_page: bool) {
         self.room_error = None;
         self.op_queue.push(if members_page { OperationCommand::Members { scope: scope.clone() } } else { OperationCommand::SpaceChildren { scope: scope.clone() } });
-        self.space_view = Some(crate::space::SpaceView { scope, members_page, children: None, members: None, adding: None });
+        self.space_view = Some(crate::space::SpaceView { scope, members_page, children: None, members: None, adding: None, promote: false });
+    }
+
+    /// «Passa il ruolo di amministratore…»: the members page with a «Rendi amministratore» button per candidate.
+    pub fn open_promote(&mut self, scope: matrix_domain::RoomScope) {
+        self.moderation_failed = false;
+        self.open_space(scope, true);
+        if let Some(v) = &mut self.space_view { v.promote = true; }
+    }
+
+    /// «Elimina spazio» of the confirmation window: one deletion at a time.
+    pub fn delete_space(&mut self, scope: matrix_domain::RoomScope) {
+        if !std::mem::replace(&mut self.space_deleting, true) {
+            self.op_queue.push(OperationCommand::DeleteSpace { scope });
+        }
     }
 
     /// Sends only what changed, so a field the user may not edit is never touched.

@@ -8,7 +8,7 @@
 #![cfg(feature = "sdk")]
 use matrix_domain::{AccountId, RoomScope};
 use matrix_engine::{
-    operations::{add_to_space, create_space, leave_space, space_children},
+    operations::{OperationError, add_to_space, create_space, delete_space, leave_space, space_children},
     sdk::{
         Client, RoomState,
         config::SyncSettings,
@@ -166,6 +166,23 @@ fn leaving_a_space_with_and_without_forget_as_the_server_sees_it() {
         let (_, r) = leave_space(&bob, ACCOUNT, &scope_of(&elsewhere), true).await;
         assert!(r.is_ok(), "already left must not fail: {r:?}");
         assert_eq!(membership(&alice, &elsewhere, &bob).await, "leave");
+
+        println!("step 6. delete space");
+        // 6. «Elimina spazio»: a plain member may not; the last admin unlinks the child (the room stays), kicks bob, leaves and forgets.
+        let doomed = space_with_bob(&alice, &bob, &format!("Da eliminare {tag}")).await;
+        let kept = alice.create_room(CreateRoom::new()).await.unwrap();
+        until(&alice, "alice knows the child room", async || alice.get_room(kept.room_id()).is_some()).await;
+        add_to_space(&alice, ACCOUNT, &scope_of(kept.room_id()), &scope_of(&doomed)).await.unwrap();
+        until(&alice, "alice's space lists the child", async || space_children(&alice, ACCOUNT, &scope_of(&doomed)).await.is_ok_and(|c| !c.children.is_empty() && c.other_members == 1)).await;
+        assert_eq!(delete_space(&bob, ACCOUNT, &scope_of(&doomed)).await, Err(OperationError::Forbidden), "plain member");
+        let report = delete_space(&alice, ACCOUNT, &scope_of(&doomed)).await.unwrap();
+        println!("REPORT {report:?}");
+        assert_eq!((report.unlinked, report.unlink_failed, report.kicked), (1, 0, 1));
+        assert_eq!(report.kick_failed, Some(vec![]));
+        assert_eq!(report.left, Some(Ok(true)));
+        assert_eq!(alice.get_room(kept.room_id()).unwrap().state(), RoomState::Joined, "the child room is untouched");
+        // No new login (Synapse rate-limits them): bob's own sync tells he was kicked.
+        until(&bob, "bob sees the kick", async || bob.get_room(&doomed).is_none_or(|r| r.state() != RoomState::Joined)).await;
 
         // Teardown of the sessions (the driver removes the homeserver and its data).
         let _ = bob2.matrix_auth().logout().await;

@@ -266,6 +266,7 @@ impl LiveOperations {
             | OperationResult::ServerProbed { .. }
             | OperationResult::RoomLeft { .. }
             | OperationResult::SpaceLeft { .. }
+            | OperationResult::SpaceDeleted { .. }
             | OperationResult::Profile { .. }
             | OperationResult::Ignored { .. }
             | OperationResult::MemberRights { .. }

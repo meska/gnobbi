@@ -1038,6 +1038,7 @@ impl App {
             list::space_picker(ui.ctx(), s);
             space::window(ui.ctx(), s, t);
             space::exit_window(ui.ctx(), s, t);
+            space::delete_window(ui.ctx(), s, t);
             members::windows(ui.ctx(), s, t);
         }
         if let Some(s) = &mut self.session
