@@ -93,6 +93,54 @@ pub struct Heights {
     /// A freshly opened room stays unpainted until its rows are measured and the bottom anchor holds: no guessed-height frames on screen.
     ready: bool,
     passes: u8,
+    /// Where the reader was (first visible row + px into it; None = at bottom): set every frame once the room is laid out.
+    pos: Option<(matrix_domain::EventId, f32)>,
+    /// Position to open the room at; dropped once laid out, or when its row is not loaded (then the room opens at the bottom).
+    pub restore: Option<(matrix_domain::EventId, f32)>,
+    /// The round button was pressed: scroll (smoothly) until the bottom is reached.
+    go_bottom: bool,
+}
+
+impl Heights {
+    /// The reader's position, only when the room is laid out (a half-opened room must not overwrite the saved one).
+    pub fn position(&self) -> Option<Option<(matrix_domain::EventId, f32)>> {
+        self.ready.then(|| self.pos.clone())
+    }
+}
+
+/// Reading position per room, kept in `scroll_pos.json` of the account's profile folder: the first visible event id and px offset into it, or at-bottom. Only event ids are stored.
+#[derive(Default)]
+pub struct ScrollMemory(std::collections::BTreeMap<String, Option<(String, f32)>>);
+
+impl ScrollMemory {
+    pub fn from_json(text: &str) -> Self {
+        let Ok(serde_json::Value::Object(map)) = serde_json::from_str(text) else { return Self::default() };
+        let pos = |v: &serde_json::Value| {
+            if v["at_bottom"].as_bool().unwrap_or(true) { return Some(None); }
+            Some(Some((v["event"].as_str()?.to_owned(), v["offset"].as_f64()? as f32)))
+        };
+        Self(map.iter().filter_map(|(room, v)| Some((room.clone(), pos(v)?))).collect())
+    }
+
+    pub fn to_json(&self) -> String {
+        let map: serde_json::Map<_, _> = self.0.iter().map(|(room, p)| (room.clone(), match p {
+            Some((event, offset)) => serde_json::json!({ "event": event, "offset": offset, "at_bottom": false }),
+            None => serde_json::json!({ "at_bottom": true }),
+        })).collect();
+        serde_json::Value::Object(map).to_string()
+    }
+
+    pub fn get(&self, room: &str) -> Option<(matrix_domain::EventId, f32)> {
+        self.0.get(room)?.as_ref().map(|(e, o)| (matrix_domain::EventId::new(e.as_str()), *o))
+    }
+
+    /// True when the stored position changed (so the file needs writing).
+    pub fn set(&mut self, room: &str, pos: Option<(matrix_domain::EventId, f32)>) -> bool {
+        let new = pos.map(|(e, o)| (e.as_str().to_owned(), o.round()));
+        let changed = self.0.get(room) != Some(&new);
+        if changed { self.0.insert(room.to_owned(), new); }
+        changed
+    }
 }
 
 /// Opening pass is over: nothing moved and we sit at the bottom, or too many passes (a long room never reaches bottom within tolerance).
@@ -298,7 +346,7 @@ fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Opti
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, peer_read: Option<usize>, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, peer_read: Option<usize>, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     let mut menu = None;
     let mut save = None;
     let mut thread = None;
@@ -308,7 +356,22 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
     let mut first = 0;
     let hide = !heights.ready && jump.is_none() && !events.is_empty();
     let mut changed = false;
-    let out = egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show_viewport(ui, |ui, view| {
+    let mut area = egui::ScrollArea::vertical().auto_shrink(false);
+    let mut restoring = false;
+    if hide && let Some((id, offset)) = heights.restore.clone() {
+        // Saved position: set the offset from the heights known so far, hidden, and re-set it until the rows stop changing; no event in the room yet -> bottom.
+        match events.iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())) {
+            Some(at) => {
+                let top: f32 = GAP + (0..at).map(|i| heights.rows[i] + if history.continues_series(i) { TIGHT } else { GAP }).sum::<f32>();
+                area = area.vertical_scroll_offset(top + offset);
+                restoring = true;
+            }
+            None => heights.restore = None,
+        }
+    }
+    let go_bottom = heights.go_bottom;
+    let mut anchor = None;
+    let out = area.stick_to_bottom(!restoring).show_viewport(ui, |ui, view| {
         ui.spacing_mut().item_spacing = Vec2::new(0., 0.);
         if hide {
             ui.set_invisible();
@@ -347,16 +410,46 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
             if !seen_first && y + h >= view.min.y {
                 first = i;
                 seen_first = true;
+                anchor = Some((i, view.min.y - y));
             }
             y += heights.rows[i] + gap;
         }
         ui.add_space(GAP);
+        if go_bottom {
+            ui.scroll_to_cursor(Some(Align::BOTTOM));
+        }
     });
     heights.at_bottom = out.content_size.y - (out.state.offset().y + out.inner_rect.height()) <= matrix_engine::receipts::ReadVisibility::NEAR_BOTTOM_PX;
     if hide {
         heights.passes += 1;
-        heights.ready = open_done(changed, heights.at_bottom, heights.passes);
+        heights.ready = open_done(changed, heights.at_bottom || restoring, heights.passes);
         if !heights.ready {
+            ui.ctx().request_repaint();
+        } else {
+            heights.restore = None;
+        }
+    }
+    if heights.ready {
+        heights.pos = anchor.filter(|_| !heights.at_bottom).and_then(|(i, off)| match &events[i].id.id {
+            matrix_domain::TimelineId::Server(id) => Some((id.clone(), off.max(0.))),
+            _ => None,
+        });
+    }
+    if heights.at_bottom {
+        heights.go_bottom = false;
+    } else if heights.ready && !events.is_empty() {
+        // Round button, bottom right above the composer: more to read below. No text; the screen-reader name is the only label.
+        let c = out.inner_rect.right_bottom() - Vec2::splat(36.);
+        let resp = ui.interact(egui::Rect::from_center_size(c, Vec2::splat(40.)), ui.id().with("to-bottom"), egui::Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Vai in fondo"));
+        let ink = if resp.hovered() { ui.visuals().strong_text_color() } else { rgb(t.secondary) };
+        ui.painter().circle(c, 20., rgb(t.surface), egui::Stroke::new(1., rgb(t.border)));
+        ui.painter().add(egui::Shape::line(vec![c + Vec2::new(-6., -3.), c + Vec2::new(0., 3.), c + Vec2::new(6., -3.)], egui::Stroke::new(2., ink)));
+        if unread > 0 {
+            super::list::badge(ui, c - Vec2::new(0., 26.), unread, t);
+        }
+        if resp.clicked() {
+            heights.go_bottom = true;
             ui.ctx().request_repaint();
         }
     }
@@ -365,7 +458,22 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
 
 #[cfg(test)]
 mod open_tests {
-    use super::open_done;
+    use super::{open_done, ScrollMemory};
+
+    #[test]
+    fn scroll_memory_roundtrips_and_reports_changes() {
+        let mut m = ScrollMemory::default();
+        let ev = |s: &str| matrix_domain::EventId::new(s);
+        assert!(m.set("!a:x", Some((ev("$1"), 12.4))));
+        assert!(!m.set("!a:x", Some((ev("$1"), 12.4))));
+        assert!(m.set("!b:x", None));
+        let back = ScrollMemory::from_json(&m.to_json());
+        assert_eq!(back.get("!a:x"), Some((ev("$1"), 12.)));
+        assert_eq!(back.get("!b:x"), None);
+        assert_eq!(back.get("!c:x"), None);
+        assert!(ScrollMemory::from_json("not json").0.is_empty());
+        assert_eq!(ScrollMemory::from_json(r#"{"!a:x":{"at_bottom":false}}"#).get("!a:x"), None);
+    }
 
     #[test]
     fn waits_for_stable_bottom() {

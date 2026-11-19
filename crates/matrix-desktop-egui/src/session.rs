@@ -158,6 +158,9 @@ pub struct Session {
     pub menu_fresh: bool,
     draft_scope: Option<matrix_domain::RoomScope>,
     pub heights: crate::timeline::Heights,
+    /// Reading position per room, saved on room change and on quit.
+    scroll: crate::timeline::ScrollMemory,
+    scroll_file: std::path::PathBuf,
     pub first_visible: usize,
     pub query: String,
     pub sync: Option<RoomSyncStatus>,
@@ -172,6 +175,7 @@ impl Session {
     pub fn start(dirs: &AppDirs, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> Result<Session, String> {
         matrix_desktop::create_private_dir(&root).map_err(|e| e.to_string())?;
         let last_file = root.join("last_room");
+        let scroll_file = root.join("scroll_pos.json");
         let last_room = std::fs::read_to_string(&last_file).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
         let vault = signin::platform_source();
         let with_vault = vault.is_some();
@@ -275,6 +279,8 @@ impl Session {
             draft_scope: None,
             messages: None,
             heights: Default::default(),
+            scroll: crate::timeline::ScrollMemory::from_json(&std::fs::read_to_string(&scroll_file).unwrap_or_default()),
+            scroll_file,
             first_visible: usize::MAX,
             sidebar: matrix_desktop::Sidebar::connected(matrix_domain::AccountId::new(0)),
             query: String::new(),
@@ -479,11 +485,22 @@ impl Session {
         changed
     }
 
+    /// Writes the shown room's reading position (room change, quit); a room not laid out yet keeps its old entry.
+    pub fn remember_scroll(&mut self) {
+        let Some(room) = self.messages.as_ref().and_then(|m| m.events().first()).map(|e| e.id.scope.room_id.as_str().to_owned()) else { return };
+        if let Some(pos) = self.heights.position()
+            && self.scroll.set(&room, pos)
+        {
+            let _ = std::fs::write(&self.scroll_file, self.scroll.to_json());
+        }
+    }
+
     /// Opens the selected room's history, applies the pages that came back and asks for older ones near the top.
     fn drive_history(&mut self) -> bool {
         let mut changed = false;
         let scope = self.sidebar.selected().map(|r| r.scope.clone());
         if let Some(request) = self.history.select(scope.clone()) {
+            self.remember_scroll();
             self.read_dirty = true;
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
             self.media.clear();
@@ -497,6 +514,7 @@ impl Session {
             self.search_jump = None;
             self.search = matrix_engine::operations::MessageSearchState::Idle;
             self.heights = Default::default();
+            self.heights.restore = scope.as_ref().and_then(|s| self.scroll.get(s.room_id.as_str()));
             self.pending = Some(request);
             changed = true;
         } else if scope.is_none() && self.messages.take().is_some() {

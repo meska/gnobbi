@@ -203,6 +203,12 @@ fn bar(t: &DesignTokens) -> egui::Frame {
 }
 
 impl eframe::App for App {
+    fn on_exit(&mut self) {
+        if let Some(s) = &mut self.session {
+            s.remember_scroll();
+        }
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.refresh(&ctx);
@@ -952,7 +958,7 @@ impl App {
                 let members = room.map_or(3, |r| r.info.joined_members);
                 let peer_read = room.filter(|_| members == 2).and_then(|r| messages.peer_read_index(&r.info.public_read_receipts));
                 // Scroll state per room: one shared id carried the old room's offset into the new one (jump on switch).
-                let (first, menu, save, thread) = ui.push_id(room.map(|r| r.scope.room_id.as_str()), |ui| timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, peer_read, t, jump)).inner;
+                let (first, menu, save, thread) = ui.push_id(room.map(|r| r.scope.room_id.as_str()), |ui| timeline::show(ui, room.map_or(0, |r| r.unread), messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, peer_read, t, jump)).inner;
                 if jump.is_some() && let Some((root, open_thread)) = s.search_jump.take() {
                     if open_thread { s.open_thread(root); }
                 }
