@@ -1888,6 +1888,7 @@ fn authentication_errors_contain_only_fixed_labels() {
         (AuthError::Transport, "Transport"),
         (AuthError::InvalidUserId, "InvalidUserId"),
         (AuthError::LoginFailed, "LoginFailed"),
+        (AuthError::RateLimited, "RateLimited"),
         (AuthError::CredentialsRejected, "CredentialsRejected"),
         (AuthError::IdentityMismatch, "IdentityMismatch"),
         (AuthError::LoggedOut, "LoggedOut"),
