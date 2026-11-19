@@ -59,7 +59,13 @@ impl Viewer {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("✕").clicked() { action = Action::Close; }
+                    // Painted X: the font has no glyph for the cross character on every system.
+                    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(24.), egui::Sense::click());
+                    let c = rect.center();
+                    let stroke = egui::Stroke::new(1.6, ui.visuals().text_color());
+                    ui.painter().line_segment([c + egui::vec2(-5., -5.), c + egui::vec2(5., 5.)], stroke);
+                    ui.painter().line_segment([c + egui::vec2(-5., 5.), c + egui::vec2(5., -5.)], stroke);
+                    if resp.clicked() { action = Action::Close; }
                     if ui.button("Salva con nome").clicked() {
                         let name = std::path::Path::new(&self.name).file_name().and_then(|s| s.to_str()).unwrap_or("file");
                         if let Some(path) = rfd::FileDialog::new().set_title("Salva con nome").set_file_name(name).save_file() { action = Action::Save(path); }
