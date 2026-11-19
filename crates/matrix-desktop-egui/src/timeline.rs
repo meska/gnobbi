@@ -11,6 +11,34 @@ pub struct Acts {
     pub play: Option<matrix_domain::EventId>,
     /// Set by the app before drawing: the note being played (or loaded) and how far it is.
     pub now_playing: Option<(matrix_domain::EventId, bool, f32)>,
+    pub open_link: Option<matrix_desktop::SafeWebUrl>,
+}
+
+fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWebUrl>)> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    for link in matrix_desktop::message_links(text) {
+        if start < link.range.start {
+            parts.push((&text[start..link.range.start], None));
+        }
+        parts.push((&text[link.range.clone()], Some(link.url)));
+        start = link.range.end;
+    }
+    if start < text.len() {
+        parts.push((&text[start..], None));
+    }
+    parts
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn links_preserve_surrounding_text_and_reject_unsafe_urls() {
+        let parts = super::link_parts("Ciao https://example.org/a e javascript:alert(1)");
+        assert_eq!(parts.iter().map(|(s, _)| *s).collect::<String>(), "Ciao https://example.org/a e javascript:alert(1)");
+        assert_eq!(parts.iter().filter(|(_, url)| url.is_some()).count(), 1);
+        assert_eq!(parts.iter().find_map(|(_, url)| url.as_ref()).unwrap().as_str(), "https://example.org/a");
+    }
 }
 
 pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::TextureHandle>;
@@ -172,7 +200,23 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 } else if e.redacted {
                     ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {
-                    ui.label(RichText::new(&e.text).size(BODY).line_height(Some(20.)));
+                    let parts = link_parts(&e.text);
+                    if parts.iter().any(|(_, url)| url.is_some()) {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.;
+                            for (text, url) in parts {
+                                if let Some(url) = url {
+                                    if ui.link(RichText::new(text).size(BODY)).clicked() {
+                                        acts.open_link = Some(url);
+                                    }
+                                } else {
+                                    ui.label(RichText::new(text).size(BODY).line_height(Some(20.)));
+                                }
+                            }
+                        });
+                    } else {
+                        ui.label(RichText::new(&e.text).size(BODY).line_height(Some(20.)));
+                    }
                 }
                 if let Some(th) = &e.thread {
                     ui.horizontal(|ui| {

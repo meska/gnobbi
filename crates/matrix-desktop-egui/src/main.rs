@@ -93,6 +93,7 @@ struct App {
     auto_login: Option<serde_json::Value>,
     shot_sent: bool,
     pending_link: Option<(matrix_domain::MatrixLink, std::time::Instant)>,
+    pending_web: Option<matrix_desktop::SafeWebUrl>,
     hook_sent: bool,
     hook_added: bool,
     auto_login2: Option<serde_json::Value>,
@@ -128,7 +129,7 @@ impl App {
             }
         }
         App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            pending_link: link.map(|l| (l, std::time::Instant::now())), shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
     }
 
@@ -286,6 +287,23 @@ impl eframe::App for App {
             self.shell(ui, &t);
         } else {
             self.sign_in(ui, &t);
+        }
+        if let Some(url) = self.pending_web.clone() {
+            let mut choice = None;
+            let modal = egui::Modal::new(egui::Id::unique("confirm-web-link")).show(&ctx, |ui| {
+                ui.heading("Apri link");
+                ui.label(url.as_str());
+                ui.horizontal(|ui| {
+                    if ui.button("Annulla").clicked() { choice = Some(false); }
+                    if ui.button("Apri").clicked() { choice = Some(true); }
+                });
+            });
+            if choice == Some(true) {
+                ctx.open_url(egui::OpenUrl::new_tab(url.as_str()));
+            }
+            if choice.is_some() || modal.should_close() {
+                self.pending_web = None;
+            }
         }
     }
 }
@@ -768,6 +786,9 @@ impl App {
                 }
                 if let Some((id, ix)) = acts.vote {
                     s.vote(id, ix);
+                }
+                if acts.open_link.is_some() {
+                    self.pending_web = acts.open_link;
                 }
             }
         });
