@@ -187,6 +187,7 @@ pub mod matrix_link;
 #[cfg(feature = "sdk")]
 pub mod media_sdk;
 pub mod operations;
+pub mod stickers;
 #[cfg(feature = "sdk")]
 mod fsx;
 #[cfg(feature = "sdk")]

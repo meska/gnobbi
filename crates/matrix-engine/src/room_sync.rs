@@ -828,6 +828,14 @@ impl RoomListWorker {
                                     ));
                                     continue;
                                 }
+                                OperationCommand::StickerPacks { scope } => {
+                                    let result = crate::stickers::packs(&operation_client, account, &scope).await;
+                                    OperationResult::StickerPacks { scope, result }
+                                }
+                                OperationCommand::SendSticker { scope, sticker } => {
+                                    let result = crate::stickers::send(&operation_client, account, &scope, &sticker).await;
+                                    OperationResult::StickerSent { scope, result }
+                                }
                                 OperationCommand::ThreadSend { scope, root, reply_to, body } => {
                                     let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body).await;
                                     OperationResult::ThreadSent { scope, root, result }

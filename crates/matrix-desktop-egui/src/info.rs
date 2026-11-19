@@ -236,7 +236,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
             });
         }
         let (mut cancel, mut drop, mut poll, mut picked, mut pasted, mut voice) = (false, false, false, None, None, None);
-        send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, None, &mut cancel, &mut drop, &mut poll, &mut picked, &mut pasted, None, &mut voice, &[], &mut Vec::new());
+        send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, None, &mut cancel, &mut drop, &mut poll, &mut picked, &mut pasted, None, &mut voice, &[], &mut Vec::new(), None);
         ui.add_space(6.);
     });
     let Some(page) = &th.page else {

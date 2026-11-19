@@ -26,7 +26,7 @@ pub enum Mode {
 pub const THREAD: &str = "-thread";
 
 /// `salt` is `""` for the room composer and `THREAD` for the drawer (no attach, poll or voice there: they would act on the room).
-pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &std::collections::HashMap<String, Option<egui::TextureHandle>>)>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     // consume_key matches Shift loosely, so Shift+Enter is checked on the event and left to the TextEdit (it inserts the newline).
     let shift_enter = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.shift)));
@@ -117,6 +117,19 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
         let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), &emoji_strokes(), 1., true, "Emoji");
         egui::Popup::menu(&emoji).show(|ui| {
+            let tab = egui::Id::new(crate::stickers::TAB_ID);
+            let mut sticker_tab = stickers.is_some() && ui.data(|d| d.get_temp::<bool>(tab)).unwrap_or(false);
+            if stickers.is_some() {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut sticker_tab, false, "Emoji");
+                    ui.selectable_value(&mut sticker_tab, true, "Sticker");
+                });
+                ui.data_mut(|d| d.insert_temp(tab, sticker_tab));
+            }
+            if let (true, Some((panel, textures))) = (sticker_tab, stickers.as_mut()) {
+                crate::stickers::show(ui, panel, textures);
+                return;
+            }
             egui::Grid::new(nid("emoji-grid")).show(ui, |ui| {
                 for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
                     if ui.button(*emoji).on_hover_text(*name).clicked() {
@@ -274,7 +287,7 @@ mod tests {
             let mut out = ctx.run_ui(input.clone(), |ui| {
                 let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
-                    super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
+                    super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None);
                 });
                 h = r.response.rect.height();
             });
@@ -318,7 +331,7 @@ mod tests {
             let mut out = ctx.run_ui(input, |ui| {
                 let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, false, false, None, None, None);
-                    sent = super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
+                    sent = super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None);
                 });
                 panel_right = r.response.rect.right();
                 panel_bottom = r.response.rect.bottom();

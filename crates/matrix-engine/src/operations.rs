@@ -356,6 +356,10 @@ pub enum OperationCommand {
     BannedMembers { scope: RoomScope },
     /// What the current user may do with members of the room or space; answered with `OperationResult::MemberPermissions`.
     MemberPermissions { scope: RoomScope },
+    /// Sticker packs usable in `scope` (account packs + the room's own); answered with `OperationResult::StickerPacks`.
+    StickerPacks { scope: RoomScope },
+    /// Send an `m.sticker` with the pack's plain `url`; answered with `OperationResult::StickerSent`.
+    SendSticker { scope: RoomScope, sticker: crate::stickers::Sticker },
     /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
     ThreadSend {
         scope: RoomScope,
@@ -375,6 +379,14 @@ pub enum TagEdit {
     Delete { tag: String },
 }
 pub enum OperationResult {
+    StickerPacks {
+        scope: RoomScope,
+        result: Result<Vec<crate::stickers::StickerPack>, OperationError>,
+    },
+    StickerSent {
+        scope: RoomScope,
+        result: Result<EventId, OperationError>,
+    },
     MessageSearch {
         scope: RoomScope,
         state: MessageSearchState,
@@ -1339,7 +1351,7 @@ fn is_not_found(error: &matrix_sdk::Error) -> bool {
 
 /// Server answer by Matrix error code; no client API error means the network failed.
 #[cfg(feature = "sdk")]
-fn classify(error: &matrix_sdk::Error) -> OperationError {
+pub(crate) fn classify(error: &matrix_sdk::Error) -> OperationError {
     if is_not_found(error) {
         OperationError::Unavailable
     } else if matches!(error.client_api_error_kind(), Some(ErrorKind::Forbidden)) {

@@ -66,6 +66,7 @@ pub struct Session {
     pub sidebar: matrix_desktop::Sidebar,
     pub confirm_leave: Option<matrix_domain::RoomScope>,
     pub room_error: Option<String>,
+    pub stickers: crate::stickers::Panel,
     /// Spaces for the room whose menu was opened last; `None` inside until the engine answers.
     pub space_choices: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>,
     /// «Aggiungi a uno spazio» window: the room and the space picked so far.
@@ -333,6 +334,7 @@ impl Session {
             query: String::new(),
             confirm_leave: None,
             room_error: None,
+            stickers: Default::default(),
             space_choices: None,
             space_pick: None,
             space_view: None,
@@ -441,8 +443,29 @@ impl Session {
         }
         changed |= self.drive_history();
         changed |= self.drive_media(ctx);
+        changed |= self.drive_stickers();
         changed |= self.drive_avatars(ctx);
         changed
+    }
+
+    /// While the Sticker tab is shown: asks for the packs of the open room (again after 30 s) and queues their pictures as avatars.
+    fn drive_stickers(&mut self) -> bool {
+        let Some(scope) = self.draft_scope.clone() else { return false };
+        if self.stickers.scope.as_ref() != Some(&scope) {
+            self.stickers = crate::stickers::Panel { scope: Some(scope.clone()), ..Default::default() };
+        }
+        let open = std::mem::take(&mut self.stickers.open);
+        if open && self.stickers.fetched.is_none_or(|at| at.elapsed() > std::time::Duration::from_secs(30)) {
+            self.stickers.fetched = Some(std::time::Instant::now());
+            self.op_queue.push(OperationCommand::StickerPacks { scope });
+        }
+        false
+    }
+
+    pub fn send_sticker(&mut self, sticker: matrix_engine::stickers::Sticker) {
+        if let Some(scope) = self.draft_scope.clone() {
+            self.op_queue.push(OperationCommand::SendSticker { scope, sticker });
+        }
     }
 
     /// Asks for the senders' photos of the open room and turns the answers into textures.
@@ -469,6 +492,7 @@ impl Session {
         if let Some(crate::space::SpaceView { children: Some(Ok(c)), .. }) = &self.space_view { wanted.extend(c.children.iter().filter_map(|c| c.avatar_url.clone())); }
         wanted.extend(self.sidebar.selected().into_iter().flat_map(|r| &r.info.public_read_receipts).flat_map(|r| &r.users).filter_map(|u| u.avatar.clone()));
         wanted.extend(self.verification.as_ref().and_then(|v| v.profile_avatar()).map(str::to_owned));
+        wanted.extend(crate::stickers::urls(&self.stickers).map(str::to_owned));
         for mxc in wanted {
             let waiting = self.avatar_failed.get(&mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
             if budget > 0 && !self.avatars.contains_key(&mxc) && !waiting {
@@ -930,6 +954,19 @@ impl Session {
                     if matches!(result, Ok(true)) { th.read_target = Some(target.clone()); }
                 }
                 continue;
+            }
+            match &result {
+                OperationResult::StickerPacks { scope, result } => {
+                    if self.draft_scope.as_ref() == Some(scope) { self.stickers.packs = Some(result.clone().map_err(|_| ())); }
+                    changed = true;
+                    continue;
+                }
+                OperationResult::StickerSent { result, .. } => {
+                    if result.is_err() { self.room_error = Some("Sticker non inviato".into()); }
+                    changed = true;
+                    continue;
+                }
+                _ => {}
             }
             if matches!(result, OperationResult::ThreadSent { .. }) {
                 if let Some(th) = &mut self.thread { th.next_read = std::time::Instant::now(); }

@@ -24,6 +24,7 @@ mod poll;
 mod rail;
 mod roomedit;
 mod space;
+mod stickers;
 mod session;
 mod settings;
 mod timeline;
@@ -1044,7 +1045,7 @@ impl App {
                     ui.label(notice);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
-                to_send = composer::show(ui, "", &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, s.recorder.as_ref().map(|r| r.elapsed_secs()), &mut voice_act, &members, &mut s.mentions);
+                to_send = composer::show(ui, "", &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, s.recorder.as_ref().map(|r| r.elapsed_secs()), &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)));
                 if let Some(image) = pasted_image {
                     s.attach_image(&image);
                 }
@@ -1052,6 +1053,9 @@ impl App {
                     s.attachment = None;
                 }
                 s.poll_open |= open_poll;
+                if let Some(sticker) = s.stickers.chosen.take() {
+                    s.send_sticker(sticker);
+                }
                 if let Some(path) = picked_file {
                     s.attach(&path);
                 }

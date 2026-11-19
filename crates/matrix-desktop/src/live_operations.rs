@@ -275,6 +275,8 @@ impl LiveOperations {
             | OperationResult::Thread { .. }
             | OperationResult::ThreadRead { .. }
             | OperationResult::ThreadSent { .. }
+            | OperationResult::StickerPacks { .. }
+            | OperationResult::StickerSent { .. }
             | OperationResult::Members { .. }
             | OperationResult::MessageSearch { .. }
             | OperationResult::UserSearch { .. } => false,
