@@ -152,6 +152,22 @@ pub struct SpaceChoices {
     pub containing: Vec<SpaceRef>,
 }
 
+/// One direct child of a space, from the space hierarchy (rooms the user has not joined included).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceChild {
+    pub scope: RoomScope,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub joined: bool,
+}
+
+/// Children of one space plus whether the user may change them (`m.space.child` power level).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpaceChildren {
+    pub children: Vec<SpaceChild>,
+    pub editable: bool,
+}
+
 /// The one line the UI shows when adding to or removing from a space failed.
 pub fn space_error_line(error: OperationError) -> &'static str {
     match error {
@@ -164,6 +180,10 @@ pub fn space_error_line(error: OperationError) -> &'static str {
 pub enum OperationCommand {
     /// Spaces that can take / already hold `scope`; answered with `OperationResult::SpaceChoices`.
     SpaceChoices {
+        scope: RoomScope,
+    },
+    /// Children of `scope` (a space) and the user's right to edit them; answered with `OperationResult::SpaceChildren`.
+    SpaceChildren {
         scope: RoomScope,
     },
     /// Put `scope` under `space` (`m.space.child`; `m.space.parent` too when the room's levels allow it).
@@ -302,8 +322,12 @@ pub enum OperationCommand {
     Ignore { user_id: String, ignore: bool },
     /// What the current user may do to `user_id` in this room (moderation entries of the profile).
     MemberRights { scope: RoomScope, user_id: String },
-    /// A moderation action on `user_id` in this room.
+    /// A moderation action on `user_id` in a room or space; answered with `OperationResult::Moderated`.
     Moderate { scope: RoomScope, user_id: String, action: Moderation },
+    /// Members banned from the room or space; answered with `OperationResult::BannedMembers`.
+    BannedMembers { scope: RoomScope },
+    /// What the current user may do with members of the room or space; answered with `OperationResult::MemberPermissions`.
+    MemberPermissions { scope: RoomScope },
     /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
     ThreadSend {
         scope: RoomScope,
@@ -360,6 +384,14 @@ pub enum OperationResult {
         user_id: String,
         result: Result<MemberRights, OperationError>,
     },
+    BannedMembers {
+        scope: RoomScope,
+        result: Result<Vec<BannedMember>, OperationError>,
+    },
+    MemberPermissions {
+        scope: RoomScope,
+        result: Result<MemberPermissions, OperationError>,
+    },
     Moderated {
         scope: RoomScope,
         user_id: String,
@@ -400,6 +432,10 @@ pub enum OperationResult {
     SpaceChoices {
         scope: RoomScope,
         result: Result<SpaceChoices, OperationError>,
+    },
+    SpaceChildren {
+        scope: RoomScope,
+        result: Result<SpaceChildren, OperationError>,
     },
     /// `added` tells which command it answers. The space list changes at the next sync.
     SpaceChanged {
@@ -515,11 +551,38 @@ pub struct UserProfile {
     pub ignored: bool,
 }
 
-/// Moderation of a room member. `RedactMessages` carries the exact events the user confirmed.
+/// A member banned from a room or space (membership `ban`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BannedMember {
+    pub user_id: String,
+    /// Display name, or the user id when the member has none.
+    pub name: String,
+    pub avatar: Option<String>,
+    /// Reason of the ban event, when it has one.
+    pub reason: Option<String>,
+}
+
+/// Room-wide member rights of the current user from the standard power levels (`invite`, `kick`, `ban`);
+/// the UI hides the action when its flag is false. Unban needs `ban` (and `kick`) on top of the target's level:
+/// `Moderate` with `Unban` re-checks it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MemberPermissions {
+    pub can_invite: bool,
+    pub can_kick: bool,
+    pub can_ban: bool,
+}
+
+/// Moderation of a room or space member. `Kick`/`Ban` carry no reason; `KickWith`/`BanWith`/`Unban` take one
+/// (blank counts as none, so `Unban(None)` is a plain unban). `Invite` adds `user_id` to the room.
+/// `RedactMessages` carries the exact events the user confirmed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Moderation {
     Kick,
     Ban,
+    KickWith(String),
+    BanWith(String),
+    Unban(Option<String>),
+    Invite,
     SetPower(i64),
     RedactMessages(Vec<String>),
 }
@@ -1271,6 +1334,42 @@ pub async fn can_edit_space(
     Ok(levels.user_can_send_state(me, matrix_sdk::ruma::events::StateEventType::SpaceChild))
 }
 
+/// Direct children of `space` from the server hierarchy (all pages), with the edit right from its power levels.
+#[cfg(feature = "sdk")]
+pub async fn space_children(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    space: &RoomScope,
+) -> Result<SpaceChildren, OperationError> {
+    use matrix_sdk_ui::spaces::room_list::SpaceRoomListPaginationState::Idle;
+    let id = room_id_of(account, space)?;
+    let editable = can_edit_space(client, account, space).await?;
+    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
+    let list = service.space_room_list(id).await;
+    // Bounded: a huge space stops at 50 pages rather than holding the command task.
+    for _ in 0..50 {
+        tokio::time::timeout(std::time::Duration::from_secs(20), list.paginate())
+            .await
+            .map_err(|_| OperationError::Transport)?
+            .map_err(|e| classify(&e))?;
+        if matches!(list.pagination_state(), Idle { end_reached: true }) {
+            break;
+        }
+    }
+    let children = list
+        .rooms()
+        .await
+        .into_iter()
+        .map(|r| SpaceChild {
+            scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(r.room_id.as_str()) },
+            name: r.display_name,
+            avatar_url: r.avatar_url.map(|u| u.to_string()),
+            joined: r.state == Some(matrix_sdk::RoomState::Joined),
+        })
+        .collect();
+    Ok(SpaceChildren { children, editable })
+}
+
 /// Spaces that can take `room` and spaces that already hold it. The SDK graph is rebuilt on each call, so
 /// the answer follows the last sync; a built `SpaceService` is not kept because the command task has no `RoomSync`.
 #[cfg(feature = "sdk")]
@@ -1516,6 +1615,48 @@ pub(crate) async fn load_member_rights(
     .map_err(|_| OperationError::Transport)?
 }
 
+fn reason(r: Option<&String>) -> Option<&str> {
+    r.map(|r| r.trim()).filter(|r| !r.is_empty())
+}
+
+/// Members with membership `ban` in the room or space, each with the reason of its ban event.
+#[cfg(feature = "sdk")]
+pub async fn banned_members(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+) -> Result<Vec<BannedMember>, OperationError> {
+    let id = room_id_of(account, scope)?;
+    let room = client.get_room(&id).filter(|r| r.state() == matrix_sdk::RoomState::Joined).ok_or(OperationError::Unavailable)?;
+    let members = tokio::time::timeout(WAIT, room.members(matrix_sdk::RoomMemberships::BAN))
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e))?;
+    Ok(members
+        .iter()
+        .map(|m| BannedMember {
+            user_id: m.user_id().to_string(),
+            name: m.display_name().filter(|n| !n.is_empty()).unwrap_or(m.user_id().as_str()).to_string(),
+            avatar: m.avatar_url().map(|u| u.to_string()).filter(|u| !u.is_empty()),
+            reason: m.event().reason().map(str::trim).filter(|r| !r.is_empty()).map(str::to_string),
+        })
+        .collect())
+}
+
+/// Invite/kick/ban rights of the current user in the room or space, from its power levels.
+#[cfg(feature = "sdk")]
+pub async fn member_permissions(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+) -> Result<MemberPermissions, OperationError> {
+    let id = room_id_of(account, scope)?;
+    let me = client.user_id().ok_or(OperationError::Unavailable)?;
+    let room = client.get_room(&id).filter(|r| r.state() == matrix_sdk::RoomState::Joined).ok_or(OperationError::Unavailable)?;
+    let pl = room.power_levels().await.map_err(|_| OperationError::Unavailable)?;
+    Ok(MemberPermissions { can_invite: pl.user_can_invite(me), can_kick: pl.user_can_kick(me), can_ban: pl.user_can_ban(me) })
+}
+
 /// Re-checks the rights at the moment of the action (the levels may have changed since the panel loaded),
 /// then runs it through the SDK. Redaction deletes exactly the events given, nothing else.
 #[cfg(feature = "sdk")]
@@ -1533,7 +1674,11 @@ pub(crate) async fn moderate(
     tokio::time::timeout(std::time::Duration::from_secs(30), async {
         match action {
             Moderation::Kick if rights.kick => room.kick_user(&target, None).await.map_err(|e| classify(&e)),
+            Moderation::KickWith(r) if rights.kick => room.kick_user(&target, reason(Some(r))).await.map_err(|e| classify(&e)),
             Moderation::Ban if rights.ban => room.ban_user(&target, None).await.map_err(|e| classify(&e)),
+            Moderation::BanWith(r) if rights.ban => room.ban_user(&target, reason(Some(r))).await.map_err(|e| classify(&e)),
+            Moderation::Unban(r) if pl.user_can_unban_user(me, &target) => room.unban_user(&target, reason(r.as_ref())).await.map_err(|e| classify(&e)),
+            Moderation::Invite if pl.user_can_invite(me) => room.invite_user_by_id(&target).await.map_err(|e| classify(&e)),
             Moderation::SetPower(l) if rights.levels.contains(l) => room
                 .update_power_levels(vec![(&*target, matrix_sdk::ruma::Int::from(*l as i32))])
                 .await
@@ -2043,6 +2188,14 @@ mod tests {
             space_write(async { Err(E::UpdateRelationship(api_error(403, Some(ErrorKind::Forbidden)))) }).await,
             Err(OperationError::Forbidden)
         );
+    }
+
+    #[cfg(feature = "sdk")]
+    #[test]
+    fn blank_reason_counts_as_none() {
+        assert_eq!(reason(None), None);
+        assert_eq!(reason(Some(&"  ".to_string())), None);
+        assert_eq!(reason(Some(&" spam ".to_string())), Some("spam"));
     }
 
     #[test]

@@ -1974,6 +1974,10 @@ impl Shell {
                             scope,
                             result: Err(OperationError::Unavailable),
                         },
+                        OperationCommand::SpaceChildren { scope } => OperationResult::SpaceChildren {
+                            scope,
+                            result: Err(OperationError::Unavailable),
+                        },
                         OperationCommand::AddToSpace { scope, space } => OperationResult::SpaceChanged {
                             scope,
                             space,

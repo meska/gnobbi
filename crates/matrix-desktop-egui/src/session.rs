@@ -40,6 +40,8 @@ pub struct RoomEdit {
     pub avatar: Option<std::path::PathBuf>,
     pub failed: bool,
     pub busy: bool,
+    /// The room or space being edited.
+    pub scope: matrix_domain::RoomScope,
     original: (String, String),
 }
 
@@ -48,6 +50,10 @@ pub enum RoomAction {
     Tag(&'static str),
     Mode(matrix_domain::notifications::RoomNotifyMode),
     Leave,
+    /// Ask the engine which spaces can take or already hold the room (the menu shows the entries when the answer is in).
+    Spaces,
+    AddTo(matrix_domain::RoomScope),
+    RemoveFrom(matrix_domain::RoomScope),
 }
 
 pub struct Session {
@@ -60,6 +66,12 @@ pub struct Session {
     pub sidebar: matrix_desktop::Sidebar,
     pub confirm_leave: Option<matrix_domain::RoomScope>,
     pub room_error: Option<String>,
+    /// Spaces for the room whose menu was opened last; `None` inside until the engine answers.
+    pub space_choices: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>,
+    /// «Aggiungi a uno spazio» window: the room and the space picked so far.
+    pub space_pick: Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>,
+    /// Window of the selected space («Info spazio» / «Membri»).
+    pub space_view: Option<crate::space::SpaceView>,
     history: HistorySession,
     pending: Option<matrix_engine::history::HistoryRequest>,
     route: Option<(matrix_engine::Sender<matrix_engine::history::HistoryRequest>, Receiver<matrix_engine::history::HistoryResult>)>,
@@ -112,7 +124,11 @@ pub struct Session {
     /// Highlighted row of the quick search, counted over all groups.
     pub quick_sel: usize,
     pub new_failed: bool,
+    /// «Crea spazio» was sent and its answer is not in yet.
+    pub new_busy: bool,
     pub pending_select: Option<matrix_domain::RoomScope>,
+    /// The space just created, shown in the rail as soon as the sync lists it.
+    pending_space: Option<matrix_domain::RoomScope>,
     /// `last_room` in the profile folder: the room on screen, written at every change and reopened at the next start.
     last_file: std::path::PathBuf,
     last_room: Option<String>,
@@ -244,6 +260,8 @@ impl Session {
             rooms_sent: None,
             quick_sel: 0,
             new_failed: false,
+            new_busy: false,
+            pending_space: None,
             pending_select: None,
             last_file,
             restoring: last_room.is_some(),
@@ -286,6 +304,9 @@ impl Session {
             query: String::new(),
             confirm_leave: None,
             room_error: None,
+            space_choices: None,
+            space_pick: None,
+            space_view: None,
             sync: None,
             homeserver: String::new(),
             user: String::new(),
@@ -401,6 +422,7 @@ impl Session {
         let mut budget = 6;
         let mut wanted: Vec<String> = self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()).collect();
         wanted.extend(self.sidebar.navigation_entries().into_iter().filter_map(|e| e.avatar));
+        if let Some(crate::space::SpaceView { children: Some(Ok(c)), .. }) = &self.space_view { wanted.extend(c.children.iter().filter_map(|c| c.avatar_url.clone())); }
         wanted.extend(self.verification.as_ref().and_then(|v| v.profile_avatar()).map(str::to_owned));
         for mxc in wanted {
             let waiting = self.avatar_failed.get(&mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
@@ -600,6 +622,12 @@ impl Session {
             self.info_open = false;
             changed = true;
         }
+        if let Some(scope) = self.pending_space.clone()
+            && self.sidebar.set_space(Some(scope))
+        {
+            self.pending_space = None;
+            changed = true;
+        }
         let current = self.sidebar.selected().map(|r| r.scope.clone());
         if self.restoring && let Some(want) = &self.last_room {
             let now = current.as_ref().map(|c| c.room_id.as_str());
@@ -722,6 +750,24 @@ impl Session {
                 OperationResult::TagsEdited { result } => { self.sidebar.tag_done(result.clone()); self.room_error = self.sidebar.tag_error().map(str::to_owned); changed = true; continue; }
                 OperationResult::NotificationModeSet { result, .. } => { self.sidebar.mode_done(result.clone()); self.room_error = self.sidebar.mode_error().map(str::to_owned); changed = true; continue; }
                 OperationResult::RoomLeft { scope, result } => { self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
+                OperationResult::SpaceChoices { scope, result } => {
+                    if let (Some((asked, slot)), Ok(choices)) = (&mut self.space_choices, result) && asked == scope { *slot = Some(choices.clone()); }
+                    changed = true;
+                    continue;
+                }
+                OperationResult::SpaceChildren { scope, result } => {
+                    if let Some(v) = &mut self.space_view && &v.scope == scope { v.children = Some(result.clone().map_err(|_| ())); }
+                    changed = true;
+                    continue;
+                }
+                OperationResult::SpaceChanged { result, .. } => {
+                    self.space_choices = None;
+                    // The open space window reads its rooms again.
+                    if let Some(v) = &self.space_view { self.op_queue.push(OperationCommand::SpaceChildren { scope: v.scope.clone() }); }
+                    if let Err(e) = result { self.room_error = Some(matrix_engine::operations::space_error_line(*e).into()); }
+                    changed = true;
+                    continue;
+                }
                 OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some("Operazione non riuscita".into()); changed = true; continue; }
                 _ => {}
             }
@@ -820,6 +866,19 @@ impl Session {
                     }
                     continue;
                 }
+                OperationResult::SpaceCreated { result } => {
+                    self.new_busy = false;
+                    match result {
+                        // shortcut: the notices (not listed, picture refused) are not shown, add a line when someone misses them.
+                        Ok(created) => {
+                            self.pending_space = Some(created.scope.clone());
+                            self.new_open = false;
+                        }
+                        Err(_) => self.new_failed = true,
+                    }
+                    changed = true;
+                    continue;
+                }
                 OperationResult::RoomStarted { result } => {
                     match result {
                         Ok(scope) => {
@@ -872,6 +931,9 @@ impl Session {
                         self.members = Some((scope, list));
                     }
                     changed = true;
+                } else if let Some(v) = &mut self.space_view && v.scope == scope {
+                    v.members = Some(members.unwrap_or_default());
+                    changed = true;
                 }
                 continue;
             }
@@ -893,6 +955,9 @@ impl Session {
             RoomAction::Tag(tag) => self.sidebar.toggle_tag(&scope, tag).map(OperationCommand::EditTags),
             RoomAction::Mode(mode) => self.sidebar.set_mode(&scope, mode).then_some(OperationCommand::SetNotificationMode { scope, mode }),
             RoomAction::Leave => Some(OperationCommand::LeaveRoom { scope }),
+            RoomAction::Spaces => { self.space_choices = Some((scope.clone(), None)); Some(OperationCommand::SpaceChoices { scope }) }
+            RoomAction::AddTo(space) => Some(OperationCommand::AddToSpace { scope, space }),
+            RoomAction::RemoveFrom(space) => Some(OperationCommand::RemoveFromSpace { scope, space }),
         };
         if let Some(command) = command { self.op_queue.push(command); }
     }
@@ -906,6 +971,12 @@ impl Session {
         self.new_failed = false;
         let topic = Some(topic.trim().to_owned()).filter(|t| !t.is_empty());
         self.op_queue.push(OperationCommand::CreateRoom { name: name.trim().to_owned(), topic, public });
+    }
+
+    pub fn create_space(&mut self, name: &str, public: bool, avatar: Option<matrix_engine::operations::SpaceAvatar>) {
+        self.new_failed = false;
+        self.new_busy = true;
+        self.op_queue.push(OperationCommand::CreateSpace { name: name.trim().to_owned(), topic: None, public, avatar });
     }
 
     /// A directory row: joined through the server that listed it, like the GPUI quick search.
@@ -965,14 +1036,27 @@ impl Session {
     }
 
     pub fn open_edit(&mut self) {
-        let Some(room) = self.sidebar.selected() else { return };
+        if let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone()) { self.open_edit_of(&scope); }
+    }
+
+    /// «Modifica» of a room or of a space.
+    pub fn open_edit_of(&mut self, scope: &matrix_domain::RoomScope) {
+        let Some(room) = self.sidebar.rooms().iter().find(|r| &r.scope == scope) else { return };
         let (name, topic) = (room.name.clone(), room.info.topic.clone().unwrap_or_default());
-        self.edit = Some(RoomEdit { name: name.clone(), topic: topic.clone(), avatar: None, failed: false, busy: false, original: (name, topic) });
+        self.edit = Some(RoomEdit { name: name.clone(), topic: topic.clone(), avatar: None, failed: false, busy: false, scope: scope.clone(), original: (name, topic) });
+    }
+
+    /// Opens the space window on its rooms or on its members and asks the engine for that list.
+    pub fn open_space(&mut self, scope: matrix_domain::RoomScope, members_page: bool) {
+        self.room_error = None;
+        self.op_queue.push(if members_page { OperationCommand::Members { scope: scope.clone() } } else { OperationCommand::SpaceChildren { scope: scope.clone() } });
+        self.space_view = Some(crate::space::SpaceView { scope, members_page, children: None, members: None, adding: None });
     }
 
     /// Sends only what changed, so a field the user may not edit is never touched.
     pub fn save_edit(&mut self) {
-        let (Some(scope), Some(e)) = (self.draft_scope.clone(), &mut self.edit) else { return };
+        let Some(e) = &mut self.edit else { return };
+        let scope = e.scope.clone();
         let changed = |new: &str, old: &str| (new.trim() != old).then(|| new.trim().to_owned());
         let (name, topic) = (changed(&e.name, &e.original.0), changed(&e.topic, &e.original.1));
         if name.is_none() && topic.is_none() && e.avatar.is_none() {

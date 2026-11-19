@@ -1,7 +1,7 @@
 // Member detail on a real Synapse/Tuwunel (the member_detail_probe script; disposable accounts alice=admin, bob=moderator,
 // carol=plain user). The engine functions behind each action of the profile, as the UI calls them. Included by auth_tests.
 use crate::operations::{
-    Moderation, OperationError, load_member_rights as md_rights, moderate as md_moderate, set_ignored,
+    MemberPermissions, Moderation, OperationError, banned_members, member_permissions, load_member_rights as md_rights, moderate as md_moderate, set_ignored,
     start_dm, user_profile,
 };
 use matrix_sdk::ruma::{self, api::client::uiaa, events::room::message::RoomMessageEventContent};
@@ -194,12 +194,17 @@ fn live_member_detail_actions_on_a_real_homeserver() {
         room_of(&alice).invite_user_by_id(&c_uid).await.unwrap();
         carol.join_room_by_id(&rid).await.unwrap();
         md_until("carol back", async || rights(&bob, &t_bob, &c_id).await.map(|r| r.kick).unwrap_or(false)).await;
-        assert_eq!(md_moderate(&bob, account, &scope, &c_id, &Moderation::Ban).await, Ok(()));
+        assert_eq!(md_moderate(&bob, account, &scope, &c_id, &Moderation::BanWith(" spam ".into())).await, Ok(()));
         assert!(carol.join_room_by_id(&rid).await.is_err(), "banned user cannot join");
         println!("RIGHTS right after the ban, before bob's next sync: {:?}", rights(&bob, &t_bob, &c_id).await.map(|r| (r.kick, r.ban)));
         md_until("a banned member has no moderation entries", async || rights(&bob, &t_bob, &c_id).await == Ok(Default::default())).await;
-        room_of(&alice).unban_user(&c_uid, None).await.unwrap();
-        room_of(&alice).invite_user_by_id(&c_uid).await.unwrap();
+        let banned = banned_members(&bob, account, &scope).await.unwrap();
+        assert_eq!(banned.len(), 1);
+        assert_eq!((banned[0].user_id.as_str(), banned[0].reason.as_deref()), (c_id.as_str(), Some("spam")), "ban list with the trimmed reason");
+        assert_eq!(member_permissions(&bob, account, &scope).await, Ok(MemberPermissions { can_invite: true, can_kick: true, can_ban: true }));
+        assert_eq!(md_moderate(&bob, account, &scope, &c_id, &Moderation::Unban(None)).await, Ok(()));
+        md_until("unbanned", async || banned_members(&bob, account, &scope).await.is_ok_and(|b| b.is_empty())).await;
+        assert_eq!(md_moderate(&bob, account, &scope, &c_id, &Moderation::Invite).await, Ok(()));
         carol.join_room_by_id(&rid).await.unwrap();
         md_until("carol back after unban", async || rights(&bob, &t_bob, &c_id).await.map(|r| r.kick).unwrap_or(false)).await;
 

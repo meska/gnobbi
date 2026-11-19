@@ -614,6 +614,14 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::Moderated { scope, user_id, action, result }
                                 }
+                                OperationCommand::BannedMembers { scope } => {
+                                    let result = crate::operations::banned_members(&operation_client, account, &scope).await;
+                                    OperationResult::BannedMembers { scope, result }
+                                }
+                                OperationCommand::MemberPermissions { scope } => {
+                                    let result = crate::operations::member_permissions(&operation_client, account, &scope).await;
+                                    OperationResult::MemberPermissions { scope, result }
+                                }
                                 OperationCommand::MarkRoom {
                                     scope,
                                     read,
@@ -672,6 +680,10 @@ impl RoomListWorker {
                                 OperationCommand::SpaceChoices { scope } => {
                                     let result = crate::operations::space_choices(&operation_client, account, &scope).await;
                                     OperationResult::SpaceChoices { scope, result }
+                                }
+                                OperationCommand::SpaceChildren { scope } => {
+                                    let result = crate::operations::space_children(&operation_client, account, &scope).await;
+                                    OperationResult::SpaceChildren { scope, result }
                                 }
                                 OperationCommand::AddToSpace { scope, space } => {
                                     let result = crate::operations::add_to_space(&operation_client, account, &scope, &space).await;

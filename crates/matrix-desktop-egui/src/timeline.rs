@@ -36,10 +36,10 @@ mod tests {
     #[test]
     fn prepended_page_shifts_measured_heights() {
         let (mut rows, mut first) = (vec![10., 20.], None);
-        super::shift_for_prepend(&mut rows, &mut first, &[&3, &4]);
+        assert_eq!(super::shift_for_prepend(&mut rows, &mut first, &[&3, &4]), 0);
         assert_eq!((rows.clone(), first), (vec![10., 20.], Some(3)));
         let mut first = Some(3);
-        super::shift_for_prepend(&mut rows, &mut first, &[&1, &2, &3, &4]);
+        assert_eq!(super::shift_for_prepend(&mut rows, &mut first, &[&1, &2, &3, &4]), 2);
         assert_eq!((rows, first), (vec![56., 56., 10., 20.], Some(1)));
     }
 
@@ -340,11 +340,11 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
 }
 
 /// Older page on top: the measured heights move with their rows, else every row takes a neighbour's height and the scroll jumps.
-fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Option<T>, ids: &[&T]) {
-    if let Some(at) = first.as_ref().and_then(|f| ids.iter().position(|id| *id == f)) {
-        rows.splice(0..0, std::iter::repeat_n(GUESS, at));
-    }
+fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Option<T>, ids: &[&T]) -> usize {
+    let at = first.as_ref().and_then(|f| ids.iter().position(|id| *id == f)).unwrap_or(0);
+    rows.splice(0..0, std::iter::repeat_n(GUESS, at));
     *first = ids.first().map(|id| (*id).clone());
+    at
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
@@ -353,7 +353,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let mut save = None;
     let mut thread = None;
     // Heights are kept across width changes (rows in view are re-measured): clearing them to GUESS collapsed the content height and the scroll offset jumped on every resize step.
-    shift_for_prepend(&mut heights.rows, &mut heights.first, &events.iter().map(|e| &e.id).collect::<Vec<_>>());
+    let prepended = shift_for_prepend(&mut heights.rows, &mut heights.first, &events.iter().map(|e| &e.id).collect::<Vec<_>>());
     heights.rows.resize(events.len(), GUESS);
     let mut first = 0;
     let hide = !heights.ready && jump.is_none() && !events.is_empty();
@@ -361,12 +361,21 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let mut area = egui::ScrollArea::vertical().auto_shrink(false);
     let mut restoring = false;
     let mut anchor_missing = false;
+    let top_of = |rows: &[f32], at: usize| GAP + (0..at).map(|i| rows[i] + if history.continues_series(i) { TIGHT } else { GAP }).sum::<f32>();
+    let position = |id: &matrix_domain::EventId| events.iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone()));
+    if !hide && prepended > 0 {
+        // An older page arrived: the rows on top push everything down and egui would paint this frame at the old offset (the wrong rows for a frame, 100 ms when idle). Keep the same row at the same offset, or stay at the bottom.
+        if let Some((id, offset)) = heights.pos.clone() && let Some(at) = position(&id) {
+            area = area.vertical_scroll_offset(top_of(&heights.rows, at) + offset);
+        } else if heights.at_bottom {
+            area = area.vertical_scroll_offset(top_of(&heights.rows, events.len()) + GAP - ui.available_height());
+        }
+    }
     if hide && let Some((id, offset)) = heights.restore.clone() {
         // Saved position: set the offset from the heights known so far, hidden, and re-set it until the rows stop changing; no event in the room yet -> bottom.
-        match events.iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())) {
+        match position(&id) {
             Some(at) => {
-                let top: f32 = GAP + (0..at).map(|i| heights.rows[i] + if history.continues_series(i) { TIGHT } else { GAP }).sum::<f32>();
-                area = area.vertical_scroll_offset(top + offset);
+                area = area.vertical_scroll_offset(top_of(&heights.rows, at) + offset);
                 restoring = true;
             }
             None => {
@@ -386,7 +395,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         }
         // The content ui came out wider than the viewport on a narrow column (the rows then aligned past the visible edge): lay out in the visible width.
         ui.set_max_width(ui.clip_rect().width().min(ui.available_width()));
-        let mut y = 0.;
+        let mut y = GAP; // rows start below the top gap: the anchor offset must be measured from the same origin as `top_of`
         let mut seen_first = false;
         ui.add_space(GAP);
         for (i, e) in events.iter().enumerate() {
