@@ -33,7 +33,7 @@ pub struct Heights {
 }
 
 /// True when the message was right-clicked (or long-pressed).
-fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, label: Option<&str>, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, label: Option<&str>, initials: Option<&str>, group: bool, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(12.).color(rgb(t.secondary))));
@@ -50,6 +50,15 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, l
     let mut thread = false;
     ui.with_layout(layout, |ui| {
         ui.add_space(12.);
+        // Group rooms: the sender's round avatar (initials) opens a series of incoming bubbles; the others keep its column.
+        // shortcut: the sender's picture is not loaded, only initials; load it by mxc when the pictures cache can take it.
+        if group && !e.outgoing {
+            let (rect, _) = ui.allocate_exact_size(Vec2::splat(32.), egui::Sense::hover());
+            if let Some(initials) = initials {
+                ui.painter().circle_filled(rect.center(), 16., rgb(matrix_desktop::AVATAR_FALLBACK));
+                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(12.), rgb(t.avatar_text));
+            }
+        }
         let fill = if e.highlighted { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
         let frame = egui::Frame::NONE.fill(fill).corner_radius(CornerRadius::same(12)).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
             // Shrink-wrap: as wide as the longest of text, sender and time (at most `max`), not the whole column.
@@ -153,7 +162,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                let (opened, wants_save, wants_thread) = row(ui, e, pictures, acts, history.sender_label(i, members).as_deref(), history.day_separator(i).as_deref(), t);
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, acts, history.sender_label(i, members).as_deref(), history.sender_avatar(i, members).map(|(_, i)| i).as_deref(), members > 2, history.day_separator(i).as_deref(), t);
                 if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
                     thread = Some(id.clone());
                 }
