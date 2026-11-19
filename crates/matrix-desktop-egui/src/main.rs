@@ -343,7 +343,10 @@ impl eframe::App for App {
             if let Some(messages) = &mut session.messages
                 && messages.set_hide_redacted(self.prefs.hide_redacted)
             {
+                // A room opened just now is projected for the first time here (the default is «show»): its saved reading position must survive.
+                let restore = session.heights.restore.take();
                 session.heights = Default::default();
+                session.heights.restore = restore;
             }
         }
         self.tray(&ctx);
@@ -967,6 +970,11 @@ impl App {
             self.applied = None;
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
+            // The click that changes room lands before `drive_history` swaps the messages: drawing the old room under the new room's scroll state moved it to the bottom and saved that as its reading position.
+            let stale = self.session.as_ref().is_some_and(|s| s.messages.as_ref().is_some_and(|m| s.sidebar.selected().is_some_and(|r| r.scope != *m.scope())));
+            if stale {
+                ui.ctx().request_repaint();
+            }
             let invite = self.session.as_ref().and_then(|s| s.sidebar.selected_invite().map(|r| (r.scope.clone(), r.name.clone())));
             if let (Some((scope, name)), Some(s)) = (invite, &mut self.session) {
                 ui.vertical_centered(|ui| {
@@ -984,6 +992,7 @@ impl App {
                 });
             } else if let Some(s) = &mut self.session
                 && let Some(messages) = &s.messages
+                && !stale
             {
                 let mut acts = timeline::Acts { now_playing: s.audio_now(), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
