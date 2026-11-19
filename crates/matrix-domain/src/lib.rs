@@ -4,6 +4,7 @@ pub mod design;
 pub mod notifications;
 mod poll;
 pub mod role;
+pub mod space_order;
 pub use poll::{Poll, PollAnswer, PollDraft, PollDraftError};
 mod sender_label;
 mod timeline;

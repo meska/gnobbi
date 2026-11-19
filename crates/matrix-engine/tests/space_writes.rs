@@ -1,10 +1,11 @@
 //! Space writes against a disposable homeserver (driven by the room_mgmt_probe script with PROBE_TEST=space_writes):
 //! private/public space with and without avatar, add/remove a room (`m.space.child`), and a member without the
 //! power level (no edit right, `Forbidden`). The result is read back from the server state, not from the SDK store.
+//! PROBE_TEST=space_move: a space moved under another, reordered with `order`, taken out, and refused without the right.
 #![cfg(feature = "sdk")]
 use matrix_domain::{AccountId, RoomScope};
 use matrix_engine::{
-    operations::{OperationError, SpaceAvatar, add_to_space, can_edit_space, create_room, create_space, remove_from_space},
+    operations::{OperationError, SpaceAvatar, add_to_space, can_edit_space, create_room, create_space, place_in_space, remove_from_space},
     sdk::{
         Client,
         config::SyncSettings,
@@ -105,5 +106,68 @@ fn spaces_are_created_and_rooms_added_and_removed_as_the_server_sees_them() {
         assert_eq!(refused, Err(OperationError::Forbidden));
         assert!(state(&a, &private.scope, StateEventType::SpaceChild, id(&bobs).as_str()).await.is_none(), "bob's write got through");
         println!("[probe] bob: can_edit false, add refused with Forbidden, nothing written");
+    });
+}
+
+#[test]
+#[ignore = "requires the room_mgmt_probe script"]
+fn a_space_moves_under_another_with_an_order_as_the_server_sees_it() {
+    let config: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(std::env::var("FIXTURE_AUTH_CONFIG").expect("FIXTURE_AUTH_CONFIG")).unwrap()).unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    rt.block_on(async {
+        let (a, b) = (login(&config, "alice").await, login(&config, "bob").await);
+        let mut spaces = Vec::new();
+        for name in ["Vecchio", "Nuovo", "X", "Y"] {
+            spaces.push(create_space(&a, ACCOUNT, name, None, false, None).await.unwrap().scope);
+        }
+        let [old, new, x, y] = &spaces[..] else { unreachable!() };
+        sync(&a).await;
+        add_to_space(&a, ACCOUNT, x, old).await.unwrap();
+        sync(&a).await;
+        async fn link(client: &Client, space: &RoomScope, room: &RoomScope) -> Option<serde_json::Value> {
+            state(client, space, StateEventType::SpaceChild, id(room).as_str()).await
+        }
+        let child = |space, room| link(&a, space, room);
+        let listed = |c: &Option<serde_json::Value>| c.as_ref().is_some_and(|c| c["via"].as_array().is_some_and(|v| !v.is_empty()));
+        let order = |c: &Option<serde_json::Value>| c.as_ref().and_then(|c| c["order"].as_str().map(str::to_owned)).expect("order");
+
+        // Vecchio > X becomes Nuovo > X.
+        place_in_space(&a, ACCOUNT, x, Some(old), Some(new), None).await.unwrap();
+        let moved = child(new, x).await;
+        assert!(listed(&moved), "X not under the new parent: {moved:?}");
+        assert!(!listed(&child(old, x).await), "X still under the old parent");
+        let parent = state(&a, x, StateEventType::SpaceParent, id(new).as_str()).await.expect("m.space.parent");
+        assert!(parent["canonical"] == true && parent["via"].as_array().is_some_and(|v| !v.is_empty()), "{parent}");
+        assert!(!listed(&state(&a, x, StateEventType::SpaceParent, id(old).as_str()).await), "old m.space.parent left");
+        println!("[probe] moved: child {} parent {parent}", moved.clone().unwrap());
+        sync(&a).await;
+
+        // Y lands before X, then X is put back before Y: the keys sort that way and the links stay.
+        place_in_space(&a, ACCOUNT, y, None, Some(new), Some(x)).await.unwrap();
+        let (kx, ky) = (order(&child(new, x).await), order(&child(new, y).await));
+        assert!(ky < kx, "Y {ky:?} must sort before X {kx:?}");
+        sync(&a).await;
+        place_in_space(&a, ACCOUNT, x, Some(new), Some(new), Some(y)).await.unwrap();
+        let (cx, cy) = (child(new, x).await, child(new, y).await);
+        assert!(listed(&cx) && listed(&cy) && order(&cx) < order(&cy), "X {cx:?} must sort before Y {cy:?}");
+        println!("[probe] ordered: Y before X ({ky:?} < {kx:?}), then X before Y ({:?} < {:?})", order(&cx), order(&cy));
+        sync(&a).await;
+
+        // Out to the top level: only the old link goes.
+        place_in_space(&a, ACCOUNT, x, Some(new), None, None).await.unwrap();
+        assert!(!listed(&child(new, x).await), "X still under Nuovo");
+        assert!(listed(&child(new, y).await), "Y must stay");
+        println!("[probe] taken out to the top level");
+
+        // Bob is a plain member of Nuovo: his space is refused there and nothing is written.
+        a.get_room(&id(new)).unwrap().invite_user_by_id(b.user_id().unwrap()).await.unwrap();
+        sync(&b).await;
+        b.get_room(&id(new)).unwrap().join().await.unwrap();
+        let bobs = create_space(&b, ACCOUNT, "Di Bob", None, false, None).await.unwrap().scope;
+        sync(&b).await;
+        assert_eq!(place_in_space(&b, ACCOUNT, &bobs, None, Some(new), None).await, Err(OperationError::Forbidden));
+        assert!(child(new, &bobs).await.is_none(), "bob's write got through");
+        println!("[probe] bob: move refused with Forbidden, nothing written");
     });
 }

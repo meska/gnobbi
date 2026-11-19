@@ -11,20 +11,26 @@ pub fn switch(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(label);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let (rect, resp) = ui.allocate_exact_size(Vec2::new(36., 20.), Sense::click());
-            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-            if resp.clicked() {
-                *on = !*on;
-                changed = true;
-            }
-            let (track, knob) = if *on { (rgb(t.accent), 26.) } else { (rgb(t.disabled), 10.) };
-            ui.painter().rect_filled(rect, 10., track);
-            ui.painter().circle_filled(egui::pos2(rect.left() + knob, rect.center().y), 8., rgb(t.on_accent));
-            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Switch, true, *on, label));
-        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| changed = toggle(ui, label, on, t));
     });
     changed
+}
+
+/// The switch alone; `label` is what a screen reader says.
+pub fn toggle(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(36., 20.), Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.clicked() {
+        *on = !*on;
+    }
+    let (track, knob) = if *on { (rgb(t.accent), 26.) } else { (rgb(t.disabled), 10.) };
+    ui.painter().rect_filled(rect, 10., track);
+    ui.painter().circle_filled(egui::pos2(rect.left() + knob, rect.center().y), 8., rgb(t.on_accent));
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect.expand(2.), 12., egui::Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Outside);
+    }
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Switch, true, *on, label));
+    resp.clicked()
 }
 
 /// Draws the window; returns the new preferences when something was changed (already saved).

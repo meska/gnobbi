@@ -90,6 +90,8 @@ impl EditRights {
 pub struct RoomInfo {
     /// What the user may edit; see `EditRights`.
     pub edit_rights: EditRights,
+    /// A space whose children the user may change (`m.space.child` power level); false when unknown.
+    pub child_rights: bool,
     /// Observed public peer markers only; empty means no known marker, not unread.
     pub public_read_receipts: Vec<receipts::PublicReadReceipt>,
     pub topic: Option<String>,

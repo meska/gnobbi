@@ -213,6 +213,14 @@ pub enum OperationCommand {
         scope: RoomScope,
         space: RoomScope,
     },
+    /// Move `scope` from the space `from` to the space `to`, right before the child `before` (`None` = last);
+    /// `to` = `from` only reorders, no `to` only takes it out. Answered with `OperationResult::SpacePlaced`.
+    PlaceInSpace {
+        scope: RoomScope,
+        from: Option<RoomScope>,
+        to: Option<RoomScope>,
+        before: Option<RoomScope>,
+    },
     /// Search the messages of one room; an empty term closes the search. Answered with
     /// `OperationResult::MessageSearch` as it progresses.
     SearchMessages {
@@ -466,6 +474,11 @@ pub enum OperationResult {
         scope: RoomScope,
         space: RoomScope,
         added: bool,
+        result: Result<(), OperationError>,
+    },
+    /// The space tree changes at the next sync.
+    SpacePlaced {
+        scope: RoomScope,
         result: Result<(), OperationError>,
     },
     /// Progress of a `JoinRoom`; `target` is the command's string, echoed unchanged.
@@ -1407,6 +1420,80 @@ pub async fn remove_from_space(
     let (room, space) = (room_id_of(account, room)?, room_id_of(account, space)?);
     let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
     space_write(service.remove_child_from_space(room, space)).await
+}
+
+/// Live `m.space.child` events of a joined space in the spec order (`order`, then age, then room id); emptied
+/// (removed) children are left out.
+#[cfg(feature = "sdk")]
+pub(crate) async fn ordered_children(
+    space: &matrix_sdk::Room,
+) -> Vec<(matrix_sdk::ruma::OwnedRoomId, matrix_sdk::ruma::events::space::child::SpaceChildEventContent)> {
+    use matrix_sdk::deserialized_responses::SyncOrStrippedState::Sync;
+    use matrix_sdk::ruma::events::{SyncStateEvent::Original, space::child::SpaceChildEventContent};
+    let mut children: Vec<_> = space
+        .get_state_events_static::<SpaceChildEventContent>()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|raw| match raw.deserialize() {
+            Ok(Sync(Original(e))) if !e.content.via.is_empty() => Some((e.origin_server_ts, e.state_key, e.content)),
+            _ => None,
+        })
+        .collect();
+    children.sort_by(|(a_ts, a_id, a), (b_ts, b_id, b)| {
+        (a.order.is_none(), &a.order, a_ts, a_id).cmp(&(b.order.is_none(), &b.order, b_ts, b_id))
+    });
+    children.into_iter().map(|(_, id, content)| (id, content)).collect()
+}
+
+/// Moves `child` under the space `to`, right before `before` (`None` = last), and out of the space `from`.
+/// The SDK's `add_child_to_space` cannot set `order`, so the `m.space.child` is sent here with the SDK state
+/// call: `via` from the child's route, `order` from `space_order::plan` (other children are rewritten, content
+/// kept, only when no key fits). `m.space.parent` (canonical) is written when the child's levels allow it and
+/// never fails the move. The new link is written before the old one is removed: a failure in between leaves
+/// the child in both spaces, never in none.
+#[cfg(feature = "sdk")]
+pub async fn place_in_space(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    child: &RoomScope,
+    from: Option<&RoomScope>,
+    to: Option<&RoomScope>,
+    before: Option<&RoomScope>,
+) -> Result<(), OperationError> {
+    use matrix_sdk::ruma::events::{StateEventType, space::{child::SpaceChildEventContent, parent::SpaceParentEventContent}};
+    const LIMIT: std::time::Duration = std::time::Duration::from_secs(20);
+    let child_id = room_id_of(account, child)?;
+    if let Some(to) = to {
+        let joined = |id| client.get_room(id).filter(|r| r.state() == matrix_sdk::RoomState::Joined).ok_or(OperationError::Unavailable);
+        let (space, room) = (joined(&room_id_of(account, to)?)?, joined(&child_id)?);
+        let current = ordered_children(&space).await;
+        let keys: Vec<(String, Option<String>)> = current.iter().map(|(id, c)| (id.to_string(), c.order.as_ref().map(|o| o.as_str().to_owned()))).collect();
+        for (id, key) in matrix_domain::space_order::plan(&keys, child_id.as_str(), before.map(|b| b.room_id.as_str())) {
+            let mut content = match current.iter().find(|(c, _)| c.as_str() == id) {
+                Some((_, content)) => content.clone(),
+                None => SpaceChildEventContent::new(room.route().await.map_err(|e| classify(&e))?),
+            };
+            content.order = Some(matrix_sdk::ruma::SpaceChildOrder::parse(&key).map_err(|_| OperationError::InvalidInput)?.to_owned());
+            let id = matrix_sdk::ruma::RoomId::parse(&id).map_err(|_| OperationError::WrongScope)?;
+            tokio::time::timeout(LIMIT, space.send_state_event_for_key(&id, content))
+                .await
+                .map_err(|_| OperationError::Transport)?
+                .map_err(|e| classify(&e))?;
+        }
+        if from != Some(to)
+            && let (Ok(levels), Some(me), Ok(via)) = (room.power_levels().await, client.user_id(), space.route().await)
+            && levels.user_can_send_state(me, StateEventType::SpaceParent)
+        {
+            let mut parent = SpaceParentEventContent::new(via);
+            parent.canonical = true;
+            let _ = tokio::time::timeout(LIMIT, room.send_state_event_for_key(space.room_id(), parent)).await;
+        }
+    }
+    match from {
+        Some(from) if Some(from) != to => remove_from_space(client, account, child, from).await,
+        _ => Ok(()),
+    }
 }
 
 /// Whether the user may send `m.space.child` in `space`, from its power levels (the defaults differ per server).

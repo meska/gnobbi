@@ -1,12 +1,28 @@
-//! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and «Modifica» at the bottom.
+//! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and «Modifica» at the bottom,
+//! which opens the drawer where the spaces are dragged into order and into each other.
 use crate::list::{badge, one_line, photo, rgb};
 use eframe::egui::{self, Align2, FontId, Sense, Stroke, Vec2};
 use matrix_desktop::{AppDirs, DesignTokens, NavigationEntry, RailLayout, RailLayouts, Sidebar};
 use matrix_domain::RoomScope;
+use matrix_engine::operations::OperationError;
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 pub const WIDTH: f32 = 76.;
 const ITEM: f32 = 58.;
+const DRAWER: f32 = 380.;
+const ROW: f32 = 48.;
+const INDENT: f32 = 20.;
+
+/// A move sent to the server: shown at once, undone when the server refuses.
+pub struct Move {
+    id: String,
+    parent: Option<String>,
+    before: Option<String>,
+    sent: Instant,
+    /// When the server accepted; the row then waits for the sync to bring the same tree.
+    done: Option<Instant>,
+}
 
 #[derive(Default)]
 pub struct State {
@@ -14,6 +30,11 @@ pub struct State {
     /// Parent spaces shown with their subspaces (room ids); this run only.
     pub open: HashSet<String>,
     pub edit: bool,
+    pub moving: Option<Move>,
+    /// Why the last move did not happen.
+    pub error: Option<String>,
+    /// Where the rail was drawn last; the drawer slides out from its right edge.
+    pub panel: Option<egui::Rect>,
 }
 
 /// One space of the rail tree.
@@ -29,14 +50,26 @@ pub struct Row {
     pub has_children: bool,
     open: bool,
     pub hidden: bool,
+    /// The user may change the children of this space (`m.space.child`).
+    pub editable: bool,
+    /// Its move is on the way to the server.
+    pub busy: bool,
+}
+
+impl Row {
+    fn id(&self) -> &str {
+        self.scope.room_id.as_str()
+    }
 }
 
 struct Walk<'a> {
     sidebar: &'a Sidebar,
-    /// Spaces in the user's order; taken out as they are placed, so each shows once.
+    /// Spaces, the top level in the user's order; taken out as they are placed, so each shows once.
     entries: Vec<(String, Option<(NavigationEntry, bool)>)>,
-    /// Subspaces of each space.
+    /// Subspaces of each space, in the order of the space.
     kids: HashMap<String, Vec<String>>,
+    editable: HashSet<String>,
+    busy: Option<&'a str>,
     open: &'a HashSet<String>,
     all: bool,
     rows: Vec<Row>,
@@ -49,12 +82,14 @@ impl Walk<'_> {
         let Some(scope) = entry.scope else { return };
         let id = self.entries[at].0.clone();
         let show = show && (self.all || !hidden);
-        let children: Vec<usize> = (0..self.entries.len()).filter(|&i| self.entries[i].1.is_some() && self.kids[&id].contains(&self.entries[i].0)).collect();
+        let children: Vec<usize> =
+            self.kids.get(&id).into_iter().flatten().filter_map(|kid| self.entries.iter().position(|(e, slot)| e == kid && slot.is_some())).collect();
         let open = self.all || self.open.contains(&id);
         if show {
             // Folded parent: its badge also counts what sits in the subspaces, each room once.
             let unread = if children.is_empty() || open { entry.unread } else { self.deep_unread(&id) };
-            self.rows.push(Row { scope, name: entry.name, avatar: entry.avatar, selected: entry.selected, unread, depth, parent: parent.map(str::to_owned), has_children: !children.is_empty(), open, hidden });
+            let (editable, busy) = (self.editable.contains(&id), self.busy == Some(id.as_str()));
+            self.rows.push(Row { scope, name: entry.name, avatar: entry.avatar, selected: entry.selected, unread, depth, parent: parent.map(str::to_owned), has_children: !children.is_empty(), open, hidden, editable, busy });
         }
         for child in children {
             self.push(child, depth + 1, Some(&id), show && open);
@@ -73,25 +108,34 @@ impl Walk<'_> {
     }
 }
 
-/// The joined spaces as a depth-first tree in the user's order: a space that is a child of another joined space sits under it.
-/// `all` (the edit window) lists every space; otherwise hidden spaces drop with their subspaces and closed parents keep theirs folded.
-pub fn tree(sidebar: &Sidebar, layout: &RailLayout, open: &HashSet<String>, all: bool) -> Vec<Row> {
+/// The joined spaces as a depth-first tree: a space that is a child of another joined space sits under it, in the order of that
+/// space (server); the top level follows the user's local order. `moving` is drawn where it was sent, ahead of the sync.
+/// `all` (the edit drawer) lists every space; otherwise hidden spaces drop with their subspaces and closed parents keep theirs folded.
+pub fn tree(sidebar: &Sidebar, layout: &RailLayout, open: &HashSet<String>, all: bool, moving: Option<&Move>) -> Vec<Row> {
     let entries: Vec<(String, Option<(NavigationEntry, bool)>)> = layout
         .arrange(sidebar.navigation_entries())
         .into_iter()
         .filter_map(|e| Some((e.0.scope.as_ref()?.room_id.as_str().to_owned(), Some(e))))
         .collect();
     let ids: HashSet<&str> = entries.iter().map(|(id, _)| id.as_str()).collect();
-    let kids: HashMap<String, Vec<String>> = sidebar
+    let mut kids: HashMap<String, Vec<String>> = sidebar
         .spaces()
         .map(|s| {
             let own = s.scope.room_id.as_str();
             (own.to_owned(), s.info.children.iter().map(|c| c.as_str()).filter(|c| *c != own && ids.contains(c)).map(str::to_owned).collect())
         })
         .collect();
+    if let Some(m) = moving.filter(|m| ids.contains(m.id.as_str())) {
+        kids.values_mut().for_each(|list| list.retain(|c| *c != m.id));
+        if let Some(list) = m.parent.as_ref().and_then(|p| kids.get_mut(p)) {
+            let at = m.before.as_ref().and_then(|b| list.iter().position(|c| c == b)).unwrap_or(list.len());
+            list.insert(at, m.id.clone());
+        }
+    }
     let nested: HashSet<String> = kids.values().flatten().cloned().collect();
+    let editable = sidebar.spaces().filter(|s| s.info.child_rights).map(|s| s.scope.room_id.as_str().to_owned()).collect();
     let count = entries.len();
-    let mut walk = Walk { sidebar, entries, kids, open, all, rows: Vec::new() };
+    let mut walk = Walk { sidebar, entries, kids, editable, busy: moving.map(|m| m.id.as_str()), open, all, rows: Vec::new() };
     // Second pass: spaces that only reach each other in a circle have no root; listed at the top level instead of lost.
     for pass in 0..2 {
         for at in 0..count {
@@ -101,6 +145,81 @@ pub fn tree(sidebar: &Sidebar, layout: &RailLayout, open: &HashSet<String>, all:
         }
     }
     walk.rows
+}
+
+/// The row and every row under it.
+fn subtree(rows: &[Row], at: usize) -> std::ops::Range<usize> {
+    at..at + 1 + rows[at + 1..].iter().take_while(|r| r.depth > rows[at].depth).count()
+}
+
+/// Why the space at `at` cannot go under `parent` (`None` = the top level); `None` when it can. A space never goes inside itself
+/// or one of its subspaces, and both ends are written on the server: the new parent gets the child, the old one loses it.
+pub fn refusal(rows: &[Row], at: usize, parent: Option<&str>) -> Option<String> {
+    let find = |id: &str| rows.iter().position(|r| r.id() == id);
+    if parent.and_then(find).is_some_and(|p| subtree(rows, at).contains(&p)) {
+        return Some("Uno spazio non può stare dentro sé stesso".into());
+    }
+    [parent, rows[at].parent.as_deref()].into_iter().flatten().filter_map(find).find(|&i| !rows[i].editable).map(|i| format!("Non hai i permessi per modificare «{}»", rows[i].name))
+}
+
+/// What the drawer shows while a row hovers.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Mark {
+    /// The row the space goes into.
+    Into(usize),
+    /// A line above this row index (the row count = below the last), at this depth.
+    Line(usize, usize),
+}
+
+/// Where a dragged space lands: under `parent` (`None` = top level), right before the sibling `before` (`None` = last).
+#[derive(Debug, PartialEq, Eq)]
+pub struct Target {
+    pub parent: Option<String>,
+    pub before: Option<String>,
+    pub mark: Mark,
+}
+
+/// The landing spot of the row `at` held over the row `over`, `frac` (0..1) down its height: the middle half nests it into that
+/// row, the edges put it between two rows at the level `depth` asks for (kept within what the two neighbours allow).
+/// `None` over the dragged row's own subtree.
+pub fn drop_target(rows: &[Row], at: usize, over: usize, frac: f32, depth: usize) -> Option<Target> {
+    let own = subtree(rows, at);
+    if (0.25..0.75).contains(&frac) {
+        return (!own.contains(&over)).then(|| Target { parent: Some(rows[over].id().to_owned()), before: None, mark: Mark::Into(over) });
+    }
+    let gap = if frac < 0.5 { over } else { over + 1 };
+    if gap > own.start && gap < own.end {
+        return None;
+    }
+    // Neighbours as if the dragged subtree were already lifted out.
+    let above = rows[..gap].iter().enumerate().rfind(|(i, _)| !own.contains(i)).map(|(i, _)| i);
+    let below = rows.iter().enumerate().skip(gap).find(|(i, _)| !own.contains(i)).map(|(_, r)| r);
+    let depth = depth.clamp(below.map_or(0, |r| r.depth), above.map_or(0, |i| rows[i].depth + 1));
+    let parent = above.filter(|_| depth > 0).and_then(|a| rows[..=a].iter().enumerate().rfind(|(i, r)| !own.contains(i) && r.depth == depth - 1)).map(|(_, r)| r.id().to_owned());
+    Some(Target { parent, before: below.filter(|r| r.depth == depth).map(|r| r.id().to_owned()), mark: Mark::Line(gap, depth) })
+}
+
+/// Takes the engine's answer to the move in flight: a refusal undoes it and says why; an accepted one stays drawn until the
+/// sync brings the same tree.
+fn settle(state: &mut State, sidebar: &Sidebar, layout: &RailLayout, placed: Option<Result<(), OperationError>>) {
+    let Some(mut m) = state.moving.take() else { return };
+    let failed = match placed {
+        Some(Err(e)) => Some(e),
+        Some(Ok(())) => {
+            m.done = Some(Instant::now());
+            None
+        }
+        // shortcut: an answer lost with its session (account switched meanwhile) ends as a plain failure after 30 s.
+        None => (m.done.is_none() && m.sent.elapsed() > Duration::from_secs(30)).then_some(OperationError::Transport),
+    };
+    if let Some(e) = failed {
+        state.error = Some(matrix_engine::operations::space_error_line(e).into());
+        return;
+    }
+    let shape = |moving| tree(sidebar, layout, &HashSet::new(), true, moving).into_iter().map(|r| (r.scope.room_id, r.parent)).collect::<Vec<_>>();
+    if !m.done.is_some_and(|at| at.elapsed() > Duration::from_secs(8) || shape(None) == shape(Some(&m))) {
+        state.moving = Some(m);
+    }
 }
 
 enum Icon<'a> {
@@ -173,12 +292,15 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// The rail below the account picture. `account` is the catalog id the layout is stored under.
-pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, state: &mut State, account: u64, t: &DesignTokens) {
-    // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows the «Modifica» window.
+/// The rail below the account picture. `account` is the catalog id the layout is stored under; `placed` the engine's answer to a move.
+pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, state: &mut State, account: u64, placed: Option<Result<(), OperationError>>, t: &DesignTokens) {
+    // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows the «Modifica» drawer, rail-drag / rail-line also a held row.
     let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
-    state.edit |= view == "rail-edit";
-    let rows = tree(sidebar, &state.layouts.get(account), &state.open, view == "rail-open");
+    state.edit |= matches!(view.as_str(), "rail-edit" | "rail-drag" | "rail-line");
+    let layout = state.layouts.get(account);
+    settle(state, sidebar, &layout, placed);
+    state.panel = Some(ui.max_rect());
+    let rows = tree(sidebar, &layout, &state.open, view == "rail-open", state.moving.as_ref());
     let all = sidebar.navigation_entries().first().map_or(0, |e| e.unread);
     let (unread_rooms, unread_view, in_space) = (sidebar.unread_rooms() as u64, sidebar.unread_view(), sidebar.active_space().is_some());
     ui.spacing_mut().item_spacing.y = 0.;
@@ -192,7 +314,7 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
         }
         for row in &rows {
             let resp = item(ui, avatars, t, Icon::Space(row), &row.name, row.unread, row.selected);
-            let id = row.scope.room_id.as_str();
+            let id = row.id();
             // Same click on a parent: pick it and unfold it; on the picked one, fold or unfold.
             if resp.clicked() {
                 if row.has_children && !(row.selected && state.open.remove(id)) {
@@ -224,62 +346,250 @@ fn arrow(ui: &mut egui::Ui, t: &DesignTokens, up: bool, enabled: bool, label: &s
     resp.clicked()
 }
 
-/// What the edit window asks for.
-enum Edit {
-    /// Put the first space where the second one is, in the flat order.
-    Move(String, String),
-    Toggle(RoomScope),
+/// Hover and focus look of a drawn control.
+fn lit(ui: &egui::Ui, resp: &egui::Response, rect: egui::Rect, radius: f32, t: &DesignTokens) {
+    if resp.hovered() || resp.has_focus() {
+        ui.painter().rect_filled(rect, radius, rgb(t.input));
+    }
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect, radius, Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Inside);
+    }
 }
 
-/// «Modifica»: order (among the spaces of the same parent) and visibility of the spaces in the rail; saved at once, locally.
-pub fn edit_window(ctx: &egui::Context, sidebar: &mut Sidebar, state: &mut State, account: u64, dirs: Option<&AppDirs>, t: &DesignTokens) {
-    if !state.edit {
-        return;
-    }
+/// Initial on the fallback colour, the picture over it when there is one.
+fn face(ui: &egui::Ui, p: &egui::Painter, avatars: &crate::timeline::Avatars, row: &Row, c: egui::Pos2, size: f32, t: &DesignTokens) {
+    let initial: String = row.name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
+    p.circle_filled(c, size / 2., rgb(crate::AVATAR));
+    p.text(c, Align2::CENTER_CENTER, initial, FontId::proportional(size * 0.45), rgb(t.on_accent));
+    photo(ui, avatars, row.avatar.as_deref(), c, size);
+}
+
+/// The row being dragged (egui drag-and-drop payload): its room id.
+struct Dragged(String);
+
+/// What the drawer asks for.
+enum Edit {
+    /// Put the row at this index under `parent`, before `before`.
+    Place(usize, Option<String>, Option<String>),
+    Toggle(RoomScope),
+    Close,
+}
+
+/// «Modifica barra»: a drawer beside the rail. Rows are dragged (or moved with the arrow keys and buttons) into order and into
+/// each other: inside a space that is `m.space.child` on the server, at the top level a local order. The switch hides a
+/// space from the rail, locally.
+pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, state: &mut State, account: u64, dirs: Option<&AppDirs>, t: &DesignTokens) {
+    let open = ctx.animate_bool_with_time(egui::Id::new("rail-drawer-open"), state.edit, 0.18);
+    let Some(panel) = state.panel.filter(|_| open > 0.) else { return };
     let mut layout = state.layouts.get(account);
-    let rows = tree(sidebar, &layout, &state.open, true);
-    let (mut open, mut act) = (true, None);
-    egui::Window::new("Modifica barra").open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
-        ui.set_width(340.);
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-        if rows.is_empty() {
-            ui.label("Nessuno spazio");
+    let rows = tree(&session.sidebar, &layout, &state.open, true, state.moving.as_ref());
+    let frozen = state.moving.is_some();
+    let width = DRAWER.min(ctx.content_rect().right() - panel.right());
+    let clip = egui::Rect::from_min_max(panel.right_top(), egui::pos2(ctx.content_rect().right(), panel.bottom()));
+    let rect = egui::Rect::from_min_size(panel.right_top() - Vec2::new((1. - open) * width, 0.), Vec2::new(width, panel.height()));
+    let mut act = None;
+    // The rest of the window is dimmed: a click there closes the drawer and reaches nothing else. The rail stays usable.
+    egui::Area::new(egui::Id::new("rail-scrim")).order(egui::Order::Middle).fixed_pos(clip.min).show(ctx, |ui| {
+        let (r, resp) = ui.allocate_exact_size(clip.size(), Sense::click());
+        ui.painter().rect_filled(r, 0., egui::Color32::from_black_alpha((open * 102.) as u8));
+        if resp.clicked() {
+            act = Some(Edit::Close);
         }
-        egui::ScrollArea::vertical().max_height(420.).show(ui, |ui| {
-            for (i, row) in rows.iter().enumerate() {
-                let sibling = |r: &&Row| r.parent == row.parent;
-                let (before, after) = (rows[..i].iter().rfind(sibling), rows[i + 1..].iter().find(sibling));
-                let id = |r: &Row| r.scope.room_id.as_str().to_owned();
-                ui.horizontal(|ui| {
-                    ui.add_space(row.depth as f32 * 16.);
-                    if arrow(ui, t, true, before.is_some(), &format!("Sposta su {}", row.name)) && let Some(b) = before {
-                        act = Some(Edit::Move(id(row), id(b)));
-                    }
-                    if arrow(ui, t, false, after.is_some(), &format!("Sposta giù {}", row.name)) && let Some(a) = after {
-                        act = Some(Edit::Move(id(row), id(a)));
-                    }
-                    let mut shown = !row.hidden;
-                    if crate::settings::switch(ui, &row.name, &mut shown, t) {
-                        act = Some(Edit::Toggle(row.scope.clone()));
-                    }
+    });
+    egui::Area::new(egui::Id::new("rail-drawer")).order(egui::Order::Foreground).fixed_pos(rect.min).constrain(false).show(ctx, |ui| {
+        ui.set_clip_rect(clip);
+        ui.set_min_size(rect.size());
+        ui.interact(rect, egui::Id::new("rail-drawer-back"), Sense::click());
+        let p = ui.painter().clone();
+        p.rect_filled(rect, 0., rgb(t.surface));
+        for x in [rect.left(), rect.right()] {
+            p.vline(x, rect.y_range(), Stroke::new(1., rgb(t.border)));
+        }
+        let head = egui::Rect::from_min_size(rect.min, Vec2::new(width, 56.));
+        p.text(head.left_center() + Vec2::new(20., 0.), Align2::LEFT_CENTER, "Modifica barra", FontId::proportional(17.), rgb(t.text));
+        let x = egui::Rect::from_center_size(egui::pos2(head.right() - 30., head.center().y), Vec2::splat(36.));
+        let close = ui.interact(x, egui::Id::new("rail-drawer-close"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        lit(ui, &close, x, 18., t);
+        for d in [Vec2::new(6., 6.), Vec2::new(6., -6.)] {
+            p.line_segment([x.center() - d, x.center() + d], Stroke::new(2., rgb(t.secondary)));
+        }
+        close.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Chiudi"));
+        if close.clicked() {
+            act = Some(Edit::Close);
+        }
+        p.hline(rect.x_range(), head.bottom(), Stroke::new(1., rgb(t.border)));
+        let mut top = head.bottom();
+        if let Some(error) = &state.error {
+            let line = one_line(ui, error, 13., rgb(t.error), width - 40.);
+            p.galley(egui::pos2(rect.left() + 20., top + 18. - line.size().y / 2.), line, rgb(t.error));
+            top += 36.;
+        }
+        if rows.is_empty() {
+            p.text(egui::pos2(rect.center().x, top + 40.), Align2::CENTER_CENTER, "Nessuno spazio", FontId::proportional(15.), rgb(t.secondary));
+            return;
+        }
+        let body = egui::Rect::from_min_max(egui::pos2(rect.left(), top + 4.), rect.max);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(body), |ui| {
+            ui.spacing_mut().item_spacing = Vec2::ZERO;
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                let (top, left) = (ui.cursor().top(), ui.max_rect().left());
+                let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
+                // The held row and where the pointer is; the test hooks hold the last row over the first.
+                let (held, pos, from) = match view.as_str() {
+                    "rail-drag" | "rail-line" => (Some(rows.len() - 1), Some(egui::pos2(left + 150., top + if view == "rail-drag" { ROW / 2. } else { ROW })), None),
+                    _ => (
+                        egui::DragAndDrop::payload::<Dragged>(ctx).and_then(|d| rows.iter().position(|r| r.id() == d.0)),
+                        ctx.pointer_interact_pos(),
+                        ctx.input(|i| i.pointer.press_origin()),
+                    ),
+                };
+                let target = held.zip(pos).and_then(|(at, pos)| {
+                    let y = ((pos.y - top) / ROW).clamp(0., rows.len() as f32 - 0.001);
+                    // Sideways from where the row was grabbed: right goes a level in, left a level out.
+                    let depth = rows[at].depth as f32 + from.map_or(0., |o| ((pos.x - o.x) / INDENT).round());
+                    drop_target(&rows, at, y as usize, y.fract(), depth.max(0.) as usize)
                 });
-            }
+                let refused = held.zip(target.as_ref()).and_then(|(at, tg)| refusal(&rows, at, tg.parent.as_deref()));
+                let ink = rgb(if refused.is_some() { t.error } else { t.accent });
+                let siblings = |i: usize| {
+                    let (prev, next) = (rows[..i].iter().rposition(|r| r.depth <= rows[i].depth), subtree(&rows, i).end);
+                    (prev.filter(|&j| rows[j].depth == rows[i].depth), (next < rows.len() && rows[next].depth == rows[i].depth).then_some(next))
+                };
+                let id = |i: usize| rows[i].id().to_owned();
+                for (i, row) in rows.iter().enumerate() {
+                    let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::hover());
+                    let right = egui::Rect::from_min_max(egui::pos2(r.right() - 132., r.top()), egui::pos2(r.right() - 20., r.bottom()));
+                    let grab = egui::Rect::from_min_max(r.min, egui::pos2(right.left(), r.bottom())).shrink2(Vec2::new(6., 2.));
+                    let resp = ui.interact(grab, egui::Id::new(("rail-row", row.id())), if frozen { Sense::hover() } else { Sense::click_and_drag() });
+                    if target.as_ref().is_some_and(|tg| tg.mark == Mark::Into(i)) {
+                        ui.painter().rect(r.shrink2(Vec2::new(6., 2.)), 10., ink.gamma_multiply(0.18), Stroke::new(2., ink), egui::StrokeKind::Inside);
+                    } else if held.is_none() {
+                        lit(ui, &resp, grab, 10., t);
+                    }
+                    if resp.drag_started() {
+                        resp.dnd_set_drag_payload(Dragged(row.id().to_owned()));
+                    }
+                    let (prev, next) = siblings(i);
+                    let allowed = !frozen && refusal(&rows, i, row.parent.as_deref()).is_none();
+                    if resp.has_focus() && !frozen {
+                        // Arrow keys move the row instead of the focus: up/down among its siblings, right into the one above, left out of its parent.
+                        ui.memory_mut(|m| m.set_focus_lock_filter(resp.id, egui::EventFilter { horizontal_arrows: true, vertical_arrows: true, ..Default::default() }));
+                        let key = |k| ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, k));
+                        if let Some(b) = prev.filter(|_| key(egui::Key::ArrowUp)) {
+                            act = Some(Edit::Place(i, row.parent.clone(), Some(id(b))));
+                        } else if let Some(n) = next.filter(|_| key(egui::Key::ArrowDown)) {
+                            act = Some(Edit::Place(i, row.parent.clone(), siblings(n).1.map(id)));
+                        } else if let Some(b) = prev.filter(|_| key(egui::Key::ArrowRight)) {
+                            act = Some(Edit::Place(i, Some(id(b)), None));
+                        } else if let Some(p) = row.parent.as_ref().filter(|_| key(egui::Key::ArrowLeft)).and_then(|p| rows.iter().position(|r| r.id() == p)) {
+                            act = Some(Edit::Place(i, rows[p].parent.clone(), siblings(p).1.map(id)));
+                        }
+                    }
+                    let mut p = ui.painter().clone();
+                    if held == Some(i) {
+                        p.set_opacity(0.35);
+                    }
+                    let (mut x, cy) = (grab.left() + 14., r.center().y);
+                    if row.busy {
+                        egui::Spinner::new().color(rgb(t.accent)).paint_at(ui, egui::Rect::from_center_size(egui::pos2(x, cy), Vec2::splat(16.)));
+                    } else {
+                        // Grip: six dots.
+                        for (dx, dy) in [(-3., -6.), (3., -6.), (-3., 0.), (3., 0.), (-3., 6.), (3., 6.)] {
+                            p.circle_filled(egui::pos2(x + dx, cy + dy), 1.5, rgb(if frozen { t.disabled } else { t.placeholder }));
+                        }
+                    }
+                    x += 18. + row.depth as f32 * INDENT;
+                    face(ui, &p, &session.avatars, row, egui::pos2(x + 14., cy), 28., t);
+                    let name = one_line(ui, &row.name, 15., rgb(if row.hidden { t.placeholder } else { t.text }), grab.right() - x - 44.);
+                    p.galley(egui::pos2(x + 38., cy - name.size().y / 2.), name, rgb(t.text));
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, !frozen, format!("Sposta {}", row.name)));
+                    if !frozen {
+                        resp.on_hover_cursor(egui::CursorIcon::Grab);
+                    }
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(right).layout(egui::Layout::right_to_left(egui::Align::Center)), |ui| {
+                        ui.spacing_mut().item_spacing.x = 0.;
+                        let mut shown = !row.hidden;
+                        if crate::settings::toggle(ui, &row.name, &mut shown, t) {
+                            act = Some(Edit::Toggle(row.scope.clone()));
+                        }
+                        ui.add_space(14.);
+                        if arrow(ui, t, false, allowed && next.is_some(), &format!("Sposta giù {}", row.name)) && let Some(n) = next {
+                            act = Some(Edit::Place(i, row.parent.clone(), siblings(n).1.map(id)));
+                        }
+                        if arrow(ui, t, true, allowed && prev.is_some(), &format!("Sposta su {}", row.name)) && let Some(b) = prev {
+                            act = Some(Edit::Place(i, row.parent.clone(), Some(id(b))));
+                        }
+                    });
+                }
+                let (Some(at), Some(pos)) = (held, pos) else { return };
+                if let Some(Target { mark: Mark::Line(gap, depth), .. }) = &target {
+                    let a = egui::pos2(left + 26. + *depth as f32 * INDENT, top + *gap as f32 * ROW);
+                    ui.painter().hline(a.x..=ui.max_rect().right() - 20., a.y, Stroke::new(2., ink));
+                    ui.painter().circle_filled(a, 4., ink);
+                }
+                // The held row follows the pointer, above everything.
+                let g = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("rail-held")));
+                let card = egui::Rect::from_min_size(pos + Vec2::new(14., -20.), Vec2::new(220., 40.));
+                g.rect_filled(card.translate(Vec2::new(0., 3.)), 10., egui::Color32::from_black_alpha(48));
+                g.rect(card, 10., rgb(t.input), Stroke::new(1., rgb(t.border)), egui::StrokeKind::Inside);
+                face(ui, &g, &session.avatars, &rows[at], card.left_center() + Vec2::new(24., 0.), 26., t);
+                let name = one_line(ui, &rows[at].name, 15., rgb(t.text), 160.);
+                g.galley(egui::pos2(card.left() + 46., card.center().y - name.size().y / 2.), name, rgb(t.text));
+                if let Some(why) = &refused {
+                    let line = one_line(ui, why, 13., rgb(t.error), 300.);
+                    let note = egui::Rect::from_min_size(card.left_bottom() + Vec2::new(0., 6.), line.size() + Vec2::new(20., 12.));
+                    g.rect(note, 8., rgb(t.surface), Stroke::new(1., rgb(t.error)), egui::StrokeKind::Inside);
+                    g.galley(note.min + Vec2::new(10., 6.), line, rgb(t.error));
+                }
+                ctx.set_cursor_icon(if refused.is_some() { egui::CursorIcon::NotAllowed } else { egui::CursorIcon::Grabbing });
+                // Near the top or bottom edge the list scrolls under the held row.
+                let edge = ui.clip_rect();
+                if pos.y < edge.top() + 36. || pos.y > edge.bottom() - 36. {
+                    ui.scroll_with_delta(Vec2::new(0., if pos.y < edge.center().y { 10. } else { -10. }));
+                    ctx.request_repaint();
+                }
+                if ctx.input(|i| i.pointer.any_released()) {
+                    egui::DragAndDrop::clear_payload(ctx);
+                    if let Some(tg) = target {
+                        act = Some(Edit::Place(at, tg.parent, tg.before));
+                    }
+                }
+            });
         });
     });
-    state.edit = open;
-    let Some(act) = act else { return };
     match act {
-        Edit::Move(id, target) => {
-            let current: Vec<String> = layout.arrange(sidebar.navigation_entries()).into_iter().filter_map(|(e, _)| Some(e.scope?.room_id.as_str().to_owned())).collect();
-            if let Some(to) = current.iter().position(|c| *c == target) {
-                layout.move_to(&current, &id, to);
-            }
+        None => return,
+        Some(Edit::Close) => {
+            state.edit = false;
+            return;
         }
-        Edit::Toggle(scope) => {
+        Some(Edit::Toggle(scope)) => {
             layout.toggle_hidden(scope.room_id.as_str());
             // A space taken off the rail cannot stay the shown one.
-            if sidebar.active_space() == Some(&scope) {
-                sidebar.set_space(None);
+            if session.sidebar.active_space() == Some(&scope) {
+                session.sidebar.set_space(None);
+            }
+        }
+        Some(Edit::Place(at, parent, before)) => {
+            let row = &rows[at];
+            state.error = refusal(&rows, at, parent.as_deref());
+            let next = rows.get(subtree(&rows, at).end).filter(|r| r.depth == row.depth).map(Row::id);
+            if state.error.is_some() || (parent == row.parent && before.as_deref() == next) {
+                return;
+            }
+            let scope = |id: &Option<String>| rows.iter().find(|r| Some(r.id()) == id.as_deref()).map(|r| r.scope.clone());
+            if parent.is_some() || row.parent.is_some() {
+                session.place_space(row.scope.clone(), scope(&row.parent), scope(&parent), scope(&before));
+                state.moving = Some(Move { id: row.id().to_owned(), parent: parent.clone(), before: before.clone(), sent: Instant::now(), done: None });
+            }
+            if parent.is_none() {
+                // The top level has no order on the server: it is the user's own, kept here.
+                let current: Vec<String> = layout.arrange(session.sidebar.navigation_entries()).into_iter().filter_map(|(e, _)| Some(e.scope?.room_id.as_str().to_owned())).collect();
+                let spot = |id: &str| current.iter().position(|c| c == id);
+                if let Some(from) = spot(row.id()) {
+                    let to = before.as_deref().and_then(spot).map_or(current.len() - 1, |b| if from < b { b - 1 } else { b });
+                    layout.move_to(&current, row.id(), to);
+                }
             }
         }
     }
@@ -295,6 +605,7 @@ mod tests {
     use matrix_domain::{AccountId, RoomId};
     use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
 
+    /// Rooms as (name, unread, children when it is a space); every space is editable but those named `ro*`.
     fn sidebar(rooms: &[(&str, u64, Option<&[&str]>)]) -> Sidebar {
         let mut s = Sidebar::connected(AccountId::new(1));
         for (id, unread, children) in rooms {
@@ -302,7 +613,7 @@ mod tests {
                 scope: RoomScope { account_id: AccountId::new(1), room_id: RoomId::new(format!("!{id}:x")) },
                 name: (*id).into(),
                 unread: *unread,
-                info: RoomInfo { is_space: children.is_some(), children: children.unwrap_or_default().iter().map(|c| RoomId::new(format!("!{c}:x"))).collect(), ..Default::default() },
+                info: RoomInfo { is_space: children.is_some(), child_rights: children.is_some() && !id.starts_with("ro"), children: children.unwrap_or_default().iter().map(|c| RoomId::new(format!("!{c}:x"))).collect(), ..Default::default() },
             })));
         }
         s
@@ -312,16 +623,24 @@ mod tests {
         rows.iter().map(|r| (r.name.as_str(), r.depth, r.unread)).collect()
     }
 
+    fn all(s: &Sidebar, moving: Option<&Move>) -> Vec<Row> {
+        tree(s, &RailLayout::default(), &HashSet::new(), true, moving)
+    }
+
+    fn at(rows: &[Row], name: &str) -> usize {
+        rows.iter().position(|r| r.name == name).unwrap()
+    }
+
     #[test]
     fn subspaces_nest_under_their_parent_and_a_folded_parent_counts_them() {
         // work > team > (r2), work > (r1); home apart. r1 is in both work and team: counted once.
         let s = sidebar(&[("r1", 2, None), ("r2", 3, None), ("r3", 5, None), ("work", 0, Some(&["team", "r1"])), ("team", 0, Some(&["r1", "r2"])), ("home", 0, Some(&["r3"]))]);
         let layout = RailLayout::default();
-        let folded = tree(&s, &layout, &HashSet::new(), false);
+        let folded = tree(&s, &layout, &HashSet::new(), false, None);
         assert_eq!(shape(&folded), [("work", 0, 5), ("home", 0, 5)]);
         assert!(folded[0].has_children && !folded[1].has_children);
         let open = HashSet::from(["!work:x".to_owned()]);
-        let rows = tree(&s, &layout, &open, false);
+        let rows = tree(&s, &layout, &open, false, None);
         assert_eq!(shape(&rows), [("work", 0, 2), ("team", 1, 5), ("home", 0, 5)]);
         assert_eq!(rows[1].parent.as_deref(), Some("!work:x"));
     }
@@ -332,19 +651,102 @@ mod tests {
         let mut layout = RailLayout::default();
         layout.toggle_hidden("!work:x");
         let open = HashSet::from(["!work:x".to_owned()]);
-        assert_eq!(shape(&tree(&s, &layout, &open, false)), [("home", 0, 0)]);
-        let all = tree(&s, &layout, &HashSet::new(), true);
+        assert_eq!(shape(&tree(&s, &layout, &open, false, None)), [("home", 0, 0)]);
+        let all = tree(&s, &layout, &HashSet::new(), true, None);
         assert_eq!(shape(&all), [("work", 0, 0), ("team", 1, 0), ("home", 0, 0)]);
         assert!(all[0].hidden && !all[1].hidden);
     }
 
     #[test]
-    fn the_saved_order_applies_among_siblings_and_a_cycle_loses_no_space() {
+    fn the_saved_order_applies_at_the_top_level_and_a_cycle_loses_no_space() {
         let s = sidebar(&[("a", 0, Some(&["b"])), ("b", 0, Some(&["a"])), ("c", 0, Some(&["r"]))]);
         let mut layout = RailLayout::default();
         let current = ["!a:x".to_owned(), "!b:x".to_owned(), "!c:x".to_owned()];
         assert!(layout.move_to(&current, "!c:x", 0));
-        let names: Vec<String> = tree(&s, &layout, &HashSet::new(), true).into_iter().map(|r| r.name).collect();
+        let names: Vec<String> = tree(&s, &layout, &HashSet::new(), true, None).into_iter().map(|r| r.name).collect();
         assert_eq!(names, ["c", "a", "b"]);
+    }
+
+    #[test]
+    fn subspaces_follow_the_order_of_their_space_not_the_local_one() {
+        // The engine hands the children in the space's order (`order`, age): here c before b before a.
+        let s = sidebar(&[("a", 0, Some(&[])), ("b", 0, Some(&[])), ("c", 0, Some(&[])), ("top", 0, Some(&["c", "b", "a"]))]);
+        let names: Vec<String> = all(&s, None).into_iter().map(|r| r.name).collect();
+        assert_eq!(names, ["top", "c", "b", "a"]);
+    }
+
+    #[test]
+    fn a_move_in_flight_is_drawn_where_it_was_sent_and_marked_busy() {
+        let s = sidebar(&[("a", 0, Some(&["a1", "a2"])), ("a1", 0, Some(&[])), ("a2", 0, Some(&[])), ("b", 0, Some(&[]))]);
+        let mv = |parent: Option<&str>, before: Option<&str>| Move { id: "!b:x".into(), parent: parent.map(str::to_owned), before: before.map(str::to_owned), sent: Instant::now(), done: None };
+        let rows = all(&s, Some(&mv(Some("!a:x"), Some("!a2:x"))));
+        assert_eq!(shape(&rows), [("a", 0, 0), ("a1", 1, 0), ("b", 1, 0), ("a2", 1, 0)]);
+        assert!(rows[2].busy && !rows[1].busy);
+        assert_eq!(shape(&all(&s, Some(&mv(Some("!a:x"), None)))).last(), Some(&("b", 1, 0)));
+        // Out of its parent, and a move of a space that is gone changes nothing.
+        let out = Move { id: "!a1:x".into(), parent: None, before: None, sent: Instant::now(), done: None };
+        assert_eq!(shape(&all(&s, Some(&out))), [("a", 0, 0), ("a2", 1, 0), ("a1", 0, 0), ("b", 0, 0)]);
+        let gone = Move { id: "!zz:x".into(), parent: Some("!a:x".into()), before: None, sent: Instant::now(), done: None };
+        assert_eq!(shape(&all(&s, Some(&gone))), shape(&all(&s, None)));
+    }
+
+    #[test]
+    fn the_middle_of_a_row_nests_and_the_edges_place_between_rows_at_the_asked_level() {
+        // a > (a1 > a11, a2), b, c
+        let s = sidebar(&[("a", 0, Some(&["a1", "a2"])), ("a1", 0, Some(&["a11"])), ("a11", 0, Some(&[])), ("a2", 0, Some(&[])), ("b", 0, Some(&[])), ("c", 0, Some(&[]))]);
+        let rows = all(&s, None);
+        assert_eq!(shape(&rows).iter().map(|r| (r.0, r.1)).collect::<Vec<_>>(), [("a", 0), ("a1", 1), ("a11", 2), ("a2", 1), ("b", 0), ("c", 0)]);
+        let (c, b, a1) = (at(&rows, "c"), at(&rows, "b"), at(&rows, "a1"));
+        let id = |n: &str| Some(format!("!{n}:x"));
+        // Middle of «b»: c becomes its child.
+        assert_eq!(drop_target(&rows, c, b, 0.5, 0), Some(Target { parent: id("b"), before: None, mark: Mark::Into(b) }));
+        // Top edge of «a2» at level 1: sibling inside «a», before a2; pulled a level in: last child of «a1»; two in: under «a11».
+        assert_eq!(drop_target(&rows, c, 3, 0.1, 1), Some(Target { parent: id("a"), before: id("a2"), mark: Mark::Line(3, 1) }));
+        assert_eq!(drop_target(&rows, c, 3, 0.1, 2), Some(Target { parent: id("a1"), before: None, mark: Mark::Line(3, 2) }));
+        assert_eq!(drop_target(&rows, c, 3, 0.1, 9), Some(Target { parent: id("a11"), before: None, mark: Mark::Line(3, 3) }));
+        // The level is kept within the neighbours: above «a2» nothing is shallower than 1.
+        assert_eq!(drop_target(&rows, c, 3, 0.1, 0).unwrap().mark, Mark::Line(3, 1));
+        // Bottom edge of «a2»: level 0 = top level before «b»; level 1 = last child of «a».
+        assert_eq!(drop_target(&rows, c, 3, 0.9, 0), Some(Target { parent: None, before: id("b"), mark: Mark::Line(4, 0) }));
+        assert_eq!(drop_target(&rows, c, 3, 0.9, 1), Some(Target { parent: id("a"), before: None, mark: Mark::Line(4, 1) }));
+        // Out of its parent: «a1» (with a11) below the last row, level 0.
+        assert_eq!(drop_target(&rows, a1, c, 0.9, 0), Some(Target { parent: None, before: None, mark: Mark::Line(6, 0) }));
+        // Very top.
+        assert_eq!(drop_target(&rows, c, 0, 0.0, 0), Some(Target { parent: None, before: id("a"), mark: Mark::Line(0, 0) }));
+        // The neighbours are read without the held subtree: «a1» dropped right below itself stays a child of «a», before «a2».
+        assert_eq!(drop_target(&rows, a1, 3, 0.1, 0), Some(Target { parent: id("a"), before: id("a2"), mark: Mark::Line(3, 1) }));
+    }
+
+    #[test]
+    fn a_space_never_lands_inside_itself_or_its_subspaces() {
+        let s = sidebar(&[("a", 0, Some(&["a1"])), ("a1", 0, Some(&["a11"])), ("a11", 0, Some(&[])), ("b", 0, Some(&[]))]);
+        let rows = all(&s, None);
+        let a = at(&rows, "a");
+        for over in [0, 1, 2] {
+            assert_eq!(drop_target(&rows, a, over, 0.5, 0), None, "into row {over}");
+        }
+        assert_eq!(drop_target(&rows, a, 1, 0.9, 2), None, "between its own subspaces");
+        // Asked anyway (keyboard, stale target): refused with the reason.
+        for parent in ["!a:x", "!a1:x", "!a11:x"] {
+            assert_eq!(refusal(&rows, a, Some(parent)).as_deref(), Some("Uno spazio non può stare dentro sé stesso"));
+        }
+        assert_eq!(refusal(&rows, a, Some("!b:x")), None);
+        assert_eq!(refusal(&rows, at(&rows, "a11"), Some("!a:x")), None, "a subspace may move up to its grandparent");
+    }
+
+    #[test]
+    fn a_move_needs_the_right_on_the_new_and_on_the_old_parent() {
+        // «ro» and «ro2» are spaces whose children the user may not change; «rw» may. kid sits in «ro», free at the top.
+        let s = sidebar(&[("ro", 0, Some(&["kid"])), ("kid", 0, Some(&[])), ("ro2", 0, Some(&[])), ("rw", 0, Some(&["rwkid"])), ("rwkid", 0, Some(&[])), ("free", 0, Some(&[]))]);
+        let rows = all(&s, None);
+        let (kid, free, rwkid) = (at(&rows, "kid"), at(&rows, "free"), at(&rows, "rwkid"));
+        assert!(!rows[at(&rows, "ro")].editable && rows[at(&rows, "rw")].editable);
+        assert_eq!(refusal(&rows, free, Some("!ro2:x")).as_deref(), Some("Non hai i permessi per modificare «ro2»"), "new parent");
+        assert_eq!(refusal(&rows, kid, Some("!rw:x")).as_deref(), Some("Non hai i permessi per modificare «ro»"), "old parent");
+        assert_eq!(refusal(&rows, kid, None).as_deref(), Some("Non hai i permessi per modificare «ro»"), "out to the top level");
+        assert_eq!(refusal(&rows, kid, Some("!ro:x")).as_deref(), Some("Non hai i permessi per modificare «ro»"), "reorder inside");
+        assert_eq!(refusal(&rows, free, Some("!rw:x")), None);
+        assert_eq!(refusal(&rows, rwkid, None), None);
+        assert_eq!(refusal(&rows, free, None), None, "the top level is the user's own order");
     }
 }

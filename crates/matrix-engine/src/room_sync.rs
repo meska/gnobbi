@@ -693,6 +693,10 @@ impl RoomListWorker {
                                     let result = crate::operations::remove_from_space(&operation_client, account, &scope, &space).await;
                                     OperationResult::SpaceChanged { scope, space, added: false, result }
                                 }
+                                OperationCommand::PlaceInSpace { scope, from, to, before } => {
+                                    let result = crate::operations::place_in_space(&operation_client, account, &scope, from.as_ref(), to.as_ref(), before.as_ref()).await;
+                                    OperationResult::SpacePlaced { scope, result }
+                                }
                                 OperationCommand::CreateSpace { name, topic, public, avatar } => {
                                     let result = crate::operations::create_space(
                                         &operation_client,
@@ -1475,9 +1479,12 @@ impl RoomSync {
                 _ => (Vec::new(), None),
             };
             // Unknown levels (not synced yet) or no own user id: no rights.
-            let edit_rights = match (room.power_levels().await, client.user_id()) {
-                (Ok(levels), Some(me)) if room.state() == RoomState::Joined => crate::EditRights::from_levels(&levels, me),
-                _ => crate::EditRights::default(),
+            let (edit_rights, child_rights) = match (room.power_levels().await, client.user_id()) {
+                (Ok(levels), Some(me)) if room.state() == RoomState::Joined => (
+                    crate::EditRights::from_levels(&levels, me),
+                    room.is_space() && levels.user_can_send_state(me, matrix_sdk::ruma::events::StateEventType::SpaceChild),
+                ),
+                _ => (crate::EditRights::default(), false),
             };
             current.insert(
                 id.clone(),
@@ -1490,6 +1497,7 @@ impl RoomSync {
                     unread: room.num_unread_notifications(),
                     info: crate::RoomInfo {
                         edit_rights,
+                        child_rights,
                         public_read_receipts: peer_receipts,
                         preview: latest_event_text(&latest),
                         last_event_ts: latest_event_ts(&latest),
@@ -1551,7 +1559,15 @@ impl RoomSync {
                 children.entry(parent.to_string()).or_default().push(RoomId::new(room.room_id().as_str()));
             }
         }
-        children.values_mut().for_each(|v| v.sort_by(|a, b| a.as_str().cmp(b.as_str())));
+        // The order of the space (`order`, age, room id); a child the state does not list yet goes last, by id.
+        for (parent, list) in &mut children {
+            let ranked = match rooms.iter().find(|r| r.room_id().as_str() == parent) {
+                Some(space) => crate::operations::ordered_children(space).await,
+                None => Vec::new(),
+            };
+            let rank = |id: &RoomId| ranked.iter().position(|(c, _)| c.as_str() == id.as_str()).unwrap_or(usize::MAX);
+            list.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.as_str().cmp(b.as_str())));
+        }
         children
     }
 

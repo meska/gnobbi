@@ -768,7 +768,7 @@ impl App {
         }
         let account = self.rail_account.as_ref().filter(|(root, _)| *root == self.root).map_or(0, |(_, id)| *id);
         if let Some(session) = &mut self.session {
-            rail::edit_window(ui.ctx(), &mut session.sidebar, &mut self.rail, account, self.dirs.as_ref(), t);
+            rail::edit_window(ui.ctx(), session, &mut self.rail, account, self.dirs.as_ref(), t);
             egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
                 ui.add_space(8.);
                 // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
@@ -812,7 +812,8 @@ impl App {
                     });
                 }
                 resp.on_hover_text(name);
-                rail::show(ui, &mut session.sidebar, &session.avatars, &mut self.rail, account, t);
+                let placed = session.space_placed.take();
+                rail::show(ui, &mut session.sidebar, &session.avatars, &mut self.rail, account, placed, t);
             });
             if !narrow || self.list_open {
                 let before = session.sidebar.selected().map(|r| r.scope.clone());

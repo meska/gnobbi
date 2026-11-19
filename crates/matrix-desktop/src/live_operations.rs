@@ -255,6 +255,7 @@ impl LiveOperations {
             | OperationResult::SpaceCreated { .. }
             | OperationResult::SpaceChoices { .. }
             | OperationResult::SpaceChanged { .. }
+            | OperationResult::SpacePlaced { .. }
             | OperationResult::SpaceChildren { .. }
             | OperationResult::BannedMembers { .. }
             | OperationResult::MemberPermissions { .. }

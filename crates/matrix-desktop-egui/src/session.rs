@@ -74,6 +74,8 @@ pub struct Session {
     pub space_view: Option<crate::space::SpaceView>,
     /// What «Esci dallo spazio» is judged on, for the space whose «⋮» was opened last; `None` inside until the engine answers.
     pub space_facts: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChildren>)>,
+    /// The engine's answer to the last `place_space`, until the rail takes it.
+    pub space_placed: Option<Result<(), matrix_engine::operations::OperationError>>,
     /// «Esci dallo spazio» window: the space and the «Dimentica» switch.
     pub space_exit: Option<(matrix_domain::RoomScope, bool)>,
     /// «Elimina spazio» window: the space and the name typed so far.
@@ -293,6 +295,7 @@ impl Session {
             last_room,
             restore_auto: None,
             op_queue: Vec::new(),
+            space_placed: None,
             profile: None,
             rights: None,
             moderation_failed: false,
@@ -814,6 +817,11 @@ impl Session {
                     changed = true;
                     continue;
                 }
+                OperationResult::SpacePlaced { result, .. } => {
+                    self.space_placed = Some(*result);
+                    changed = true;
+                    continue;
+                }
                 OperationResult::SpaceChanged { result, .. } => {
                     self.space_choices = None;
                     // The open space window reads its rooms again.
@@ -1039,6 +1047,11 @@ impl Session {
             changed |= self.ops.apply(result) | done;
         }
         changed
+    }
+
+    /// Moves the space `scope` from the space `from` under `to`, before `before`; the answer lands in `space_placed`.
+    pub fn place_space(&mut self, scope: matrix_domain::RoomScope, from: Option<matrix_domain::RoomScope>, to: Option<matrix_domain::RoomScope>, before: Option<matrix_domain::RoomScope>) {
+        self.op_queue.push(OperationCommand::PlaceInSpace { scope, from, to, before });
     }
 
     pub fn room_action(&mut self, scope: matrix_domain::RoomScope, action: RoomAction) {
