@@ -256,6 +256,8 @@ impl LiveOperations {
             | OperationResult::SpaceChoices { .. }
             | OperationResult::SpaceChanged { .. }
             | OperationResult::SpaceChildren { .. }
+            | OperationResult::BannedMembers { .. }
+            | OperationResult::MemberPermissions { .. }
             | OperationResult::Join { .. }
             | OperationResult::RoomEdited { .. }
             | OperationResult::Aliases { .. }

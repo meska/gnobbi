@@ -614,6 +614,14 @@ impl RoomListWorker {
                                     .await;
                                     OperationResult::Moderated { scope, user_id, action, result }
                                 }
+                                OperationCommand::BannedMembers { scope } => {
+                                    let result = crate::operations::banned_members(&operation_client, account, &scope).await;
+                                    OperationResult::BannedMembers { scope, result }
+                                }
+                                OperationCommand::MemberPermissions { scope } => {
+                                    let result = crate::operations::member_permissions(&operation_client, account, &scope).await;
+                                    OperationResult::MemberPermissions { scope, result }
+                                }
                                 OperationCommand::MarkRoom {
                                     scope,
                                     read,

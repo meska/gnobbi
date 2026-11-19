@@ -322,8 +322,12 @@ pub enum OperationCommand {
     Ignore { user_id: String, ignore: bool },
     /// What the current user may do to `user_id` in this room (moderation entries of the profile).
     MemberRights { scope: RoomScope, user_id: String },
-    /// A moderation action on `user_id` in this room.
+    /// A moderation action on `user_id` in a room or space; answered with `OperationResult::Moderated`.
     Moderate { scope: RoomScope, user_id: String, action: Moderation },
+    /// Members banned from the room or space; answered with `OperationResult::BannedMembers`.
+    BannedMembers { scope: RoomScope },
+    /// What the current user may do with members of the room or space; answered with `OperationResult::MemberPermissions`.
+    MemberPermissions { scope: RoomScope },
     /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
     ThreadSend {
         scope: RoomScope,
@@ -379,6 +383,14 @@ pub enum OperationResult {
         scope: RoomScope,
         user_id: String,
         result: Result<MemberRights, OperationError>,
+    },
+    BannedMembers {
+        scope: RoomScope,
+        result: Result<Vec<BannedMember>, OperationError>,
+    },
+    MemberPermissions {
+        scope: RoomScope,
+        result: Result<MemberPermissions, OperationError>,
     },
     Moderated {
         scope: RoomScope,
@@ -539,11 +551,38 @@ pub struct UserProfile {
     pub ignored: bool,
 }
 
-/// Moderation of a room member. `RedactMessages` carries the exact events the user confirmed.
+/// A member banned from a room or space (membership `ban`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BannedMember {
+    pub user_id: String,
+    /// Display name, or the user id when the member has none.
+    pub name: String,
+    pub avatar: Option<String>,
+    /// Reason of the ban event, when it has one.
+    pub reason: Option<String>,
+}
+
+/// Room-wide member rights of the current user from the standard power levels (`invite`, `kick`, `ban`);
+/// the UI hides the action when its flag is false. Unban needs `ban` (and `kick`) on top of the target's level:
+/// `Moderate` with `Unban` re-checks it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MemberPermissions {
+    pub can_invite: bool,
+    pub can_kick: bool,
+    pub can_ban: bool,
+}
+
+/// Moderation of a room or space member. `Kick`/`Ban` carry no reason; `KickWith`/`BanWith`/`Unban` take one
+/// (blank counts as none, so `Unban(None)` is a plain unban). `Invite` adds `user_id` to the room.
+/// `RedactMessages` carries the exact events the user confirmed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Moderation {
     Kick,
     Ban,
+    KickWith(String),
+    BanWith(String),
+    Unban(Option<String>),
+    Invite,
     SetPower(i64),
     RedactMessages(Vec<String>),
 }
@@ -1576,6 +1615,48 @@ pub(crate) async fn load_member_rights(
     .map_err(|_| OperationError::Transport)?
 }
 
+fn reason(r: Option<&String>) -> Option<&str> {
+    r.map(|r| r.trim()).filter(|r| !r.is_empty())
+}
+
+/// Members with membership `ban` in the room or space, each with the reason of its ban event.
+#[cfg(feature = "sdk")]
+pub async fn banned_members(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+) -> Result<Vec<BannedMember>, OperationError> {
+    let id = room_id_of(account, scope)?;
+    let room = client.get_room(&id).filter(|r| r.state() == matrix_sdk::RoomState::Joined).ok_or(OperationError::Unavailable)?;
+    let members = tokio::time::timeout(WAIT, room.members(matrix_sdk::RoomMemberships::BAN))
+        .await
+        .map_err(|_| OperationError::Transport)?
+        .map_err(|e| classify(&e))?;
+    Ok(members
+        .iter()
+        .map(|m| BannedMember {
+            user_id: m.user_id().to_string(),
+            name: m.display_name().filter(|n| !n.is_empty()).unwrap_or(m.user_id().as_str()).to_string(),
+            avatar: m.avatar_url().map(|u| u.to_string()).filter(|u| !u.is_empty()),
+            reason: m.event().reason().map(str::trim).filter(|r| !r.is_empty()).map(str::to_string),
+        })
+        .collect())
+}
+
+/// Invite/kick/ban rights of the current user in the room or space, from its power levels.
+#[cfg(feature = "sdk")]
+pub async fn member_permissions(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+) -> Result<MemberPermissions, OperationError> {
+    let id = room_id_of(account, scope)?;
+    let me = client.user_id().ok_or(OperationError::Unavailable)?;
+    let room = client.get_room(&id).filter(|r| r.state() == matrix_sdk::RoomState::Joined).ok_or(OperationError::Unavailable)?;
+    let pl = room.power_levels().await.map_err(|_| OperationError::Unavailable)?;
+    Ok(MemberPermissions { can_invite: pl.user_can_invite(me), can_kick: pl.user_can_kick(me), can_ban: pl.user_can_ban(me) })
+}
+
 /// Re-checks the rights at the moment of the action (the levels may have changed since the panel loaded),
 /// then runs it through the SDK. Redaction deletes exactly the events given, nothing else.
 #[cfg(feature = "sdk")]
@@ -1593,7 +1674,11 @@ pub(crate) async fn moderate(
     tokio::time::timeout(std::time::Duration::from_secs(30), async {
         match action {
             Moderation::Kick if rights.kick => room.kick_user(&target, None).await.map_err(|e| classify(&e)),
+            Moderation::KickWith(r) if rights.kick => room.kick_user(&target, reason(Some(r))).await.map_err(|e| classify(&e)),
             Moderation::Ban if rights.ban => room.ban_user(&target, None).await.map_err(|e| classify(&e)),
+            Moderation::BanWith(r) if rights.ban => room.ban_user(&target, reason(Some(r))).await.map_err(|e| classify(&e)),
+            Moderation::Unban(r) if pl.user_can_unban_user(me, &target) => room.unban_user(&target, reason(r.as_ref())).await.map_err(|e| classify(&e)),
+            Moderation::Invite if pl.user_can_invite(me) => room.invite_user_by_id(&target).await.map_err(|e| classify(&e)),
             Moderation::SetPower(l) if rights.levels.contains(l) => room
                 .update_power_levels(vec![(&*target, matrix_sdk::ruma::Int::from(*l as i32))])
                 .await
@@ -2103,6 +2188,14 @@ mod tests {
             space_write(async { Err(E::UpdateRelationship(api_error(403, Some(ErrorKind::Forbidden)))) }).await,
             Err(OperationError::Forbidden)
         );
+    }
+
+    #[cfg(feature = "sdk")]
+    #[test]
+    fn blank_reason_counts_as_none() {
+        assert_eq!(reason(None), None);
+        assert_eq!(reason(Some(&"  ".to_string())), None);
+        assert_eq!(reason(Some(&" spam ".to_string())), Some("spam"));
     }
 
     #[test]
