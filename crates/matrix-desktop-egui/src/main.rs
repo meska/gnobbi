@@ -203,6 +203,39 @@ fn bar(t: &DesignTokens) -> egui::Frame {
 }
 
 impl eframe::App for App {
+    /// Runs before every frame and also with the window minimized, occluded or hidden (then `ui` does not run):
+    /// draining the backend here lets notifications go out with the window out of sight.
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let Some(session) = &mut self.session else { return };
+        // Out of sight nothing is being read: the flags of the last painted frame would still say "focused".
+        if ctx.input(|i| i.viewport().minimized == Some(true) || i.viewport().occluded == Some(true)) {
+            session.reading.0 = false;
+        }
+        session.poll(ctx, self.prefs.notifications, self.prefs.message_preview);
+        // The other accounts keep syncing: unread counts and notifications go on, read markers do not.
+        let mut wake = None;
+        for (i, p) in self.parked.iter_mut().enumerate() {
+            p.session.reading = (false, false, self.prefs.read_receipts);
+            p.session.poll(ctx, self.prefs.notifications, self.prefs.message_preview);
+            if let Some(v) = &p.session.verification
+                && let Some((id, name)) = v.profile()
+            {
+                let shown = name.clone().unwrap_or_else(|| id.clone());
+                if p.session.account_name != shown {
+                    p.session.account_name = shown;
+                }
+            }
+            // A click on one of its notifications brings that account to the front.
+            if p.session.pending_select.is_some() {
+                wake = Some(i);
+            }
+        }
+        self.wake = wake;
+        // The backend answers off-thread and cannot wake the UI: poll it ten times a second.
+        // shortcut: a fixed tick, replace by a repaint signal from the workers when idle power matters.
+        ctx.request_repaint_after(Duration::from_millis(100));
+    }
+
     fn on_exit(&mut self) {
         if let Some(s) = &mut self.session {
             s.remember_scroll();
@@ -287,26 +320,6 @@ impl eframe::App for App {
                 if let Some(thread) = &mut session.thread { thread.tail_visible = false; }
             }
             session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
-            session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
-            // The other accounts keep syncing: unread counts and notifications go on, read markers do not.
-            let mut wake = None;
-            for (i, p) in self.parked.iter_mut().enumerate() {
-                p.session.reading = (false, false, self.prefs.read_receipts);
-                p.session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
-                if let Some(v) = &p.session.verification
-                    && let Some((id, name)) = v.profile()
-                {
-                    let shown = name.clone().unwrap_or_else(|| id.clone());
-                    if p.session.account_name != shown {
-                        p.session.account_name = shown;
-                    }
-                }
-                // A click on one of its notifications brings that account to the front.
-                if p.session.pending_select.is_some() {
-                    wake = Some(i);
-                }
-            }
-            self.wake = wake;
             if !self.recorded
                 && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)
                 && let Some((id, name)) = v.profile()
@@ -330,9 +343,6 @@ impl eframe::App for App {
             {
                 session.heights = Default::default();
             }
-            // The backend answers off-thread and cannot wake the UI: poll it ten times a second.
-            // shortcut: a fixed tick, replace by a repaint signal from the workers when idle power matters.
-            ctx.request_repaint_after(Duration::from_millis(100));
         }
         self.tray(&ctx);
         self.test_hooks(&ctx);
