@@ -247,10 +247,19 @@ pub enum VerificationEvent {
         device_ids: Vec<String>,
         error: DeviceDeleteError,
     },
+    /// Whether the server lets this account change its name / picture (`m.set_displayname`,
+    /// `m.set_avatar_url`; absent or unreadable = allowed). Sent right after each `Profile`.
+    ProfileCapabilities {
+        account_id: AccountId,
+        name: bool,
+        avatar: bool,
+    },
     /// Answer to `SaveProfile` (the new `Profile` event came first on success).
     ProfileSaved {
         account_id: AccountId,
         result: Result<(), crate::operations::OperationError>,
+        /// One Italian line for the UI when `result` is an error.
+        message: Option<&'static str>,
     },
     /// Sign-out succeeded but the list could not be re-read: the UI drops the row itself.
     DeviceDeleted {
