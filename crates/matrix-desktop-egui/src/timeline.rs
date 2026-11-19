@@ -91,6 +91,14 @@ pub struct Heights {
     first: Option<matrix_domain::ScopedTimelineId>,
     /// The newest message is in (or near) view: what lets a read receipt go out.
     pub at_bottom: bool,
+    /// A freshly opened room stays unpainted until its rows are measured and the bottom anchor holds: no guessed-height frames on screen.
+    ready: bool,
+    passes: u8,
+}
+
+/// Opening pass is over: nothing moved and we sit at the bottom, or too many passes (a long room never reaches bottom within tolerance).
+fn open_done(changed: bool, at_bottom: bool, passes: u8) -> bool {
+    (!changed && at_bottom) || passes >= 8
 }
 
 /// True when the message was right-clicked (or long-pressed).
@@ -302,8 +310,13 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
     shift_for_prepend(&mut heights.rows, &mut heights.first, &events.iter().map(|e| &e.id).collect::<Vec<_>>());
     heights.rows.resize(events.len(), GUESS);
     let mut first = 0;
+    let hide = !heights.ready && jump.is_none() && !events.is_empty();
+    let mut changed = false;
     let out = egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show_viewport(ui, |ui, view| {
         ui.spacing_mut().item_spacing = Vec2::new(0., 0.);
+        if hide {
+            ui.set_invisible();
+        }
         // The content ui came out wider than the viewport on a narrow column (the rows then aligned past the visible edge): lay out in the visible width.
         ui.set_max_width(ui.clip_rect().width().min(ui.available_width()));
         let mut y = 0.;
@@ -326,7 +339,9 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                 if let (true, matrix_domain::TimelineId::Server(id), Some(name)) = (wants_save, &e.id.id, &e.attachment_name) {
                     save = Some((id.clone(), name.clone()));
                 }
-                heights.rows[i] = ui.cursor().top() - top;
+                let measured = ui.cursor().top() - top;
+                changed |= (measured - heights.rows[i]).abs() > 0.5;
+                heights.rows[i] = measured;
                 if jump == Some(i) {
                     let rect = egui::Rect::from_min_max(egui::pos2(ui.min_rect().left(), top), egui::pos2(ui.min_rect().right(), ui.cursor().top()));
                     ui.scroll_to_rect(rect, Some(Align::Center));
@@ -342,5 +357,25 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
         ui.add_space(GAP);
     });
     heights.at_bottom = out.content_size.y - (out.state.offset().y + out.inner_rect.height()) <= matrix_engine::receipts::ReadVisibility::NEAR_BOTTOM_PX;
+    if hide {
+        heights.passes += 1;
+        heights.ready = open_done(changed, heights.at_bottom, heights.passes);
+        if !heights.ready {
+            ui.ctx().request_repaint();
+        }
+    }
     (first, menu, save, thread)
+}
+
+#[cfg(test)]
+mod open_tests {
+    use super::open_done;
+
+    #[test]
+    fn waits_for_stable_bottom() {
+        assert!(!open_done(true, true, 1));
+        assert!(!open_done(false, false, 1));
+        assert!(open_done(false, true, 2));
+        assert!(open_done(true, false, 8));
+    }
 }
