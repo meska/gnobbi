@@ -161,6 +161,7 @@ impl eframe::App for App {
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
                 session.focus_search = true;
             }
+            session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
             session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
             if !self.recorded
                 && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)

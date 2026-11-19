@@ -54,6 +54,9 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
+    pub reading: (bool, bool, bool),
+    read_dirty: bool,
     /// People picked from the «@» list in the text being written.
     pub mentions: Vec<matrix_engine::sending::Mention>,
     pub aliases: Option<matrix_engine::alias::RoomAliases>,
@@ -157,6 +160,8 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            reading: (false, false, true),
+            read_dirty: true,
             mentions: Vec::new(),
             aliases: None,
             aliases_requested: None,
@@ -260,6 +265,7 @@ impl Session {
                     if let Some(th) = &mut self.thread {
                         th.next_read = std::time::Instant::now();
                     }
+                    self.read_dirty |= self.sidebar.selected().is_some_and(|r| r.scope == scope);
                     self.history.activity(&scope)
                 }
                 RoomListEvent::Order(order) => self.sidebar.set_order(order),
@@ -340,6 +346,7 @@ impl Session {
         let mut changed = false;
         let scope = self.sidebar.selected().map(|r| r.scope.clone());
         if let Some(request) = self.history.select(scope.clone()) {
+            self.read_dirty = true;
             self.messages = Some(DemoHistory::new(request.tag.scope().clone(), 0));
             self.media.clear();
             self.pictures.clear();
@@ -409,6 +416,19 @@ impl Session {
         {
             self.pending_select = None;
             changed = true;
+        }
+        // Opening or receiving in the room on screen: the read marker goes out once the newest message is in view (main only, so threads stay unread).
+        let (focused, at_bottom, public) = self.reading;
+        if self.read_dirty
+            && focused
+            && at_bottom
+            && self.op_pending.is_none()
+            && self.account.is_some()
+            && let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone())
+            && self.messages.is_some()
+        {
+            self.read_dirty = false;
+            self.op_pending = Some(OperationCommand::MarkRoom { scope, read: true, public, main_only: true });
         }
         if self.op_pending.is_none()
             && let Some(scope) = &self.draft_scope

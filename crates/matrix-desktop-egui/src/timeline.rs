@@ -24,6 +24,8 @@ fn rgb(c: u32) -> Color32 {
 pub struct Heights {
     width: f32,
     rows: Vec<f32>,
+    /// The newest message is in (or near) view: what lets a read receipt go out.
+    pub at_bottom: bool,
 }
 
 /// True when the message was right-clicked (or long-pressed).
@@ -126,7 +128,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
     }
     heights.rows.resize(events.len(), GUESS);
     let mut first = 0;
-    egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show_viewport(ui, |ui, view| {
+    let out = egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show_viewport(ui, |ui, view| {
         ui.spacing_mut().item_spacing = Vec2::new(0., 0.);
         let mut y = 0.;
         let mut seen_first = false;
@@ -159,5 +161,6 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
         }
         ui.add_space(GAP);
     });
+    heights.at_bottom = out.content_size.y - (out.state.offset().y + out.inner_rect.height()) <= matrix_engine::receipts::ReadVisibility::NEAR_BOTTOM_PX;
     (first, menu, save, thread)
 }
