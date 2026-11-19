@@ -118,6 +118,11 @@ pub struct Session {
     pub verification: Option<matrix_desktop::DeviceVerification>,
     ver_route: Option<(matrix_engine::Sender<matrix_engine::verification::VerificationCommand>, Receiver<matrix_engine::verification::VerificationEvent>)>,
     pub devices_open: bool,
+    /// Whether the server lets this account change its (name, picture); None until it has answered.
+    pub profile_caps: Option<(bool, bool)>,
+    /// A profile save is on its way; then its answer (the error is one line for the card).
+    pub profile_busy: bool,
+    pub profile_saved: Option<Result<(), &'static str>>,
     pub new_open: bool,
     pub new_term: String,
     new_sent: String,
@@ -259,6 +264,9 @@ impl Session {
             verification: None,
             ver_route,
             devices_open: false,
+            profile_caps: None,
+            profile_busy: false,
+            profile_saved: None,
             new_open: false,
             new_term: String::new(),
             new_sent: String::new(),
@@ -391,6 +399,15 @@ impl Session {
         }
         if let (Some(v), Some((tx, rx))) = (&mut self.verification, &mut self.ver_route) {
             while let Ok(event) = rx.try_recv() {
+                use matrix_engine::verification::VerificationEvent as E;
+                match &event {
+                    E::ProfileCapabilities { name, avatar, .. } => self.profile_caps = Some((*name, *avatar)),
+                    E::ProfileSaved { result, message, .. } => {
+                        self.profile_busy = false;
+                        self.profile_saved = Some(result.as_ref().map(|_| ()).map_err(|_| message.unwrap_or("Non riuscito")));
+                    }
+                    _ => {}
+                }
                 v.apply(event);
                 changed = true;
             }

@@ -101,6 +101,7 @@ struct App {
     window_visible: bool,
     new_form: newchat::Form,
     device_fields: devices::Fields,
+    account_form: accounts::Form,
     poll_form: poll::Form,
     confirm: Option<&'static str>,
     theme: Theme,
@@ -156,7 +157,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
         if let Some(i) = last {
@@ -175,6 +176,7 @@ impl App {
             // The window states of the account that left must not follow the new one.
             self.new_form = Default::default();
             self.device_fields = Default::default();
+            self.account_form = Default::default();
             self.poll_form = Default::default();
             self.confirm = None;
             self.settings_open = false;
@@ -278,16 +280,14 @@ impl eframe::App for App {
         let dropped: Vec<_> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
         if let Some(session) = &mut self.session {
             if let Some(path) = dropped.first() {
-                // With the devices window open a dropped picture is the profile photo, otherwise an attachment.
+                // With the account window open a dropped picture is the profile photo (kept for «Salva»), otherwise an attachment.
                 match &mut session.verification {
                     _ if session.edit.is_some() => {
                         if let Some(e) = &mut session.edit {
                             e.avatar = Some(path.clone());
                         }
                     }
-                    Some(v) if session.devices_open => {
-                        v.save_profile(None, matrix_engine::verification::ProfileAvatar::Set(path.clone()));
-                    }
+                    _ if self.accounts_open && session.profile_caps.is_some_and(|c| c.1) => self.account_form.pick(path.clone(), &ctx),
                     _ => session.attach(path),
                 }
             }
@@ -354,6 +354,8 @@ impl eframe::App for App {
                 let shown = name.clone().unwrap_or_else(|| id.clone());
                 if session.account_name != shown {
                     session.account_name = shown;
+                    // A changed name goes into the saved catalog too.
+                    self.recorded = false;
                 }
             }
             if let Some(messages) = &mut session.messages
@@ -1062,7 +1064,7 @@ impl App {
         if self.accounts_open
             && let Some(dirs) = &self.dirs
         {
-            match accounts::show(ui.ctx(), &mut self.accounts_open, dirs, &self.root, t) {
+            match accounts::show(ui.ctx(), &mut self.accounts_open, dirs, &self.root, self.session.as_mut(), &mut self.account_form, t) {
                 Some(accounts::Launch::Open(dir)) => self.open_account(dir),
                 Some(accounts::Launch::Add) => {
                     let next = matrix_desktop::AccountCatalog::load(dirs).next_root(dirs);

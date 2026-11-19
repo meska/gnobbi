@@ -8,8 +8,6 @@ pub struct Fields {
     password: String,
     rename: String,
     key: String,
-    name: String,
-    seeded: bool,
     export_pass: String,
     export_path: Option<std::path::PathBuf>,
 }
@@ -19,33 +17,6 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, open: &mut bool, f:
         ui.set_min_width(380.);
         let secondary = egui::Color32::from_rgb((t.secondary >> 16) as u8, (t.secondary >> 8) as u8, t.secondary as u8);
         let time = |ms: u64| matrix_desktop::time_fmt::day_or_time(ms);
-        if let Some((id, shown)) = v.profile().cloned() {
-            if !f.seeded {
-                f.name = shown.clone().unwrap_or_default();
-                f.seeded = true;
-            }
-            ui.label(RichText::new("Profilo").strong());
-            ui.label(RichText::new(id).color(secondary));
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut f.name).hint_text("Nome visualizzato"));
-                let changed = f.name.trim() != shown.as_deref().unwrap_or("") && !f.name.trim().is_empty();
-                if ui.add_enabled(changed, egui::Button::new("Salva")).clicked() {
-                    v.save_profile(Some(f.name.trim().to_owned()), matrix_engine::verification::ProfileAvatar::Keep);
-                }
-                if v.profile_avatar().is_some() && ui.button("Rimuovi foto").clicked() {
-                    v.save_profile(None, matrix_engine::verification::ProfileAvatar::Remove);
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui.button("Scegli foto…").clicked()
-                    && let Some(p) = crate::pick::file("Foto del profilo", true)
-                {
-                    v.save_profile(None, matrix_engine::verification::ProfileAvatar::Set(p));
-                }
-                ui.label(RichText::new("o trascina un'immagine").size(12.).color(secondary));
-            });
-            ui.separator();
-        }
         if let Some(own) = v.own() {
             ui.label(RichText::new("Questo dispositivo").strong());
             ui.label(device_title(own));
