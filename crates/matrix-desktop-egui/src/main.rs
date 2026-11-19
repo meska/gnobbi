@@ -1359,6 +1359,7 @@ fn mac_app(hide: bool) {
 }
 
 fn main() -> eframe::Result {
+    matrix_desktop::notifications::init();
     // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
     let (args, raw_link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
     let link = raw_link.clone().and_then(|raw| matrix_engine::matrix_link::parse_matrix_link(&raw).map_err(|_| eprintln!("Gnobbi: ignored matrix link")).ok());

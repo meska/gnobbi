@@ -77,6 +77,7 @@ pub struct NotificationWorker {
 }
 impl NotificationWorker {
     pub fn spawn() -> std::io::Result<Self> {
+        init();
         let click = Click::default();
         let slot = click.clone();
         Self::spawn_clicks(click, move |n| deliver_os(n, &slot))
@@ -246,22 +247,61 @@ mod linux {
 fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
     linux::deliver(notification, click)
 }
+/// What an alert carries so a click can be understood by a process that did not raise it (the app was
+/// closed and the click launched it): the account and the room, as `<account>:<room id>`. Also the OS
+/// request identifier, so one room keeps one live alert across restarts.
+#[cfg(any(target_os = "macos", test))]
+fn target_key(scope: &RoomScope) -> String {
+    format!("{}:{}", scope.account_id.as_u64(), scope.room_id.as_str())
+}
+#[cfg(any(target_os = "macos", test))]
+fn parse_target(key: &str) -> Option<RoomScope> {
+    let (account, room) = key.split_once(':')?;
+    Some(RoomScope { account_id: AccountId::new(account.parse().ok()?), room_id: matrix_domain::RoomId::new(room) })
+}
+
+/// A click that reached the process before (or without) the session that owns it: kept here until that account polls.
+#[cfg(target_os = "macos")]
+static EARLY_CLICK: Mutex<Option<RoomScope>> = Mutex::new(None);
+
+/// The alert clicked while no live session knew it (a click that launched the app), if it belongs to `account`.
+pub fn take_early_click(account: AccountId) -> Option<RoomScope> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut early = EARLY_CLICK.lock().ok()?;
+        return early.take_if(|scope| scope.account_id == account);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = account;
+        None
+    }
+}
+
+/// Call at process start: macOS hands a click that launched the app to the delegate, which must exist by then.
+pub fn init() {
+    #[cfg(target_os = "macos")]
+    macos::install_delegate();
+}
+
 /// macOS: UNUserNotificationCenter (the AppKit/NSUserNotification path is deprecated). One live alert
 /// per room (same request identifier replaces the previous one); a click reaches the delegate, which
-/// fills the same `Click` slot as on Linux. Needs a bundled, signed app: without a bundle id
+/// fills the `Click` slot of the session that raised it (as on Linux) or, when that session does not
+/// exist (the click launched the app), `EARLY_CLICK`. Needs a bundled, signed app: without a bundle id
 /// (`cargo run`) the center would abort the process, so the alert is reported unavailable instead.
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
     use block2::{DynBlock, RcBlock};
-    use objc2::{AnyThread, DefinedClass, define_class, msg_send, rc::Retained, runtime::ProtocolObject};
-    use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSString};
+    use objc2::{AnyThread, define_class, msg_send, rc::Retained, runtime::ProtocolObject};
+    use objc2_foundation::{NSBundle, NSDictionary, NSError, NSObject, NSObjectProtocol, NSString};
     use objc2_user_notifications::*;
     use std::collections::HashMap;
+    use std::sync::Once;
 
-    // Each entry carries the `Click` slot of the worker (= account session) that alerted: the delegate is one per process.
-    type Ids = HashMap<RoomScope, (u32, Option<AccountId>, Click)>;
-    static IDS: Mutex<Option<Ids>> = Mutex::new(None);
+    const KEY: &str = "gnobbi";
+    // Each room maps to the `Click` slot of the worker (= account session) that alerted: the delegate is one per process.
+    static SLOTS: Mutex<Option<HashMap<RoomScope, Click>>> = Mutex::new(None);
 
     define_class!(
         #[unsafe(super(NSObject))]
@@ -272,12 +312,17 @@ mod macos {
         unsafe impl UNUserNotificationCenterDelegate for Delegate {
             #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
             fn did_receive(&self, _: &UNUserNotificationCenter, response: &UNNotificationResponse, done: &DynBlock<dyn Fn()>) {
-                let id = response.notification().request().identifier().to_string();
-                let target = IDS.lock().ok().and_then(|ids| {
-                    ids.as_ref()?.iter().find(|(_, (n, ..))| n.to_string() == id).map(|(scope, (_, account, slot))| (slot.clone(), (*account, scope.clone())))
-                });
-                if let Some((slot, target)) = target && let Ok(mut slot) = slot.lock() {
-                    *slot = Some(target);
+                let info = response.notification().request().content().userInfo();
+                let scope = info
+                    .objectForKey(&NSString::from_str(KEY))
+                    .and_then(|v| v.downcast::<NSString>().ok())
+                    .and_then(|key| parse_target(&key.to_string()));
+                if let Some(scope) = scope {
+                    let slot = SLOTS.lock().ok().and_then(|slots| slots.as_ref()?.get(&scope).cloned());
+                    match slot.as_ref().map(|slot| slot.lock()) {
+                        Some(Ok(mut slot)) => *slot = Some((Some(scope.account_id), scope)),
+                        _ => *EARLY_CLICK.lock().unwrap_or_else(|e| e.into_inner()) = Some(scope),
+                    }
                 }
                 done.call(());
             }
@@ -289,37 +334,41 @@ mod macos {
         }
     );
 
+    pub fn install_delegate() {
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            if NSBundle::mainBundle().bundleIdentifier().is_none() {
+                return;
+            }
+            let delegate: Retained<Delegate> = unsafe { msg_send![super(Delegate::alloc().set_ivars(())), init] };
+            UNUserNotificationCenter::currentNotificationCenter().setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            std::mem::forget(delegate); // the center keeps only a weak reference
+        });
+    }
+
     pub fn deliver(notification: Notification, click: &Click) -> Result<(), NotificationError> {
         if NSBundle::mainBundle().bundleIdentifier().is_none() {
             return Err(NotificationError::Unavailable);
         }
+        install_delegate();
         let center = UNUserNotificationCenter::currentNotificationCenter();
-        let mut guard = IDS.lock().map_err(|_| NotificationError::Worker)?;
-        let ids = guard.get_or_insert_with(|| {
-            let delegate: Retained<Delegate> = unsafe { msg_send![super(Delegate::alloc().set_ivars(())), init] };
-            center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-            std::mem::forget(delegate); // the center keeps only a weak reference
-            center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert, &RcBlock::new(|_, _: *mut NSError| {}));
-            Ids::default()
-        });
-        let (account, scope) = {
-            let (account, scope) = notification.target();
-            (account, scope.clone())
-        };
-        // shortcut: one id per room ever alerted; upgrade if rooms become unbounded.
-        let next = ids.len() as u32 + 1;
-        let entry = ids.entry(scope).or_insert((next, account, click.clone()));
-        entry.2 = click.clone(); // a re-added account has a new worker
-        let id = entry.0;
+        static AUTH: Once = Once::new();
+        AUTH.call_once(|| center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert, &RcBlock::new(|_, _: *mut NSError| {})));
+        let scope = notification.target().1.clone();
+        let key = NSString::from_str(&target_key(&scope));
+        // shortcut: one slot per room ever alerted; upgrade if rooms become unbounded.
+        SLOTS.lock().map_err(|_| NotificationError::Worker)?.get_or_insert_with(HashMap::new).insert(scope, click.clone()); // a re-added account has a new worker
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(notification.title()));
         content.setBody(&NSString::from_str(&notification.body()));
-        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&id.to_string()), &content, None);
+        let info = NSDictionary::from_retained_objects(&[&*NSString::from_str(KEY)], &[key.clone()]);
+        // SAFETY: the setter's untyped dictionary is the same object; only the generic parameters differ.
+        unsafe { content.setUserInfo(&Retained::cast_unchecked::<NSDictionary>(info)) };
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&key, &content, None);
         let (done, result) = mpsc::channel();
         center.addNotificationRequest_withCompletionHandler(&request, Some(&RcBlock::new(move |e: *mut NSError| {
             let _ = done.send(e.is_null());
         })));
-        drop(guard);
         match result.recv_timeout(Duration::from_secs(2)) {
             Ok(true) => Ok(()),
             Ok(false) => Err(NotificationError::Unavailable), // not authorized (yet) or refused by the system

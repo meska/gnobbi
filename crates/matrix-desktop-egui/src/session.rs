@@ -364,8 +364,11 @@ impl Session {
             v.flush(tx);
         }
         // A click on an alert opens its room (once it is in the list).
-        if let Some((_, scope)) = self.notify.as_ref().and_then(|h| h.take_click()) {
+        let click = self.notify.as_ref().and_then(|h| h.take_click()).map(|(_, scope)| scope);
+        if let Some(scope) = click.or_else(|| self.account.and_then(matrix_desktop::notifications::take_early_click)) {
             self.pending_select = Some(scope);
+            // A click that launched the app must not lose to the room restored from the last run.
+            self.restoring = false;
             // Hidden to the tray or minimized: a bare Focus would leave the window out of sight.
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));

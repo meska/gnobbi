@@ -178,3 +178,12 @@ fn open_room_alert_is_suppressed_only_with_an_active_window() {
     assert!(!reading(true, Some(&open), &scope(2, "!open:x")), "background account: alert");
     assert!(!reading(true, None, &open));
 }
+
+#[test]
+fn a_click_key_names_account_and_room_and_survives_a_restart() {
+    let scope = RoomScope { account_id: AccountId::new(3), room_id: RoomId::new("!r:fixture.invalid") };
+    assert_eq!(target_key(&scope), "3:!r:fixture.invalid");
+    assert_eq!(parse_target(&target_key(&scope)), Some(scope));
+    assert_eq!(parse_target("no-separator"), None);
+    assert_eq!(parse_target("x:!r:fixture.invalid"), None);
+}
