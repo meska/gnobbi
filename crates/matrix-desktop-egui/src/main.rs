@@ -365,7 +365,7 @@ impl App {
         }
         let Some(s) = &mut self.session else { return };
         // The test accounts have nothing to recover: skip the step so the other views can be reached.
-        if self.auto_login.is_some() && s.recovering() && std::env::var_os("GNOBBI_EGUI_KEEP_RECOVERY").is_none() {
+        if self.auto_login.is_some() && s.recovering() && s.form.recovery_key().is_none() && std::env::var_os("GNOBBI_EGUI_KEEP_RECOVERY").is_none() {
             s.defer_recovery();
         }
         // shortcut: one account, no «Unisciti» dialog and no jump to the message of the link; a room we are not in is only logged. Give up after 60 s.
@@ -1121,24 +1121,46 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
 fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     ui.heading("Cronologia cifrata");
     ui.add_space(8.);
-    ui.label("Senza recupero la cronologia cifrata precedente non sarà leggibile su questo dispositivo.");
-    ui.add_space(4.);
-    ui.label("Inserisci la chiave di recupero Matrix del tuo account (non è la frase locale del profilo). Il backup può non contenere tutti i messaggi: non tutti i vecchi messaggi sono garantiti.");
-    ui.add_space(12.);
-    if matches!(s.form.recovery(), Some(matrix_engine::signin::RecoveryState::Pending)) {
+    let accent = |text: &str| egui::Button::new(egui::RichText::new(text).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent));
+    if let Some(key) = s.form.recovery_key() {
+        ui.label("Chiave di recupero Matrix");
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let copy = ui.button("⧉");
+                copy.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Copia chiave"));
+                if copy.clicked() { ui.ctx().copy_text(key.to_owned()); }
+                ui.add(egui::Label::new(egui::RichText::new(key).monospace()).selectable(true));
+            });
+        });
+        ui.add_space(8.);
+        if ui.add_sized([ui.available_width(), 36.], accent("Ho salvato la chiave: continua")).clicked() {
+            s.defer_recovery();
+        }
+        return;
+    }
+    if matches!(s.form.recovery(), Some(matrix_engine::signin::RecoveryState::Pending))
+        || s.form.setup_phase() == Some(matrix_desktop::SetupPhase::Pending)
+    {
         ui.spinner();
         return;
     }
-    let r = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut s.phrase).hint_text("Chiave di recupero Matrix").password(true).align(egui::Align2::LEFT_CENTER));
-    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-    ui.add_space(8.);
-    if let Some(message) = s.form.error_message() {
-        ui.colored_label(ui.visuals().error_fg_color, message);
+    if s.form.recovery() != Some(matrix_engine::signin::RecoveryState::Unsupported) {
+        let r = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut s.phrase).hint_text("Chiave di recupero Matrix").password(true).align(egui::Align2::LEFT_CENTER));
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.add_space(8.);
+        if ui.add_sized([ui.available_width(), 36.], accent("Recupera cronologia cifrata")).clicked() || enter {
+            s.recover();
+        }
+    } else if s.form.setup_offered() {
+        let label = if s.form.setup_phase().is_some() { "Riprova a creare la chiave" } else { "Crea chiave di recupero" };
+        if ui.add_sized([ui.available_width(), 36.], accent(label)).clicked() {
+            s.setup_recovery();
+        }
     }
-    let accent = |text: &str| egui::Button::new(egui::RichText::new(text).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent));
-    if ui.add_sized([ui.available_width(), 36.], accent("Recupera cronologia cifrata")).clicked() || enter {
-        s.recover();
+    if (s.form.setup_phase().is_some() || matches!(s.form.recovery(), Some(matrix_engine::signin::RecoveryState::Failed(_))))
+        && let Some(message) = s.form.error_message()
+    {
+        ui.colored_label(ui.visuals().error_fg_color, message);
     }
     ui.add_space(6.);
     if ui.add_sized([ui.available_width(), 36.], accent("Continua senza recupero")).clicked() {

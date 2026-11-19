@@ -9,7 +9,7 @@ use matrix_engine::operations::{Operation, OperationCommand, OperationResult};
 use matrix_engine::{
     Receiver, RoomListEvent, RoomSyncStatus,
     room_sync::RoomListWorker,
-    signin::{self, RecoveryState, SignInCommand, SignInEvent, SignInMode, SignInUi},
+    signin::{self, RecoveryState, SignInEvent, SignInMode, SignInUi},
 };
 
 /// The open thread: its page as last read, and the line being typed.
@@ -279,8 +279,8 @@ impl Session {
     /// Drains what the backend sent since the last frame. True when something changed.
     pub fn poll(&mut self, ctx: &egui::Context, notifications: bool, preview: bool) -> bool {
         let mut changed = false;
-        // First-time recovery setup is not offered here (S7); a key that arrives is dropped, which zeroizes it.
-        while self.ui.setup.try_recv().is_ok() {
+        while let Ok(event) = self.ui.setup.try_recv() {
+            self.form.apply_setup(event);
             changed = true;
         }
         while let Ok(event) = self.ui.events.try_recv() {
@@ -296,10 +296,6 @@ impl Session {
                     self.notifications = matrix_domain::notifications::NotificationPolicy::new(account);
                     // Rooms are scoped by account: the list must be built for the account that signed in.
                     self.sidebar = matrix_desktop::Sidebar::connected(account);
-                }
-                // Offered / Failed are answered by the user on the «Cronologia cifrata» screen; an account with no recovery has nothing to ask.
-                SignInEvent::Recovery(RecoveryState::Unsupported) => {
-                    let _ = self.ui.commands.try_send(SignInCommand::DeferRecovery);
                 }
                 _ => {}
             }
@@ -1110,12 +1106,26 @@ impl Session {
 
     /// The «Cronologia cifrata» step is open: signed in, recovery offered, being checked or failed.
     pub fn recovering(&self) -> bool {
-        matches!(self.form.recovery(), Some(RecoveryState::Offered | RecoveryState::Pending | RecoveryState::Failed(_)))
+        recovery_open(self.form.recovery())
     }
 
     pub fn defer_recovery(&mut self) {
-        if let Some(command) = self.form.source().and_then(|src| self.form.defer_source(src)) {
-            let _ = self.ui.commands.try_send(command);
+        let Some(source) = self.form.source() else { return };
+        let command = if self.form.recovery_key().is_some() {
+            self.form.confirm_saved_source(source)
+        } else {
+            self.form.defer_source(source)
+        };
+        if let Some(command) = command && self.ui.commands.try_send(command).is_err() {
+            self.form.apply(SignInEvent::Failed(signin::SignInError::NoSession));
+        }
+    }
+
+    pub fn setup_recovery(&mut self) {
+        if let Some(command) = self.form.source().and_then(|source| self.form.setup_source(source))
+            && self.ui.commands.try_send(command).is_err()
+        {
+            self.form.apply_setup(signin::SetupEvent::Failed(signin::SetupFailure::Other));
         }
     }
 
@@ -1180,6 +1190,10 @@ impl Session {
     }
 }
 
+fn recovery_open(state: Option<RecoveryState>) -> bool {
+    matches!(state, Some(RecoveryState::Offered | RecoveryState::Pending | RecoveryState::Failed(_) | RecoveryState::Unsupported))
+}
+
 /// Room-directory answers name their term (engine `SearchState`): one for a term no longer typed is stale.
 fn accept_room_answer(answer: Option<&str>, typed: &str) -> bool {
     answer.is_none_or(|t| t == typed.trim())
@@ -1200,6 +1214,29 @@ fn accept_user_answer(gate: &mut bool, state: &matrix_engine::operations::Search
 mod stale_tests {
     use super::*;
     use matrix_engine::operations::SearchState as S;
+
+    #[test]
+    fn recovery_screen_stays_open_for_first_setup_and_closes_after_confirmation() {
+        assert!(recovery_open(Some(RecoveryState::Unsupported)));
+        assert!(recovery_open(Some(RecoveryState::Offered)));
+        assert!(!recovery_open(Some(RecoveryState::Deferred)));
+        assert!(!recovery_open(Some(RecoveryState::Recovered)));
+    }
+
+    #[test]
+    fn setup_key_requires_explicit_saved_confirmation() {
+        use matrix_engine::signin::{SetupEvent, SignInCommand};
+        let mut form = SignInForm::default();
+        form.apply(SignInEvent::Recovery(RecoveryState::Unsupported));
+        assert!(matches!(form.setup_source(form.source().unwrap()), Some(SignInCommand::SetupRecovery)));
+        assert!(form.source().is_none());
+        form.apply_setup(SetupEvent::Ready(matrix_engine::recovery::RecoverySecret::fixture("fixture key")));
+        assert_eq!(form.recovery_key(), Some("fixture key"));
+        let source = form.source().unwrap();
+        assert!(form.defer_source(source).is_none());
+        assert!(matches!(form.confirm_saved_source(source), Some(SignInCommand::DeferRecovery)));
+        assert!(form.recovery_key().is_none());
+    }
 
     #[test]
     fn older_answers_are_dropped() {
