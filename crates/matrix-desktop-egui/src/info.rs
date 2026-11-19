@@ -338,7 +338,8 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
                 });
             }
             if data.can_edit_aliases {
-                ui.horizontal(|ui| {
+                // Wrapped: field + server + button are wider than the 300 px panel and made its content overflow on both sides.
+                ui.horizontal_wrapped(|ui| {
                     ui.add(egui::TextEdit::singleline(view.input).desired_width(110.).hint_text("nome").align(egui::Align2::LEFT_CENTER));
                     ui.label(RichText::new(format!(":{}", data.server)).color(rgb(t.secondary)));
                     if ui.button("Aggiungi").clicked() && !view.input.trim().is_empty() {
