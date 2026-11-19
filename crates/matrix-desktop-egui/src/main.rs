@@ -640,7 +640,13 @@ impl App {
         if ctx.input(|i| i.focused) {
             self.window_visible = true;
         }
-        let reachable = self.tray.as_ref().is_some_and(|t| t.host_present());
+        // winit cannot unmap a Wayland window (Visible(false) is a no-op), so there a close request must quit.
+        let reachable = self.tray.as_ref().is_some_and(|t| t.host_present()) && !wayland_session();
+        // Ctrl/Cmd+Q is a real quit (not hide-to-tray), also while a TextEdit has the focus; Super+Q reaches us as a close request.
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Q)) {
+            self.quitting = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         let actions = self.tray.as_ref().map(|tray| tray.actions()).unwrap_or_default();
         if !actions.is_empty() {
             for action in actions {
@@ -1607,3 +1613,10 @@ mod tests {
         }
     }
 }
+
+#[cfg(target_os = "linux")]
+fn wayland_session() -> bool {
+    std::env::var_os("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty()) && std::env::var_os("WINIT_UNIX_BACKEND").is_none_or(|v| v != "x11")
+}
+#[cfg(not(target_os = "linux"))]
+fn wayland_session() -> bool { false }
