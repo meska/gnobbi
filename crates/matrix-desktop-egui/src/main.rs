@@ -66,11 +66,18 @@ struct Parked {
     recorded: bool,
 }
 
+/// Below this window width the room list hides: rail 64 + list 320 + a chat of at least ~376.
+const NARROW_WIDTH: f32 = 760.;
+/// Narrow layout shows rail 64 + chat; the chat needs ≥360.
+const MIN_WIDTH: f32 = 424.;
+
 struct App {
     prefs: Preferences,
     dirs: Option<AppDirs>,
     settings_open: bool,
     accounts_open: bool,
+    /// Narrow window only: the room list replaces the chat while true.
+    list_open: bool,
     /// Profile folder this window runs on, and whether its login is already in the catalog.
     root: std::path::PathBuf,
     recorded: bool,
@@ -134,7 +141,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
         if let Some(i) = last {
@@ -609,6 +616,10 @@ impl App {
         };
         // The shown account sits on top of the spaces rail: a click lists the others, each with a dot below it (filled = unread).
         let mut pick_account = None;
+        let narrow = ui.ctx().content_rect().width() < NARROW_WIDTH;
+        if !narrow {
+            self.list_open = false;
+        }
         let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
         let others: Vec<(String, u64)> = self.parked.iter().map(|p| (p.session.account_name.clone(), unread(&p.session))).collect();
         if let Some(session) = &mut self.session {
@@ -657,11 +668,21 @@ impl App {
                 resp.on_hover_text(name);
                 list::rail(ui, &mut session.sidebar, &session.avatars, t);
             });
-            egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
-                let mut new_chat = false;
-                list::rooms(ui, session, &mut new_chat, t);
-                session.new_open |= new_chat;
-            });
+            if !narrow || self.list_open {
+                let before = session.sidebar.selected().map(|r| r.scope.clone());
+                // Narrow: the list takes the whole width left of the rail and the chat is not drawn (shortcut: re-clicking the open room does not close it).
+                egui::Panel::left("list").exact_size(if narrow { ui.available_width() } else { t.sidebar }).resizable(false).frame(bar(t)).show(ui, |ui| {
+                    let mut new_chat = false;
+                    list::rooms(ui, session, &mut new_chat, t);
+                    session.new_open |= new_chat;
+                });
+                if narrow && session.sidebar.selected().map(|r| r.scope.clone()) != before {
+                    self.list_open = false;
+                }
+                if narrow {
+                    return;
+                }
+            }
         }
         if let Some(i) = pick_account {
             self.switch_to(i);
@@ -673,6 +694,9 @@ impl App {
         egui::Panel::top("header").exact_size(t.header).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(16.);
+                if narrow && ui.button("☰").clicked() {
+                    self.list_open = true;
+                }
                 if let Some((initials, color)) = &badge {
                     let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(32.), egui::Sense::hover());
                     ui.painter().circle_filled(rect.center(), 16., rgb(*color));
@@ -1362,7 +1386,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size([first.width, first.height])
-            .with_min_inner_size([360., 420.])
+            .with_min_inner_size([MIN_WIDTH, 420.])
             .with_title(TITLE)
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)

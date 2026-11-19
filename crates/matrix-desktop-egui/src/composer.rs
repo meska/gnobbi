@@ -40,7 +40,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         });
     }
     if let Some(secs) = recording {
-        ui.horizontal_centered(|ui| {
+        ui.horizontal(|ui| {
             ui.add_space(12.);
             ui.colored_label(ui.visuals().error_fg_color, format!("● {}:{:02}", secs / 60, secs % 60));
             if ui.button("Invia nota").clicked() {
@@ -53,10 +53,11 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         return None;
     }
     let mut send_click = false;
-    ui.horizontal_centered(|ui| {
+    // Not horizontal_centered: it fills the panel's height from the previous frame, so the bar never shrank after a narrow-window wrap.
+    ui.horizontal(|ui| {
         ui.add_space(12.);
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
-        let w = ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 40.; // 40: left pad, right margin and the TextEdit's own inner margins (else the row overflows a narrow column)
+        let w = (ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 40.).max(80.); // 40: left pad, right margin and the TextEdit's own inner margins (else the row overflows a narrow column)
         let id = egui::Id::new("composer-text");
         if ui.memory(|m| m.has_focus(id)) {
             *pasted = ui.input(|i| i.events.iter().find_map(|e| match e {
@@ -196,6 +197,32 @@ fn wrap(text: &mut String, a: usize, b: usize, mark: &str) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::wrap;
+
+    /// Height of the composer bar after laying it out in a window `width` wide, reusing `ctx` so panel memory carries over.
+    fn bar_height(ctx: &eframe::egui::Context, width: f32) -> f32 {
+        use eframe::egui;
+        let mut h = 0.;
+        let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.))), ..Default::default() };
+        for _ in 0..4 {
+            let mut out = ctx.run_ui(input.clone(), |ui| {
+                let r = egui::Panel::bottom("composer").min_size(56.).show(ui, |ui| {
+                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, false, false, None, None, None);
+                    super::show(ui, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
+                });
+                h = r.response.rect.height();
+            });
+            out.textures_delta.clear();
+        }
+        h
+    }
+
+    #[test]
+    fn composer_height_returns_to_one_row_after_a_narrow_window() {
+        let ctx = eframe::egui::Context::default();
+        let wide = bar_height(&ctx, 900.);
+        bar_height(&ctx, 120.);
+        assert_eq!(bar_height(&ctx, 900.), wide);
+    }
 
     #[test]
     fn pasted_image_is_a_png_with_unpremultiplied_alpha() {
