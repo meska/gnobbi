@@ -56,7 +56,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
     ui.horizontal_centered(|ui| {
         ui.add_space(12.);
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
-        let w = ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 12.;
+        let w = ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 40.; // 40: left pad, right margin and the TextEdit's own inner margins (else the row overflows a narrow column)
         let id = egui::Id::new("composer-text");
         if ui.memory(|m| m.has_focus(id)) {
             *pasted = ui.input(|i| i.events.iter().find_map(|e| match e {
