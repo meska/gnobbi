@@ -13,6 +13,7 @@ mod accounts;
 mod pick;
 mod composer;
 mod devices;
+mod explore;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
 mod info;
@@ -307,11 +308,13 @@ impl eframe::App for App {
             }
             if session.account.is_some() && !session.recovering() {
                 let command = |key| ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, key));
-                if command(egui::Key::K) && !session.new_open && !self.settings_open {
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::E)) && !session.new_open && !session.quick_open && !self.settings_open {
+                    session.open_explore();
+                } else if command(egui::Key::K) && !session.new_open && !session.explore.is_some() && !self.settings_open {
                     session.quick_open = !session.quick_open; session.quick_sel = 0;
                     session.new_term.clear();
                     if session.quick_open { ctx.memory_mut(|m| m.request_focus(egui::Id::unique("quick-search-field"))); }
-                } else if !session.quick_open && !session.new_open && !self.settings_open {
+                } else if !session.quick_open && !session.new_open && session.explore.is_none() && !self.settings_open {
                     if command(egui::Key::F) {
                         session.focus_search = true;
                     } else if command(egui::Key::Comma) {
@@ -334,7 +337,7 @@ impl eframe::App for App {
                     }
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::Escape))
-                    && !session.new_open && !session.poll_open && session.edit.is_none()
+                    && !session.new_open && session.explore.is_none() && !session.poll_open && session.edit.is_none()
                     && !session.devices_open && !self.settings_open && !self.accounts_open && self.pending_web.is_none()
                 {
                     if self.rail.edit { self.rail.edit = false; }
@@ -348,7 +351,7 @@ impl eframe::App for App {
                     else if session.search_open { session.search_open = false; }
                 }
             }
-            if self.settings_open || self.accounts_open || self.pending_web.is_some() || session.new_open || session.quick_open || session.poll_open || session.edit.is_some() || session.devices_open || session.viewer.is_some() {
+            if self.settings_open || self.accounts_open || self.pending_web.is_some() || session.new_open || session.explore.is_some() || session.quick_open || session.poll_open || session.edit.is_some() || session.devices_open || session.viewer.is_some() {
                 if let Some(thread) = &mut session.thread { thread.tail_visible = false; }
             }
             session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
@@ -651,6 +654,11 @@ impl App {
                 "search" => s.search_open = true,
                 "devices" => s.devices_open = true,
                 "new" => s.new_open = true,
+                // Test hook (runs every frame, so only while closed): «Esplora stanze pubbliche», with a term when written «explore-<term>».
+                v if v.starts_with("explore") && s.explore.is_none() => {
+                    s.open_explore();
+                    if let (Some(e), Some(term)) = (&mut s.explore, v.strip_prefix("explore-")) { e.set_term(term); }
+                }
                 "space" | "space-public" => {
                     s.new_open = true;
                     self.new_form.open_space(view == "space-public");
@@ -1091,6 +1099,9 @@ impl App {
             && s.new_open
         {
             newchat::show(ui.ctx(), s, &mut self.new_form, t);
+        }
+        if let Some(s) = &mut self.session {
+            explore::show(ui.ctx(), s, t);
         }
         if let Some(s) = &mut self.session {
             list::space_picker(ui.ctx(), s);

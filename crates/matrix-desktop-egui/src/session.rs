@@ -140,7 +140,9 @@ pub struct Session {
     users_gate: bool,
     /// Public rooms for the quick search, and the term last sent for them (None: nothing asked).
     pub public_rooms: matrix_engine::search::SearchState<matrix_engine::operations::DirectoryRoom>,
-    rooms_sent: Option<String>,
+    rooms_sent: Option<matrix_desktop::quick_search::DirectoryRequest>,
+    /// «Esplora stanze pubbliche» (own term/server/kind; shares `public_rooms` with the quick search, never both open).
+    pub explore: Option<crate::explore::Explore>,
     /// Highlighted row of the quick search, counted over all groups.
     pub quick_sel: usize,
     pub new_failed: bool,
@@ -285,6 +287,7 @@ impl Session {
             users_gate: false,
             public_rooms: matrix_engine::search::SearchState::Idle,
             rooms_sent: None,
+            explore: None,
             quick_sel: 0,
             new_failed: false,
             joins: Default::default(),
@@ -493,6 +496,7 @@ impl Session {
         wanted.extend(self.sidebar.selected().into_iter().flat_map(|r| &r.info.public_read_receipts).flat_map(|r| &r.users).filter_map(|u| u.avatar.clone()));
         wanted.extend(self.verification.as_ref().and_then(|v| v.profile_avatar()).map(str::to_owned));
         wanted.extend(crate::stickers::urls(&self.stickers).map(str::to_owned));
+        if let (Some(_), matrix_engine::search::SearchState::Results { hits, .. }) = (&self.explore, &self.public_rooms) { wanted.extend(hits.iter().filter_map(|h| h.avatar_url.clone())); }
         for mxc in wanted {
             let waiting = self.avatar_failed.get(&mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
             if budget > 0 && !self.avatars.contains_key(&mxc) && !waiting {
@@ -753,12 +757,18 @@ impl Session {
             self.new_sent = wanted;
             self.users_gate = true;
         }
-        let wanted = if self.quick_open { matrix_desktop::quick_search::room_request(None, &self.new_term, None).map(|r| r.0) } else { None };
+        let wanted = match &self.explore {
+            Some(e) => e.request(),
+            None if self.quick_open => matrix_desktop::quick_search::room_request(None, &self.new_term, None),
+            None => None,
+        };
         if self.op_pending.is_none() && wanted != self.rooms_sent {
             self.op_pending = Some(match &wanted {
-                Some(term) => OperationCommand::SearchRooms { term: term.clone(), server: None, kind: Some(matrix_engine::operations::DirectoryKind::Rooms) },
+                Some((term, server, kind)) => OperationCommand::SearchRooms { term: term.clone(), server: server.clone(), kind: *kind },
                 None => OperationCommand::SearchRooms { term: String::new(), server: None, kind: None },
             });
+            // The old server's or term's rows must not show under the new request.
+            if self.explore.is_some() { self.public_rooms = matrix_engine::search::SearchState::Idle; }
             self.rooms_sent = wanted;
         }
         if let (Some(th), Some(scope)) = (&mut self.thread, &self.draft_scope)
@@ -981,7 +991,7 @@ impl Session {
                     continue;
                 }
                 OperationResult::RoomSearch { state } => {
-                    if accept_room_answer(state.term(), &self.new_term) {
+                    if accept_room_answer(state.term(), &self.explore.as_ref().map_or_else(|| self.new_term.clone(), |e| e.request().map(|r| r.0).unwrap_or_default())) {
                         self.public_rooms = state.clone();
                         changed = true;
                     }
@@ -1038,9 +1048,10 @@ impl Session {
                         join.apply(phase.clone(), online);
                         if let crate::join::JoinState::Joined(scope) = join {
                             // Opened only for a user still waiting in the window that asked for it.
-                            if self.quick_open || self.new_open {
+                            if self.quick_open || self.new_open || self.explore.is_some() {
                                 self.pending_select = Some(scope.clone());
                                 (self.quick_open, self.new_open) = (false, false);
+                                self.close_explore();
                             }
                             self.joins.remove(target);
                         }
@@ -1125,6 +1136,20 @@ impl Session {
     /// A directory row: joined through the server that listed it, like the GPUI quick search.
     pub fn join_public(&mut self, room: &matrix_engine::operations::DirectoryRoom) {
         self.start_join(room.room_id.clone(), vec![room.origin.clone()]);
+    }
+
+    pub fn open_explore(&mut self) {
+        self.public_rooms = matrix_engine::search::SearchState::Idle;
+        self.explore = Some(crate::explore::Explore::new());
+    }
+
+    pub fn more_rooms(&mut self) {
+        self.op_queue.push(OperationCommand::MoreRooms);
+    }
+
+    pub fn close_explore(&mut self) {
+        self.explore = None;
+        self.public_rooms = matrix_engine::search::SearchState::Idle;
     }
 
     pub fn join(&mut self, target: &str) {

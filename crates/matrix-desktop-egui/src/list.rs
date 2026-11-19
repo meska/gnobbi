@@ -46,9 +46,17 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
         ui.heading(title);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.);
-            if ui.button("+").clicked() {
-                *new_chat = true;
-            }
+            let plus = ui.button("+");
+            egui::Popup::menu(&plus).show(|ui| {
+                if ui.button("Nuova chat").clicked() {
+                    *new_chat = true;
+                    ui.close();
+                }
+                if ui.button("Esplora stanze pubbliche").clicked() {
+                    session.open_explore();
+                    ui.close();
+                }
+            });
         });
     });
     let sidebar = &mut session.sidebar;
