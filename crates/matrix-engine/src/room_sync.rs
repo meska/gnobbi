@@ -673,6 +673,10 @@ impl RoomListWorker {
                                     let result = crate::operations::space_choices(&operation_client, account, &scope).await;
                                     OperationResult::SpaceChoices { scope, result }
                                 }
+                                OperationCommand::SpaceChildren { scope } => {
+                                    let result = crate::operations::space_children(&operation_client, account, &scope).await;
+                                    OperationResult::SpaceChildren { scope, result }
+                                }
                                 OperationCommand::AddToSpace { scope, space } => {
                                     let result = crate::operations::add_to_space(&operation_client, account, &scope, &space).await;
                                     OperationResult::SpaceChanged { scope, space, added: true, result }

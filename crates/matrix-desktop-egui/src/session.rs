@@ -112,7 +112,11 @@ pub struct Session {
     /// Highlighted row of the quick search, counted over all groups.
     pub quick_sel: usize,
     pub new_failed: bool,
+    /// «Crea spazio» was sent and its answer is not in yet.
+    pub new_busy: bool,
     pub pending_select: Option<matrix_domain::RoomScope>,
+    /// The space just created, shown in the rail as soon as the sync lists it.
+    pending_space: Option<matrix_domain::RoomScope>,
     /// `last_room` in the profile folder: the room on screen, written at every change and reopened at the next start.
     last_file: std::path::PathBuf,
     last_room: Option<String>,
@@ -244,6 +248,8 @@ impl Session {
             rooms_sent: None,
             quick_sel: 0,
             new_failed: false,
+            new_busy: false,
+            pending_space: None,
             pending_select: None,
             last_file,
             restoring: last_room.is_some(),
@@ -594,6 +600,12 @@ impl Session {
             self.info_open = false;
             changed = true;
         }
+        if let Some(scope) = self.pending_space.clone()
+            && self.sidebar.set_space(Some(scope))
+        {
+            self.pending_space = None;
+            changed = true;
+        }
         let current = self.sidebar.selected().map(|r| r.scope.clone());
         if self.restoring && let Some(want) = &self.last_room {
             let now = current.as_ref().map(|c| c.room_id.as_str());
@@ -814,6 +826,19 @@ impl Session {
                     }
                     continue;
                 }
+                OperationResult::SpaceCreated { result } => {
+                    self.new_busy = false;
+                    match result {
+                        // shortcut: the notices (not listed, picture refused) are not shown, add a line when someone misses them.
+                        Ok(created) => {
+                            self.pending_space = Some(created.scope.clone());
+                            self.new_open = false;
+                        }
+                        Err(_) => self.new_failed = true,
+                    }
+                    changed = true;
+                    continue;
+                }
                 OperationResult::RoomStarted { result } => {
                     match result {
                         Ok(scope) => {
@@ -900,6 +925,12 @@ impl Session {
         self.new_failed = false;
         let topic = Some(topic.trim().to_owned()).filter(|t| !t.is_empty());
         self.op_queue.push(OperationCommand::CreateRoom { name: name.trim().to_owned(), topic, public });
+    }
+
+    pub fn create_space(&mut self, name: &str, public: bool, avatar: Option<matrix_engine::operations::SpaceAvatar>) {
+        self.new_failed = false;
+        self.new_busy = true;
+        self.op_queue.push(OperationCommand::CreateSpace { name: name.trim().to_owned(), topic: None, public, avatar });
     }
 
     /// A directory row: joined through the server that listed it, like the GPUI quick search.
