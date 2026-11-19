@@ -371,8 +371,22 @@ impl Session {
             self.avatar_failed.remove(&p.mxc);
             self.avatars.insert(p.mxc, tex);
         }
-        let (Some(messages), Ok(slot)) = (&self.messages, self.avatar_slot.try_lock()) else { return changed };
+        let Ok(slot) = self.avatar_slot.try_lock() else { return changed };
         let Some(source) = slot.as_ref() else { return changed };
+        // Room, DM and space pictures of the list and the rail: a few per tick, so a long list does not burst the media worker.
+        let mut budget = 6;
+        let mut wanted: Vec<String> = self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()).collect();
+        wanted.extend(self.sidebar.navigation_entries().into_iter().filter_map(|e| e.avatar));
+        wanted.extend(self.verification.as_ref().and_then(|v| v.profile_avatar()).map(str::to_owned));
+        for mxc in wanted {
+            let waiting = self.avatar_failed.get(&mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
+            if budget > 0 && !self.avatars.contains_key(&mxc) && !waiting {
+                budget -= 1;
+                self.avatars.insert(mxc.clone(), None);
+                source.request(mxc, self.avatar_chan.0.clone());
+            }
+        }
+        let Some(messages) = &self.messages else { return changed };
         for mxc in messages.sender_avatar_mxcs() {
             let waiting = self.avatar_failed.get(mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
             if !self.avatars.contains_key(mxc) && !waiting {
@@ -1043,6 +1057,11 @@ impl Session {
             self.draft = std::mem::take(&mut self.parked);
             self.ops.clear_selection();
         }
+    }
+
+    /// The account's own picture, once downloaded (the account strip and the tray draw it).
+    pub fn own_picture(&self) -> Option<egui::TextureHandle> {
+        self.avatars.get(self.verification.as_ref()?.profile_avatar()?)?.clone()
     }
 
     pub fn react(&mut self, key: &str) {

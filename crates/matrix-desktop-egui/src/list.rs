@@ -28,8 +28,16 @@ pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) {
     ui.painter().galley(r.center() - g.size() / 2., g, rgb(t.on_accent));
 }
 
+/// A round picture (or nothing, when there is none) centred at `c`; the caller draws the initials circle first.
+fn photo(ui: &egui::Ui, avatars: &crate::timeline::Avatars, mxc: Option<&str>, c: egui::Pos2, size: f32) -> bool {
+    let Some(tex) = mxc.and_then(|m| avatars.get(m)?.as_ref()) else { return false };
+    let rect = egui::Rect::from_center_size(c, Vec2::splat(size));
+    egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(egui::CornerRadius::same((size / 2.) as u8)).paint_at(ui, rect);
+    true
+}
+
 /// Spaces rail: «Tutte» and the joined spaces.
-pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, t: &DesignTokens) {
+pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, t: &DesignTokens) {
     let mut pick = None;
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(8.);
@@ -44,6 +52,7 @@ pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, t: &DesignTokens) {
             let initial: String = entry.name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
             ui.painter().circle_filled(c, 18., if entry.scope.is_none() { rgb(t.accent) } else { rgb(crate::AVATAR) });
             ui.painter().text(c, Align2::CENTER_CENTER, initial, FontId::proportional(16.), rgb(t.on_accent));
+            photo(ui, avatars, entry.avatar.as_deref(), c, 36.);
             if entry.unread > 0 {
                 badge(ui, c + Vec2::new(16., -16.), entry.unread, t);
             }
@@ -118,6 +127,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             let c = egui::pos2(rect.left() + 36., rect.center().y);
             p.circle_filled(c, 20., rgb(room.color));
             p.text(c, Align2::CENTER_CENTER, &room.initials, FontId::proportional(15.), rgb(t.avatar_text));
+            photo(ui, &session.avatars, room.info.avatar.as_deref(), c, 40.);
             let text_left = rect.left() + 68.;
             let stamp = room.stamp();
             let stamp_w = stamp.as_ref().map_or(0., |s| p.layout_no_wrap(s.clone(), FontId::proportional(12.), rgb(t.secondary)).size().x);

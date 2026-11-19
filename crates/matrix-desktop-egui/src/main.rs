@@ -587,16 +587,16 @@ impl App {
         let mut pick_account = None;
         if !self.parked.is_empty() {
             let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
-            let mut entries: Vec<(Option<usize>, String, u64)> = Vec::new();
+            let mut entries: Vec<(Option<usize>, String, u64, Option<egui::TextureHandle>)> = Vec::new();
             if let Some(s) = &self.session {
-                entries.push((None, s.account_name.clone(), unread(s)));
+                entries.push((None, s.account_name.clone(), unread(s), s.own_picture()));
             }
             for (i, p) in self.parked.iter().enumerate() {
-                entries.push((Some(i), p.session.account_name.clone(), unread(&p.session)));
+                entries.push((Some(i), p.session.account_name.clone(), unread(&p.session), p.session.own_picture()));
             }
             egui::Panel::left("accounts").exact_size(52.).resizable(false).frame(bar(t)).show(ui, |ui| {
                 ui.add_space(8.);
-                for (which, name, n) in &entries {
+                for (which, name, n, pic) in &entries {
                     let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(52., 48.), egui::Sense::click());
                     let c = rect.center();
                     if which.is_none() {
@@ -607,6 +607,10 @@ impl App {
                     let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
                     ui.painter().circle_filled(c, 16., rgb(AVATAR));
                     ui.painter().text(c, egui::Align2::CENTER_CENTER, initial, egui::FontId::proportional(15.), rgb(t.on_accent));
+                    if let Some(tex) = pic {
+                        let r = egui::Rect::from_center_size(c, egui::Vec2::splat(32.));
+                        egui::Image::new(tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(16)).paint_at(ui, r);
+                    }
                     if *n > 0 {
                         list::badge(ui, c + egui::Vec2::new(14., -14.), *n, t);
                     }
@@ -622,7 +626,7 @@ impl App {
         }
         if let Some(session) = &mut self.session {
             egui::Panel::left("rail").exact_size(64.).resizable(false).frame(bar(t)).show(ui, |ui| {
-                list::rail(ui, &mut session.sidebar, t);
+                list::rail(ui, &mut session.sidebar, &session.avatars, t);
             });
             egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
                 let mut new_chat = false;
@@ -633,6 +637,7 @@ impl App {
         let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
         let badge = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| (r.initials.clone(), r.color)));
+        let head_pic = self.session.as_ref().and_then(|s| s.sidebar.selected().and_then(|r| r.info.avatar.as_deref()).and_then(|a| s.avatars.get(a)?.clone()));
         egui::Panel::top("header").exact_size(t.header).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(16.);
@@ -640,6 +645,9 @@ impl App {
                     let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(32.), egui::Sense::hover());
                     ui.painter().circle_filled(rect.center(), 16., rgb(*color));
                     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(13.), rgb(t.avatar_text));
+                    if let Some(tex) = &head_pic {
+                        egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(egui::CornerRadius::same(16)).paint_at(ui, rect);
+                    }
                     ui.add_space(4.);
                 }
                 ui.label(title.as_deref().unwrap_or(state));
