@@ -113,6 +113,12 @@ pub struct Session {
     pub quick_sel: usize,
     pub new_failed: bool,
     pub pending_select: Option<matrix_domain::RoomScope>,
+    /// `last_room` in the profile folder: the room on screen, written at every change and reopened at the next start.
+    last_file: std::path::PathBuf,
+    last_room: Option<String>,
+    /// The saved room is still to reopen; with it the row the list picked by itself and when.
+    restoring: bool,
+    restore_auto: Option<(String, std::time::Instant)>,
     /// Commands from the UI waiting for the single send slot.
     op_queue: Vec<OperationCommand>,
     /// Member whose card is open and what the engine answered about them.
@@ -165,6 +171,8 @@ impl Session {
     /// Opens the default profile under the app data directory; a saved account unlocks by itself through the OS vault.
     pub fn start(dirs: &AppDirs, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> Result<Session, String> {
         matrix_desktop::create_private_dir(&root).map_err(|e| e.to_string())?;
+        let last_file = root.join("last_room");
+        let last_room = std::fs::read_to_string(&last_file).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
         let vault = signin::platform_source();
         let with_vault = vault.is_some();
         let (ui, pending) = match vault {
@@ -233,6 +241,10 @@ impl Session {
             quick_sel: 0,
             new_failed: false,
             pending_select: None,
+            last_file,
+            restoring: last_room.is_some(),
+            last_room,
+            restore_auto: None,
             op_queue: Vec::new(),
             profile: None,
             rights: None,
@@ -554,6 +566,26 @@ impl Session {
             self.profile = None;
             self.info_open = false;
             changed = true;
+        }
+        let current = self.sidebar.selected().map(|r| r.scope.clone());
+        if self.restoring && let Some(want) = &self.last_room {
+            let now = current.as_ref().map(|c| c.room_id.as_str());
+            let (auto, since) = self.restore_auto.get_or_insert_with(|| (now.unwrap_or_default().to_owned(), std::time::Instant::now()));
+            if now.is_none() {
+                self.restore_auto = None;
+            } else if restore_over(want, auto, now, since.elapsed()) {
+                self.restoring = false;
+            } else if let Some(scope) = self.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == want).map(|r| r.scope.clone())
+                && self.sidebar.select_outside_view(&scope)
+            {
+                self.restoring = false;
+                changed = true;
+            }
+        } else if let Some(scope) = current
+            && self.last_room.as_deref() != Some(scope.room_id.as_str())
+        {
+            self.last_room = Some(scope.room_id.as_str().to_owned());
+            let _ = std::fs::write(&self.last_file, scope.room_id.as_str());
         }
         // Opening or receiving in the room on screen: the read marker goes out once the newest message is in view (main only, so threads stay unread).
         let (focused, at_bottom, public) = self.reading;
@@ -1254,10 +1286,26 @@ fn accept_user_answer(gate: &mut bool, state: &matrix_engine::operations::Search
     !*gate
 }
 
+/// Start-up reopening of the saved room `want` ends when it is on screen, when the user opened a room other than
+/// the one the list picked by itself (`auto`), or after a while (a room that left the list must not pop up later).
+// shortcut: a click on the very row the list picked by itself is not seen as a choice, upgrade if the 20 s window proves too long.
+fn restore_over(want: &str, auto: &str, now: Option<&str>, waited: std::time::Duration) -> bool {
+    now == Some(want) || now != Some(auto) || waited > std::time::Duration::from_secs(20)
+}
+
 #[cfg(test)]
 mod stale_tests {
     use super::*;
     use matrix_engine::operations::SearchState as S;
+
+    #[test]
+    fn saved_room_is_reopened_unless_the_user_chose_or_time_passed() {
+        let s = std::time::Duration::from_secs;
+        assert!(!restore_over("!last", "!first", Some("!first"), s(1)));
+        assert!(restore_over("!last", "!first", Some("!other"), s(1)));
+        assert!(restore_over("!last", "!first", Some("!last"), s(1)));
+        assert!(restore_over("!last", "!first", Some("!first"), s(21)));
+    }
 
     #[test]
     fn recovery_screen_stays_open_for_first_setup_and_closes_after_confirmation() {

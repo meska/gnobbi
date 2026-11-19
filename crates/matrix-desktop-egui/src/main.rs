@@ -27,6 +27,9 @@ use session::Session;
 /// Avatar fallback colour (identity, not theme).
 pub const AVATAR: u32 = matrix_desktop::AVATAR_FALLBACK;
 
+/// File in the data folder with the profile folder of the account on screen.
+const LAST_ACCOUNT: &str = "last_account";
+
 fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
@@ -129,9 +132,15 @@ impl App {
                 }
             }
         }
-        App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
+        let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
+        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
-            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error }
+            auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
+        if let Some(i) = last {
+            app.switch_to(i);
+        }
+        app
     }
 
     /// Brings parked account `i` on screen; the shown one takes its place in the list.
@@ -147,6 +156,9 @@ impl App {
             self.poll_form = Default::default();
             self.confirm = None;
             self.settings_open = false;
+            if let Some(d) = &self.dirs {
+                let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
+            }
         }
     }
 
