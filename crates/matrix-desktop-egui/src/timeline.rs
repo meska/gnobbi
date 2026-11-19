@@ -14,9 +14,29 @@ pub struct Acts {
 }
 
 pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::TextureHandle>;
+pub type Avatars = std::collections::HashMap<String, Option<egui::TextureHandle>>;
 
-const GAP: f32 = 8.;
-const TIGHT: f32 = 2.;
+/// Round avatar of `size`: the photo when there is one, else initials on the fallback colour.
+fn avatar(ui: &mut egui::Ui, size: f32, pic: Option<&egui::TextureHandle>, initials: &str, font: f32, t: &DesignTokens) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
+    match pic {
+        Some(tex) => {
+            egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(CornerRadius::same((size / 2.) as u8)).paint_at(ui, rect);
+        }
+        None => {
+            ui.painter().circle_filled(rect.center(), size / 2., rgb(matrix_desktop::AVATAR_FALLBACK));
+            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(font), rgb(t.avatar_text));
+        }
+    }
+}
+
+/// Same as the GPUI client: gap between series / inside one, bubble padding, radius, width.
+const GAP: f32 = 16.;
+const TIGHT: f32 = 4.;
+const PAD_X: f32 = 16.;
+const PAD_Y: f32 = 12.;
+const MAX_BUBBLE: f32 = 720.;
+const BODY: f32 = 14.;
 const GUESS: f32 = 56.;
 
 fn rgb(c: u32) -> Color32 {
@@ -33,40 +53,54 @@ pub struct Heights {
 }
 
 /// True when the message was right-clicked (or long-pressed).
-fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, label: Option<&str>, initials: Option<&str>, group: bool, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, initials: Option<&str>, photo: Option<&str>, group: bool, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
-        ui.vertical_centered(|ui| ui.label(RichText::new(day).size(12.).color(rgb(t.secondary))));
+        ui.vertical_centered(|ui| ui.label(RichText::new(day).size(11.).color(rgb(t.secondary))));
         ui.add_space(8.);
     }
     if e.status {
-        ui.vertical_centered(|ui| ui.label(RichText::new(&e.text).size(12.).color(rgb(t.secondary))));
+        // Quiet centred line: small round avatar + grey text, no bubble.
+        let font = egui::FontId::proportional(11.);
+        let (avail, text_w) = (ui.available_width(), ui.painter().layout_no_wrap(e.text.clone(), font, Color32::WHITE).size().x);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.;
+            let pic = e.sender.as_ref().and_then(|s| s.avatar.as_deref()).and_then(|m| avatars.get(m)?.as_ref());
+            let has_avatar = e.sender.is_some();
+            ui.add_space(((avail - text_w - if has_avatar { 18. } else { 0. }) / 2.).max(0.));
+            if let Some(s) = &e.sender {
+                let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+                avatar(ui, 12., pic, &initials, 7., t);
+            }
+            ui.label(RichText::new(&e.text).size(11.).color(rgb(t.secondary)));
+        });
         return (None, false, false);
     }
-    let max = (ui.available_width() * 0.72).max(120.);
+    let max = (ui.available_width() * 0.85).clamp(120., MAX_BUBBLE);
     let layout = if e.outgoing { Layout::right_to_left(Align::TOP) } else { Layout::left_to_right(Align::TOP) };
     let mut opened = None;
     let mut save = false;
     let mut thread = false;
     ui.with_layout(layout, |ui| {
         ui.add_space(12.);
-        // Group rooms: the sender's round avatar (initials) opens a series of incoming bubbles; the others keep its column.
-        // shortcut: the sender's picture is not loaded, only initials; load it by mxc when the pictures cache can take it.
+        // Group rooms: the sender's round avatar opens a series of incoming bubbles; the others keep its column.
         if group && !e.outgoing {
-            let (rect, _) = ui.allocate_exact_size(Vec2::splat(32.), egui::Sense::hover());
+            let pic = photo.and_then(|m| avatars.get(m)?.as_ref());
             if let Some(initials) = initials {
-                ui.painter().circle_filled(rect.center(), 16., rgb(matrix_desktop::AVATAR_FALLBACK));
-                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(12.), rgb(t.avatar_text));
+                avatar(ui, 32., pic, initials, 12., t);
+            } else {
+                ui.allocate_exact_size(Vec2::splat(32.), egui::Sense::hover());
             }
+            ui.add_space(8.);
         }
         let fill = if e.highlighted { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
-        let frame = egui::Frame::NONE.fill(fill).corner_radius(CornerRadius::same(12)).inner_margin(egui::Margin::symmetric(12, 8)).show(ui, |ui| {
+        let frame = egui::Frame::NONE.fill(fill).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8)).show(ui, |ui| {
             // Shrink-wrap: as wide as the longest of text, sender and time (at most `max`), not the whole column.
             let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
-            let inner = max - 24.;
+            let inner = max - 2. * PAD_X;
             let measure = |text: &str, size: f32| ui.painter().layout(text.to_owned(), egui::FontId::proportional(size), Color32::WHITE, inner).size().x;
-            let mut w = measure(&matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state), 11.);
-            w = w.max(if e.redacted { measure("Messaggio eliminato", 15.) } else { measure(&e.text, 15.) });
+            let mut w = measure(&matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state), 10.);
+            w = w.max(if e.redacted { measure("Messaggio eliminato", BODY) } else { measure(&e.text, BODY) });
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
             }
@@ -120,14 +154,15 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, l
                 } else if e.redacted {
                     ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {
-                    ui.label(RichText::new(&e.text).size(15.));
+                    ui.label(RichText::new(&e.text).size(BODY).line_height(Some(20.)));
                 }
                 if let Some(th) = &e.thread
                     && ui.link(format!("{} risposte", th.num_replies)).clicked()
                 {
                     thread = true;
                 }
-                ui.label(RichText::new(matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state)).size(11.).color(rgb(t.secondary)));
+                ui.add_space(4.);
+                ui.label(RichText::new(matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state)).size(10.).color(rgb(t.secondary)));
             });
         });
         // Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.
@@ -140,7 +175,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, l
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, acts: &mut Acts, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, t: &DesignTokens) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     let mut menu = None;
     let mut save = None;
     let mut thread = None;
@@ -162,7 +197,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                let (opened, wants_save, wants_thread) = row(ui, e, pictures, acts, history.sender_label(i, members).as_deref(), history.sender_avatar(i, members).map(|(_, i)| i).as_deref(), members > 2, history.day_separator(i).as_deref(), t);
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, history.sender_label(i, members).as_deref(), history.sender_avatar(i, members).as_ref().map(|(_, i)| i.as_str()), history.sender_avatar(i, members).and_then(|(m, _)| m), members > 2, history.day_separator(i).as_deref(), t);
                 if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
                     thread = Some(id.clone());
                 }

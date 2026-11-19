@@ -743,7 +743,7 @@ impl App {
                 && let Some(messages) = &s.messages
             {
                 let mut acts = timeline::Acts { now_playing: s.audio_now(), ..Default::default() };
-                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &mut acts, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
+                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t);
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);

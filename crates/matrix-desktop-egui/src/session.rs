@@ -101,6 +101,10 @@ pub struct Session {
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
     /// Thumbnails of the open room's pictures and videos, by event.
     pub pictures: std::collections::HashMap<EventId, egui::TextureHandle>,
+    /// Sender photos by mxc; `None` = asked and none came (initials stay).
+    pub avatars: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    avatar_slot: matrix_engine::avatar::AvatarSlot,
+    avatar_chan: (std::sync::mpsc::Sender<matrix_engine::avatar::AvatarPicture>, Receiver<matrix_engine::avatar::AvatarPicture>),
     op_route: Option<(matrix_engine::Sender<OperationCommand>, Receiver<OperationResult>)>,
     op_pending: Option<OperationCommand>,
     /// Message the next Enter replies to or edits; the draft it replaced waits in `parked`.
@@ -146,6 +150,7 @@ impl Session {
         let notify_worker = matrix_desktop::notifications::NotificationWorker::spawn().ok();
         let ver_route = worker.take_verification_route();
         let media_route = worker.take_media_route();
+        let avatar_slot = worker.avatar_slot();
         let mut form = SignInForm::default();
         form.vault = with_vault;
         Ok(Session {
@@ -203,6 +208,9 @@ impl Session {
             media: LiveMedia::default(),
             media_route,
             pictures: Default::default(),
+            avatars: Default::default(),
+            avatar_slot,
+            avatar_chan: std::sync::mpsc::channel(),
             op_route,
             op_pending: None,
             target: None,
@@ -306,6 +314,27 @@ impl Session {
         }
         changed |= self.drive_history();
         changed |= self.drive_media(ctx);
+        changed |= self.drive_avatars(ctx);
+        changed
+    }
+
+    /// Asks for the senders' photos of the open room and turns the answers into textures.
+    /// shortcut: a failed download is not retried (initials stay); upgrade with a timed retry if flaky servers matter.
+    fn drive_avatars(&mut self, ctx: &egui::Context) -> bool {
+        let mut changed = false;
+        while let Ok(p) = self.avatar_chan.1.try_recv() {
+            let tex = p.rgba.map(|(w, h, rgba)| ctx.load_texture(&p.mxc, egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba), Default::default()));
+            changed |= tex.is_some();
+            self.avatars.insert(p.mxc, tex);
+        }
+        let (Some(messages), Ok(slot)) = (&self.messages, self.avatar_slot.try_lock()) else { return changed };
+        let Some(source) = slot.as_ref() else { return changed };
+        for mxc in messages.sender_avatar_mxcs() {
+            if !self.avatars.contains_key(mxc) {
+                self.avatars.insert(mxc.to_owned(), None);
+                source.request(mxc.to_owned(), self.avatar_chan.0.clone());
+            }
+        }
         changed
     }
 
