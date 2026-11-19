@@ -65,7 +65,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
 }
 
 /// Message search of the open room.
-pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::operations::MessageSearchState, t: &DesignTokens) -> Option<(matrix_domain::EventId, bool)> {
+pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::operations::MessageSearchState, more_clicked: &mut bool, t: &DesignTokens) -> Option<(matrix_domain::EventId, bool)> {
     let mut selected = None;
     use matrix_engine::operations::MessageSearchState as S;
     ui.add_space(12.);
@@ -86,7 +86,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
         S::Error { .. } => {
             ui.colored_label(rgb(t.error), "Ricerca non riuscita");
         }
-        S::Results { hits, .. } => {
+        S::Results { hits, more, .. } => {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 for h in hits {
                     ui.add_space(6.);
@@ -102,6 +102,14 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
                         selected = Some((matrix_domain::EventId::new(h.thread_root.as_deref().unwrap_or(&h.event_id)), h.thread_root.is_some()));
                     }
                     ui.separator();
+                }
+                match more {
+                    matrix_engine::operations::MoreHits::Available | matrix_engine::operations::MoreHits::Failed => {
+                        let label = if matches!(more, matrix_engine::operations::MoreHits::Failed) { "Riprova" } else { "Altri risultati" };
+                        if ui.button(label).clicked() { *more_clicked = true; }
+                    }
+                    matrix_engine::operations::MoreHits::Loading => { ui.spinner(); }
+                    _ => {}
                 }
             });
         }
@@ -207,6 +215,13 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
     });
     egui::Panel::bottom("thread-input").frame(egui::Frame::NONE).show_inside(ui, |ui| {
         ui.add_space(6.);
+        if let Some((_, name)) = &th.reply_to {
+            let name = name.clone();
+            ui.horizontal(|ui| {
+                ui.label(format!("Risposta a {name}"));
+                if ui.button("×").clicked() { th.reply_to = None; }
+            });
+        }
         let r = ui.add_sized([ui.available_width() - 12., 32.], egui::TextEdit::singleline(&mut th.draft).hint_text("Rispondi nel thread"));
         if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !th.draft.trim().is_empty() {
             send = Some(std::mem::take(&mut th.draft));
@@ -223,10 +238,16 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
         }
         return send;
     };
+    th.tail_visible = false;
     egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show(ui, |ui| {
+        if !page.at_start && !th.stalled && th.growing.is_none() && ui.button("Carica precedenti").clicked() {
+            th.growing = Some(page.replies.len());
+            th.want = th.want.saturating_add(50);
+            th.next_read = std::time::Instant::now();
+        }
         for e in page.root.iter().chain(page.replies.iter()) {
             ui.add_space(6.);
-            ui.horizontal(|ui| {
+            let row = ui.horizontal(|ui| {
                 ui.add_space(12.);
                 ui.vertical(|ui| {
                     ui.set_max_width(ui.available_width() - 12.);
@@ -238,7 +259,16 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
                         ui.label(&e.body);
                     }
                 });
+            }).response.interact(egui::Sense::click());
+            row.context_menu(|ui| {
+                if ui.button("Rispondi").clicked() {
+                    th.reply_to = Some((e.event_id.clone(), e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone())));
+                    ui.close();
+                }
             });
+            if page.replies.last().or(page.root.as_ref()).is_some_and(|last| last.event_id == e.event_id) {
+                th.tail_visible = ui.clip_rect().contains_rect(row.rect);
+            }
             ui.separator();
         }
     });

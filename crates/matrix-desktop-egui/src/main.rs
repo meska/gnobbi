@@ -258,6 +258,9 @@ impl eframe::App for App {
                     else if session.search_open { session.search_open = false; }
                 }
             }
+            if self.settings_open || self.accounts_open || self.pending_web.is_some() || session.new_open || session.quick_open || session.poll_open || session.edit.is_some() || session.devices_open || session.viewer.is_some() {
+                if let Some(thread) = &mut session.thread { thread.tail_visible = false; }
+            }
             session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
             session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
             // The other accounts keep syncing: unread counts and notifications go on, read markers do not.
@@ -704,7 +707,9 @@ impl App {
         {
             let state = s.search.clone();
             let mut selected = None;
-            egui::Panel::right("search").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, t));
+            let mut more = false;
+            egui::Panel::right("search").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, &mut more, t));
+            if more { s.more_messages(); }
             if selected.is_some() {
                 s.search_jump = selected;
                 s.notice = None;
@@ -1005,8 +1010,12 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 action = Some("edit");
             }
             let poll = s.ops.selection().and_then(|id| s.messages.as_ref()?.events().iter().find(|e| e.id == *id)?.poll.clone());
-            if s.ops.can_end_poll(poll.as_ref()) && ui.button("Chiudi sondaggio").clicked() {
-                action = Some("end");
+            if s.ops.can_end_poll(poll.as_ref()) {
+                let label = if s.confirm_end_poll { "Conferma chiusura" } else { "Chiudi sondaggio" };
+                if ui.button(label).clicked() {
+                    if s.confirm_end_poll { action = Some("end"); } else { s.confirm_end_poll = true; }
+                }
+                if s.confirm_end_poll && ui.button("Annulla").clicked() { s.confirm_end_poll = false; }
             }
             if p.redact {
                 let label = if s.confirm_delete { "Conferma eliminazione" } else { "Elimina" };

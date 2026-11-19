@@ -19,8 +19,18 @@ pub struct ThreadState {
     pub page: Option<Box<matrix_engine::history::ThreadPage>>,
     pub failed: bool,
     pub draft: String,
+    pub reply_to: Option<(EventId, String)>,
+    pub want: usize,
+    pub growing: Option<usize>,
+    pub stalled: bool,
+    pub tail_visible: bool,
+    read_views: matrix_engine::ViewRequests,
+    read_target: Option<EventId>,
+    read_pending: bool,
+    read_public: Option<bool>,
+    read_at: Option<std::time::Instant>,
     /// Next re-read; the thread has no live feed of its own here.
-    next_read: std::time::Instant,
+    pub next_read: std::time::Instant,
 }
 
 /// «Modifica stanza» form: what is typed, the picture dropped on it and whether the last try failed.
@@ -116,7 +126,7 @@ pub struct Session {
     pub search: matrix_engine::operations::MessageSearchState,
     pub search_jump: Option<(EventId, bool)>,
     media: LiveMedia,
-    viewer: Option<crate::viewer::Viewer>,
+    pub viewer: Option<crate::viewer::Viewer>,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
     /// Thumbnails of the open room's pictures and videos, by event.
     pub pictures: std::collections::HashMap<EventId, egui::TextureHandle>,
@@ -137,6 +147,7 @@ pub struct Session {
     /// Short result line for the last save or refused attachment.
     pub notice: Option<String>,
     pub confirm_delete: bool,
+    pub confirm_end_poll: bool,
     /// The menu opened this frame: the click that opened it must not close it.
     pub menu_fresh: bool,
     draft_scope: Option<matrix_domain::RoomScope>,
@@ -247,6 +258,7 @@ impl Session {
             attachment: None,
             notice: None,
             confirm_delete: false,
+            confirm_end_poll: false,
             menu_fresh: false,
             draft_scope: None,
             messages: None,
@@ -557,6 +569,7 @@ impl Session {
             && wanted != self.search_sent
             && let Some(scope) = &self.draft_scope
         {
+            self.op_queue.retain(|op| !matches!(op, OperationCommand::MoreMessages));
             self.op_pending = Some(OperationCommand::SearchMessages { scope: scope.clone(), term: wanted.clone() });
             self.search_sent = wanted;
         }
@@ -579,7 +592,25 @@ impl Session {
             && let Ok(tag) = th.views.start(scope.clone())
         {
             th.next_read = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            self.op_queue.push(OperationCommand::Thread { tag, root: th.root.clone(), want: 50 });
+            self.op_queue.push(OperationCommand::Thread { tag, root: th.root.clone(), want: th.want });
+        }
+        if let (Some(th), Some(scope)) = (&mut self.thread, &self.draft_scope) {
+            if !focused || !th.tail_visible || th.read_public.is_some_and(|previous| previous != public) {
+                th.read_views.cancel();
+                th.read_pending = false;
+                th.read_at = None;
+                th.read_public = None;
+            } else if let Some(target) = th.page.as_ref().and_then(|p| p.replies.last().or(p.root.as_ref())).map(|e| e.event_id.clone())
+                && th.read_target.as_ref() != Some(&target)
+                && !th.read_pending
+                && th.read_at.is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(1))
+                && let Ok(tag) = th.read_views.start(scope.clone())
+            {
+                th.read_at = Some(std::time::Instant::now());
+                th.read_pending = true;
+                th.read_public = Some(public);
+                self.op_queue.push(OperationCommand::ThreadRead { tag, root: th.root.clone(), target, public });
+            }
         }
         // The addresses of the room shown in the Info panel are read once per room.
         if self.info_open
@@ -674,19 +705,27 @@ impl Session {
                 {
                     match result {
                         Ok(page) => {
+                            if let Some(before) = th.growing.take() {
+                                th.stalled = page.replies.len() <= before;
+                            }
                             th.page = Some(page);
                             th.failed = false;
                         }
-                        Err(_) => th.failed = true,
+                        Err(_) => { th.failed = true; th.growing = None; },
                     }
                     changed = true;
                 }
                 continue;
             }
-            if matches!(result, OperationResult::ThreadRead { .. } | OperationResult::ThreadSent { .. }) {
-                if let Some(th) = &mut self.thread {
-                    th.next_read = std::time::Instant::now();
+            if let OperationResult::ThreadRead { tag, root, target, result } = &result {
+                if let Some(th) = &mut self.thread && th.root == *root && th.read_views.accepts(tag) {
+                    th.read_pending = false;
+                    if matches!(result, Ok(true)) { th.read_target = Some(target.clone()); }
                 }
+                continue;
+            }
+            if matches!(result, OperationResult::ThreadSent { .. }) {
+                if let Some(th) = &mut self.thread { th.next_read = std::time::Instant::now(); }
                 continue;
             }
             match &result {
@@ -738,7 +777,11 @@ impl Session {
                 _ => {}
             }
             if let OperationResult::MessageSearch { scope, state } = result {
-                if self.draft_scope.as_ref() == Some(&scope) {
+                let matches_term = match &state {
+                    matrix_engine::operations::MessageSearchState::Idle => self.search_term.trim().len() < matrix_engine::message_match::MIN_CHARS,
+                    matrix_engine::operations::MessageSearchState::Searching { term } | matrix_engine::operations::MessageSearchState::Results { term, .. } | matrix_engine::operations::MessageSearchState::NoResults { term, .. } | matrix_engine::operations::MessageSearchState::Error { term } => term == self.search_term.trim(),
+                };
+                if self.search_open && matches_term && self.draft_scope.as_ref() == Some(&scope) {
                     self.search = state;
                     changed = true;
                 }
@@ -804,15 +847,24 @@ impl Session {
         self.op_queue.push(OperationCommand::AnswerInvite { scope, accept });
     }
 
+    pub fn more_messages(&mut self) {
+        if self.search_open && matches!(&self.search, matrix_engine::operations::MessageSearchState::Results { term, more: matrix_engine::operations::MoreHits::Available | matrix_engine::operations::MoreHits::Failed, .. } if term == self.search_term.trim()) {
+            self.op_queue.push(OperationCommand::MoreMessages);
+            if let matrix_engine::operations::MessageSearchState::Results { more, .. } = &mut self.search {
+                *more = matrix_engine::operations::MoreHits::Loading;
+            }
+        }
+    }
+
     pub fn open_thread(&mut self, root: EventId) {
-        self.thread = Some(ThreadState { root, views: Default::default(), page: None, failed: false, draft: String::new(), next_read: std::time::Instant::now() });
+        self.thread = Some(ThreadState { root, views: Default::default(), page: None, failed: false, draft: String::new(), reply_to: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
         self.info_open = false;
         self.search_open = false;
     }
 
     pub fn send_thread(&mut self, body: String) {
-        let (Some(th), Some(scope)) = (&self.thread, self.draft_scope.clone()) else { return };
-        self.op_queue.push(OperationCommand::ThreadSend { scope, root: th.root.clone(), reply_to: None, body });
+        let (Some(th), Some(scope)) = (&mut self.thread, self.draft_scope.clone()) else { return };
+        self.op_queue.push(OperationCommand::ThreadSend { scope, root: th.root.clone(), reply_to: th.reply_to.take().map(|(id, _)| id), body });
     }
 
     /// Votes for option `ix` of the poll started by `target` (the engine replaces own votes; the same option again withdraws).
@@ -887,12 +939,14 @@ impl Session {
             self.menu = Some(pos);
             self.menu_fresh = true;
             self.confirm_delete = false;
+            self.confirm_end_poll = false;
         }
     }
 
     pub fn close_menu(&mut self) {
         self.menu = None;
         self.confirm_delete = false;
+        self.confirm_end_poll = false;
         self.ops.clear_selection();
     }
 
@@ -1006,6 +1060,7 @@ impl Session {
     fn close_menu_keep_selection(&mut self) {
         self.menu = None;
         self.confirm_delete = false;
+        self.confirm_end_poll = false;
     }
 
     /// Enter in the composer: a plain message, or the reply/edit of the chosen one.
