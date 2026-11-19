@@ -98,7 +98,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         ui.allocate_space(egui::vec2(w + 8., text_h));
         let out = scroll.inner;
         mention_popup(ui, id, &out, draft, members, mentions);
-        // The 32 emoji of the GPUI picker; one is appended to the text and the box keeps the focus.
+        // The picker restores focus to the composer after inserting at its saved selection.
         // Icons stay at the bottom of a tall box.
         ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 0.; // else the space above adds a gap and the icons sit lower than the text
@@ -110,8 +110,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
             egui::Grid::new("emoji-grid").show(ui, |ui| {
                 for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
                     if ui.button(*emoji).on_hover_text(*name).clicked() {
-                        draft.push_str(emoji);
-                        ui.memory_mut(|m| m.request_focus(id));
+                        insert_emoji(ui.ctx(), id, draft, emoji);
                         ui.close();
                     }
                     if i % 8 == 7 {
@@ -145,6 +144,21 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         return Some(std::mem::take(draft));
     }
     None
+}
+
+fn insert_emoji(ctx: &egui::Context, id: egui::Id, draft: &mut String, emoji: &str) {
+    let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+    let len = draft.chars().count();
+    let (a, b) = state.cursor.char_range().map_or((len, len), |r| {
+        let (p, q): (usize, usize) = (r.primary.index.into(), r.secondary.index.into());
+        (p.min(q).min(len), p.max(q).min(len))
+    });
+    let byte = |n| draft.char_indices().nth(n).map_or(draft.len(), |(i, _)| i);
+    draft.replace_range(byte(a)..byte(b), emoji);
+    let end = a + emoji.chars().count();
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(end))));
+    state.store(ctx, id);
+    ctx.memory_mut(|m| m.request_focus(id));
 }
 
 pub fn pasted_png(image: &egui::ColorImage) -> Option<Vec<u8>> {
@@ -340,6 +354,26 @@ mod tests {
         assert_eq!(decoded.dimensions(), (1, 1));
         assert_eq!(decoded.as_raw()[3], 128);
         assert!((decoded.as_raw()[0] as i16 - 200).abs() <= 1);
+    }
+
+    #[test]
+    fn emoji_replaces_selection_and_advances_cursor_by_chars() {
+        use eframe::egui::{self, text::{CCursor, CCursorRange}};
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("composer-text");
+        let mut state = egui::text_edit::TextEditState::default();
+        state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(3), CCursor::new(1))));
+        state.store(&ctx, id);
+        let mut text = "èabc".to_owned();
+        super::insert_emoji(&ctx, id, &mut text, "👩‍💻");
+        assert_eq!(text, "è👩‍💻c");
+        let range = egui::TextEdit::load_state(&ctx, id).unwrap().cursor.char_range().unwrap();
+        assert_eq!(usize::from(range.primary.index), 4);
+        assert_eq!(usize::from(range.secondary.index), 4);
+        super::insert_emoji(&ctx, id, &mut text, "❤️");
+        assert_eq!(text, "è👩‍💻❤️c");
+        let range = egui::TextEdit::load_state(&ctx, id).unwrap().cursor.char_range().unwrap();
+        assert_eq!(usize::from(range.primary.index), 6);
     }
 
     #[test]
