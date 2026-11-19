@@ -21,6 +21,16 @@ pub enum Mode {
 pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     let enter = ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+    // The Enter that confirms an IME / dead-key composition must not send: ignore it while composing and in the frame of the IME event.
+    let ime_id = egui::Id::new("composer-ime");
+    let ime_event = ui.input(|i| i.events.iter().find_map(|e| match e {
+        egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => Some(!text.is_empty()),
+        egui::Event::Ime(egui::ImeEvent::Commit(_)) => Some(false),
+        _ => None,
+    }));
+    let composing = ui.data(|d| d.get_temp::<bool>(ime_id)).unwrap_or(false);
+    ui.data_mut(|d| d.insert_temp(ime_id, ime_event.unwrap_or(composing)));
+    let enter = enter && !composing && ime_event.is_none();
     if mode != Mode::Send {
         ui.horizontal(|ui| {
             ui.add_space(12.);
@@ -54,7 +64,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
     }
     let mut send_click = false;
     // Not horizontal_centered: it fills the panel's height from the previous frame, so the bar never shrank after a narrow-window wrap.
-    ui.horizontal(|ui| {
+    ui.horizontal_top(|ui| {
         ui.add_space(12.);
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
         let w = (ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 40.).max(80.); // 40: left pad, right margin and the TextEdit's own inner margins (else the row overflows a narrow column)
@@ -66,9 +76,24 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
             }));
         }
         format_shortcuts(ui, id, draft);
-        let out = egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).show(ui);
+        // Borderless like Telegram; grows with the text up to 8 rows, then scrolls. The 6 px vertical padding makes one row as tall as the 32 px icons.
+        let max_h = 8. * ui.text_style_height(&egui::TextStyle::Body) + 12.;
+        // A child ui with its own max height: inside a horizontal row the available height is one row, which would cap the scroll area.
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(ui.cursor().min, egui::vec2(w + 8., max_h))));
+        let scroll = egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(0.).id_salt("composer-scroll").show(&mut child, |ui| {
+            egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 6)).show(ui, |ui| {
+                egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
+            }).inner
+        });
+        let text_h = scroll.content_size.y.min(max_h);
+        ui.allocate_space(egui::vec2(w + 8., text_h));
+        let out = scroll.inner;
         mention_popup(ui, id, &out, draft, members, mentions);
         // The 32 emoji of the GPUI picker; one is appended to the text and the box keeps the focus.
+        // Icons stay at the bottom of a tall box.
+        ui.vertical(|ui| {
+        ui.add_space((text_h - 32.).max(0.));
+        ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
         let emoji = icon_at(ui, rect, "composer-emoji", &emoji_strokes(), 1., true, "Emoji");
         egui::Popup::menu(&emoji).show(|ui| {
@@ -103,6 +128,8 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         if t > 0. && icon_at(ui, rect, "composer-send", &send_strokes(), t, has_text, "Invia").clicked() {
             send_click = true;
         }
+        });
+        });
     });
     if (enter || send_click) && (attachment.is_some() || !draft.trim().is_empty()) {
         return Some(std::mem::take(draft));
@@ -200,13 +227,17 @@ mod tests {
 
     /// Height of the composer bar after laying it out in a window `width` wide, reusing `ctx` so panel memory carries over.
     fn bar_height(ctx: &eframe::egui::Context, width: f32) -> f32 {
+        bar_height_with(ctx, width, "")
+    }
+
+    fn bar_height_with(ctx: &eframe::egui::Context, width: f32, text: &str) -> f32 {
         use eframe::egui;
         let mut h = 0.;
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.))), ..Default::default() };
         for _ in 0..4 {
             let mut out = ctx.run_ui(input.clone(), |ui| {
                 let r = egui::Panel::bottom("composer").min_size(56.).show(ui, |ui| {
-                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (String::new(), false, false, false, None, None, None);
+                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
                     super::show(ui, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
                 });
                 h = r.response.rect.height();
@@ -222,6 +253,18 @@ mod tests {
         let wide = bar_height(&ctx, 900.);
         bar_height(&ctx, 120.);
         assert_eq!(bar_height(&ctx, 900.), wide);
+    }
+
+    #[test]
+    fn composer_grows_with_newlines_up_to_a_cap_then_shrinks_back() {
+        let h = |text: &str| bar_height_with(&eframe::egui::Context::default(), 900., text);
+        let (one, three, many, more) = (h(""), h("a\nb\nc"), h(&"x\n".repeat(40)), h(&"x\n".repeat(80)));
+        assert!(three > one && many > three, "{one} {three} {many} {more}");
+        assert_eq!(many, more, "capped, scrolls inside");
+        // Back to one row on the same context (no remembered height).
+        let ctx = eframe::egui::Context::default();
+        bar_height_with(&ctx, 900., "a\nb\nc");
+        assert_eq!(bar_height(&ctx, 900.), one);
     }
 
     #[test]
