@@ -56,8 +56,8 @@ pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::Text
 pub type Avatars = std::collections::HashMap<String, Option<egui::TextureHandle>>;
 
 /// Round avatar of `size`: the photo when there is one, else initials on the fallback colour.
-fn avatar(ui: &mut egui::Ui, size: f32, pic: Option<&egui::TextureHandle>, initials: &str, font: f32, t: &DesignTokens) {
-    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
+fn avatar(ui: &mut egui::Ui, size: f32, pic: Option<&egui::TextureHandle>, initials: &str, font: f32, t: &DesignTokens) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
     match pic {
         Some(tex) => {
             egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(CornerRadius::same((size / 2.) as u8)).paint_at(ui, rect);
@@ -67,6 +67,7 @@ fn avatar(ui: &mut egui::Ui, size: f32, pic: Option<&egui::TextureHandle>, initi
             ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(font), rgb(t.avatar_text));
         }
     }
+    resp
 }
 
 /// Same as the GPUI client: gap between series / inside one, bubble padding, radius, width.
@@ -151,7 +152,32 @@ fn open_done(changed: bool, at_bottom: bool, passes: u8) -> bool {
 }
 
 /// True when the message was right-clicked (or long-pressed).
-fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, initials: Option<&str>, photo: Option<&str>, group: bool, day: Option<&str>, read: bool, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
+const READER_SIZE: f32 = 15.;
+const READER_GAP: f32 = 2.;
+const READER_MAX: usize = 5;
+
+/// Width of the circles (plus the «+N» label when over the maximum) so the bubble shrink-wraps around them.
+fn readers_width(n: usize) -> f32 {
+    let shown = n.min(READER_MAX);
+    if n == 0 { 0. } else { 6. + shown as f32 * (READER_SIZE + READER_GAP) + if n > READER_MAX { 16. } else { 0. } }
+}
+
+/// Small round avatars of the people whose newest read message is this one; the name shows on hover.
+fn read_circles(ui: &mut egui::Ui, readers: &[matrix_engine::history::HistorySender], avatars: &Avatars, t: &DesignTokens) {
+    if readers.is_empty() { return; }
+    ui.add_space(4.);
+    for r in readers.iter().take(READER_MAX) {
+        let name = r.name.as_deref().unwrap_or(&r.id);
+        let initials: String = name.trim_start_matches('@').chars().take(1).collect::<String>().to_uppercase();
+        let pic = r.avatar.as_deref().and_then(|m| avatars.get(m)?.as_ref());
+        avatar(ui, READER_SIZE, pic, &initials, 9., t).on_hover_text(name);
+    }
+    if readers.len() > READER_MAX {
+        ui.label(RichText::new(format!("+{}", readers.len() - READER_MAX)).size(10.).color(rgb(t.secondary)));
+    }
+}
+
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, initials: Option<&str>, photo: Option<&str>, group: bool, day: Option<&str>, readers: &[matrix_engine::history::HistorySender], t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(11.).color(rgb(t.secondary))));
@@ -219,7 +245,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
             let inner = max - 2. * PAD_X;
             let measure = |text: &str, size: f32| ui.painter().layout(text.to_owned(), egui::FontId::proportional(size), Color32::WHITE, inner).size().x;
-            let mut w = measure(&e.stamp_read(read), 10.);
+            let mut w = measure(&e.stamp(), 10.) + readers_width(readers.len());
             w = w.max(if e.redacted { measure("Messaggio eliminato", BODY) } else { measure(&e.text, BODY) });
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
@@ -329,7 +355,10 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 ui.add_space(4.);
                 // Bottom right of the bubble (the bubble is shrink-wrapped to its widest line, so this is its right edge).
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                    ui.label(RichText::new(e.stamp_read(read)).size(10.).color(rgb(t.secondary)));
+                    ui.spacing_mut().item_spacing.x = READER_GAP;
+                    ui.label(RichText::new(e.stamp()).size(10.).color(rgb(t.secondary)));
+                    // Right to left: the circles sit left of the time.
+                    read_circles(ui, readers, avatars, t);
                 });
             });
         });
@@ -351,7 +380,7 @@ fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Opti
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, peer_read: Option<usize>, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, readers: &std::collections::HashMap<usize, Vec<matrix_engine::history::HistorySender>>, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     let mut menu = None;
     let mut save = None;
     let mut thread = None;
@@ -408,7 +437,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, history.sender_label(i, members).as_deref(), history.sender_avatar(i, members).as_ref().map(|(_, i)| i.as_str()), history.sender_avatar(i, members).and_then(|(m, _)| m), members > 2, history.day_separator(i).as_deref(), peer_read.is_some_and(|last| i <= last), t);
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, history.sender_label(i, members).as_deref(), history.sender_avatar(i, members).as_ref().map(|(_, i)| i.as_str()), history.sender_avatar(i, members).and_then(|(m, _)| m), members > 2, history.day_separator(i).as_deref(), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
                 if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
                     thread = Some(id.clone());
                 }

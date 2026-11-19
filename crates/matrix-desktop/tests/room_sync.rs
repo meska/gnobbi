@@ -125,6 +125,7 @@ fn public_peer_marker_survives_scoped_client_route_without_becoming_unread_count
     summary.info.public_read_receipts = vec![PublicReadReceipt {
         event_id: EventId::new("$exact"),
         readers: 1,
+        users: vec![],
     }];
     assert!(sidebar.apply_diff(RoomListDiff::Upsert(summary.clone())));
     let room = sidebar.selected().unwrap();

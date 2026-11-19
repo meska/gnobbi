@@ -687,6 +687,20 @@ impl DemoHistory {
         })
     }
 
+    /// Own message row -> who has read up to it as their newest read message (Element style: a reader's circle sits only on the last own message they read).
+    pub fn readers_by_row(
+        &self,
+        receipts: &[matrix_engine::receipts::PublicReadReceipt],
+    ) -> std::collections::HashMap<usize, Vec<matrix_engine::history::HistorySender>> {
+        let mut rows = std::collections::HashMap::<usize, Vec<_>>::new();
+        for r in receipts {
+            let Some(at) = self.events.iter().position(|e| matches!(&e.id.id, TimelineId::Server(id) if *id == r.event_id)) else { continue };
+            let Some(row) = self.events[..=at].iter().rposition(|e| e.outgoing && matches!(e.id.id, TimelineId::Server(_))) else { continue };
+            rows.entry(row).or_default().extend(r.users.iter().cloned());
+        }
+        rows
+    }
+
     pub fn events(&self) -> &[DemoEvent] {
         &self.events
     }
@@ -848,5 +862,31 @@ mod day_separator_tests {
         let h = history(&[DAY + 4 * HOUR, DAY + 5 * HOUR]);
         assert_eq!(marks(&h, &west, DAY + 6 * HOUR)[1].as_deref(), Some("Oggi"));
         assert_eq!(marks(&h, &utc, DAY + 6 * HOUR)[1], None);
+    }
+}
+
+#[cfg(test)]
+mod reader_circle_tests {
+    use super::*;
+    use matrix_engine::receipts::PublicReadReceipt;
+
+    #[test]
+    fn each_reader_lands_on_the_last_own_message_they_read() {
+        let scope = RoomScope { account_id: matrix_domain::AccountId::new(0), room_id: matrix_domain::RoomId::new("!r:fixture.invalid") };
+        let mut h = DemoHistory::new(scope, 4);
+        for (i, id, own) in [(0, "$a", true), (1, "$b", false), (2, "$c", true)] {
+            h.events[i].id.id = TimelineId::Server(matrix_domain::EventId::new(id));
+            h.events[i].outgoing = own;
+        }
+        let at = |id: &str, who: &[&str]| PublicReadReceipt {
+            event_id: matrix_domain::EventId::new(id),
+            readers: who.len() as u64,
+            users: who.iter().map(|w| HistorySender::new(w, None)).collect(),
+        };
+        // $b is foreign: its reader maps back to own $a; unknown ids are ignored.
+        let rows = h.readers_by_row(&[at("$a", &["@x:t"]), at("$b", &["@y:t"]), at("$c", &["@z:t"]), at("$zz", &["@w:t"])]);
+        assert_eq!(rows.get(&0).map(Vec::len), Some(2));
+        assert_eq!(rows.get(&2).map(Vec::len), Some(1));
+        assert_eq!(rows.len(), 2);
     }
 }

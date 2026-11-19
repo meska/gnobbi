@@ -236,6 +236,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
     let receipts = vec![PublicReadReceipt {
         event_id: EventId::new("$read"),
         readers: 1,
+        users: vec![],
     }];
     snapshot.apply_public_receipts(&scope(), &receipts);
     assert_eq!(snapshot.messages[0].id, original);
@@ -261,6 +262,7 @@ fn public_peer_receipt_names_only_the_exact_scoped_event() {
     let advanced = vec![PublicReadReceipt {
         event_id: EventId::new("$later"),
         readers: 1,
+        users: vec![],
     }];
     let mut snapshot = nodes.project(&rows, 0, true);
     snapshot.apply_public_receipts(&scope(), &advanced);

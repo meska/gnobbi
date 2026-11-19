@@ -1452,8 +1452,8 @@ impl RoomSync {
                     .listen_to_room(room.room_id())
                     .await;
             }
-            // Peer markers are drawn in 1:1 rooms only; the Timeline reads them from the SDK store and receipt events.
-            let peer_receipts = if room.state() == RoomState::Joined && room.joined_members_count() <= 2 {
+            // Peer markers are drawn in small rooms only (cost: every item is scanned); the Timeline reads them from the SDK store and receipt events.
+            let peer_receipts = if room.state() == RoomState::Joined && room.joined_members_count() <= crate::receipts::MAX_RECEIPT_ROOM {
                 match self.timelines.get(&room).await {
                     Ok(timeline) => {
                         let own = client.user_id().map(ToString::to_string).unwrap_or_default();
@@ -2341,7 +2341,7 @@ fn disambiguated_name(name: Option<&str>, ambiguous: bool, id: &str) -> Option<S
     name.map(|n| if ambiguous { format!("{n} ({id})") } else { n.to_owned() })
 }
 
-async fn history_sender(
+pub(crate) async fn history_sender(
     room: &matrix_sdk::room::Room,
     id: &matrix_sdk::ruma::UserId,
 ) -> crate::history::HistorySender {

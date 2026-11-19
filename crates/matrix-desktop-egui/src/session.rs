@@ -432,6 +432,7 @@ impl Session {
         let mut wanted: Vec<String> = self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()).collect();
         wanted.extend(self.sidebar.navigation_entries().into_iter().filter_map(|e| e.avatar));
         if let Some(crate::space::SpaceView { children: Some(Ok(c)), .. }) = &self.space_view { wanted.extend(c.children.iter().filter_map(|c| c.avatar_url.clone())); }
+        wanted.extend(self.sidebar.selected().into_iter().flat_map(|r| &r.info.public_read_receipts).flat_map(|r| &r.users).filter_map(|u| u.avatar.clone()));
         wanted.extend(self.verification.as_ref().and_then(|v| v.profile_avatar()).map(str::to_owned));
         for mxc in wanted {
             let waiting = self.avatar_failed.get(&mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));

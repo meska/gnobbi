@@ -1,10 +1,15 @@
 //! Exact public receipt markers, not inferred reading of earlier events.
 use matrix_domain::EventId;
 
+/// shortcut: rooms above this get no reader circles, when a cheaper per-room receipt query exists lift it.
+pub const MAX_RECEIPT_ROOM: u64 = 30;
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct PublicReadReceipt {
     pub event_id: EventId,
     pub readers: u64,
+    /// Who the markers on this event belong to, oldest read first (own user excluded).
+    pub users: Vec<crate::history::HistorySender>,
 }
 
 /// Other people's public read markers from the SDK Timeline items (the SDK folds threads into
@@ -14,7 +19,7 @@ pub(crate) async fn peer_receipts(
     timeline: &matrix_sdk_ui::timeline::Timeline,
     own_user: &str,
 ) -> Vec<PublicReadReceipt> {
-    let mut counts = std::collections::BTreeMap::<String, u64>::new();
+    let mut out = Vec::new();
     for item in timeline.items().await.iter() {
         let Some(event) = item.as_event() else {
             continue;
@@ -23,15 +28,18 @@ pub(crate) async fn peer_receipts(
             continue;
         };
         // The peer's marker may sit on their own newer event (reply, or reading up to it): it still covers earlier rows.
-        let readers = event.read_receipts().keys().filter(|u| u.as_str() != own_user).count() as u64;
-        if readers > 0 {
-            counts.insert(id.to_string(), readers);
+        let mut readers: Vec<_> = event.read_receipts().iter().filter(|(u, _)| u.as_str() != own_user).collect();
+        if readers.is_empty() {
+            continue;
         }
+        readers.sort_by_key(|(_, r)| r.ts);
+        let mut users = Vec::new();
+        for (user, _) in &readers {
+            users.push(crate::room_sync::history_sender(timeline.room(), user).await);
+        }
+        out.push(PublicReadReceipt { event_id: EventId::new(id.to_string()), readers: users.len() as u64, users });
     }
-    counts
-        .into_iter()
-        .map(|(id, readers)| PublicReadReceipt { event_id: EventId::new(id), readers })
-        .collect()
+    out
 }
 
 /// What the user can see right now; receipts leave only when the newest message is really in view.
