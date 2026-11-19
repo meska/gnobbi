@@ -78,6 +78,7 @@ pub struct Session {
     pub alias_error: Option<&'static str>,
     pub alias_input: String,
     pub focus_search: bool,
+    pub quick_open: bool,
     pub edit: Option<RoomEdit>,
     notifications: matrix_domain::notifications::NotificationPolicy,
     _notify_worker: Option<matrix_desktop::notifications::NotificationWorker>,
@@ -193,6 +194,7 @@ impl Session {
             alias_error: None,
             alias_input: String::new(),
             focus_search: false,
+            quick_open: false,
             edit: None,
             notifications: matrix_domain::notifications::NotificationPolicy::new(matrix_domain::AccountId::new(0)),
             notify: notify_worker.as_ref().map(|w| w.handle()),
@@ -547,7 +549,7 @@ impl Session {
             self.op_pending = Some(OperationCommand::SearchMessages { scope: scope.clone(), term: wanted.clone() });
             self.search_sent = wanted;
         }
-        let wanted = if self.new_open { self.new_term.trim().to_owned() } else { String::new() };
+        let wanted = if self.new_open || self.quick_open { self.new_term.trim().to_owned() } else { String::new() };
         if self.op_pending.is_none() && wanted != self.new_sent {
             self.op_pending = Some(OperationCommand::SearchUsers { term: wanted.clone(), all: false });
             self.new_sent = wanted;

@@ -218,9 +218,45 @@ impl eframe::App for App {
                     _ => session.attach(path),
                 }
             }
-            // Ctrl/Cmd+K: jump to the room search.
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::K)) {
-                session.focus_search = true;
+            if session.account.is_some() && !session.recovering() {
+                let command = |key| ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, key));
+                if command(egui::Key::K) && !session.new_open && !self.settings_open {
+                    session.quick_open = !session.quick_open;
+                    session.new_term.clear();
+                    if session.quick_open { ctx.memory_mut(|m| m.request_focus(egui::Id::unique("quick-search-field"))); }
+                } else if !session.quick_open && !session.new_open && !self.settings_open {
+                    if command(egui::Key::F) {
+                        session.focus_search = true;
+                    } else if command(egui::Key::Comma) {
+                        self.settings_open = true;
+                    } else if command(egui::Key::N) {
+                        session.new_open = true;
+                    } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::I)) {
+                        session.info_open = session.sidebar.selected().is_some() && !session.info_open;
+                        session.search_open = false;
+                    } else {
+                        let previous = ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL | egui::Modifiers::SHIFT, egui::Key::Tab) || i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowUp));
+                        let next = !previous && ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab) || i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowDown));
+                        if next || previous {
+                            session.sidebar.navigate(if previous { matrix_desktop::Navigation::Previous } else { matrix_desktop::Navigation::Next });
+                        }
+                        let menu = ctx.input_mut(|i| i.consume_key(egui::Modifiers::SHIFT, egui::Key::F10) || i.consume_key(egui::Modifiers::NONE, egui::Key::Menu));
+                        if menu && let Some(id) = session.messages.as_ref().and_then(|m| m.events().last().map(|e| e.id.clone())) {
+                            session.open_menu(id, ctx.content_rect().center());
+                        }
+                    }
+                }
+                if ctx.input(|i| i.key_pressed(egui::Key::Escape))
+                    && !session.new_open && !session.poll_open && session.edit.is_none()
+                    && !session.devices_open && !self.settings_open && !self.accounts_open && self.pending_web.is_none()
+                {
+                    if session.quick_open { session.quick_open = false; }
+                    else if session.menu.is_some() { session.close_menu(); }
+                    else if session.thread.is_some() { session.thread = None; }
+                    else if session.profile.is_some() { session.profile = None; }
+                    else if session.info_open { session.info_open = false; }
+                    else if session.search_open { session.search_open = false; }
+                }
             }
             session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
             session.poll(&ctx, self.prefs.notifications, self.prefs.message_preview);
@@ -290,6 +326,7 @@ impl eframe::App for App {
             self.sign_in(ui, &t);
         }
         if let Some(s) = &mut self.session { s.show_viewer(&ctx); }
+        if let Some(s) = &mut self.session && s.quick_open { quick_search(&ctx, s); }
         if let Some(url) = self.pending_web.clone() {
             let mut choice = None;
             let modal = egui::Modal::new(egui::Id::unique("confirm-web-link")).show(&ctx, |ui| {
@@ -858,6 +895,51 @@ impl App {
     }
 }
 
+/// Local conversations and server users use the same search models as the GPUI switcher.
+fn quick_search(ctx: &egui::Context, s: &mut Session) {
+    use matrix_desktop::quick_search::{Entry, Index};
+    use matrix_engine::operations::SearchState;
+    let rooms = s.sidebar.rooms();
+    let count = rooms.len() as u64;
+    let index = Index::new(rooms.iter().enumerate().filter(|(_, r)| !r.info.is_space && !r.info.invited).map(|(i, r)| Entry::from_room(r, count - i as u64)));
+    let hits = quick_hits(&index, &s.new_term);
+    let mut room = None;
+    let mut user = None;
+    let modal = egui::Modal::new(egui::Id::unique("quick-search")).show(ctx, |ui| {
+        ui.set_min_width(360.);
+        ui.heading("Cerca");
+        if ui.add(egui::TextEdit::singleline(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text("Cerca")).changed() {
+            s.users = SearchState::Idle;
+        }
+        egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
+            if !hits.is_empty() {
+                ui.label("Conversazioni");
+                for hit in &hits {
+                    if ui.button(&hit.name).clicked() { room = Some(hit.id.clone()); }
+                }
+            }
+            if let SearchState::Results { hits, .. } = &s.users {
+                if !hits.is_empty() && !s.new_term.trim().is_empty() { ui.label("Utenti"); }
+                for hit in hits.iter().take(5).filter(|_| !s.new_term.trim().is_empty()) {
+                    let name = hit.display_name.as_deref().unwrap_or(&hit.user_id);
+                    if ui.button(format!("{name}  {}", hit.user_id)).clicked() { user = Some(hit.user_id.clone()); }
+                }
+            }
+        });
+    });
+    if let Some(id) = room {
+        let scope = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == id).map(|r| r.scope.clone());
+        if let Some(scope) = scope { s.sidebar.select(&scope); }
+        s.quick_open = false;
+    }
+    if let Some(id) = user { s.start_dm(id); s.quick_open = false; }
+    if modal.should_close() { s.quick_open = false; }
+}
+
+fn quick_hits(index: &matrix_desktop::quick_search::Index, term: &str) -> Vec<matrix_desktop::quick_search::Hit> {
+    index.search(term, 20)
+}
+
 /// Right-click menu: only what the engine says the user may do with the message.
 fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let Some(pos) = s.menu else { return };
@@ -1155,6 +1237,15 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quick_search_uses_shared_normalized_index() {
+        use matrix_desktop::quick_search::{Entry, Index};
+        let index = Index::new([Entry { id: "!room:example.org".into(), name: "Caffè".into(), ..Default::default() }]);
+        assert!(quick_hits(&index, "").is_empty());
+        assert_eq!(quick_hits(&index, "caffe")[0].id, "!room:example.org");
+        assert!(quick_hits(&index, "other").is_empty());
+    }
 
     #[test]
     fn visuals_follow_the_tokens_in_every_theme() {
