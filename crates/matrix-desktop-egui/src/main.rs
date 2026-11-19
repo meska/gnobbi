@@ -323,6 +323,18 @@ impl eframe::App for App {
             self.switch_to(i);
         }
         let t = self.tokens;
+        // macOS: the content runs under the transparent titlebar; paint that strip like the bars below it.
+        #[cfg(target_os = "macos")]
+        egui::Panel::top("titlebar").exact_size(28.).resizable(false).frame(egui::Frame::NONE.fill(rgb(t.surface))).show(ui, |ui| {
+            // The strip covers the native titlebar, so the clicks land here: hand the drag and the double-click zoom back to the window.
+            let bar = ui.interact(ui.max_rect(), ui.id().with("drag"), egui::Sense::click_and_drag());
+            if bar.double_clicked() {
+                let max = ui.input(|i| i.viewport().maximized.unwrap_or(false));
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+            } else if bar.drag_started_by(egui::PointerButton::Primary) {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            }
+        });
         if self.session.as_ref().is_some_and(|s| s.account.is_some() && !s.recovering()) {
             self.shell(ui, &t);
         } else {
@@ -1331,6 +1343,9 @@ fn main() -> eframe::Result {
             .with_inner_size([first.width, first.height])
             .with_min_inner_size([360., 420.])
             .with_title(TITLE)
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false)
             .with_app_id(APP_ID)
             .with_icon(app_icon(dirs.as_ref().map(Preferences::load).unwrap_or_default().icon).unwrap_or_default()),
         ..Default::default()
