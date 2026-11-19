@@ -76,6 +76,8 @@ const NARROW_WIDTH: f32 = 772.;
 /// Narrow layout shows rail 76 + chat; the chat needs ≥360.
 const MIN_WIDTH: f32 = 436.;
 
+fn list_max_width(window_width: f32) -> f32 { (window_width - MIN_WIDTH).clamp(240., 600.) }
+
 struct App {
     prefs: Preferences,
     dirs: Option<AppDirs>,
@@ -778,11 +780,44 @@ impl App {
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn (shortcut: re-clicking the open room does not close it).
                 let surface = rgb(t.surface);
                 let list_fill = Color32::from_rgb(surface.r().saturating_sub(7), surface.g().saturating_sub(7), surface.b().saturating_sub(7));
-                egui::Panel::left("list").exact_size(if narrow { ui.available_width() } else { t.sidebar }).resizable(false).frame(bar(t).fill(list_fill)).show(ui, |ui| {
-                    let mut new_chat = false;
-                    list::rooms(ui, session, &mut new_chat, t);
-                    session.new_open |= new_chat;
-                });
+                if narrow {
+                    egui::Panel::left("list-narrow").exact_size(ui.available_width()).resizable(false).frame(bar(t).fill(list_fill)).show(ui, |ui| {
+                        let mut new_chat = false;
+                        list::rooms(ui, session, &mut new_chat, t);
+                        session.new_open |= new_chat;
+                    });
+                } else {
+                    let max = list_max_width(ui.ctx().content_rect().width());
+                    let resize_id = ui.scope_id().with_salt(egui::IdSalt::new("list")).with("__resize");
+                    let hovered = ui.style().visuals.widgets.hovered.fg_stroke;
+                    let active = ui.style().visuals.widgets.active.fg_stroke;
+                    let highlight = Stroke::new(1., rgb(t.secondary).gamma_multiply(0.35));
+                    ui.style_mut().visuals.widgets.hovered.fg_stroke = highlight;
+                    ui.style_mut().visuals.widgets.active.fg_stroke = highlight;
+                    let response = egui::Panel::left("list")
+                        .default_size(self.prefs.list_width.map_or(t.sidebar, |w| w as f32))
+                        .size_range(240. ..=max).resizable(true).show_separator_line(false)
+                        .frame(bar(t).fill(list_fill)).show(ui, |ui| {
+                            ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
+                            ui.style_mut().visuals.widgets.active.fg_stroke = active;
+                            let mut new_chat = false;
+                            list::rooms(ui, session, &mut new_chat, t);
+                            session.new_open |= new_chat;
+                        });
+                    ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
+                    ui.style_mut().visuals.widgets.active.fg_stroke = active;
+                    if let Some(handle) = ui.read_response(resize_id)
+                        && handle.drag_stopped()
+                    {
+                        let width = handle.interact_pointer_pos().map_or(response.response.rect.width(), |p| p.x - response.response.rect.left()).clamp(240., max).round() as u32;
+                        self.prefs.list_width = Some(width);
+                        if let Some(dirs) = &self.dirs
+                            && let Err(error) = Preferences::update(dirs, |p| p.list_width = Some(width))
+                        {
+                            eprintln!("Gnobbi: list_width {:?}", error.kind());
+                        }
+                    }
+                }
                 if narrow && session.sidebar.selected().map(|r| r.scope.clone()) != before {
                     self.list_open = false;
                 }
@@ -1531,6 +1566,18 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_width_bounds_and_persistence() {
+        assert_eq!(list_max_width(772.), 336.);
+        assert_eq!(list_max_width(1600.), 600.);
+        let root = std::env::temp_dir().join(format!("gnobbi-list-width-{}", std::process::id()));
+        let dirs = AppDirs { config: root.join("config"), data: root.join("data"), cache: root.join("cache") };
+        Preferences::update(&dirs, |p| { p.list_width = Some(410); p.debug = true; }).unwrap();
+        assert_eq!(Preferences::load(&dirs).list_width, Some(410));
+        assert!(Preferences::load(&dirs).debug);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn quick_search_uses_shared_normalized_index() {
