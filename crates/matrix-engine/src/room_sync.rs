@@ -118,6 +118,10 @@ impl RoomListWorker {
             crate::bounded(std::num::NonZeroUsize::new(2).unwrap());
         let thread = std::thread::Builder::new()
             .name("matrix-room-sync".into())
+            // Closing the app drops the room-list controller, whose waiter chain (async-cell, SDK room list) is dropped by recursion:
+            // with the 2 MiB default the thread overflowed its stack and aborted at quit on macOS. Memory is reserved, not committed.
+            // shortcut: a bigger stack, not a fix of the chain; replace when the SDK drops it iteratively.
+            .stack_size(256 << 20)
             .spawn(move || {
                 // Declared first, so it drops after the runtime and the session.
                 let _done = DoneOnDrop(worker_done);
