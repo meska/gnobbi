@@ -1,6 +1,14 @@
 //! Bottom bar: multi-line text box. Enter sends, Shift+Enter adds a line, one draft per room.
 use eframe::egui::{self, Key, Modifiers, RichText};
 
+/// What the user asked of the microphone this frame.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum VoiceAct {
+    Start,
+    Send,
+    Cancel,
+}
+
 /// What the next Enter does.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -10,7 +18,7 @@ pub enum Mode {
 }
 
 /// Returns the text to send when Enter was pressed on a non-empty draft; `cancel` is set by the X of the mode bar.
-pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     let enter = ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
     if mode != Mode::Send {
@@ -31,6 +39,19 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
             }
         });
     }
+    if let Some(secs) = recording {
+        ui.horizontal_centered(|ui| {
+            ui.add_space(12.);
+            ui.colored_label(ui.visuals().error_fg_color, format!("● {}:{:02}", secs / 60, secs % 60));
+            if ui.button("Invia nota").clicked() {
+                *voice = Some(VoiceAct::Send);
+            }
+            if ui.button("Annulla").clicked() {
+                *voice = Some(VoiceAct::Cancel);
+            }
+        });
+        return None;
+    }
     ui.horizontal_centered(|ui| {
         ui.add_space(12.);
         if ui.button("📊").clicked() {
@@ -39,10 +60,13 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         if ui.button("📎").clicked() {
             *picked = crate::pick::file("Allega un file", false);
         }
-        let w = ui.available_width() - 56.;
+        let w = ui.available_width() - 96.;
         let id = egui::Id::new("composer-text");
         let out = egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).show(ui);
         mention_popup(ui, id, &out, draft, members, mentions);
+        if ui.button("🎤").on_hover_text("Nota vocale").clicked() {
+            *voice = Some(VoiceAct::Start);
+        }
         // The 32 emoji of the GPUI picker; one is appended to the text and the box keeps the focus.
         ui.menu_button("☺", |ui| {
             egui::Grid::new("emoji-grid").show(ui, |ui| {

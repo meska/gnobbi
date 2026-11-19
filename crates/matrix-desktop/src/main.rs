@@ -99,7 +99,7 @@ mod tray_view;
 mod verification_view;
 mod video_player;
 mod audio_player;
-mod voice_recorder;
+use matrix_desktop::voice_recorder;
 use composer_view::{ComposerView, OpenPoll, Submitted};
 
 use gpui::{

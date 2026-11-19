@@ -54,6 +54,9 @@ pub struct Session {
     members_requested: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
+    /// A voice note being recorded (the microphone is open); `voice` is the note waiting to be sent with the next send.
+    pub recorder: Option<matrix_desktop::voice_recorder::Recorder>,
+    voice: Option<matrix_engine::sending::Voice>,
     /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
     pub reading: (bool, bool, bool),
     read_dirty: bool,
@@ -160,6 +163,8 @@ impl Session {
             members_requested: None,
             upload_limit: None,
             info_open: false,
+            recorder: None,
+            voice: None,
             reading: (false, false, true),
             read_dirty: true,
             mentions: Vec::new(),
@@ -832,7 +837,7 @@ impl Session {
             scope: scope.clone(),
             transaction_id: matrix_engine::sending::fresh_transaction_id(),
             body,
-            attachment: self.attachment.take().map(|(filename, data)| matrix_engine::sending::Attachment { filename, data, voice: None }),
+            attachment: self.attachment.take().map(|(filename, data)| matrix_engine::sending::Attachment { filename, data, voice: self.voice.take() }),
             poll: None,
             mentions: std::mem::take(&mut self.mentions),
         };
@@ -875,6 +880,33 @@ impl Session {
         self.phrase.clear();
         if let Some(command) = self.form.source().and_then(|src| self.form.recover_source(src)) {
             let _ = self.ui.commands.try_send(command);
+        }
+    }
+
+    pub fn start_recording(&mut self) {
+        match matrix_desktop::voice_recorder::Recorder::start(self.upload_limit.unwrap_or(50 << 20)) {
+            Ok(recorder) => {
+                self.recorder = Some(recorder);
+                self.notice = None;
+            }
+            Err(error) => self.notice = Some(error.to_owned()),
+        }
+    }
+
+    /// Ends the recording; `send` puts the note out like «Invia nota», otherwise it is thrown away.
+    pub fn stop_recording(&mut self, send: bool) {
+        let Some(recorder) = self.recorder.take() else { return };
+        let (samples, rate) = recorder.finish();
+        if !send {
+            return;
+        }
+        match matrix_desktop::voice_attachment(&samples, rate, self.upload_limit.unwrap_or(50 << 20)) {
+            Some(note) => {
+                self.attachment = Some((note.filename, note.data));
+                self.voice = note.voice;
+                self.send(String::new());
+            }
+            None => self.notice = Some("Nessun audio registrato".to_owned()),
         }
     }
 

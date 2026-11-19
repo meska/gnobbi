@@ -39,7 +39,7 @@ impl Recorder {
         let samples = Arc::new(Mutex::new(Vec::new()));
         let sink = samples.clone();
         // The note stops growing at 5 minutes or at the server's upload limit; the composer then ends it (`is_full`).
-        let max = matrix_desktop::max_note_samples(rate, upload_limit);
+        let max = crate::max_note_samples(rate, upload_limit);
         let err = |_| {};
         let format = config.sample_format();
         let config = config.into();

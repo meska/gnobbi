@@ -500,18 +500,29 @@ impl App {
                 let mut drop_file = false;
                 let mut open_poll = false;
                 let mut picked_file = None;
+                let mut voice_act = None;
                 let name = s.attachment.as_ref().map(|(n, _)| n.clone());
                 if let Some(notice) = &s.notice {
                     ui.label(notice);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
-                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &members, &mut s.mentions);
+                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, s.recorder.as_ref().map(|r| r.elapsed_secs()), &mut voice_act, &members, &mut s.mentions);
                 if drop_file {
                     s.attachment = None;
                 }
                 s.poll_open |= open_poll;
                 if let Some(path) = picked_file {
                     s.attach(&path);
+                }
+                match voice_act {
+                    Some(composer::VoiceAct::Start) => s.start_recording(),
+                    Some(composer::VoiceAct::Send) => s.stop_recording(true),
+                    Some(composer::VoiceAct::Cancel) => s.stop_recording(false),
+                    None => {}
+                }
+                // At the cap the note goes out by itself; the timer repaints the elapsed seconds.
+                if s.recorder.as_ref().is_some_and(|r| r.is_full()) {
+                    s.stop_recording(true);
                 }
                 if cancel {
                     s.cancel_target();
