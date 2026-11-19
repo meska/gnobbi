@@ -51,26 +51,8 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
         ui.separator();
         match form.tab {
             0 => {
-                ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut s.new_term).hint_text("Cerca persone").align(egui::Align2::LEFT_CENTER));
-                ui.add_space(6.);
-                match s.users.clone() {
-                    SearchState::Searching { .. } => {
-                        ui.spinner();
-                    }
-                    SearchState::NoResults { .. } => {
-                        ui.label(RichText::new("Nessun risultato").color(crate::list::rgb(t.secondary)));
-                    }
-                    SearchState::Results { hits, .. } => {
-                        egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
-                            for h in hits {
-                                let name = h.display_name.clone().unwrap_or_else(|| h.user_id.clone());
-                                if ui.button(format!("{name}  {}", h.user_id)).clicked() {
-                                    s.start_dm(h.user_id);
-                                }
-                            }
-                        });
-                    }
-                    _ => {}
+                if let Some(user) = people(ui, s, t) {
+                    s.start_dm(user);
                 }
             }
             1 => {
@@ -136,6 +118,33 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
     if !open {
         s.new_open = false;
     }
+}
+
+/// The user search («Cerca persone» and its results); returns the user that was clicked.
+pub fn people(ui: &mut egui::Ui, s: &mut Session, t: &matrix_desktop::DesignTokens) -> Option<String> {
+    let mut picked = None;
+    ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut s.new_term).hint_text("Cerca persone").align(egui::Align2::LEFT_CENTER));
+    ui.add_space(6.);
+    match &s.users {
+        SearchState::Searching { .. } => {
+            ui.spinner();
+        }
+        SearchState::NoResults { .. } => {
+            ui.label(RichText::new("Nessun risultato").color(crate::list::rgb(t.secondary)));
+        }
+        SearchState::Results { hits, .. } => {
+            egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
+                for h in hits {
+                    let name = h.display_name.as_deref().unwrap_or(&h.user_id);
+                    if ui.button(format!("{name}  {}", h.user_id)).clicked() {
+                        picked = Some(h.user_id.clone());
+                    }
+                }
+            });
+        }
+        _ => {}
+    }
+    picked
 }
 
 /// The picked file as the engine wants it (bytes + MIME from the content) and its preview; None when it is not a picture.

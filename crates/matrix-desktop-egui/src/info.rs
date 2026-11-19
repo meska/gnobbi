@@ -10,11 +10,11 @@ fn rgb(c: u32) -> Color32 {
 /// What the user did in the panel this frame.
 #[derive(Default)]
 pub struct Out {
-    pub open_profile: Option<String>,
+    pub member: Option<crate::members::Act>,
     pub edit: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, aliases: &mut AliasView, t: &DesignTokens) -> Out {
+pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, t: &DesignTokens) -> Out {
     let mut out = Out::default();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(16.);
@@ -45,11 +45,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
             ui.vertical_centered(|ui| ui.spinner());
             return;
         };
-        for m in members {
-            if member_row(ui, m, t).clicked() {
-                out.open_profile = Some(m.user_id.clone());
-            }
-        }
+        out.member = crate::members::list(ui, members, admin, me, t);
     });
     out
 }

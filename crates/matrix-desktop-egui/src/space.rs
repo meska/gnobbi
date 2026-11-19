@@ -16,7 +16,7 @@ pub struct SpaceView {
 }
 
 /// Three dots, drawn: the glyph is missing from the macOS system font.
-fn dots(ui: &mut egui::Ui, t: &DesignTokens) -> egui::Response {
+pub fn dots(ui: &mut egui::Ui, t: &DesignTokens, label: &str) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(32.), Sense::click());
     if resp.hovered() || resp.has_focus() {
         ui.painter().rect_filled(rect, 8., rgb(t.input));
@@ -27,7 +27,7 @@ fn dots(ui: &mut egui::Ui, t: &DesignTokens) -> egui::Response {
     for dy in [-6., 0., 6.] {
         ui.painter().circle_filled(rect.center() + Vec2::new(0., dy), 1.8, rgb(t.text));
     }
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Menu spazio"));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -35,7 +35,7 @@ fn dots(ui: &mut egui::Ui, t: &DesignTokens) -> egui::Response {
 pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &DesignTokens) {
     let Some(scope) = session.sidebar.active_space().cloned() else { return };
     let can_edit = session.sidebar.spaces().any(|r| r.scope == scope && r.info.edit_rights.any());
-    let resp = dots(ui, t);
+    let resp = dots(ui, t, "Menu spazio");
     let mut popup = egui::Popup::menu(&resp);
     // Test hook: GNOBBI_EGUI_VIEW=sp-menu shows the menu without a click.
     if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("sp-menu") {
@@ -78,7 +78,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
         return;
     };
     let secondary = rgb(t.secondary);
-    let (mut open, mut add, mut remove) = (true, None, None);
+    let (mut open, mut add, mut remove, mut member) = (true, None, None, None);
     egui::Window::new(&space.name).id(egui::Id::new("space-view")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(340.);
         if view.members_page {
@@ -86,9 +86,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
             match &view.members {
                 None => drop(ui.vertical_centered(|ui| ui.spinner())),
                 Some(members) => drop(egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
-                    for m in members {
-                        crate::info::member_row(ui, m, t);
-                    }
+                    member = crate::members::list(ui, members, session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, t);
                 })),
             }
             return;
@@ -164,6 +162,10 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
     let space = view.scope.clone();
     if !open {
         session.space_view = None;
+    }
+    // A row click opens nothing here: the profile card belongs to the room panel.
+    if let Some(act) = member.filter(|a| !matches!(a, crate::members::Act::Profile(_))) {
+        session.member_act(act);
     }
     if let Some(room) = add {
         session.room_action(room, crate::session::RoomAction::AddTo(space));

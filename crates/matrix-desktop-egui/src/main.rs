@@ -15,6 +15,7 @@ mod composer;
 mod devices;
 mod info;
 mod list;
+mod members;
 mod newchat;
 mod poll;
 mod roomedit;
@@ -111,6 +112,7 @@ struct App {
     auto_login2: Option<serde_json::Value>,
     hook_type: bool,
     hook_alias: bool,
+    hook_member: bool,
     alias_input: String,
     hook_keys: bool,
     hook_menu_at: Option<std::time::Instant>,
@@ -143,7 +145,7 @@ impl App {
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
         let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
         if let Some(i) = last {
             app.switch_to(i);
@@ -310,6 +312,7 @@ impl eframe::App for App {
                     && !session.devices_open && !self.settings_open && !self.accounts_open && self.pending_web.is_none()
                 {
                     if session.quick_open { session.quick_open = false; }
+                    else if let Some(a) = session.admin.as_mut().filter(|a| !a.busy && (a.dialog.is_some() || a.inviting)) { (a.dialog, a.inviting, a.failed) = (None, false, false); }
                     else if session.space_view.is_some() { session.space_view = None; }
                     else if session.menu.is_some() { session.close_menu(); }
                     else if session.thread.is_some() { session.thread = None; }
@@ -542,6 +545,37 @@ impl App {
                 }
                 if page == "add" && let Some(v) = &mut s.space_view && matches!(v.children, Some(Ok(_))) && v.adding.is_none() {
                     v.adding = Some(None);
+                }
+            }
+            // GNOBBI_EGUI_MEMBER=kick|ban|invite|unban: that action on the first other (or first banned) member, once the rights and the lists are in.
+            // With GNOBBI_EGUI_CONFIRM the «Espelli»/«Blocca» window is confirmed too (reason from GNOBBI_EGUI_REASON).
+            if !self.hook_member
+                && let Ok(what) = std::env::var("GNOBBI_EGUI_MEMBER")
+                && let Some(a) = s.admin.as_ref().filter(|a| a.perms.can_kick || a.perms.can_invite)
+            {
+                let list = s.space_view.as_ref().and_then(|v| v.members.as_ref()).or(s.members.as_ref().map(|(_, m)| m));
+                let act = match (what.as_str(), list.and_then(|l| l.iter().find(|m| m.user_id != s.user)), a.banned.as_ref().ok().and_then(|b| b.first())) {
+                    ("invite", _, _) => Some(members::Act::Invite),
+                    ("kick" | "ban", Some(m), _) => Some(members::Act::Ask { user_id: m.user_id.clone(), name: m.name.clone(), ban: what == "ban" }),
+                    ("unban", _, Some(b)) => Some(members::Act::Unban(b.user_id.clone())),
+                    _ => None,
+                };
+                if let Some(act) = act {
+                    self.hook_member = true;
+                    s.member_act(act);
+                    // GNOBBI_EGUI_TERM=<text>: typed in the «Invita» search.
+                    if what == "invite" { s.new_term = std::env::var("GNOBBI_EGUI_TERM").unwrap_or_default(); }
+                    if let Some(a) = &mut s.admin
+                        && let Some(d) = &mut a.dialog
+                    {
+                        d.reason = std::env::var("GNOBBI_EGUI_REASON").unwrap_or_default();
+                        if std::env::var_os("GNOBBI_EGUI_CONFIRM").is_some() {
+                            a.busy = true;
+                            use matrix_engine::operations::Moderation;
+                            let (scope, user, action) = (a.scope.clone(), d.user_id.clone(), if d.ban { Moderation::BanWith(d.reason.clone()) } else { Moderation::KickWith(d.reason.clone()) });
+                            s.moderate_in(scope, user, action);
+                        }
+                    }
                 }
             }
             match view.as_str() {
@@ -785,14 +819,14 @@ impl App {
             let mut alias_input = std::mem::take(&mut self.alias_input);
             let mut alias_action = None;
             let mut view = info::AliasView { data: s.aliases.as_ref(), error: s.alias_error, input: &mut alias_input, action: None };
-            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, &mut view, t));
+            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, t));
             alias_action = view.action.take();
             self.alias_input = alias_input;
             if let (Some(action), Some(s)) = (alias_action, &mut self.session) {
                 s.alias_action(action);
             }
-            if let (Some(user), Some(s)) = (out.open_profile, &mut self.session) {
-                s.open_profile(user);
+            if let (Some(act), Some(s)) = (out.member, &mut self.session) {
+                s.member_act(act);
             }
             if out.edit && let Some(s) = &mut self.session {
                 s.open_edit();
@@ -924,6 +958,7 @@ impl App {
         if let Some(s) = &mut self.session {
             list::space_picker(ui.ctx(), s);
             space::window(ui.ctx(), s, t);
+            members::windows(ui.ctx(), s, t);
         }
         if let Some(s) = &mut self.session
             && let Some(v) = &mut s.verification

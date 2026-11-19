@@ -72,6 +72,8 @@ pub struct Session {
     pub space_pick: Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>,
     /// Window of the selected space («Info spazio» / «Membri»).
     pub space_view: Option<crate::space::SpaceView>,
+    /// Rights and banned users of the member list on screen.
+    pub admin: Option<crate::members::Admin>,
     history: HistorySession,
     pending: Option<matrix_engine::history::HistoryRequest>,
     route: Option<(matrix_engine::Sender<matrix_engine::history::HistoryRequest>, Receiver<matrix_engine::history::HistoryResult>)>,
@@ -307,6 +309,7 @@ impl Session {
             space_choices: None,
             space_pick: None,
             space_view: None,
+            admin: None,
             sync: None,
             homeserver: String::new(),
             user: String::new(),
@@ -678,7 +681,7 @@ impl Session {
             self.op_pending = Some(OperationCommand::SearchMessages { scope: scope.clone(), term: wanted.clone() });
             self.search_sent = wanted;
         }
-        let wanted = if self.new_open || self.quick_open { self.new_term.trim().to_owned() } else { String::new() };
+        let wanted = if self.new_open || self.quick_open || self.admin.as_ref().is_some_and(|a| a.inviting) { self.new_term.trim().to_owned() } else { String::new() };
         if self.op_pending.is_none() && wanted != self.new_sent {
             self.op_pending = Some(OperationCommand::SearchUsers { term: wanted.clone(), all: false });
             self.new_sent = wanted;
@@ -795,7 +798,25 @@ impl Session {
                     }
                     continue;
                 }
-                OperationResult::Moderated { user_id, result, .. } => {
+                OperationResult::BannedMembers { scope, result } => {
+                    if let Some(a) = &mut self.admin && &a.scope == scope {
+                        a.banned = result.as_ref().map(|list| list.clone()).map_err(|_| ());
+                        changed = true;
+                    }
+                    continue;
+                }
+                OperationResult::MemberPermissions { scope, result } => {
+                    if let Some(a) = &mut self.admin && &a.scope == scope {
+                        a.perms = result.as_ref().ok().copied().unwrap_or_default();
+                        changed = true;
+                    }
+                    continue;
+                }
+                OperationResult::Moderated { scope, user_id, action, result } => {
+                    if let Some(a) = &mut self.admin && &a.scope == scope && a.done(user_id, action, result.is_ok()) {
+                        if let Some((_, list)) = self.members.as_mut().filter(|(s, _)| s == scope) { list.retain(|m| &m.user_id != user_id); }
+                        if let Some(list) = self.space_view.as_mut().filter(|v| &v.scope == scope).and_then(|v| v.members.as_mut()) { list.retain(|m| &m.user_id != user_id); }
+                    }
                     self.moderation_failed = result.is_err();
                     // The member list and the rights are read again: a kicked member is gone.
                     if result.is_ok()
@@ -1093,6 +1114,45 @@ impl Session {
         let Some(scope) = self.draft_scope.clone() else { return };
         self.moderation_failed = false;
         self.op_queue.push(OperationCommand::Moderate { scope, user_id, action });
+    }
+
+    /// Reads the rights and the banned users of the list on screen; the answers of another room are dropped.
+    pub fn admin_for(&mut self, scope: Option<matrix_domain::RoomScope>) {
+        if self.admin.as_ref().map(|a| &a.scope) == scope.as_ref() {
+            return;
+        }
+        if let Some(scope) = &scope {
+            self.op_queue.push(OperationCommand::MemberPermissions { scope: scope.clone() });
+            self.op_queue.push(OperationCommand::BannedMembers { scope: scope.clone() });
+        }
+        self.admin = scope.map(crate::members::Admin::new);
+    }
+
+    pub fn moderate_in(&mut self, scope: matrix_domain::RoomScope, user_id: String, action: matrix_engine::operations::Moderation) {
+        self.op_queue.push(OperationCommand::Moderate { scope, user_id, action });
+    }
+
+    /// What was clicked in a member list.
+    pub fn member_act(&mut self, act: crate::members::Act) {
+        use crate::members::Act;
+        if let Act::Profile(user) = act {
+            return self.open_profile(user);
+        }
+        let Some(a) = &mut self.admin else { return };
+        a.failed = false;
+        match act {
+            Act::Ask { user_id, name, ban } => a.dialog = Some(crate::members::Dialog { user_id, name, ban, reason: String::new() }),
+            Act::Invite => {
+                a.inviting = true;
+                self.new_term.clear();
+            }
+            Act::Unban(user_id) => {
+                a.busy = true;
+                let scope = a.scope.clone();
+                self.moderate_in(scope, user_id, matrix_engine::operations::Moderation::Unban(None));
+            }
+            Act::Profile(_) => {}
+        }
     }
 
     pub fn set_ignored(&mut self, user_id: String, ignore: bool) {
