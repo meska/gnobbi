@@ -221,7 +221,7 @@ impl eframe::App for App {
             if session.account.is_some() && !session.recovering() {
                 let command = |key| ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, key));
                 if command(egui::Key::K) && !session.new_open && !self.settings_open {
-                    session.quick_open = !session.quick_open;
+                    session.quick_open = !session.quick_open; session.quick_sel = 0;
                     session.new_term.clear();
                     if session.quick_open { ctx.memory_mut(|m| m.request_focus(egui::Id::unique("quick-search-field"))); }
                 } else if !session.quick_open && !session.new_open && !self.settings_open {
@@ -903,36 +903,66 @@ fn quick_search(ctx: &egui::Context, s: &mut Session) {
     let count = rooms.len() as u64;
     let index = Index::new(rooms.iter().enumerate().filter(|(_, r)| !r.info.is_space && !r.info.invited).map(|(i, r)| Entry::from_room(r, count - i as u64)));
     let hits = quick_hits(&index, &s.new_term);
-    let mut room = None;
-    let mut user = None;
+    let typed = !s.new_term.trim().is_empty();
+    let users: Vec<_> = match &s.users {
+        SearchState::Results { hits, .. } if typed => hits.iter().take(5).cloned().collect(),
+        _ => Vec::new(),
+    };
+    let public: Vec<_> = match &s.public_rooms {
+        matrix_engine::search::SearchState::Results { hits, .. } if typed => hits.iter().take(matrix_desktop::quick_search::ROOMS_LIMIT).cloned().collect(),
+        _ => Vec::new(),
+    };
+    let total = hits.len() + users.len() + public.len();
+    // Up/Down/Enter are taken before the field sees them; Esc closes through the modal.
+    let (down, up, enter) = ctx.input_mut(|i| (i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown), i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp), i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)));
+    if total > 0 {
+        if down { s.quick_sel = (s.quick_sel + 1) % total; }
+        if up { s.quick_sel = (s.quick_sel + total - 1) % total; }
+    }
+    s.quick_sel = s.quick_sel.min(total.saturating_sub(1));
+    let sel = s.quick_sel;
+    let moved = down || up;
+    let mut picked = if enter && total > 0 { Some(sel) } else { None };
     let modal = egui::Modal::new(egui::Id::unique("quick-search")).show(ctx, |ui| {
         ui.set_min_width(360.);
         ui.heading("Cerca");
         if ui.add(egui::TextEdit::singleline(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text("Cerca")).changed() {
             s.users = SearchState::Idle;
+            s.public_rooms = matrix_engine::search::SearchState::Idle;
+            s.quick_sel = 0;
         }
         egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
-            if !hits.is_empty() {
-                ui.label("Conversazioni");
-                for hit in &hits {
-                    if ui.button(&hit.name).clicked() { room = Some(hit.id.clone()); }
-                }
+            let mut row = |ui: &mut egui::Ui, i: usize, text: String| {
+                let r = ui.selectable_label(i == sel, text);
+                if i == sel && moved { r.scroll_to_me(None); }
+                if r.clicked() { picked = Some(i); }
+            };
+            if !hits.is_empty() { ui.label("Conversazioni"); }
+            for (i, hit) in hits.iter().enumerate() { row(ui, i, hit.name.clone()); }
+            if !users.is_empty() { ui.label("Utenti"); }
+            for (i, hit) in users.iter().enumerate() {
+                let name = hit.display_name.as_deref().unwrap_or(&hit.user_id);
+                row(ui, hits.len() + i, format!("{name}  {}", hit.user_id));
             }
-            if let SearchState::Results { hits, .. } = &s.users {
-                if !hits.is_empty() && !s.new_term.trim().is_empty() { ui.label("Utenti"); }
-                for hit in hits.iter().take(5).filter(|_| !s.new_term.trim().is_empty()) {
-                    let name = hit.display_name.as_deref().unwrap_or(&hit.user_id);
-                    if ui.button(format!("{name}  {}", hit.user_id)).clicked() { user = Some(hit.user_id.clone()); }
-                }
-            }
+            if !public.is_empty() { ui.label("Stanze pubbliche"); }
+            for (i, hit) in public.iter().enumerate() { row(ui, hits.len() + users.len() + i, hit.name.clone()); }
         });
     });
-    if let Some(id) = room {
-        let scope = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == id).map(|r| r.scope.clone());
-        if let Some(scope) = scope { s.sidebar.select(&scope); }
+    if let Some(i) = picked {
+        if let Some(hit) = hits.get(i) {
+            let scope = s.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == hit.id).map(|r| r.scope.clone());
+            if let Some(scope) = scope { s.sidebar.select(&scope); }
+        } else if let Some(hit) = users.get(i - hits.len()) {
+            s.start_dm(hit.user_id.clone());
+        } else if let Some(hit) = public.get(i - hits.len() - users.len()) {
+            let joined = s.sidebar.rooms().iter().find(|r| !r.info.invited && r.scope.room_id.as_str() == hit.room_id).map(|r| r.scope.clone());
+            match joined {
+                Some(scope) => { s.sidebar.select(&scope); }
+                None => s.join_public(hit),
+            }
+        }
         s.quick_open = false;
     }
-    if let Some(id) = user { s.start_dm(id); s.quick_open = false; }
     if modal.should_close() { s.quick_open = false; }
 }
 

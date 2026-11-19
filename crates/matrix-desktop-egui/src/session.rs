@@ -94,6 +94,13 @@ pub struct Session {
     pub new_term: String,
     new_sent: String,
     pub users: matrix_engine::operations::SearchState,
+    /// A new user search went out and its first answer (Searching/Idle) is not in yet: older answers are stale.
+    users_gate: bool,
+    /// Public rooms for the quick search, and the term last sent for them (None: nothing asked).
+    pub public_rooms: matrix_engine::search::SearchState<matrix_engine::operations::DirectoryRoom>,
+    rooms_sent: Option<String>,
+    /// Highlighted row of the quick search, counted over all groups.
+    pub quick_sel: usize,
     pub new_failed: bool,
     pub pending_select: Option<matrix_domain::RoomScope>,
     /// Commands from the UI waiting for the single send slot.
@@ -209,6 +216,10 @@ impl Session {
             new_term: String::new(),
             new_sent: String::new(),
             users: matrix_engine::operations::SearchState::Idle,
+            users_gate: false,
+            public_rooms: matrix_engine::search::SearchState::Idle,
+            rooms_sent: None,
+            quick_sel: 0,
             new_failed: false,
             pending_select: None,
             op_queue: Vec::new(),
@@ -553,6 +564,15 @@ impl Session {
         if self.op_pending.is_none() && wanted != self.new_sent {
             self.op_pending = Some(OperationCommand::SearchUsers { term: wanted.clone(), all: false });
             self.new_sent = wanted;
+            self.users_gate = true;
+        }
+        let wanted = if self.quick_open { matrix_desktop::quick_search::room_request(None, &self.new_term, None).map(|r| r.0) } else { None };
+        if self.op_pending.is_none() && wanted != self.rooms_sent {
+            self.op_pending = Some(match &wanted {
+                Some(term) => OperationCommand::SearchRooms { term: term.clone(), server: None, kind: Some(matrix_engine::operations::DirectoryKind::Rooms) },
+                None => OperationCommand::SearchRooms { term: String::new(), server: None, kind: None },
+            });
+            self.rooms_sent = wanted;
         }
         if let (Some(th), Some(scope)) = (&mut self.thread, &self.draft_scope)
             && th.next_read <= std::time::Instant::now()
@@ -671,8 +691,17 @@ impl Session {
             }
             match &result {
                 OperationResult::UserSearch { state, .. } => {
-                    self.users = state.clone();
-                    changed = true;
+                    if accept_user_answer(&mut self.users_gate, state) {
+                        self.users = state.clone();
+                        changed = true;
+                    }
+                    continue;
+                }
+                OperationResult::RoomSearch { state } => {
+                    if accept_room_answer(state.term(), &self.new_term) {
+                        self.public_rooms = state.clone();
+                        changed = true;
+                    }
                     continue;
                 }
                 OperationResult::RoomStarted { result } => {
@@ -757,6 +786,12 @@ impl Session {
         self.new_failed = false;
         let topic = Some(topic.trim().to_owned()).filter(|t| !t.is_empty());
         self.op_queue.push(OperationCommand::CreateRoom { name: name.trim().to_owned(), topic, public });
+    }
+
+    /// A directory row: joined through the server that listed it, like the GPUI quick search.
+    pub fn join_public(&mut self, room: &matrix_engine::operations::DirectoryRoom) {
+        self.new_failed = false;
+        self.op_queue.push(OperationCommand::JoinRoom { target: room.room_id.clone(), via: vec![room.origin.clone()] });
     }
 
     pub fn join(&mut self, target: String) {
@@ -1087,5 +1122,38 @@ impl Session {
 
     pub fn status(&self) -> FormStatus {
         self.form.status()
+    }
+}
+
+/// Room-directory answers name their term (engine `SearchState`): one for a term no longer typed is stale.
+fn accept_room_answer(answer: Option<&str>, typed: &str) -> bool {
+    answer.is_none_or(|t| t == typed.trim())
+}
+
+/// User-search answers carry no term, so order decides: after a new request, anything but its
+/// first Searching/Idle is an older query's answer. shortcut: a coalesced Searching would leave the gate shut until the next keystroke.
+fn accept_user_answer(gate: &mut bool, state: &matrix_engine::operations::SearchState) -> bool {
+    use matrix_engine::operations::SearchState as S;
+    if matches!(state, S::Searching | S::Idle) {
+        *gate = false;
+        return true;
+    }
+    !*gate
+}
+
+#[cfg(test)]
+mod stale_tests {
+    use super::*;
+    use matrix_engine::operations::SearchState as S;
+
+    #[test]
+    fn older_answers_are_dropped() {
+        assert!(accept_room_answer(Some("caf"), " caf "));
+        assert!(!accept_room_answer(Some("ca"), "caf"));
+        assert!(accept_room_answer(None, "caf"));
+        let mut gate = true;
+        assert!(!accept_user_answer(&mut gate, &S::NoResults));
+        assert!(accept_user_answer(&mut gate, &S::Searching));
+        assert!(accept_user_answer(&mut gate, &S::NoResults));
     }
 }
