@@ -13,6 +13,8 @@ mod accounts;
 mod pick;
 mod composer;
 mod devices;
+#[cfg(target_os = "linux")]
+mod desktop_entry;
 mod info;
 mod list;
 mod members;
@@ -127,6 +129,10 @@ struct App {
 impl App {
     fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf, trust: Option<Vec<u8>>, link: Option<matrix_domain::MatrixLink>, multi: bool) -> App {
         let prefs = dirs.map(Preferences::load).unwrap_or_else(Preferences::default);
+        #[cfg(target_os = "linux")]
+        if dirs.is_some() {
+            desktop_entry::install_at_start(prefs.icon, prefs.desktop_entry_dont_ask);
+        }
         let theme = Theme::Classic;
         let (session, start_error) = match dirs.map(|d| Session::start(d, root.clone(), trust.clone())) {
             Some(Ok(s)) => (Some(s), None),

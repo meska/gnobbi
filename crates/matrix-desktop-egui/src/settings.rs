@@ -63,6 +63,22 @@ pub fn show(ctx: &egui::Context, open: &mut bool, prefs: &Preferences, dirs: Opt
         changed |= switch(ui, "Anteprima dei messaggi", &mut p.message_preview, t);
         changed |= switch(ui, "Notifiche", &mut p.notifications, t);
         changed |= switch(ui, "Chiudi nella tray", &mut p.close_to_tray, t);
+        #[cfg(target_os = "linux")]
+        {
+            let id = egui::Id::new("desktop-entry-result");
+            if ui.button("Aggiungi al menu").clicked() {
+                let installed = crate::desktop_entry::install(p.icon).is_ok();
+                let opted_in = installed && (!p.desktop_entry_dont_ask || dirs.is_some_and(|d| Preferences::update(d, |saved| saved.desktop_entry_dont_ask = false).is_ok()));
+                ui.ctx().data_mut(|data| data.insert_temp(id, opted_in));
+                if opted_in && p.desktop_entry_dont_ask {
+                    p.desktop_entry_dont_ask = false;
+                    changed = true;
+                }
+            }
+            if let Some(ok) = ui.ctx().data(|data| data.get_temp::<bool>(id)) {
+                ui.label(if ok { "Aggiunto al menu" } else { "Impossibile aggiungere al menu" });
+            }
+        }
     });
     if !changed {
         return None;
