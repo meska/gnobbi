@@ -22,12 +22,8 @@ pub(crate) async fn peer_receipts(
         let Some(id) = event.event_id() else {
             continue;
         };
-        // The SDK gives a sender an implicit marker on their own event: that is not reading.
-        let readers = event
-            .read_receipts()
-            .keys()
-            .filter(|u| u.as_str() != own_user && *u != event.sender())
-            .count() as u64;
+        // The peer's marker may sit on their own newer event (reply, or reading up to it): it still covers earlier rows.
+        let readers = event.read_receipts().keys().filter(|u| u.as_str() != own_user).count() as u64;
         if readers > 0 {
             counts.insert(id.to_string(), readers);
         }
