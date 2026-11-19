@@ -91,7 +91,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
     if e.status {
         // Quiet centred line: small round avatar + grey text, no bubble.
         let font = egui::FontId::proportional(11.);
-        let (avail, text_w) = (ui.available_width(), ui.painter().layout_no_wrap(e.text.clone(), font, Color32::WHITE).size().x);
+        let avail = ui.available_width();
+        // A line longer than the column is cut with an ellipsis: unwrapped, it widened the whole timeline past the visible edge.
+        let text_w = ui.painter().layout_no_wrap(e.text.clone(), font, Color32::WHITE).size().x.min((avail - 36.).max(40.));
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.;
             let pic = e.sender.as_ref().and_then(|s| s.avatar.as_deref()).and_then(|m| avatars.get(m)?.as_ref());
@@ -101,7 +103,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
                 avatar(ui, 12., pic, &initials, 7., t);
             }
-            ui.label(RichText::new(&e.text).size(11.).color(rgb(t.secondary)));
+            ui.add(egui::Label::new(RichText::new(&e.text).size(11.).color(rgb(t.secondary))).truncate());
         });
         return (None, false, false);
     }
@@ -123,7 +125,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         let opened = pos.filter(|p| r.response.rect.contains(*p) && ui.is_rect_visible(r.response.rect));
         return (opened, false, false);
     }
-    let max = (ui.available_width() * 0.85).clamp(120., MAX_BUBBLE);
+    // The side margin (12) and, in group rooms, the avatar column (32 + 8) are not available to the bubble: without them a wide bubble overflowed a narrow column and every row shifted right.
+    let side = 12. + if group && !e.outgoing { 40. } else { 0. };
+    let max = ((ui.available_width() - side) * 0.85).clamp(120., MAX_BUBBLE);
     let layout = if e.outgoing { Layout::right_to_left(Align::TOP) } else { Layout::left_to_right(Align::TOP) };
     let mut opened = None;
     let mut save = false;
@@ -192,7 +196,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     ui.add_space(4.);
                     for (ix, answer) in poll.answers.iter().enumerate() {
                         let share = if poll.results_visible() { poll.share(ix) } else { 0. };
-                        let r = ui.add_enabled(!poll.ended, egui::Button::new(poll.option_label(ix)).selected(answer.own).min_size(Vec2::new(200., 26.)));
+                        let r = ui.add_enabled(!poll.ended, egui::Button::new(poll.option_label(ix)).wrap().selected(answer.own).min_size(Vec2::new(inner.min(200.), 26.)));
                         let bar = egui::Rect::from_min_size(r.rect.left_bottom() - Vec2::new(0., 3.), Vec2::new(r.rect.width() * share, 3.));
                         ui.painter().rect_filled(bar, 1., rgb(t.accent));
                         if r.clicked() {
@@ -279,6 +283,8 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
     let mut first = 0;
     let out = egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show_viewport(ui, |ui, view| {
         ui.spacing_mut().item_spacing = Vec2::new(0., 0.);
+        // The content ui came out wider than the viewport on a narrow column (the rows then aligned past the visible edge): lay out in the visible width.
+        ui.set_max_width(ui.clip_rect().width().min(ui.available_width()));
         let mut y = 0.;
         let mut seen_first = false;
         ui.add_space(GAP);
