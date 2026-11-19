@@ -780,7 +780,10 @@ impl App {
             {
                 let mut acts = timeline::Acts { now_playing: s.audio_now(), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
-                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, s.sidebar.selected().map_or(3, |r| r.info.joined_members), t, jump);
+                let room = s.sidebar.selected();
+                let members = room.map_or(3, |r| r.info.joined_members);
+                let peer_read = room.filter(|_| members == 2).and_then(|r| messages.peer_read_index(&r.info.public_read_receipts));
+                let (first, menu, save, thread) = timeline::show(ui, messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, peer_read, t, jump);
                 if jump.is_some() && let Some((root, open_thread)) = s.search_jump.take() {
                     if open_thread { s.open_thread(root); }
                 }
@@ -844,16 +847,22 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 return;
             };
             if p.react {
-                ui.horizontal(|ui| {
-                    for (key, name) in [("👍", "up"), ("❤️", "heart"), ("😂", "laugh")] {
-                        if ui.button(key).clicked() {
-                            action = Some(match name { "up" => "👍", "heart" => "❤️", _ => "😂" });
+                ui.collapsing("Reagisci", |ui| {
+                    egui::Grid::new("reaction-emoji-grid").show(ui, |ui| {
+                        for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
+                            if ui.button(*emoji).on_hover_text(*name).clicked() {
+                                action = Some(*emoji);
+                            }
+                            if i % 8 == 7 { ui.end_row(); }
                         }
-                    }
+                    });
                 });
             }
             if p.reply && ui.button("Rispondi").clicked() {
                 action = Some("reply");
+            }
+            if p.reply && ui.button("Rispondi nel thread").clicked() {
+                action = Some("thread");
             }
             if p.edit && ui.button("Modifica").clicked() {
                 action = Some("edit");
@@ -875,6 +884,14 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     });
     match action {
         Some("reply") => s.begin(composer::Mode::Reply),
+        Some("thread") => {
+            let root = s.ops.selection().and_then(|id| match &id.id {
+                matrix_domain::TimelineId::Server(id) => Some(id.clone()),
+                _ => None,
+            });
+            s.close_menu();
+            if let Some(root) = root { s.open_thread(root); }
+        }
         Some("edit") => s.begin(composer::Mode::Edit),
         Some("delete") => s.delete(),
         Some("end") => s.end_poll(),

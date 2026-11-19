@@ -81,7 +81,7 @@ pub struct Heights {
 }
 
 /// True when the message was right-clicked (or long-pressed).
-fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, initials: Option<&str>, photo: Option<&str>, group: bool, day: Option<&str>, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, initials: Option<&str>, photo: Option<&str>, group: bool, day: Option<&str>, read: bool, t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(11.).color(rgb(t.secondary))));
@@ -145,7 +145,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
             let inner = max - 2. * PAD_X;
             let measure = |text: &str, size: f32| ui.painter().layout(text.to_owned(), egui::FontId::proportional(size), Color32::WHITE, inner).size().x;
-            let mut w = measure(&matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state), 10.);
+            let mut w = measure(&e.stamp_read(read), 10.);
             w = w.max(if e.redacted { measure("Messaggio eliminato", BODY) } else { measure(&e.text, BODY) });
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
@@ -231,7 +231,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     });
                 }
                 ui.add_space(4.);
-                ui.label(RichText::new(matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state)).size(10.).color(rgb(t.secondary)));
+                ui.label(RichText::new(e.stamp_read(read)).size(10.).color(rgb(t.secondary)));
             });
         });
         // Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.
@@ -244,7 +244,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, peer_read: Option<usize>, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     let mut menu = None;
     let mut save = None;
     let mut thread = None;
@@ -266,7 +266,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, history.sender_label(i, members).as_deref(), history.sender_avatar(i, members).as_ref().map(|(_, i)| i.as_str()), history.sender_avatar(i, members).and_then(|(m, _)| m), members > 2, history.day_separator(i).as_deref(), t);
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, history.sender_label(i, members).as_deref(), history.sender_avatar(i, members).as_ref().map(|(_, i)| i.as_str()), history.sender_avatar(i, members).and_then(|(m, _)| m), members > 2, history.day_separator(i).as_deref(), peer_read.is_some_and(|last| i <= last), t);
                 if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
                     thread = Some(id.clone());
                 }
