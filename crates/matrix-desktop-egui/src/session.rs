@@ -104,7 +104,7 @@ pub struct Session {
     /// Sender photos by mxc; `None` = asked and none came (initials stay).
     pub avatars: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     avatar_slot: matrix_engine::avatar::AvatarSlot,
-    avatar_chan: (std::sync::mpsc::Sender<matrix_engine::avatar::AvatarPicture>, Receiver<matrix_engine::avatar::AvatarPicture>),
+    avatar_chan: (std::sync::mpsc::Sender<matrix_engine::avatar::AvatarPicture>, std::sync::mpsc::Receiver<matrix_engine::avatar::AvatarPicture>),
     op_route: Option<(matrix_engine::Sender<OperationCommand>, Receiver<OperationResult>)>,
     op_pending: Option<OperationCommand>,
     /// Message the next Enter replies to or edits; the draft it replaced waits in `parked`.
