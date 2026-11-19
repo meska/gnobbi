@@ -256,7 +256,7 @@ pub async fn download_audio(
 
 /// The single decode: player samples and the waveform of those same samples.
 fn opened_audio(bytes: &[u8]) -> Result<crate::media::OpenedAudio, MediaError> {
-    let decoded = crate::audio_file::decode_ogg_opus(bytes)?;
+    let decoded = crate::audio_file::decode_audio(bytes)?;
     let waveform =
         crate::audio_file::waveform(&decoded.samples, crate::audio_file::WAVEFORM_POINTS);
     Ok(crate::media::OpenedAudio {

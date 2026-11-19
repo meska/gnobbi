@@ -17,6 +17,49 @@ pub struct DecodedAudio {
     pub sample_rate: u32,
 }
 
+/// Ogg/Opus or PCM WAV bytes to mono samples (our own notes are WAV, see `voice.rs` in matrix-desktop).
+pub fn decode_audio(bytes: &[u8]) -> Result<DecodedAudio, MediaError> {
+    if bytes.get(..4) == Some(b"RIFF") && bytes.get(8..12) == Some(b"WAVE") {
+        decode_wav(bytes)
+    } else {
+        decode_ogg_opus(bytes)
+    }
+}
+
+/// 16-bit PCM WAV, any channel count mixed down. Anything else is `UnsupportedType`, never a panic.
+fn decode_wav(bytes: &[u8]) -> Result<DecodedAudio, MediaError> {
+    let (mut channels, mut rate, mut bits, mut data) = (0usize, 0u32, 0u16, None);
+    let mut at = 12;
+    while let Some(head) = bytes.get(at..at + 8) {
+        let size = u32::from_le_bytes([head[4], head[5], head[6], head[7]]) as usize;
+        let body = bytes.get(at + 8..(at + 8).saturating_add(size).min(bytes.len())).unwrap_or_default();
+        match &head[..4] {
+            b"fmt " if body.len() >= 16 => {
+                if u16::from_le_bytes([body[0], body[1]]) != 1 {
+                    return Err(MediaError::UnsupportedType);
+                }
+                channels = usize::from(u16::from_le_bytes([body[2], body[3]]));
+                rate = u32::from_le_bytes([body[4], body[5], body[6], body[7]]);
+                bits = u16::from_le_bytes([body[14], body[15]]);
+            }
+            b"data" => data = Some(body),
+            _ => {}
+        }
+        at = (at + 8).saturating_add(size).saturating_add(size & 1);
+    }
+    let (Some(data), true) = (data, channels > 0 && rate > 0 && bits == 16) else {
+        return Err(MediaError::UnsupportedType);
+    };
+    let samples: Vec<f32> = data
+        .chunks_exact(2 * channels)
+        .map(|frame| frame.chunks_exact(2).map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32768.0).sum::<f32>() / channels as f32)
+        .collect();
+    if samples.is_empty() {
+        return Err(MediaError::Failed);
+    }
+    Ok(DecodedAudio { samples, sample_rate: rate })
+}
+
 /// Ogg/Opus bytes to mono samples. Empty, truncated, non-Ogg or undecodable input is
 /// a failure, never a panic.
 pub fn decode_ogg_opus(bytes: &[u8]) -> Result<DecodedAudio, MediaError> {
@@ -73,7 +116,30 @@ pub fn waveform(samples: &[f32], points: usize) -> Vec<f32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{DECODE_RATE, decode_ogg_opus, waveform};
+    use super::{DECODE_RATE, decode_audio, decode_ogg_opus, waveform};
+
+    #[test]
+    fn decodes_a_pcm_wav_and_refuses_other_formats() {
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36u32 + 8).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&[1, 0, 1, 0]);
+        wav.extend_from_slice(&16_000u32.to_le_bytes());
+        wav.extend_from_slice(&32_000u32.to_le_bytes());
+        wav.extend_from_slice(&[2, 0, 16, 0]);
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&8u32.to_le_bytes());
+        for s in [0i16, 16384, -16384, 32767] {
+            wav.extend_from_slice(&s.to_le_bytes());
+        }
+        let audio = decode_audio(&wav).unwrap();
+        assert_eq!((audio.sample_rate, audio.samples.len()), (16_000, 4));
+        assert!((audio.samples[1] - 0.5).abs() < 1e-3);
+        assert!(decode_audio(&wav[..30]).is_err());
+        assert!(decode_audio(b"RIFF\0\0\0\0WAVEjunk").is_err());
+    }
 
     /// A real Ogg/Opus stream: the crate encodes, so no fixture file is needed.
     fn sample_ogg(rate: u32, seconds: f32, amplitude: f32) -> Vec<u8> {
