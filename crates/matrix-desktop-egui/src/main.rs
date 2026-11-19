@@ -508,6 +508,10 @@ impl App {
                 "search" => s.search_open = true,
                 "devices" => s.devices_open = true,
                 "new" => s.new_open = true,
+                "space" | "space-public" => {
+                    s.new_open = true;
+                    self.new_form.open_space(view == "space-public");
+                }
                 "poll" => s.poll_open = true,
                 "settings" => self.settings_open = true,
                 "accounts" => self.accounts_open = true,
