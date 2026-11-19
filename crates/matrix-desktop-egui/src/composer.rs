@@ -1,6 +1,10 @@
 //! Bottom bar: multi-line text box. Enter sends, Shift+Enter adds a line, one draft per room.
 use eframe::egui::{self, Key, Modifiers, RichText};
 
+pub fn panel(frame: egui::Frame) -> egui::Panel {
+    egui::Panel::bottom("composer").min_size(40.).frame(frame.inner_margin(egui::Margin::symmetric(0, 4)))
+}
+
 /// What the user asked of the microphone this frame.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum VoiceAct {
@@ -69,7 +73,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
     ui.horizontal_top(|ui| {
         ui.add_space(12.);
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
-        let w = (ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 4.).max(80.); // 4: tuned by the right-gap test (icon box ends ~12 px from the panel edge, like the left pad); the row's spacings and the TextEdit's own inner margins (else the row overflows a narrow column)
+        let w = (ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
         let id = egui::Id::new("composer-text");
         if ui.memory(|m| m.has_focus(id)) {
             *pasted = ui.input(|i| i.events.iter().find_map(|e| match e {
@@ -242,7 +246,7 @@ mod tests {
         let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 600.))), ..Default::default() };
         for _ in 0..4 {
             let mut out = ctx.run_ui(input.clone(), |ui| {
-                let r = egui::Panel::bottom("composer").min_size(56.).show(ui, |ui| {
+                let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
                     super::show(ui, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
                 });
@@ -257,6 +261,7 @@ mod tests {
     fn composer_height_returns_to_one_row_after_a_narrow_window() {
         let ctx = eframe::egui::Context::default();
         let wide = bar_height(&ctx, 900.);
+        assert!(wide <= 44., "single row bar too tall: {wide}");
         bar_height(&ctx, 120.);
         assert_eq!(bar_height(&ctx, 900.), wide);
     }
@@ -274,22 +279,23 @@ mod tests {
     }
 
     /// Runs the composer for a few frames with the text box focused; `events` go in the last frame. Returns (sent, draft, hint-text centre y, icon centre y, panel right, mic right).
-    fn run(text: &str, events: Vec<eframe::egui::Event>) -> (Option<String>, String, f32, f32, f32, f32) {
+    fn run(text: &str, events: Vec<eframe::egui::Event>) -> (Option<String>, String, f32, f32, f32, f32, f32, f32) {
         use eframe::egui;
         let ctx = egui::Context::default();
         let mut draft = text.to_owned();
-        let (mut sent, mut hint_y, mut panel_right) = (None, 0., 0.);
+        let (mut sent, mut hint_y, mut panel_right, mut panel_bottom) = (None, 0., 0., 0.);
         for frame in 0..5 {
             let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900., 600.))), events: if frame == 4 { events.clone() } else { vec![] }, ..Default::default() };
             if frame == 3 {
                 ctx.memory_mut(|m| m.request_focus(egui::Id::new("composer-text")));
             }
             let mut out = ctx.run_ui(input, |ui| {
-                let r = egui::Panel::bottom("composer").min_size(56.).show(ui, |ui| {
+                let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, false, false, None, None, None);
                     sent = super::show(ui, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
                 });
                 panel_right = r.response.rect.right();
+                panel_bottom = r.response.rect.bottom();
             });
             out.textures_delta.clear();
             for s in &out.shapes {
@@ -301,7 +307,7 @@ mod tests {
             }
         }
                 let mic = ctx.read_response(egui::Id::new("composer-voice")).or_else(|| ctx.read_response(egui::Id::new("composer-send"))).unwrap().rect;
-        (sent, draft, hint_y, mic.center().y, panel_right, mic.right())
+        (sent, draft, hint_y, mic.center().y, panel_right, mic.right(), panel_bottom, mic.bottom())
     }
 
     fn enter(shift: bool) -> Vec<eframe::egui::Event> {
@@ -319,9 +325,11 @@ mod tests {
 
     #[test]
     fn single_row_text_and_icons_share_a_centre_line_with_a_small_right_margin() {
-        let (_, _, text_y, icon_y, panel_right, mic_right) = run("", vec![]);
+        let (_, _, text_y, icon_y, panel_right, mic_right, panel_bottom, mic_bottom) = run("", vec![]);
         assert!((text_y - icon_y).abs() <= 1., "text {text_y} icons {icon_y}");
         assert!((6. ..=16.).contains(&(panel_right - mic_right)), "right gap {}", panel_right - mic_right);
+        let (_, _, _, _, _, _, tall_bottom, tall_icon_bottom) = run("a\nb\nc", vec![]);
+        assert!((panel_bottom - mic_bottom - (tall_bottom - tall_icon_bottom)).abs() <= 1., "multiline icons must stay at the bottom");
     }
 
     #[test]

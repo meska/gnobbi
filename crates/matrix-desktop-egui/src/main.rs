@@ -916,7 +916,7 @@ impl App {
             }
         }
         let mut to_send = None;
-        egui::Panel::bottom("composer").min_size(t.bottom_bar).frame(bar(t)).show(ui, |ui| {
+        composer::panel(bar(t)).show(ui, |ui| {
             if let Some(s) = &mut self.session
                 && s.messages.is_some()
             {
