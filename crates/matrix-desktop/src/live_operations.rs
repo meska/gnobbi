@@ -255,6 +255,7 @@ impl LiveOperations {
             | OperationResult::SpaceCreated { .. }
             | OperationResult::SpaceChoices { .. }
             | OperationResult::SpaceChanged { .. }
+            | OperationResult::SpaceChildren { .. }
             | OperationResult::Join { .. }
             | OperationResult::RoomEdited { .. }
             | OperationResult::Aliases { .. }

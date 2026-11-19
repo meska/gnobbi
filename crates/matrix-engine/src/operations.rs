@@ -152,6 +152,22 @@ pub struct SpaceChoices {
     pub containing: Vec<SpaceRef>,
 }
 
+/// One direct child of a space, from the space hierarchy (rooms the user has not joined included).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpaceChild {
+    pub scope: RoomScope,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub joined: bool,
+}
+
+/// Children of one space plus whether the user may change them (`m.space.child` power level).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpaceChildren {
+    pub children: Vec<SpaceChild>,
+    pub editable: bool,
+}
+
 /// The one line the UI shows when adding to or removing from a space failed.
 pub fn space_error_line(error: OperationError) -> &'static str {
     match error {
@@ -164,6 +180,10 @@ pub fn space_error_line(error: OperationError) -> &'static str {
 pub enum OperationCommand {
     /// Spaces that can take / already hold `scope`; answered with `OperationResult::SpaceChoices`.
     SpaceChoices {
+        scope: RoomScope,
+    },
+    /// Children of `scope` (a space) and the user's right to edit them; answered with `OperationResult::SpaceChildren`.
+    SpaceChildren {
         scope: RoomScope,
     },
     /// Put `scope` under `space` (`m.space.child`; `m.space.parent` too when the room's levels allow it).
@@ -400,6 +420,10 @@ pub enum OperationResult {
     SpaceChoices {
         scope: RoomScope,
         result: Result<SpaceChoices, OperationError>,
+    },
+    SpaceChildren {
+        scope: RoomScope,
+        result: Result<SpaceChildren, OperationError>,
     },
     /// `added` tells which command it answers. The space list changes at the next sync.
     SpaceChanged {
@@ -1269,6 +1293,42 @@ pub async fn can_edit_space(
     let room = client.get_room(&id).filter(|r| r.state() == matrix_sdk::RoomState::Joined).ok_or(OperationError::Unavailable)?;
     let levels = room.power_levels().await.map_err(|_| OperationError::Unavailable)?;
     Ok(levels.user_can_send_state(me, matrix_sdk::ruma::events::StateEventType::SpaceChild))
+}
+
+/// Direct children of `space` from the server hierarchy (all pages), with the edit right from its power levels.
+#[cfg(feature = "sdk")]
+pub async fn space_children(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    space: &RoomScope,
+) -> Result<SpaceChildren, OperationError> {
+    use matrix_sdk_ui::spaces::room_list::SpaceRoomListPaginationState::Idle;
+    let id = room_id_of(account, space)?;
+    let editable = can_edit_space(client, account, space).await?;
+    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
+    let list = service.space_room_list(id).await;
+    // Bounded: a huge space stops at 50 pages rather than holding the command task.
+    for _ in 0..50 {
+        tokio::time::timeout(std::time::Duration::from_secs(20), list.paginate())
+            .await
+            .map_err(|_| OperationError::Transport)?
+            .map_err(|e| classify(&e))?;
+        if matches!(list.pagination_state(), Idle { end_reached: true }) {
+            break;
+        }
+    }
+    let children = list
+        .rooms()
+        .await
+        .into_iter()
+        .map(|r| SpaceChild {
+            scope: RoomScope { account_id: account, room_id: matrix_domain::RoomId::new(r.room_id.as_str()) },
+            name: r.display_name,
+            avatar_url: r.avatar_url.map(|u| u.to_string()),
+            joined: r.state == Some(matrix_sdk::RoomState::Joined),
+        })
+        .collect();
+    Ok(SpaceChildren { children, editable })
 }
 
 /// Spaces that can take `room` and spaces that already hold it. The SDK graph is rebuilt on each call, so
