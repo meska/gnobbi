@@ -78,11 +78,6 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, l
                 {
                     save = true;
                 }
-                if let Some(th) = &e.thread
-                    && ui.link(format!("{} risposte", th.num_replies)).clicked()
-                {
-                    thread = true;
-                }
                 if let (Some(poll), matrix_domain::TimelineId::Server(id)) = (&e.poll, &e.id.id)
                     && !e.redacted
                 {
@@ -103,12 +98,18 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, acts: &mut Acts, l
                 } else if !e.text.is_empty() {
                     ui.label(RichText::new(&e.text).size(15.));
                 }
+                if let Some(th) = &e.thread
+                    && ui.link(format!("{} risposte", th.num_replies)).clicked()
+                {
+                    thread = true;
+                }
                 ui.label(RichText::new(matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state)).size(11.).color(rgb(t.secondary)));
             });
         });
-        let hit = ui.interact(frame.response.rect, ui.next_auto_id().with("menu").with(&e.id.id), egui::Sense::click());
-        if hit.secondary_clicked() {
-            opened = hit.interact_pointer_pos();
+        // Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.
+        let pos = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None });
+        if let Some(pos) = pos.filter(|p| frame.response.rect.contains(*p) && ui.is_rect_visible(frame.response.rect)) {
+            opened = Some(pos);
         }
     });
     (opened, save, thread)
