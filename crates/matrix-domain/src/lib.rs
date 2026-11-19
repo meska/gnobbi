@@ -3,6 +3,7 @@
 pub mod design;
 pub mod notifications;
 mod poll;
+pub mod role;
 pub use poll::{Poll, PollAnswer, PollDraft, PollDraftError};
 mod sender_label;
 mod timeline;

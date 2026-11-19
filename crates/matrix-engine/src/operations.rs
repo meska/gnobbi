@@ -593,6 +593,13 @@ pub const POWER_LEVELS: [i64; 3] = [0, 50, 100];
 /// What the current user may do to a joined member, per the room power levels.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MemberRights {
+    /// Current role from the member's power level (also for oneself and non-members).
+    pub role: matrix_domain::role::MemberRole,
+    /// Privileged room creator (room v12+, infinite power level): read-only, nobody can change it.
+    /// shortcut: creators of rooms before v12 are plain admins here; upgrade via `Room::creators()` if the UI needs them.
+    pub creator: bool,
+    /// The user may change this member's role: may edit power levels and the member ranks strictly below them.
+    pub can_change_role: bool,
     pub kick: bool,
     pub ban: bool,
     /// Levels of `POWER_LEVELS` the user may give (at most their own, not the member's current one).
@@ -1525,11 +1532,16 @@ fn member_rights(
     target: &matrix_sdk::ruma::UserId,
     joined: bool,
 ) -> (MemberRights, bool) {
+    use matrix_domain::role::MemberRole;
     use matrix_sdk::ruma::{Int, events::room::power_levels::UserPowerLevel};
-    if !joined || me == target {
-        return Default::default();
-    }
     let (mine, theirs) = (pl.for_user(me), pl.for_user(target));
+    let (role, creator) = match theirs {
+        UserPowerLevel::Int(i) => (MemberRole::from_power_level(i64::from(i)), false),
+        _ => (MemberRole::Admin, true), // non-exhaustive enum: the only other value is Infinite
+    };
+    if !joined || me == target {
+        return (MemberRights { role, creator, ..Default::default() }, false);
+    }
     let levels = if pl.user_can_change_user_power_level(me, target) {
         POWER_LEVELS
             .into_iter()
@@ -1542,6 +1554,9 @@ fn member_rights(
         Vec::new()
     };
     let rights = MemberRights {
+        role,
+        creator,
+        can_change_role: !levels.is_empty(),
         kick: pl.user_can_kick_user(me, target),
         ban: pl.user_can_ban_user(me, target),
         levels,
@@ -1696,6 +1711,19 @@ pub(crate) async fn moderate(
     })
     .await
     .map_err(|_| OperationError::Transport)?
+}
+
+/// Sets the member's role (power level 100/50/0) with the SDK's `update_power_levels`; rights are re-read
+/// at the moment of the call, so hierarchy and creators are enforced here too (`Forbidden`).
+#[cfg(feature = "sdk")]
+pub(crate) async fn set_member_role(
+    client: &matrix_sdk::Client,
+    account: matrix_domain::AccountId,
+    scope: &RoomScope,
+    user_id: &str,
+    role: matrix_domain::role::MemberRole,
+) -> Result<(), OperationError> {
+    moderate(client, account, scope, user_id, &Moderation::SetPower(role.power_level())).await
 }
 
 #[cfg(feature = "sdk")]
@@ -2259,6 +2287,27 @@ mod tests {
         assert_eq!(rights("@mod:x", "@v:x", false).0, MemberRights::default());
         // the admin may give every level the member does not have yet
         assert_eq!(rights("@admin:x", "@mod:x", true).0.levels, vec![0, 100]);
+        // role and can_change_role for the UI: custom levels map to the nearest role below, peers/superiors are locked
+        use matrix_domain::role::MemberRole::*;
+        let by = |me, who| { let r = rights(me, who, true).0; (r.role, r.creator, r.can_change_role) };
+        assert_eq!(by("@mod:x", "@v:x"), (Member, false, true));
+        assert_eq!(by("@mod:x", "@mod2:x"), (Moderator, false, false));
+        assert_eq!(by("@mod:x", "@admin:x"), (Admin, false, false));
+        assert_eq!(by("@u:x", "@v:x"), (Member, false, false));
+        assert_eq!(by("@admin:x", "@mod:x"), (Moderator, false, true));
+        assert_eq!(rights("@admin:x", "@admin:x", true).0.role, Admin);
+    }
+    #[test]
+    fn v12_creator_is_locked_and_admin() {
+        use matrix_sdk::ruma::{UserId, events::room::power_levels::*, room_version_rules::AuthorizationRules};
+        let id = |s| UserId::parse(s).unwrap();
+        let rules = AuthorizationRules::V12;
+        let c = RoomPowerLevelsEventContent::new(&rules);
+        let pl = RoomPowerLevels::new(c.into(), &rules, [id("@c:x")]);
+        let (r, _) = member_rights(&pl, &id("@c:x"), &id("@o:x"), true);
+        assert!(!r.creator && r.can_change_role && r.levels == vec![50, 100]);
+        let (r, _) = member_rights(&pl, &id("@o:x"), &id("@c:x"), true);
+        assert!(r.creator && !r.can_change_role && r.role == matrix_domain::role::MemberRole::Admin);
     }
     #[test]
     fn edit_rights_follow_the_state_event_levels() {
