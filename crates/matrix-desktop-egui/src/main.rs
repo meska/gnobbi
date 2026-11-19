@@ -614,7 +614,8 @@ impl App {
         if let Some(session) = &mut self.session {
             egui::Panel::left("rail").exact_size(64.).resizable(false).frame(bar(t)).show(ui, |ui| {
                 ui.add_space(8.);
-                let dots = if others.is_empty() { 0. } else { 10. };
+                // Five dots per row fit the 64 px rail; more accounts wrap onto further rows, each centred.
+                let dots = others.len().div_ceil(5) as f32 * 10.;
                 let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(64., 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
                 let name = session.account_name.as_str();
                 resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
@@ -630,7 +631,8 @@ impl App {
                     egui::Image::new(&tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(18)).paint_at(ui, r);
                 }
                 for (i, (_, n)) in others.iter().enumerate() {
-                    let d = egui::Pos2::new(c.x + (i as f32 - (others.len() - 1) as f32 / 2.) * 10., rect.bottom() - 7.);
+                    let in_row = (others.len() - i / 5 * 5).min(5);
+                    let d = egui::Pos2::new(c.x + ((i % 5) as f32 - (in_row - 1) as f32 / 2.) * 10., rect.top() + 55. + (i / 5) as f32 * 10.);
                     if *n > 0 {
                         ui.painter().circle_filled(d, 3., rgb(t.accent));
                     } else {
