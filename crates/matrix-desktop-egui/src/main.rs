@@ -16,6 +16,8 @@ mod devices;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
 mod info;
+#[allow(dead_code)] // pure state, wired to the join popup by the UI card
+mod join;
 mod list;
 mod members;
 mod newchat;
