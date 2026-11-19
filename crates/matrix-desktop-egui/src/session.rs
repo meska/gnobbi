@@ -103,6 +103,7 @@ pub struct Session {
     pub pictures: std::collections::HashMap<EventId, egui::TextureHandle>,
     /// Sender photos by mxc; `None` = asked and none came (initials stay).
     pub avatars: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    avatar_failed: std::collections::HashMap<String, std::time::Instant>,
     avatar_slot: matrix_engine::avatar::AvatarSlot,
     avatar_chan: (std::sync::mpsc::Sender<matrix_engine::avatar::AvatarPicture>, std::sync::mpsc::Receiver<matrix_engine::avatar::AvatarPicture>),
     op_route: Option<(matrix_engine::Sender<OperationCommand>, Receiver<OperationResult>)>,
@@ -209,6 +210,7 @@ impl Session {
             media_route,
             pictures: Default::default(),
             avatars: Default::default(),
+            avatar_failed: Default::default(),
             avatar_slot,
             avatar_chan: std::sync::mpsc::channel(),
             op_route,
@@ -319,18 +321,25 @@ impl Session {
     }
 
     /// Asks for the senders' photos of the open room and turns the answers into textures.
-    /// shortcut: a failed download is not retried (initials stay); upgrade with a timed retry if flaky servers matter.
+    /// A transient failure is asked again after 30 s (like the GPUI timeline); initials stay meanwhile.
     fn drive_avatars(&mut self, ctx: &egui::Context) -> bool {
         let mut changed = false;
         while let Ok(p) = self.avatar_chan.1.try_recv() {
             let tex = p.rgba.map(|(w, h, rgba)| ctx.load_texture(&p.mxc, egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba), Default::default()));
             changed |= tex.is_some();
+            if tex.is_none() && p.retry {
+                self.avatars.remove(&p.mxc);
+                self.avatar_failed.insert(p.mxc, std::time::Instant::now());
+                continue;
+            }
+            self.avatar_failed.remove(&p.mxc);
             self.avatars.insert(p.mxc, tex);
         }
         let (Some(messages), Ok(slot)) = (&self.messages, self.avatar_slot.try_lock()) else { return changed };
         let Some(source) = slot.as_ref() else { return changed };
         for mxc in messages.sender_avatar_mxcs() {
-            if !self.avatars.contains_key(mxc) {
+            let waiting = self.avatar_failed.get(mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
+            if !self.avatars.contains_key(mxc) && !waiting {
                 self.avatars.insert(mxc.to_owned(), None);
                 source.request(mxc.to_owned(), self.avatar_chan.0.clone());
             }

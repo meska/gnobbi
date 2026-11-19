@@ -15,6 +15,7 @@ pub enum AuthError {
     Transport,
     InvalidUserId,
     LoginFailed,
+    RateLimited,
     CredentialsRejected,
     IdentityMismatch,
     LoggedOut,
@@ -132,13 +133,11 @@ impl AccountSession {
                 .send()
                 .await
                 .map_err(|error| {
-                    if matches!(
-                        error.client_api_error_kind(),
-                        Some(matrix_sdk::ruma::api::error::ErrorKind::Forbidden)
-                    ) {
-                        AuthError::CredentialsRejected
-                    } else {
-                        AuthError::LoginFailed
+                    use matrix_sdk::ruma::api::error::ErrorKind;
+                    match error.client_api_error_kind() {
+                        Some(ErrorKind::Forbidden) => AuthError::CredentialsRejected,
+                        Some(ErrorKind::LimitExceeded { .. }) => AuthError::RateLimited,
+                        _ => AuthError::LoginFailed,
                     }
                 })?;
             let session = Self {

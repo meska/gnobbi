@@ -131,6 +131,9 @@ impl FormStatus {
             Authentication(matrix_engine::auth::AuthError::CredentialsRejected) => {
                 "Credenziali non accettate. Riprova."
             }
+            Authentication(matrix_engine::auth::AuthError::RateLimited) => {
+                "Troppi tentativi: riprova tra qualche istante."
+            }
             Authentication(_) => {
                 "Accesso/sblocco non riuscito. Controlla le credenziali e riprova."
             }
@@ -403,5 +406,18 @@ mod brand_tests {
             let text = setup_message(SetupPhase::Failed(failure)).unwrap();
             assert!(!text.contains("Dime"), "{text}");
         }
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_tests {
+    use super::*;
+
+    #[test]
+    fn rate_limited_login_has_its_own_message() {
+        let status = FormStatus::Failed(matrix_engine::signin::SignInError::Authentication(
+            matrix_engine::auth::AuthError::RateLimited,
+        ));
+        assert_eq!(status.error_message(), Some("Troppi tentativi: riprova tra qualche istante."));
     }
 }
