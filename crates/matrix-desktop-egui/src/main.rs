@@ -607,49 +607,52 @@ impl App {
             Some(RoomSyncStatus::SyncFailed) => "Sincronizzazione interrotta",
             _ => "Connessione…",
         };
-        // One round button per account when there is more than one; the shown one is highlighted.
+        // The shown account sits on top of the spaces rail: a click lists the others, each with a dot below it (filled = unread).
         let mut pick_account = None;
-        if !self.parked.is_empty() {
-            let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
-            let mut entries: Vec<(Option<usize>, String, u64, Option<egui::TextureHandle>)> = Vec::new();
-            if let Some(s) = &self.session {
-                entries.push((None, s.account_name.clone(), unread(s), s.own_picture()));
-            }
-            for (i, p) in self.parked.iter().enumerate() {
-                entries.push((Some(i), p.session.account_name.clone(), unread(&p.session), p.session.own_picture()));
-            }
-            egui::Panel::left("accounts").exact_size(52.).resizable(false).frame(bar(t)).show(ui, |ui| {
-                ui.add_space(8.);
-                for (which, name, n, pic) in &entries {
-                    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(52., 48.), egui::Sense::click());
-                    let c = rect.center();
-                    if which.is_none() {
-                        ui.painter().rect_filled(egui::Rect::from_center_size(c, egui::Vec2::new(44., 44.)), 10., rgb(t.selected));
-                    } else if resp.hovered() {
-                        ui.painter().rect_filled(egui::Rect::from_center_size(c, egui::Vec2::new(44., 44.)), 10., rgb(t.input));
-                    }
-                    let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
-                    ui.painter().circle_filled(c, 16., rgb(AVATAR));
-                    ui.painter().text(c, egui::Align2::CENTER_CENTER, initial, egui::FontId::proportional(15.), rgb(t.on_accent));
-                    if let Some(tex) = pic {
-                        let r = egui::Rect::from_center_size(c, egui::Vec2::splat(32.));
-                        egui::Image::new(tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(16)).paint_at(ui, r);
-                    }
-                    if *n > 0 {
-                        list::badge(ui, c + egui::Vec2::new(14., -14.), *n, t);
-                    }
-                    resp.clone().on_hover_text(name.as_str());
-                    if resp.clicked() {
-                        pick_account = *which;
-                    }
-                }
-            });
-        }
-        if let Some(i) = pick_account {
-            self.switch_to(i);
-        }
+        let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
+        let others: Vec<(String, u64)> = self.parked.iter().map(|p| (p.session.account_name.clone(), unread(&p.session))).collect();
         if let Some(session) = &mut self.session {
             egui::Panel::left("rail").exact_size(64.).resizable(false).frame(bar(t)).show(ui, |ui| {
+                ui.add_space(8.);
+                let dots = if others.is_empty() { 0. } else { 10. };
+                let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(64., 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
+                let name = session.account_name.as_str();
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+                if !others.is_empty() && resp.hovered() {
+                    ui.painter().rect_filled(rect.shrink2(egui::Vec2::new(6., 2.)), 10., rgb(t.input));
+                }
+                let c = rect.center_top() + egui::Vec2::new(0., 26.);
+                let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
+                ui.painter().circle_filled(c, 18., rgb(AVATAR));
+                ui.painter().text(c, egui::Align2::CENTER_CENTER, initial, egui::FontId::proportional(16.), rgb(t.on_accent));
+                if let Some(tex) = session.own_picture() {
+                    let r = egui::Rect::from_center_size(c, egui::Vec2::splat(36.));
+                    egui::Image::new(&tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(18)).paint_at(ui, r);
+                }
+                for (i, (_, n)) in others.iter().enumerate() {
+                    let d = egui::Pos2::new(c.x + (i as f32 - (others.len() - 1) as f32 / 2.) * 10., rect.bottom() - 7.);
+                    if *n > 0 {
+                        ui.painter().circle_filled(d, 3., rgb(t.accent));
+                    } else {
+                        ui.painter().circle_stroke(d, 2.5, egui::Stroke::new(1., rgb(t.secondary)));
+                    }
+                }
+                if !others.is_empty() {
+                    // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the list without a click.
+                    if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
+                        egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
+                    }
+                    egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
+                        for (i, (other, n)) in others.iter().enumerate() {
+                            let count = if *n > 0 { n.to_string() } else { String::new() };
+                            if ui.add(egui::Button::new(other.as_str()).right_text(egui::RichText::new(count).color(rgb(t.accent)))).clicked() {
+                                pick_account = Some(i);
+                                ui.close();
+                            }
+                        }
+                    });
+                }
+                resp.on_hover_text(name);
                 list::rail(ui, &mut session.sidebar, &session.avatars, t);
             });
             egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
@@ -657,6 +660,9 @@ impl App {
                 list::rooms(ui, session, &mut new_chat, t);
                 session.new_open |= new_chat;
             });
+        }
+        if let Some(i) = pick_account {
+            self.switch_to(i);
         }
         let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
