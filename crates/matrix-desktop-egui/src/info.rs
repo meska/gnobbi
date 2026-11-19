@@ -226,7 +226,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
             *close = true;
         }
     });
-    egui::Panel::bottom("thread-input").frame(egui::Frame::NONE).show_inside(ui, |ui| {
+    egui::Panel::bottom("thread-input").show_separator_line(false).frame(egui::Frame::NONE).show_inside(ui, |ui| {
         ui.add_space(6.);
         if let Some((_, name)) = &th.reply_to {
             let name = name.clone();

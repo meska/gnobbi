@@ -2,7 +2,7 @@
 use eframe::egui::{self, Key, Modifiers, RichText};
 
 pub fn panel(frame: egui::Frame) -> egui::Panel {
-    egui::Panel::bottom("composer").min_size(40.).frame(frame.inner_margin(egui::Margin::symmetric(0, 4)))
+    egui::Panel::bottom("composer").min_size(40.).show_separator_line(false).frame(frame.inner_margin(egui::Margin::symmetric(0, 4)))
 }
 
 /// What the user asked of the microphone this frame.

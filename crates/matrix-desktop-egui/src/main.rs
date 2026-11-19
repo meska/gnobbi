@@ -221,6 +221,11 @@ fn bar(t: &DesignTokens) -> egui::Frame {
     egui::Frame::NONE.fill(rgb(t.surface))
 }
 
+fn list_fill(t: &DesignTokens) -> Color32 {
+    let surface = rgb(t.surface);
+    Color32::from_rgb(surface.r().saturating_sub(3), surface.g().saturating_sub(3), surface.b().saturating_sub(3))
+}
+
 impl eframe::App for App {
     /// Runs before every frame and also with the window minimized, occluded or hidden (then `ui` does not run):
     /// draining the backend here lets notifications go out with the window out of sight.
@@ -385,7 +390,7 @@ impl eframe::App for App {
         let t = self.tokens;
         // macOS: the content runs under the transparent titlebar; paint that strip like the bars below it.
         #[cfg(target_os = "macos")]
-        egui::Panel::top("titlebar").exact_size(28.).resizable(false).frame(egui::Frame::NONE.fill(rgb(t.surface))).show(ui, |ui| {
+        egui::Panel::top("titlebar").exact_size(28.).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(rgb(t.surface))).show(ui, |ui| {
             // The strip covers the native titlebar, so the clicks land here: hand the drag and the double-click zoom back to the window.
             let bar = ui.interact(ui.max_rect(), ui.id().with("drag"), egui::Sense::click_and_drag());
             if bar.double_clicked() {
@@ -740,7 +745,7 @@ impl App {
         let account = self.rail_account.as_ref().filter(|(root, _)| *root == self.root).map_or(0, |(_, id)| *id);
         if let Some(session) = &mut self.session {
             rail::edit_window(ui.ctx(), &mut session.sidebar, &mut self.rail, account, self.dirs.as_ref(), t);
-            egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).frame(bar(t)).show(ui, |ui| {
+            egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
                 ui.add_space(8.);
                 // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
                 let dots = others.len().div_ceil(5) as f32 * 10.;
@@ -788,10 +793,9 @@ impl App {
             if !narrow || self.list_open {
                 let before = session.sidebar.selected().map(|r| r.scope.clone());
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn (shortcut: re-clicking the open room does not close it).
-                let surface = rgb(t.surface);
-                let list_fill = Color32::from_rgb(surface.r().saturating_sub(7), surface.g().saturating_sub(7), surface.b().saturating_sub(7));
+                let list_fill = list_fill(t);
                 if narrow {
-                    egui::Panel::left("list-narrow").exact_size(ui.available_width()).resizable(false).frame(bar(t).fill(list_fill)).show(ui, |ui| {
+                    egui::Panel::left("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| {
                         let mut new_chat = false;
                         list::rooms(ui, session, &mut new_chat, t);
                         session.new_open |= new_chat;
@@ -801,7 +805,7 @@ impl App {
                     let resize_id = ui.scope_id().with_salt(egui::IdSalt::new("list")).with("__resize");
                     let hovered = ui.style().visuals.widgets.hovered.fg_stroke;
                     let active = ui.style().visuals.widgets.active.fg_stroke;
-                    let highlight = Stroke::new(1., rgb(t.secondary).gamma_multiply(0.35));
+                    let highlight = Stroke::NONE;
                     ui.style_mut().visuals.widgets.hovered.fg_stroke = highlight;
                     ui.style_mut().visuals.widgets.active.fg_stroke = highlight;
                     let response = egui::Panel::left("list")
@@ -843,7 +847,7 @@ impl App {
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
         let badge = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| (r.initials.clone(), r.color)));
         let head_pic = self.session.as_ref().and_then(|s| s.sidebar.selected().and_then(|r| r.info.avatar.as_deref()).and_then(|a| s.avatars.get(a)?.clone()));
-        egui::Panel::top("header").exact_size(t.header).frame(bar(t)).show(ui, |ui| {
+        egui::Panel::top("header").exact_size(t.header).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(16.);
                 if narrow && ui.button("☰").clicked() {
@@ -899,7 +903,7 @@ impl App {
             let mut alias_input = std::mem::take(&mut self.alias_input);
             let mut alias_action = None;
             let mut view = info::AliasView { data: s.aliases.as_ref(), error: s.alias_error, input: &mut alias_input, action: None };
-            egui::Panel::right("info").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, t));
+            egui::Panel::right("info").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, t));
             alias_action = view.action.take();
             self.alias_input = alias_input;
             if let (Some(action), Some(s)) = (alias_action, &mut self.session) {
@@ -920,7 +924,7 @@ impl App {
             let (rights, failed) = (s.rights.clone(), s.moderation_failed);
             let me = id == s.user;
             let can_verify = s.verification.as_ref().is_some_and(|v| v.can_begin());
-            egui::Panel::right("member").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t));
+            egui::Panel::right("member").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t));
             match action {
                 Some(info::ProfileAction::Message) => s.start_dm(id.clone()),
                 Some(info::ProfileAction::Mention) => {
@@ -962,7 +966,7 @@ impl App {
             let state = s.search.clone();
             let mut selected = None;
             let mut more = false;
-            egui::Panel::right("search").exact_size(300.).resizable(false).frame(bar(t)).show(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, &mut more, t));
+            egui::Panel::right("search").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, &mut more, t));
             if more { s.more_messages(); }
             if selected.is_some() {
                 s.search_jump = selected;
@@ -974,7 +978,17 @@ impl App {
         {
             let (mut close, mut body) = (false, None);
             let w = self.prefs.thread_width.map_or(320., |w| w as f32);
-            let shown = egui::Panel::right("thread").default_size(w).size_range(260. ..=640.).resizable(true).frame(bar(t)).show(ui, |ui| body = info::thread(ui, &mut th, &mut close, t));
+            let hovered = ui.style().visuals.widgets.hovered.fg_stroke;
+            let active = ui.style().visuals.widgets.active.fg_stroke;
+            ui.style_mut().visuals.widgets.hovered.fg_stroke = Stroke::NONE;
+            ui.style_mut().visuals.widgets.active.fg_stroke = Stroke::NONE;
+            let shown = egui::Panel::right("thread").default_size(w).size_range(260. ..=640.).resizable(true).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
+                ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
+                ui.style_mut().visuals.widgets.active.fg_stroke = active;
+                body = info::thread(ui, &mut th, &mut close, t);
+            });
+            ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
+            ui.style_mut().visuals.widgets.active.fg_stroke = active;
             // Saved once the drag is over, not on every frame of it.
             let now = shown.response.rect.width().round() as u32;
             if !ui.input(|i| i.pointer.any_down()) && self.prefs.thread_width.unwrap_or(320) != now && let Some(dirs) = &self.dirs {
@@ -1601,6 +1615,18 @@ mod tests {
         assert!(quick_hits(&index, "").is_empty());
         assert_eq!(quick_hits(&index, "caffe")[0].id, "!room:example.org");
         assert!(quick_hits(&index, "other").is_empty());
+    }
+
+    #[test]
+    fn list_background_stays_distinct_from_rail_and_timeline() {
+        for theme in Theme::ALL {
+            let t = theme.tokens_with(matrix_desktop::Accent::Blue);
+            let list = list_fill(&t);
+            let rail = rgb(t.surface);
+            let timeline = rgb(t.timeline);
+            assert!(list.r() < rail.r() && list.g() < rail.g() && list.b() < rail.b());
+            assert!(list.r().abs_diff(timeline.r()) >= 3 || list.g().abs_diff(timeline.g()) >= 3 || list.b().abs_diff(timeline.b()) >= 3, "{theme:?}: list {list:?}, timeline {timeline:?}");
+        }
     }
 
     #[test]
