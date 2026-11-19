@@ -255,6 +255,13 @@ impl Session {
                 RoomListEvent::Diff(diff) => {
                     self.sidebar.apply_diff(diff);
                 }
+                // A new event in a room (an upload that finished, a reply from someone else): read the open room again.
+                RoomListEvent::TimelineActivity(scope) => {
+                    if let Some(th) = &mut self.thread {
+                        th.next_read = std::time::Instant::now();
+                    }
+                    self.history.activity(&scope)
+                }
                 RoomListEvent::Order(order) => self.sidebar.set_order(order),
                 RoomListEvent::Alert(scope, message) => {
                     self.notifications.set_enabled(notifications);

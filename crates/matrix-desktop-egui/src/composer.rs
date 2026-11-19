@@ -17,7 +17,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         ui.horizontal(|ui| {
             ui.add_space(12.);
             ui.label(RichText::new(if mode == Mode::Reply { "Risposta" } else { "Modifica" }).strong());
-            if ui.small_button("✕").clicked() {
+            if crate::info::close_icon(ui).clicked() {
                 *cancel = true;
             }
         });
@@ -26,7 +26,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         ui.horizontal(|ui| {
             ui.add_space(12.);
             ui.label(format!("📎 {name}"));
-            if ui.small_button("✕").clicked() {
+            if crate::info::close_icon(ui).clicked() {
                 *drop_attachment = true;
             }
         });

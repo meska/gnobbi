@@ -110,7 +110,7 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
     ui.add_space(16.);
     ui.horizontal(|ui| {
         ui.add_space(16.);
-        if ui.small_button("✕").clicked() {
+        if crate::info::close_icon(ui).clicked() {
             *close = true;
         }
     });
@@ -190,7 +190,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
     ui.add_space(12.);
     ui.horizontal(|ui| {
         ui.add_space(12.);
-        if ui.small_button("✕").clicked() {
+        if crate::info::close_icon(ui).clicked() {
             *close = true;
         }
     });
@@ -279,7 +279,7 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
                     } else if data.can_edit_aliases && ui.small_button("Principale").clicked() {
                         view.action = Some(AliasAction::SetCanonical { alias: alias.clone() });
                     }
-                    if data.can_edit_aliases && ui.small_button("✕").clicked() {
+                    if data.can_edit_aliases && crate::info::close_icon(ui).clicked() {
                         view.action = Some(AliasAction::Remove { alias: alias.clone() });
                     }
                 });
@@ -301,4 +301,15 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
     });
     ui.add_space(4.);
     ui.separator();
+}
+
+/// The small X, drawn: the glyph is missing from the macOS system font.
+pub fn close_icon(ui: &mut egui::Ui) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.), egui::Sense::click());
+    let color = if resp.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
+    let c = rect.center();
+    let stroke = egui::Stroke::new(1.4, color);
+    ui.painter().line_segment([c + Vec2::new(-4., -4.), c + Vec2::new(4., 4.)], stroke);
+    ui.painter().line_segment([c + Vec2::new(-4., 4.), c + Vec2::new(4., -4.)], stroke);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
