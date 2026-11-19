@@ -1978,7 +1978,11 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
                 (styles, mentions) = (spans, pills);
                 body
             }
-            MsgLikeKind::Sticker(_) => "Sticker".into(),
+            // Shown as an inline image; the alt text stays in the accessible label, never as caption.
+            MsgLikeKind::Sticker(_) => {
+                media = Some(crate::history::Media { kind: crate::history::MediaKind::Image, label: "Sticker".into() });
+                String::new()
+            }
             MsgLikeKind::Poll(state) => {
                 let built = poll_from_results(&state.results(), room.own_user_id().as_str(), event.is_own());
                 let question = built.question.clone();

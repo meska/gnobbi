@@ -188,6 +188,40 @@ pub(crate) async fn download_video_thumbnail(
     .await
 }
 
+/// Mime and source of an `m.image` message or an `m.sticker` (spec v1.19: plain `url`; an
+/// encrypted `file` is only what the SDK reads back from other clients).
+fn image_source<T>(
+    raw: &matrix_sdk::ruma::serde::Raw<T>,
+) -> Result<(String, matrix_sdk::ruma::events::room::MediaSource), MediaError> {
+    use matrix_sdk::ruma::events::{
+        room::{MediaSource, message::{MessageType, RoomMessageEventContent}},
+        sticker::{StickerEventContent, StickerMediaSource},
+    };
+    let (info, source) = if raw.get_field::<String>("type").ok().flatten().as_deref() == Some("m.sticker") {
+        let sticker = raw
+            .get_field::<StickerEventContent>("content")
+            .map_err(|_| MediaError::UnsupportedType)?
+            .ok_or(MediaError::UnsupportedType)?;
+        let source = match sticker.source {
+            StickerMediaSource::Plain(uri) => MediaSource::Plain(uri),
+            StickerMediaSource::Encrypted(file) => MediaSource::Encrypted(file),
+            _ => return Err(MediaError::UnsupportedType),
+        };
+        (Some(sticker.info), source)
+    } else {
+        let content = raw
+            .get_field::<RoomMessageEventContent>("content")
+            .map_err(|_| MediaError::UnsupportedType)?
+            .ok_or(MediaError::UnsupportedType)?;
+        let MessageType::Image(image) = content.msgtype else {
+            return Err(MediaError::UnsupportedType);
+        };
+        (image.info.map(|i| *i), image.source)
+    };
+    let mime = info.and_then(|i| i.mimetype).ok_or(MediaError::UnsupportedType)?;
+    Ok((mime, source))
+}
+
 /// Read an exact scoped server event, never an arbitrary caller URL. Media
 /// uses authenticated HTTPS on this session's homeserver with no redirects.
 pub(crate) async fn download_png(
@@ -213,24 +247,9 @@ pub(crate) async fn download_png(
             .event(&event_id, None)
             .await
             .map_err(|_| MediaError::Failed)?;
-        let content = event
-            .raw()
-            .get_field::<matrix_sdk::ruma::events::room::message::RoomMessageEventContent>(
-                "content",
-            )
-            .map_err(|_| MediaError::UnsupportedType)?
-            .ok_or(MediaError::UnsupportedType)?;
-        let matrix_sdk::ruma::events::room::message::MessageType::Image(image) = content.msgtype
-        else {
-            return Err(MediaError::UnsupportedType);
-        };
-        let mime = image
-            .info
-            .as_ref()
-            .and_then(|i| i.mimetype.clone())
-            .ok_or(MediaError::UnsupportedType)?;
+        let (mime, source) = image_source(event.raw())?;
         format_for_mime(&mime).ok_or(MediaError::UnsupportedType)?;
-        let (uri, encrypted_file) = match checked_source(image.source)? {
+        let (uri, encrypted_file) = match checked_source(source)? {
             matrix_sdk::ruma::events::room::MediaSource::Plain(uri) => (uri, None),
             matrix_sdk::ruma::events::room::MediaSource::Encrypted(file) => {
                 (file.url.clone(), Some(file))
@@ -469,5 +488,35 @@ mod checked_source_tests {
         }
         let ok = OwnedMxcUri::from("mxc://matrix.example.org:8448/abcDEF-_09");
         assert!(checked_source(MediaSource::Plain(ok)).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod image_source_tests {
+    use super::image_source;
+    use matrix_sdk::ruma::{events::room::MediaSource, serde::Raw};
+
+    fn raw(json: &str) -> Raw<serde_json::Value> {
+        Raw::from_json_string(json.to_owned()).unwrap()
+    }
+
+    #[test]
+    fn sticker_with_plain_url_gives_mime_and_source() {
+        let (mime, source) = image_source(&raw(
+            r#"{"type":"m.sticker","content":{"body":"ciao","info":{"mimetype":"image/webp"},"url":"mxc://x/abc"}}"#,
+        ))
+        .unwrap();
+        assert_eq!(mime, "image/webp");
+        assert!(matches!(source, MediaSource::Plain(u) if u == "mxc://x/abc"));
+    }
+
+    #[test]
+    fn image_message_still_works_and_other_types_are_refused() {
+        let image = r#"{"type":"m.room.message","content":{"msgtype":"m.image","body":"a.png","info":{"mimetype":"image/png"},"url":"mxc://x/a"}}"#;
+        assert_eq!(image_source(&raw(image)).unwrap().0, "image/png");
+        let text = r#"{"type":"m.room.message","content":{"msgtype":"m.text","body":"x"}}"#;
+        assert!(image_source(&raw(text)).is_err());
+        let no_mime = r#"{"type":"m.sticker","content":{"body":"x","info":{},"url":"mxc://x/abc"}}"#;
+        assert!(image_source(&raw(no_mime)).is_err());
     }
 }
