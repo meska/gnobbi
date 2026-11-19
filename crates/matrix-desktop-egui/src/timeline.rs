@@ -232,7 +232,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                                 }
                                 for (text, url) in link_parts(seg) {
                                     if let Some(url) = url {
-                                        if ui.link(RichText::new(text).size(BODY)).clicked() {
+                                        if ui.link(RichText::new(text).size(BODY).color(rgb(t.accent)).underline()).clicked() {
                                             acts.open_link = Some(url);
                                         }
                                     } else {
