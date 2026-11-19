@@ -240,6 +240,8 @@ pub struct Preferences {
     pub list_width: Option<u32>,
     /// «Anteprima messaggi»: on by default, also when the saved value is missing or not a boolean.
     pub message_preview: bool,
+    /// Width of the thread drawer as dragged by the user; `None` = the default. Per installation.
+    pub thread_width: Option<u32>,
     /// «Conteggio» per account: catalog IDs with it on. Stored as `notification_accounts`, which
     /// `encode` never writes, so only `set_count_preview` touches it.
     pub count_preview_accounts: BTreeSet<u64>,
@@ -266,6 +268,7 @@ impl Default for Preferences {
             update_base: None,
             list_width: None,
             message_preview: true,
+            thread_width: None,
             count_preview_accounts: BTreeSet::new(),
         }
     }
@@ -416,6 +419,7 @@ impl Preferences {
                 .map(str::to_owned),
             list_width: map.get("list_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
             message_preview: map.get("message_preview").and_then(Value::as_bool).unwrap_or(true),
+            thread_width: map.get("thread_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
             count_preview_accounts: map
                 .get("notification_accounts")
                 .and_then(Value::as_object)
@@ -464,7 +468,7 @@ impl Preferences {
     }
 
     fn encode(&self, map: &mut serde_json::Map<String, Value>) {
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width });
         if let Value::Object(own) = body {
             map.extend(own);
         }

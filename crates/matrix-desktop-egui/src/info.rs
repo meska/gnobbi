@@ -235,11 +235,8 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
                 if ui.button("×").clicked() { th.reply_to = None; }
             });
         }
-        let r = ui.add_sized([ui.available_width() - 12., 32.], egui::TextEdit::singleline(&mut th.draft).hint_text("Rispondi nel thread"));
-        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !th.draft.trim().is_empty() {
-            send = Some(std::mem::take(&mut th.draft));
-            r.request_focus();
-        }
+        let (mut cancel, mut drop, mut poll, mut picked, mut pasted, mut voice) = (false, false, false, None, None, None);
+        send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, None, &mut cancel, &mut drop, &mut poll, &mut picked, &mut pasted, None, &mut voice, &[], &mut Vec::new());
         ui.add_space(6.);
     });
     let Some(page) = &th.page else {
@@ -271,6 +268,9 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
                     } else {
                         ui.label(&e.body);
                     }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                        ui.label(RichText::new(matrix_desktop::bubble_stamp(&matrix_desktop::time_fmt::clock_time(e.timestamp_ms), e.outgoing, None)).size(10.).color(rgb(t.secondary)));
+                    });
                 });
             }).response.interact(egui::Sense::click());
             row.context_menu(|ui| {

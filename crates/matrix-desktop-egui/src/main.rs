@@ -928,7 +928,14 @@ impl App {
             && let Some(mut th) = s.thread.take()
         {
             let (mut close, mut body) = (false, None);
-            egui::Panel::right("thread").exact_size(320.).resizable(false).frame(bar(t)).show(ui, |ui| body = info::thread(ui, &mut th, &mut close, t));
+            let w = self.prefs.thread_width.map_or(320., |w| w as f32);
+            let shown = egui::Panel::right("thread").default_size(w).size_range(260. ..=640.).resizable(true).frame(bar(t)).show(ui, |ui| body = info::thread(ui, &mut th, &mut close, t));
+            // Saved once the drag is over, not on every frame of it.
+            let now = shown.response.rect.width().round() as u32;
+            if !ui.input(|i| i.pointer.any_down()) && self.prefs.thread_width.unwrap_or(320) != now && let Some(dirs) = &self.dirs {
+                self.prefs.thread_width = Some(now);
+                if let Err(e) = Preferences::update(dirs, |p| p.thread_width = Some(now)) { eprintln!("thread width not saved: {e}"); }
+            }
             if !close {
                 s.thread = Some(th);
             }
@@ -953,7 +960,7 @@ impl App {
                     ui.label(notice);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
-                to_send = composer::show(ui, &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, s.recorder.as_ref().map(|r| r.elapsed_secs()), &mut voice_act, &members, &mut s.mentions);
+                to_send = composer::show(ui, "", &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, s.recorder.as_ref().map(|r| r.elapsed_secs()), &mut voice_act, &members, &mut s.mentions);
                 if let Some(image) = pasted_image {
                     s.attach_image(&image);
                 }

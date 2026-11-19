@@ -327,7 +327,10 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     });
                 }
                 ui.add_space(4.);
-                ui.label(RichText::new(e.stamp_read(read)).size(10.).color(rgb(t.secondary)));
+                // Bottom right of the bubble (the bubble is shrink-wrapped to its widest line, so this is its right edge).
+                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                    ui.label(RichText::new(e.stamp_read(read)).size(10.).color(rgb(t.secondary)));
+                });
             });
         });
         // Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.

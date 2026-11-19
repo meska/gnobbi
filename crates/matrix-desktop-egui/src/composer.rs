@@ -22,13 +22,22 @@ pub enum Mode {
 }
 
 /// Returns the text to send when Enter was pressed on a non-empty draft; `cancel` is set by the X of the mode bar.
-pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
+/// Suffix of the widget ids of the thread drawer's composer, so it can sit beside the main one.
+pub const THREAD: &str = "-thread";
+
+/// `salt` is `""` for the room composer and `THREAD` for the drawer (no attach, poll or voice there: they would act on the room).
+pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     // consume_key matches Shift loosely, so Shift+Enter is checked on the event and left to the TextEdit (it inserts the newline).
     let shift_enter = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.shift)));
-    let enter = !shift_enter && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
+    let nid = |base: &str| egui::Id::new(format!("{base}{salt}"));
+    let thread = !salt.is_empty();
+    // Two composers on screen: Enter belongs to the focused one; the room one also keeps it when nothing is focused.
+    let focus = ui.memory(|m| m.focused());
+    let mine = focus == Some(nid("composer-text")) || (!thread && focus != Some(egui::Id::new(format!("composer-text{THREAD}"))));
+    let enter = mine && !shift_enter && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter));
     // The Enter that confirms an IME / dead-key composition must not send: ignore it while composing and in the frame of the IME event.
-    let ime_id = egui::Id::new("composer-ime");
+    let ime_id = nid("composer-ime");
     let ime_event = ui.input(|i| i.events.iter().find_map(|e| match e {
         egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => Some(!text.is_empty()),
         egui::Event::Ime(egui::ImeEvent::Commit(_)) => Some(false),
@@ -73,8 +82,9 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
     ui.horizontal_top(|ui| {
         ui.add_space(12.);
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
-        let w = (ui.available_width() - 4. * 32. - 5. * ui.spacing().item_spacing.x - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
-        let id = egui::Id::new("composer-text");
+        let slots = if thread { 2. } else { 4. };
+        let w = (ui.available_width() - slots * 32. - (slots + 1.) * ui.spacing().item_spacing.x - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
+        let id = nid("composer-text");
         if ui.memory(|m| m.has_focus(id)) {
             *pasted = ui.input(|i| i.events.iter().find_map(|e| match e {
                 egui::Event::PasteImage(image) => Some(image.as_ref().clone()),
@@ -88,10 +98,10 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         let max_h = 8. * row + 2. * pad;
         // A child ui with its own max height: inside a horizontal row the available height is one row, which would cap the scroll area.
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(ui.cursor().min, egui::vec2(w + 8., max_h))));
-        let scroll = egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(0.).id_salt("composer-scroll").show(&mut child, |ui| {
+        let scroll = egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(0.).id_salt(nid("composer-scroll")).show(&mut child, |ui| {
             egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, pad as i8)).show(ui, |ui| {
                 ui.spacing_mut().interact_size.y = row; // else the editor is 20 px tall and the text sits at its top
-                egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
+                egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text(if thread { "Rispondi nel thread" } else { "Scrivi un messaggio" }).desired_width(w).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
             }).inner
         });
         let text_h = scroll.content_size.y.min(max_h);
@@ -105,9 +115,9 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         ui.add_space((text_h - 32.).max(0.));
         ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
-        let emoji = icon_at(ui, rect, "composer-emoji", &emoji_strokes(), 1., true, "Emoji");
+        let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), &emoji_strokes(), 1., true, "Emoji");
         egui::Popup::menu(&emoji).show(|ui| {
-            egui::Grid::new("emoji-grid").show(ui, |ui| {
+            egui::Grid::new(nid("emoji-grid")).show(ui, |ui| {
                 for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
                     if ui.button(*emoji).on_hover_text(*name).clicked() {
                         insert_emoji(ui.ctx(), id, draft, emoji);
@@ -119,6 +129,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
                 }
             });
         });
+        if !thread {
         let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
         if icon_at(ui, rect, "composer-poll", &poll_strokes(), 1., true, "Sondaggio").clicked() {
             *poll = true;
@@ -127,14 +138,15 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         if icon_at(ui, rect, "composer-attach", &attach_strokes(), 1., true, "Allega un file").clicked() {
             *picked = crate::pick::file("Allega un file", false);
         }
+        }
         // Voice and Send share one slot and cross-fade; the one fading out is inert.
         let has_text = !(draft.trim().is_empty() && attachment.is_none());
-        let t = ui.ctx().animate_bool_with_time(egui::Id::new("composer-send-fade"), has_text, 0.15);
+        let t = ui.ctx().animate_bool_with_time(nid("composer-send-fade"), has_text, 0.15);
         let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
-        if t < 1. && icon_at(ui, rect, "composer-voice", &voice_strokes(), 1. - t, !has_text, "Nota vocale").clicked() {
+        if !thread && t < 1. && icon_at(ui, rect, "composer-voice", &voice_strokes(), 1. - t, !has_text, "Nota vocale").clicked() {
             *voice = Some(VoiceAct::Start);
         }
-        if t > 0. && icon_at(ui, rect, "composer-send", &send_strokes(), t, has_text, "Invia").clicked() {
+        if t > 0. && icon_at(ui, rect, &format!("composer-send{salt}"), &send_strokes(), t, has_text, "Invia").clicked() {
             send_click = true;
         }
         });
@@ -262,7 +274,7 @@ mod tests {
             let mut out = ctx.run_ui(input.clone(), |ui| {
                 let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
-                    super::show(ui, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
+                    super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
                 });
                 h = r.response.rect.height();
             });
@@ -306,7 +318,7 @@ mod tests {
             let mut out = ctx.run_ui(input, |ui| {
                 let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, false, false, None, None, None);
-                    sent = super::show(ui, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
+                    sent = super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new());
                 });
                 panel_right = r.response.rect.right();
                 panel_bottom = r.response.rect.bottom();
@@ -441,7 +453,7 @@ fn icon_at(ui: &mut egui::Ui, rect: egui::Rect, id: &str, lines: &Strokes, alpha
     }
     let origin = rect.center() - (lo.to_vec2() + hi.to_vec2()) / 2. * 1.2;
     let visuals = ui.visuals();
-    let base = if id == "composer-send" { visuals.hyperlink_color } else { visuals.widgets.inactive.fg_stroke.color };
+    let base = if id.starts_with("composer-send") { visuals.hyperlink_color } else { visuals.widgets.inactive.fg_stroke.color };
     let color = if resp.hovered() && active { visuals.strong_text_color() } else { base }.gamma_multiply(alpha);
     let painter = ui.painter();
     if resp.hovered() && active {
