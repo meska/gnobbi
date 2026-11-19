@@ -34,6 +34,16 @@ fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWebUrl>)> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn prepended_page_shifts_measured_heights() {
+        let (mut rows, mut first) = (vec![10., 20.], None);
+        super::shift_for_prepend(&mut rows, &mut first, &[&3, &4]);
+        assert_eq!((rows.clone(), first), (vec![10., 20.], Some(3)));
+        let mut first = Some(3);
+        super::shift_for_prepend(&mut rows, &mut first, &[&1, &2, &3, &4]);
+        assert_eq!((rows, first), (vec![56., 56., 10., 20.], Some(1)));
+    }
+
+    #[test]
     fn links_preserve_surrounding_text_and_reject_unsafe_urls() {
         let parts = super::link_parts("Ciao https://example.org/a e javascript:alert(1)");
         assert_eq!(parts.iter().map(|(s, _)| *s).collect::<String>(), "Ciao https://example.org/a e javascript:alert(1)");
@@ -77,6 +87,8 @@ fn rgb(c: u32) -> Color32 {
 pub struct Heights {
     width: f32,
     rows: Vec<f32>,
+    /// Id of the first row `rows` was measured for: a page prepended on top shifts every index.
+    first: Option<matrix_domain::ScopedTimelineId>,
     /// The newest message is in (or near) view: what lets a read receipt go out.
     pub at_bottom: bool,
 }
@@ -270,6 +282,14 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
     (opened, save, thread)
 }
 
+/// Older page on top: the measured heights move with their rows, else every row takes a neighbour's height and the scroll jumps.
+fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Option<T>, ids: &[&T]) {
+    if let Some(at) = first.as_ref().and_then(|f| ids.iter().position(|id| *id == f)) {
+        rows.splice(0..0, std::iter::repeat_n(GUESS, at));
+    }
+    *first = ids.first().map(|id| (*id).clone());
+}
+
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
 pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, peer_read: Option<usize>, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     let mut menu = None;
@@ -279,6 +299,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
         heights.width = ui.available_width();
         heights.rows.clear();
     }
+    shift_for_prepend(&mut heights.rows, &mut heights.first, &events.iter().map(|e| &e.id).collect::<Vec<_>>());
     heights.rows.resize(events.len(), GUESS);
     let mut first = 0;
     let out = egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show_viewport(ui, |ui, view| {
