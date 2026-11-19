@@ -366,6 +366,9 @@ impl Session {
         // A click on an alert opens its room (once it is in the list).
         if let Some((_, scope)) = self.notify.as_ref().and_then(|h| h.take_click()) {
             self.pending_select = Some(scope);
+            // Hidden to the tray or minimized: a bare Focus would leave the window out of sight.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         changed |= self.drive_history();

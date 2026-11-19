@@ -259,13 +259,14 @@ mod macos {
     use objc2_user_notifications::*;
     use std::collections::HashMap;
 
-    type Ids = HashMap<RoomScope, (u32, Option<AccountId>)>;
+    // Each entry carries the `Click` slot of the worker (= account session) that alerted: the delegate is one per process.
+    type Ids = HashMap<RoomScope, (u32, Option<AccountId>, Click)>;
     static IDS: Mutex<Option<Ids>> = Mutex::new(None);
 
     define_class!(
         #[unsafe(super(NSObject))]
         #[name = "GnobbiNotificationDelegate"]
-        #[ivars = Click]
+        #[ivars = ()]
         struct Delegate;
         unsafe impl NSObjectProtocol for Delegate {}
         unsafe impl UNUserNotificationCenterDelegate for Delegate {
@@ -273,9 +274,9 @@ mod macos {
             fn did_receive(&self, _: &UNUserNotificationCenter, response: &UNNotificationResponse, done: &DynBlock<dyn Fn()>) {
                 let id = response.notification().request().identifier().to_string();
                 let target = IDS.lock().ok().and_then(|ids| {
-                    ids.as_ref()?.iter().find(|(_, (n, _))| n.to_string() == id).map(|(scope, (_, account))| (*account, scope.clone()))
+                    ids.as_ref()?.iter().find(|(_, (n, ..))| n.to_string() == id).map(|(scope, (_, account, slot))| (slot.clone(), (*account, scope.clone())))
                 });
-                if let (Some(target), Ok(mut slot)) = (target, self.ivars().lock()) {
+                if let Some((slot, target)) = target && let Ok(mut slot) = slot.lock() {
                     *slot = Some(target);
                 }
                 done.call(());
@@ -295,7 +296,7 @@ mod macos {
         let center = UNUserNotificationCenter::currentNotificationCenter();
         let mut guard = IDS.lock().map_err(|_| NotificationError::Worker)?;
         let ids = guard.get_or_insert_with(|| {
-            let delegate: Retained<Delegate> = unsafe { msg_send![super(Delegate::alloc().set_ivars(click.clone())), init] };
+            let delegate: Retained<Delegate> = unsafe { msg_send![super(Delegate::alloc().set_ivars(())), init] };
             center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
             std::mem::forget(delegate); // the center keeps only a weak reference
             center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert, &RcBlock::new(|_, _: *mut NSError| {}));
@@ -307,7 +308,9 @@ mod macos {
         };
         // shortcut: one id per room ever alerted; upgrade if rooms become unbounded.
         let next = ids.len() as u32 + 1;
-        let id = ids.entry(scope).or_insert((next, account)).0;
+        let entry = ids.entry(scope).or_insert((next, account, click.clone()));
+        entry.2 = click.clone(); // a re-added account has a new worker
+        let id = entry.0;
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(notification.title()));
         content.setBody(&NSString::from_str(&notification.body()));
