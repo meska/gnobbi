@@ -385,7 +385,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
             audio: None,
             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None,
-            thread_root: None,
+            thread_root: None, reply_to: None,
             status: false,
             attachment_name: None,
             attachment_size: None, media: None,
@@ -482,7 +482,7 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
                 matrix_engine::rich_text::MentionSpan { range: at("Ada"), kind: user(ADA, "Ada") },
                 matrix_engine::rich_text::MentionSpan { range: at("Gone"), kind: user(GONE, "Gone") },
             ],
-            highlighted: false, thread: None, thread_root: None, status: true, attachment_name: None, attachment_size: None, media: None,
+            highlighted: false, thread: None, thread_root: None, reply_to: None, status: true, attachment_name: None, attachment_size: None, media: None,
         }]);
         this.timeline = Some(timeline);
         this.composer.update(cx, |v, cx| v.focus_from_accessibility(window, cx));

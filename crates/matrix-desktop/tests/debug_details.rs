@@ -24,7 +24,7 @@ fn server_message_exposes_its_event_id_and_unsent_one_does_not() {
         video: None,
         audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
-        thread: None, thread_root: None,
+        thread: None, thread_root: None, reply_to: None,
         status: false,
         utd: false,
         attachment_name: None,

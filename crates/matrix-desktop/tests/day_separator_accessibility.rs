@@ -22,7 +22,7 @@ fn row(id: &str, timestamp_ms: u64) -> HistoryEvent {
         attachment_size: None,
         styles: Vec::new(),
         thread: None,
-        thread_root: None,
+        thread_root: None, reply_to: None,
         status: false,
         utd: false,
         media: None,

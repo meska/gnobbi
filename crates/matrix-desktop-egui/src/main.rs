@@ -1107,7 +1107,9 @@ impl App {
                 && let Some(messages) = &s.messages
                 && !stale
             {
-                let mut acts = timeline::Acts { now_playing: s.audio_now(), ..Default::default() };
+                s.flash = s.flash.take().filter(|(_, at)| at.elapsed() < std::time::Duration::from_millis(1500));
+                if s.flash.is_some() { ui.ctx().request_repaint_after(std::time::Duration::from_millis(100)); }
+                let mut acts = timeline::Acts { now_playing: s.audio_now(), flash: s.flash.as_ref().map(|(id, _)| id.clone()), ..Default::default() };
                 let jump = s.search_jump.as_ref().and_then(|(id, _)| messages.events().iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())));
                 let room = s.sidebar.selected();
                 let members = room.map_or(3, |r| r.info.joined_members);
@@ -1115,8 +1117,10 @@ impl App {
                 // Scroll state per room: one shared id carried the old room's offset into the new one (jump on switch).
                 let (first, menu, save, thread) = ui.push_id(room.map(|r| r.scope.room_id.as_str()), |ui| timeline::show(ui, room.map_or(0, |r| r.unread), messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, &readers, t, jump)).inner;
                 if jump.is_some() && let Some((root, open_thread)) = s.search_jump.take() {
-                    if open_thread { s.open_thread(root); }
+                    if open_thread { s.open_thread(root); } else { s.flash = Some((root, std::time::Instant::now())); }
                 }
+                // Not in memory: the same loop as a search hit loads older pages until it shows up.
+                if let Some(id) = acts.reply_jump.take() { s.search_jump = Some((id, false)); }
                 s.first_visible = first;
                 if let Some((id, pos)) = menu {
                     s.open_menu(id, pos);

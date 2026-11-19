@@ -153,6 +153,8 @@ pub struct Session {
     search_sent: String,
     pub search: matrix_engine::operations::MessageSearchState,
     pub search_jump: Option<(EventId, bool)>,
+    /// The message a jump landed on and when: drawn lit for a moment.
+    pub flash: Option<(EventId, std::time::Instant)>,
     media: LiveMedia,
     pub viewer: Option<crate::viewer::Viewer>,
     media_route: Option<(matrix_engine::Sender<MediaCommand>, Receiver<MediaEvent>)>,
@@ -282,6 +284,7 @@ impl Session {
             search_sent: String::new(),
             search: matrix_engine::operations::MessageSearchState::Idle,
             search_jump: None,
+            flash: None,
             media: LiveMedia::default(),
             viewer: None,
             media_route,

@@ -23,7 +23,7 @@ fn row(id: &str, kind: Option<MediaKind>, label: &str, caption: &str) -> History
         audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
-        thread_root: None,
+        thread_root: None, reply_to: None,
         status: false,
         attachment_name: kind.map(|_| "dati.png".into()),
         attachment_size: kind.map(|_| 10),

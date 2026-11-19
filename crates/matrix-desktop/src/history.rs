@@ -70,6 +70,8 @@ pub struct DemoEvent {
     pub thread: Option<matrix_engine::history::ThreadInfo>,
     /// Set on a reply inside a thread: the thread's root.
     pub thread_root: Option<matrix_domain::EventId>,
+    /// Set on a reply: the quote drawn at the top of the bubble.
+    pub reply_to: Option<matrix_engine::history::ReplyRef>,
     /// A status row (join, invite, rename…): drawn as a quiet centred line, not a bubble.
     pub status: bool,
     /// Could not be decrypted: the row offers «Recupera chiavi» while the recovery is incomplete.
@@ -194,6 +196,7 @@ impl DemoHistory {
                     styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
+                    reply_to: None,
                     status: false,
                     utd: false,
                     video: None,
@@ -277,6 +280,7 @@ impl DemoHistory {
             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
             thread: None,
             thread_root: None,
+            reply_to: None,
             status: false,
             utd: false,
             video: None,
@@ -427,6 +431,7 @@ impl DemoHistory {
                 highlighted: event.highlighted,
                 thread: event.thread,
                 thread_root: event.thread_root,
+                reply_to: event.reply_to,
                 status: event.status,
                 utd: event.utd,
                 attachment_name: event.attachment_name,
@@ -574,6 +579,7 @@ impl DemoHistory {
                     styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
+                    reply_to: None,
                     status: false,
                     utd: false,
                     video: None,
@@ -664,6 +670,7 @@ impl DemoHistory {
                     styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                     thread: None,
                     thread_root: None,
+                    reply_to: None,
                     status: false,
                     utd: false,
                     video: None,

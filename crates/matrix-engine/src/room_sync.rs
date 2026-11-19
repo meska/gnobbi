@@ -1995,6 +1995,10 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             highlighted: event.is_highlighted(),
             thread: thread_info(room, content).await,
             thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
+            reply_to: match &content.in_reply_to {
+                Some(r) => Some(reply_ref(room, r).await),
+                None => None,
+            },
             status: false,
             utd: matches!(content.kind, MsgLikeKind::UnableToDecrypt(_)),
             attachment_name,
@@ -2003,6 +2007,30 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
         });
     }
     out
+}
+
+/// The quote of a reply from what the SDK already holds of the original (no extra request).
+async fn reply_ref(room: &matrix_sdk::room::Room, r: &matrix_sdk_ui::timeline::InReplyToDetails) -> crate::history::ReplyRef {
+    use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineDetails};
+    let (mut author, mut preview) = (None, None);
+    if let TimelineDetails::Ready(orig) = &r.event {
+        let text = match orig.content.as_msglike().map(|m| &m.kind) {
+            Some(MsgLikeKind::Message(m)) => {
+                let media = media_of(m.msgtype());
+                let body = if media.is_some() { caption_rich(room, m.msgtype(), false).await.0 } else { message_rich(room, m.msgtype(), false).await.0 };
+                Some(crate::history::quote_preview(&body, media.as_ref(), 80))
+            }
+            Some(MsgLikeKind::Sticker(_)) => Some("Sticker".to_owned()),
+            Some(MsgLikeKind::Poll(p)) => Some(crate::history::quote_preview(&p.results().question, None, 80)),
+            _ => None, // deleted or undecryptable: «Messaggio non disponibile»
+        };
+        if text.is_some() {
+            let s = history_sender(room, &orig.sender).await;
+            author = Some(s.name.unwrap_or(s.id));
+            preview = text.filter(|t| !t.is_empty());
+        }
+    }
+    crate::history::ReplyRef { event_id: matrix_domain::EventId::new(r.event_id.as_str()), author, preview }
 }
 
 /// The SDK result (already counted: last vote wins, votes after the end ignored) as a domain `Poll`.
@@ -2149,6 +2177,7 @@ async fn status_row(
         highlighted: false,
         thread: None,
         thread_root: None,
+        reply_to: None,
         status: true,
         utd: false,
         attachment_name: None,

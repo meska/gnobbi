@@ -13,6 +13,10 @@ pub struct Acts {
     pub now_playing: Option<(matrix_domain::EventId, bool, f32)>,
     pub open_link: Option<matrix_desktop::SafeWebUrl>,
     pub picture: Option<(matrix_domain::EventId, bool, String)>,
+    /// The quote of a reply was clicked: the original to scroll to.
+    pub reply_jump: Option<matrix_domain::EventId>,
+    /// The message just jumped to, lit for a moment.
+    pub flash: Option<matrix_domain::EventId>,
 }
 
 fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWebUrl>)> {
@@ -239,7 +243,8 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             }
             ui.add_space(8.);
         }
-        let fill = if e.highlighted { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
+        let flashed = matches!((&e.id.id, &acts.flash), (matrix_domain::TimelineId::Server(a), Some(b)) if a == b);
+        let fill = if e.highlighted || flashed { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
         let frame = egui::Frame::NONE.fill(fill).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8)).show(ui, |ui| {
             // Shrink-wrap: as wide as the longest of text, sender and time (at most `max`), not the whole column.
             let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
@@ -250,10 +255,33 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
             }
+            let quote = e.reply_to.as_ref().map(|r| (r.author.as_deref().unwrap_or(matrix_engine::history::REPLY_UNAVAILABLE), r.preview.as_deref().filter(|_| r.author.is_some())));
+            if let Some((a, p)) = quote {
+                w = w.max(measure(a, 12.)).max(p.map_or(0., |p| measure(p, 12.)).min(220.));
+            }
             ui.set_width(if wide { inner.min(320.).max(w) } else { w.min(inner) + 1. });
             ui.vertical(|ui| {
                 if let Some(name) = label {
                     ui.label(RichText::new(name).size(12.).strong().color(rgb(t.accent)));
+                }
+                if let (Some((author, preview)), Some(r)) = (quote, &e.reply_to) {
+                    // Telegram-style quote: accent bar, original author, one line of its text; a click scrolls to the original.
+                    let q = ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 6.;
+                        let (bar, _) = ui.allocate_exact_size(Vec2::new(3., 32.), egui::Sense::hover());
+                        ui.painter().rect_filled(bar, 1., rgb(t.accent));
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 0.;
+                            ui.add(egui::Label::new(RichText::new(author).size(12.).strong().color(rgb(t.accent))).truncate());
+                            if let Some(p) = preview {
+                                ui.add(egui::Label::new(RichText::new(p).size(12.).color(rgb(t.secondary))).truncate());
+                            }
+                        });
+                    });
+                    let hit = ui.interact(q.response.rect, ui.id().with(("quote", &e.id.id)), egui::Sense::click());
+                    if hit.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
+                    if hit.clicked() { acts.reply_jump = Some(r.event_id.clone()); }
+                    ui.add_space(4.);
                 }
                 if let (Some(media), matrix_domain::TimelineId::Server(id)) = (&e.media, &e.id.id) {
                     match pictures.get(id) {

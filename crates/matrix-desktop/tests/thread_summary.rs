@@ -19,7 +19,7 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
             latest_sender: Some(HistorySender::new(latest, None)),
             unread: 0,
         }),
-        thread_root: None,
+        thread_root: None, reply_to: None,
         status: false,
         utd: false,
         attachment_name: None,

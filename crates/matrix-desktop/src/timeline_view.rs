@@ -3101,7 +3101,7 @@ mod tests {
                             audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
-                            thread_root: None,
+                            thread_root: None, reply_to: None,
                             status: false,
                             utd: false,
                             attachment_name: None,
@@ -3245,7 +3245,7 @@ mod tests {
                             audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
-                            thread_root: None,
+                            thread_root: None, reply_to: None,
                             status: false,
                             utd: false,
                             attachment_name: None,
@@ -3371,7 +3371,7 @@ mod tests {
                             audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
-                            thread_root: None,
+                            thread_root: None, reply_to: None,
                             status: false,
                             utd: false,
                             attachment_name: None,
@@ -3533,7 +3533,7 @@ mod tests {
                             }),
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
-                            thread_root: None,
+                            thread_root: None, reply_to: None,
                             status: false,
                             utd: false,
                             attachment_name: Some("nota-vocale.ogg".into()),
@@ -3631,7 +3631,7 @@ mod tests {
                             sender: HistorySender::new("@a:fixture.invalid", None), video: None,
                             audio: Some(AudioInfo { duration_ms: Some(12_000), size: Some(1_468_006), voice: true, waveform: (0..wave_len).map(|i| 0.3 + ((i * 7) % 10) as f32 / 15.0).collect() }),
                             media: Some(matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Audio, label: "Nota vocale · 0:12".into() }),
-                            styles: Vec::new(), mentions: Vec::new(), highlighted: false, thread: None, thread_root: None, status: false, utd: false,
+                            styles: Vec::new(), mentions: Vec::new(), highlighted: false, thread: None, thread_root: None, reply_to: None, status: false, utd: false,
                             attachment_name: Some("nota-vocale.ogg".into()), attachment_size: Some(1_468_006),
                         }]);
                         let mut ui = v.audio.borrow_mut();
@@ -3763,7 +3763,7 @@ mod tests {
                                 MentionSpan { range: at("@room"), kind: MentionKind::AtRoom },
                                 MentionSpan { range: at("#qa"), kind: MentionKind::Room },
                             ],
-                            highlighted: true, thread: None, thread_root: None, status: false, attachment_name: None, attachment_size: None, media: None,
+                            highlighted: true, thread: None, thread_root: None, reply_to: None, status: false, attachment_name: None, attachment_size: None, media: None,
                         }]);
                         ShotHost(v)
                     })
@@ -3826,7 +3826,7 @@ mod tests {
                             poll: None, redacted: false, utd: false, event_id: EventId::new(id), body: body.into(), outgoing: false, timestamp_ms: 0,
                             sender: HistorySender::new(who, None), video: None, audio: None, styles: Vec::new(),
                             mentions: names.iter().map(|(n, u)| { let i = body.find(n).unwrap(); MentionSpan { range: i..i + n.len(), kind: MentionKind::User { sender: HistorySender::new(u, Some(n)), me: false } } }).collect(),
-                            highlighted: false, thread: None, thread_root: None, status: true, attachment_name: None, attachment_size: None, media: None,
+                            highlighted: false, thread: None, thread_root: None, reply_to: None, status: true, attachment_name: None, attachment_size: None, media: None,
                         };
                         v.append_server(vec![
                             row("$invite", anna, "Anna ha invitato Bea", &[("Anna", anna), ("Bea", bea)]),
@@ -3966,7 +3966,7 @@ mod tests {
                             audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
-                            thread_root: None,
+                            thread_root: None, reply_to: None,
                             status: false,
                             attachment_name: None,
                             attachment_size: None, media: None,
@@ -4075,7 +4075,7 @@ mod tests {
                             audio: None,
                             styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                             thread: None,
-                            thread_root: None,
+                            thread_root: None, reply_to: None,
                             status: false,
                             attachment_name: None,
                             attachment_size: None, media: None,
@@ -4204,7 +4204,7 @@ mod tests {
                 audio: None,
                 styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                 thread: None,
-                thread_root: None,
+                thread_root: None, reply_to: None,
                 status: false,
                 attachment_name: name.map(Into::into),
                 attachment_size: name.map(|_| 2048), media: image.then(|| matrix_engine::history::Media { kind: matrix_engine::history::MediaKind::Image, label: "Immagine".into() }),
@@ -4302,7 +4302,7 @@ mod tests {
                         v.append_server(vec![HistoryEvent {
                             poll: None, redacted: false, event_id: id.clone(), body: "rel.pdf".into(), outgoing: false, timestamp_ms: 1,
                             sender: HistorySender::new("@a:fixture.invalid", None), video: None, audio: None, styles: Vec::new(), mentions: Vec::new(),
-                            highlighted: false, thread: None, thread_root: None, status: false, attachment_name: Some("rel.pdf".into()),
+                            highlighted: false, thread: None, thread_root: None, reply_to: None, status: false, attachment_name: Some("rel.pdf".into()),
                             attachment_size: Some(2048), media: None, utd: false,
                         }]);
                         ThemedHost(v, tokens)
@@ -4363,7 +4363,7 @@ mod tests {
                 audio: None,
                 styles: Vec::new(), mentions: Vec::new(), highlighted: false,
                 thread: None,
-                thread_root: None,
+                thread_root: None, reply_to: None,
                 status: false,
                 attachment_name: kind.map(|_| if matches!(kind, Some(MediaKind::File)) { label.split(" · ").nth(1).unwrap().to_owned() } else { "foto.png".into() }),
                 attachment_size: kind.map(|_| 2048),
@@ -4441,7 +4441,7 @@ mod tests {
                 audio: None,
                 styles: Vec::new(),
                 thread: None,
-                thread_root: None,
+                thread_root: None, reply_to: None,
                 status: false,
                 utd,
                 media: None,

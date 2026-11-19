@@ -135,12 +135,58 @@ pub struct HistoryEvent {
     pub thread: Option<ThreadInfo>,
     /// Set on a reply inside a thread: the thread's root.
     pub thread_root: Option<EventId>,
+    /// Set on a reply: what it answers.
+    pub reply_to: Option<ReplyRef>,
     /// A status row (join, invite, rename…): `body` is its wording and `sender` the person it shows.
     pub status: bool,
     /// Set on a poll start: `body` is its question. Private user data: never log.
     pub poll: Option<matrix_domain::Poll>,
     /// The event could not be decrypted (no keys): the only rows a key recovery can fix.
     pub utd: bool,
+}
+
+/// The message a reply answers. `author`/`preview` are None while the original is not loaded or was deleted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReplyRef {
+    pub event_id: EventId,
+    pub author: Option<String>,
+    pub preview: Option<String>,
+}
+
+/// Shown in the quote when the original is not available.
+pub const REPLY_UNAVAILABLE: &str = "Messaggio non disponibile";
+
+/// One-line quote text: the media label when there is no caption, else the first line cut at `max` chars.
+pub fn quote_preview(text: &str, media: Option<&Media>, max: usize) -> String {
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty());
+    let Some(line) = line else {
+        return media.map_or_else(String::new, |m| match m.kind {
+            MediaKind::Image => "Foto".into(),
+            MediaKind::Video => "Video".into(),
+            MediaKind::Audio => "Audio".into(),
+            MediaKind::File => "File".into(),
+        });
+    };
+    match line.char_indices().nth(max) {
+        Some((cut, _)) => format!("{}…", line[..cut].trim_end()),
+        None => line.to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod quote_tests {
+    use super::*;
+
+    #[test]
+    fn quote_is_one_truncated_line_or_media_label() {
+        assert_eq!(quote_preview("\n  ciao\naltro", None, 10), "ciao");
+        assert_eq!(quote_preview("abcdefghij", None, 5), "abcde…");
+        assert_eq!(quote_preview("àèìòùàèìòù", None, 3), "àèì…");
+        let m = |kind| Media { kind, label: "x".into() };
+        assert_eq!(quote_preview("", Some(&m(MediaKind::Image)), 40), "Foto");
+        assert_eq!(quote_preview("didascalia", Some(&m(MediaKind::Image)), 40), "didascalia");
+        assert_eq!(quote_preview("", None, 40), "");
+    }
 }
 
 /// The summary under a thread root, as the Timeline keeps it (live).

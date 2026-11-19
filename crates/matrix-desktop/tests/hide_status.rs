@@ -19,7 +19,7 @@ fn ev(id: &str, ts: u64, status: bool, redacted: bool) -> HistoryEvent {
         audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
-        thread_root: None,
+        thread_root: None, reply_to: None,
         status,
         utd: false,
         attachment_name: None,

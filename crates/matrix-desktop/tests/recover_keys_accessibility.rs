@@ -65,7 +65,7 @@ fn history() -> DemoHistory {
         audio: None,
         styles: Vec::new(),
         thread: None,
-        thread_root: None,
+        thread_root: None, reply_to: None,
         status: false,
         utd,
         attachment_name: None,

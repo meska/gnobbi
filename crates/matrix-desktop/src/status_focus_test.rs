@@ -16,7 +16,7 @@ fn row(id: &str, who: &str, body: &str, names: &[(&str, &str)]) -> HistoryEvent 
         poll: None, redacted: false, utd: false, event_id: EventId::new(id), body: body.into(), outgoing: false, timestamp_ms: 0,
         sender: HistorySender::new(who, None), video: None, audio: None, styles: Vec::new(),
         mentions: names.iter().map(|(n, u)| { let i = body.find(n).unwrap(); MentionSpan { range: i..i + n.len(), kind: MentionKind::User { sender: HistorySender::new(u, Some(n)), me: false } } }).collect(),
-        highlighted: false, thread: None, thread_root: None, status: true, attachment_name: None, attachment_size: None, media: None,
+        highlighted: false, thread: None, thread_root: None, reply_to: None, status: true, attachment_name: None, attachment_size: None, media: None,
     }
 }
 
