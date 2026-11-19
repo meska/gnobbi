@@ -52,6 +52,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         });
         return None;
     }
+    let mut send_click = false;
     ui.horizontal_centered(|ui| {
         ui.add_space(12.);
         if ui.button("📊").clicked() {
@@ -62,10 +63,15 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
         }
         let w = ui.available_width() - 96.;
         let id = egui::Id::new("composer-text");
+        format_shortcuts(ui, id, draft);
         let out = egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text("Scrivi un messaggio").desired_width(w).lock_focus(true).show(ui);
         mention_popup(ui, id, &out, draft, members, mentions);
-        if ui.button("🎤").on_hover_text("Nota vocale").clicked() {
-            *voice = Some(VoiceAct::Start);
+        if draft.trim().is_empty() && attachment.is_none() {
+            if ui.button("🎤").on_hover_text("Nota vocale").clicked() {
+                *voice = Some(VoiceAct::Start);
+            }
+        } else if ui.button("➤").on_hover_text("Invia").clicked() {
+            send_click = true;
         }
         // The 32 emoji of the GPUI picker; one is appended to the text and the box keeps the focus.
         ui.menu_button("☺", |ui| {
@@ -83,7 +89,7 @@ pub fn show(ui: &mut egui::Ui, draft: &mut String, mode: Mode, attachment: Optio
             });
         });
     });
-    if enter && (attachment.is_some() || !draft.trim().is_empty()) {
+    if (enter || send_click) && (attachment.is_some() || !draft.trim().is_empty()) {
         return Some(std::mem::take(draft));
     }
     None
@@ -126,5 +132,54 @@ fn mention_popup(ui: &mut egui::Ui, id: egui::Id, out: &egui::text_edit::TextEdi
         state.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(end))));
         state.store(ui.ctx(), id);
         ui.ctx().memory_mut(|m| m.request_focus(id));
+    }
+}
+
+/// Markdown marks the send path already turns into `formatted_body`: Cmd/Ctrl+B bold, +I italic, +Shift+X strike, +E code.
+/// Wraps the selection (or inserts an empty pair with the cursor inside).
+fn format_shortcuts(ui: &egui::Ui, id: egui::Id, draft: &mut String) {
+    if !ui.memory(|m| m.has_focus(id)) {
+        return;
+    }
+    let mark = ui.input_mut(|i| {
+        [(Modifiers::COMMAND, Key::B, "**"), (Modifiers::COMMAND, Key::I, "*"), (Modifiers::COMMAND | Modifiers::SHIFT, Key::X, "~~"), (Modifiers::COMMAND, Key::E, "`")]
+            .into_iter()
+            .find(|(m, k, _)| i.consume_key(*m, *k))
+            .map(|(_, _, mark)| mark)
+    });
+    let Some(mark) = mark else { return };
+    let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
+    let (a, b) = state.cursor.char_range().map_or((draft.chars().count(), draft.chars().count()), |r| {
+        let (p, q): (usize, usize) = (r.primary.index.into(), r.secondary.index.into());
+        (p.min(q), p.max(q))
+    });
+    let (a, b) = wrap(draft, a, b, mark);
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(a), egui::text::CCursor::new(b))));
+    state.store(ui.ctx(), id);
+}
+
+/// Puts `mark` around the char range `a..b`; returns the new selection (inside the marks).
+/// shortcut: no toggle-off of an already wrapped selection, upgrade if users ask.
+fn wrap(text: &mut String, a: usize, b: usize, mark: &str) -> (usize, usize) {
+    let byte = |c: usize| text.char_indices().nth(c).map_or(text.len(), |(i, _)| i);
+    let (ba, bb) = (byte(a), byte(b));
+    text.insert_str(bb, mark);
+    text.insert_str(ba, mark);
+    let n = mark.chars().count();
+    (a + n, b + n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::wrap;
+
+    #[test]
+    fn wraps_selection_and_empty_cursor_by_chars() {
+        let mut t = "è ciao mondo".to_owned();
+        assert_eq!(wrap(&mut t, 2, 6, "**"), (4, 8));
+        assert_eq!(t, "è **ciao** mondo");
+        let mut t = "ab".to_owned();
+        assert_eq!(wrap(&mut t, 1, 1, "`"), (2, 2));
+        assert_eq!(t, "a``b");
     }
 }
