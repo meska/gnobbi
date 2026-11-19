@@ -1,6 +1,6 @@
 //! Settings window: the saved preferences the GPUI app offers for look and behaviour. Every change is written at once.
 use eframe::egui::{self, Color32, Sense, Vec2};
-use matrix_desktop::{Accent, AppDirs, AutoNight, DesignTokens, Preferences, Theme};
+use matrix_desktop::{Accent, AppDirs, AutoNight, DesignTokens, IconChoice, Preferences, Theme};
 
 fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
@@ -47,6 +47,11 @@ pub fn show(ctx: &egui::Context, open: &mut bool, prefs: &Preferences, dirs: Opt
                 changed |= ui.selectable_value(&mut p.accent, Some(a), a.label()).changed();
             }
         });
+        egui::ComboBox::from_label("Icona").selected_text(p.icon.label()).show_ui(ui, |ui| {
+            for i in IconChoice::ALL {
+                changed |= ui.selectable_value(&mut p.icon, i, i.label()).changed();
+            }
+        });
         egui::ComboBox::from_label("Notte automatica").selected_text(p.auto_night.label()).show_ui(ui, |ui| {
             for a in AutoNight::ALL {
                 changed |= ui.selectable_value(&mut p.auto_night, a, a.label()).changed();
@@ -69,6 +74,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool, prefs: &Preferences, dirs: Opt
             saved.theme = new.theme;
             saved.accent = new.accent;
             saved.auto_night = new.auto_night;
+            saved.icon = new.icon;
             saved.read_receipts = new.read_receipts;
             saved.hide_redacted = new.hide_redacted;
             saved.message_preview = new.message_preview;

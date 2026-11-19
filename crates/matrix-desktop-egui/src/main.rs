@@ -715,6 +715,11 @@ impl App {
         if self.settings_open
             && let Some(new) = settings::show(ui.ctx(), &mut self.settings_open, &self.prefs, self.dirs.as_ref(), t)
         {
+            if new.icon != self.prefs.icon
+                && let Some(icon) = app_icon(new.icon)
+            {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Icon(Some(std::sync::Arc::new(icon))));
+            }
             self.prefs = new;
             self.applied = None;
         }
@@ -967,6 +972,12 @@ fn register_emoji_font(ctx: &egui::Context) {
     let _ = ctx;
 }
 
+/// The icon chosen in Settings as the window/Dock icon (Linux Wayland takes it from the installed desktop entry instead).
+fn app_icon(choice: matrix_desktop::IconChoice) -> Option<egui::IconData> {
+    let img = image::load_from_memory_with_format(choice.runtime_png(), image::ImageFormat::Png).ok()?.into_rgba8();
+    Some(egui::IconData { width: img.width(), height: img.height(), rgba: img.into_raw() })
+}
+
 fn main() -> eframe::Result {
     // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
     let (args, raw_link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
@@ -1013,7 +1024,8 @@ fn main() -> eframe::Result {
             .with_inner_size([first.width, first.height])
             .with_min_inner_size([360., 420.])
             .with_title(TITLE)
-            .with_app_id(APP_ID),
+            .with_app_id(APP_ID)
+            .with_icon(app_icon(dirs.as_ref().map(Preferences::load).unwrap_or_default().icon).unwrap_or_default()),
         ..Default::default()
     };
     eframe::run_native(TITLE, options, Box::new(move |cc| {
