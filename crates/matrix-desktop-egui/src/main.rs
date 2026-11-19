@@ -18,6 +18,7 @@ mod list;
 mod newchat;
 mod poll;
 mod roomedit;
+mod space;
 mod session;
 mod settings;
 mod timeline;
@@ -309,6 +310,7 @@ impl eframe::App for App {
                     && !session.devices_open && !self.settings_open && !self.accounts_open && self.pending_web.is_none()
                 {
                     if session.quick_open { session.quick_open = false; }
+                    else if session.space_view.is_some() { session.space_view = None; }
                     else if session.menu.is_some() { session.close_menu(); }
                     else if session.thread.is_some() { session.thread = None; }
                     else if session.profile.is_some() { session.profile = None; }
@@ -525,6 +527,19 @@ impl App {
             {
                 s.open_menu(id, egui::pos2(900., 300.));
                 self.hook_menu_at = None;
+            }
+            // Views «sp-menu», «sp-info», «sp-members», «sp-add»: a space (the one named in GNOBBI_EGUI_ROOM, else the first) is picked in the rail, then its menu or window is shown.
+            if let Some(page) = view.strip_prefix("sp-") {
+                let first = s.sidebar.spaces().find(|r| wanted.as_deref().is_none_or(|w| r.name == w)).map(|r| r.scope.clone());
+                if s.sidebar.active_space().is_none() && first.is_some() {
+                    s.sidebar.set_space(first);
+                }
+                if page != "menu" && s.space_view.is_none() && let Some(scope) = s.sidebar.active_space().cloned() {
+                    s.open_space(scope, page == "members");
+                }
+                if page == "add" && let Some(v) = &mut s.space_view && matches!(v.children, Some(Ok(_))) && v.adding.is_none() {
+                    v.adding = Some(None);
+                }
             }
             match view.as_str() {
                 "info" => s.info_open = true,
@@ -905,6 +920,7 @@ impl App {
         }
         if let Some(s) = &mut self.session {
             list::space_picker(ui.ctx(), s);
+            space::window(ui.ctx(), s, t);
         }
         if let Some(s) = &mut self.session
             && let Some(v) = &mut s.verification
@@ -923,9 +939,9 @@ impl App {
         }
         if let Some(s) = &mut self.session
             && s.edit.is_some()
-            && let Some(rights) = s.sidebar.selected().map(|r| r.info.edit_rights)
+            && let Some((rights, is_space)) = s.edit.as_ref().and_then(|e| s.sidebar.rooms().iter().find(|r| r.scope == e.scope)).map(|r| (r.info.edit_rights, r.info.is_space))
         {
-            roomedit::show(ui.ctx(), s, rights);
+            roomedit::show(ui.ctx(), s, rights, if is_space { "Modifica spazio" } else { "Modifica stanza" });
         }
         if self.accounts_open
             && let Some(dirs) = &self.dirs

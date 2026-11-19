@@ -29,7 +29,7 @@ pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) {
 }
 
 /// A round picture (or nothing, when there is none) centred at `c`; the caller draws the initials circle first.
-fn photo(ui: &egui::Ui, avatars: &crate::timeline::Avatars, mxc: Option<&str>, c: egui::Pos2, size: f32) -> bool {
+pub fn photo(ui: &egui::Ui, avatars: &crate::timeline::Avatars, mxc: Option<&str>, c: egui::Pos2, size: f32) -> bool {
     let Some(tex) = mxc.and_then(|m| avatars.get(m)?.as_ref()) else { return false };
     let rect = egui::Rect::from_center_size(c, Vec2::splat(size));
     egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(egui::CornerRadius::same((size / 2.) as u8)).paint_at(ui, rect);
@@ -68,13 +68,12 @@ pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
 
 /// Header with the search field, then the rows. Returns nothing: selection goes through `Sidebar::select`.
 pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens) {
-    let sidebar = &mut session.sidebar;
-    let query = &mut session.query;
-    let focus = &mut session.focus_search;
-    let (title, _, _) = sidebar.list_header();
+    let (title, _, _) = session.sidebar.list_header();
+    let in_space = session.sidebar.active_space().is_some();
     ui.add_space(12.);
     ui.horizontal(|ui| {
-        ui.add_space(16.);
+        ui.add_space(if in_space { 8. } else { 16. });
+        crate::space::menu(ui, session, t);
         ui.heading(title);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.);
@@ -83,6 +82,9 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             }
         });
     });
+    let sidebar = &mut session.sidebar;
+    let query = &mut session.query;
+    let focus = &mut session.focus_search;
     ui.add_space(8.);
     ui.horizontal(|ui| {
         ui.add_space(12.);

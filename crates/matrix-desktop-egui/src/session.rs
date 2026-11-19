@@ -40,6 +40,8 @@ pub struct RoomEdit {
     pub avatar: Option<std::path::PathBuf>,
     pub failed: bool,
     pub busy: bool,
+    /// The room or space being edited.
+    pub scope: matrix_domain::RoomScope,
     original: (String, String),
 }
 
@@ -68,6 +70,8 @@ pub struct Session {
     pub space_choices: Option<(matrix_domain::RoomScope, Option<matrix_engine::operations::SpaceChoices>)>,
     /// «Aggiungi a uno spazio» window: the room and the space picked so far.
     pub space_pick: Option<(matrix_domain::RoomScope, Option<matrix_domain::RoomScope>)>,
+    /// Window of the selected space («Info spazio» / «Membri»).
+    pub space_view: Option<crate::space::SpaceView>,
     history: HistorySession,
     pending: Option<matrix_engine::history::HistoryRequest>,
     route: Option<(matrix_engine::Sender<matrix_engine::history::HistoryRequest>, Receiver<matrix_engine::history::HistoryResult>)>,
@@ -302,6 +306,7 @@ impl Session {
             room_error: None,
             space_choices: None,
             space_pick: None,
+            space_view: None,
             sync: None,
             homeserver: String::new(),
             user: String::new(),
@@ -411,6 +416,7 @@ impl Session {
         let mut budget = 6;
         let mut wanted: Vec<String> = self.sidebar.rooms().iter().filter_map(|r| r.info.avatar.clone()).collect();
         wanted.extend(self.sidebar.navigation_entries().into_iter().filter_map(|e| e.avatar));
+        if let Some(crate::space::SpaceView { children: Some(Ok(c)), .. }) = &self.space_view { wanted.extend(c.children.iter().filter_map(|c| c.avatar_url.clone())); }
         wanted.extend(self.verification.as_ref().and_then(|v| v.profile_avatar()).map(str::to_owned));
         for mxc in wanted {
             let waiting = self.avatar_failed.get(&mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
@@ -743,8 +749,15 @@ impl Session {
                     changed = true;
                     continue;
                 }
+                OperationResult::SpaceChildren { scope, result } => {
+                    if let Some(v) = &mut self.space_view && &v.scope == scope { v.children = Some(result.clone().map_err(|_| ())); }
+                    changed = true;
+                    continue;
+                }
                 OperationResult::SpaceChanged { result, .. } => {
                     self.space_choices = None;
+                    // The open space window reads its rooms again.
+                    if let Some(v) = &self.space_view { self.op_queue.push(OperationCommand::SpaceChildren { scope: v.scope.clone() }); }
                     if let Err(e) = result { self.room_error = Some(matrix_engine::operations::space_error_line(*e).into()); }
                     changed = true;
                     continue;
@@ -912,6 +925,9 @@ impl Session {
                         self.members = Some((scope, list));
                     }
                     changed = true;
+                } else if let Some(v) = &mut self.space_view && v.scope == scope {
+                    v.members = Some(members.unwrap_or_default());
+                    changed = true;
                 }
                 continue;
             }
@@ -1014,14 +1030,27 @@ impl Session {
     }
 
     pub fn open_edit(&mut self) {
-        let Some(room) = self.sidebar.selected() else { return };
+        if let Some(scope) = self.sidebar.selected().map(|r| r.scope.clone()) { self.open_edit_of(&scope); }
+    }
+
+    /// «Modifica» of a room or of a space.
+    pub fn open_edit_of(&mut self, scope: &matrix_domain::RoomScope) {
+        let Some(room) = self.sidebar.rooms().iter().find(|r| &r.scope == scope) else { return };
         let (name, topic) = (room.name.clone(), room.info.topic.clone().unwrap_or_default());
-        self.edit = Some(RoomEdit { name: name.clone(), topic: topic.clone(), avatar: None, failed: false, busy: false, original: (name, topic) });
+        self.edit = Some(RoomEdit { name: name.clone(), topic: topic.clone(), avatar: None, failed: false, busy: false, scope: scope.clone(), original: (name, topic) });
+    }
+
+    /// Opens the space window on its rooms or on its members and asks the engine for that list.
+    pub fn open_space(&mut self, scope: matrix_domain::RoomScope, members_page: bool) {
+        self.room_error = None;
+        self.op_queue.push(if members_page { OperationCommand::Members { scope: scope.clone() } } else { OperationCommand::SpaceChildren { scope: scope.clone() } });
+        self.space_view = Some(crate::space::SpaceView { scope, members_page, children: None, members: None, adding: None });
     }
 
     /// Sends only what changed, so a field the user may not edit is never touched.
     pub fn save_edit(&mut self) {
-        let (Some(scope), Some(e)) = (self.draft_scope.clone(), &mut self.edit) else { return };
+        let Some(e) = &mut self.edit else { return };
+        let scope = e.scope.clone();
         let changed = |new: &str, old: &str| (new.trim() != old).then(|| new.trim().to_owned());
         let (name, topic) = (changed(&e.name, &e.original.0), changed(&e.topic, &e.original.1));
         if name.is_none() && topic.is_none() && e.avatar.is_none() {

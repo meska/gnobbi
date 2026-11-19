@@ -46,22 +46,27 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
             return;
         };
         for m in members {
-            let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
-            if resp.hovered() {
-                ui.painter().rect_filled(rect, 0., rgb(t.input));
-            }
-            if resp.clicked() {
+            if member_row(ui, m, t).clicked() {
                 out.open_profile = Some(m.user_id.clone());
             }
-            let c = egui::pos2(rect.left() + 28., rect.center().y);
-            let initials: String = m.name.trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
-            ui.painter().circle_filled(c, 14., rgb(matrix_desktop::AVATAR_FALLBACK));
-            ui.painter().text(c, Align2::CENTER_CENTER, initials, FontId::proportional(12.), rgb(t.on_accent));
-            let galley = ui.painter().layout(m.name.clone(), FontId::proportional(14.), rgb(t.text), (rect.width() - 60.).max(20.));
-            ui.painter().galley(egui::pos2(rect.left() + 52., rect.center().y - galley.size().y / 2.), galley, rgb(t.text));
         }
     });
     out
+}
+
+/// One member: initials and name on a full-width row.
+pub fn member_row(ui: &mut egui::Ui, m: &Member, t: &DesignTokens) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(rect, 0., rgb(t.input));
+    }
+    let c = egui::pos2(rect.left() + 28., rect.center().y);
+    let initials: String = m.name.trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+    ui.painter().circle_filled(c, 14., rgb(matrix_desktop::AVATAR_FALLBACK));
+    ui.painter().text(c, Align2::CENTER_CENTER, initials, FontId::proportional(12.), rgb(t.on_accent));
+    let galley = ui.painter().layout(m.name.clone(), FontId::proportional(14.), rgb(t.text), (rect.width() - 60.).max(20.));
+    ui.painter().galley(egui::pos2(rect.left() + 52., rect.center().y - galley.size().y / 2.), galley, rgb(t.text));
+    resp
 }
 
 /// Message search of the open room.
