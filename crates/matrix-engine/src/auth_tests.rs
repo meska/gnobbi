@@ -17,6 +17,7 @@ include!("device_delete_tests.rs");
 include!("member_detail_tests.rs");
 include!("member_writes_tests.rs");
 include!("member_roles_tests.rs");
+include!("profile_edit_tests.rs");
 include!("member_names_tests.rs");
 include!("recovery_tests.rs");
 include!("media_tests.rs");
