@@ -95,8 +95,10 @@ pub struct Heights {
     passes: u8,
     /// Where the reader was (first visible row + px into it; None = at bottom): set every frame once the room is laid out.
     pos: Option<(matrix_domain::EventId, f32)>,
-    /// Position to open the room at; dropped once laid out, or when its row is not loaded (then the room opens at the bottom).
+    /// Position to open the room at; stays pending (pane hidden, older pages loading) until its row is loaded; the session drops it when the row cannot come (then the room opens at the bottom).
     pub restore: Option<(matrix_domain::EventId, f32)>,
+    /// History results applied and start time while `restore` waits for its row: bound of the wait.
+    pub restore_wait: (u8, Option<std::time::Instant>),
     /// The round button was pressed: scroll (smoothly) until the bottom is reached.
     go_bottom: bool,
 }
@@ -358,6 +360,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let mut changed = false;
     let mut area = egui::ScrollArea::vertical().auto_shrink(false);
     let mut restoring = false;
+    let mut anchor_missing = false;
     if hide && let Some((id, offset)) = heights.restore.clone() {
         // Saved position: set the offset from the heights known so far, hidden, and re-set it until the rows stop changing; no event in the room yet -> bottom.
         match events.iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone())) {
@@ -366,7 +369,12 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
                 area = area.vertical_scroll_offset(top + offset);
                 restoring = true;
             }
-            None => heights.restore = None,
+            None => {
+                // Row not loaded yet: wait hidden at the top (so older pages get requested), never stick to the bottom.
+                area = area.vertical_scroll_offset(0.);
+                restoring = true;
+                anchor_missing = true;
+            }
         }
     }
     let go_bottom = heights.go_bottom;
@@ -422,8 +430,9 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     heights.at_bottom = out.content_size.y - (out.state.offset().y + out.inner_rect.height()) <= matrix_engine::receipts::ReadVisibility::NEAR_BOTTOM_PX;
     if hide {
         heights.passes += 1;
-        heights.ready = open_done(changed, heights.at_bottom || restoring, heights.passes);
+        heights.ready = !anchor_missing && open_done(changed, heights.at_bottom || restoring, heights.passes);
         if !heights.ready {
+            if anchor_missing { heights.passes = 0; }
             ui.ctx().request_repaint();
         } else {
             heights.restore = None;

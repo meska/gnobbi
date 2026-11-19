@@ -549,6 +549,15 @@ impl Session {
                 if live { messages.refresh_server(events); } else { messages.prepend_server(events); }
                 changed = true;
             }
+            self.heights.restore_wait.0 = self.heights.restore_wait.0.saturating_add(1);
+        }
+        if let (Some((id, _)), Some(messages)) = (&self.heights.restore, &self.messages) {
+            let found = messages.events().iter().any(|e| e.id.id == TimelineId::Server(id.clone()));
+            let (pages, since) = &mut self.heights.restore_wait;
+            let waited = since.get_or_insert_with(std::time::Instant::now).elapsed();
+            if !found && restore_gave_up(self.history.status(), *pages, waited) {
+                self.heights.restore = None;
+            }
         }
         if self.pending.is_none() {
             self.pending = self.history.refresh();
@@ -1307,6 +1316,12 @@ fn accept_user_answer(gate: &mut bool, state: &matrix_engine::operations::Search
 /// Start-up reopening of the saved room `want` ends when it is on screen, when the user opened a room other than
 /// the one the list picked by itself (`auto`), or after a while (a room that left the list must not pop up later).
 // shortcut: a click on the very row the list picked by itself is not seen as a choice, upgrade if the 20 s window proves too long.
+/// A saved position whose row is not loaded: wait for the saved page and the full one (both can come after the first), page back up to a cap, give up when history ends or fails.
+fn restore_gave_up(status: matrix_desktop::HistoryStatus, pages: u8, waited: std::time::Duration) -> bool {
+    use matrix_desktop::HistoryStatus::*;
+    pages >= 12 || matches!(status, Failed) || (matches!(status, Start) && (pages >= 2 || waited.as_secs() >= 3))
+}
+
 fn restore_over(want: &str, auto: &str, now: Option<&str>, waited: std::time::Duration) -> bool {
     now == Some(want) || now != Some(auto) || waited > std::time::Duration::from_secs(20)
 }
@@ -1323,6 +1338,18 @@ mod stale_tests {
         assert!(restore_over("!last", "!first", Some("!other"), s(1)));
         assert!(restore_over("!last", "!first", Some("!last"), s(1)));
         assert!(restore_over("!last", "!first", Some("!first"), s(21)));
+    }
+
+    #[test]
+    fn saved_position_waits_for_both_emissions_then_gives_up() {
+        use matrix_desktop::HistoryStatus::*;
+        let s = std::time::Duration::from_secs;
+        assert!(!restore_gave_up(Start, 1, s(0))); // saved page lacks the anchor, the full one is still to come
+        assert!(!restore_gave_up(More, 5, s(30)));
+        assert!(restore_gave_up(Start, 2, s(0)));
+        assert!(restore_gave_up(Start, 1, s(3)));
+        assert!(restore_gave_up(More, 12, s(0)));
+        assert!(restore_gave_up(Failed, 1, s(0)));
     }
 
     #[test]
