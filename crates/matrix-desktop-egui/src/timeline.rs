@@ -82,10 +82,9 @@ fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
-/// Measured row heights for the open room and the width they were measured at.
+/// Measured row heights for the open room.
 #[derive(Default)]
 pub struct Heights {
-    width: f32,
     rows: Vec<f32>,
     /// Id of the first row `rows` was measured for: a page prepended on top shifts every index.
     first: Option<matrix_domain::ScopedTimelineId>,
@@ -303,10 +302,7 @@ pub fn show(ui: &mut egui::Ui, events: &[DemoEvent], history: &matrix_desktop::D
     let mut menu = None;
     let mut save = None;
     let mut thread = None;
-    if (heights.width - ui.available_width()).abs() > 1. {
-        heights.width = ui.available_width();
-        heights.rows.clear();
-    }
+    // Heights are kept across width changes (rows in view are re-measured): clearing them to GUESS collapsed the content height and the scroll offset jumped on every resize step.
     shift_for_prepend(&mut heights.rows, &mut heights.first, &events.iter().map(|e| &e.id).collect::<Vec<_>>());
     heights.rows.resize(events.len(), GUESS);
     let mut first = 0;
