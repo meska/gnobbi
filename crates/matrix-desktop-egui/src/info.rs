@@ -122,7 +122,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
 pub enum ProfileAction { Message, Mention, Verify, ReadReceipt }
 
 /// A member's card; returns the new ignore state when flipped.
-pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, rights: Option<&matrix_engine::operations::MemberRights>, failed: bool, dm_failed: bool, me: bool, can_verify: bool, action: &mut Option<ProfileAction>, confirm: &mut Option<&'static str>, moderation: &mut Option<matrix_engine::operations::Moderation>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
+pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operations::UserProfile>, rights: Option<&matrix_engine::operations::MemberRights>, failed: bool, busy: bool, dm_failed: bool, me: bool, can_verify: bool, action: &mut Option<ProfileAction>, confirm: &mut Option<&'static str>, moderation: &mut Option<matrix_engine::operations::Moderation>, close: &mut bool, t: &DesignTokens) -> Option<bool> {
     let mut flip = None;
     ui.add_space(16.);
     ui.horizontal(|ui| {
@@ -173,9 +173,25 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
                 flip = Some(ignored);
             }
             if let Some(r) = rights {
+                use matrix_domain::role::MemberRole;
                 use matrix_engine::operations::Moderation;
                 ui.add_space(8.);
                 ui.separator();
+                // The role: plain text for the creator and without the power level, else only the roles the user may give.
+                let roles: Vec<_> = [MemberRole::Member, MemberRole::Moderator, MemberRole::Admin].into_iter().filter(|x| *x == r.role || (!r.creator && r.levels.contains(&x.power_level()))).collect();
+                ui.horizontal(|ui| {
+                    if busy {
+                        ui.spinner();
+                    } else if roles.len() < 2 {
+                        ui.label(crate::members::role_label(r.role));
+                    } else {
+                        for role in roles {
+                            if ui.selectable_label(role == r.role, crate::members::role_label(role)).clicked() && role != r.role {
+                                *moderation = Some(Moderation::SetPower(role.power_level()));
+                            }
+                        }
+                    }
+                });
                 // Each destructive action asks once more before it goes out.
                 let mut ask = |ui: &mut egui::Ui, key: &'static str, label: &str, action: Moderation| {
                     let label = if *confirm == Some(key) { "Conferma" } else { label };
@@ -196,16 +212,6 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
                 }
                 if !r.recent.is_empty() {
                     ask(ui, "redact", &format!("Elimina {} messaggi", r.recent.len()), Moderation::RedactMessages(r.recent.clone()));
-                }
-                for level in &r.levels {
-                    let name = match level {
-                        100 => "Amministratore",
-                        50 => "Moderatore",
-                        _ => "Utente",
-                    };
-                    if ui.button(format!("Ruolo: {name}")).clicked() {
-                        *moderation = Some(Moderation::SetPower(*level));
-                    }
                 }
                 if failed {
                     ui.colored_label(rgb(t.error), "Non riuscito");

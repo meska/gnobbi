@@ -166,6 +166,8 @@ pub struct Session {
     /// What the user may do to the member of the open card, and the confirmation step of the action asked.
     pub rights: Option<matrix_engine::operations::MemberRights>,
     pub moderation_failed: bool,
+    /// An action of the card went out and its answer is not in yet.
+    pub moderating: bool,
     pub search_open: bool,
     pub search_term: String,
     search_sent: String,
@@ -303,6 +305,7 @@ impl Session {
             profile: None,
             rights: None,
             moderation_failed: false,
+            moderating: false,
             search_open: false,
             search_term: String::new(),
             search_sent: String::new(),
@@ -915,11 +918,15 @@ impl Session {
                     if result.is_ok() && matches!(action, matrix_engine::operations::Moderation::SetPower(_)) && self.space_facts.as_ref().is_some_and(|(s, _)| s == scope) {
                         self.space_facts_for(scope.clone());
                     }
-                    // The member list and the rights are read again: a kicked member is gone.
-                    if result.is_ok()
-                        && self.profile.as_ref().is_some_and(|(open, _)| open == user_id)
-                    {
-                        self.profile = None;
+                    let open = self.profile.as_ref().is_some_and(|(open, _)| open == user_id);
+                    self.moderating &= !open;
+                    // The member list and the rights are read again: a kicked member is gone, a new role moves its row.
+                    if result.is_ok() && open {
+                        if matches!(action, matrix_engine::operations::Moderation::SetPower(_)) {
+                            self.op_queue.push(OperationCommand::MemberRights { scope: scope.clone(), user_id: user_id.clone() });
+                        } else {
+                            self.profile = None;
+                        }
                         self.members_requested = None;
                     }
                     changed = true;
@@ -1281,7 +1288,7 @@ impl Session {
     pub fn open_profile(&mut self, user_id: String) {
         self.new_failed = false;
         self.rights = None;
-        self.moderation_failed = false;
+        (self.moderation_failed, self.moderating) = (false, false);
         if let Some(scope) = self.draft_scope.clone() {
             self.op_queue.push(OperationCommand::MemberRights { scope, user_id: user_id.clone() });
         }
@@ -1291,7 +1298,7 @@ impl Session {
 
     pub fn moderate(&mut self, user_id: String, action: matrix_engine::operations::Moderation) {
         let Some(scope) = self.draft_scope.clone() else { return };
-        self.moderation_failed = false;
+        (self.moderation_failed, self.moderating) = (false, true);
         self.op_queue.push(OperationCommand::Moderate { scope, user_id, action });
     }
 

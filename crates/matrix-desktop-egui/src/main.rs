@@ -962,10 +962,10 @@ impl App {
             && let Some((id, profile)) = s.profile.clone()
         {
             let (mut close, mut flip, mut moderation, mut action) = (false, None, None, None);
-            let (rights, failed) = (s.rights.clone(), s.moderation_failed);
+            let (rights, failed, busy) = (s.rights.clone(), s.moderation_failed, s.moderating);
             let me = id == s.user;
             let can_verify = s.verification.as_ref().is_some_and(|v| v.can_begin());
-            egui::Panel::right("member").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t));
+            egui::Panel::right("member").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, busy, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t));
             match action {
                 Some(info::ProfileAction::Message) => s.start_dm(id.clone()),
                 Some(info::ProfileAction::Mention) => {

@@ -5,6 +5,15 @@ use matrix_desktop::DesignTokens;
 use matrix_domain::RoomScope;
 use matrix_engine::operations::{BannedMember, Member, MemberPermissions, Moderation};
 
+pub fn role_label(role: matrix_domain::role::MemberRole) -> &'static str {
+    use matrix_domain::role::MemberRole::*;
+    match role {
+        Admin => "Admin",
+        Moderator => "Moderatore",
+        Member => "Membro",
+    }
+}
+
 /// What the user may do with the members of `scope` and what is going on.
 pub struct Admin {
     pub scope: RoomScope,
