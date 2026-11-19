@@ -116,21 +116,6 @@ fn worker_delivers_content_free_payload_off_the_calling_thread() {
 }
 
 #[test]
-fn macos_alert_passes_text_only_in_the_environment_never_in_argv_or_script() {
-    let mut policy = NotificationPolicy::new(AccountId::new(1));
-    policy.set_enabled(true);
-    let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:x") };
-    let preview = MessagePreview { content: PreviewContent::Text("segreto 🔒".into()), sender: None, direct: true };
-    let n = policy.alert(&scope, Some(preview)).unwrap();
-    let args = MACOS_SCRIPT.join("\n");
-    assert!(args.contains("$GNOBBI_BODY"));
-    assert!(!args.contains("Gnobbi") && !args.contains("segreto"));
-    let env = macos_env(&n);
-    assert_eq!(env[0], ("GNOBBI_TITLE", "Gnobbi".to_owned()));
-    assert_eq!(env[1], ("GNOBBI_BODY", "segreto 🔒".to_owned()));
-}
-
-#[test]
 fn saved_message_preview_switch_reaches_the_alert_body_and_defaults_to_on() {
     let scope = RoomScope { account_id: AccountId::new(1), room_id: RoomId::new("!r:x") };
     let body = |on: bool| {

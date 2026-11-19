@@ -42,6 +42,11 @@ cocoa = "=0.26.0"
 objc = "=0.2.7"
 # Native date/time formatter (CFDateFormatter) for time_fmt; already in the tree through gpui.
 objc2-core-foundation = "=0.3.2"
+# Notifications with a click (UNUserNotificationCenter).
+objc2 = "=0.6.5"
+objc2-foundation = { version = "=0.3.2", features = ["NSBundle", "NSString", "NSError", "NSObject"] }
+objc2-user-notifications = { version = "=0.3.2", features = ["block2"] }
+block2 = "=0.6.2"
 
 # Windows: the comctl32 v6 manifest gpui ships; without it the exe dies at load (TaskDialogIndirect not found).
 [target.'cfg(target_os = "windows")'.dependencies]

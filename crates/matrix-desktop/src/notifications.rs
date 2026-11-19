@@ -246,47 +246,88 @@ mod linux {
 fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
     linux::deliver(notification, click)
 }
-/// Fixed AppleScript, no placeholders: title and body reach it only through the environment of
-/// the child (never argv, so never in `ps`, and never inside the script text). `system attribute`
-/// decodes as MacRoman (emoji/accents garbled), so the fixed `printf` re-reads it as UTF-8.
-#[cfg(any(target_os = "macos", test))]
-const MACOS_SCRIPT: [&str; 2] = [
-    "-e",
-    "display notification (do shell script \"printf %s \\\"$GNOBBI_BODY\\\"\" as «class utf8») with title (do shell script \"printf %s \\\"$GNOBBI_TITLE\\\"\" as «class utf8»)",
-];
-#[cfg(any(target_os = "macos", test))]
-fn macos_env(notification: &Notification) -> [(&'static str, String); 2] {
-    [("GNOBBI_TITLE", notification.title().into()), ("GNOBBI_BODY", notification.body())]
-}
-
-/// Blocking platform boundary: only the notification worker may call this.
+/// macOS: UNUserNotificationCenter (the AppKit/NSUserNotification path is deprecated). One live alert
+/// per room (same request identifier replaces the previous one); a click reaches the delegate, which
+/// fills the same `Click` slot as on Linux. Needs a bundled, signed app: without a bundle id
+/// (`cargo run`) the center would abort the process, so the alert is reported unavailable instead.
 #[cfg(target_os = "macos")]
-// shortcut: osascript alerts report no click, so on macOS they only name the account.
-fn deliver_os(notification: Notification, _: &Click) -> Result<(), NotificationError> {
-    use std::process::{Command, Stdio};
-    let mut child = Command::new("/usr/bin/osascript")
-        .args(MACOS_SCRIPT)
-        .envs(macos_env(&notification))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|_| NotificationError::Unavailable)?;
-    let end = std::time::Instant::now() + Duration::from_secs(2);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) if status.success() => return Ok(()),
-            Ok(Some(_)) => return Err(NotificationError::Unavailable),
-            Ok(None) if std::time::Instant::now() < end => {
-                std::thread::sleep(Duration::from_millis(10))
+mod macos {
+    use super::*;
+    use block2::{DynBlock, RcBlock};
+    use objc2::{AnyThread, DefinedClass, define_class, msg_send, rc::Retained, runtime::ProtocolObject};
+    use objc2_foundation::{NSBundle, NSError, NSObject, NSObjectProtocol, NSString};
+    use objc2_user_notifications::*;
+    use std::collections::HashMap;
+
+    type Ids = HashMap<RoomScope, (u32, Option<AccountId>)>;
+    static IDS: Mutex<Option<Ids>> = Mutex::new(None);
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[name = "GnobbiNotificationDelegate"]
+        #[ivars = Click]
+        struct Delegate;
+        unsafe impl NSObjectProtocol for Delegate {}
+        unsafe impl UNUserNotificationCenterDelegate for Delegate {
+            #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
+            fn did_receive(&self, _: &UNUserNotificationCenter, response: &UNNotificationResponse, done: &DynBlock<dyn Fn()>) {
+                let id = response.notification().request().identifier().to_string();
+                let target = IDS.lock().ok().and_then(|ids| {
+                    ids.as_ref()?.iter().find(|(_, (n, _))| n.to_string() == id).map(|(scope, (_, account))| (*account, scope.clone()))
+                });
+                if let (Some(target), Ok(mut slot)) = (target, self.ivars().lock()) {
+                    *slot = Some(target);
+                }
+                done.call(());
             }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(NotificationError::Timeout);
+            // The window decides upstream (`reading`) whether an alert is wanted: when it is, show it even in the foreground.
+            #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+            fn will_present(&self, _: &UNUserNotificationCenter, _: &UNNotification, done: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
+                done.call((UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List,));
             }
         }
+    );
+
+    pub fn deliver(notification: Notification, click: &Click) -> Result<(), NotificationError> {
+        if NSBundle::mainBundle().bundleIdentifier().is_none() {
+            return Err(NotificationError::Unavailable);
+        }
+        let center = UNUserNotificationCenter::currentNotificationCenter();
+        let mut guard = IDS.lock().map_err(|_| NotificationError::Worker)?;
+        let ids = guard.get_or_insert_with(|| {
+            let delegate: Retained<Delegate> = unsafe { msg_send![super(Delegate::alloc().set_ivars(click.clone())), init] };
+            center.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            std::mem::forget(delegate); // the center keeps only a weak reference
+            center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert, &RcBlock::new(|_, _: *mut NSError| {}));
+            Ids::default()
+        });
+        let (account, scope) = {
+            let (account, scope) = notification.target();
+            (account, scope.clone())
+        };
+        // shortcut: one id per room ever alerted; upgrade if rooms become unbounded.
+        let next = ids.len() as u32 + 1;
+        let id = ids.entry(scope).or_insert((next, account)).0;
+        let content = UNMutableNotificationContent::new();
+        content.setTitle(&NSString::from_str(notification.title()));
+        content.setBody(&NSString::from_str(&notification.body()));
+        let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&NSString::from_str(&id.to_string()), &content, None);
+        let (done, result) = mpsc::channel();
+        center.addNotificationRequest_withCompletionHandler(&request, Some(&RcBlock::new(move |e: *mut NSError| {
+            let _ = done.send(e.is_null());
+        })));
+        drop(guard);
+        match result.recv_timeout(Duration::from_secs(2)) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(NotificationError::Unavailable), // not authorized (yet) or refused by the system
+            Err(_) => Err(NotificationError::Timeout),
+        }
     }
+}
+/// Blocking platform boundary: only the notification worker may call this.
+#[cfg(target_os = "macos")]
+fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
+    macos::deliver(notification, click)
 }
 #[cfg(not(any(all(target_os = "linux", feature = "tray"), target_os = "macos")))]
 fn deliver_os(_: Notification, _: &Click) -> Result<(), NotificationError> {
