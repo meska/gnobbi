@@ -62,6 +62,12 @@ pub type Avatars = std::collections::HashMap<String, Option<egui::TextureHandle>
 /// Round avatar of `size`: the photo when there is one, else initials on the fallback colour.
 fn avatar(ui: &mut egui::Ui, size: f32, pic: Option<&egui::TextureHandle>, initials: &str, font: f32, t: &DesignTokens) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
+    paint_avatar(ui, rect, pic, initials, font, t);
+    resp
+}
+
+fn paint_avatar(ui: &egui::Ui, rect: egui::Rect, pic: Option<&egui::TextureHandle>, initials: &str, font: f32, t: &DesignTokens) {
+    let size = rect.width();
     match pic {
         Some(tex) => {
             egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(CornerRadius::same((size / 2.) as u8)).paint_at(ui, rect);
@@ -71,14 +77,34 @@ fn avatar(ui: &mut egui::Ui, size: f32, pic: Option<&egui::TextureHandle>, initi
             ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(font), rgb(t.avatar_text));
         }
     }
-    resp
 }
 
-/// Same as the GPUI client: gap between series / inside one, bubble padding, radius, width.
-const GAP: f32 = 16.;
-const TIGHT: f32 = 4.;
-const PAD_X: f32 = 16.;
-const PAD_Y: f32 = 12.;
+/// Gap between groups / inside one, bubble padding, width.
+const GAP: f32 = 8.;
+const TIGHT: f32 = 2.;
+const PAD_X: f32 = 12.;
+const PAD_Y: f32 = 7.;
+/// Bubble corners: full, and where two bubbles of a group touch.
+const ROUND: u8 = 14;
+const JOINED: u8 = 4;
+/// Time (and read circles) at the bottom right of the bubble: text size, row height, space kept from the text on the same line.
+const STAMP: f32 = 11.;
+const FOOT_H: f32 = 15.;
+const FOOT_GAP: f32 = 10.;
+/// Messages of one sender closer than this form a group.
+const GROUP_GAP_MS: u64 = 10 * 60_000;
+
+/// What grouping needs from a row: sender (`None` = own message), time, whether it is drawn as a bubble.
+type GroupKey<'a> = (Option<&'a str>, u64, bool);
+
+fn group_key(e: &DemoEvent) -> GroupKey<'_> {
+    ((!e.outgoing).then(|| e.sender.as_ref().map_or("", |s| s.id.as_str())), e.timestamp_ms, !e.status && !e.redacted)
+}
+
+/// Whether a bubble is glued to the one above: same known sender, close in time, same day; status and deleted rows (no bubble) break a group.
+fn joined(above: GroupKey, below: GroupKey, new_day: impl FnOnce() -> bool) -> bool {
+    above.2 && below.2 && above.0 == below.0 && below.0 != Some("") && below.1.saturating_sub(above.1) <= GROUP_GAP_MS && !new_day()
+}
 const MAX_BUBBLE: f32 = 720.;
 const BODY: f32 = 14.;
 const GUESS: f32 = 56.;
@@ -181,7 +207,7 @@ fn read_circles(ui: &mut egui::Ui, readers: &[matrix_engine::history::HistorySen
     }
 }
 
-fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, initials: Option<&str>, photo: Option<&str>, group: bool, day: Option<&str>, readers: &[matrix_engine::history::HistorySender], t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
+fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, label: Option<&str>, (above, below): (bool, bool), group: bool, day: Option<&str>, readers: &[matrix_engine::history::HistorySender], t: &DesignTokens) -> (Option<egui::Pos2>, bool, bool) {
     if let Some(day) = day {
         ui.add_space(8.);
         ui.vertical_centered(|ui| ui.label(RichText::new(day).size(11.).color(rgb(t.secondary))));
@@ -233,25 +259,32 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
     let mut thread = false;
     ui.with_layout(layout, |ui| {
         ui.add_space(12.);
-        // Group rooms: the sender's round avatar opens a series of incoming bubbles; the others keep its column.
-        if group && !e.outgoing {
-            let pic = photo.and_then(|m| avatars.get(m)?.as_ref());
-            if let Some(initials) = initials {
-                avatar(ui, 32., pic, initials, 12., t);
-            } else {
-                ui.allocate_exact_size(Vec2::splat(32.), egui::Sense::hover());
-            }
+        // Group rooms: the sender's round avatar sits beside the last bubble of a group, at its bottom; the others keep its column.
+        let column = (group && !e.outgoing).then(|| {
+            let rect = ui.allocate_exact_size(Vec2::splat(32.), egui::Sense::hover()).0;
             ui.add_space(8.);
-        }
+            rect
+        });
+        let r = |glued: bool| if glued { JOINED } else { ROUND };
+        // Only the corners on the sender's side shrink where the bubbles touch.
+        let radius = if e.outgoing { CornerRadius { nw: ROUND, ne: r(above), sw: ROUND, se: r(below) } } else { CornerRadius { nw: r(above), ne: ROUND, sw: r(below), se: ROUND } };
         let flashed = matches!((&e.id.id, &acts.flash), (matrix_domain::TimelineId::Server(a), Some(b)) if a == b);
         let fill = if e.highlighted || flashed { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
-        let frame = egui::Frame::NONE.fill(fill).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8)).show(ui, |ui| {
+        let frame = egui::Frame::NONE.fill(fill).corner_radius(radius).inner_margin(egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8)).show(ui, |ui| {
             // Shrink-wrap: as wide as the longest of text, sender and time (at most `max`), not the whole column.
             let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
             let inner = max - 2. * PAD_X;
             let measure = |text: &str, size: f32| ui.painter().layout(text.to_owned(), egui::FontId::proportional(size), Color32::WHITE, inner).size().x;
-            let mut w = measure(&e.stamp(), 10.) + readers_width(readers.len());
-            w = w.max(if e.redacted { measure("Messaggio eliminato", BODY) } else { measure(&e.text, BODY) });
+            let foot_w = measure(&e.stamp(), STAMP) + readers_width(readers.len());
+            let body = (!e.text.is_empty() && e.poll.is_none()).then(|| {
+                let mut job = egui::text::LayoutJob::simple(e.text.clone(), egui::FontId::proportional(BODY), ui.visuals().text_color(), inner);
+                job.sections[0].format.line_height = Some(20.);
+                ui.painter().layout_job(job)
+            });
+            let (text_w, tail_w) = body.as_ref().map_or((0., 0.), |g| (g.size().x, g.rows.last().map_or(0., |r| r.rect().width())));
+            // The time shares the last text line when it fits beside it (the bubble does not grow taller); else it gets its own line.
+            let mut inline = body.is_some() && e.thread.is_none() && tail_w + FOOT_GAP + foot_w <= inner;
+            let mut w = text_w.max(if inline { tail_w + FOOT_GAP + foot_w } else { foot_w });
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
             }
@@ -343,7 +376,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         let mut from = 0;
                         for (r, s) in &pills { segs.push((&e.text[from..r.start], None)); segs.push((&e.text[r.clone()], Some(*s))); from = r.end; }
                         segs.push((&e.text[from..], None));
-                        ui.horizontal_wrapped(|ui| {
+                        let tail = ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing.x = 0.;
                             for (seg, who) in segs {
                                 if let Some(s) = who {
@@ -363,9 +396,12 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                                     }
                                 }
                             }
-                        });
-                    } else {
-                        ui.label(RichText::new(&e.text).size(BODY).line_height(Some(20.)));
+                            ui.cursor().left() - ui.max_rect().left()
+                        }).inner;
+                        // Pills and links are laid out here, not in `body`: decide from the real last line.
+                        inline = e.thread.is_none() && tail + FOOT_GAP + foot_w <= ui.available_width();
+                    } else if let Some(body) = body {
+                        ui.label(body);
                     }
                 }
                 if let Some(th) = &e.thread {
@@ -380,16 +416,21 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         }
                     });
                 }
-                ui.add_space(4.);
+                ui.add_space(if inline { -FOOT_H } else { 2. });
                 // Bottom right of the bubble (the bubble is shrink-wrapped to its widest line, so this is its right edge).
-                ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+                ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), FOOT_H), Layout::right_to_left(Align::Max), |ui| {
                     ui.spacing_mut().item_spacing.x = READER_GAP;
-                    ui.label(RichText::new(e.stamp()).size(10.).color(rgb(t.secondary)));
+                    ui.label(RichText::new(e.stamp()).size(STAMP).color(rgb(t.secondary)));
                     // Right to left: the circles sit left of the time.
                     read_circles(ui, readers, avatars, t);
                 });
             });
         });
+        if let (Some(column), false, Some(s)) = (column, below, &e.sender) {
+            let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+            let pic = s.avatar.as_deref().and_then(|m| avatars.get(m)?.as_ref());
+            paint_avatar(ui, egui::Rect::from_min_size(egui::pos2(column.left(), frame.response.rect.bottom() - 32.), Vec2::splat(32.)), pic, &initials, 12., t);
+        }
         // Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.
         let pos = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None });
         if let Some(pos) = pos.filter(|p| frame.response.rect.contains(*p) && ui.is_rect_visible(frame.response.rect)) {
@@ -421,7 +462,8 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let mut area = egui::ScrollArea::vertical().auto_shrink(false);
     let mut restoring = false;
     let mut anchor_missing = false;
-    let top_of = |rows: &[f32], at: usize| GAP + (0..at).map(|i| rows[i] + if history.continues_series(i) { TIGHT } else { GAP }).sum::<f32>();
+    let glued = |i: usize| i > 0 && i < events.len() && joined(group_key(&events[i - 1]), group_key(&events[i]), || matrix_desktop::time_fmt::starts_day(Some(events[i - 1].timestamp_ms), events[i].timestamp_ms));
+    let top_of = |rows: &[f32], at: usize| GAP + (0..at).map(|i| rows[i] + if glued(i + 1) { TIGHT } else { GAP }).sum::<f32>();
     let position = |id: &matrix_domain::EventId| events.iter().position(|e| e.id.id == matrix_domain::TimelineId::Server(id.clone()));
     if !hide && prepended > 0 {
         // An older page arrived: the rows on top push everything down and egui would paint this frame at the old offset (the wrong rows for a frame, 100 ms when idle). Keep the same row at the same offset, or stay at the bottom.
@@ -460,12 +502,15 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         ui.add_space(GAP);
         for (i, e) in events.iter().enumerate() {
             let h = heights.rows[i];
-            let gap = if history.continues_series(i) { TIGHT } else { GAP };
+            // Space below row i: tight when the next bubble belongs to the same group.
+            let gap = if glued(i + 1) { TIGHT } else { GAP };
             if jump != Some(i) && (y + h < view.min.y - 400. || y > view.max.y + 400.) {
                 ui.add_space(h + gap);
             } else {
                 let top = ui.cursor().top();
-                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, history.sender_label(i, members).as_deref(), history.sender_avatar(i, members).as_ref().map(|(_, i)| i.as_str()), history.sender_avatar(i, members).and_then(|(m, _)| m), members > 2, history.day_separator(i).as_deref(), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
+                // Sender name on the first bubble of a group; deleted rows (no bubble) keep the name rule of the history.
+                let label = if e.redacted { history.sender_label(i, members) } else { (members > 2 && !e.outgoing && !glued(i)).then(|| e.sender.as_ref().map(|s| s.name.clone().unwrap_or_else(|| s.id.clone()))).flatten() };
+                let (opened, wants_save, wants_thread) = row(ui, e, pictures, avatars, acts, label.as_deref(), (glued(i), glued(i + 1)), members > 2, history.day_separator(i).as_deref(), readers.get(&i).map_or(&[][..], Vec::as_slice), t);
                 if let (true, matrix_domain::TimelineId::Server(id)) = (wants_thread, &e.id.id) {
                     thread = Some(id.clone());
                 }
@@ -537,6 +582,27 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
 #[cfg(test)]
 mod open_tests {
     use super::{open_done, ScrollMemory};
+
+    #[test]
+    fn groups_break_on_sender_time_day_status_and_deleted_rows() {
+        use super::{joined, GroupKey};
+        const MIN: u64 = 60_000;
+        // Row i is glued above / below; a day separator stands above the rows listed in `days`.
+        let shape = |rows: &[GroupKey], days: &[usize]| {
+            let glued = |i: usize| i > 0 && i < rows.len() && joined(rows[i - 1], rows[i], || days.contains(&i));
+            (0..rows.len()).map(|i| (glued(i), glued(i + 1))).collect::<Vec<_>>()
+        };
+        let (first, middle, last, single) = ((false, true), (true, true), (true, false), (false, false));
+        let (anna, bruno) = (Some("@a:x"), Some("@b:x"));
+        // Three from Anna (the third still inside the window), another sender, an own pair, Anna again, then Anna after the window.
+        let rows = [(anna, 0, true), (anna, MIN, true), (anna, 11 * MIN, true), (bruno, 11 * MIN, true), (None, 12 * MIN, true), (None, 12 * MIN, true), (anna, 13 * MIN, true), (anna, 24 * MIN, true)];
+        assert_eq!(shape(&rows, &[]), [first, middle, last, single, first, last, single, single]);
+        // A status or deleted row (no bubble) breaks the group on both sides.
+        assert_eq!(shape(&[(anna, 0, true), (anna, 1, false), (anna, 2, true)], &[]), [single, single, single]);
+        // A day separator breaks it; an incoming row without a sender never joins.
+        assert_eq!(shape(&[(anna, 0, true), (anna, 1, true), (anna, 2, true)], &[1]), [single, first, last]);
+        assert_eq!(shape(&[(Some(""), 0, true), (Some(""), 1, true)], &[]), [single, single]);
+    }
 
     #[test]
     fn scroll_memory_roundtrips_and_reports_changes() {
