@@ -212,7 +212,7 @@ impl App {
 }
 
 fn bar(t: &DesignTokens) -> egui::Frame {
-    egui::Frame::NONE.fill(rgb(t.surface)).stroke(Stroke::new(1., rgb(t.border)))
+    egui::Frame::NONE.fill(rgb(t.surface))
 }
 
 impl eframe::App for App {
@@ -776,7 +776,9 @@ impl App {
             if !narrow || self.list_open {
                 let before = session.sidebar.selected().map(|r| r.scope.clone());
                 // Narrow: the list takes the whole width left of the rail and the chat is not drawn (shortcut: re-clicking the open room does not close it).
-                egui::Panel::left("list").exact_size(if narrow { ui.available_width() } else { t.sidebar }).resizable(false).frame(bar(t)).show(ui, |ui| {
+                let surface = rgb(t.surface);
+                let list_fill = Color32::from_rgb(surface.r().saturating_sub(7), surface.g().saturating_sub(7), surface.b().saturating_sub(7));
+                egui::Panel::left("list").exact_size(if narrow { ui.available_width() } else { t.sidebar }).resizable(false).frame(bar(t).fill(list_fill)).show(ui, |ui| {
                     let mut new_chat = false;
                     list::rooms(ui, session, &mut new_chat, t);
                     session.new_open |= new_chat;
