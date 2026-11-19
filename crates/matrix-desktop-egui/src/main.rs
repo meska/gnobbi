@@ -192,6 +192,14 @@ impl eframe::App for App {
         }
         self.tray(&ctx);
         self.test_hooks(&ctx);
+        // A second launch hands its `matrix:` link (or just «raise») to this instance.
+        #[cfg(target_os = "linux")]
+        for incoming in matrix_desktop::single_instance::take_incoming() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            if let Ok(link) = matrix_engine::matrix_link::parse_matrix_link(&incoming) {
+                self.pending_link = Some((link, std::time::Instant::now()));
+            }
+        }
         let t = self.tokens;
         if self.session.as_ref().is_some_and(|s| s.account.is_some() && !s.recovering()) {
             self.shell(ui, &t);
@@ -787,12 +795,12 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
 /// First instance listens for later launches; if one is already running (the GPUI app included)
 /// the launch is handed to it and this process exits. Socket trouble only costs this behaviour.
 #[cfg(target_os = "linux")]
-fn single_instance_gate() {
+fn single_instance_gate(link: Option<String>) {
     use matrix_desktop::single_instance::{Claim, claim, default_socket_path, outgoing, serve};
     let Some(path) = default_socket_path() else {
         return eprintln!("Gnobbi: single instance off (no private state directory)");
     };
-    match claim(&path, &outgoing(None)) {
+    match claim(&path, &outgoing(link)) {
         Ok(Claim::First(listener)) => serve(listener),
         Ok(Claim::Delivered) => std::process::exit(0),
         Err(error) => eprintln!("Gnobbi: single instance off ({error})"),
@@ -800,7 +808,7 @@ fn single_instance_gate() {
 }
 
 #[cfg(windows)]
-fn single_instance_gate() {
+fn single_instance_gate(_link: Option<String>) {
     use matrix_desktop::windows_link::{Claim, claim};
     match claim("") {
         Ok(Claim::First) => {}
@@ -810,12 +818,12 @@ fn single_instance_gate() {
 }
 
 #[cfg(not(any(target_os = "linux", windows)))]
-fn single_instance_gate() {}
+fn single_instance_gate(_link: Option<String>) {}
 
 fn main() -> eframe::Result {
     // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
-    let (args, link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
-    let link = link.and_then(|raw| matrix_engine::matrix_link::parse_matrix_link(&raw).map_err(|_| eprintln!("Gnobbi: ignored matrix link")).ok());
+    let (args, raw_link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
+    let link = raw_link.clone().and_then(|raw| matrix_engine::matrix_link::parse_matrix_link(&raw).map_err(|_| eprintln!("Gnobbi: ignored matrix link")).ok());
     let dirs = matrix_desktop::app_dirs(Platform::CURRENT, |k| std::env::var(k).ok());
     let default_root = dirs.as_ref().map(|d| d.data.join("profile"));
     // `--signin <folder>` runs another account's profile; the default profile is the first install's.
@@ -842,7 +850,7 @@ fn main() -> eframe::Result {
     };
     // Another profile is its own window: only the default one hands launches over to a running instance.
     if Some(&root) == default_root.as_ref() {
-        single_instance_gate();
+        single_instance_gate(raw_link);
         if let Some(dirs) = &dirs {
             // A pre-catalog install is listed in place; the profile folder does not move.
             let mut catalog = matrix_desktop::AccountCatalog::load(dirs);
