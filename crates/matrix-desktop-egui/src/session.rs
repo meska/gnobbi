@@ -33,6 +33,13 @@ pub struct RoomEdit {
     original: (String, String),
 }
 
+pub enum RoomAction {
+    Mark(bool),
+    Tag(&'static str),
+    Mode(matrix_domain::notifications::RoomNotifyMode),
+    Leave,
+}
+
 pub struct Session {
     pub form: SignInForm,
     ui: SignInUi,
@@ -41,6 +48,8 @@ pub struct Session {
     rooms: Receiver<RoomListEvent>,
     pub account: Option<matrix_domain::AccountId>,
     pub sidebar: matrix_desktop::Sidebar,
+    pub confirm_leave: Option<matrix_domain::RoomScope>,
+    pub room_error: Option<String>,
     history: HistorySession,
     pending: Option<matrix_engine::history::HistoryRequest>,
     route: Option<(matrix_engine::Sender<matrix_engine::history::HistoryRequest>, Receiver<matrix_engine::history::HistoryResult>)>,
@@ -228,6 +237,8 @@ impl Session {
             first_visible: usize::MAX,
             sidebar: matrix_desktop::Sidebar::connected(matrix_domain::AccountId::new(0)),
             query: String::new(),
+            confirm_leave: None,
+            room_error: None,
             sync: None,
             homeserver: String::new(),
             user: String::new(),
@@ -547,6 +558,13 @@ impl Session {
             }
         }
         for result in results {
+            match &result {
+                OperationResult::TagsEdited { result } => { self.sidebar.tag_done(result.clone()); self.room_error = self.sidebar.tag_error().map(str::to_owned); changed = true; continue; }
+                OperationResult::NotificationModeSet { result, .. } => { self.sidebar.mode_done(result.clone()); self.room_error = self.sidebar.mode_error().map(str::to_owned); changed = true; continue; }
+                OperationResult::RoomLeft { scope, result } => { self.sidebar.room_left(scope, result.clone()); self.room_error = self.sidebar.leave_error(scope).map(str::to_owned); changed = true; continue; }
+                OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some("Operazione non riuscita".into()); changed = true; continue; }
+                _ => {}
+            }
             if let OperationResult::Aliases { scope, result, aliases, .. } = &result {
                 if self.draft_scope.as_ref() == Some(scope) {
                     if aliases.is_some() {
@@ -685,6 +703,17 @@ impl Session {
             changed |= self.ops.apply(result) | done;
         }
         changed
+    }
+
+    pub fn room_action(&mut self, scope: matrix_domain::RoomScope, action: RoomAction) {
+        self.room_error = None;
+        let command = match action {
+            RoomAction::Mark(read) => Some(OperationCommand::MarkRoom { scope, read, public: self.reading.2, main_only: false }),
+            RoomAction::Tag(tag) => self.sidebar.toggle_tag(&scope, tag).map(OperationCommand::EditTags),
+            RoomAction::Mode(mode) => self.sidebar.set_mode(&scope, mode).then_some(OperationCommand::SetNotificationMode { scope, mode }),
+            RoomAction::Leave => Some(OperationCommand::LeaveRoom { scope }),
+        };
+        if let Some(command) = command { self.op_queue.push(command); }
     }
 
     pub fn start_dm(&mut self, user_id: String) {

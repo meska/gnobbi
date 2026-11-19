@@ -533,7 +533,7 @@ impl App {
             });
             egui::Panel::left("list").exact_size(t.sidebar).resizable(false).frame(bar(t)).show(ui, |ui| {
                 let mut new_chat = false;
-                list::rooms(ui, &mut session.sidebar, &mut session.query, &mut new_chat, &mut session.focus_search, t);
+                list::rooms(ui, session, &mut new_chat, t);
                 session.new_open |= new_chat;
             });
         }

@@ -58,7 +58,10 @@ pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, t: &DesignTokens) {
 }
 
 /// Header with the search field, then the rows. Returns nothing: selection goes through `Sidebar::select`.
-pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_chat: &mut bool, focus: &mut bool, t: &DesignTokens) {
+pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens) {
+    let sidebar = &mut session.sidebar;
+    let query = &mut session.query;
+    let focus = &mut session.focus_search;
     let (title, _, _) = sidebar.list_header();
     ui.add_space(12.);
     ui.horizontal(|ui| {
@@ -100,6 +103,8 @@ pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_c
     let selected = sidebar.selected().map(|r| r.scope.clone());
     let visible: Vec<usize> = sidebar.visible_indices().to_vec();
     let mut pick = None;
+    let mut action = None;
+    if let Some(error) = &session.room_error { ui.colored_label(rgb(t.error), error); }
     egui::ScrollArea::vertical().auto_shrink(false).show_rows(ui, ROW, visible.len(), |ui, range| {
         for &index in &visible[range] {
             let room = &sidebar.rooms()[index];
@@ -130,9 +135,49 @@ pub fn rooms(ui: &mut egui::Ui, sidebar: &mut Sidebar, query: &mut String, new_c
             if resp.clicked() {
                 pick = Some(room.scope.clone());
             }
+            if resp.secondary_clicked() {
+                session.confirm_leave = None;
+            }
+            if !room.info.invited {
+                resp.context_menu(|ui| {
+                    use crate::session::RoomAction;
+                    for (label, choice) in [("Segna come letto", RoomAction::Mark(true)), ("Segna come non letto", RoomAction::Mark(false)), (sidebar.favourite_label(&room.scope), RoomAction::Tag("m.favourite")), (sidebar.low_priority_label(&room.scope), RoomAction::Tag("m.lowpriority"))] {
+                        if ui.button(label).clicked() { action = Some((room.scope.clone(), choice)); ui.close(); }
+                    }
+                    for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
+                        let label = if sidebar.notify_mode(&room.scope) == mode { format!("✓ {}", mode.label()) } else { mode.label().to_owned() };
+                        if ui.button(label).clicked() { action = Some((room.scope.clone(), RoomAction::Mode(mode))); ui.close(); }
+                    }
+                    let label = if session.confirm_leave.as_ref() == Some(&room.scope) { "Uscire?" } else { "Esci" };
+                    if ui.button(label).clicked() && confirm_leave(&mut session.confirm_leave, &room.scope) {
+                        action = Some((room.scope.clone(), RoomAction::Leave));
+                        ui.close();
+                    }
+                });
+            }
         }
     });
     if let Some(scope) = pick {
         sidebar.select(&scope);
     }
+    if let Some((scope, action)) = action { session.room_action(scope, action); }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn leaving_requires_two_clicks_on_the_same_room() {
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        let room = |id: &str| RoomScope { account_id: AccountId::new(1), room_id: RoomId::new(id) };
+        let (a, b) = (room("!a:x"), room("!b:x"));
+        let mut confirm = None;
+        assert!(!super::confirm_leave(&mut confirm, &a));
+        assert!(!super::confirm_leave(&mut confirm, &b));
+        assert!(super::confirm_leave(&mut confirm, &b));
+        assert!(!super::confirm_leave(&mut confirm, &b));
+    }
+}
+
+fn confirm_leave(confirm: &mut Option<matrix_domain::RoomScope>, scope: &matrix_domain::RoomScope) -> bool {
+    if confirm.as_ref() == Some(scope) { *confirm = None; true } else { *confirm = Some(scope.clone()); false }
 }
