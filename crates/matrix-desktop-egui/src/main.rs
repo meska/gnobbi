@@ -563,7 +563,10 @@ impl App {
                     let session = if current { self.session.as_ref() } else { self.parked.iter().find(|p| p.root == path).map(|p| &p.session) };
                     let Some(session) = session else { continue };
                     let unread = session.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
-                    let name = if unread > 0 { format!("{} ({unread})", session.account_name) } else { session.account_name.clone() };
+                    // The server in brackets tells apart accounts with the same name (Marco, 19/11); the unread count follows after a dot.
+                    let server = entry.user_id.as_deref().and_then(|u| u.split_once(':')).map(|(_, s)| s);
+                    let label = match server { Some(s) => format!("{} ({s})", session.account_name), None => session.account_name.clone() };
+                    let name = if unread > 0 { format!("{label} · {unread}") } else { label };
                     rows.push(matrix_desktop::AccountRow { id: entry.id, initials: matrix_desktop::initials(&session.account_name), name, user_id: session.user.clone(), avatar: None, current, unread, mentions: 0 });
                 }
             }
