@@ -76,6 +76,24 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         });
         return (None, false, false);
     }
+    if e.redacted {
+        // Compact deleted row like the GPUI client: «Name: label … time», no bubble; right-click still opens the menu.
+        let gutter = group && !e.outgoing && e.sender.is_some();
+        let layout = if e.outgoing { Layout::right_to_left(Align::Center) } else { Layout::left_to_right(Align::Center) };
+        let r = ui.with_layout(layout, |ui| {
+            ui.spacing_mut().item_spacing.x = 8.;
+            ui.add_space(if gutter { 52. } else { 12. });
+            let small = |s: &str| RichText::new(s.to_owned()).size(12.).color(rgb(t.secondary));
+            if let Some(name) = label {
+                ui.label(RichText::new(matrix_desktop::row_text::redacted_name(name)).size(12.).strong().color(rgb(t.accent)));
+            }
+            ui.label(small(matrix_desktop::row_text::REDACTED_LABEL));
+            ui.label(small(&e.time));
+        });
+        let pos = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None });
+        let opened = pos.filter(|p| r.response.rect.contains(*p) && ui.is_rect_visible(r.response.rect));
+        return (opened, false, false);
+    }
     let max = (ui.available_width() * 0.85).clamp(120., MAX_BUBBLE);
     let layout = if e.outgoing { Layout::right_to_left(Align::TOP) } else { Layout::left_to_right(Align::TOP) };
     let mut opened = None;
@@ -156,10 +174,17 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 } else if !e.text.is_empty() {
                     ui.label(RichText::new(&e.text).size(BODY).line_height(Some(20.)));
                 }
-                if let Some(th) = &e.thread
-                    && ui.link(format!("{} risposte", th.num_replies)).clicked()
-                {
-                    thread = true;
+                if let Some(th) = &e.thread {
+                    ui.horizontal(|ui| {
+                        if let Some(s) = &th.latest_sender {
+                            let pic = s.avatar.as_deref().and_then(|m| avatars.get(m)?.as_ref());
+                            let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+                            avatar(ui, 20., pic, &initials, 9., t);
+                        }
+                        if ui.link(format!("{} risposte", th.num_replies)).clicked() {
+                            thread = true;
+                        }
+                    });
                 }
                 ui.add_space(4.);
                 ui.label(RichText::new(matrix_desktop::bubble_stamp(&e.time, e.outgoing, e.send_state)).size(10.).color(rgb(t.secondary)));
