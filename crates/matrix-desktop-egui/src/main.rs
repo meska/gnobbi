@@ -883,6 +883,9 @@ impl App {
         {
             newchat::show(ui.ctx(), s, &mut self.new_form, t);
         }
+        if let Some(s) = &mut self.session {
+            list::space_picker(ui.ctx(), s);
+        }
         if let Some(s) = &mut self.session
             && let Some(v) = &mut s.verification
         {
