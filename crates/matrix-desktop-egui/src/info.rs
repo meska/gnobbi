@@ -135,6 +135,12 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
                     ui.ctx().copy_text(id.to_owned());
                 }
             });
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Link profilo");
+                if copy_icon(ui).clicked() {
+                    ui.ctx().copy_text(format!("https://matrix.to/#/{id}"));
+                }
+            });
             match p.verified {
                 Some(true) => ui.label("Verificato"),
                 Some(false) => ui.label(RichText::new("Non verificato").color(rgb(t.error))),
