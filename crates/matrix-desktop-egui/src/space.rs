@@ -57,6 +57,42 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
     });
 }
 
+/// Why «Esci dallo spazio» is not offered; `line` is the one line shown, nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeaveBlock {
+    OwnRooms,
+    LastAdmin,
+}
+
+impl LeaveBlock {
+    pub fn line(self) -> &'static str {
+        match self {
+            Self::OwnRooms => "Ci sono ancora tue stanze in questo spazio.",
+            Self::LastAdmin => "Sei l'ultimo amministratore dello spazio.",
+        }
+    }
+}
+
+/// `None` = the user may leave `space`. A space that is no longer in the list is already left: nothing blocks.
+/// Child rooms count when the hierarchy says joined, or the list holds them (joined or invited).
+pub fn leave_block(rooms: &[SidebarRoom], space: &RoomScope, children: &SpaceChildren) -> Option<LeaveBlock> {
+    let info = &rooms.iter().find(|r| &r.scope == space)?.info;
+    let own_child = children.children.iter().any(|c| c.joined)
+        || rooms.iter().any(|r| r.scope.account_id == space.account_id && info.children.contains(&r.scope.room_id));
+    if own_child {
+        Some(LeaveBlock::OwnRooms)
+    } else if children.last_owner {
+        Some(LeaveBlock::LastAdmin)
+    } else {
+        None
+    }
+}
+
+/// The leave itself is the engine's `leave_space` (handle, forget, already-left tolerance); the answer is `SpaceLeft`.
+pub fn leave_command(scope: RoomScope, forget: bool) -> matrix_engine::operations::OperationCommand {
+    matrix_engine::operations::OperationCommand::LeaveSpace { scope, forget }
+}
+
 /// Rooms the user is in that can still go under the space: no spaces, no invitations, not already a child.
 fn candidates<'a>(rooms: &'a [SidebarRoom], children: &SpaceChildren) -> Vec<&'a SidebarRoom> {
     rooms.iter().filter(|r| !r.info.is_space && !r.info.invited && !children.children.iter().any(|c| c.scope == r.scope)).collect()
@@ -192,7 +228,41 @@ mod tests {
             info: matrix_engine::RoomInfo { is_space, invited, ..Default::default() },
         };
         let rooms = [room("!free:x", false, false), room("!child:x", false, false), room("!space:x", true, false), room("!invite:x", false, true)];
-        let children = SpaceChildren { children: vec![SpaceChild { scope: scope("!child:x"), name: "c".into(), avatar_url: None, joined: true }], editable: true };
+        let children = SpaceChildren { children: vec![SpaceChild { scope: scope("!child:x"), name: "c".into(), avatar_url: None, joined: true }], editable: true, last_owner: false };
         assert_eq!(super::candidates(&rooms, &children).iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["!free:x"]);
+    }
+
+    #[test]
+    fn leave_eligibility() {
+        use matrix_domain::{AccountId, RoomId, RoomScope};
+        use matrix_engine::operations::{SpaceChild, SpaceChildren};
+        let scope = |id: &str| RoomScope { account_id: AccountId::new(1), room_id: RoomId::new(id) };
+        let room = |id: &str, is_space, invited, children: &[&str]| matrix_desktop::SidebarRoom {
+            scope: scope(id),
+            name: id.to_owned(),
+            initials: String::new(),
+            preview: String::new(),
+            time: "",
+            color: 0,
+            unread: 0,
+            info: matrix_engine::RoomInfo { is_space, invited, children: children.iter().map(|c| RoomId::new(*c)).collect(), ..Default::default() },
+        };
+        let none = SpaceChildren::default();
+        let space = scope("!s:x");
+        // No children of the user's: free to leave.
+        let rooms = [room("!s:x", true, false, &["!c:x"]), room("!other:x", false, false, &[])];
+        assert_eq!(super::leave_block(&rooms, &space, &none), None);
+        // Child in the list (joined or invited), or joined per the hierarchy.
+        let with_child = [room("!s:x", true, false, &["!c:x"]), room("!c:x", false, true, &[])];
+        assert_eq!(super::leave_block(&with_child, &space, &none), Some(super::LeaveBlock::OwnRooms));
+        let hierarchy = SpaceChildren { children: vec![SpaceChild { scope: scope("!c:x"), name: "c".into(), avatar_url: None, joined: true }], ..Default::default() };
+        assert_eq!(super::leave_block(&rooms, &space, &hierarchy), Some(super::LeaveBlock::OwnRooms));
+        // Last admin, only once the rooms are out of the way.
+        let last = SpaceChildren { last_owner: true, ..Default::default() };
+        assert_eq!(super::leave_block(&rooms, &space, &last), Some(super::LeaveBlock::LastAdmin));
+        assert_eq!(super::leave_block(&with_child, &space, &last), Some(super::LeaveBlock::OwnRooms));
+        // Already left: the space is gone from the list.
+        assert_eq!(super::leave_block(&[room("!other:x", false, false, &[])], &space, &last), None);
+        assert!(super::LeaveBlock::LastAdmin.line().len() > 0);
     }
 }

@@ -166,6 +166,8 @@ pub struct SpaceChild {
 pub struct SpaceChildren {
     pub children: Vec<SpaceChild>,
     pub editable: bool,
+    /// The user is the last owner of the space (SDK leave handle); false when unknown.
+    pub last_owner: bool,
 }
 
 /// The one line the UI shows when adding to or removing from a space failed.
@@ -1010,6 +1012,25 @@ async fn left_or_refused(
     }
 }
 
+/// SDK leave handle of a joined space (also tells whether we are its last owner); shared by the check and the leave.
+#[cfg(feature = "sdk")]
+async fn leave_handle(
+    client: &matrix_sdk::Client,
+    id: &matrix_sdk::ruma::RoomId,
+) -> Result<matrix_sdk_ui::spaces::leave::LeaveSpaceHandle, OperationError> {
+    // The space graph also holds the plain rooms a space lists as children: only a space may be left here.
+    if !client.get_room(id).is_some_and(|r| r.is_space()) {
+        return Err(OperationError::Unavailable);
+    }
+    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
+    service.top_level_joined_spaces().await; // fills the space graph, as in `space_choices`
+    match tokio::time::timeout(std::time::Duration::from_secs(20), service.leave_space(id)).await {
+        Ok(Ok(handle)) => Ok(handle),
+        Ok(Err(e)) => Err(classify_space(&e)),
+        Err(_) => Err(OperationError::Transport),
+    }
+}
+
 /// «Esci dallo spazio»: `SpaceService::leave_space` → handle (whose `is_last_owner` is returned for the
 /// confirmation text) → `handle.leave` filtered to the space itself, so the contained rooms stay joined.
 /// Same already-out recheck as `leave_room` (Synapse 403, Tuwunel 200). `Room::forget` only after a leave
@@ -1025,24 +1046,22 @@ pub async fn leave_space(
         Ok(id) => id,
         Err(e) => return (None, Err(e)),
     };
-    // The space graph also holds the plain rooms a space lists as children: only a space may be left here.
-    if !client.get_room(&id).is_some_and(|r| r.is_space()) {
-        return (None, Err(OperationError::Unavailable));
-    }
-    let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
-    service.top_level_joined_spaces().await; // fills the space graph, as in `space_choices`
-    let handle = match tokio::time::timeout(std::time::Duration::from_secs(20), service.leave_space(&id)).await {
-        Ok(Ok(handle)) => handle,
-        Ok(Err(e)) => return (None, Err(classify_space(&e))),
-        Err(_) => return (None, Err(OperationError::Transport)),
-    };
-    let is_last_owner = handle.rooms().iter().find(|r| r.space_room.room_id == id).map(|r| r.is_last_owner);
-    let left = match tokio::time::timeout(std::time::Duration::from_secs(30), handle.leave(|r| r.space_room.room_id == id)).await {
-        Ok(left) => left.map_err(|e| classify_space(&e)),
-        Err(_) => Err(OperationError::Transport),
-    };
-    if let Err(e) = left_or_refused(client, &id, left).await {
-        return (is_last_owner, Err(e));
+    // Already out (left elsewhere): nothing to leave, only the forget remains.
+    let already_out = client.get_room(&id).is_some_and(|r| r.is_space() && r.state() == matrix_sdk::RoomState::Left);
+    let mut is_last_owner = None;
+    if !already_out {
+        let handle = match leave_handle(client, &id).await {
+            Ok(handle) => handle,
+            Err(e) => return (None, Err(e)),
+        };
+        is_last_owner = handle.rooms().iter().find(|r| r.space_room.room_id == id).map(|r| r.is_last_owner);
+        let left = match tokio::time::timeout(std::time::Duration::from_secs(30), handle.leave(|r| r.space_room.room_id == id)).await {
+            Ok(left) => left.map_err(|e| classify_space(&e)),
+            Err(_) => Err(OperationError::Transport),
+        };
+        if let Err(e) = left_or_refused(client, &id, left).await {
+            return (is_last_owner, Err(e));
+        }
     }
     let forgot = match client.get_room(&id).filter(|_| forget) {
         Some(room) => room.forget().await.map_err(|e| tracing::warn!(%e, "forget after leaving a space failed")).is_ok(),
@@ -1351,6 +1370,10 @@ pub async fn space_children(
     use matrix_sdk_ui::spaces::room_list::SpaceRoomListPaginationState::Idle;
     let id = room_id_of(account, space)?;
     let editable = can_edit_space(client, account, space).await?;
+    let last_owner = match leave_handle(client, &id).await {
+        Ok(h) => h.rooms().iter().any(|r| r.space_room.room_id == id && r.is_last_owner),
+        Err(_) => false,
+    };
     let service = matrix_sdk_ui::spaces::SpaceService::new(client.clone()).await;
     let list = service.space_room_list(id).await;
     // Bounded: a huge space stops at 50 pages rather than holding the command task.
@@ -1374,7 +1397,7 @@ pub async fn space_children(
             joined: r.state == Some(matrix_sdk::RoomState::Joined),
         })
         .collect();
-    Ok(SpaceChildren { children, editable })
+    Ok(SpaceChildren { children, editable, last_owner })
 }
 
 /// Spaces that can take `room` and spaces that already hold it. The SDK graph is rebuilt on each call, so
