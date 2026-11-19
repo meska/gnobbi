@@ -253,7 +253,7 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
     match &icon {
         Icon::Unread => bubble(c, ink),
         Icon::All => {
-            let back = rgb(if selected { t.selected } else { t.surface });
+            let back = if selected { rgb(t.selected) } else if resp.hovered() || resp.has_focus() { rgb(t.input) } else { crate::chat_background(t) };
             bubble(c + Vec2::new(4., -4.), ink);
             p.rect_filled(egui::Rect::from_center_size(c + Vec2::new(-3., 3.), Vec2::new(25., 19.)), 7., back);
             bubble(c + Vec2::new(-3., 3.), ink);

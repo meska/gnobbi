@@ -217,11 +217,18 @@ impl App {
     }
 }
 
+fn chat_background(t: &DesignTokens) -> Color32 {
+    if t.timeline == matrix_desktop::NIGHT.timeline { rgb(0x050a07) } else { rgb(t.timeline) }
+}
+
 fn bar(t: &DesignTokens) -> egui::Frame {
-    egui::Frame::NONE.fill(rgb(t.surface))
+    egui::Frame::NONE.fill(list_fill(t))
 }
 
 fn list_fill(t: &DesignTokens) -> Color32 {
+    if t.timeline == matrix_desktop::NIGHT.timeline {
+        return rgb(0x0b130e);
+    }
     let surface = rgb(t.surface);
     Color32::from_rgb(surface.r().saturating_sub(3), surface.g().saturating_sub(3), surface.b().saturating_sub(3))
 }
@@ -770,7 +777,7 @@ impl App {
         let account = self.rail_account.as_ref().filter(|(root, _)| *root == self.root).map_or(0, |(_, id)| *id);
         if let Some(session) = &mut self.session {
             rail::edit_window(ui.ctx(), session, &mut self.rail, account, self.dirs.as_ref(), t);
-            egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
+            egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
                 ui.add_space(8.);
                 // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
                 let dots = others.len().div_ceil(5) as f32 * 10.;
@@ -1136,7 +1143,7 @@ impl App {
             self.prefs = new;
             self.applied = None;
         }
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
             // The click that changes room lands before `drive_history` swaps the messages: drawing the old room under the new room's scroll state moved it to the bottom and saved that as its reading position.
             let stale = self.session.as_ref().is_some_and(|s| s.messages.as_ref().is_some_and(|m| s.sidebar.selected().is_some_and(|r| r.scope != *m.scope())));
             if stale {
@@ -1661,12 +1668,21 @@ mod tests {
     #[test]
     fn list_background_stays_distinct_from_rail_and_timeline() {
         for theme in Theme::ALL {
+            let (expected_a, expected_b) = match theme {
+                Theme::Classic => (0xe9f0eb, 0xfcfcfc),
+                Theme::Day => (0xf4f6f5, 0xfcfcfc),
+                Theme::Dark => (0x101b14, 0x142018),
+                Theme::Night => (0x050a07, 0x0b130e),
+            };
             let t = theme.tokens_with(matrix_desktop::Accent::Blue);
+            let timeline = chat_background(&t);
+            let rail = egui::Frame::NONE.fill(chat_background(&t)).fill;
             let list = list_fill(&t);
-            let rail = rgb(t.surface);
-            let timeline = rgb(t.timeline);
-            assert!(list.r() < rail.r() && list.g() < rail.g() && list.b() < rail.b());
-            assert!(list.r().abs_diff(timeline.r()) >= 3 || list.g().abs_diff(timeline.g()) >= 3 || list.b().abs_diff(timeline.b()) >= 3, "{theme:?}: list {list:?}, timeline {timeline:?}");
+            assert_eq!(timeline, rgb(expected_a), "{theme:?}");
+            assert_eq!(list, rgb(expected_b), "{theme:?}");
+            assert_eq!(rail, timeline, "{theme:?}");
+            assert_eq!(bar(&t).fill, list, "{theme:?}");
+            assert_ne!(timeline, list, "{theme:?}");
         }
     }
 
