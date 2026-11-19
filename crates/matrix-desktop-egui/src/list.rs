@@ -1,9 +1,8 @@
-//! Left side of the shell: the spaces rail and the room list, drawn from the toolkit-free `Sidebar`.
+//! Left side of the shell: the room list, drawn from the toolkit-free `Sidebar`.
 use eframe::egui::{self, Align2, Color32, FontId, Sense, Vec2, text::LayoutJob};
 use matrix_desktop::{DesignTokens, Sidebar};
 
 const ROW: f32 = 52.;
-const RAIL: f32 = 64.;
 
 pub fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
@@ -14,7 +13,7 @@ fn count(n: u64) -> String {
 }
 
 /// One line, cut with an ellipsis instead of wrapping.
-fn one_line(ui: &egui::Ui, text: &str, size: f32, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
+pub fn one_line(ui: &egui::Ui, text: &str, size: f32, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
     let mut job = LayoutJob::simple_singleline(text.to_owned(), FontId::proportional(size), color);
     job.wrap = egui::text::TextWrapping::truncate_at_width(width);
     ui.painter().layout_job(job)
@@ -34,36 +33,6 @@ pub fn photo(ui: &egui::Ui, avatars: &crate::timeline::Avatars, mxc: Option<&str
     let rect = egui::Rect::from_center_size(c, Vec2::splat(size));
     egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(egui::CornerRadius::same((size / 2.) as u8)).paint_at(ui, rect);
     true
-}
-
-/// Spaces rail: «Tutte» and the joined spaces.
-pub fn rail(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, t: &DesignTokens) {
-    let mut pick = None;
-    egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        ui.add_space(8.);
-        for entry in sidebar.navigation_entries() {
-            let (rect, resp) = ui.allocate_exact_size(Vec2::new(RAIL, 52.), Sense::click());
-            let c = rect.center();
-            if entry.selected {
-                ui.painter().rect_filled(egui::Rect::from_center_size(c, Vec2::new(RAIL - 12., 48.)), 10., rgb(t.selected));
-            } else if resp.hovered() {
-                ui.painter().rect_filled(egui::Rect::from_center_size(c, Vec2::new(RAIL - 12., 48.)), 10., rgb(t.input));
-            }
-            let initial: String = entry.name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
-            ui.painter().circle_filled(c, 18., if entry.scope.is_none() { rgb(t.accent) } else { rgb(crate::AVATAR) });
-            ui.painter().text(c, Align2::CENTER_CENTER, initial, FontId::proportional(16.), rgb(t.on_accent));
-            photo(ui, avatars, entry.avatar.as_deref(), c, 36.);
-            if entry.unread > 0 {
-                badge(ui, c + Vec2::new(16., -16.), entry.unread, t);
-            }
-            if resp.clicked() {
-                pick = Some(entry.scope);
-            }
-        }
-    });
-    if let Some(scope) = pick {
-        sidebar.set_space(scope);
-    }
 }
 
 /// Header with the search field, then the rows. Returns nothing: selection goes through `Sidebar::select`.

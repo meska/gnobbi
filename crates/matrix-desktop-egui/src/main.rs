@@ -18,6 +18,7 @@ mod list;
 mod members;
 mod newchat;
 mod poll;
+mod rail;
 mod roomedit;
 mod space;
 mod session;
@@ -68,10 +69,10 @@ struct Parked {
     recorded: bool,
 }
 
-/// Below this window width the room list hides: rail 64 + list 320 + a chat of at least ~376.
-const NARROW_WIDTH: f32 = 760.;
-/// Narrow layout shows rail 64 + chat; the chat needs ≥360.
-const MIN_WIDTH: f32 = 424.;
+/// Below this window width the room list hides: rail 76 + list 320 + a chat of at least ~376.
+const NARROW_WIDTH: f32 = 772.;
+/// Narrow layout shows rail 76 + chat; the chat needs ≥360.
+const MIN_WIDTH: f32 = 436.;
 
 struct App {
     prefs: Preferences,
@@ -80,6 +81,9 @@ struct App {
     accounts_open: bool,
     /// Narrow window only: the room list replaces the chat while true.
     list_open: bool,
+    rail: rail::State,
+    /// Catalog id of the shown account (the rail layout is stored under it), with the profile folder it was read for.
+    rail_account: Option<(std::path::PathBuf, u64)>,
     /// Profile folder this window runs on, and whether its login is already in the catalog.
     root: std::path::PathBuf,
     recorded: bool,
@@ -144,7 +148,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
         if let Some(i) = last {
@@ -311,7 +315,8 @@ impl eframe::App for App {
                     && !session.new_open && !session.poll_open && session.edit.is_none()
                     && !session.devices_open && !self.settings_open && !self.accounts_open && self.pending_web.is_none()
                 {
-                    if session.quick_open { session.quick_open = false; }
+                    if self.rail.edit { self.rail.edit = false; }
+                    else if session.quick_open { session.quick_open = false; }
                     else if let Some(a) = session.admin.as_mut().filter(|a| !a.busy && (a.dialog.is_some() || a.inviting)) { (a.dialog, a.inviting, a.failed) = (None, false, false); }
                     else if session.space_view.is_some() { session.space_view = None; }
                     else if session.menu.is_some() { session.close_menu(); }
@@ -708,12 +713,20 @@ impl App {
         }
         let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
         let others: Vec<(String, u64)> = self.parked.iter().map(|p| (p.session.account_name.clone(), unread(&p.session))).collect();
+        // The catalog lists the account once its login is recorded; until then the layout is the default one, kept under 0.
+        if self.recorded && self.rail_account.as_ref().is_none_or(|(root, _)| *root != self.root)
+            && let Some(d) = &self.dirs
+        {
+            self.rail_account = matrix_desktop::AccountCatalog::load(d).id_for_root(d, &self.root).map(|id| (self.root.clone(), id.as_u64()));
+        }
+        let account = self.rail_account.as_ref().filter(|(root, _)| *root == self.root).map_or(0, |(_, id)| *id);
         if let Some(session) = &mut self.session {
-            egui::Panel::left("rail").exact_size(64.).resizable(false).frame(bar(t)).show(ui, |ui| {
+            rail::edit_window(ui.ctx(), &mut session.sidebar, &mut self.rail, account, self.dirs.as_ref(), t);
+            egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).frame(bar(t)).show(ui, |ui| {
                 ui.add_space(8.);
-                // Five dots per row fit the 64 px rail; more accounts wrap onto further rows, each centred.
+                // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
                 let dots = others.len().div_ceil(5) as f32 * 10.;
-                let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(64., 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
+                let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
                 let name = session.account_name.as_str();
                 resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
                 if !others.is_empty() && resp.hovered() {
@@ -752,7 +765,7 @@ impl App {
                     });
                 }
                 resp.on_hover_text(name);
-                list::rail(ui, &mut session.sidebar, &session.avatars, t);
+                rail::show(ui, &mut session.sidebar, &session.avatars, &mut self.rail, account, t);
             });
             if !narrow || self.list_open {
                 let before = session.sidebar.selected().map(|r| r.scope.clone());
