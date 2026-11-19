@@ -203,17 +203,37 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 } else if e.redacted {
                     ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {
+                    let mut pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&e.text, &e.mentions)
+                        .filter_map(|m| match &m.kind { matrix_engine::rich_text::MentionKind::User { sender, .. } => Some((m.range.clone(), sender)), _ => None })
+                        .collect();
+                    pills.sort_by_key(|(r, _)| r.start);
+                    let mut at = 0;
+                    pills.retain(|(r, _)| { let ok = r.start >= at; if ok { at = r.end; } ok });
                     let parts = link_parts(&e.text);
-                    if parts.iter().any(|(_, url)| url.is_some()) {
+                    if !pills.is_empty() || parts.iter().any(|(_, url)| url.is_some()) {
+                        // Segments between pills keep their links; a pill is avatar + accent name, as in the GPUI client.
+                        let mut segs: Vec<(&str, Option<&matrix_engine::history::HistorySender>)> = Vec::new();
+                        let mut from = 0;
+                        for (r, s) in &pills { segs.push((&e.text[from..r.start], None)); segs.push((&e.text[r.clone()], Some(*s))); from = r.end; }
+                        segs.push((&e.text[from..], None));
                         ui.horizontal_wrapped(|ui| {
                             ui.spacing_mut().item_spacing.x = 0.;
-                            for (text, url) in parts {
-                                if let Some(url) = url {
-                                    if ui.link(RichText::new(text).size(BODY)).clicked() {
-                                        acts.open_link = Some(url);
+                            for (seg, who) in segs {
+                                if let Some(s) = who {
+                                    let pic = s.avatar.as_deref().and_then(|m| avatars.get(m)?.as_ref());
+                                    let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
+                                    avatar(ui, 20., pic, &initials, 9., t);
+                                    ui.label(RichText::new(seg).size(BODY).strong().color(rgb(t.accent)));
+                                    continue;
+                                }
+                                for (text, url) in link_parts(seg) {
+                                    if let Some(url) = url {
+                                        if ui.link(RichText::new(text).size(BODY)).clicked() {
+                                            acts.open_link = Some(url);
+                                        }
+                                    } else {
+                                        ui.label(RichText::new(text).size(BODY).line_height(Some(20.)));
                                     }
-                                } else {
-                                    ui.label(RichText::new(text).size(BODY).line_height(Some(20.)));
                                 }
                             }
                         });
