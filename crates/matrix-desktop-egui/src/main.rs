@@ -16,7 +16,6 @@ mod devices;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
 mod info;
-#[allow(dead_code)] // pure state, wired to the join popup by the UI card
 mod join;
 mod list;
 mod members;
@@ -612,6 +611,31 @@ impl App {
                             s.moderate_in(scope, user, action);
                         }
                     }
+                }
+            }
+            // Views «join-<state>» / «qjoin-<state>» (state: go, slow, missing, offline, unreachable, generic): «Unisciti» / the quick search with a join seeded in that state; nothing is sent.
+            if let Some((quick, kind)) = view.strip_prefix("join-").map(|k| (false, k)).or(view.strip_prefix("qjoin-").map(|k| (true, k))) {
+                use matrix_engine::{join::JoinPhase, operations::OperationError};
+                let demo = "#grande:matrix.org";
+                let mut join = join::JoinState::default();
+                join.start();
+                match kind {
+                    "slow" => join.apply(JoinPhase::Slow, true),
+                    "missing" => join.apply(JoinPhase::Refused(OperationError::Unavailable), true),
+                    "offline" => join.apply(JoinPhase::Unconfirmed, false),
+                    "unreachable" => join.apply(JoinPhase::Unconfirmed, true),
+                    "generic" => join.apply(JoinPhase::Refused(OperationError::Forbidden), true),
+                    _ => {}
+                }
+                s.joins.insert(demo.to_owned(), join);
+                if quick {
+                    s.quick_open = true;
+                    s.new_term = "grande".to_owned();
+                    let hit = matrix_engine::operations::DirectoryRoom { room_id: demo.to_owned(), alias: None, name: "Stanza grande".to_owned(), topic: None, members: 40000, avatar_url: None, world_readable: false, guest_can_join: false, join_rule: "public".to_owned(), origin: "matrix.org".to_owned() };
+                    s.public_rooms = matrix_engine::search::SearchState::Results { term: s.new_term.clone(), hits: vec![hit], more: matrix_engine::search::More::None };
+                } else if !s.new_open {
+                    s.new_open = true;
+                    self.new_form.prefill_join(demo);
                 }
             }
             match view.as_str() {
@@ -1210,6 +1234,7 @@ fn quick_search(ctx: &egui::Context, s: &mut Session) {
         matrix_engine::search::SearchState::Results { hits, .. } if typed => hits.iter().take(matrix_desktop::quick_search::ROOMS_LIMIT).cloned().collect(),
         _ => Vec::new(),
     };
+    let joins: Vec<_> = public.iter().map(|h| s.joins.get(&h.room_id).map(|j| (j.is_running(), j.line(), j.error().is_some()))).collect();
     let total = hits.len() + users.len() + public.len();
     // Up/Down/Enter are taken before the field sees them; Esc closes through the modal.
     let (down, up, enter) = ctx.input_mut(|i| (i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown), i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp), i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)));
@@ -1243,7 +1268,17 @@ fn quick_search(ctx: &egui::Context, s: &mut Session) {
                 row(ui, hits.len() + i, format!("{name}  {}", hit.user_id));
             }
             if !public.is_empty() { ui.label("Stanze pubbliche"); }
-            for (i, hit) in public.iter().enumerate() { row(ui, hits.len() + users.len() + i, hit.name.clone()); }
+            for (i, hit) in public.iter().enumerate() {
+                // The join's spinner and its one-line state sit on the room's own row.
+                ui.horizontal(|ui| {
+                    row(ui, hits.len() + users.len() + i, hit.name.clone());
+                    let Some((running, line, failed)) = joins[i] else { return };
+                    if running { ui.spinner(); }
+                    if let Some(line) = line {
+                        ui.label(egui::RichText::new(line).color(if failed { ui.visuals().error_fg_color } else { ui.visuals().weak_text_color() }));
+                    }
+                });
+            }
         });
     });
     if let Some(i) = picked {
@@ -1256,7 +1291,8 @@ fn quick_search(ctx: &egui::Context, s: &mut Session) {
             let joined = s.sidebar.rooms().iter().find(|r| !r.info.invited && r.scope.room_id.as_str() == hit.room_id).map(|r| r.scope.clone());
             match joined {
                 Some(scope) => { s.sidebar.select(&scope); }
-                None => s.join_public(hit),
+                // The search stays open on the row until the join's real outcome.
+                None => { s.join_public(hit); return; }
             }
         }
         s.quick_open = false;

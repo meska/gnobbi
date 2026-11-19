@@ -141,6 +141,8 @@ pub struct Session {
     /// Highlighted row of the quick search, counted over all groups.
     pub quick_sel: usize,
     pub new_failed: bool,
+    /// Joins asked from the quick search or «Unisciti», by the command's target; a successful one is removed.
+    pub joins: std::collections::HashMap<String, crate::join::JoinState>,
     /// «Crea spazio» was sent and its answer is not in yet.
     pub new_busy: bool,
     pub pending_select: Option<matrix_domain::RoomScope>,
@@ -282,6 +284,7 @@ impl Session {
             rooms_sent: None,
             quick_sel: 0,
             new_failed: false,
+            joins: Default::default(),
             new_busy: false,
             pending_space: None,
             pending_select: None,
@@ -983,6 +986,23 @@ impl Session {
                     continue;
                 }
                 OperationResult::Ignored { .. } => continue,
+                OperationResult::Join { target, phase } => {
+                    // shortcut: «offline» is read from our own sync being down, use a system network probe if the two get confused.
+                    let online = self.sync != Some(RoomSyncStatus::SyncFailed);
+                    if let Some(join) = self.joins.get_mut(target) {
+                        join.apply(phase.clone(), online);
+                        if let crate::join::JoinState::Joined(scope) = join {
+                            // Opened only for a user still waiting in the window that asked for it.
+                            if self.quick_open || self.new_open {
+                                self.pending_select = Some(scope.clone());
+                                (self.quick_open, self.new_open) = (false, false);
+                            }
+                            self.joins.remove(target);
+                        }
+                    }
+                    changed = true;
+                    continue;
+                }
                 _ => {}
             }
             if let OperationResult::MessageSearch { scope, state } = result {
@@ -1054,14 +1074,19 @@ impl Session {
 
     /// A directory row: joined through the server that listed it, like the GPUI quick search.
     pub fn join_public(&mut self, room: &matrix_engine::operations::DirectoryRoom) {
-        self.new_failed = false;
-        self.op_queue.push(OperationCommand::JoinRoom { target: room.room_id.clone(), via: vec![room.origin.clone()] });
+        self.start_join(room.room_id.clone(), vec![room.origin.clone()]);
     }
 
-    pub fn join(&mut self, target: String) {
+    pub fn join(&mut self, target: &str) {
+        self.start_join(target.trim().to_owned(), Vec::new());
+    }
+
+    /// Nothing is sent while a join of the same target is running.
+    fn start_join(&mut self, target: String, via: Vec<String>) {
         self.new_failed = false;
-        self.op_queue.push(OperationCommand::JoinRoom { target: target.trim().to_owned(), via: Vec::new() });
-        self.new_open = false;
+        if self.joins.entry(target.clone()).or_default().start() {
+            self.op_queue.push(OperationCommand::JoinRoom { target, via });
+        }
     }
 
     pub fn answer_invite(&mut self, scope: matrix_domain::RoomScope, accept: bool) {

@@ -15,6 +15,8 @@ pub struct Form {
     space_public: bool,
     avatar: Option<(SpaceAvatar, egui::TextureHandle)>,
     sent: bool,
+    /// «Unisciti» was pressed for `target`: the field empties once that join is done.
+    joining: bool,
 }
 
 impl Form {
@@ -38,6 +40,13 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
         form.sent = false;
         if !s.new_failed {
             (form.space, form.space_public, form.avatar) = Default::default();
+        }
+    }
+    // Joined (its entry is gone): the next one starts empty. After an error the address stays for «Unisciti» again.
+    if form.joining {
+        match s.joins.get(form.target.trim()) {
+            None => (form.joining, form.target) = Default::default(),
+            Some(j) => form.joining = j.is_running(),
         }
     }
     let mut open = true;
@@ -103,11 +112,22 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                 }
             }
             _ => {
-                ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut form.target).hint_text("#stanza:server o !id:server"));
+                let join = s.joins.get(form.target.trim());
+                let (running, line, failed) = (join.is_some_and(|j| j.is_running()), join.and_then(|j| j.line()), join.is_some_and(|j| j.error().is_some()));
+                ui.add_enabled_ui(!running, |ui| ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut form.target).hint_text("#stanza:server o !id:server")));
                 ui.add_space(8.);
-                if ui.add_enabled(!form.target.trim().is_empty(), egui::Button::new("Unisciti")).clicked() {
-                    s.join(std::mem::take(&mut form.target));
-                }
+                // One row: the spinner takes the button's place for as long as the server is joining, then the outcome.
+                ui.horizontal(|ui| {
+                    if running {
+                        ui.spinner();
+                    } else if ui.add_enabled(!form.target.trim().is_empty(), egui::Button::new("Unisciti")).clicked() {
+                        form.joining = true;
+                        s.join(&form.target);
+                    }
+                    if let Some(line) = line {
+                        ui.colored_label(if failed { ui.visuals().error_fg_color } else { ui.visuals().weak_text_color() }, line);
+                    }
+                });
             }
         }
         if s.new_failed {
