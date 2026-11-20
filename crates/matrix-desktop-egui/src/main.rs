@@ -892,10 +892,19 @@ impl App {
                         if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
                             egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
                         }
-                        egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
-                            for (i, (other, n)) in others.iter().enumerate() {
-                                let count = if *n > 0 { n.to_string() } else { String::new() };
-                                if ui.add(egui::Button::new(other.as_str()).right_text(egui::RichText::new(count).color(rgb(t.accent)))).clicked() {
+                        egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).frame(egui::Frame::popup(ui.style()).stroke(egui::Stroke::NONE).fill(rgb(t.surface))).show(|ui| {
+                            ui.set_min_width(260.);
+                            // The id line tells apart accounts with the same name; a migrated one without id shows its homeserver.
+                            let catalog = self.dirs.as_ref().map(matrix_desktop::AccountCatalog::load);
+                            let line = |root: &std::path::Path| -> String {
+                                let (Some(c), Some(d)) = (&catalog, &self.dirs) else { return String::new() };
+                                c.accounts().iter().find(|e| c.data_dir(d, e.id).as_deref() == Some(root)).and_then(|e| e.user_id.clone().or_else(|| e.homeserver.clone())).unwrap_or_default()
+                            };
+                            let shown_row = (name.to_owned(), line(&self.root), session.own_picture());
+                            let rows: Vec<_> = self.parked.iter().map(|p| (p.session.account_name.clone(), line(&p.root), p.session.own_picture())).collect();
+                            accounts::switch_row(ui, &shown_row.0, &shown_row.1, shown_row.2.as_ref(), true, 0, t);
+                            for (i, ((other, id, pic), (_, n))) in rows.iter().zip(&others).enumerate() {
+                                if accounts::switch_row(ui, other, id, pic.as_ref(), false, *n, t).clicked() {
                                     pick_account = Some(i);
                                     ui.close();
                                 }

@@ -239,3 +239,33 @@ pub fn show(ctx: &egui::Context, open: &mut bool, dirs: &AppDirs, current: &std:
     out
 }
 
+
+/// One row of the account switcher in the rail: small round picture, name, the account id in grey under it, a check on the shown one, the unread badge on the others.
+pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: Option<&egui::TextureHandle>, shown: bool, unread: u64, t: &DesignTokens) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(ui.available_width().max(260.), 44.), egui::Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{name} {id}")));
+    let p = ui.painter();
+    if resp.hovered() || resp.has_focus() {
+        p.rect_filled(rect, 8., rgb(t.input));
+    }
+    let c = egui::Pos2::new(rect.left() + 8. + 12., rect.center().y);
+    p.circle_filled(c, 12., rgb(crate::AVATAR));
+    p.text(c, egui::Align2::CENTER_CENTER, matrix_desktop::initials(name), egui::FontId::proportional(11.), rgb(t.on_accent));
+    if let Some(tex) = picture {
+        let r = egui::Rect::from_center_size(c, egui::Vec2::splat(24.));
+        egui::Image::new(tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(12)).paint_at(ui, r);
+    }
+    let x = c.x + 20.;
+    let right = rect.right() - 12.;
+    let (name_pos, id_pos) = if id.is_empty() { (egui::Pos2::new(x, rect.center().y - 8.), None) } else { (egui::Pos2::new(x, rect.top() + 6.), Some(egui::Pos2::new(x, rect.top() + 24.))) };
+    ui.painter().text(name_pos, egui::Align2::LEFT_TOP, name, egui::FontId::proportional(14.), rgb(t.text));
+    if let Some(pos) = id_pos {
+        ui.painter().text(pos, egui::Align2::LEFT_TOP, id, egui::FontId::proportional(11.), rgb(t.secondary));
+    }
+    if shown {
+        ui.painter().text(egui::Pos2::new(right, rect.center().y), egui::Align2::RIGHT_CENTER, "✓", egui::FontId::proportional(15.), rgb(t.accent));
+    } else if unread > 0 {
+        crate::list::badge(ui, egui::Pos2::new(right - 10., rect.center().y), unread, t);
+    }
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
