@@ -274,6 +274,10 @@ pub fn mac_menubar() -> Menu {
         &edit_item(Edit::Copy, "Copia", cmd(Code::KeyC)),
         &edit_item(Edit::Paste, "Incolla", cmd(Code::KeyV)),
         &edit_item(Edit::SelectAll, "Seleziona tutto", cmd(Code::KeyA)),
+        &sep(),
+        // Not added by the system for a custom Edit menu (only for the standard `paste:` items), so they are explicit.
+        &PredefinedMenuItem::start_dictation(Some("Avvia dettatura…")),
+        &PredefinedMenuItem::emoji_and_symbols(Some("Emoji e simboli")),
     ])
     .ok();
     let window = Submenu::new("Finestra", true);
