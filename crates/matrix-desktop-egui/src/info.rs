@@ -135,6 +135,27 @@ mod topic_tests {
         let runs = super::topic_runs(&plain);
         assert!(runs.len() == 1 && runs[0].text == "Solo testo è" && runs[0].url.is_none() && !runs[0].bold);
     }
+
+    #[test]
+    fn topic_runs_hide_raw_markdown_and_keep_plain_and_empty_unchanged() {
+        let topic = matrix_engine::rich_text::topic("[sito](https://example.org) **forte** *chino*\n\n- uno\n- due\n\n1. primo\n2. secondo", None);
+        let runs = super::topic_runs(&topic);
+        let shown: String = runs.iter().map(|r| r.text).collect();
+        for raw in ["**", "*", "](", "[sito]"] {
+            assert!(!shown.contains(raw), "markdown grezzo {raw:?} in {shown:?}");
+        }
+        assert!(shown.contains("• uno") && shown.contains("• due") && shown.contains("1. primo") && shown.contains("2. secondo"));
+        assert!(runs.iter().any(|r| r.text == "sito" && r.url.is_some()));
+        assert!(runs.iter().any(|r| r.text == "forte" && r.bold) && runs.iter().any(|r| r.text == "chino" && r.italic));
+        // Plain topic: one run, same text, no style (the old label's content).
+        let plain = matrix_engine::RoomInfo { topic: Some("Benvenuti nella stanza".into()), ..Default::default() };
+        let shown_plain = plain.shown_topic().unwrap();
+        let runs = super::topic_runs(&shown_plain);
+        assert!(runs.len() == 1 && runs[0].text == "Benvenuti nella stanza" && runs[0].url.is_none() && !runs[0].bold && !runs[0].italic);
+        // Empty topic: nothing to draw (info::show filters it out) and no runs.
+        assert!(matrix_engine::RoomInfo::default().shown_topic().is_none());
+        assert!(super::topic_runs(&matrix_engine::rich_text::topic("", None)).is_empty());
+    }
 }
 
 /// One member: initials, name on one line and the role badge at the right edge.
