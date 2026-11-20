@@ -255,7 +255,7 @@ fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: Option<&egui::Texture
             if active {
                 ui.label(RichText::new("Attivo").size(m.secondary).color(rgb(t.accent)));
             } else {
-                open = ui.button("Apri").clicked();
+                open = ui.add(egui::Button::new("Apri").wrap_mode(egui::TextWrapMode::Extend)).clicked();
                 if unread > 0 {
                     let (r, _) = ui.allocate_exact_size(egui::vec2(24., 20.), egui::Sense::hover());
                     crate::list::badge(ui, r.center(), unread, t);

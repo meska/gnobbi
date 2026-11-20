@@ -30,6 +30,8 @@ icons! {
     X = 0xe4f6 "x",
     Plus = 0xe3d4 "plus",
     Check = 0xe182 "check",
+    SignOut = 0xe42a "sign-out",
+    ShieldCheck = 0xe40c "shield-check",
     Copy = 0xe1ca "copy",
     MagnifyingGlass = 0xe30c "magnifying-glass",
     Info = 0xe2ce "info",

@@ -52,16 +52,18 @@ fn rgb(c: u32) -> egui::Color32 {
 }
 
 /// One device: icon, name (and «Non verificato» badge), «Verificato · Ultima attività · IP», the id in monospace; `actions` on the right.
-fn row(ui: &mut egui::Ui, d: &matrix_engine::verification::VerificationDevice, t: &DesignTokens, buttons: usize, actions: impl FnOnce(&mut egui::Ui)) {
+fn row(ui: &mut egui::Ui, d: &matrix_engine::verification::VerificationDevice, t: &DesignTokens, actions: impl FnOnce(&mut egui::Ui)) {
     let secondary = rgb(t.secondary);
     let mut meta = vec![if d.verified { "Verificato".to_owned() } else { String::new() }];
     meta.extend(d.last_seen_ts.map(|ms| format!("Ultima attività {}", matrix_desktop::time_fmt::day_or_time(ms))));
-    meta.extend(d.last_seen_ip.clone());
     let meta = meta.into_iter().filter(|m| !m.is_empty()).collect::<Vec<_>>().join(" · ");
     let m = crate::metrics::get();
     let mut lines = vec![crate::rows::Line { tag: (!d.verified).then_some(("Non verificato", rgb(t.error), rgb(t.on_accent))), ..crate::rows::Line::new(device_title(d), m.body + 1., rgb(t.text)) }];
     if !meta.is_empty() {
         lines.push(crate::rows::Line::new(&meta, m.secondary, secondary));
+    }
+    if let Some(ip) = &d.last_seen_ip {
+        lines.push(crate::rows::Line::new(ip, m.secondary, secondary));
     }
     if d.display_name.is_some() {
         lines.push(crate::rows::Line { mono: true, ..crate::rows::Line::new(&d.device_id, m.secondary - 1., secondary) });
@@ -73,11 +75,7 @@ fn row(ui: &mut egui::Ui, d: &matrix_engine::verification::VerificationDevice, t
             icon(ui.painter(), r, kind_of(device_title(d)), secondary);
         },
         &lines,
-        |ui| {
-            // The actions are stacked; their block has a known size, so the row centres it on its axis.
-            let size = egui::vec2(92., buttons as f32 * crate::metrics::button() + buttons.saturating_sub(1) as f32 * ui.spacing().item_spacing.y);
-            ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Max), actions);
-        },
+        actions,
     );
 }
 
@@ -96,8 +94,8 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                     ui.spacing_mut().item_spacing.y = 8.;
                     if let Some(own) = v.own().cloned() {
                         crate::settings::section(ui, "Questo dispositivo", t);
-                        row(ui, &own, t, 1, |ui| {
-                            if ui.button("Rinomina").clicked() {
+                        row(ui, &own, t, |ui| {
+                            if ui.add(egui::Button::new("Rinomina").wrap_mode(egui::TextWrapMode::Extend)).clicked() {
                                 v.open_rename();
                             }
                         });
@@ -151,14 +149,22 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                         ui.spinner();
                     }
                     for (i, d) in others.iter().enumerate() {
-                        row(ui, d, t, 1 + usize::from(!d.verified), |ui| {
-                            if !d.verified && ui.button("Verifica").clicked() {
-                                begin = Some(i);
-                            }
-                            if ui.button("Disconnetti").clicked() {
+                        ui.push_id(&d.device_id, |ui| row(ui, d, t, |ui| {
+                            use crate::icons::{self, Icon};
+                            let disconnect = matrix_desktop::i18n::t("Disconnect");
+                            if icons::button(ui, Icon::SignOut, false, disconnect).on_hover_text(disconnect).clicked() {
                                 delete = Some(i);
                             }
-                        });
+                            if !d.verified {
+                                let verify = matrix_desktop::i18n::t("Verify");
+                                ui.scope(|ui| {
+                                    ui.visuals_mut().widgets.inactive.fg_stroke.color = rgb(t.accent);
+                                    if icons::button(ui, Icon::ShieldCheck, false, verify).on_hover_text(verify).clicked() {
+                                        begin = Some(i);
+                                    }
+                                });
+                            }
+                        }));
                     }
                 });
             });

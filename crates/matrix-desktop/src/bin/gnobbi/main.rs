@@ -1321,6 +1321,11 @@ impl App {
                         d("HJ7DKXQ2ZM", Some("Element iOS"), false, 60 * 26, "203.0.113.14"),
                         d("W4N8CCEYTU", Some("Firefox su Linux"), false, 60 * 24 * 9, "2001:db8:85a3::8a2e:370:7334"),
                         d("ZZ91ABCDEF", None, false, 60 * 24 * 40, "203.0.113.9"),
+                        d("LAPTOP001", Some("Gnobbi Linux"), true, 30, "198.51.100.21"),
+                        d("PHONE0001", Some("Android"), true, 90, "198.51.100.22"),
+                        d("BROWSER01", Some("Safari"), true, 120, "198.51.100.23"),
+                        d("TABLET001", Some("iPad"), true, 240, "198.51.100.24"),
+                        d("DESKTOP01", Some("Windows"), true, 480, "198.51.100.25"),
                     ],
                 });
             }
