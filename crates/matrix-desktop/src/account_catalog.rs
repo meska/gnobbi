@@ -8,6 +8,7 @@ use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 const FILE: &str = "accounts.json";
+const LOCK: &str = "accounts.lock";
 const VERSION: u64 = 1;
 /// Folder of the single-account installs that predate the catalog.
 const LEGACY_DIR: &str = "profile";
@@ -95,6 +96,32 @@ impl AccountCatalog {
                 ..Default::default()
             },
         }
+    }
+
+    /// Read-modify-write under an exclusive lock (`accounts.lock`), so the GUI and `gnobbi account`
+    /// never lose each other's change. Saves only when `f` changed the catalog; a damaged
+    /// catalog is an `InvalidData` error and `f` does not run. Keep `f` short: others wait for it.
+    pub fn update<R>(dirs: &AppDirs, f: impl FnOnce(&mut Self) -> R) -> std::io::Result<R> {
+        #[cfg(unix)]
+        crate::create_private_dir(&dirs.config)?;
+        #[cfg(not(unix))]
+        std::fs::create_dir_all(&dirs.config)?;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let lock = opts.open(dirs.config.join(LOCK))?;
+        lock.lock()?;
+        let mut catalog = Self::load(dirs);
+        if catalog.damaged {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "damaged catalog"));
+        }
+        let before = catalog.clone();
+        let result = f(&mut catalog);
+        if catalog != before {
+            catalog.save(dirs)?;
+        }
+        Ok(result) // the lock is released when `lock` drops
     }
 
     pub fn accounts(&self) -> &[AccountEntry] {

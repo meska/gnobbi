@@ -408,6 +408,8 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - ring 0.17.14 — Apache-2.0 AND ISC — https://github.com/briansmith/ring
 - rmp 0.8.15 — MIT — https://github.com/3Hren/msgpack-rust
 - rmp-serde 1.3.1 — MIT — https://github.com/3Hren/msgpack-rust
+- rpassword 7.4.0 — Apache-2.0 — https://github.com/conradkleinespel/rpassword
+- rtoolbox 0.0.6 — Apache-2.0 — https://github.com/conradkleinespel/rtoolbox
 - ruma 0.17.0 — MIT — https://github.com/ruma/ruma
 - ruma-client-api 0.25.0 — MIT — https://github.com/ruma/ruma
 - ruma-common 0.20.0 — MIT — https://github.com/ruma/ruma

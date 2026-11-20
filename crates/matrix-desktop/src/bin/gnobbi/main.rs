@@ -527,10 +527,9 @@ impl eframe::App for App {
                 && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)
                 && let Some((id, name)) = v.profile()
             {
-                let mut catalog = matrix_desktop::AccountCatalog::load(dirs);
-                if catalog.record_login(dirs, &self.root, id, name.as_deref().unwrap_or(id)) {
-                    let _ = catalog.save(dirs);
-                }
+                let _ = matrix_desktop::AccountCatalog::update(dirs, |c| {
+                    c.record_login(dirs, &self.root, id, name.as_deref().unwrap_or(id))
+                });
                 self.recorded = true;
             }
             if let Some(v) = &session.verification
@@ -2111,6 +2110,14 @@ fn main() -> eframe::Result {
             let _ = tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).with_writer(std::io::stderr).try_init();
         }
     }
+    // `gnobbi account …` is a console command: no window, no notifications, no single-instance gate.
+    #[cfg(not(target_os = "ios"))]
+    {
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.first().map(String::as_str) == Some("account") {
+            std::process::exit(matrix_desktop::account_cli::main(&args[1..]));
+        }
+    }
     matrix_desktop::notifications::init();
     // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
     let (args, raw_link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
@@ -2155,10 +2162,7 @@ fn main() -> eframe::Result {
         single_instance_gate(raw_link);
         if let Some(dirs) = &dirs {
             // A pre-catalog install is listed in place; the profile folder does not move.
-            let mut catalog = matrix_desktop::AccountCatalog::load(dirs);
-            if catalog.migrate_legacy(dirs) {
-                let _ = catalog.save(dirs);
-            }
+            let _ = matrix_desktop::AccountCatalog::update(dirs, |c| c.migrate_legacy(dirs));
         }
     }
     let first = Theme::Classic.tokens();

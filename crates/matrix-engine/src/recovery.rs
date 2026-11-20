@@ -187,6 +187,14 @@ pub async fn keys_recovered(client: &matrix_sdk::Client) -> bool {
 }
 
 impl AccountSession {
+    /// Backup enabled and cross-signing complete (see `keys_recovered`); false when logged out.
+    pub async fn keys_recovered(&self) -> bool {
+        match self.client.as_ref() {
+            Some(client) => keys_recovered(client).await,
+            None => false,
+        }
+    }
+
     /// Import SDK secrets and download the requested room's encrypted key backup.
     /// This never resets identity, rotates recovery or deletes a backup on error.
     pub async fn recover_room_keys(

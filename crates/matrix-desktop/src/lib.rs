@@ -36,6 +36,8 @@ pub use verification::{DeviceVerification, PopupBody, PopupButton, PopupView, de
 mod signin_form;
 pub use signin_form::{FormStatus, SetupPhase, SignInForm, SignInSource, visible_fields};
 mod account_catalog;
+#[cfg(not(target_os = "ios"))]
+pub mod account_cli;
 mod account_list;
 mod app_dirs;
 pub mod app_group;

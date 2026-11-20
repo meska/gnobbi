@@ -88,6 +88,15 @@ pub(crate) fn secret_from_item(value: &[u8]) -> Result<Secret, VaultError> {
     Secret::new(text.to_owned()).map_err(|_| VaultError::InvalidItem)
 }
 
+/// A store held by another process is `ProfileBusy`, not a damaged store.
+fn store_error(error: crate::persistence::StoreError) -> SignInError {
+    if error == crate::persistence::StoreError::Busy {
+        SignInError::ProfileBusy
+    } else {
+        SignInError::Storage
+    }
+}
+
 /// Fixed local categories only: never SDK bodies, paths, URLs or credentials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignInError {
@@ -283,7 +292,7 @@ impl UnlockSession {
 
     pub async fn run(self) -> Result<AccountSession, SignInError> {
         let store =
-            AccountStore::open(&self.root, self.account).map_err(|_| SignInError::Storage)?;
+            AccountStore::open(&self.root, self.account).map_err(store_error)?;
         match self.trust_root.as_deref() {
             Some(pem) => store.restore_with_trusted_root(&self.phrase.0, pem).await,
             None => store.restore(&self.phrase.0).await,
@@ -933,7 +942,7 @@ impl SignInProfile {
         let account = self.active.ok_or(SignInError::NoSession)?;
         let root = self.root.clone();
         let read = tokio::task::spawn_blocking(move || {
-            let store = AccountStore::open(&root, account).map_err(|_| SignInError::Storage)?;
+            let store = AccountStore::open(&root, account).map_err(store_error)?;
             source.read(&store).map_err(SignInError::Vault)
         });
         let phrase = match tokio::time::timeout(timeout, read).await {

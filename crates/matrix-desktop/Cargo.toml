@@ -30,6 +30,8 @@ eframe = { version = "0.37", default-features = false, features = ["accesskit", 
 
 # Desktop only: file dialogs and Wayland/X11. iOS has none of them.
 [target.'cfg(not(target_os = "ios"))'.dependencies]
+# Password prompt without echo for `gnobbi account` (MIT/Apache-2.0).
+rpassword = "=7.4.0"
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal"] }
 arboard = { version = "=3.7.0", default-features = false }
 eframe = { version = "0.37", default-features = false, features = ["wayland", "x11"] }
