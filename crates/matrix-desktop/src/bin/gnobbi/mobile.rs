@@ -122,6 +122,15 @@ pub fn back_swipe(ctx: &egui::Context) -> bool {
     matches!((start, released), (Some((s, t0)), Some(e)) if is_back_swipe(e.x - s.x, e.y - s.y, (time - t0) as f32, ctx.content_rect().width()))
 }
 
+/// Paint the rail behind the unsafe bands, without moving or unclipping its contents.
+pub fn rail_background(ui: &egui::Ui, fill: egui::Color32) {
+    let (all, safe) = (ui.ctx().viewport_rect(), ui.ctx().content_rect());
+    if all != safe {
+        let rect = egui::Rect::from_min_max(egui::pos2(safe.left(), all.top()), egui::pos2((safe.left() + crate::rail::WIDTH).min(safe.right()), all.bottom()));
+        egui::Painter::new(ui.ctx().clone(), ui.layer_id(), all).rect_filled(rect, 0., fill);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +157,34 @@ mod tests {
         });
         out.textures_delta.clear();
         edges
+    }
+
+    #[test]
+    fn rail_and_list_paint_safe_bands_in_every_theme() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(393., 852.));
+        for theme in matrix_desktop::Theme::ALL {
+            let t = theme.tokens_with(matrix_desktop::Accent::Blue);
+            for (top, bottom) in [(59., 34.), (0., 0.)] {
+                let ctx = egui::Context::default();
+                let raw = egui::RawInput { screen_rect: Some(screen), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top, bottom, ..Default::default() })), ..Default::default() };
+                let mut out = ctx.run_ui(raw, |ui| {
+                    let ui = safe_ui(ui, crate::list_fill(&t));
+                    rail_background(&ui, crate::chat_background(&t));
+                });
+                out.textures_delta.clear();
+                let rects: Vec<_> = out.shapes.iter().filter_map(|s| match &s.shape {
+                    egui::Shape::Rect(r) => Some((s.clip_rect, r.rect, r.fill)),
+                    _ => None,
+                }).collect();
+                if top > 0. {
+                    assert!(rects.iter().any(|(clip, rect, fill)| *clip == screen && *rect == screen && *fill == crate::list_fill(&t)), "list: {theme:?}");
+                    let rail = egui::Rect::from_min_max(screen.min, egui::pos2(crate::rail::WIDTH, screen.bottom()));
+                    assert!(rects.iter().any(|(clip, rect, fill)| *clip == screen && *rect == rail && *fill == crate::chat_background(&t)), "rail: {theme:?}");
+                } else {
+                    assert!(rects.is_empty(), "desktop paints no extra bands: {theme:?}");
+                }
+            }
+        }
     }
 
     #[test]

@@ -982,6 +982,7 @@ impl App {
         if let Some(session) = &mut self.session {
             rail::edit_window(ui.ctx(), session, &mut self.new_form, &mut self.rail, account, self.dirs.as_ref(), t);
             if !single || self.list_open {
+                if single { mobile::rail_background(ui, chat_background(t)); }
                 egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
                     ui.add_space(8.);
                     // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
