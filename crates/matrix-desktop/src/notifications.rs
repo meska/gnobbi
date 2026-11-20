@@ -226,7 +226,7 @@ mod linux {
         ]);
         let sent = bus.proxy.call::<_, _, u32>(
             "Notify",
-            &("Gnobbi", replaces, "", notification.title_line(), body, vec!["open", "Apri"], hints, 5000i32),
+            &("Gnobbi", replaces, "", notification.title_line(), body, vec!["open", crate::i18n::t("Open")], hints, 5000i32),
         );
         match sent {
             Ok(id) => {

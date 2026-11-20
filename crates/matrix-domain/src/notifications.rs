@@ -5,7 +5,19 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// Longest body, in grapheme clusters (ellipsis included); within the 100-140 range.
 pub const PREVIEW_MAX: usize = 120;
-const FIXED_BODY: &str = "Nuovi messaggi";
+const FIXED_BODY: &str = "New messages";
+
+static TRANSLATOR: std::sync::OnceLock<fn(&str) -> String> = std::sync::OnceLock::new();
+
+/// The UI registers its translator once; the fixed texts below are English keys. Without one they stay English.
+/// A body is built when the alert is made, so alerts already issued keep their language.
+pub fn set_translator(f: fn(&str) -> String) {
+    let _ = TRANSLATOR.set(f);
+}
+
+fn tr(key: &str) -> String {
+    TRANSLATOR.get().map_or_else(|| key.to_owned(), |f| f(key))
+}
 
 /// What a message holds, as far as a notification may say. No `Debug`: text must not reach logs.
 pub enum PreviewContent {
@@ -52,14 +64,14 @@ pub fn notification_body(
     let text = preview.filter(|_| show_preview).and_then(|p| {
         let text = match &p.content {
             PreviewContent::Text(t) => clean(t),
-            PreviewContent::Image => "📷 Foto".into(),
-            PreviewContent::Video => "🎥 Video".into(),
-            PreviewContent::Voice => "🎤 Messaggio vocale".into(),
-            PreviewContent::Audio => "🎵 Audio".into(),
-            PreviewContent::File => "📎 File".into(),
-            PreviewContent::Sticker => "Sticker".into(),
-            PreviewContent::Location => "📍 Posizione".into(),
-            PreviewContent::Poll => "Sondaggio".into(),
+            PreviewContent::Image => tr("📷 Photo"),
+            PreviewContent::Video => tr("🎥 Video"),
+            PreviewContent::Voice => tr("🎤 Voice message"),
+            PreviewContent::Audio => tr("🎵 Audio"),
+            PreviewContent::File => tr("📎 File"),
+            PreviewContent::Sticker => tr("Sticker"),
+            PreviewContent::Location => tr("📍 Location"),
+            PreviewContent::Poll => tr("Poll"),
             PreviewContent::Undecrypted | PreviewContent::Other => return None,
         };
         if text.is_empty() {
@@ -77,8 +89,8 @@ pub fn notification_body(
             format!("{}…", head.trim_end())
         }
         Some(text) => text,
-        None if count_preview => "1 nuovo messaggio".into(),
-        None => FIXED_BODY.into(),
+        None if count_preview => tr("1 new message"),
+        None => tr(FIXED_BODY),
     }
 }
 
@@ -127,9 +139,9 @@ impl RoomNotifyMode {
     /// On-screen label and accessibility name.
     pub fn label(self) -> &'static str {
         match self {
-            Self::AllMessages => "Tutti i messaggi",
-            Self::MentionsAndKeywordsOnly => "Solo menzioni",
-            Self::Mute => "Silenziata",
+            Self::AllMessages => "All messages",
+            Self::MentionsAndKeywordsOnly => "Mentions only",
+            Self::Mute => "Muted",
         }
     }
 }
@@ -302,6 +314,6 @@ mod decision_tests {
 
     #[test]
     fn labels_are_the_agreed_ones() {
-        assert_eq!(RoomNotifyMode::ALL.map(RoomNotifyMode::label), ["Tutti i messaggi", "Solo menzioni", "Silenziata"]);
+        assert_eq!(RoomNotifyMode::ALL.map(RoomNotifyMode::label), ["All messages", "Mentions only", "Muted"]);
     }
 }

@@ -205,6 +205,8 @@ pub fn on_change(hook: impl Fn(&'static str) + Send + Sync + 'static) {
 /// Applies a preference now, without restart. Hooks run only when the language actually changes;
 /// the repaint is requested either way. Returns the active code.
 pub fn apply(pref: Preference, ctx: Option<&eframe::egui::Context>) -> &'static str {
+    // The notification bodies are built in matrix-domain; give it our translator (set once).
+    matrix_domain::notifications::set_translator(|k| t(k).to_owned());
     let locales = sys_locale::get_locales().collect::<Vec<_>>();
     let code = script::usable(pref.resolve(&locales));
     let index = LANGUAGES.iter().position(|l| l.code == code).unwrap_or(0);

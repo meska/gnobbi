@@ -1,4 +1,5 @@
 use crate::ROOMS;
+use crate::i18n;
 use matrix_domain::{AccountId, RoomId, RoomScope};
 use matrix_engine::RoomListDiff;
 
@@ -372,9 +373,9 @@ impl Sidebar {
         }
         self.leave_error = result.err().map(|e| {
             let text = match e {
-                Forbidden => "Non consentito dal server",
-                Unavailable => "Stanza non trovata",
-                _ => "Connessione non riuscita",
+                Forbidden => i18n::t("Not allowed by the server"),
+                Unavailable => i18n::t("Room not found"),
+                _ => i18n::t("Connection failed"),
             };
             (scope.clone(), text)
         });
@@ -470,8 +471,8 @@ impl Sidebar {
         if let Err(e) = result {
             self.set_tags(&scope, before, before_order);
             self.tag_error = Some(match e {
-                matrix_engine::operations::OperationError::Forbidden => "Non consentito dal server",
-                _ => "Connessione non riuscita",
+                matrix_engine::operations::OperationError::Forbidden => i18n::t("Not allowed by the server"),
+                _ => i18n::t("Connection failed"),
             });
         }
     }
@@ -505,8 +506,8 @@ impl Sidebar {
                 room.info.notification_mode = before;
             }
             self.mode_error = Some(match e {
-                matrix_engine::operations::OperationError::Forbidden => "Non consentito dal server",
-                _ => "Connessione non riuscita",
+                matrix_engine::operations::OperationError::Forbidden => i18n::t("Not allowed by the server"),
+                _ => i18n::t("Connection failed"),
             });
         }
     }
@@ -1004,7 +1005,7 @@ mod tests {
         assert!(sidebar.begin_space_leave(bots.clone()) && sidebar.space_leaving());
         assert!(!sidebar.begin_space_leave(bots.clone()), "no second request while one runs");
         sidebar.space_left(&bots, Err(Forbidden));
-        assert!(!sidebar.space_leaving() && sidebar.leave_error(&bots) == Some("Non consentito dal server"));
+        assert!(!sidebar.space_leaving() && sidebar.leave_error(&bots) == Some("Not allowed by the server"));
         assert_eq!(sidebar.active_space(), Some(&bots));
         assert!(sidebar.begin_space_leave(bots.clone()));
         sidebar.space_left(&bots, Ok(()));
@@ -1431,10 +1432,10 @@ mod invite_tests {
         upsert(&mut sidebar, account, "!a:t.invalid", "a", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
         upsert(&mut sidebar, account, "!b:t.invalid", "b", RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() });
         sidebar.room_left(&a, Err(Transport));
-        assert_eq!(sidebar.leave_error(&a), Some("Connessione non riuscita"));
+        assert_eq!(sidebar.leave_error(&a), Some("Connection failed"));
         assert_eq!(sidebar.leave_error(&b), None);
         sidebar.room_left(&a, Err(Forbidden));
-        assert_eq!(sidebar.leave_error(&a), Some("Non consentito dal server"));
+        assert_eq!(sidebar.leave_error(&a), Some("Not allowed by the server"));
         assert!(sidebar.rooms().iter().any(|r| r.scope == a), "a refused leave never removes the row");
         assert!(sidebar.select(&b));
         assert_eq!(sidebar.leave_error(&a), None);
@@ -1506,7 +1507,7 @@ mod favourite_tests {
         assert!(s.set_mode(&scope, Mute) && s.rooms()[0].info.muted());
         assert!(!s.set_mode(&scope, AllMessages), "one write at a time");
         s.mode_done(Err(matrix_engine::operations::OperationError::Forbidden));
-        assert_eq!((s.notify_mode(&scope), s.mode_error()), (AllMessages, Some("Non consentito dal server")));
+        assert_eq!((s.notify_mode(&scope), s.mode_error()), (AllMessages, Some("Not allowed by the server")));
         assert!(!s.set_mode(&scope, AllMessages), "unchanged mode sends nothing");
         assert!(s.set_mode(&scope, MentionsAndKeywordsOnly) && s.mode_error().is_none());
         s.mode_done(Ok(()));
@@ -1545,7 +1546,7 @@ mod favourite_tests {
         s.toggle_tag(&scope, FAVOURITE);
         s.tag_done(Err(OperationError::Transport));
         assert!(!s.is_favourite(&scope));
-        assert_eq!(s.tag_error(), Some("Connessione non riuscita"));
+        assert_eq!(s.tag_error(), Some("Connection failed"));
         assert!(!s.tag_pending());
         // the same from the favourite side
         s.tag_done(Ok(()));
@@ -1554,7 +1555,7 @@ mod favourite_tests {
         s.toggle_tag(&scope, FAVOURITE);
         s.tag_done(Err(OperationError::Forbidden));
         assert!(s.is_favourite(&scope));
-        assert_eq!(s.tag_error(), Some("Non consentito dal server"));
+        assert_eq!(s.tag_error(), Some("Not allowed by the server"));
     }
 
     fn tags(s: &Sidebar, scope: &RoomScope) -> Vec<String> {
@@ -1599,6 +1600,6 @@ mod favourite_tests {
         s.tag_done(Err(OperationError::Transport));
         assert_eq!(tags(&s, &scope), before);
         assert!(s.is_favourite(&scope) && !s.has_tag(&scope, LOW_PRIORITY));
-        assert_eq!(s.tag_error(), Some("Connessione non riuscita"));
+        assert_eq!(s.tag_error(), Some("Connection failed"));
     }
 }

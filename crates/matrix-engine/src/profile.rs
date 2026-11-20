@@ -28,14 +28,14 @@ impl ProfileError {
     /// One line for the UI.
     pub fn message(self) -> &'static str {
         match self {
-            Self::NameEmpty => "Il nome non può essere vuoto.",
-            Self::NameTooLong => "Il nome è troppo lungo (massimo 256 caratteri).",
-            Self::NotAllowed => "Questo server non permette di modificare il profilo.",
-            Self::FileUnreadable => "Non riesco a leggere il file scelto.",
-            Self::FileTooLarge => "L'immagine è troppo grande (massimo 25 MB).",
-            Self::FileInvalid => "Scegli un'immagine PNG, JPEG o WebP valida.",
-            Self::Network => "Connessione non riuscita: riprova tra poco.",
-            Self::Rejected => "Il server ha rifiutato la modifica.",
+            Self::NameEmpty => "The name cannot be empty.",
+            Self::NameTooLong => "The name is too long (256 characters at most).",
+            Self::NotAllowed => "This server does not allow editing the profile.",
+            Self::FileUnreadable => "Cannot read the chosen file.",
+            Self::FileTooLarge => "The image is too large (25 MB at most).",
+            Self::FileInvalid => "Choose a valid PNG, JPEG or WebP image.",
+            Self::Network => "Connection failed: try again shortly.",
+            Self::Rejected => "The server rejected the change.",
         }
     }
 }

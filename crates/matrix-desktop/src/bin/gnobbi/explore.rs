@@ -201,7 +201,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
     let label = match act {
         Action::Open => "Apri",
         Action::Join => "Entra",
-        Action::Joining => "Ingresso…",
+        Action::Joining => matrix_desktop::i18n::t("Joining…"),
         Action::Retry(_) => "Riprova",
     };
     ({
@@ -272,6 +272,6 @@ mod tests {
         assert_eq!(action(false, None), Action::Join);
         assert_eq!(action(false, Some(&JoinState::Joining)), Action::Joining);
         assert_eq!(action(false, Some(&JoinState::StillJoining)), Action::Joining);
-        assert_eq!(action(false, Some(&JoinState::Failed(Cause::RoomMissing))), Action::Retry("Stanza non trovata"));
+        assert_eq!(action(false, Some(&JoinState::Failed(Cause::RoomMissing))), Action::Retry("Room not found"));
     }
 }

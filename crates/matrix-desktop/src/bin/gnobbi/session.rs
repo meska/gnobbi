@@ -1,5 +1,6 @@
 //! Sign-in and restore for the egui frontend: the same engine route and form state machine as the
 //! GPUI app (`SignInForm`), so messages, vault restore and error categories stay identical.
+use matrix_desktop::i18n;
 use eframe::egui;
 use matrix_desktop::{AppDirs, DemoHistory, FormStatus, HistorySession, LiveMedia, LiveOperations, SignInForm};
 use matrix_domain::{EventId, TimelineId};
@@ -452,7 +453,7 @@ impl Session {
                     E::ProfileCapabilities { name, avatar, .. } => self.profile_caps = Some((*name, *avatar)),
                     E::ProfileSaved { result, message, .. } => {
                         self.profile_busy = false;
-                        self.profile_saved = Some(result.as_ref().map(|_| ()).map_err(|_| message.unwrap_or("Non riuscito")));
+                        self.profile_saved = Some(result.as_ref().map(|_| ()).map_err(|_| message.map_or(i18n::t("Failed"), i18n::t)));
                     }
                     _ => {}
                 }
@@ -567,7 +568,7 @@ impl Session {
         }
         if let Some((name, ok)) = self.media.take_saved().map(|(_, r)| (String::new(), r.is_ok())) {
             let _ = name;
-            self.notice = Some(if ok { "Salvato".to_owned() } else { "Salvataggio non riuscito".to_owned() });
+            self.notice = Some(if ok { i18n::t("Saved").to_owned() } else { i18n::t("Saving failed").to_owned() });
             // iOS: the file sits in a private folder until the share sheet takes it (no-op on desktop).
             if ok && cfg!(target_os = "ios") { crate::pick::share(&std::mem::take(&mut self.share_after)); }
             changed = true;
@@ -581,7 +582,7 @@ impl Session {
                         Err(e) => self.notice = Some(e.to_owned()),
                     }
                 }
-                Err(_) => self.notice = Some("Nota vocale non riproducibile".to_owned()),
+                Err(_) => self.notice = Some(i18n::t("Voice note cannot be played").to_owned()),
             }
             changed = true;
         }
@@ -698,7 +699,7 @@ impl Session {
             let found = self.search_jump.as_ref().is_some_and(|(id, _)| self.messages.as_ref().is_some_and(|m| m.events().iter().any(|e| e.id.id == TimelineId::Server(id.clone()))));
             if !found {
                 self.search_jump = None;
-                self.notice = Some("Messaggio non disponibile".to_owned());
+                self.notice = Some(i18n::t("Message not available").to_owned());
             }
         }
         if self.pending.is_none() && self.messages.is_some() {
@@ -906,11 +907,11 @@ impl Session {
                     self.space_choices = None;
                     // The open space window reads its rooms again.
                     if let Some(v) = &self.space_view { self.op_queue.push(OperationCommand::SpaceChildren { scope: v.scope.clone() }); }
-                    if let Err(e) = result { self.room_error = Some(matrix_engine::operations::space_error_line(*e).into()); }
+                    if let Err(e) = result { self.room_error = Some(i18n::t(matrix_engine::operations::space_error_line(*e)).into()); }
                     changed = true;
                     continue;
                 }
-                OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some("Operazione non riuscita".into()); changed = true; continue; }
+                OperationResult::RoomMarked { result: Err(_), .. } => { self.room_error = Some(i18n::t("Operation failed").into()); changed = true; continue; }
                 _ => {}
             }
             if let OperationResult::Aliases { scope, result, aliases, .. } = &result {
@@ -920,10 +921,10 @@ impl Session {
                     }
                     use matrix_engine::alias::AliasOpError as E;
                     self.alias_error = result.as_ref().err().map(|e| match e {
-                        E::AliasInUse => "Indirizzo già in uso",
-                        E::Forbidden => "Non consentito",
-                        E::InvalidName => "Nome non valido",
-                        _ => "Non riuscito",
+                        E::AliasInUse => i18n::t("Address already in use"),
+                        E::Forbidden => i18n::t("Not allowed"),
+                        E::InvalidName => i18n::t("Invalid name"),
+                        _ => i18n::t("Failed"),
                     });
                     changed = true;
                 }
@@ -1031,7 +1032,7 @@ impl Session {
                     continue;
                 }
                 OperationResult::StickerSent { result, .. } => {
-                    if result.is_err() { self.room_error = Some("Sticker non inviato".into()); }
+                    if result.is_err() { self.room_error = Some(i18n::t("Sticker not sent").into()); }
                     changed = true;
                     continue;
                 }
@@ -1428,12 +1429,12 @@ impl Session {
             crate::viewer::Action::Close => { self.media.cancel_original(); self.viewer = None; }
             crate::viewer::Action::Save(path) => {
                 if path.exists() {
-                    self.notice = Some("Scegli un file che non esiste già".to_owned());
+                    self.notice = Some(i18n::t("Choose a file that does not exist yet").to_owned());
                     return;
                 }
                 if let Some(scope) = self.draft_scope.clone() {
                     self.share_after = path.clone();
-                    self.notice = (!self.media.request_save(scope, viewer.id.clone(), path)).then(|| "Un salvataggio è già in corso".to_owned());
+                    self.notice = (!self.media.request_save(scope, viewer.id.clone(), path)).then(|| i18n::t("A save is already in progress").to_owned());
                 }
             }
             crate::viewer::Action::Open => {
@@ -1457,7 +1458,7 @@ impl Session {
         }
         let _ = std::fs::create_dir_all(&dir);
         self.share_after = path.clone();
-        self.notice = (!self.media.request_save(scope, event, path)).then(|| "Un salvataggio è già in corso".to_owned());
+        self.notice = (!self.media.request_save(scope, event, path)).then(|| i18n::t("A save is already in progress").to_owned());
     }
 
     /// Takes a dropped file as the pending attachment (up to the server's upload limit, 50 MB until it is known).
@@ -1469,7 +1470,7 @@ impl Session {
                 self.attachment = Some((name, data));
                 self.notice = None;
             }
-            _ => self.notice = Some("File non allegabile".to_owned()),
+            _ => self.notice = Some(i18n::t("File cannot be attached").to_owned()),
         }
     }
 
@@ -1480,7 +1481,7 @@ impl Session {
                 self.voice = None;
                 self.notice = None;
             }
-            None => self.notice = Some("Immagine non allegabile".to_owned()),
+            None => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
         }
     }
 
@@ -1632,7 +1633,7 @@ impl Session {
                 self.voice = note.voice;
                 self.send(String::new());
             }
-            None => self.notice = Some("Nessun audio registrato".to_owned()),
+            None => self.notice = Some(i18n::t("No audio recorded").to_owned()),
         }
     }
 

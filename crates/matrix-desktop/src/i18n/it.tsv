@@ -190,3 +190,83 @@ banner	Reply	Risposta
 	Red	Rosso
 	Pink	Rosa
 	Purple	Viola
+
+# notifications, tray, menu bar, errors
+	A save is already in progress	Un salvataggio è già in corso
+	Account no longer connected	Account non più collegato
+	Actions not available for this event	Azioni non disponibili per questo evento
+	Address already in use	Indirizzo già in uso
+	Already joined	Già unito
+	Checking permissions…	Verifica permessi…
+	Choose a file that does not exist yet	Scegli un file che non esiste già
+	Connected	Connesso
+	Connecting…	Connessione…
+	Connection failed	Connessione non riuscita
+	Data folder not available	Cartella dati non disponibile
+	Delete the selected message? This cannot be undone.	Eliminare il messaggio selezionato? Questa azione non si annulla.
+	File cannot be attached	File non allegabile
+	Image cannot be attached	Immagine non allegabile
+	Invalid name	Nome non valido
+	Joining…	Ingresso…
+	Message not available	Messaggio non disponibile
+	No audio recorded	Nessun audio registrato
+	Not allowed	Non consentito
+	Not allowed by the server	Non consentito dal server
+	Operation failed	Operazione non riuscita
+	Operation not confirmed · Retry uses the same ID (even if you change room)	Operazione non confermata · Riprova usa lo stesso ID (anche cambiando stanza)
+	Operation pending · no server confirmation	Operazione in attesa · nessuna conferma server
+	Operation refused or unavailable	Operazione rifiutata o non disponibile
+	Reply/edit: write in the draft, then use the button. Enter sends normally.	Risposta/modifica: scrivi nel draft, poi usa il pulsante. Enter invia normalmente.
+	Room not found	Stanza non trovata
+	Saved	Salvato
+	Saving failed	Salvataggio non riuscito
+	Server unreachable	Server non raggiungibile
+	Sign-in failed	Accesso non riuscito
+	Sticker not sent	Sticker non inviato
+	Still joining…	Ancora in corso…
+	Sync interrupted	Sincronizzazione interrotta
+	Voice note cannot be played	Nota vocale non riproducibile
+	You are offline	Sei offline
+	The name cannot be empty.	Il nome non può essere vuoto.
+	The name is too long (256 characters at most).	Il nome è troppo lungo (massimo 256 caratteri).
+	This server does not allow editing the profile.	Questo server non permette di modificare il profilo.
+	Cannot read the chosen file.	Non riesco a leggere il file scelto.
+	The image is too large (25 MB at most).	L'immagine è troppo grande (massimo 25 MB).
+	Choose a valid PNG, JPEG or WebP image.	Scegli un'immagine PNG, JPEG o WebP valida.
+	Connection failed: try again shortly.	Connessione non riuscita: riprova tra poco.
+	The server rejected the change.	Il server ha rifiutato la modifica.
+	Space not found	Spazio non trovato
+	Operation failed, try again	Operazione non riuscita, riprova
+	Minimize	Riduci a icona
+	Show Gnobbi	Mostra Gnobbi
+	Quit Gnobbi	Chiudi Gnobbi
+	{name}, active account	{name}, account attivo
+	New messages	Nuovi messaggi
+	1 new message	1 nuovo messaggio
+	📷 Photo	📷 Foto
+	🎥 Video	🎥 Video
+	🎤 Voice message	🎤 Messaggio vocale
+	🎵 Audio	🎵 Audio
+	📎 File	📎 File
+	📍 Location	📍 Posizione
+menu	Quit Gnobbi	Esci da Gnobbi
+menu	About Gnobbi	Informazioni su Gnobbi
+menu	Settings…	Impostazioni…
+menu	Services	Servizi
+menu	Hide Gnobbi	Nascondi Gnobbi
+menu	Hide Others	Nascondi altri
+menu	Show All	Mostra tutto
+menu	Edit	Modifica
+menu	Undo	Annulla
+menu	Redo	Ripeti
+menu	Cut	Taglia
+menu	Copy	Copia
+menu	Paste	Incolla
+menu	Select All	Seleziona tutto
+menu	Start Dictation…	Avvia dettatura…
+menu	Emoji & Symbols	Emoji e simboli
+menu	Window	Finestra
+menu	Minimize	Riduci a icona
+menu	Zoom	Zoom
+menu	Bring All to Front	Porta tutto in primo piano
+@plural	Gnobbi, {n} unread	Gnobbi, {n} non letto|Gnobbi, {n} non letti

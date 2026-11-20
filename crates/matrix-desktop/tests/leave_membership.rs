@@ -54,8 +54,8 @@ fn confirmed_leave_of_the_only_room_leaves_nothing_selected() {
 #[test]
 fn refused_leave_keeps_row_selection_and_panels_and_names_the_error() {
     for (error, text) in [
-        (OperationError::Forbidden, "Non consentito dal server"),
-        (OperationError::Transport, "Connessione non riuscita"),
+        (OperationError::Forbidden, "Not allowed by the server"),
+        (OperationError::Transport, "Connection failed"),
     ] {
         let mut sidebar = three_rooms();
         let b = scope("!b:t.invalid");

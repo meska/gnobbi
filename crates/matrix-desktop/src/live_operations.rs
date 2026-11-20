@@ -1,4 +1,5 @@
 //! View inspection is cancellable; accepted writes will remain room-scoped.
+use crate::i18n;
 use matrix_domain::{EventId, Poll, RoomScope, ScopedTimelineId, TimelineId, TransactionId};
 use matrix_engine::{
     ViewRequests,
@@ -31,25 +32,23 @@ pub struct LiveOperations {
     confirmed: Vec<ConfirmedOperation>,
 }
 impl LiveOperations {
-    /// Accessible-only description of the idle panel; never drawn on screen.
-    pub const IDLE_NOTICE: &'static str =
-        "Risposta/modifica: scrivi nel draft, poi usa il pulsante. Enter invia normalmente.";
     /// Shared visible/semantic status; accepted writes outlive selection dismissal.
+    /// Accessible-only idle text; never drawn on screen.
     pub fn notice(&self, confirming: bool) -> &'static str {
         if self.error == Some(OperationError::Transport) {
-            "Operazione non confermata · Riprova usa lo stesso ID (anche cambiando stanza)"
+            i18n::t("Operation not confirmed · Retry uses the same ID (even if you change room)")
         } else if self.error.is_some() {
-            "Operazione rifiutata o non disponibile"
+            i18n::t("Operation refused or unavailable")
         } else if self.is_pending() {
-            "Operazione in attesa · nessuna conferma server"
+            i18n::t("Operation pending · no server confirmation")
         } else if self.inspection_error.is_some() {
-            "Azioni non disponibili per questo evento"
+            i18n::t("Actions not available for this event")
         } else if self.details.is_none() {
-            "Verifica permessi…"
+            i18n::t("Checking permissions…")
         } else if confirming {
-            "Eliminare il messaggio selezionato? Questa azione non si annulla."
+            i18n::t("Delete the selected message? This cannot be undone.")
         } else {
-            Self::IDLE_NOTICE
+            i18n::t("Reply/edit: write in the draft, then use the button. Enter sends normally.")
         }
     }
     pub fn select(&mut self, id: ScopedTimelineId) -> bool {

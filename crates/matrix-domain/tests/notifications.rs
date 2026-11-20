@@ -28,7 +28,7 @@ fn notifications_are_off_by_default_and_content_free_when_on() {
     policy.set_enabled(true);
     let alert = policy.alert(&scope(1), None).expect("enabled");
     assert_eq!(alert.title(), "Gnobbi");
-    assert_eq!(alert.body(), "Nuovi messaggi");
+    assert_eq!(alert.body(), "New messages");
 }
 
 #[test]
@@ -37,9 +37,9 @@ fn preview_opt_in_exposes_only_a_fixed_count_never_remote_content() {
     assert!(!policy.count_preview());
     policy.set_enabled(true);
     policy.set_count_preview(true);
-    assert_eq!(policy.alert(&scope(1), None).unwrap().body(), "1 nuovo messaggio");
+    assert_eq!(policy.alert(&scope(1), None).unwrap().body(), "1 new message");
     policy.set_count_preview(false);
-    assert_eq!(policy.alert(&scope(1), None).unwrap().body(), "Nuovi messaggi");
+    assert_eq!(policy.alert(&scope(1), None).unwrap().body(), "New messages");
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn an_alert_names_its_account_and_room_for_the_click() {
     let alert = alert.from_account(AccountId::new(7), "gnobbi-test-bob".into());
     assert_eq!(alert.title(), "gnobbi-test-bob");
     assert_eq!(alert.target(), (Some(AccountId::new(7)), &scope(1)));
-    assert_eq!(alert.body(), "Nuovi messaggi");
+    assert_eq!(alert.body(), "New messages");
 }
 
 #[test]
@@ -83,14 +83,14 @@ fn whitespace_is_collapsed_and_controls_dropped() {
 #[test]
 fn media_labels() {
     for (c, l) in [
-        (PreviewContent::Image, "📷 Foto"),
+        (PreviewContent::Image, "📷 Photo"),
         (PreviewContent::Video, "🎥 Video"),
-        (PreviewContent::Voice, "🎤 Messaggio vocale"),
+        (PreviewContent::Voice, "🎤 Voice message"),
         (PreviewContent::Audio, "🎵 Audio"),
         (PreviewContent::File, "📎 File"),
         (PreviewContent::Sticker, "Sticker"),
-        (PreviewContent::Location, "📍 Posizione"),
-        (PreviewContent::Poll, "Sondaggio"),
+        (PreviewContent::Location, "📍 Location"),
+        (PreviewContent::Poll, "Poll"),
     ] {
         assert_eq!(body(&msg(c, None, true)), l);
     }
@@ -101,20 +101,20 @@ fn sender_prefix_only_in_rooms() {
     let room = msg(PreviewContent::Text("ciao 😀".into()), Some("Anna"), false);
     assert_eq!(body(&room), "Anna: ciao 😀");
     assert_eq!(body(&text("ciao")), "ciao");
-    assert_eq!(body(&msg(PreviewContent::Poll, Some("Anna"), false)), "Anna: Sondaggio");
+    assert_eq!(body(&msg(PreviewContent::Poll, Some("Anna"), false)), "Anna: Poll");
 }
 
 #[test]
 fn switch_off_undecrypted_empty_and_other_give_the_fixed_body() {
-    assert_eq!(notification_body(Some(&text("segreto")), false, false), "Nuovi messaggi");
+    assert_eq!(notification_body(Some(&text("segreto")), false, false), "New messages");
     for p in [
         msg(PreviewContent::Undecrypted, Some("Anna"), false),
         msg(PreviewContent::Other, None, true),
         text(" \n "),
     ] {
-        assert_eq!(body(&p), "Nuovi messaggi");
+        assert_eq!(body(&p), "New messages");
     }
-    assert_eq!(notification_body(None, true, false), "Nuovi messaggi");
+    assert_eq!(notification_body(None, true, false), "New messages");
 }
 
 #[test]
@@ -125,5 +125,5 @@ fn policy_preview_defaults_on_and_shows_only_the_latest_message() {
     assert_eq!(policy.alert(&scope(1), Some(text("uno"))).unwrap().body(), "uno");
     assert_eq!(policy.alert(&scope(1), Some(text("due"))).unwrap().body(), "due");
     policy.set_message_preview(false);
-    assert_eq!(policy.alert(&scope(1), Some(text("due"))).unwrap().body(), "Nuovi messaggi");
+    assert_eq!(policy.alert(&scope(1), Some(text("due"))).unwrap().body(), "New messages");
 }

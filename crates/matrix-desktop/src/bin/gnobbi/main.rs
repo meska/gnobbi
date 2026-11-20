@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 //! Gnobbi, egui frontend. S1: shell with the saved theme and accent, window identity and the
 //! single-instance gate (same profile, never two processes on it).
+use matrix_desktop::i18n;
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, ViewportBuilder, Visuals};
 use matrix_desktop::{
     AppDirs, DesignTokens, FormStatus, Platform, Preferences, Theme,
@@ -111,7 +112,8 @@ struct App {
     tray: Option<TrayHandle>,
     /// macOS: the menu bar, built on the first frame (winit installs its own after launch) and kept alive here.
     #[cfg(target_os = "macos")]
-    menubar: Option<tray_icon::menu::Menu>,
+    /// The macOS menu bar and the language it was built in: it is rebuilt when the language changes (hot switch).
+    menubar: Option<(tray_icon::menu::Menu, &'static str)>,
     insets: mobile::Insets,
     quitting: bool,
     window_visible: bool,
@@ -159,7 +161,7 @@ impl App {
         let (session, start_error) = match dirs.map(|d| Session::start(d, root.clone(), trust.clone())) {
             Some(Ok(s)) => (Some(s), None),
             Some(Err(e)) => (None, Some(e)),
-            None => (None, Some("Cartella dati non disponibile".to_owned())),
+            None => (None, Some(i18n::t("Data folder not available").to_owned())),
         };
         // The default window runs every account of the catalog at once; `--signin <folder>` runs just that one.
         let mut parked = Vec::new();
@@ -278,7 +280,7 @@ impl eframe::App for App {
             }
             // A click on the alert of an account that is gone: the window comes forward, one line says why.
             if ids.len() == names.len() && matrix_desktop::notifications::drop_early_click_of_gone_account(&ids) {
-                session.notice = Some("Account non più collegato".to_owned());
+                session.notice = Some(i18n::t("Account no longer connected").to_owned());
                 ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -767,8 +769,8 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         };
         #[cfg(target_os = "macos")]
-        if self.menubar.is_none() {
-            self.menubar = Some(matrix_desktop::tray::mac_menubar());
+        if self.menubar.as_ref().is_none_or(|(_, lang)| *lang != matrix_desktop::i18n::current()) {
+            self.menubar = Some((matrix_desktop::tray::mac_menubar(), matrix_desktop::i18n::current()));
         }
         // The Dock click (or Cmd+Tab) shows the app without a tray action.
         if ctx.input(|i| i.focused) {
@@ -863,10 +865,10 @@ impl App {
 
     fn shell(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
         let state = match self.session.as_ref().and_then(|s| s.sync) {
-            Some(RoomSyncStatus::Ready) => "Connesso",
-            Some(RoomSyncStatus::AuthenticationFailed) => "Accesso non riuscito",
-            Some(RoomSyncStatus::SyncFailed) => "Sincronizzazione interrotta",
-            _ => "Connessione…",
+            Some(RoomSyncStatus::Ready) => i18n::t("Connected"),
+            Some(RoomSyncStatus::AuthenticationFailed) => i18n::t("Sign-in failed"),
+            Some(RoomSyncStatus::SyncFailed) => i18n::t("Sync interrupted"),
+            _ => i18n::t("Connecting…"),
         };
         // The shown account sits on top of the spaces rail: a click lists the others, each with a dot below it (filled = unread).
         let mut pick_account = None;

@@ -1,6 +1,7 @@
 //! State of one join of a (large, federated) room, as the UI reads it. Pure: no egui, no engine calls.
 //! A client timeout is NOT a failure: `JoinPhase::Slow` keeps the join «in corso» until the server's
 //! real outcome arrives (sync / membership recheck, both already done by the engine's `join_tracked`).
+use matrix_desktop::i18n;
 use matrix_domain::RoomScope;
 use matrix_engine::{join::JoinPhase, operations::OperationError};
 
@@ -16,10 +17,10 @@ pub enum Cause {
 impl Cause {
     pub fn line(self) -> &'static str {
         match self {
-            Self::Offline => "Sei offline",
-            Self::ServerUnreachable => "Server non raggiungibile",
-            Self::RoomMissing => "Stanza non trovata",
-            Self::Generic => "Connessione non riuscita",
+            Self::Offline => i18n::t("You are offline"),
+            Self::ServerUnreachable => i18n::t("Server unreachable"),
+            Self::RoomMissing => i18n::t("Room not found"),
+            Self::Generic => i18n::t("Connection failed"),
         }
     }
 }
@@ -70,9 +71,9 @@ impl JoinState {
     pub fn line(&self) -> Option<&'static str> {
         match self {
             Self::Idle => None,
-            Self::Joining => Some("Ingresso…"),
-            Self::StillJoining => Some("Ancora in corso…"),
-            Self::Joined(_) => Some("Già unito"),
+            Self::Joining => Some(i18n::t("Joining…")),
+            Self::StillJoining => Some(i18n::t("Still joining…")),
+            Self::Joined(_) => Some(i18n::t("Already joined")),
             Self::Failed(c) => Some(c.line()),
         }
     }
@@ -118,7 +119,7 @@ mod tests {
     #[test]
     fn quick_join_goes_straight_to_joined() {
         let mut s = started();
-        assert_eq!(s.line(), Some("Ingresso…"));
+        assert_eq!(s.line(), Some("Joining…"));
         s.apply(JoinPhase::Joined(scope()), true);
         assert_eq!(s, JoinState::Joined(scope()));
     }
@@ -130,7 +131,7 @@ mod tests {
         assert_eq!(s, JoinState::StillJoining);
         assert_eq!(s.error(), None);
         assert!(s.is_running());
-        assert_eq!(s.line(), Some("Ancora in corso…"));
+        assert_eq!(s.line(), Some("Still joining…"));
         assert!(!s.start(), "double click while running does nothing");
     }
 
@@ -168,7 +169,7 @@ mod tests {
         lines.dedup();
         assert_eq!(lines.len(), 4);
         assert!(lines.iter().all(|l| !l.contains('\n')));
-        assert_eq!(Cause::Generic.line(), "Connessione non riuscita");
+        assert_eq!(Cause::Generic.line(), "Connection failed");
     }
 
     #[test]

@@ -187,9 +187,9 @@ pub struct SpaceDeleted {
 /// The one line the UI shows when adding to or removing from a space failed.
 pub fn space_error_line(error: OperationError) -> &'static str {
     match error {
-        OperationError::Forbidden => "Non consentito dal server",
-        OperationError::Unavailable | OperationError::WrongScope | OperationError::InvalidInput => "Spazio non trovato",
-        OperationError::Transport => "Operazione non riuscita, riprova",
+        OperationError::Forbidden => "Not allowed by the server",
+        OperationError::Unavailable | OperationError::WrongScope | OperationError::InvalidInput => "Space not found",
+        OperationError::Transport => "Operation failed, try again",
     }
 }
 
@@ -2398,7 +2398,7 @@ mod tests {
         assert_eq!(classify_space(&E::UpdateRelationship(api_error(502, None))), OperationError::Transport);
         assert_eq!(classify_space(&E::RoomNotFound(matrix_sdk::ruma::owned_room_id!("!a:b.c"))), OperationError::Unavailable);
         assert_eq!(classify_space(&E::UserIdNotFound), OperationError::Transport);
-        assert_eq!(space_error_line(OperationError::Forbidden), "Non consentito dal server");
+        assert_eq!(space_error_line(OperationError::Forbidden), "Not allowed by the server");
         assert!(!space_error_line(OperationError::Transport).contains('\n'));
     }
     #[cfg(feature = "sdk")]

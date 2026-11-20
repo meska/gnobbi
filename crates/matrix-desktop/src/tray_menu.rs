@@ -1,16 +1,10 @@
 //! Tray / menu-bar menu as plain data: no window, no tray crate, no platform code.
 //! The icon integration turns `TrayItem`s into native entries and sends `TrayAction`s back
 //! over a channel that the app drains (like `drain_navigation_actions`).
-use crate::AccountRow;
+use crate::{AccountRow, i18n};
 use matrix_domain::AccountId;
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
-
-pub const MINIMIZE: &str = "Riduci a icona";
-pub const SHOW: &str = "Mostra Gnobbi";
-/// Fixed label; the native check mark carries the state.
-pub const NOTIFICATIONS: &str = "Notifiche";
-pub const QUIT: &str = "Chiudi Gnobbi";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayAction {
@@ -25,7 +19,7 @@ pub enum TrayAction {
     SwitchAccount(AccountId),
     /// macOS menu bar: Edit entry, forwarded to the focused egui text field.
     Edit(Edit),
-    /// macOS menu bar: Gnobbi > Impostazioni… (Cmd+,).
+    /// macOS menu bar: Gnobbi > Settings… (Cmd+,).
     Settings,
 }
 
@@ -101,16 +95,16 @@ pub fn tray_menu(
     let mut items = vec![
         entry(
             TrayAction::ToggleWindow,
-            if window_visible { MINIMIZE } else { SHOW },
+            if window_visible { i18n::t("Minimize") } else { i18n::t("Show Gnobbi") },
         ),
         {
-            let mut item = entry(TrayAction::ToggleNotifications, NOTIFICATIONS);
+            let mut item = entry(TrayAction::ToggleNotifications, i18n::t("Notifications"));
             if let TrayItem::Entry { checked, .. } = &mut item {
                 *checked = notifications_enabled;
             }
             item
         },
-        entry(TrayAction::Quit, QUIT),
+        entry(TrayAction::Quit, i18n::t("Quit Gnobbi")),
     ];
     if accounts.len() >= 2 {
         items.push(TrayItem::Separator);
@@ -118,7 +112,7 @@ pub fn tray_menu(
             action: TrayAction::SwitchAccount(a.id),
             label: a.name.clone(),
             accessible_name: if a.current {
-                format!("{}, account attivo", a.name)
+                i18n::t("{name}, active account").replace("{name}", &a.name)
             } else {
                 a.name.clone()
             },
@@ -204,7 +198,7 @@ mod tests {
     #[test]
     fn one_account_has_no_account_section() {
         let menu = tray_menu(true, true, &[row(1, "Anna", true)]);
-        assert_eq!(labels(&menu), [MINIMIZE, NOTIFICATIONS, QUIT],);
+        assert_eq!(labels(&menu), ["Minimize", "Notifications", "Quit Gnobbi"],);
         assert!(tray_menu(true, true, &[]).len() == 3);
     }
 
@@ -213,7 +207,7 @@ mod tests {
         let menu = tray_menu(true, true, &[row(1, "Anna", false), row(2, "Bruno", true)]);
         assert_eq!(
             labels(&menu),
-            [MINIMIZE, NOTIFICATIONS, QUIT, "-", "Anna", "Bruno"],
+            ["Minimize", "Notifications", "Quit Gnobbi", "-", "Anna", "Bruno"],
         );
         let checks: Vec<_> = menu
             .iter()
@@ -235,14 +229,14 @@ mod tests {
         else {
             panic!()
         };
-        assert_eq!(accessible_name, "Bruno, account attivo");
+        assert_eq!(accessible_name, "Bruno, active account");
         assert_eq!(avatar_initials.as_deref(), Some("Br"));
     }
 
     #[test]
     fn window_entry_follows_visibility() {
-        assert_eq!(labels(&tray_menu(true, true, &[]))[0], MINIMIZE);
-        assert_eq!(labels(&tray_menu(false, true, &[]))[0], SHOW);
+        assert_eq!(labels(&tray_menu(true, true, &[]))[0], "Minimize");
+        assert_eq!(labels(&tray_menu(false, true, &[]))[0], "Show Gnobbi");
     }
 
     #[test]
@@ -253,7 +247,7 @@ mod tests {
         // Settings and tray both end in set_enabled on this one policy: no second flag.
         policy.set_enabled(!policy.enabled());
         assert_eq!(checked(policy.enabled()), policy.enabled());
-        assert_eq!(labels(&tray_menu(true, policy.enabled(), &[]))[1], NOTIFICATIONS);
+        assert_eq!(labels(&tray_menu(true, policy.enabled(), &[]))[1], "Notifications");
     }
 
     #[test]

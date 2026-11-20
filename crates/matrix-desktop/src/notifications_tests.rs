@@ -33,7 +33,7 @@ fn cancelling_invalidates_the_bounded_pending_alert_before_delivery() {
     assert!(handle.submit(alert()));
     assert_eq!(
         started_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
-        "Nuovi messaggi"
+        "New messages"
     );
     assert!(handle.submit(alert()));
     assert!(!handle.submit(alert()), "queue must be bounded");
@@ -53,7 +53,7 @@ fn cancelling_invalidates_the_bounded_pending_alert_before_delivery() {
     }
     assert_eq!(
         started_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
-        "1 nuovo messaggio"
+        "1 new message"
     );
     worker.shutdown().unwrap();
     assert!(started_rx.try_recv().is_err());
@@ -111,7 +111,7 @@ fn worker_delivers_content_free_payload_off_the_calling_thread() {
     let (thread, title, body) = receiver.recv_timeout(Duration::from_secs(2)).unwrap();
     assert_ne!(thread, caller);
     assert_eq!(title, "Gnobbi");
-    assert_eq!(body, "Nuovi messaggi");
+    assert_eq!(body, "New messages");
     worker.shutdown().unwrap();
 }
 
@@ -126,7 +126,7 @@ fn saved_message_preview_switch_reaches_the_alert_body_and_defaults_to_on() {
         policy.alert(&scope, Some(preview)).unwrap().body()
     };
     assert_eq!(body(true), "ciao");
-    assert_eq!(body(false), "Nuovi messaggi");
+    assert_eq!(body(false), "New messages");
     assert!(crate::Preferences::default().message_preview);
 }
 

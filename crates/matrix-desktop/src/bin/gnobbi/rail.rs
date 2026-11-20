@@ -250,7 +250,7 @@ fn settle(state: &mut State, sidebar: &Sidebar, layout: &RailLayout, placed: Opt
         None => (m.done.is_none() && m.sent.elapsed() > Duration::from_secs(30)).then_some(OperationError::Transport),
     };
     if let Some(e) = failed {
-        state.error = Some(matrix_engine::operations::space_error_line(e).into());
+        state.error = Some(matrix_desktop::i18n::t(matrix_engine::operations::space_error_line(e)).into());
         return;
     }
     let shape = |moving| tree(sidebar, layout, &HashSet::new(), true, moving).into_iter().map(|r| (r.scope.room_id, r.parent)).collect::<Vec<_>>();

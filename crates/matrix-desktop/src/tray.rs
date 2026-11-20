@@ -248,45 +248,46 @@ pub fn mac_menubar() -> Menu {
     let item = |id: &str, title: &str, key: Option<Accelerator>| MenuItem::with_id(id, title, true, key);
     let sep = || PredefinedMenuItem::separator();
     let menu = Menu::new();
+    use crate::i18n::t_ctx;
     let app = Submenu::new("Gnobbi", true);
-    let quit = item("quit", "Esci da Gnobbi", cmd(Code::KeyQ));
+    let quit = item("quit", t_ctx("menu", "Quit Gnobbi"), cmd(Code::KeyQ));
     app.append_items(&[
-        &PredefinedMenuItem::about(Some("Informazioni su Gnobbi"), None),
+        &PredefinedMenuItem::about(Some(t_ctx("menu", "About Gnobbi")), None),
         &sep(),
-        &item("settings", "Impostazioni…", cmd(Code::Comma)),
+        &item("settings", t_ctx("menu", "Settings…"), cmd(Code::Comma)),
         &sep(),
-        &PredefinedMenuItem::services(Some("Servizi")),
+        &PredefinedMenuItem::services(Some(t_ctx("menu", "Services"))),
         &sep(),
-        &PredefinedMenuItem::hide(Some("Nascondi Gnobbi")),
-        &PredefinedMenuItem::hide_others(Some("Nascondi altri")),
-        &PredefinedMenuItem::show_all(Some("Mostra tutto")),
+        &PredefinedMenuItem::hide(Some(t_ctx("menu", "Hide Gnobbi"))),
+        &PredefinedMenuItem::hide_others(Some(t_ctx("menu", "Hide Others"))),
+        &PredefinedMenuItem::show_all(Some(t_ctx("menu", "Show All"))),
         &sep(),
         &quit,
     ])
     .ok();
     let edit_item = |e: Edit, title: &str, key: Option<Accelerator>| item(&encode(TrayAction::Edit(e)), title, key);
-    let edit = Submenu::new("Modifica", true);
+    let edit = Submenu::new(t_ctx("menu", "Edit"), true);
     edit.append_items(&[
-        &edit_item(Edit::Undo, "Annulla", cmd(Code::KeyZ)),
-        &edit_item(Edit::Redo, "Ripeti", Some(Accelerator::new(Modifiers::META | Modifiers::SHIFT, Code::KeyZ))),
+        &edit_item(Edit::Undo, t_ctx("menu", "Undo"), cmd(Code::KeyZ)),
+        &edit_item(Edit::Redo, t_ctx("menu", "Redo"), Some(Accelerator::new(Modifiers::META | Modifiers::SHIFT, Code::KeyZ))),
         &sep(),
-        &edit_item(Edit::Cut, "Taglia", cmd(Code::KeyX)),
-        &edit_item(Edit::Copy, "Copia", cmd(Code::KeyC)),
-        &edit_item(Edit::Paste, "Incolla", cmd(Code::KeyV)),
-        &edit_item(Edit::SelectAll, "Seleziona tutto", cmd(Code::KeyA)),
+        &edit_item(Edit::Cut, t_ctx("menu", "Cut"), cmd(Code::KeyX)),
+        &edit_item(Edit::Copy, t_ctx("menu", "Copy"), cmd(Code::KeyC)),
+        &edit_item(Edit::Paste, t_ctx("menu", "Paste"), cmd(Code::KeyV)),
+        &edit_item(Edit::SelectAll, t_ctx("menu", "Select All"), cmd(Code::KeyA)),
         &sep(),
         // Not added by the system for a custom Edit menu (only for the standard `paste:` items), so they are explicit.
-        &PredefinedMenuItem::start_dictation(Some("Avvia dettatura…")),
-        &PredefinedMenuItem::emoji_and_symbols(Some("Emoji e simboli")),
+        &PredefinedMenuItem::start_dictation(Some(t_ctx("menu", "Start Dictation…"))),
+        &PredefinedMenuItem::emoji_and_symbols(Some(t_ctx("menu", "Emoji & Symbols"))),
     ])
     .ok();
-    let window = Submenu::new("Finestra", true);
+    let window = Submenu::new(t_ctx("menu", "Window"), true);
     window
         .append_items(&[
-            &PredefinedMenuItem::minimize(Some("Riduci a icona")),
-            &PredefinedMenuItem::maximize(Some("Zoom")),
+            &PredefinedMenuItem::minimize(Some(t_ctx("menu", "Minimize"))),
+            &PredefinedMenuItem::maximize(Some(t_ctx("menu", "Zoom"))),
             &sep(),
-            &PredefinedMenuItem::bring_all_to_front(Some("Porta tutto in primo piano")),
+            &PredefinedMenuItem::bring_all_to_front(Some(t_ctx("menu", "Bring All to Front"))),
         ])
         .ok();
     menu.append_items(&[&app, &edit, &window]).ok();
@@ -300,6 +301,8 @@ pub struct Tray {
     rx: Receiver<TrayAction>,
     menu: Option<(Vec<TrayItem>, Pictures)>,
     badge: Option<u64>,
+    /// Language of the tooltip; a change forces it to be rebuilt.
+    lang: &'static str,
 }
 
 impl Tray {
@@ -344,6 +347,7 @@ impl Tray {
                 rx,
                 menu: None,
                 badge: None,
+                lang: crate::i18n::current(),
             }),
             Err(error) => {
                 eprintln!("Gnobbi: no tray icon: {error}");
@@ -400,6 +404,10 @@ impl Tray {
                 .set_menu(Some(Box::new(build_menu(items, &pictures))));
             self.menu = Some((items.to_vec(), pictures));
         }
+        if self.lang != crate::i18n::current() {
+            self.lang = crate::i18n::current();
+            self.badge = None;
+        }
         if self.badge != Some(unread) {
             if let Some(icon) = Self::icon(unread) {
                 #[cfg(target_os = "macos")]
@@ -416,7 +424,7 @@ impl Tray {
                 }));
             }
             let tip = if unread > 0 {
-                format!("Gnobbi, {unread} non letti")
+                crate::i18n::plural(unread, "Gnobbi, {n} unread", "Gnobbi, {n} unread")
             } else {
                 "Gnobbi".into()
             };

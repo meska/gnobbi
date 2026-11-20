@@ -81,7 +81,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
                 let pixels = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
                 f.photo = Photo::Set(path.clone(), ui.ctx().load_texture("own-avatar-preview", pixels, Default::default()));
             }
-            Err(e) => f.bad_file = Some(e.message()),
+            Err(e) => f.bad_file = Some(matrix_desktop::i18n::t(e.message())),
         }
         f.loading = None;
     }
