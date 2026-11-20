@@ -285,7 +285,7 @@ impl Painter {
         profiling::scope!("Painter::set_window"); // profile_function gives bad names for async functions
 
         if let Some(window) = window {
-            let size = window.inner_size();
+            let size = surface_size(&window);
             if !self.surfaces.contains_key(&viewport_id) {
                 let surface = self.instance.create_surface(window)?;
                 self.add_surface(surface, viewport_id, size).await?;
@@ -311,7 +311,7 @@ impl Painter {
         profiling::scope!("Painter::set_window_unsafe"); // profile_function gives bad names for async functions
 
         if let Some(window) = window {
-            let size = window.inner_size();
+            let size = surface_size(window);
             if !self.surfaces.contains_key(&viewport_id) {
                 let surface = unsafe {
                     self.instance
@@ -951,4 +951,10 @@ mod tests {
         // A zero limit is treated as one pixel.
         assert_eq!(surface_fit(10, 10, 0), (1, 1, 0.1));
     }
+}
+
+/// Surface size in pixels. On iOS `inner_size` is the safe area, but egui lays out on the whole screen
+/// (see `egui_winit::screen_size_in_pixels`), so the surface must match or the output is stretched.
+pub(crate) fn surface_size(window: &::winit::window::Window) -> ::winit::dpi::PhysicalSize<u32> {
+    if cfg!(target_os = "ios") { window.outer_size() } else { window.inner_size() }
 }

@@ -1013,7 +1013,9 @@ impl WgpuWinitRunning<'_> {
                 let physical_size = viewport_id
                     .and_then(|id| shared.viewports.get(&id))
                     .and_then(|viewport| viewport.window.as_ref())
-                    .map_or(*physical_size, |window| window.inner_size());
+                    .map_or(*physical_size, |window| {
+                        if cfg!(target_os = "ios") { window.outer_size() } else { window.inner_size() }
+                    });
 
                 // Resize with 0 width and height is used by winit to signal a minimize event on Windows.
                 // See: https://github.com/rust-windowing/winit/issues/208
