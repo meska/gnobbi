@@ -1,5 +1,5 @@
 //! «Esporta chiavi…» and «Rigenera chiave di recupero…» in «Privacy e sicurezza»: password check,
-//! one-line texts and the state of the sub-page. No GPUI types; the engine does the work.
+//! one-line texts and the state of the sub-page. No UI types; the engine does the work.
 
 /// Shortest export password, counted in characters. One constant to change.
 pub const EXPORT_MIN_CHARS: usize = 12;
@@ -51,7 +51,6 @@ pub fn exported_text(count: usize) -> String {
     }
 }
 
-#[cfg(feature = "core-live")]
 pub fn export_error_text(error: matrix_engine::key_export::KeyExportError) -> &'static str {
     use matrix_engine::key_export::KeyExportError::*;
     match error {
@@ -62,7 +61,6 @@ pub fn export_error_text(error: matrix_engine::key_export::KeyExportError) -> &'
     }
 }
 
-#[cfg(feature = "core-live")]
 pub fn reset_error_text(error: matrix_engine::recovery::RecoveryError) -> &'static str {
     use matrix_engine::recovery::RecoveryError::*;
     match error {
@@ -95,7 +93,6 @@ pub struct KeysPage {
     /// Set by the engine answer: the view refills (error) or clears (ok) the fields once.
     pub refill: bool,
     /// The new recovery key while it is shown; never read from anywhere else.
-    #[cfg(feature = "core-live")]
     pub secret: Option<matrix_engine::recovery::RecoverySecret>,
 }
 
@@ -107,16 +104,12 @@ impl KeysPage {
             line: None,
             held: None,
             refill: false,
-            #[cfg(feature = "core-live")]
             secret: None,
         }
     }
     /// The new key is on screen: the only way out is «L'ho salvata».
     pub fn shown(&self) -> bool {
-        #[cfg(feature = "core-live")]
-        return self.secret.is_some();
-        #[cfg(not(feature = "core-live"))]
-        false
+        self.secret.is_some()
     }
     /// Esc and the header close the page, except while the new key is shown or being made
     /// (the old key is already void: closing would lose the new one).
@@ -162,7 +155,6 @@ mod tests {
         page.busy = true;
         assert!(!page.closable());
         page.busy = false;
-        #[cfg(feature = "core-live")]
         {
             page.secret = Some(matrix_engine::recovery::RecoverySecret::fixture(
                 "EsTx fixt",
@@ -197,7 +189,6 @@ mod tests {
             .map(|e| e.text().to_owned())
             .collect();
         texts.extend([exported_text(0), exported_text(3), WRONG_PHRASE.into(), RESET_WARNING.into()]);
-        #[cfg(feature = "core-live")]
         {
             use matrix_engine::key_export::KeyExportError::*;
             for e in [WrongPhrase, WrongPassword, NoKeys, NotWritable, Deadline, Failed] {

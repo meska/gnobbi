@@ -139,7 +139,7 @@ pub struct DownloadedPng {
     pub preview: Preview,
 }
 
-/// Owned straight-alpha RGBA8; no SDK or GPUI objects cross the boundary.
+/// Owned straight-alpha RGBA8; no SDK or UI objects cross the boundary.
 pub struct Preview {
     pub width: u32,
     pub height: u32,

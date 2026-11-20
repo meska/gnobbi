@@ -152,7 +152,7 @@ impl Drop for NotificationWorker {
 /// Linux: the freedesktop `Notify` call over D-Bus, so title and body never enter any argv (`ps`).
 /// One live alert per room (`replaces_id`): the newest message replaces the previous one. A click
 /// arrives as `ActionInvoked`, read by one listener thread that lives as long as the connection.
-#[cfg(all(target_os = "linux", feature = "tray"))]
+#[cfg(target_os = "linux")]
 mod linux {
     use super::*;
     use std::collections::HashMap;
@@ -243,7 +243,7 @@ mod linux {
         }
     }
 }
-#[cfg(all(target_os = "linux", feature = "tray"))]
+#[cfg(target_os = "linux")]
 fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
     linux::deliver(notification, click)
 }
@@ -381,7 +381,7 @@ mod macos {
 fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
     macos::deliver(notification, click)
 }
-#[cfg(not(any(all(target_os = "linux", feature = "tray"), target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn deliver_os(_: Notification, _: &Click) -> Result<(), NotificationError> {
     Err(NotificationError::Unavailable)
 }

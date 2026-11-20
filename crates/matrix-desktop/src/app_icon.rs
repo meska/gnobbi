@@ -36,55 +36,6 @@ pub const fn runtime_switch_supported() -> bool {
     cfg!(any(target_os = "macos", target_os = "windows"))
 }
 
-/// Applies `icon` now; a failure leaves the previous icon (cosmetic, never an error to the user).
-#[cfg(all(feature = "desktop", target_os = "macos"))]
-pub fn apply(icon: IconChoice, _window: &gpui::Window) {
-    use cocoa::{
-        appkit::{NSApp, NSImage},
-        base::{id, nil},
-        foundation::NSData,
-    };
-    use objc::{msg_send, sel, sel_impl};
-    let png = icon.runtime_png();
-    // SAFETY: called from GPUI callbacks, i.e. on the main thread, with a live NSApplication.
-    unsafe {
-        let data = NSData::dataWithBytes_length_(nil, png.as_ptr().cast(), png.len() as u64);
-        let image: id = NSImage::initWithData_(NSImage::alloc(nil), data);
-        if image != nil {
-            let _: () = msg_send![NSApp(), setApplicationIconImage: image];
-        }
-    }
-}
-
-#[cfg(all(feature = "desktop", target_os = "windows"))]
-pub fn apply(icon: IconChoice, window: &gpui::Window) {
-    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    use windows::Win32::{
-        Foundation::{HWND, LPARAM, WPARAM},
-        UI::WindowsAndMessaging::{
-            CreateIconFromResourceEx, GetSystemMetrics, ICON_BIG, ICON_SMALL, LR_DEFAULTCOLOR,
-            SM_CXICON, SM_CXSMICON, SendMessageW, WM_SETICON,
-        },
-    };
-    let Ok(handle) = HasWindowHandle::window_handle(window) else { return };
-    let RawWindowHandle::Win32(handle) = handle.as_raw() else { return };
-    let hwnd = HWND(handle.hwnd.get() as *mut _);
-    for (kind, metric) in [(ICON_BIG, SM_CXICON), (ICON_SMALL, SM_CXSMICON)] {
-        // SAFETY: plain Win32 calls on the UI thread; the HICON is handed to the window, which keeps it.
-        unsafe {
-            let size = GetSystemMetrics(metric);
-            // shortcut: the previous HICON is not destroyed (a few KB per switch), fine for a manual setting.
-            if let Ok(hicon) = CreateIconFromResourceEx(icon.runtime_png(), true, 0x0003_0000, size, size, LR_DEFAULTCOLOR) {
-                SendMessageW(hwnd, WM_SETICON, Some(WPARAM(kind as usize)), Some(LPARAM(hicon.0 as isize)));
-            }
-        }
-    }
-}
-
-/// Linux/Wayland: nothing to do at runtime.
-#[cfg(all(feature = "desktop", not(any(target_os = "macos", target_os = "windows"))))]
-pub fn apply(_icon: IconChoice, _window: &gpui::Window) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;

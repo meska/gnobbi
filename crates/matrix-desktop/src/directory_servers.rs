@@ -1,5 +1,5 @@
 //! Which server the public-room directory is read from: the choices, the servers the user added
-//! (kept per account in `settings.json`, never on the server) and the menu state. No GPUI, no network.
+//! (kept per account in `settings.json`, never on the server) and the menu state. No UI toolkit, no network.
 use crate::AppDirs;
 use crate::add_server::{AddError, AddState};
 use crate::preferences::{read_settings, update_settings};

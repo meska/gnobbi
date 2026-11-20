@@ -1,7 +1,6 @@
 //! In-app update (Linux AppImage, Windows portable). One file per card; no GUI here.
 pub mod channel;
 pub mod label;
-#[cfg(feature = "live")]
 pub mod check;
 pub mod scheduler;
 pub mod verify;
@@ -117,13 +116,6 @@ mod prefs_tests {
     fn outcome_lines_and_take_once() {
         assert_eq!(outcome_line("updated", "1.2.3"), "Aggiornato a 1.2.3");
         assert_eq!(outcome_line("restored", "1.2.2"), "Aggiornamento non riuscito: ripristinata la 1.2.2");
-    }
-
-    #[test]
-    fn confirm_update_is_called_from_the_ui_start_path() {
-        // render() calls start_update_watch on the first frame; that one spawns confirm_update.
-        assert!(include_str!("../main.rs").contains("self.start_update_watch(cx)"));
-        assert!(include_str!("../menu_view.rs").contains("std::thread::spawn(matrix_desktop::update::startup::confirm_update)"));
     }
 
     #[test]

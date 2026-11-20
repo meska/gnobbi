@@ -1,6 +1,6 @@
 #![recursion_limit = "256"]
 //! Gnobbi, egui frontend. S1: shell with the saved theme and accent, window identity and the
-//! single-instance gate shared with the GPUI app (same profile, never two processes on it).
+//! single-instance gate (same profile, never two processes on it).
 use eframe::egui::{self, Color32, CornerRadius, RichText, Stroke, ViewportBuilder, Visuals};
 use matrix_desktop::{
     AppDirs, DesignTokens, FormStatus, Platform, Preferences, Theme,
@@ -43,7 +43,7 @@ fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
 
-/// egui visuals from the same tokens the GPUI app paints with.
+/// egui visuals from the shared design tokens.
 fn visuals(t: &DesignTokens, dark: bool) -> Visuals {
     let mut v = if dark { Visuals::dark() } else { Visuals::light() };
     v.panel_fill = rgb(t.timeline);
@@ -1633,7 +1633,7 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     }
 }
 
-/// First instance listens for later launches; if one is already running (the GPUI app included)
+/// First instance listens for later launches; if one is already running
 /// the launch is handed to it and this process exits. Socket trouble only costs this behaviour.
 #[cfg(target_os = "linux")]
 fn single_instance_gate(link: Option<String>) {
@@ -1666,7 +1666,7 @@ fn single_instance_gate(_link: Option<String>) {}
 fn register_emoji_font(ctx: &egui::Context) {
     #[cfg(target_os = "linux")]
     {
-        static NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../matrix-desktop/assets/fonts/NotoColorEmoji.ttf");
+        static NOTO_COLOR_EMOJI: &[u8] = include_bytes!("../../../assets/fonts/NotoColorEmoji.ttf");
         ctx.add_font(egui::epaint::text::FontInsert::new(
             "noto-color-emoji",
             egui::FontData::from_static(NOTO_COLOR_EMOJI),
@@ -1715,7 +1715,7 @@ fn main() -> eframe::Result {
     let mut trust = None;
     let root = match matrix_desktop::SignInOptions::parse(&args) {
         Ok(Some(o)) => {
-            // An explicit CA (a test homeserver); read once, at most 1 MiB, like the GPUI app.
+            // An explicit CA (a test homeserver); read once, at most 1 MiB.
             trust = o.ca_file.as_ref().map(|p| {
                 use std::io::Read;
                 let mut pem = Vec::new();

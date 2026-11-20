@@ -1,4 +1,4 @@
-//! SDK/GPUI-free lifecycle for the selected read-only server timeline.
+//! SDK- and toolkit-free lifecycle for the selected read-only server timeline.
 use matrix_domain::{EventId, RoomScope};
 use matrix_engine::{
     ViewRequests,

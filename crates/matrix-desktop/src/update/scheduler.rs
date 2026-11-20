@@ -2,10 +2,8 @@
 //! channels that update themselves and with `update_check_enabled`. Any other case opens no
 //! connection and builds no client. Errors go to stderr only; no UI here.
 use super::channel::Channel;
-#[cfg(feature = "live")]
 use super::{channel::{Env, detect_channel}, stage::UpdateState};
 use crate::{AppDirs, Preferences};
-#[cfg(feature = "live")]
 use std::{path::Path, sync::{Arc, Mutex}};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -32,7 +30,6 @@ fn due(channel: &Channel, prefs: &Preferences, now: u64, interval: Duration) -> 
         && prefs.last_check.is_none_or(|t| t > now || now - t >= interval.as_secs())
 }
 
-#[cfg_attr(not(feature = "live"), allow(dead_code))]
 /// Loads the settings fresh (the switch may have changed) and runs `work` only when due.
 fn tick(dirs: &AppDirs, channel: &Channel, interval: Duration, work: impl FnOnce(Preferences)) -> bool {
     let Ok(prefs) = Preferences::load_checked(dirs) else { return false };
@@ -44,14 +41,12 @@ fn tick(dirs: &AppDirs, channel: &Channel, interval: Duration, work: impl FnOnce
     go
 }
 
-#[cfg_attr(not(feature = "live"), allow(dead_code))]
 fn download_allowed(dirs: &AppDirs, channel: &Channel, initial: &Preferences) -> bool {
     let Ok(current) = Preferences::load_checked(dirs) else { return false };
     channel.self_updates() && current.update_check_enabled
         && super::effective_base(&current) == super::effective_base(initial)
 }
 
-#[cfg_attr(not(feature = "live"), allow(dead_code))]
 fn run_loop(dirs: &AppDirs, channel: &Channel, cfg: Config, mut work: impl FnMut(Preferences)) {
     std::thread::sleep(cfg.start_delay);
     loop {
@@ -61,7 +56,6 @@ fn run_loop(dirs: &AppDirs, channel: &Channel, cfg: Config, mut work: impl FnMut
 }
 
 /// Starts the scheduler thread. `None` (nothing spawned) when the channel does not self-update.
-#[cfg(feature = "live")]
 pub fn start(dirs: AppDirs, state: Arc<Mutex<UpdateState>>, cfg: Config) -> Option<std::thread::JoinHandle<()>> {
     let channel = detect_channel(&Env::from_process());
     if !channel.self_updates() {
@@ -85,7 +79,6 @@ pub fn start(dirs: AppDirs, state: Arc<Mutex<UpdateState>>, cfg: Config) -> Opti
     }).ok()
 }
 
-#[cfg(feature = "live")]
 fn target(channel: &Channel) -> &Path {
     match channel {
         Channel::AppImage { target } => target,
@@ -94,7 +87,6 @@ fn target(channel: &Channel) -> &Path {
     }
 }
 
-#[cfg_attr(not(any(feature = "live", test)), allow(dead_code))]
 fn artifact_key(channel: &Channel, os: &str, arch: &str) -> Option<&'static str> {
     use super::verify::{LINUX_APPIMAGE, WINDOWS_ZIP};
     match (channel, os, arch) {
@@ -104,7 +96,6 @@ fn artifact_key(channel: &Channel, os: &str, arch: &str) -> Option<&'static str>
     }
 }
 
-#[cfg(feature = "live")]
 mod online {
     use super::*;
     use crate::update::{check::{self, Outcome}, verify::{Candidate, UpdateKeys}};
@@ -176,7 +167,7 @@ mod online {
     }
 }
 
-#[cfg(all(test, feature = "live", target_os = "linux", target_arch = "x86_64"))]
+#[cfg(all(test, target_os = "linux", target_arch = "x86_64"))]
 #[path = "e2e_tests.rs"]
 mod e2e_tests;
 
@@ -272,7 +263,7 @@ mod tests {
     /// build/clock and a deterministic hook that runs between the Candidate and the download gate.
     /// Only on linux-x86_64: `artifact_key` resolves an AppImage artifact nowhere else, so the
     /// check would return before any request.
-    #[cfg(all(feature = "live", target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn drive(name: &str, minisig: &'static str, hook: &dyn Fn(&AppDirs)) -> (Vec<String>, std::path::PathBuf) {
         use std::io::{Read, Write};
         let root = std::env::temp_dir().join(format!("gnobbi-seam-{name}-{}", std::process::id()));
@@ -305,7 +296,7 @@ mod tests {
         (got, root)
     }
 
-    #[cfg(all(feature = "live", target_os = "linux", target_arch = "x86_64"))]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn scheduler_requests_the_artifact_only_while_the_switch_is_on() {
         const ART: &str = "/dl/Gnobbi-x86_64-42.AppImage";
@@ -320,7 +311,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
-    #[cfg(feature = "live")]
     #[test]
     fn start_is_a_noop_off_channel() {
         // Test binary is not an AppImage/Windows portable: nothing is spawned.

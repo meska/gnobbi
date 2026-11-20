@@ -1,5 +1,5 @@
 //! Adding a server to the public-room directory: name normalization and the add state machine.
-//! Pure logic, no GPUI, no network; the probe itself is done by the engine (`server_probed`).
+//! Pure logic, no UI toolkit, no network; the probe itself is done by the engine (`server_probed`).
 use matrix_engine::search::SearchError;
 use std::net::Ipv4Addr;
 
@@ -38,9 +38,6 @@ enum Pasted {
     User,
 }
 
-// shortcut: without the `live` feature (no SDK, so no link parser) nothing is recognized and the
-// text goes through `normalize_server` as before; every shipped build is `live`.
-#[cfg(feature = "live")]
 fn pasted(input: &str) -> Option<Pasted> {
     use matrix_engine::matrix_link::{MatrixLink, parse_matrix_link};
     let s = input.trim();
@@ -57,10 +54,6 @@ fn pasted(input: &str) -> Option<Pasted> {
     }
 }
 
-#[cfg(not(feature = "live"))]
-fn pasted(_: &str) -> Option<Pasted> {
-    None
-}
 
 /// Canonical `host` or `host:port`, lowercase. Accepts `matrix.org`, `https://matrix.org/`, spaces.
 // shortcut: IPv6 literals and non-ASCII (IDN) names are refused as invalid; add if ever needed.
@@ -346,7 +339,6 @@ mod tests {
         assert_eq!(AddError::from(SearchError::InvalidServer), AddError::InvalidName(NameError::Invalid));
     }
 
-    #[cfg(feature = "live")]
     #[test]
     fn pasted_room_goes_to_join_and_user_gets_its_message() {
         for (text, target) in [
