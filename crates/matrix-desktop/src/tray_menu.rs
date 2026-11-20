@@ -23,6 +23,40 @@ pub enum TrayAction {
     Quit,
     /// Shows the account (catalog ID) and brings the window to the front.
     SwitchAccount(AccountId),
+    /// macOS menu bar: Edit entry, forwarded to the focused egui text field.
+    Edit(Edit),
+    /// macOS menu bar: Gnobbi > Impostazioni… (Cmd+,).
+    Settings,
+}
+
+/// The Edit menu entries of the macOS menu bar (ids `edit:<name>`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edit {
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
+
+impl Edit {
+    pub const ALL: [Edit; 6] = [Edit::Undo, Edit::Redo, Edit::Cut, Edit::Copy, Edit::Paste, Edit::SelectAll];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Edit::Undo => "undo",
+            Edit::Redo => "redo",
+            Edit::Cut => "cut",
+            Edit::Copy => "copy",
+            Edit::Paste => "paste",
+            Edit::SelectAll => "select-all",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Edit> {
+        Edit::ALL.into_iter().find(|e| e.name() == name)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -235,5 +269,13 @@ mod tests {
             drain_tray_actions(&rx).last(),
             Some(&TrayAction::SwitchAccount(AccountId::new(2)))
         );
+    }
+
+    #[test]
+    fn edit_names_round_trip() {
+        for e in Edit::ALL {
+            assert_eq!(Edit::from_name(e.name()), Some(e));
+        }
+        assert_eq!(Edit::from_name("nope"), None);
     }
 }

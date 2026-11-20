@@ -20,6 +20,8 @@ fn encode(action: TrayAction) -> String {
         TrayAction::ToggleNotifications => "notifications".into(),
         TrayAction::Quit => "quit".into(),
         TrayAction::SwitchAccount(id) => format!("account:{}", id.as_u64()),
+        TrayAction::Edit(e) => format!("edit:{}", e.name()),
+        TrayAction::Settings => "settings".into(),
     }
 }
 
@@ -29,6 +31,8 @@ fn decode(id: &str) -> Option<TrayAction> {
         "show" => TrayAction::ShowWindow,
         "notifications" => TrayAction::ToggleNotifications,
         "quit" => TrayAction::Quit,
+        "settings" => TrayAction::Settings,
+        _ if id.starts_with("edit:") => TrayAction::Edit(crate::tray_menu::Edit::from_name(&id[5..])?),
         _ => TrayAction::SwitchAccount(AccountId::new(id.strip_prefix("account:")?.parse().ok()?)),
     })
 }
@@ -227,6 +231,63 @@ fn build_menu(items: &[TrayItem], pictures: &Pictures) -> Menu {
             }
         };
     }
+    menu
+}
+
+/// macOS menu bar: Gnobbi, Modifica, Finestra. The Edit items are ours, not the system's `copy:`/`paste:`: winit's view does not
+/// implement those selectors, and a standard key equivalent would swallow Cmd+C/V before egui. Activated (click or shortcut) they
+/// arrive as `TrayAction::Edit`; the shortcut never reaches the view too, so nothing runs twice. Keep the returned `Menu` alive.
+#[cfg(target_os = "macos")]
+pub fn mac_menubar() -> Menu {
+    use crate::tray_menu::Edit;
+    use tray_icon::menu::{
+        accelerator::{Accelerator, Code, Modifiers},
+        Submenu,
+    };
+    let cmd = |code| Some(Accelerator::new(Some(Modifiers::META), code));
+    let item = |id: &str, title: &str, key: Option<Accelerator>| MenuItem::with_id(id, title, true, key);
+    let sep = || PredefinedMenuItem::separator();
+    let menu = Menu::new();
+    let app = Submenu::new("Gnobbi", true);
+    let quit = item("quit", "Esci da Gnobbi", cmd(Code::KeyQ));
+    app.append_items(&[
+        &PredefinedMenuItem::about(Some("Informazioni su Gnobbi"), None),
+        &sep(),
+        &item("settings", "Impostazioni…", cmd(Code::Comma)),
+        &sep(),
+        &PredefinedMenuItem::services(Some("Servizi")),
+        &sep(),
+        &PredefinedMenuItem::hide(Some("Nascondi Gnobbi")),
+        &PredefinedMenuItem::hide_others(Some("Nascondi altri")),
+        &PredefinedMenuItem::show_all(Some("Mostra tutto")),
+        &sep(),
+        &quit,
+    ])
+    .ok();
+    let edit_item = |e: Edit, title: &str, key: Option<Accelerator>| item(&encode(TrayAction::Edit(e)), title, key);
+    let edit = Submenu::new("Modifica", true);
+    edit.append_items(&[
+        &edit_item(Edit::Undo, "Annulla", cmd(Code::KeyZ)),
+        &edit_item(Edit::Redo, "Ripeti", Some(Accelerator::new(Some(Modifiers::META | Modifiers::SHIFT), Code::KeyZ))),
+        &sep(),
+        &edit_item(Edit::Cut, "Taglia", cmd(Code::KeyX)),
+        &edit_item(Edit::Copy, "Copia", cmd(Code::KeyC)),
+        &edit_item(Edit::Paste, "Incolla", cmd(Code::KeyV)),
+        &edit_item(Edit::SelectAll, "Seleziona tutto", cmd(Code::KeyA)),
+    ])
+    .ok();
+    let window = Submenu::new("Finestra", true);
+    window
+        .append_items(&[
+            &PredefinedMenuItem::minimize(Some("Riduci a icona")),
+            &PredefinedMenuItem::maximize(Some("Zoom")),
+            &sep(),
+            &PredefinedMenuItem::bring_all_to_front(Some("Porta tutto in primo piano")),
+        ])
+        .ok();
+    menu.append_items(&[&app, &edit, &window]).ok();
+    menu.init_for_nsapp();
+    window.set_as_windows_menu_for_nsapp();
     menu
 }
 

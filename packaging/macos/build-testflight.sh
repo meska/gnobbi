@@ -25,6 +25,7 @@ cat > "$APP/Contents/Info.plist" <<P
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleName</key><string>Gnobbi</string>
+<key>CFBundleDevelopmentRegion</key><string>it</string><key>CFBundleLocalizations</key><array><string>it</string><string>en</string></array>
 <key>CFBundleDisplayName</key><string>Gnobbi</string>
 <key>CFBundleIdentifier</key><string>$BID</string>
 <key>CFBundleExecutable</key><string>Gnobbi</string>

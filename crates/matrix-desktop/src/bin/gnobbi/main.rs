@@ -109,6 +109,9 @@ struct App {
     /// A parked account to bring forward at the end of the frame (a click on one of its notifications).
     wake: Option<usize>,
     tray: Option<TrayHandle>,
+    /// macOS: the menu bar, built on the first frame (winit installs its own after launch) and kept alive here.
+    #[cfg(target_os = "macos")]
+    menubar: Option<tray_icon::menu::Menu>,
     insets: mobile::Insets,
     quitting: bool,
     window_visible: bool,
@@ -173,7 +176,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false };
         if let Some(i) = last {
@@ -763,6 +766,10 @@ impl App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         };
+        #[cfg(target_os = "macos")]
+        if self.menubar.is_none() {
+            self.menubar = Some(matrix_desktop::tray::mac_menubar());
+        }
         // The Dock click (or Cmd+Tab) shows the app without a tray action.
         if ctx.input(|i| i.focused) {
             self.window_visible = true;
@@ -796,6 +803,17 @@ impl App {
                         self.quitting = true;
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
+                    TrayAction::Settings => {
+                        show(ctx);
+                        self.window_visible = true;
+                        self.rail.set_settings(true);
+                    }
+                    TrayAction::Edit(edit) => match edit_input(edit) {
+                        EditInput::Request(cmd) => ctx.send_viewport_cmd(cmd),
+                        EditInput::Key(key, modifiers) => ctx.input_mut(|i| {
+                            i.events.push(egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers });
+                        }),
+                    },
                     TrayAction::SwitchAccount(id) => {
                         if let Some(dirs) = &self.dirs {
                             let catalog = matrix_desktop::AccountCatalog::load(dirs);
@@ -1769,6 +1787,25 @@ fn mac_app(hide: bool) {
     }
 }
 
+/// What a macOS Edit menu entry sends to egui: copy/cut/paste take the fork's clipboard path, the rest is the key egui itself binds.
+enum EditInput {
+    Request(egui::ViewportCommand),
+    Key(egui::Key, egui::Modifiers),
+}
+
+fn edit_input(edit: matrix_desktop::tray_menu::Edit) -> EditInput {
+    use matrix_desktop::tray_menu::Edit;
+    let command = egui::Modifiers::COMMAND;
+    match edit {
+        Edit::Cut => EditInput::Request(egui::ViewportCommand::RequestCut),
+        Edit::Copy => EditInput::Request(egui::ViewportCommand::RequestCopy),
+        Edit::Paste => EditInput::Request(egui::ViewportCommand::RequestPaste),
+        Edit::Undo => EditInput::Key(egui::Key::Z, command),
+        Edit::Redo => EditInput::Key(egui::Key::Z, command | egui::Modifiers::SHIFT),
+        Edit::SelectAll => EditInput::Key(egui::Key::A, command),
+    }
+}
+
 fn take_once(done: &mut bool) -> bool {
     !std::mem::replace(done, true)
 }
@@ -1866,6 +1903,15 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edit_entries_map_to_egui_input() {
+        use matrix_desktop::tray_menu::Edit;
+        assert!(matches!(edit_input(Edit::Copy), EditInput::Request(egui::ViewportCommand::RequestCopy)));
+        assert!(matches!(edit_input(Edit::Paste), EditInput::Request(egui::ViewportCommand::RequestPaste)));
+        assert!(matches!(edit_input(Edit::Redo), EditInput::Key(egui::Key::Z, m) if m.shift && m.command));
+        assert!(matches!(edit_input(Edit::SelectAll), EditInput::Key(egui::Key::A, m) if m.command && !m.shift));
+    }
 
     #[test]
     fn login_hook_fires_once_over_many_frames() {
