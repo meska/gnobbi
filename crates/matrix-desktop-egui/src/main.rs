@@ -593,6 +593,22 @@ impl App {
                     v.adding = Some(None);
                 }
             }
+            // GNOBBI_EGUI_MEMBER=profile|role: the card of the first other member, or of the last one, who is made «Moderatore» once the rights are in.
+            if !self.hook_member
+                && let Ok(what @ ("profile" | "role")) = std::env::var("GNOBBI_EGUI_MEMBER").as_deref()
+                && let Some(user) = s.members.as_ref().and_then(|(_, l)| {
+                    let mut others = l.iter().filter(|m| m.user_id != s.user);
+                    if what == "role" { others.next_back() } else { others.next() }.map(|m| m.user_id.clone())
+                })
+            {
+                if s.profile.is_none() {
+                    s.open_profile(user);
+                    self.hook_member = what == "profile";
+                } else if s.rights.is_some() {
+                    self.hook_member = true;
+                    s.moderate(user, matrix_engine::operations::Moderation::SetPower(50));
+                }
+            }
             // GNOBBI_EGUI_MEMBER=kick|ban|invite|unban: that action on the first other (or first banned) member, once the rights and the lists are in.
             // With GNOBBI_EGUI_CONFIRM the «Espelli»/«Blocca» window is confirmed too (reason from GNOBBI_EGUI_REASON).
             if !self.hook_member

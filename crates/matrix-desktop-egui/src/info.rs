@@ -50,8 +50,9 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
     out
 }
 
-/// One member: initials and name on a full-width row.
+/// One member: initials, name on one line and the role badge at the right edge.
 pub fn member_row(ui: &mut egui::Ui, m: &Member, t: &DesignTokens) -> egui::Response {
+    use matrix_domain::role::MemberRole;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
     if resp.hovered() {
         ui.painter().rect_filled(rect, 0., rgb(t.input));
@@ -60,8 +61,23 @@ pub fn member_row(ui: &mut egui::Ui, m: &Member, t: &DesignTokens) -> egui::Resp
     let initials: String = m.name.trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
     ui.painter().circle_filled(c, 14., rgb(matrix_desktop::AVATAR_FALLBACK));
     ui.painter().text(c, Align2::CENTER_CENTER, initials, FontId::proportional(12.), rgb(t.on_accent));
-    let galley = ui.painter().layout(m.name.clone(), FontId::proportional(14.), rgb(t.text), (rect.width() - 60.).max(20.));
-    ui.painter().galley(egui::pos2(rect.left() + 52., rect.center().y - galley.size().y / 2.), galley, rgb(t.text));
+    let role = crate::members::role_label(m.role);
+    let ink = rgb(match m.role {
+        MemberRole::Admin => t.on_accent,
+        MemberRole::Moderator => t.accent,
+        MemberRole::Member => t.secondary,
+    });
+    let label = ui.painter().layout_no_wrap(role.to_owned(), FontId::proportional(11.), ink);
+    let pill = egui::Rect::from_center_size(egui::pos2(rect.right() - 8. - (label.size().x + 16.) / 2., rect.center().y), Vec2::new(label.size().x + 16., 20.));
+    match m.role {
+        MemberRole::Admin => ui.painter().rect_filled(pill, 10., rgb(t.accent)),
+        MemberRole::Moderator => ui.painter().rect_stroke(pill, 10., egui::Stroke::new(1., rgb(t.accent)), egui::StrokeKind::Inside),
+        MemberRole::Member => ui.painter().rect_stroke(pill, 10., egui::Stroke::new(1., rgb(t.border)), egui::StrokeKind::Inside),
+    };
+    ui.painter().galley(pill.center() - label.size() / 2., label, ink);
+    let name = crate::list::one_line(ui, &m.name, 14., rgb(t.text), (pill.left() - 8. - rect.left() - 52.).max(20.));
+    ui.painter().galley(egui::pos2(rect.left() + 52., rect.center().y - name.size().y / 2.), name, rgb(t.text));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {role}", m.name)));
     resp
 }
 

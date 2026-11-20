@@ -116,6 +116,9 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                                 ask(ui, "Blocca", true);
                             }
                         });
+                    } else if perms.can_kick || perms.can_ban {
+                        // The own row has no «⋮»: its place stays empty so the badges line up.
+                        ui.add_space(40.);
                     }
                     if crate::info::member_row(ui, m, t).clicked() {
                         act = Some(Act::Profile(m.user_id.clone()));

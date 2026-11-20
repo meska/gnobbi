@@ -98,6 +98,8 @@ pub struct Session {
     /// Joined members of the open room and the server's upload limit.
     pub members: Option<(matrix_domain::RoomScope, Vec<matrix_engine::operations::Member>)>,
     members_requested: Option<matrix_domain::RoomScope>,
+    /// A role was changed here: members and rights are read again when the room's next event arrives.
+    roles_stale: Option<matrix_domain::RoomScope>,
     upload_limit: Option<u64>,
     pub info_open: bool,
     /// The voice note being played; dropping the output stops the sound.
@@ -255,6 +257,7 @@ impl Session {
             ops: LiveOperations::default(),
             members: None,
             members_requested: None,
+            roles_stale: None,
             upload_limit: None,
             info_open: false,
             audio: None,
@@ -402,6 +405,13 @@ impl Session {
                         th.next_read = std::time::Instant::now();
                     }
                     self.read_dirty |= self.sidebar.selected().is_some_and(|r| r.scope == scope);
+                    if self.roles_stale.as_ref() == Some(&scope) {
+                        self.roles_stale = None;
+                        self.members_requested = None;
+                        if let Some((user_id, _)) = &self.profile {
+                            self.op_queue.push(OperationCommand::MemberRights { scope: scope.clone(), user_id: user_id.clone() });
+                        }
+                    }
                     self.history.activity(&scope)
                 }
                 RoomListEvent::Order(order) => self.sidebar.set_order(order),
@@ -920,14 +930,23 @@ impl Session {
                     }
                     let open = self.profile.as_ref().is_some_and(|(open, _)| open == user_id);
                     self.moderating &= !open;
-                    // The member list and the rights are read again: a kicked member is gone, a new role moves its row.
                     if result.is_ok() && open {
-                        if matches!(action, matrix_engine::operations::Moderation::SetPower(_)) {
-                            self.op_queue.push(OperationCommand::MemberRights { scope: scope.clone(), user_id: user_id.clone() });
+                        if let matrix_engine::operations::Moderation::SetPower(level) = action {
+                            // The engine reads the local store, which follows with the next sync: the new role is shown at once and read again then.
+                            let role = matrix_domain::role::MemberRole::from_power_level(*level);
+                            if let Some(r) = &mut self.rights {
+                                r.role = role;
+                            }
+                            if let Some((_, list)) = self.members.as_mut().filter(|(s, _)| s == scope) {
+                                list.iter_mut().filter(|m| &m.user_id == user_id).for_each(|m| m.role = role);
+                                list.sort_by(|a, b| matrix_domain::role::cmp_by_role_then_name((a.role, &a.name), (b.role, &b.name)));
+                            }
+                            self.roles_stale = Some(scope.clone());
                         } else {
+                            // A kicked member is gone: the list is read again.
                             self.profile = None;
+                            self.members_requested = None;
                         }
-                        self.members_requested = None;
                     }
                     changed = true;
                     continue;
