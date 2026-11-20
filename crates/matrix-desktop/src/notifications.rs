@@ -357,7 +357,15 @@ mod macos {
             }
             // The window decides upstream (`reading`) whether an alert is wanted: when it is, show it even in the foreground.
             #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
-            fn will_present(&self, _: &UNUserNotificationCenter, _: &UNNotification, done: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
+            fn will_present(&self, _: &UNUserNotificationCenter, notification: &UNNotification, done: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
+                // A remote push (no key of ours) in the foreground duplicates the alert the sync raises itself: drop it.
+                #[cfg(target_os = "ios")]
+                if notification.request().content().userInfo().objectForKey(&NSString::from_str(KEY)).is_none() {
+                    done.call((UNNotificationPresentationOptions::empty(),));
+                    return;
+                }
+                #[cfg(not(target_os = "ios"))]
+                let _ = notification;
                 // iOS plays the sound only if the foreground presentation asks for it.
                 #[cfg(target_os = "ios")]
                 let options = UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List | UNNotificationPresentationOptions::Sound;
@@ -385,7 +393,15 @@ mod macos {
 
     fn authorize() {
         static AUTH: Once = Once::new();
-        AUTH.call_once(|| UNUserNotificationCenter::currentNotificationCenter().requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &RcBlock::new(|_, _: *mut NSError| {})));
+        AUTH.call_once(|| UNUserNotificationCenter::currentNotificationCenter().requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &RcBlock::new(|granted: objc2::runtime::Bool, _: *mut NSError| {
+            // Remote push needs the permission first; every launch asks APNs again, the token may have changed.
+            #[cfg(target_os = "ios")]
+            if granted.as_bool() {
+                crate::push::register();
+            }
+            #[cfg(not(target_os = "ios"))]
+            let _ = granted;
+        })));
     }
 
     pub fn deliver(notification: Notification, picture: Option<Avatar>, click: &Click) -> Result<(), NotificationError> {

@@ -5,6 +5,7 @@ pub mod i18n;
 pub mod new_chat;
 pub mod notification_avatar;
 pub mod notifications;
+pub mod push;
 pub mod search_list;
 pub mod update;
 

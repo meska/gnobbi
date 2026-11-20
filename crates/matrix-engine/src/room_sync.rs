@@ -175,6 +175,7 @@ impl RoomListWorker {
                     let client = sync.session.client.as_ref().unwrap().clone();
                     let account = sync.session.account_id();
                     let media_client = client.clone();
+                    let push_task = tokio::spawn(crate::push::keep_registered(client.clone(), crate::auth::DEVICE_NAME));
                     if let Some(fetcher) = crate::avatar_cache::AvatarFetcher::new(
                         &sync.session,
                         tokio::runtime::Handle::current(),
@@ -980,7 +981,9 @@ impl RoomListWorker {
                     // The queue of an account that leaves must not keep sending in the background;
                     // what is still queued stays in the store and restarts with the account.
                     queue_client.send_queue().set_enabled(false).await;
+                    push_task.abort();
                     if worker_logout.load(std::sync::atomic::Ordering::Acquire) {
+                        crate::push::remove(&queue_client).await;
                         let out =
                             tokio::time::timeout(Duration::from_secs(15), sync.session.logout())
                                 .await;

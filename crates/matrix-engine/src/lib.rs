@@ -37,6 +37,8 @@ pub mod message_search;
 #[cfg(feature = "sdk")]
 pub mod notify;
 #[cfg(feature = "sdk")]
+pub mod push;
+#[cfg(feature = "sdk")]
 pub mod room_tags;
 pub mod search;
 #[cfg(feature = "sdk")]
