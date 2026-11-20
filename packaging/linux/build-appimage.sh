@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds Gnobbi-x86_64.AppImage from the dist binary (cargo build --profile dist -p matrix-desktop --features live,linux-vault).
+# Builds Gnobbi-x86_64.AppImage from the dist binary (cargo build --profile dist -p matrix-desktop --features linux-vault; binary gnobbi-egui, shipped as usr/bin/gnobbi).
 # Only the binary is bundled: its direct libraries are base-system ones; GPU/Wayland/Vulkan libs are dlopen'd from the host.
 # Usage: packaging/linux/build-appimage.sh [output-dir]   (needs mksquashfs; appimagetool is fetched once into $APPIMAGETOOL_DIR)
 set -eu
@@ -8,8 +8,8 @@ src="$root/packaging/linux"
 APP_ID=net.meskatech.gnobbi
 NAME=Gnobbi-x86_64.AppImage
 out=${1:-$root/artifacts/appimage}
-bin="${CARGO_TARGET_DIR:-$root/target}/dist/gnobbi"
-[ -x "$bin" ] || { echo "build first: cargo build --locked -p matrix-desktop --features live,linux-vault --profile dist" >&2; exit 1; }
+bin="${CARGO_TARGET_DIR:-$root/target}/dist/gnobbi-egui"
+[ -x "$bin" ] || { echo "build first: cargo build --locked -p matrix-desktop --features linux-vault --profile dist" >&2; exit 1; }
 command -v mksquashfs >/dev/null || { echo "mksquashfs (squashfs-tools) is required" >&2; exit 1; }
 tooldir=${APPIMAGETOOL_DIR:-$HOME/.local/share/appimagetool}; tool="$tooldir/appimagetool"
 if [ ! -x "$tool" ]; then
@@ -32,7 +32,7 @@ cat > "$d/AppRun" <<'L'
 # Native Wayland when the session has one; the profile lives in the XDG data directory.
 HERE=$(dirname "$(readlink -f "$0")")
 [ -z "${WAYLAND_DISPLAY:-}" ] || unset DISPLAY
-exec "$HERE/usr/bin/gnobbi" --signin "$@"
+exec "$HERE/usr/bin/gnobbi" "$@"
 L
 chmod 755 "$d/AppRun"
 rm -f "$out/$NAME"

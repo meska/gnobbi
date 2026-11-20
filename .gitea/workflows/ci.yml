@@ -53,28 +53,20 @@ jobs:
       - name: Icons
         run: python3 packaging/check-icons.py
       - name: Build
-        run: cargo build --locked -j4 -p matrix-desktop --features live,linux-vault
+        run: cargo build --locked -j4 -p matrix-desktop --features linux-vault
       - name: Test
         run: cargo test --locked -j4 -p matrix-domain
       - name: Test engine
         run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
       - name: Test desktop
-        run: cargo test --locked -j4 -p matrix-desktop --features live
-      - name: Layering (no UI toolkit below the frontends)
+        run: cargo test --locked -j4 -p matrix-desktop
+      - name: Layering (no UI toolkit below the frontend)
         run: |
-          cargo check --locked -j4 -p matrix-desktop --no-default-features --features core-live --lib
-          ! { cargo tree --locked -e normal -p matrix-domain; cargo tree --locked -e normal -p matrix-engine; cargo tree --locked -e normal -p matrix-desktop --no-default-features --features core-live; } | grep -E 'egui|eframe|winit|wgpu|gpui'
-          ! cargo tree --locked -e normal -p matrix-desktop --no-default-features --features core-live | grep -E 'tray-icon'
-      - name: Build and test egui frontend
-        run: |
-          cargo build --locked -j4 -p matrix-desktop-egui
-          cargo test --locked -j4 -p matrix-desktop-egui
-      - name: Composer rendered geometry (Xvfb, xauth, D-Bus)
-        run: sh packaging/linux/test-composer-render.sh
+          ! { cargo tree --locked -e normal -p matrix-domain; cargo tree --locked -e normal -p matrix-engine; } | grep -E 'egui|eframe|winit|wgpu'
       - name: AppImage
         if: gitea.event_name == 'push' && startsWith(gitea.ref, 'refs/tags/v')
         run: |
-          cargo build --locked -j4 -p matrix-desktop --features live,linux-vault --profile dist
+          cargo build --locked -j4 -p matrix-desktop --features linux-vault --profile dist
           out="$HOME/ci/out/${{ gitea.sha }}"
           packaging/linux/build-appimage.sh "$out"
           ln -sfn "$out" "$HOME/ci/out/latest"
@@ -100,7 +92,7 @@ jobs:
           git init -q .
           git -c http.extraHeader="Authorization: token ${{ gitea.token }}" fetch -q "${{ gitea.server_url }}/${{ gitea.repository }}.git" '+refs/heads/*:refs/remotes/origin/*'
           git checkout -q "${{ gitea.sha }}"
-      # Toolchain Rust MSVC e GPUI_FXC_PATH arrivano dal runner (runner.envs): niente setup nel workflow.
+      # Toolchain Rust MSVC arriva dal runner (runner.envs): niente setup nel workflow.
       - name: Build
         run: cargo build --locked -j4 --release -p matrix-desktop --features windows-vault
       - name: Test
@@ -109,10 +101,6 @@ jobs:
         run: cargo test --locked -j4 -p matrix-engine --features sdk --lib
       - name: Test desktop update
         run: cargo test --locked -j4 -p matrix-desktop --features windows-vault --lib "update::"
-      - name: Build and test egui frontend
-        run: |
-          cargo build --locked -j4 -p matrix-desktop-egui
-          cargo test --locked -j4 -p matrix-desktop-egui
       - name: Package zip
         run: powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\make-tester-package.ps1
       - name: Upload zip artifact
@@ -171,10 +159,10 @@ jobs:
           # toolchain (runner stable is older than rust-version 1.96) and brew.
           echo "PATH=$HOME/.rustup/toolchains/1.98.0-aarch64-apple-darwin/bin:/opt/homebrew/bin:$PATH" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_DIR=$HOME/ci-runners/gitea/cargo-target" >> "$GITHUB_ENV"
-      - name: Build desktop (macos-arm64, live + mac-vault)
-        run: cargo build --locked -j4 -p matrix-desktop --features live,mac-vault
+      - name: Build desktop (macos-arm64, mac-vault)
+        run: cargo build --locked -j4 -p matrix-desktop --features mac-vault
       - name: Test desktop (logic, no display)
-        run: cargo test --locked -j4 -p matrix-desktop --features live
+        run: cargo test --locked -j4 -p matrix-desktop
       - name: Status
         if: always()
         run: |

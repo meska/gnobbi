@@ -20,11 +20,6 @@ ANNOTATIONS = {
         "modifications (optional receive-time response body limit; offline thread pagination across gaps); provenance, "
         "modified files and license in vendor/matrix-sdk-0.19.1/GNOBBI-PATCH.md, "
         "LICENSE and vendor/matrix-sdk-0.19.1.patch.",
-    # gpui is vendored with one Linux text-system patch; see GNOBBI-PATCH.md in the vendor dir.
-    ("gpui", "0.2.2"):
-        "https://github.com/zed-industries/zed — vendored with a local Linux "
-        "text-system modification (emoji clusters use the bundled Noto Color Emoji); "
-        "provenance and modified file in vendor/gpui-0.2.2/GNOBBI-PATCH.md.",
 }
 
 HEADER = """# Third-party notices

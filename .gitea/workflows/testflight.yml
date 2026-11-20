@@ -22,7 +22,7 @@ jobs:
           sha=$(git rev-parse HEAD); echo "SHA=$sha" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_DIR=$HOME/ci-runners/gitea/cargo-target" >> "$GITHUB_ENV"
       - name: Build
-        run: cargo build --locked -j4 -p matrix-desktop --features live,mac-vault --profile dist
+        run: cargo build --locked -j4 -p matrix-desktop --features mac-vault --profile dist
       - name: Package for TestFlight
         run: packaging/macos/build-testflight.sh "$HOME/ci-runners/gitea/out/$SHA"
       - name: Upload to TestFlight (internal group, stop at VALID)
