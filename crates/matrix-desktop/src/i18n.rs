@@ -2,6 +2,7 @@
 //! Catalogs are `i18n/<code>.tsv` (`context<TAB>source<TAB>translation`), embedded with `include_str!`.
 //! The scheme follows CADCraft (MIT OR Apache-2.0, see THIRD_PARTY_NOTICES); the catalogs are ours.
 //! A missing language, string or malformed row falls back to the English key and never panics.
+pub mod script;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -146,6 +147,12 @@ pub fn current() -> &'static str {
     LANGUAGES[CURRENT.load(Ordering::Relaxed).min(LANGUAGES.len() - 1)].code
 }
 
+/// Is the active language written right to left? egui has no bidi or mirrored layout: callers pick
+/// `Layout::right_to_left` / `Align::RIGHT` with this.
+pub fn rtl() -> bool {
+    script::is_rtl(current())
+}
+
 pub fn t(source: &str) -> &str {
     tr(current(), "", source)
 }
@@ -184,7 +191,7 @@ pub fn on_change(hook: impl Fn(&'static str) + Send + Sync + 'static) {
 /// the repaint is requested either way. Returns the active code.
 pub fn apply(pref: Preference, ctx: Option<&eframe::egui::Context>) -> &'static str {
     let locales = sys_locale::get_locales().collect::<Vec<_>>();
-    let code = pref.resolve(&locales);
+    let code = script::usable(pref.resolve(&locales));
     let index = LANGUAGES.iter().position(|l| l.code == code).unwrap_or(0);
     if CURRENT.swap(index, Ordering::Relaxed) != index {
         for hook in HOOKS.lock().unwrap_or_else(|e| e.into_inner()).iter() {
