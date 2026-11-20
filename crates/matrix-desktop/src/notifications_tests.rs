@@ -182,8 +182,11 @@ fn open_room_alert_is_suppressed_only_with_an_active_window() {
 #[test]
 fn a_click_key_names_account_and_room_and_survives_a_restart() {
     let scope = RoomScope { account_id: AccountId::new(3), room_id: RoomId::new("!r:fixture.invalid") };
-    assert_eq!(target_key(&scope), "3:!r:fixture.invalid");
-    assert_eq!(parse_target(&target_key(&scope)), Some(scope));
+    let catalog = Some(AccountId::new(7));
+    assert_eq!(target_key(catalog, &scope), "7:3:!r:fixture.invalid");
+    assert_eq!(parse_target(&target_key(catalog, &scope)), Some((catalog, scope.clone())));
+    assert_eq!(parse_target(&target_key(None, &scope)), Some((None, scope)));
     assert_eq!(parse_target("no-separator"), None);
-    assert_eq!(parse_target("x:!r:fixture.invalid"), None);
+    assert_eq!(parse_target("x:3:!r:fixture.invalid"), None);
+    assert_eq!(parse_target("7:x:!r:fixture.invalid"), None);
 }

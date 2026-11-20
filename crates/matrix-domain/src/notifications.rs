@@ -82,6 +82,38 @@ pub fn notification_body(
     }
 }
 
+fn cut(text: &str, max: usize) -> String {
+    let text = clean(text);
+    if text.graphemes(true).count() <= max {
+        return text;
+    }
+    let head: String = text.graphemes(true).take(max - 1).collect();
+    format!("{}…", head.trim_end())
+}
+
+/// Title and optional subtitle of an alert. One account: the sender alone. Two or more: «Sender → Recipient»
+/// (recipient = the receiving account's name, with its id when another connected account has the same name);
+/// a group adds the room as subtitle (platforms without one join it with « · », see `Notification::title_line`).
+pub fn notification_title(sender: Option<&str>, account_name: &str, account_id: &str, room_name: Option<&str>, other_accounts: &[&str], direct: bool) -> (String, Option<String>) {
+    let sender = sender.map(|s| cut(s, 40)).filter(|s| !s.is_empty());
+    let account = cut(account_name, 40);
+    if other_accounts.is_empty() {
+        return (sender.unwrap_or(if account.is_empty() { "Gnobbi".into() } else { account }), None);
+    }
+    let same = other_accounts.iter().any(|o| clean(o) == clean(account_name));
+    let recipient = match (account.is_empty(), same) {
+        (true, _) => cut(account_id, 40),
+        (false, true) => format!("{account} ({})", cut(account_id, 40)),
+        (false, false) => account,
+    };
+    let title = match sender {
+        Some(s) => format!("{s} → {recipient}"),
+        None => recipient,
+    };
+    let room = room_name.filter(|_| !direct).map(|r| cut(r, 60)).filter(|r| !r.is_empty());
+    (title, room)
+}
+
 /// What the account's push rules say about one room (server side, shared by every device).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum RoomNotifyMode {
@@ -162,6 +194,9 @@ impl NotificationPolicy {
             body: notification_body(preview.as_ref(), self.message_preview, self.count_preview),
             scope: scope.clone(),
             origin: None,
+            sender: preview.as_ref().and_then(|p| p.sender.clone()),
+            direct: preview.as_ref().is_some_and(|p| p.direct),
+            title: None,
         })
     }
 }
@@ -173,6 +208,9 @@ pub struct Notification {
     scope: RoomScope,
     /// Catalog ID and display name of the account it came from; set by the window.
     origin: Option<(AccountId, String)>,
+    sender: Option<String>,
+    direct: bool,
+    title: Option<(String, Option<String>)>,
 }
 impl Notification {
     /// Names the account the alert came from; its name becomes the title.
@@ -184,11 +222,49 @@ impl Notification {
     pub fn target(&self) -> (Option<AccountId>, &RoomScope) {
         (self.origin.as_ref().map(|(id, _)| *id), &self.scope)
     }
+    /// Sender, recipient and room of this alert, formatted by `notification_title`.
+    pub fn titled(mut self, account_name: &str, account_id: &str, room_name: Option<&str>, other_accounts: &[&str]) -> Self {
+        self.title = Some(notification_title(self.sender.as_deref(), account_name, account_id, room_name, other_accounts, self.direct));
+        self
+    }
     pub fn title(&self) -> &str {
-        self.origin.as_ref().map_or("Gnobbi", |(_, name)| name)
+        match (&self.title, &self.origin) {
+            (Some((title, _)), _) => title,
+            (None, Some((_, name))) => name,
+            _ => "Gnobbi",
+        }
+    }
+    pub fn subtitle(&self) -> Option<&str> {
+        self.title.as_ref()?.1.as_deref()
+    }
+    /// One line for platforms without a subtitle.
+    pub fn title_line(&self) -> String {
+        match self.subtitle() {
+            Some(room) => format!("{} · {room}", self.title()),
+            None => self.title().to_owned(),
+        }
     }
     pub fn body(&self) -> String {
         self.body.clone()
+    }
+}
+
+#[cfg(test)]
+mod title_tests {
+    use super::notification_title as t;
+
+    #[test]
+    fn titles() {
+        assert_eq!(t(Some("Meska"), "Marco", "@m:a.it", Some("Casa"), &[], false), ("Meska".into(), None));
+        assert_eq!(t(None, "Marco", "@m:a.it", None, &[], true).0, "Marco");
+        assert_eq!(t(Some("Meska"), "Marco", "@m:a.it", Some("Casa"), &["Luca"], true), ("Meska → Marco".into(), None));
+        assert_eq!(t(Some("Meska"), "Marco", "@m:a.it", Some("Casa"), &["Luca"], false), ("Meska → Marco".into(), Some("Casa".into())));
+        assert_eq!(t(Some("Meska"), "Marco", "@meska:example.org", None, &["Marco"], true).0, "Meska → Marco (@meska:example.org)");
+        assert_eq!(t(Some("Meska"), "", "@m:a.it", None, &["Luca"], true).0, "Meska → @m:a.it");
+        let long = "x".repeat(100);
+        let (title, room) = t(Some(&long), &long, "@m:a.it", Some(&long), &["Luca"], false);
+        assert_eq!(title.chars().count(), 40 + 3 + 40);
+        assert_eq!(room.unwrap().chars().count(), 60);
     }
 }
 

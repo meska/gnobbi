@@ -63,6 +63,12 @@ pub struct Session {
     _worker: RoomListWorker,
     rooms: Receiver<RoomListEvent>,
     pub account: Option<matrix_domain::AccountId>,
+    /// Catalog id of this account (worker ids repeat between profile folders); set by the window.
+    pub catalog_id: Option<matrix_domain::AccountId>,
+    /// Display names of the other connected accounts, set by the window (a title names the recipient only with 2+ accounts).
+    pub peers: Vec<String>,
+    /// A notification click waiting for its room: when it came and how many rooms the user had opened by then.
+    pending_click: Option<(std::time::Instant, u64)>,
     pub sidebar: matrix_desktop::Sidebar,
     pub confirm_leave: Option<matrix_domain::RoomScope>,
     pub room_error: Option<String>,
@@ -249,6 +255,9 @@ impl Session {
             _worker: worker,
             rooms,
             account: None,
+            catalog_id: None,
+            peers: Vec::new(),
+            pending_click: None,
             history: HistorySession::new(),
             pending: None,
             route,
@@ -419,12 +428,16 @@ impl Session {
                 RoomListEvent::Alert(scope, message) => {
                     self.notifications.set_enabled(notifications);
                     self.notifications.set_message_preview(preview);
-                    let reading = matrix_desktop::notifications::reading(ctx.input(|i| i.focused), self.sidebar.selected().map(|r| &r.scope), &scope);
+                    let reading = matrix_desktop::notifications::reading(self.reading.0, self.sidebar.selected().map(|r| &r.scope), &scope);
                     if !reading
                         && let (Some(alert), Some(handle), Some(account)) = (self.notifications.alert(&scope, message), &self.notify, self.account)
                     {
                         let name = if self.account_name.is_empty() { "Gnobbi".to_owned() } else { crate::list::clean_single_line(&self.account_name) };
-                        handle.submit(alert.from_account(account, name));
+                        let user = self.verification.as_ref().and_then(|v| v.profile()).map(|(id, _)| id.clone()).unwrap_or_default();
+                        let room = self.sidebar.rooms().iter().find(|r| r.scope == scope).map(|r| r.name.clone());
+                        let peers: Vec<&str> = self.peers.iter().map(String::as_str).collect();
+                        let alert = alert.from_account(self.catalog_id.unwrap_or(account), name.clone()).titled(&name, &user, room.as_deref(), &peers);
+                        handle.submit(alert);
                     }
                 }
                 // Alerts and timeline activity belong to later slices.
@@ -449,8 +462,9 @@ impl Session {
         }
         // A click on an alert opens its room (once it is in the list).
         let click = self.notify.as_ref().and_then(|h| h.take_click()).map(|(_, scope)| scope);
-        if let Some(scope) = click.or_else(|| self.account.and_then(matrix_desktop::notifications::take_early_click)) {
+        if let Some(scope) = click.or_else(|| self.catalog_id.and_then(|id| matrix_desktop::notifications::take_early_click(Some(id)))) {
             self.pending_select = Some(scope);
+            self.pending_click = Some((std::time::Instant::now(), self.sidebar.picks()));
             // A click that launched the app must not lose to the room restored from the last run.
             self.restoring = false;
             // Hidden to the tray or minimized: a bare Focus would leave the window out of sight.
@@ -701,10 +715,18 @@ impl Session {
     fn drive_operations(&mut self) -> bool {
         let mut changed = false;
         // The new room shows up in the list with the next sync: select it as soon as it does.
+        // A click's room that never shows up, or a room the user opened meanwhile, ends the wait.
+        if let Some((since, picks)) = self.pending_click
+            && (since.elapsed() > std::time::Duration::from_secs(30) || self.sidebar.picks() != picks)
+        {
+            self.pending_click = None;
+            self.pending_select = None;
+        }
         if let Some(scope) = self.pending_select.clone()
             && self.sidebar.select(&scope)
         {
             self.pending_select = None;
+            self.pending_click = None;
             self.profile = None;
             self.info_open = false;
             changed = true;

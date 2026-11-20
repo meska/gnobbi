@@ -226,7 +226,7 @@ mod linux {
         ]);
         let sent = bus.proxy.call::<_, _, u32>(
             "Notify",
-            &("Gnobbi", replaces, "", notification.title(), body, vec!["open", "Apri"], hints, 5000i32),
+            &("Gnobbi", replaces, "", notification.title_line(), body, vec!["open", "Apri"], hints, 5000i32),
         );
         match sent {
             Ok(id) => {
@@ -249,33 +249,48 @@ fn deliver_os(notification: Notification, click: &Click) -> Result<(), Notificat
 }
 /// What an alert carries so a click can be understood by a process that did not raise it (the app was
 /// closed and the click launched it): the account and the room, as `<account>:<room id>`. Also the OS
-/// request identifier, so one room keeps one live alert across restarts.
+/// request identifier, so one room keeps one live alert across restarts. Worker ids repeat between
+/// profile folders, so the catalog id (0: unknown) comes first: `<catalog>:<worker>:<room id>`.
 #[cfg(any(target_os = "macos", test))]
-fn target_key(scope: &RoomScope) -> String {
-    format!("{}:{}", scope.account_id.as_u64(), scope.room_id.as_str())
+fn target_key(catalog: Option<AccountId>, scope: &RoomScope) -> String {
+    format!("{}:{}:{}", catalog.map_or(0, |a| a.as_u64()), scope.account_id.as_u64(), scope.room_id.as_str())
 }
 #[cfg(any(target_os = "macos", test))]
-fn parse_target(key: &str) -> Option<RoomScope> {
-    let (account, room) = key.split_once(':')?;
-    Some(RoomScope { account_id: AccountId::new(account.parse().ok()?), room_id: matrix_domain::RoomId::new(room) })
+fn parse_target(key: &str) -> Option<(Option<AccountId>, RoomScope)> {
+    let (catalog, rest) = key.split_once(':')?;
+    let (account, room) = rest.split_once(':')?;
+    let catalog = catalog.parse::<u64>().ok()?;
+    let scope = RoomScope { account_id: AccountId::new(account.parse().ok()?), room_id: matrix_domain::RoomId::new(room) };
+    Some(((catalog != 0).then(|| AccountId::new(catalog)), scope))
 }
 
 /// A click that reached the process before (or without) the session that owns it: kept here until that account polls.
 #[cfg(target_os = "macos")]
-static EARLY_CLICK: Mutex<Option<RoomScope>> = Mutex::new(None);
+static EARLY_CLICK: Mutex<Option<(Option<AccountId>, RoomScope)>> = Mutex::new(None);
 
-/// The alert clicked while no live session knew it (a click that launched the app), if it belongs to `account`.
-pub fn take_early_click(account: AccountId) -> Option<RoomScope> {
+/// The alert clicked while no live session knew it (a click that launched the app), if it belongs to the
+/// catalog account `account`. An alert with no catalog id (unknown) goes to the first asker.
+pub fn take_early_click(account: Option<AccountId>) -> Option<RoomScope> {
     #[cfg(target_os = "macos")]
     {
         let mut early = EARLY_CLICK.lock().ok()?;
-        return early.take_if(|scope| scope.account_id == account);
+        return early.take_if(|(owner, _)| owner.is_none() || *owner == account).map(|(_, scope)| scope);
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = account;
         None
     }
+}
+
+/// True (and the click dropped) when the pending early click names a catalog account that is not in `known`.
+pub fn drop_early_click_of_gone_account(known: &[AccountId]) -> bool {
+    #[cfg(target_os = "macos")]
+    if let Ok(mut early) = EARLY_CLICK.lock() {
+        return early.take_if(|(owner, _)| owner.is_some_and(|o| !known.contains(&o))).is_some();
+    }
+    let _ = known;
+    false
 }
 
 /// Call at process start: macOS hands a click that launched the app to the delegate, which must exist by then.
@@ -301,7 +316,7 @@ mod macos {
 
     const KEY: &str = "gnobbi";
     // Each room maps to the `Click` slot of the worker (= account session) that alerted: the delegate is one per process.
-    static SLOTS: Mutex<Option<HashMap<RoomScope, Click>>> = Mutex::new(None);
+    static SLOTS: Mutex<Option<HashMap<String, Click>>> = Mutex::new(None);
 
     define_class!(
         #[unsafe(super(NSObject))]
@@ -313,15 +328,14 @@ mod macos {
             #[unsafe(method(userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:))]
             fn did_receive(&self, _: &UNUserNotificationCenter, response: &UNNotificationResponse, done: &DynBlock<dyn Fn()>) {
                 let info = response.notification().request().content().userInfo();
-                let scope = info
-                    .objectForKey(&NSString::from_str(KEY))
-                    .and_then(|v| v.downcast::<NSString>().ok())
-                    .and_then(|key| parse_target(&key.to_string()));
-                if let Some(scope) = scope {
-                    let slot = SLOTS.lock().ok().and_then(|slots| slots.as_ref()?.get(&scope).cloned());
+                let key = info.objectForKey(&NSString::from_str(KEY)).and_then(|v| v.downcast::<NSString>().ok()).map(|k| k.to_string());
+                if let Some(key) = key
+                    && let Some((catalog, scope)) = parse_target(&key)
+                {
+                    let slot = SLOTS.lock().ok().and_then(|slots| slots.as_ref()?.get(&key).cloned());
                     match slot.as_ref().map(|slot| slot.lock()) {
-                        Some(Ok(mut slot)) => *slot = Some((Some(scope.account_id), scope)),
-                        _ => *EARLY_CLICK.lock().unwrap_or_else(|e| e.into_inner()) = Some(scope),
+                        Some(Ok(mut slot)) => *slot = Some((catalog, scope)),
+                        _ => *EARLY_CLICK.lock().unwrap_or_else(|e| e.into_inner()) = Some((catalog, scope)),
                     }
                 }
                 done.call(());
@@ -354,12 +368,16 @@ mod macos {
         let center = UNUserNotificationCenter::currentNotificationCenter();
         static AUTH: Once = Once::new();
         AUTH.call_once(|| center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert, &RcBlock::new(|_, _: *mut NSError| {})));
-        let scope = notification.target().1.clone();
-        let key = NSString::from_str(&target_key(&scope));
+        let (catalog, scope) = notification.target();
+        let key_text = target_key(catalog, scope);
+        let key = NSString::from_str(&key_text);
         // shortcut: one slot per room ever alerted; upgrade if rooms become unbounded.
-        SLOTS.lock().map_err(|_| NotificationError::Worker)?.get_or_insert_with(HashMap::new).insert(scope, click.clone()); // a re-added account has a new worker
+        SLOTS.lock().map_err(|_| NotificationError::Worker)?.get_or_insert_with(HashMap::new).insert(key_text, click.clone()); // a re-added account has a new worker
         let content = UNMutableNotificationContent::new();
         content.setTitle(&NSString::from_str(notification.title()));
+        if let Some(room) = notification.subtitle() {
+            content.setSubtitle(&NSString::from_str(room));
+        }
         content.setBody(&NSString::from_str(&notification.body()));
         let info = NSDictionary::from_retained_objects(&[&*NSString::from_str(KEY)], &[key.clone()]);
         // SAFETY: the setter's untyped dictionary is the same object; only the generic parameters differ.

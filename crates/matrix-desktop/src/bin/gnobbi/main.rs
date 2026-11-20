@@ -257,6 +257,27 @@ impl eframe::App for App {
         if ctx.input(|i| i.viewport().minimized == Some(true) || i.viewport().occluded == Some(true)) {
             session.reading.0 = false;
         }
+        // Catalog id and the other accounts' names: read once the account is signed in (the catalog file is small).
+        if let Some(d) = &self.dirs {
+            let mut catalog = None;
+            for (s, root) in std::iter::once((&mut *session, &self.root)).chain(self.parked.iter_mut().map(|p| (&mut p.session, &p.root))) {
+                if s.catalog_id.is_none() && s.account.is_some() {
+                    s.catalog_id = catalog.get_or_insert_with(|| matrix_desktop::AccountCatalog::load(d)).id_for_root(d, root);
+                }
+            }
+            let names: Vec<String> = std::iter::once(&session.account_name).chain(self.parked.iter().map(|p| &p.session.account_name)).cloned().collect();
+            let ids: Vec<_> = std::iter::once(session.catalog_id).chain(self.parked.iter().map(|p| p.session.catalog_id)).flatten().collect();
+            for (i, s) in std::iter::once(&mut *session).chain(self.parked.iter_mut().map(|p| &mut p.session)).enumerate() {
+                s.peers = names.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, n)| n.clone()).collect();
+            }
+            // A click on the alert of an account that is gone: the window comes forward, one line says why.
+            if ids.len() == names.len() && matrix_desktop::notifications::drop_early_click_of_gone_account(&ids) {
+                session.notice = Some("Account non più collegato".to_owned());
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            }
+        }
         session.poll(ctx, self.prefs.notifications, self.prefs.message_preview);
         // The other accounts keep syncing: unread counts and notifications go on, read markers do not.
         let mut wake = None;
