@@ -480,6 +480,23 @@ impl eframe::App for App {
 impl App {
     /// Test hooks (env only): sign in with the given account, then open the view named in GNOBBI_EGUI_VIEW.
     fn test_hooks(&mut self, ctx: &egui::Context) {
+        // GNOBBI_EGUI_PICK=file|image|share: opens that system dialog once (from frame 60) and prints the answer; for a simulator run.
+        if let Ok(kind) = std::env::var("GNOBBI_EGUI_PICK") {
+            static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if ctx.cumulative_pass_nr() >= 60 && !STARTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                match kind.as_str() {
+                    "share" => {
+                        let p = pick::save_dir().join("prova.txt");
+                        let _ = std::fs::write(&p, b"gnobbi share sheet test");
+                        pick::share(&p);
+                    }
+                    k => pick::start(ctx, "hook", k == "image"),
+                }
+            }
+            if let Some(p) = pick::done("hook") {
+                eprintln!("gnobbi: picked {} ({} bytes)", p.display(), std::fs::metadata(&p).map_or(0, |m| m.len()));
+            }
+        }
         // GNOBBI_EGUI_ADD=1: once the first account is in the catalog, add a second one (signed in by GNOBBI_EGUI_LOGIN2).
         if !self.hook_added
             && self.recorded

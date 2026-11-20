@@ -36,6 +36,12 @@ eframe = { version = "0.37", default-features = false, features = ["wayland", "x
 [target.'cfg(target_os = "ios")'.dependencies]
 libc = "=0.2.183"
 log = "0.4"
+# File/photo pickers (UIDocumentPicker, PHPicker); the share sheet is a few lines of objc2 in pick.rs.
+robius-file-picker = "=0.3.1"
+objc2 = "0.6"
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["CFCGTypes"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSArray", "NSURL"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["UIActivityViewController", "UIActivity", "block2", "UIApplication", "UIPopoverPresentationController", "UIResponder", "UIView", "UIViewController", "UIWindow", "UIScene", "UIWindowScene"] }
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["env-filter", "fmt", "std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

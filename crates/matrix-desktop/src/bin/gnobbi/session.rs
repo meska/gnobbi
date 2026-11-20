@@ -139,6 +139,8 @@ pub struct Session {
     /// A profile save is on its way; then its answer (the error is one line for the card).
     pub profile_busy: bool,
     pub profile_saved: Option<Result<(), &'static str>>,
+    /// The file the running save writes; on iOS it goes to the share sheet when the save is done.
+    share_after: std::path::PathBuf,
     pub new_open: bool,
     pub new_term: String,
     new_sent: String,
@@ -293,6 +295,7 @@ impl Session {
             profile_caps: None,
             profile_busy: false,
             profile_saved: None,
+            share_after: std::path::PathBuf::new(),
             new_open: false,
             new_term: String::new(),
             new_sent: String::new(),
@@ -565,6 +568,8 @@ impl Session {
         if let Some((name, ok)) = self.media.take_saved().map(|(_, r)| (String::new(), r.is_ok())) {
             let _ = name;
             self.notice = Some(if ok { "Salvato".to_owned() } else { "Salvataggio non riuscito".to_owned() });
+            // iOS: the file sits in a private folder until the share sheet takes it (no-op on desktop).
+            if ok && cfg!(target_os = "ios") { crate::pick::share(&std::mem::take(&mut self.share_after)); }
             changed = true;
         }
         if let Some((id, result)) = self.media.take_audio() {
@@ -1427,6 +1432,7 @@ impl Session {
                     return;
                 }
                 if let Some(scope) = self.draft_scope.clone() {
+                    self.share_after = path.clone();
                     self.notice = (!self.media.request_save(scope, viewer.id.clone(), path)).then(|| "Un salvataggio è già in corso".to_owned());
                 }
             }
@@ -1440,13 +1446,9 @@ impl Session {
     /// Saves an attachment into the Download folder under a safe, unused name.
     pub fn save(&mut self, event: EventId, name: &str) {
         let Some(scope) = self.draft_scope.clone() else { return };
-        let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
-        let dir = std::path::Path::new(&home).join("Downloads");
-        // Only the last component of what the sender wrote, never a path.
-        let base = std::path::Path::new(name).file_name().map_or("file".into(), |n| n.to_string_lossy().into_owned());
-        let base = base.trim_start_matches('.');
-        let base = if base.is_empty() { "file" } else { base };
-        let mut path = dir.join(base);
+        let dir = crate::pick::save_dir();
+        let base = crate::pick::safe_name(name);
+        let mut path = dir.join(&base);
         for n in 2.. {
             if !path.exists() {
                 break;
@@ -1454,6 +1456,7 @@ impl Session {
             path = dir.join(format!("{n}-{base}"));
         }
         let _ = std::fs::create_dir_all(&dir);
+        self.share_after = path.clone();
         self.notice = (!self.media.request_save(scope, event, path)).then(|| "Un salvataggio è già in corso".to_owned());
     }
 

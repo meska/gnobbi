@@ -110,9 +110,10 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                         if resp.has_focus() || resp.hovered() {
                             ui.painter().circle_stroke(rect.center(), 24., egui::Stroke::new(2., crate::list::rgb(t.accent)));
                         }
-                        if resp.clicked()
-                            && let Some(path) = crate::pick::file("Immagine", true)
-                        {
+                        if resp.clicked() {
+                            crate::pick::start(ui.ctx(), "Immagine", true);
+                        }
+                        if let Some(path) = crate::pick::done("Immagine") {
                             form.avatar = read_avatar(ui.ctx(), &path);
                             s.new_failed = form.avatar.is_none();
                         }

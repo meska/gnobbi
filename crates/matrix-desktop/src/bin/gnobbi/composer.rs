@@ -150,7 +150,10 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         }
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         if icon_at(ui, rect, "composer-attach", &attach_strokes(), 1., true, "Allega un file").clicked() {
-            *picked = crate::pick::file("Allega un file", false);
+            crate::pick::start(ui.ctx(), "Allega un file", false);
+        }
+        if let Some(p) = crate::pick::done("Allega un file") {
+            *picked = Some(p);
         }
         }
         // Voice and Send share one slot and cross-fade; the one fading out is inert.

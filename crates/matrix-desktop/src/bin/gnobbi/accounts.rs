@@ -164,7 +164,10 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
         f.hook_save = false;
         save = true;
     }
-    if choose && let Some(path) = crate::pick::file("Foto del profilo", true) {
+    if choose {
+        crate::pick::start(ui.ctx(), "Foto del profilo", true);
+    }
+    if let Some(path) = crate::pick::done("Foto del profilo") {
         f.pick(path, ui.ctx());
     }
     // One line: the file's problem, else the answer to the last «Salva».
