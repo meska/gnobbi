@@ -269,21 +269,27 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         // Only the corners on the sender's side shrink where the bubbles touch.
         let radius = if e.outgoing { CornerRadius { nw: ROUND, ne: r(above), sw: ROUND, se: r(below) } } else { CornerRadius { nw: r(above), ne: ROUND, sw: r(below), se: ROUND } };
         let flashed = matches!((&e.id.id, &acts.flash), (matrix_domain::TimelineId::Server(a), Some(b)) if a == b);
-        let fill = if e.highlighted || flashed { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
-        let frame = egui::Frame::NONE.fill(fill).corner_radius(radius).inner_margin(egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8)).show(ui, |ui| {
+        // 1-3 emoji alone: Telegram-style big glyph with no bubble (a reply quote keeps the bubble around it).
+        let big = (e.media.is_none() && e.poll.is_none() && e.thread.is_none() && e.attachment_name.is_none() && !e.utd && e.styles.is_empty() && e.mentions.is_empty())
+            .then(|| matrix_desktop::big_emoji::scale(&e.text)).flatten();
+        let bare = big.is_some() && e.reply_to.is_none() && !e.highlighted && !flashed;
+        let fill = if bare { Color32::TRANSPARENT } else if e.highlighted || flashed { rgb(t.mention_row) } else if e.outgoing { rgb(t.outgoing) } else { rgb(t.surface) };
+        let margin = if bare { egui::Margin::symmetric(0, 2) } else { egui::Margin::symmetric(PAD_X as i8, PAD_Y as i8) };
+        let frame = egui::Frame::NONE.fill(fill).corner_radius(radius).inner_margin(margin).show(ui, |ui| {
             // Shrink-wrap: as wide as the longest of text, sender and time (at most `max`), not the whole column.
             let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
             let inner = max - 2. * PAD_X;
             let measure = |text: &str, size: f32| ui.painter().layout(text.to_owned(), egui::FontId::proportional(size), Color32::WHITE, inner).size().x;
             let foot_w = measure(&e.stamp(), STAMP) + readers_width(readers.len());
             let body = (!e.text.is_empty() && e.poll.is_none()).then(|| {
-                let mut job = egui::text::LayoutJob::simple(e.text.clone(), egui::FontId::proportional(BODY), ui.visuals().text_color(), inner);
-                job.sections[0].format.line_height = Some(20.);
+                let size = BODY * big.unwrap_or(1.);
+                let mut job = egui::text::LayoutJob::simple(if big.is_some() { e.text.trim().to_owned() } else { e.text.clone() }, egui::FontId::proportional(size), ui.visuals().text_color(), inner);
+                job.sections[0].format.line_height = Some(if big.is_some() { size * 1.25 } else { 20. });
                 ui.painter().layout_job(job)
             });
             let (text_w, tail_w) = body.as_ref().map_or((0., 0.), |g| (g.size().x, g.rows.last().map_or(0., |r| r.rect().width())));
             // The time shares the last text line when it fits beside it (the bubble does not grow taller); else it gets its own line.
-            let mut inline = body.is_some() && e.thread.is_none() && tail_w + FOOT_GAP + foot_w <= inner;
+            let mut inline = body.is_some() && e.thread.is_none() && big.is_none() && tail_w + FOOT_GAP + foot_w <= inner;
             let mut w = text_w.max(if inline { tail_w + FOOT_GAP + foot_w } else { foot_w });
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
@@ -416,13 +422,20 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         }
                     });
                 }
-                ui.add_space(if inline { -FOOT_H } else { 2. });
+                ui.add_space(if inline { -FOOT_H } else if bare { 0. } else { 2. });
                 // Bottom right of the bubble (the bubble is shrink-wrapped to its widest line, so this is its right edge).
                 ui.allocate_ui_with_layout(Vec2::new(ui.available_width(), FOOT_H), Layout::right_to_left(Align::Max), |ui| {
                     ui.spacing_mut().item_spacing.x = READER_GAP;
-                    ui.label(RichText::new(e.stamp()).size(STAMP).color(rgb(t.secondary)));
-                    // Right to left: the circles sit left of the time.
-                    read_circles(ui, readers, avatars, t);
+                    // On the bare chat background the time sits on a small pill of the bubble colour, so contrast is the same in every theme.
+                    let pill = if bare { egui::Frame::NONE.fill(rgb(t.surface)).corner_radius(CornerRadius::same(8)).inner_margin(egui::Margin::symmetric(6, 0)) } else { egui::Frame::NONE };
+                    pill.show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.x = READER_GAP;
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.label(RichText::new(e.stamp()).size(STAMP).color(rgb(t.secondary)));
+                            // Right to left: the circles sit left of the time.
+                            read_circles(ui, readers, avatars, t);
+                        });
+                    });
                 });
             });
         });

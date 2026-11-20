@@ -93,6 +93,7 @@ mod history;
 pub use history::{
     DemoEvent, DemoHistory, DemoSendState, bubble_stamp, debug_room_line, opens_message_menu,
 };
+pub mod big_emoji;
 pub mod row_text;
 pub mod time_fmt;
 mod sidebar;
