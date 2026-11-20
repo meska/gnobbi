@@ -240,6 +240,12 @@ impl AccountSession {
         let client = self.client.clone().ok_or(RecoveryError::LoggedOut)?;
         recover_all_with(client, zeroize::Zeroizing::new(key.to_owned()), true).await.map(drop)
     }
+    /// Import the secrets with a recovery key and nothing else: no sync, no per-room downloads.
+    /// For the CLI, where a repeated run on an already verified device must not wait for a sync.
+    pub async fn recover_secrets(&mut self, key: &str) -> Result<(), RecoveryError> {
+        let client = self.client.clone().ok_or(RecoveryError::LoggedOut)?;
+        recover_all_with(client, zeroize::Zeroizing::new(key.to_owned()), false).await.map(drop)
+    }
     /// Return success only when the SDK confirms all currently known keys uploaded.
     pub async fn upload_key_backup(&mut self) -> Result<(), RecoveryError> {
         let client = self.client.as_ref().ok_or(RecoveryError::LoggedOut)?;
@@ -302,7 +308,18 @@ impl AccountSession {
         use matrix_sdk::encryption::recovery::RecoveryState as State;
         let client = self.client.clone().ok_or(RecoveryError::LoggedOut)?;
         let complete = client.encryption().cross_signing_status().await.is_some_and(|s| s.is_complete());
-        match client.encryption().recovery().state() {
+        // A process that never synced leaves the SDK state at Unknown: derive it from the server
+        // (secret storage present) plus what this device holds (complete identity, backup on).
+        let state = match client.encryption().recovery().state() {
+            State::Unknown => match client.encryption().secret_storage().is_enabled().await {
+                Err(_) => return Err(RecoveryError::Transport),
+                Ok(false) => State::Disabled,
+                Ok(true) if client.encryption().backups().are_enabled().await => State::Enabled,
+                Ok(true) => State::Incomplete,
+            },
+            known => known,
+        };
+        match state {
             // Brand-new account without identity: the SDK bootstrap creates it (refused if one is published elsewhere).
             State::Disabled if !complete => self.setup_recovery().await.map_err(|e| match e {
                 SetupError::LoggedOut => RecoveryError::LoggedOut,

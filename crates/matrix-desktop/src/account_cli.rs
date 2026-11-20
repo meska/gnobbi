@@ -203,8 +203,12 @@ pub fn recovery_error(e: RecoveryError) -> CliError {
         RecoveryError::LoggedOut => fail(5, "session_expired", "session expired; log in again"),
         RecoveryError::Transport | RecoveryError::Deadline => fail(6, "temporary", "homeserver unreachable or busy; retry later"),
         RecoveryError::InvalidScope => fail(1, "internal", "invalid recovery scope"),
-        RecoveryError::NoSecretStorage | RecoveryError::BackupUnavailable | RecoveryError::IdentityRequired | RecoveryError::AlreadyConfigured | RecoveryError::Failed | RecoveryError::WrongPhrase => {
+        RecoveryError::NoSecretStorage | RecoveryError::BackupUnavailable | RecoveryError::AlreadyConfigured | RecoveryError::Failed | RecoveryError::WrongPhrase => {
             fail(12, "keys_not_ready", "recovery keys not ready: run keys update first, or set up key backup")
+        }
+        // Nothing to insert: this account has no complete identity yet (no `keys setup` command).
+        RecoveryError::IdentityRequired => {
+            fail(12, "keys_not_ready", "this account has no complete cross-signing identity or its keys are missing on this device: set up recovery in the app, or run keys update")
         }
     }
 }
@@ -564,7 +568,7 @@ async fn open_account(dirs: &AppDirs, selector: &str, ca: Option<Vec<u8>>) -> Re
 async fn keys_update(dirs: &AppDirs, selector: &str, key: Zeroizing<String>, ca: Option<Vec<u8>>) -> Result<Outcome, CliError> {
     let (mut session, account) = open_account(dirs, selector, ca).await?;
     // The server checks the key first; nothing local is written before that.
-    session.recover_all_room_keys(&key).await.map_err(recovery_error)?;
+    session.recover_secrets(&key).await.map_err(recovery_error)?;
     let verified = session.keys_recovered().await;
     let json = json!({ "ok": true, "command": "keys update", "account": account, "verified": verified });
     Ok(Outcome { json, text: format!("{selector} keys updated, verified: {verified}"), exit: 0 })
