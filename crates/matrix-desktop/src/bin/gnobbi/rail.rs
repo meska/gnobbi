@@ -310,7 +310,7 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
     if n > 0 {
         badge(ui, c + Vec2::new(17., -12.), n, t);
     }
-    let spoken = if n > 0 { format!("{label}, {n} non letti") } else { label.to_owned() };
+    let spoken = if matches!(icon, Icon::Edit) { "Organizza stanze".to_owned() } else if n > 0 { format!("{label}, {n} non letti") } else { label.to_owned() };
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &spoken));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -349,7 +349,7 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
             }
         }
     });
-    if item(ui, avatars, t, Icon::Edit, "Organizza stanze", 0, state.edit).clicked() {
+    if item(ui, avatars, t, Icon::Edit, "Stanze", 0, state.edit).clicked() {
         state.set_edit(!state.edit);
     }
     if item(ui, avatars, t, Icon::Settings, "Impostazioni", 0, state.settings).clicked() {
