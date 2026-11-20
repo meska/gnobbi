@@ -386,7 +386,7 @@ mod tests {
         assert!(super::can_delete(&c(true, true, 0)) && !super::can_delete(&c(true, false, 3)) && !super::can_delete(&c(false, true, 3)));
         assert!(super::can_promote(&c(true, true, 1)) && !super::can_promote(&c(true, true, 0)) && !super::can_promote(&c(false, true, 5)));
         assert!(super::name_confirmed("  Casa ", "Casa") && !super::name_confirmed("casa", "Casa") && !super::name_confirmed("", "") && !super::name_confirmed("Cas", "Casa"));
-        let m = |id: &str| Member { user_id: id.into(), name: id.into(), avatar: None };
+        let m = |id: &str| Member { user_id: id.into(), name: id.into(), avatar: None, role: matrix_domain::role::MemberRole::Member };
         let list = [m("@me:x"), m("@ada:x"), m("@bob:x")];
         let ids: Vec<_> = super::admin_candidates(&list, "@me:x").iter().map(|m| m.user_id.as_str()).collect();
         assert_eq!(ids, ["@ada:x", "@bob:x"]);
