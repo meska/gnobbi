@@ -63,6 +63,8 @@ icons! {
     ArrowCounterClockwise = 0xe038 "arrow-counter-clockwise",
     FlipHorizontal = 0xed6a "flip-horizontal",
     ArrowUUpLeft = 0xe08a "arrow-u-up-left",
+    Eye = 0xe220 "eye",
+    EyeSlash = 0xe224 "eye-slash",
 }
 
 static REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Phosphor-subset.ttf");

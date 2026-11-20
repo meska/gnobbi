@@ -400,10 +400,10 @@ impl Inner {
         }
     }
 
-    /// Only `Password` has an effect: no suggestions or autocorrection, and the typed text isn't
-    /// shown to UIKit.
+    /// `Password`: no suggestions or autocorrection, and the typed text isn't shown to UIKit.
+    /// `Terminal`: no autocapitalisation, autocorrection or spell checking (URL, user id).
     pub fn set_ime_purpose(&self, purpose: ImePurpose) {
-        self.view.set_ime_secure(matches!(purpose, ImePurpose::Password));
+        self.view.set_ime_secure(matches!(purpose, ImePurpose::Password), matches!(purpose, ImePurpose::Terminal));
     }
 
     pub fn reset_ime(&self) {

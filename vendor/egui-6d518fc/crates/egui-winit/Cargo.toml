@@ -101,12 +101,13 @@ objc2-app-kit = { workspace = true, default-features = false, features = [
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2.workspace = true
-objc2-foundation = { workspace = true, features = ["std", "NSThread"] }
+objc2-foundation = { workspace = true, features = ["std", "NSThread", "NSString"] }
 objc2-ui-kit = { workspace = true, features = [
   "std",
   "objc2-core-foundation",
   "UIApplication",
   "UIGeometry",
+  "UIPasteboard",
   "UIResponder",
   "UIScene",
   "UISceneDefinitions",

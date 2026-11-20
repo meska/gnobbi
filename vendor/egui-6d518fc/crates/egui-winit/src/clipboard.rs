@@ -313,6 +313,12 @@ impl Clipboard {
             };
         }
 
+        // iOS: the system pasteboard (arboard does not build there); the in-process copy only when it holds no text.
+        #[cfg(target_os = "ios")]
+        if let Some(text) = ios_pasteboard::get() {
+            return Some(text);
+        }
+
         Some(self.clipboard.clone())
     }
 
@@ -368,6 +374,9 @@ impl Clipboard {
             }
             return;
         }
+
+        #[cfg(target_os = "ios")]
+        ios_pasteboard::set(&text);
 
         self.clipboard = text;
     }
@@ -1119,5 +1128,21 @@ mod tests {
             &*image.bytes,
             &[255, 0, 0, 255, 255, 255, 255, 128, 0, 0, 0, 0]
         );
+    }
+}
+
+#[cfg(target_os = "ios")]
+#[allow(unsafe_code)] // UIPasteboard accessors are `unsafe` in objc2 (not thread-safe); called on the main thread only
+mod ios_pasteboard {
+    use objc2_foundation::NSString;
+    use objc2_ui_kit::UIPasteboard;
+
+    // Called from the winit event loop, i.e. the main thread, as UIPasteboard expects.
+    pub fn get() -> Option<String> {
+        unsafe { UIPasteboard::generalPasteboard().string() }.map(|s| s.to_string())
+    }
+
+    pub fn set(text: &str) {
+        unsafe { UIPasteboard::generalPasteboard().setString(Some(&NSString::from_str(text))) };
     }
 }

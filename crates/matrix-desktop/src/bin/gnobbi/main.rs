@@ -1502,22 +1502,26 @@ impl App {
 
     fn sign_in(&mut self, ui: &mut egui::Ui, t: &DesignTokens) {
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show(ui, |ui| {
-            ui.vertical_centered(|ui| {
-                ui.add_space((ui.available_height() / 4.).max(24.));
-                egui::Frame::NONE
-                    .fill(rgb(t.surface))
-                    .stroke(Stroke::new(1., rgb(t.border)))
-                    .corner_radius(CornerRadius::same(12))
-                    .inner_margin(24.)
-                    .show(ui, |ui| {
-                        ui.set_width(360.);
-                        match &mut self.session {
-                            Some(session) => sign_in_form(ui, session, t),
-                            None => {
-                                ui.label(self.start_error.as_deref().unwrap_or("Avvio non riuscito"));
-                            }
+            let room = ui.available_height();
+            // Scrolls when the keyboard (it shrinks the content rect) or a large text size leaves too little room.
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                let m = crate::metrics::get();
+                let width = (ui.available_width() - 2. * m.gap * 3.).clamp(200., 400.);
+                let height_id = egui::Id::new("signin_height");
+                let last = ui.data(|d| d.get_temp::<f32>(height_id)).unwrap_or(0.);
+                ui.add_space(((room - last) / 2.).max(m.gap * 3.));
+                let top = ui.cursor().top();
+                ui.vertical_centered(|ui| {
+                    ui.allocate_ui_with_layout(egui::vec2(width, 0.), egui::Layout::top_down(egui::Align::LEFT), |ui| match &mut self.session {
+                        Some(session) => sign_in_form(ui, session, t),
+                        None => {
+                            ui.label(self.start_error.as_deref().unwrap_or("Avvio non riuscito"));
                         }
                     });
+                });
+                ui.add_space(m.gap * 3.);
+                let used = ui.cursor().top() - top;
+                ui.data_mut(|d| d.insert_temp(height_id, used));
             });
         });
     }
@@ -1709,25 +1713,69 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     let mode = prompt.map_or_else(|| ui.data(|d| d.get_temp(mode_id)).unwrap_or(SignInMode::UnlockVault), |p| p.mode);
     let waited = prompt.is_none().then(|| ui.data_mut(|d| d.get_temp_mut_or_insert_with(since_id, std::time::Instant::now).elapsed()));
     let unlock = mode != SignInMode::Password;
-    ui.heading(if unlock { "Sblocca Gnobbi" } else { "Accedi a Gnobbi" });
-    ui.add_space(12.);
+    let m = crate::metrics::get();
+    let (width, height) = (ui.available_width(), crate::metrics::button());
+    let radius = CornerRadius::same(m.radius.max(12.) as u8);
+    {
+        // The logo: the accent square with the app's chat glyph, then the name.
+        let side = (height * 1.5).max(64.);
+        ui.vertical_centered(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+            ui.painter().rect_filled(rect, CornerRadius::same((side / 4.) as u8), rgb(t.accent));
+            icons::paint(ui.painter(), rect.center(), icons::Icon::ChatCircleDots, true, side * 0.58, rgb(t.on_accent));
+            ui.add_space(m.gap * 1.5);
+            ui.label(RichText::new("Gnobbi").size(m.title * 1.5).strong().color(rgb(t.text)));
+        });
+        ui.add_space(m.gap * 3.);
+    }
+    // Fields: fill from the theme, no outline, accent ring while focused.
+    let v = ui.visuals_mut();
+    v.extreme_bg_color = rgb(t.input);
+    v.selection.stroke = Stroke::new(2., rgb(t.accent));
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open] {
+        w.bg_stroke = Stroke::NONE;
+        w.corner_radius = radius;
+    }
     let mut enter = false;
-    let mut field = |ui: &mut egui::Ui, text: &mut String, hint: &str, secret: bool| {
-        let r = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(text).hint_text(hint).password(secret).align(egui::Align2::LEFT_CENTER));
+    let mut field = |ui: &mut egui::Ui, text: &mut String, label: &str, secret: bool, raw: bool| {
+        ui.label(RichText::new(label).size(m.secondary).color(rgb(t.secondary)));
+        ui.add_space(m.gap / 2.);
+        let eye_id = egui::Id::new(("signin-eye", label));
+        let shown = secret && ui.data(|d| d.get_temp::<bool>(eye_id)).unwrap_or(false);
+        let margin = egui::Margin { left: 14, right: if secret { height as i8 } else { 14 }, top: 0, bottom: 0 };
+        let r = ui.add_sized([width, height], crate::metrics::line(text).password(secret && !shown).raw_input(raw).margin(margin));
+        if secret {
+            let rect = egui::Rect::from_center_size(egui::pos2(r.rect.right() - height / 2., r.rect.center().y), egui::vec2(height, height));
+            let (icon, name) = if shown { (icons::Icon::EyeSlash, i18n::t("Hide password")) } else { (icons::Icon::Eye, i18n::t("Show password")) };
+            if icons::button_at(ui, rect, eye_id.with("button"), icon, false, m.icon, name, None, true, 1.).clicked() {
+                ui.data_mut(|d| d.insert_temp(eye_id, !shown));
+            }
+        }
+        // Long press (touch) or right click: the only way to paste on a phone without a keyboard shortcut.
+        r.context_menu(|ui| {
+            if ui.button(i18n::t_ctx("menu", "Paste")).clicked() {
+                ui.memory_mut(|mem| mem.request_focus(r.id));
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+                ui.close();
+            }
+        });
+        if r.gained_focus() {
+            r.scroll_to_me(None);
+        }
         enter |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        ui.add_space(8.);
+        ui.add_space(m.gap * 1.5);
     };
     if let Some(p) = prompt {
         match (p.mode, s.form.vault) {
             (SignInMode::Password, vault) => {
-                field(ui, &mut s.homeserver, "Homeserver HTTPS", false);
-                field(ui, &mut s.user, "ID Matrix completo", false);
-                field(ui, &mut s.password, "Password Matrix", true);
+                field(ui, &mut s.homeserver, i18n::t("Server"), false, true);
+                field(ui, &mut s.user, i18n::t("Matrix ID"), false, true);
+                field(ui, &mut s.password, i18n::t("Password"), true, false);
                 if !vault {
-                    field(ui, &mut s.phrase, "Frase locale · almeno 16 caratteri", true);
+                    field(ui, &mut s.phrase, i18n::t("Local passphrase"), true, false);
                 }
             }
-            (SignInMode::Unlock, _) => field(ui, &mut s.phrase, "Frase locale · almeno 16 caratteri", true),
+            (SignInMode::Unlock, _) => field(ui, &mut s.phrase, i18n::t("Local passphrase"), true, false),
             (SignInMode::UnlockVault, _) => {}
         }
     }
@@ -1735,20 +1783,25 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     let stalled = waited.is_some_and(|w| w > std::time::Duration::from_secs(20));
     let error = if stalled { FormStatus::Failed(matrix_engine::signin::SignInError::Discovery).error_message() } else { s.form.status().error_message() };
     if let Some(message) = error {
-        ui.colored_label(ui.visuals().error_fg_color, message);
-        ui.add_space(8.);
+        ui.label(RichText::new(message).color(rgb(t.error)));
+        ui.add_space(m.gap * 1.5);
     }
-    if prompt.is_some() {
-        let label = if unlock { "Sblocca" } else { "Accedi" };
-        let button = egui::Button::new(egui::RichText::new(label).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent));
-        if ui.add_sized([ui.available_width(), crate::metrics::button()], button).clicked() || enter {
-            s.submit();
-        }
-    } else {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label(if unlock { "Sblocco in corso…" } else { "Accesso in corso…" });
-        });
+    let busy = prompt.is_none();
+    let label = match (unlock, busy) {
+        (false, false) => i18n::t("Sign in"),
+        (true, false) => i18n::t("Unlock"),
+        (false, true) => i18n::t("Signing in…"),
+        (true, true) => i18n::t("Unlocking…"),
+    };
+    let fill = if busy { rgb(t.accent).gamma_multiply(0.6) } else { rgb(t.accent) };
+    let button = egui::Button::new(RichText::new(label).strong().color(rgb(t.on_accent))).fill(fill).corner_radius(radius);
+    let r = ui.add_sized([width, height + 4.], button);
+    if busy {
+        // Loading: a spinner at the left edge of the (inert) button.
+        let rect = egui::Rect::from_center_size(egui::pos2(r.rect.left() + height / 2. + 4., r.rect.center().y), egui::Vec2::splat(m.icon));
+        egui::Spinner::new().color(rgb(t.on_accent)).paint_at(ui, rect);
+    } else if r.clicked() || enter {
+        s.submit();
     }
 }
 

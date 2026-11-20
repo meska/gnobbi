@@ -81,6 +81,7 @@ pub struct TextEdit<'t> {
     text_color: Option<Color32>,
     layouter: Option<LayouterFn<'t>>,
     password: bool,
+    raw_input: bool,
     frame: Option<Frame>,
     margin: Option<Margin>,
     multiline: bool,
@@ -139,6 +140,7 @@ impl<'t> TextEdit<'t> {
             text_color: None,
             layouter: None,
             password: false,
+            raw_input: false,
             frame: None,
             margin: None,
             multiline: true,
@@ -249,6 +251,13 @@ impl<'t> TextEdit<'t> {
     #[inline]
     pub fn password(mut self, password: bool) -> Self {
         self.password = password;
+        self
+    }
+
+    /// URL, user id and the like: the keyboard must not capitalise, autocorrect or spell-check (sent as [`IMEPurpose::Terminal`]).
+    #[inline]
+    pub fn raw_input(mut self, raw_input: bool) -> Self {
+        self.raw_input = raw_input;
         self
     }
 
@@ -506,6 +515,7 @@ impl<'t> TextEdit<'t> {
             text_color,
             layouter,
             password,
+            raw_input,
             frame,
             margin,
             multiline,
@@ -631,6 +641,8 @@ impl<'t> TextEdit<'t> {
         }
         let ime_purpose = if password {
             IMEPurpose::Password
+        } else if raw_input {
+            IMEPurpose::Terminal
         } else {
             IMEPurpose::Normal
         };

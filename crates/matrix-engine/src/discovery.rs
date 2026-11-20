@@ -32,9 +32,11 @@ impl HomeserverUrl {
         {
             return Err(DiscoveryError::InvalidUrl);
         }
+        // The scheme is case-insensitive (iOS capitalises the first letter of what is typed).
         let authority = value
-            .strip_prefix("https://")
-            .and_then(|s| s.split('/').next())
+            .get(..8)
+            .filter(|scheme| scheme.eq_ignore_ascii_case("https://"))
+            .and_then(|_| value[8..].split('/').next())
             .ok_or(DiscoveryError::InvalidUrl)?;
         if authority.is_empty() || authority.contains('@') {
             return Err(DiscoveryError::InvalidUrl);

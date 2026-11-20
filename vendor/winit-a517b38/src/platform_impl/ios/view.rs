@@ -13,7 +13,7 @@ use objc2_ui_kit::{
     UICoordinateSpace, UIEvent, UIForceTouchCapability, UIGestureRecognizer,
     UIGestureRecognizerDelegate, UIGestureRecognizerState, UIKeyInput, UIPanGestureRecognizer,
     UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer, UITapGestureRecognizer,
-    UITextAutocorrectionType, UITextInput, UITextInputDelegate, UITextInputStringTokenizer,
+    UITextAutocapitalizationType, UITextAutocorrectionType, UITextInput, UITextInputDelegate, UITextInputStringTokenizer,
     UITextInputTokenizer, UITextInputTraits, UITextLayoutDirection, UITextPosition, UITextRange,
     UITextSelectionRect, UITextSpellCheckingType, UITouch, UITouchPhase, UITouchType,
     UITraitEnvironment, UIView,
@@ -46,6 +46,8 @@ pub struct WinitViewState {
     ime_allowed: Cell<bool>,
     // Password fields: no suggestions, and the typed text isn't shown to UIKit.
     ime_secure: Cell<bool>,
+    // URL / user id fields (`ImePurpose::Terminal`): no autocapitalisation, autocorrection or spell checking.
+    ime_raw: Cell<bool>,
     // The cursor area from `Window::set_ime_cursor_area`, in points; empty until set.
     ime_area: Cell<CGRect>,
     ime_delegate: RefCell<Option<Retained<ProtocolObject<dyn UITextInputDelegate>>>>,
@@ -363,16 +365,25 @@ declare_class!(
 
         #[method(autocorrectionType)]
         fn autocorrection_type(&self) -> UITextAutocorrectionType {
-            if self.ivars().ime_secure.get() {
+            if self.ivars().ime_secure.get() || self.ivars().ime_raw.get() {
                 UITextAutocorrectionType::No
             } else {
                 UITextAutocorrectionType::Default
             }
         }
 
+        #[method(autocapitalizationType)]
+        fn autocapitalization_type(&self) -> UITextAutocapitalizationType {
+            if self.ivars().ime_secure.get() || self.ivars().ime_raw.get() {
+                UITextAutocapitalizationType::None
+            } else {
+                UITextAutocapitalizationType::Sentences
+            }
+        }
+
         #[method(spellCheckingType)]
         fn spell_checking_type(&self) -> UITextSpellCheckingType {
-            if self.ivars().ime_secure.get() {
+            if self.ivars().ime_secure.get() || self.ivars().ime_raw.get() {
                 UITextSpellCheckingType::No
             } else {
                 UITextSpellCheckingType::Default
@@ -752,6 +763,7 @@ impl WinitView {
             ime: RefCell::new(ImeDocument::default()),
             ime_allowed: Cell::new(false),
             ime_secure: Cell::new(false),
+            ime_raw: Cell::new(false),
             ime_area: Cell::new(CGRect { origin: CGPoint { x: 0.0, y: 0.0 }, size: CGSize { width: 0.0, height: 0.0 } }),
             ime_delegate: RefCell::new(None),
             ime_deletes: RefCell::new(VecDeque::new()),
@@ -1105,8 +1117,9 @@ impl WinitView {
         }
     }
 
-    pub(crate) fn set_ime_secure(&self, secure: bool) {
-        if self.ivars().ime_secure.replace(secure) != secure {
+    pub(crate) fn set_ime_secure(&self, secure: bool, raw: bool) {
+        let changed = self.ivars().ime_raw.replace(raw) != raw;
+        if self.ivars().ime_secure.replace(secure) != secure || changed {
             self.reset_ime();
             unsafe {
                 if self.isFirstResponder() {

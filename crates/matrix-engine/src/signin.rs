@@ -136,6 +136,7 @@ impl PasswordSignIn {
         trust_root: Option<Vec<u8>>,
     ) -> Result<Self, SignInError> {
         validate_store(&root, &phrase, trust_root.as_deref())?;
+        let homeserver = homeserver.trim().to_owned();
         // No scheme: a server name (delegation via .well-known); anything else must be a valid HTTPS URL.
         let bare_name = !homeserver.contains("://");
         if bare_name {
@@ -1025,5 +1026,38 @@ mod vault_format_tests {
             assert_eq!(secret_from_item(bad.as_bytes()).err(), Some(VaultError::InvalidItem));
         }
         assert_eq!(secret_from_item(&[0xff; 64]).err(), Some(VaultError::InvalidItem));
+    }
+}
+
+#[cfg(test)]
+mod homeserver_input_tests {
+    use super::*;
+
+    fn homeserver_of(typed: &str) -> Result<String, SignInError> {
+        PasswordSignIn::new(
+            "/tmp/gnobbi-homeserver-input".into(),
+            AccountId::new(1),
+            typed.into(),
+            "@alice:example.org".into(),
+            Secret::new("password".into())?,
+            Secret::new("x".repeat(16))?,
+            None,
+        )
+        .map(|login| login.homeserver.as_str().to_owned())
+    }
+
+    #[test]
+    fn scheme_case_and_surrounding_spaces_do_not_matter() {
+        for typed in [
+            "https://matrix.example.org",
+            "Https://matrix.example.org",
+            "HTTPS://matrix.example.org",
+            "  Https://matrix.example.org \n",
+        ] {
+            assert_eq!(homeserver_of(typed).unwrap(), "https://matrix.example.org/", "{typed:?}");
+        }
+        assert_eq!(homeserver_of(" matrix.example.org ").unwrap(), "https://matrix.example.org/");
+        assert!(matches!(homeserver_of("http://matrix.example.org"), Err(SignInError::InvalidHomeserver)));
+        assert!(matches!(homeserver_of("Https://"), Err(SignInError::InvalidHomeserver)));
     }
 }
