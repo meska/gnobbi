@@ -147,6 +147,33 @@ mod topic_tests {
     }
 
     #[test]
+    fn duplicate_member_row_opens_on_click() {
+        use eframe::egui::{self, Event, Modifiers, PointerButton};
+        let ctx = egui::Context::default();
+        let m = matrix_engine::operations::Member { user_id: "@one:example.org".into(), name: "Marco".into(), avatar: None, role: matrix_domain::role::MemberRole::Admin };
+        let mut rect = egui::Rect::NOTHING;
+        let mut clicked = false;
+        for step in 0..4 {
+            let pos = rect.center();
+            let events = match step {
+                2 => vec![Event::PointerMoved(pos), Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }],
+                3 => vec![Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }],
+                _ => vec![],
+            };
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 200.))), events, ..Default::default() };
+            let mut output = ctx.run_ui(input, |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let r = super::member_row(ui, &Default::default(), &m, true, &matrix_desktop::LIGHT);
+                    rect = r.rect;
+                    clicked |= r.clicked();
+                });
+            });
+            output.textures_delta.clear();
+        }
+        assert!(clicked);
+    }
+
+    #[test]
     fn topic_runs_carry_styles_links_and_lists() {
         let topic = matrix_engine::rich_text::topic("[sito](https://example.org) **forte** *chino* [no](javascript:alert(1)) https://nudo.example\n\n- uno\n- due\n\n1. primo", None);
         let runs = super::topic_runs(&topic);
@@ -185,8 +212,34 @@ mod topic_tests {
 }
 
 /// One member: initials, name on one line and the role badge at the right edge.
-pub fn member_row(ui: &mut egui::Ui, avatars: &crate::avatar::Avatars, m: &Member, t: &DesignTokens) -> egui::Response {
+pub fn member_row(ui: &mut egui::Ui, avatars: &crate::avatar::Avatars, m: &Member, duplicate: bool, t: &DesignTokens) -> egui::Response {
     use matrix_domain::role::MemberRole;
+    if duplicate {
+        let role = crate::members::role_label(m.role);
+        let name = crate::list::clean_single_line(&m.name);
+        let id = crate::list::clean_single_line(&m.user_id);
+        let row = ui.scope(|ui| {
+            crate::rows::lines_row(ui, |ui| {
+                ui.add_space(14.);
+                let (r, _) = ui.allocate_exact_size(Vec2::splat(28.), egui::Sense::hover());
+                crate::avatar::paint(ui, r.center(), 28., rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::lookup(avatars, m.avatar.as_deref()), &matrix_desktop::initials(&m.name), 12., rgb(t.on_accent));
+            }, &[crate::rows::Line::new(&name, 14., rgb(t.text)), crate::rows::Line::new(&id, 12., rgb(t.secondary))], |ui| {
+                let ink = rgb(match m.role { MemberRole::Admin => t.on_accent, MemberRole::Moderator => t.accent, MemberRole::Member => t.secondary });
+                let label = ui.painter().layout_no_wrap(role.to_owned(), FontId::proportional(11.), ink);
+                let (pill, _) = ui.allocate_exact_size(Vec2::new(label.size().x + 16., 20.), egui::Sense::hover());
+                match m.role {
+                    MemberRole::Admin => ui.painter().rect_filled(pill, 10., rgb(t.accent)),
+                    MemberRole::Moderator => ui.painter().rect_stroke(pill, 10., egui::Stroke::new(1., rgb(t.accent)), egui::StrokeKind::Inside),
+                    MemberRole::Member => ui.painter().rect_stroke(pill, 10., egui::Stroke::new(1., rgb(t.border)), egui::StrokeKind::Inside),
+                };
+                ui.painter().galley(pill.center() - label.size() / 2., label, ink);
+                ui.add_space(8.);
+            });
+        }).response;
+        let resp = crate::metrics::clickable(ui.interact(row.rect, row.id, egui::Sense::click()));
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{}, {}, {role}", m.name, m.user_id)));
+        return resp;
+    }
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
     let resp = crate::metrics::clickable(resp);
     if resp.hovered() {
@@ -409,7 +462,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures:
         }
         let (mut cancel, mut drop, mut poll) = (false, false, false);
         let name = th.attachment.as_ref().map(|(n, _)| n.clone());
-        out.send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, name.as_deref(), &mut cancel, &mut drop, &mut poll, &mut out.picked, &mut out.pasted, recording, &mut out.voice, &[], &mut Vec::new(), None);
+        out.send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, name.as_deref(), &mut cancel, &mut drop, &mut poll, &mut out.picked, &mut out.pasted, recording, &mut out.voice, &[], &mut Vec::new(), None, t);
         if drop { th.attachment = None; }
     });
     th.tail_visible = false;

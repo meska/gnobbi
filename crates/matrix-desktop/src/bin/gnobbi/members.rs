@@ -91,7 +91,8 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
     }
     // Test hook: GNOBBI_EGUI_MEMBER=menu shows the first «⋮» menu without a click.
     let mut hook = std::env::var("GNOBBI_EGUI_MEMBER").as_deref() == Ok("menu");
-    for m in members {
+    let duplicates = crate::rows::duplicate_names(members.iter().map(|m| m.name.as_str()));
+    for (m, duplicate) in members.iter().zip(duplicates) {
         let menu = (perms.can_kick || perms.can_ban) && m.user_id != me;
         ui.push_id(&m.user_id, |ui| {
             ui.horizontal(|ui| {
@@ -122,7 +123,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                         // The own row has no «⋮»: its place stays empty so the badges line up.
                         ui.add_space(40.);
                     }
-                    if crate::info::member_row(ui, avatars, m, t).clicked() {
+                    if crate::info::member_row(ui, avatars, m, duplicate, t).clicked() {
                         act = Some(Act::Profile(m.user_id.clone()));
                     }
                 });
@@ -146,7 +147,23 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
         });
         return act;
     };
-    for b in rows {
+    let duplicates = crate::rows::duplicate_names(rows.iter().map(|b| b.name.as_str()));
+    for (b, duplicate) in rows.iter().zip(duplicates) {
+        if duplicate {
+            let name = crate::list::clean_single_line(&b.name);
+            let id = crate::list::clean_single_line(&b.user_id);
+            let reason = b.reason.as_deref().map(crate::list::clean_single_line);
+            let mut lines = vec![crate::rows::Line::new(&name, 14., rgb(t.text)), crate::rows::Line::new(&id, 12., rgb(t.secondary))];
+            if let Some(reason) = &reason { lines.push(crate::rows::Line::new(reason, 12., rgb(t.secondary))); }
+            crate::rows::lines_row(ui, |ui| {
+                ui.add_space(14.);
+                let (r, _) = ui.allocate_exact_size(egui::Vec2::splat(28.), egui::Sense::hover());
+                crate::avatar::paint(ui, r.center(), 28., rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::lookup(avatars, b.avatar.as_deref()), &matrix_desktop::initials(&b.name), 12., rgb(t.on_accent));
+            }, &lines, |ui| {
+                if perms.can_kick && ui.add_enabled(!busy, egui::Button::new(i18n::t("Unban"))).clicked() { act = Some(Act::Unban(b.user_id.clone())); }
+            });
+            continue;
+        }
         ui.horizontal(|ui| {
             ui.set_min_height(40.);
             ui.add_space(14.);

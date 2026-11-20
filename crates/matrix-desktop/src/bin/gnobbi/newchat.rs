@@ -174,9 +174,10 @@ pub fn people(ui: &mut egui::Ui, s: &mut Session, t: &matrix_desktop::DesignToke
         }
         SearchState::Results { hits, .. } => {
             egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
-                for h in hits {
+                let duplicates = crate::rows::duplicate_names(hits.iter().map(|h| h.display_name.as_deref().unwrap_or(&h.user_id)));
+                for (h, duplicate) in hits.iter().zip(duplicates) {
                     let name = h.display_name.as_deref().unwrap_or(&h.user_id);
-                    if ui.button(format!("{name}  {}", h.user_id)).clicked() {
+                    if ui.push_id(&h.user_id, |ui| crate::rows::person_row(ui, name, &h.user_id, duplicate, false, t)).inner.clicked() {
                         picked = Some(h.user_id.clone());
                     }
                 }

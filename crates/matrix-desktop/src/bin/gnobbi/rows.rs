@@ -24,8 +24,65 @@ impl<'a> Line<'a> {
     }
 }
 
+pub fn duplicate_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<bool> {
+    let names: Vec<String> = names.into_iter().map(|name| name.trim().to_lowercase()).collect();
+    let mut counts = std::collections::HashMap::new();
+    for name in &names { *counts.entry(name).or_insert(0usize) += 1; }
+    names.iter().map(|name| counts[name] > 1).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn person_row_is_clickable() {
+        use eframe::egui::{self, Event, Modifiers, PointerButton};
+        let ctx = egui::Context::default();
+        let mut rect = egui::Rect::NOTHING;
+        let mut clicked = false;
+        for step in 0..4 {
+            let pos = rect.center();
+            let events = match step {
+                2 => vec![Event::PointerMoved(pos), Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }],
+                3 => vec![Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }],
+                _ => vec![],
+            };
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300., 200.))), events, ..Default::default() };
+            let mut output = ctx.run_ui(input, |ui| {
+                let r = super::person_row(ui, "Marco", "@one:example.org", true, false, &matrix_desktop::LIGHT);
+                rect = r.rect;
+                clicked |= r.clicked();
+            });
+            output.textures_delta.clear();
+        }
+        assert!(clicked);
+    }
+
+    #[test]
+    fn duplicate_names_ignore_case_and_surrounding_space() {
+        assert_eq!(super::duplicate_names([" Marco ", "MARCO", "Anna", "Éva", "éVA"]), [true, true, false, true, true]);
+        assert!(super::duplicate_names(["Solo"]).iter().all(|x| !x));
+    }
+}
+
 fn font(l: &Line) -> FontId {
     if l.mono { FontId::monospace(l.size) } else { FontId::proportional(l.size) }
+}
+
+pub fn person_row(ui: &mut egui::Ui, name: &str, id: &str, duplicate: bool, selected: bool, t: &matrix_desktop::DesignTokens) -> egui::Response {
+    let name = crate::list::clean_single_line(name);
+    let clean_id = crate::list::clean_single_line(id);
+    let mut lines = vec![Line::new(&name, 14., crate::list::rgb(t.text))];
+    if duplicate { lines.push(Line::new(&clean_id, 12., crate::list::rgb(t.secondary))); }
+    let row = ui.scope(|ui| {
+        lines_row(ui, |ui| {
+            let (r, _) = ui.allocate_exact_size(Vec2::splat(28.), Sense::hover());
+            crate::avatar::paint(ui, r.center(), 28., crate::list::rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::Avatar::Missing, &matrix_desktop::initials(&name), 12., crate::list::rgb(t.on_accent));
+        }, &lines, |_| {});
+    }).response;
+    let resp = crate::metrics::clickable(ui.interact(row.rect, row.id, Sense::click()));
+    if selected { ui.painter().rect_stroke(row.rect, 3., egui::Stroke::new(1., crate::list::rgb(t.accent)), egui::StrokeKind::Inside); }
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("{name}, {id}")));
+    resp
 }
 
 /// `lead` draws its own fixed-size picture (allocate it with `allocate_exact_size`); `trailing` is laid out right to left.

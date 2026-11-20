@@ -561,7 +561,7 @@ impl eframe::App for App {
         if let Some(s) = &mut self.session { s.show_viewer(&ctx); }
         #[cfg(debug_assertions)]
         if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
-        if let Some(s) = &mut self.session && s.quick_open { quick_search(&ctx, s); }
+        if let Some(s) = &mut self.session && s.quick_open { quick_search(&ctx, s, &t); }
         if let Some(url) = self.pending_web.clone() {
             let mut choice = None;
             let modal = egui::Modal::new(egui::Id::unique("confirm-web-link")).show(&ctx, |ui| {
@@ -1368,7 +1368,7 @@ impl App {
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
                 let recording = s.recording(false);
-                to_send = composer::show(ui, "", &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)));
+                to_send = composer::show(ui, "", &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)), t);
                 if let Some(image) = pasted_image {
                     s.attach_image(&image, false);
                 }
@@ -1615,7 +1615,7 @@ impl App {
 }
 
 /// Local conversations and server users use the same search models as the GPUI switcher.
-fn quick_search(ctx: &egui::Context, s: &mut Session) {
+fn quick_search(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     use matrix_desktop::quick_search::{Entry, Index};
     use matrix_engine::operations::SearchState;
     let rooms = s.sidebar.rooms();
@@ -1659,11 +1659,21 @@ fn quick_search(ctx: &egui::Context, s: &mut Session) {
             };
             if !hits.is_empty() { ui.label(i18n::t("Conversations")); }
             for (i, hit) in hits.iter().enumerate() { row(ui, i, hit.name.clone()); }
+            drop(row);
             if !users.is_empty() { ui.label(i18n::t("Users")); }
-            for (i, hit) in users.iter().enumerate() {
+            let duplicates = crate::rows::duplicate_names(users.iter().map(|hit| hit.display_name.as_deref().unwrap_or(&hit.user_id)));
+            for (i, (hit, duplicate)) in users.iter().zip(duplicates).enumerate() {
                 let name = hit.display_name.as_deref().unwrap_or(&hit.user_id);
-                row(ui, hits.len() + i, format!("{name}  {}", hit.user_id));
+                let index = hits.len() + i;
+                let r = ui.push_id(&hit.user_id, |ui| crate::rows::person_row(ui, name, &hit.user_id, duplicate, index == sel, t)).inner;
+                if index == sel && moved { r.scroll_to_me(None); }
+                if r.clicked() { picked = Some(index); }
             }
+            let mut row = |ui: &mut egui::Ui, i: usize, text: String| {
+                let r = ui.selectable_label(i == sel, text);
+                if i == sel && moved { r.scroll_to_me(None); }
+                if r.clicked() { picked = Some(i); }
+            };
             if !public.is_empty() { ui.label(i18n::t("Public rooms")); }
             for (i, hit) in public.iter().enumerate() {
                 // The join's spinner and its one-line state sit on the room's own row.

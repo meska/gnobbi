@@ -28,7 +28,7 @@ pub enum Mode {
 pub const THREAD: &str = "-thread";
 
 /// `salt` is `""` for the room composer and `THREAD` for the drawer: the same bar minus the poll (attach and voice go into the thread).
-pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>, t: &matrix_desktop::DesignTokens) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     // consume_key matches Shift loosely, so Shift+Enter is checked on the event and left to the TextEdit (it inserts the newline).
     let shift_enter = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.shift)));
@@ -112,7 +112,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let text_h = scroll.content_size.y.min(max_h);
         ui.allocate_space(egui::vec2(w + 8., text_h));
         let out = scroll.inner;
-        mention_popup(ui, id, &out, draft, members, mentions);
+        mention_popup(ui, id, &out, draft, members, mentions, t);
         // The picker restores focus to the composer after inserting at its saved selection.
         // Icons stay at the bottom of a tall box.
         ui.vertical(|ui| {
@@ -209,7 +209,7 @@ pub fn pasted_png(image: &egui::ColorImage) -> Option<Vec<u8>> {
 
 /// «@name»: members matching what is typed after the `@` before the cursor; a click (or Tab) puts «@Name » in the text
 /// and remembers who it is, so the send turns it into a real mention.
-fn mention_popup(ui: &mut egui::Ui, id: egui::Id, out: &egui::text_edit::TextEditOutput, draft: &mut String, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>) {
+fn mention_popup(ui: &mut egui::Ui, id: egui::Id, out: &egui::text_edit::TextEditOutput, draft: &mut String, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, t: &matrix_desktop::DesignTokens) {
     // A window the system never focused (headless seat) keeps no text focus: the list then follows the text alone.
     let focused = out.response.has_focus() || !ui.input(|i| i.focused);
     if !focused || members.is_empty() {
@@ -222,11 +222,13 @@ fn mention_popup(ui: &mut egui::Ui, id: egui::Id, out: &egui::text_edit::TextEdi
     if matches.is_empty() {
         return;
     }
+    let duplicates = crate::rows::duplicate_names(matches.iter().map(|m| m.name.as_str()));
     let mut pick = None;
-    egui::Area::new(id.with("mentions")).order(egui::Order::Foreground).fixed_pos(out.response.rect.left_top() - egui::vec2(0., 8. + 26. * matches.len() as f32)).show(ui.ctx(), |ui| {
+    egui::Area::new(id.with("mentions")).order(egui::Order::Foreground).fixed_pos(out.response.rect.left_top() - egui::vec2(0., 8. + crate::rows::ROW * matches.len() as f32)).show(ui.ctx(), |ui| {
         egui::Frame::popup(ui.style()).show(ui, |ui| {
-            for m in &matches {
-                if ui.selectable_label(false, &m.name).clicked() {
+            ui.set_width(260.);
+            for (m, duplicate) in matches.iter().zip(duplicates) {
+                if ui.push_id(&m.user_id, |ui| crate::rows::person_row(ui, &m.name, &m.user_id, duplicate, false, t)).inner.clicked() {
                     pick = Some(m.clone());
                 }
             }
@@ -298,7 +300,7 @@ mod tests {
             let mut out = ctx.run_ui(input.clone(), |ui| {
                 let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
-                    super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None);
+                    super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
                 });
                 h = r.response.rect.height();
             });
@@ -342,7 +344,7 @@ mod tests {
             let mut out = ctx.run_ui(input, |ui| {
                 let r = super::panel(egui::Frame::NONE).show(ui, |ui| {
                     let (mut a, mut b, mut c, mut d, mut e, mut f) = (false, false, false, None, None, None);
-                    sent = super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None);
+                    sent = super::show(ui, "", &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
                 });
                 panel_right = r.response.rect.right();
                 panel_bottom = r.response.rect.bottom();
@@ -392,7 +394,7 @@ mod tests {
             for _ in 0..4 {
                 let mut out = ctx.run_ui(input.clone(), |ui| {
                     let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
-                    super::show(ui, super::THREAD, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None);
+                    super::show(ui, super::THREAD, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None, &matrix_desktop::LIGHT);
                 });
                 out.textures_delta.clear();
             }
