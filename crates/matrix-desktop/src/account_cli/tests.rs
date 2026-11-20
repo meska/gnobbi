@@ -128,11 +128,12 @@ fn rotate_output_is_private_atomic_and_never_overwrites() {
     let dirs = temp_dirs("keys-out");
     std::fs::create_dir_all(&dirs.data).unwrap();
     let dest = dirs.data.join("recovery.key");
-    let (file, tmp) = prepare_output(&dest).unwrap();
-    assert!(!dest.exists() && tmp.exists(), "nothing published before the key is known");
-    publish_key(file, &tmp, &dest, "EsTc abcd").unwrap();
+    let file = prepare_output(&dest).unwrap();
+    assert!(dest.exists(), "created before the server is touched");
+    assert_eq!(prepare_output(&dest).err().unwrap().exit, 2);
+    write_key(file, "EsTc abcd").unwrap();
     assert_eq!(std::fs::read_to_string(&dest).unwrap(), "EsTc abcd\n");
-    assert!(!tmp.exists());
+    assert_eq!(std::fs::read_dir(&dirs.data).unwrap().count(), 1, "no temp file left");
     #[cfg(unix)]
     assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&dest).unwrap().permissions()) & 0o777, 0o600);
     // Existing output: usage error before the server is touched (no session needed to see it).
@@ -291,4 +292,24 @@ fn logout_resumes_after_a_crash_between_steps() {
     let out = run(logout(&dirs, &id.as_u64().to_string(), true, None)).unwrap();
     assert_eq!(out.json["changed"], true);
     assert!(AccountCatalog::load(&dirs).accounts().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn login_busy_profile_is_not_deleted() {
+    // The engine only accepts canonical paths (macOS temp is a symlink).
+    let base = std::env::temp_dir().canonicalize().unwrap().join(format!("gnobbi-cli-login-busy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let dirs = AppDirs { config: base.join("config"), data: base.join("data"), cache: base.join("cache") };
+    let root = AccountCatalog::update(&dirs, |c| c.next_root(&dirs)).unwrap();
+    crate::create_private_dir(&root).unwrap();
+    let lock = std::fs::File::create(root.join(".profile-lock")).unwrap();
+    lock.set_permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+    lock.lock().unwrap();
+    let pw = Zeroizing::new("pw".to_owned());
+    match run(login(&dirs, "@x:y".into(), None, pw, None)) {
+        Err(e) if e.exit == 8 => return, // build without a vault: nothing to test
+        r => assert_eq!(r.err().unwrap().exit, 10),
+    }
+    assert!(root.join(".profile-lock").is_file(), "the other process's folder must survive");
 }

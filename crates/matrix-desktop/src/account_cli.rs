@@ -59,7 +59,7 @@ fn flags(args: &[String], spec: &[(&str, bool)]) -> Result<Vec<(String, Option<S
             return Err(SECRET_IN_ARGV.into());
         }
         let Some(&(_, takes)) = spec.iter().find(|(n, _)| *n == name) else {
-            return Err(format!("unknown argument {name}"));
+            return Err(format!("unexpected argument"));
         };
         if out.iter().any(|(n, _)| n == name) {
             return Err(format!("{name} given twice"));
@@ -229,7 +229,10 @@ pub fn read_limited(reader: impl Read) -> Result<Zeroizing<String>, CliError> {
     if bytes.is_empty() {
         return Err(usage("secret is empty"));
     }
-    String::from_utf8(std::mem::take(&mut *bytes)).map(Zeroizing::new).map_err(|_| usage("secret is not UTF-8"))
+    String::from_utf8(std::mem::take(&mut *bytes)).map(Zeroizing::new).map_err(|e| {
+        drop(Zeroizing::new(e.into_bytes()));
+        usage("secret is not UTF-8")
+    })
 }
 
 fn read_secret_file(path: &Path) -> Result<Zeroizing<String>, CliError> {
@@ -263,6 +266,10 @@ fn read_ca(path: &Path) -> Result<Vec<u8>, CliError> {
         return Err(usage("--ca-file must be an absolute path"));
     }
     let mut pem = Vec::new();
+    // is_file first: opening a FIFO would block.
+    if !std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() <= MAX_CA) {
+        return Err(usage("cannot read the CA file"));
+    }
     std::fs::File::open(path)
         .and_then(|f| f.take(MAX_CA).read_to_end(&mut pem))
         .map_err(|_| usage("cannot read the CA file"))?;
@@ -505,6 +512,8 @@ async fn login(dirs: &AppDirs, user: String, homeserver: Option<String>, mut pas
     }
     let secret = Secret::new(std::mem::take(&mut *password)).map_err(signin_error)?;
     let homeserver = homeserver.or_else(|| user.split_once(':').map(|(_, server)| server.to_owned())).unwrap_or_default();
+    // Only a folder created here may be deleted on failure: an existing one belongs to another process.
+    let created = std::fs::symlink_metadata(&root).is_err();
     #[cfg(unix)]
     crate::create_private_dir(&root).map_err(|_| storage("cannot create the account folder"))?;
     #[cfg(not(unix))]
@@ -520,7 +529,9 @@ async fn login(dirs: &AppDirs, user: String, homeserver: Option<String>, mut pas
     let mut session = match result {
         Ok(s) => s,
         Err(e) => {
-            let _ = std::fs::remove_dir_all(&root);
+            if created {
+                let _ = std::fs::remove_dir_all(&root);
+            }
             return Err(e);
         }
     };
@@ -546,7 +557,9 @@ async fn login(dirs: &AppDirs, user: String, homeserver: Option<String>, mut pas
     let revoked = session.logout().await.is_ok();
     drop(session);
     let stores = stores_of(&root);
-    let _ = std::fs::remove_dir_all(&root);
+    if created {
+        let _ = std::fs::remove_dir_all(&root);
+    }
     let _ = forget_secrets(rid, &stores);
     let _ = AccountCatalog::update(dirs, |c| {
         if let Some(id) = c.id_for_user(&user).filter(|id| c.data_dir(dirs, *id).as_deref() == Some(root.as_path())) {
@@ -574,33 +587,23 @@ async fn keys_update(dirs: &AppDirs, selector: &str, key: Zeroizing<String>, ca:
     Ok(Outcome { json, text: format!("{selector} keys updated, verified: {verified}"), exit: 0 })
 }
 
-/// Creates the private temp file next to `dest` BEFORE the server changes, so a file problem never comes after.
-fn prepare_output(dest: &Path) -> Result<(std::fs::File, PathBuf), CliError> {
-    if std::fs::symlink_metadata(dest).is_ok() {
-        return Err(usage("--output already exists; it is never overwritten"));
-    }
-    let name = dest.file_name().and_then(|n| n.to_str()).ok_or_else(|| usage("invalid --output"))?;
-    let tmp = dest.with_file_name(format!(".{name}.tmp-{}", std::process::id()));
+/// Creates `dest` (0600, never overwriting) BEFORE the server changes, so a file problem never comes after.
+/// No temp file + hard link: that fails on FAT/exFAT/network shares after the old key is already dead.
+fn prepare_output(dest: &Path) -> Result<std::fs::File, CliError> {
     let mut open = std::fs::OpenOptions::new();
     open.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
-    let file = open.open(&tmp).map_err(|_| storage("cannot create the --output file"))?;
-    Ok((file, tmp))
+    open.open(dest).map_err(|e| match e.kind() {
+        std::io::ErrorKind::AlreadyExists => usage("--output already exists; it is never overwritten"),
+        _ => storage("cannot create the --output file"),
+    })
 }
 
-/// Writes, syncs and publishes the key without overwriting `dest`.
-fn publish_key(mut file: std::fs::File, tmp: &Path, dest: &Path, key: &str) -> std::io::Result<()> {
+fn write_key(mut file: std::fs::File, key: &str) -> std::io::Result<()> {
     file.write_all(key.as_bytes())?;
     file.write_all(b"\n")?;
-    file.sync_all()?;
-    std::fs::hard_link(tmp, dest)?;
-    std::fs::remove_file(tmp)?;
-    #[cfg(unix)]
-    if let Some(dir) = dest.parent() {
-        std::fs::File::open(dir).and_then(|d| d.sync_all())?;
-    }
-    Ok(())
+    file.sync_all()
 }
 
 async fn keys_rotate(dirs: &AppDirs, selector: &str, output: &str, ca: Option<Vec<u8>>) -> Result<Outcome, CliError> {
@@ -614,17 +617,17 @@ async fn keys_rotate(dirs: &AppDirs, selector: &str, output: &str, ca: Option<Ve
     let (account, key) = match result {
         Ok(v) => v,
         Err(e) => {
-            if let Some((_, tmp)) = &pending {
-                let _ = std::fs::remove_file(tmp);
+            if pending.is_some() {
+                let _ = std::fs::remove_file(output);
             }
             return Err(e);
         }
     };
     let mut json = json!({ "ok": true, "command": "keys rotate", "account": account });
     let text = match pending {
-        Some((file, tmp)) => {
-            if publish_key(file, &tmp, Path::new(output), key.expose()).is_err() {
-                let _ = std::fs::remove_file(&tmp);
+        Some(file) => {
+            if write_key(file, key.expose()).is_err() {
+                let _ = std::fs::remove_file(output);
                 return Err(storage("the old recovery key no longer works and the new one could not be saved; run keys rotate again"));
             }
             json["output"] = json!(output);
