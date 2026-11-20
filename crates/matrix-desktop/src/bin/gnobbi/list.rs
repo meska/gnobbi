@@ -23,6 +23,27 @@ pub(crate) fn clean_single_line(text: &str) -> String {
 }
 
 #[cfg(test)]
+mod mark_tests {
+    use super::*;
+
+    #[test]
+    fn mark_follows_the_tags_and_pinned_wins() {
+        assert_eq!(mark(true, false), Some(Mark::Pin));
+        assert_eq!(mark(false, true), Some(Mark::Low));
+        assert_eq!(mark(true, true), Some(Mark::Pin));
+        assert_eq!(mark(false, false), None);
+    }
+
+    #[test]
+    fn mark_and_badge_both_reserve_their_own_width() {
+        assert_eq!(right_reserved(false, None), 0.);
+        assert_eq!(right_reserved(true, None), 28.);
+        assert_eq!(right_reserved(false, Some(Mark::Pin)), MARK_SLOT);
+        assert_eq!(right_reserved(true, Some(Mark::Low)), 28. + MARK_SLOT);
+    }
+}
+
+#[cfg(test)]
 mod single_line_tests {
     #[test]
     fn normalizes_line_breaks_and_preserves_emoji() {
@@ -46,12 +67,53 @@ pub fn one_line(ui: &egui::Ui, text: &str, size: f32, color: Color32, width: f32
     ui.painter().layout_job(job)
 }
 
-pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) {
+/// Icon on the second line of a row: pinned (`m.favourite`) or low priority (`m.lowpriority`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Mark { Pin, Low }
+
+const MARK: f32 = 13.;
+const MARK_SLOT: f32 = MARK + 4.;
+
+/// Pinned wins when another client set both tags.
+fn mark(pinned: bool, low: bool) -> Option<Mark> {
+    if pinned { Some(Mark::Pin) } else if low { Some(Mark::Low) } else { None }
+}
+
+/// Width the preview must leave on the right: the unread badge and the mark sit side by side.
+fn right_reserved(unread: bool, mark: Option<Mark>) -> f32 {
+    (if unread { 28. } else { 0. }) + if mark.is_some() { MARK_SLOT } else { 0. }
+}
+
+fn draw_mark(ui: &egui::Ui, id: egui::Id, m: Mark, right: f32, y: f32, t: &DesignTokens) {
+    let rect = egui::Rect::from_center_size(egui::pos2(right - MARK / 2., y), Vec2::splat(MARK));
+    let (label, color) = match m { Mark::Pin => ("Fissata", rgb(t.accent).gamma_multiply(0.8)), Mark::Low => ("Bassa priorità", rgb(t.secondary).gamma_multiply(0.7)) };
+    let (p, c, s) = (ui.painter(), rect.center(), egui::Stroke::new(1.5, color));
+    match m {
+        // Pushpin: round head, tilted body, needle.
+        Mark::Pin => {
+            p.circle_filled(c + Vec2::new(1.5, -2.5), 3.5, color);
+            p.line_segment([c + Vec2::new(-0.5, -0.5), c + Vec2::new(-3.5, 3.), ], s);
+            p.line_segment([c + Vec2::new(-3.5, 3.), c + Vec2::new(-5.5, 5.5)], egui::Stroke::new(1., color));
+        }
+        // Arrow down.
+        Mark::Low => {
+            p.line_segment([c + Vec2::new(0., -5.), c + Vec2::new(0., 5.)], s);
+            p.line_segment([c + Vec2::new(-3.5, 1.5), c + Vec2::new(0., 5.)], s);
+            p.line_segment([c + Vec2::new(3.5, 1.5), c + Vec2::new(0., 5.)], s);
+        }
+    }
+    let resp = ui.interact(rect, id, Sense::hover()).on_hover_text(label);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, label));
+}
+
+/// Draws the badge and returns its left edge.
+pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) -> f32 {
     let g = ui.painter().layout_no_wrap(count(n), FontId::proportional(11.), rgb(t.on_accent));
     let w = (g.size().x + 10.).max(20.);
     let r = egui::Rect::from_center_size(center, Vec2::new(w, 20.));
     ui.painter().rect_filled(r, 10., rgb(t.accent));
     ui.painter().galley(r.center() - g.size() / 2., g, rgb(t.on_accent));
+    r.left()
 }
 
 /// A round picture (or nothing, when there is none) centred at `c`; the caller draws the initials circle first.
@@ -146,11 +208,15 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             if let Some(s) = stamp {
                 ui.painter().text(egui::pos2(rect.right() - 12., rect.top() + 10.), Align2::RIGHT_TOP, s, FontId::proportional(12.), rgb(t.secondary));
             }
-            let badge_w = if room.unread > 0 { 28. } else { 0. };
-            let preview = one_line(ui, &room.preview, 13., rgb(t.secondary), (rect.right() - 12. - text_left - badge_w).max(20.));
+            let row_mark = mark(room.pinned(), room.low_priority());
+            let preview = one_line(ui, &room.preview, 13., rgb(t.secondary), (rect.right() - 12. - text_left - right_reserved(room.unread > 0, row_mark)).max(20.));
             ui.painter().galley(egui::pos2(text_left, rect.top() + 29.), preview, rgb(t.secondary));
+            let mut mark_right = rect.right() - 12.;
             if room.unread > 0 {
-                badge(ui, egui::pos2(rect.right() - 24., rect.top() + 38.), room.unread, t);
+                mark_right = badge(ui, egui::pos2(rect.right() - 24., rect.top() + 38.), room.unread, t) - 4.;
+            }
+            if let Some(m) = row_mark {
+                draw_mark(ui, egui::Id::new(("row-mark", index)), m, mark_right, rect.top() + 38., t);
             }
             if resp.clicked() {
                 pick = Some(room.scope.clone());
