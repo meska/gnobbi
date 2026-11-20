@@ -1,5 +1,5 @@
 //! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and, at the bottom,
-//! «Organizza stanze» (the drawer where the spaces are dragged into order and into each other) and «Impostazioni» (the settings drawer).
+//! «Organizza spazi» (the drawer where the spaces are dragged into order and into each other) and «Impostazioni» (the settings drawer).
 use crate::list::{badge, one_line, photo, rgb};
 use eframe::egui::{self, Align2, FontId, Sense, Stroke, Vec2};
 use matrix_desktop::{AppDirs, DesignTokens, NavigationEntry, RailLayout, RailLayouts, Sidebar};
@@ -310,14 +310,14 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
     if n > 0 {
         badge(ui, c + Vec2::new(17., -12.), n, t);
     }
-    let spoken = if matches!(icon, Icon::Edit) { "Organizza stanze".to_owned() } else if n > 0 { format!("{label}, {n} non letti") } else { label.to_owned() };
+    let spoken = if matches!(icon, Icon::Edit) { "Organizza spazi".to_owned() } else if n > 0 { format!("{label}, {n} non letti") } else { label.to_owned() };
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &spoken));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// The rail below the account picture. `account` is the catalog id the layout is stored under; `placed` the engine's answer to a move.
 pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, state: &mut State, account: u64, placed: Option<Result<(), OperationError>>, t: &DesignTokens) {
-    // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows «Organizza stanze», rail-drag / rail-line also a held row.
+    // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows «Organizza spazi», rail-drag / rail-line also a held row.
     let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
     if matches!(view.as_str(), "rail-edit" | "rail-drag" | "rail-line") {
         state.set_edit(true);
@@ -349,7 +349,7 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
             }
         }
     });
-    if item(ui, avatars, t, Icon::Edit, "Stanze", 0, state.edit).clicked() {
+    if item(ui, avatars, t, Icon::Edit, "Spazi", 0, state.edit).clicked() {
         state.set_edit(!state.edit);
     }
     if item(ui, avatars, t, Icon::Settings, "Impostazioni", 0, state.settings).clicked() {
@@ -444,7 +444,7 @@ pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str
     closed
 }
 
-/// «Organizza stanze»: a drawer beside the rail. Rows are dragged (or moved with the arrow keys and buttons) into order and into
+/// «Organizza spazi»: a drawer beside the rail. Rows are dragged (or moved with the arrow keys and buttons) into order and into
 /// each other: inside a space that is `m.space.child` on the server, at the top level a local order. The switch hides a
 /// space from the rail, locally.
 pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, form: &mut crate::newchat::Form, state: &mut State, account: u64, dirs: Option<&AppDirs>, t: &DesignTokens) {
@@ -455,21 +455,15 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
     let rows = tree(&session.sidebar, &layout, &state.open, true, state.moving.as_ref());
     let frozen = state.moving.is_some();
     let mut act = None;
-    let closed = drawer(ctx, state.panel, "rail-drawer", "Organizza stanze", state.edit, t, |ui, rect| {
+    let closed = drawer(ctx, state.panel, "rail-drawer", "Organizza spazi", state.edit, t, |ui, rect| {
         let (p, width) = (ui.painter().clone(), rect.width());
-        let actions = egui::Rect::from_min_size(egui::pos2(rect.left() + 20., rect.top() + 8.), Vec2::new((width - 40.).max(0.), 36.));
-        ui.scope_builder(egui::UiBuilder::new().max_rect(actions), |ui| {
-            ui.horizontal(|ui| {
-                for (label, space) in [("+ Nuova stanza", false), ("+ Nuovo spazio", true)] {
-                    if ui.add_sized([((width - 48.) / 2.).max(0.), 36.], egui::Button::new(label)).clicked() {
-                        form.open_creation(space);
-                        session.new_open = true;
-                        act = Some(Edit::Close);
-                    }
-                }
-            });
-        });
-        let mut top = actions.bottom() + 8.;
+        let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 176., rect.top() - 46.), Vec2::new(120., 36.));
+        if ui.put(action, egui::Button::new(egui::RichText::new("+ Nuovo spazio").color(rgb(t.accent))).frame(false)).clicked() {
+            form.open_creation(true);
+            session.new_open = true;
+            act = Some(Edit::Close);
+        }
+        let mut top = rect.top() + 8.;
         if let Some(error) = &state.error {
             let line = one_line(ui, error, 13., rgb(t.error), width - 40.);
             p.galley(egui::pos2(rect.left() + 20., top + 18. - line.size().y / 2.), line, rgb(t.error));
