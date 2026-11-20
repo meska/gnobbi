@@ -1,10 +1,10 @@
 //! «Account» drawer: the card of the account on screen (name and picture, editable where the server allows)
 //! and the other accounts of the catalog, all running in this app; "Apri" brings one on screen.
 use crate::list::rgb;
+use crate::avatar_editor::Editor;
 use crate::session::Session;
 use eframe::egui::{self, RichText};
 use matrix_desktop::{AccountCatalog, AppDirs, DesignTokens};
-use matrix_engine::profile::{PreparedAvatar, ProfileError};
 use matrix_engine::verification::ProfileAvatar;
 use std::path::PathBuf;
 
@@ -24,10 +24,8 @@ pub struct Form {
     /// The profile the name field was filled from: a new one (saved, other account) refills it.
     seeded: Option<(String, Option<String>)>,
     photo: Photo,
-    /// A chosen file being decoded off the UI thread.
-    loading: Option<(PathBuf, std::sync::mpsc::Receiver<Result<PreparedAvatar, ProfileError>>)>,
-    /// A chosen file that is not a usable picture.
-    bad_file: Option<&'static str>,
+    /// The retouch window; kept (closed) after «Applica» so the same picture can be adjusted again.
+    editor: Option<Editor>,
     /// A «Salva» is on its way: a good answer drops the chosen picture (the server's one is shown again).
     sent: bool,
     /// Test hook state (see `card`).
@@ -36,21 +34,35 @@ pub struct Form {
 }
 
 impl Form {
-    /// A file from the picker or dropped on the window becomes the preview once decoded.
-    pub fn pick(&mut self, path: PathBuf, ctx: &egui::Context) {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let (file, ctx) = (path.clone(), ctx.clone());
-        std::thread::spawn(move || {
-            let _ = tx.send(matrix_engine::profile::prepare_blocking(&file));
-            ctx.request_repaint();
-        });
-        self.loading = Some((path, rx));
-        self.bad_file = None;
+    /// A file from the picker or dropped on the window opens the retouch window; `profile` is the account's private folder.
+    pub fn pick(&mut self, path: PathBuf, profile: &std::path::Path, ctx: &egui::Context) {
+        self.editor = Some(Editor::from_file(path, draft(profile), ctx));
+    }
+
+    /// Test hook, debug builds only: the retouch window alone on GNOBBI_EGUI_PHOTO, with no account (GNOBBI_EGUI_VIEW=avatar-editor).
+    #[cfg(debug_assertions)]
+    pub fn demo(&mut self, ctx: &egui::Context, t: &DesignTokens) {
+        if let (None, Ok(path)) = (&self.editor, std::env::var("GNOBBI_EGUI_PHOTO")) {
+            self.pick(path.into(), &std::env::temp_dir(), ctx);
+        }
+        if let Some(e) = &mut self.editor {
+            e.show(ctx, t);
+        }
+    }
+
+    /// The retouch window is on screen (Esc belongs to it).
+    pub fn editing(&self) -> bool {
+        self.editor.as_ref().is_some_and(|e| e.open)
     }
 }
 
+/// Where «Applica» writes the picture «Salva» uploads: one file in the account's private folder, gone with the account.
+fn draft(profile: &std::path::Path) -> PathBuf {
+    profile.join("avatar-draft.png")
+}
+
 /// The card of the account on screen. False until the profile has arrived (the plain row is drawn instead).
-fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> bool {
+fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::Path, t: &DesignTokens) -> bool {
     let Some(v) = &mut s.verification else { return false };
     let Some(shown) = v.profile().cloned() else { return false };
     // Until the server's answer arrives nothing is editable, so no control appears and then vanishes.
@@ -67,28 +79,28 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
         }
         match std::env::var("GNOBBI_EGUI_PHOTO") {
             Ok(p) if p == "remove" => f.photo = Photo::Remove,
-            Ok(p) => f.pick(p.into(), ui.ctx()),
+            Ok(p) => f.pick(p.into(), profile, ui.ctx()),
             Err(_) => {}
         }
         f.hook_save = std::env::var_os("GNOBBI_EGUI_CONFIRM").is_some();
-    }
-    if let Some((path, rx)) = &f.loading
-        && let Ok(done) = rx.try_recv()
-    {
-        match done {
-            Ok(p) => {
-                let (w, h, rgba) = p.preview;
-                let pixels = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
-                f.photo = Photo::Set(path.clone(), ui.ctx().load_texture("own-avatar-preview", pixels, Default::default()));
-            }
-            Err(e) => f.bad_file = Some(matrix_desktop::i18n::t(e.message())),
+        // With the confirm hook the retouch window applies the picture as it is.
+        if let Some(e) = f.editor.as_mut().filter(|_| f.hook_save) {
+            e.auto_apply = true;
         }
-        f.loading = None;
+    }
+    if let Some(e) = &mut f.editor {
+        if let Some((path, preview)) = e.show(ui.ctx(), t) {
+            f.photo = Photo::Set(path, preview);
+        }
+        if e.unused() {
+            f.editor = None;
+        }
     }
     if f.sent && !s.profile_busy {
         f.sent = false;
         if s.profile_saved == Some(Ok(())) {
             f.photo = Photo::Keep;
+            f.editor = None;
         }
     }
     let (id, name) = shown;
@@ -97,7 +109,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
     let busy = s.profile_busy;
     let name_changed = can_name && f.name.trim() != name.as_deref().unwrap_or("") && !f.name.trim().is_empty();
     let dirty = name_changed || !matches!(f.photo, Photo::Keep);
-    let (mut save, mut choose) = (false, false);
+    let (mut save, mut choose, mut retouch) = (false, false, false);
     ui.add_enabled_ui(!busy, |ui| {
         // Avatar and the name/id block share one axis: the block has a known height, so the row centres both.
         let block = crate::metrics::button() + 2. + ui.painter().layout_no_wrap(id.clone(), egui::FontId::proportional(12.), egui::Color32::WHITE).size().y;
@@ -121,11 +133,11 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
             }
             if can_photo {
                 let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Scegli foto"));
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, matrix_desktop::i18n::t("Edit photo")));
                 if resp.has_focus() || resp.hovered() {
                     ui.painter().circle_stroke(rect.center(), 32., egui::Stroke::new(2., rgb(t.accent)));
                 }
-                choose |= resp.clicked();
+                retouch |= resp.clicked();
             }
             ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), block), egui::Layout::top_down(egui::Align::Min), |ui| {
                 ui.spacing_mut().item_spacing.y = 2.;
@@ -151,10 +163,11 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
                     if has_photo && ui.button("Rimuovi foto").clicked() {
                         // Nothing to remove on the server: dropping the choice is enough.
                         f.photo = if current.is_some() { Photo::Remove } else { Photo::Keep };
+                        f.editor = None;
                     }
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if busy || f.loading.is_some() {
+                    if busy {
                         ui.spinner();
                     } else {
                         save |= ui.add_enabled(dirty, egui::Button::new("Salva")).clicked();
@@ -163,7 +176,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
             });
         }
     });
-    if f.hook_save && f.loading.is_none() {
+    if f.hook_save && !f.editing() {
         f.hook_save = false;
         save = true;
     }
@@ -171,19 +184,19 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
         crate::pick::start(ui.ctx(), "Foto del profilo", true);
     }
     if let Some(path) = crate::pick::done("Foto del profilo") {
-        f.pick(path, ui.ctx());
+        f.pick(path, profile, ui.ctx());
     }
-    // One line: the file's problem, else the answer to the last «Salva».
-    match (f.bad_file, s.profile_saved, dirty) {
-        (Some(line), ..) | (None, Some(Err(line)), _) => {
+    // One line: the answer to the last «Salva».
+    match (s.profile_saved, dirty) {
+        (Some(Err(line)), _) => {
             ui.add(egui::Label::new(RichText::new(line).color(ui.visuals().error_fg_color)).truncate());
         }
-        (None, Some(Ok(())), false) => {
+        (Some(Ok(())), false) => {
             ui.label(RichText::new("Salvato").color(rgb(t.secondary)));
         }
         _ => {}
     }
-    if save && dirty && !busy && f.loading.is_none() {
+    if save && dirty && !busy && !f.editing() {
         let avatar = match &f.photo {
             Photo::Keep => ProfileAvatar::Keep,
             Photo::Remove => ProfileAvatar::Remove,
@@ -193,7 +206,18 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
             s.profile_busy = true;
             f.sent = true;
             s.profile_saved = None;
-            f.bad_file = None;
+        }
+    }
+    // The picture in the circle is the one to retouch: the applied one, else the account's; with none, a file is asked for first.
+    if retouch {
+        if let Some(e) = &mut f.editor {
+            e.open = true;
+        } else if let Photo::Set(path, _) = &f.photo {
+            f.pick(path.clone(), profile, ui.ctx());
+        } else if let (Photo::Keep, Some(mxc)) = (&f.photo, &current) {
+            f.editor = Some(Editor::from_server(s.avatar_original(mxc), draft(profile), ui.ctx()));
+        } else {
+            crate::pick::start(ui.ctx(), "Foto del profilo", true);
         }
     }
     true
@@ -262,7 +286,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
                         if will {
                             crate::settings::section(ui, "Account attivo", t);
                         }
-                        card(ui, s, form, t)
+                        card(ui, s, form, current, t)
                     });
                     if carded {
                         crate::settings::section(ui, "Altri account", t);

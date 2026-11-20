@@ -66,24 +66,29 @@ pub async fn prepare_avatar(path: PathBuf) -> Result<PreparedAvatar, ProfileErro
         .map_err(|_| ProfileError::FileInvalid)?
 }
 
-/// Same as `prepare_avatar`, for callers that already run off the UI thread.
-pub fn prepare_blocking(path: &std::path::Path) -> Result<PreparedAvatar, ProfileError> {
+/// The picture in a chosen file: at most `MAX_MEDIA_BYTES` are read, PNG, JPEG or WebP only, bounded in pixels.
+pub fn decode_blocking(path: &std::path::Path) -> Result<image::DynamicImage, ProfileError> {
     let max = crate::media::MAX_MEDIA_BYTES;
     let mut data = Vec::new();
     std::fs::File::open(path)
         .and_then(|f| f.take(max as u64 + 1).read_to_end(&mut data))
         .map_err(|_| ProfileError::FileUnreadable)?;
-    if data.len() > max {
+    decode_bytes(&data)
+}
+
+/// Same checks as `decode_blocking`, for bytes already in memory (the current avatar from the server).
+pub fn decode_bytes(data: &[u8]) -> Result<image::DynamicImage, ProfileError> {
+    if data.len() > crate::media::MAX_MEDIA_BYTES {
         return Err(ProfileError::FileTooLarge);
     }
-    let format = match crate::media_sdk::mime_of(&data) {
+    let format = match crate::media_sdk::mime_of(data) {
         Some("image/png") => image::ImageFormat::Png,
         Some("image/jpeg") => image::ImageFormat::Jpeg,
         Some("image/webp") => image::ImageFormat::WebP,
         _ => return Err(ProfileError::FileInvalid),
     };
     let reader = || {
-        let mut reader = image::ImageReader::with_format(std::io::Cursor::new(&data), format);
+        let mut reader = image::ImageReader::with_format(std::io::Cursor::new(data), format);
         let mut limits = image::Limits::default();
         limits.max_image_width = None;
         limits.max_image_height = None;
@@ -95,7 +100,17 @@ pub fn prepare_blocking(path: &std::path::Path) -> Result<PreparedAvatar, Profil
     if u64::from(w) * u64::from(h) > crate::media::MAX_IMAGE_PIXELS {
         return Err(ProfileError::FileTooLarge);
     }
-    let picture = reader().decode().map_err(|_| ProfileError::FileInvalid)?;
+    // Phone photos are stored sideways with an orientation tag: turn them the way they are meant to be seen.
+    let mut decoder = reader().into_decoder().map_err(|_| ProfileError::FileInvalid)?;
+    let orientation = image::ImageDecoder::orientation(&mut decoder).unwrap_or(image::metadata::Orientation::NoTransforms);
+    let mut picture = image::DynamicImage::from_decoder(decoder).map_err(|_| ProfileError::FileInvalid)?;
+    picture.apply_orientation(orientation);
+    Ok(picture)
+}
+
+/// Same as `prepare_avatar`, for callers that already run off the UI thread.
+pub fn prepare_blocking(path: &std::path::Path) -> Result<PreparedAvatar, ProfileError> {
+    let picture = decode_blocking(path)?;
     let (w, h) = picture.dimensions();
     let side = w.min(h).min(AVATAR_SIDE);
     let square = picture.resize_to_fill(side, side, image::imageops::FilterType::Triangle);

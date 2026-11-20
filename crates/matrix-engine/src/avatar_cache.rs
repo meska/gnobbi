@@ -109,7 +109,8 @@ impl AvatarCache {
                 return Ok(bytes);
             }
             let _permit = self.permits.acquire().await.map_err(|_| false)?;
-            let bytes = self.fetch(client, uri).await?;
+            let thumbnail = MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(Method::Crop, AVATAR_PX.into(), AVATAR_PX.into()));
+            let bytes = self.fetch(client, uri, thumbnail, self.max_bytes).await?;
             self.store(&name, &bytes).map_err(|_| false)?;
             Ok(bytes)
         }
@@ -120,22 +121,23 @@ impl AvatarCache {
         result
     }
 
-    async fn fetch(&self, client: &matrix_sdk::Client, uri: &MxcUri) -> Result<Vec<u8>, bool> {
+    /// The picture as uploaded, for retouching: same fetch as the thumbnail, capped at the media limit while received, never stored.
+    pub async fn original(&self, client: &matrix_sdk::Client, mxc: &str) -> Result<Vec<u8>, bool> {
+        let uri = <&MxcUri>::from(mxc);
+        crate::media_sdk::checked_source(MediaSource::Plain(uri.to_owned())).map_err(|_| false)?;
+        let _permit = self.permits.acquire().await.map_err(|_| false)?;
+        self.fetch(client, uri, MediaFormat::File, crate::media::MAX_MEDIA_BYTES).await
+    }
+
+    async fn fetch(&self, client: &matrix_sdk::Client, uri: &MxcUri, format: MediaFormat, max_bytes: usize) -> Result<Vec<u8>, bool> {
         let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
         self.peak.fetch_max(now, Ordering::SeqCst);
         self.downloads.fetch_add(1, Ordering::SeqCst);
-        let request = MediaRequestParameters {
-            source: MediaSource::Plain(uri.to_owned()),
-            format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
-                Method::Crop,
-                AVATAR_PX.into(),
-                AVATAR_PX.into(),
-            )),
-        };
+        let request = MediaRequestParameters { source: MediaSource::Plain(uri.to_owned()), format };
         let config = client
             .request_config()
             .timeout(Some(Duration::from_secs(15)))
-            .max_response_size(Some(self.max_bytes));
+            .max_response_size(Some(max_bytes));
         // Calling the fetcher directly skips the SDK media store: only our private cache holds it.
         let bytes = DefaultMediaFetcher
             .fetch_media_content_with_request_config(client, &request, config)
@@ -235,6 +237,20 @@ impl crate::avatar::AvatarSource for AvatarFetcher {
                         .flatten(),
                     false,
                 ),
+                Err(retry) => (None, retry),
+            };
+            let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba, retry });
+        });
+    }
+
+    fn request_original(&self, mxc: String, out: std::sync::mpsc::Sender<crate::avatar::AvatarPicture>) {
+        let me = self.clone();
+        self.runtime.spawn(async move {
+            let (rgba, retry) = match me.cache.original(&me.client, &mxc).await {
+                Ok(bytes) => {
+                    let decoded = tokio::task::spawn_blocking(move || crate::profile::decode_bytes(&bytes).ok().map(|p| p.into_rgba8()));
+                    (decoded.await.ok().flatten().map(|p| (p.width(), p.height(), p.into_raw())), false)
+                }
                 Err(retry) => (None, retry),
             };
             let _ = out.send(crate::avatar::AvatarPicture { mxc, rgba, retry });

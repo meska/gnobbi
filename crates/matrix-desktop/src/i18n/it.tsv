@@ -311,3 +311,28 @@ menu	Bring All to Front	Porta tutto in primo piano
 	New space	Nuovo spazio
 	Close	Chiudi
 	Add account	Aggiungi account
+
+# avatar editor
+	Profile photo	Foto del profilo
+	Edit photo	Modifica foto
+	Apply	Applica
+	Reset	Reimposta
+	Rotate left	Ruota a sinistra
+	Rotate right	Ruota a destra
+	Mirror	Specchia
+	Zoom	Zoom
+	Rotation	Rotazione
+	Brightness	Luminosità
+	Contrast	Contrasto
+	Saturation	Saturazione
+	Original	Originale
+	B&W	B/N
+	Sepia	Seppia
+	Vivid	Vivido
+	Cool	Freddo
+	Warm	Caldo
+	Fade	Dissolvenza
+	High contrast	Alto contrasto
+	Preview: drag to move the photo	Anteprima: trascina per spostare la foto
+	Could not download the current photo.	Non riesco a scaricare la foto attuale.
+	Could not prepare the photo.	Non riesco a preparare la foto.

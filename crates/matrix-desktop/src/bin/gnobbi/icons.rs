@@ -55,6 +55,10 @@ icons! {
     WarningCircle = 0xe4e2 "warning-circle",
     DotsThreeVertical = 0xe208 "dots-three-vertical",
     DotsSixVertical = 0xeae2 "dots-six-vertical",
+    ArrowClockwise = 0xe036 "arrow-clockwise",
+    ArrowCounterClockwise = 0xe038 "arrow-counter-clockwise",
+    FlipHorizontal = 0xed6a "flip-horizontal",
+    ArrowUUpLeft = 0xe08a "arrow-u-up-left",
 }
 
 static REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Phosphor-subset.ttf");

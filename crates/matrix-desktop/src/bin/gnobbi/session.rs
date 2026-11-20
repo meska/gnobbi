@@ -1509,6 +1509,13 @@ impl Session {
         }
     }
 
+    /// Asks for an avatar as uploaded (not the thumbnail), to retouch it; `None` while the account is not connected.
+    pub fn avatar_original(&self, mxc: &str) -> Option<std::sync::mpsc::Receiver<matrix_engine::avatar::AvatarPicture>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.avatar_slot.try_lock().ok()?.as_ref()?.request_original(mxc.to_owned(), tx);
+        Some(rx)
+    }
+
     /// The account's own picture, once downloaded (the spaces rail and the tray draw it).
     pub fn own_picture(&self) -> Option<egui::TextureHandle> {
         self.avatars.get(self.verification.as_ref()?.profile_avatar()?)?.clone()

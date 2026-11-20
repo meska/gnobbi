@@ -11,6 +11,7 @@ use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
 mod accounts;
+mod avatar_editor;
 mod pick;
 mod composer;
 mod customize;
@@ -361,7 +362,7 @@ impl eframe::App for App {
                             e.avatar = Some(path.clone());
                         }
                     }
-                    _ if self.rail.accounts && session.profile_caps.is_some_and(|c| c.1) => self.account_form.pick(path.clone(), &ctx),
+                    _ if self.rail.accounts && session.profile_caps.is_some_and(|c| c.1) => self.account_form.pick(path.clone(), &self.root, &ctx),
                     _ => session.attach(path),
                 }
             }
@@ -397,7 +398,7 @@ impl eframe::App for App {
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::Escape))
                     && !session.new_open && session.explore.is_none() && !session.poll_open && session.edit.is_none()
-                    && !(self.rail.devices && session.verification.as_ref().is_some_and(devices::modal_open)) && self.pending_web.is_none()
+                    && !(self.rail.devices && session.verification.as_ref().is_some_and(devices::modal_open)) && self.pending_web.is_none() && !self.account_form.editing()
                 {
                     if self.rail.any_drawer() { (self.rail.edit, self.rail.settings, self.rail.devices, self.rail.accounts, self.rail.customize) = (false, false, false, false, false); }
                     else if session.quick_open { session.quick_open = false; }
@@ -480,6 +481,8 @@ impl eframe::App for App {
             self.sign_in(ui, &t);
         }
         if let Some(s) = &mut self.session { s.show_viewer(&ctx); }
+        #[cfg(debug_assertions)]
+        if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("avatar-editor") { self.account_form.demo(&ctx, &t); }
         if let Some(s) = &mut self.session && s.quick_open { quick_search(&ctx, s); }
         if let Some(url) = self.pending_web.clone() {
             let mut choice = None;

@@ -13,6 +13,8 @@ pub struct AvatarPicture {
 pub trait AvatarSource: Send + Sync {
     /// Starts the download and decode away from the caller; the answer arrives on `out`.
     fn request(&self, mxc: String, out: std::sync::mpsc::Sender<AvatarPicture>);
+    /// Like `request`, but the picture as uploaded instead of the small thumbnail (to retouch the own avatar). Not cached.
+    fn request_original(&self, mxc: String, out: std::sync::mpsc::Sender<AvatarPicture>);
 }
 
 pub type AvatarSlot = Arc<Mutex<Option<Box<dyn AvatarSource>>>>;
