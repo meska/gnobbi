@@ -79,7 +79,7 @@ pub use connection_options::{
 mod links;
 pub mod mention_gaps;
 pub use links::{
-    LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links,
+    LinkConfirmation, LinkConfirmationRequest, MessageLink, SafeWebUrl, message_links, open_url, open_with,
 };
 mod voice;
 pub mod audio_player;

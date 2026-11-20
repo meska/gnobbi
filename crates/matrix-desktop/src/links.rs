@@ -148,3 +148,35 @@ impl SafeWebUrl {
         &self.0
     }
 }
+
+/// Openers tried in order until one exits 0. egui's own `ctx.open_url` does nothing here: eframe is built without the `links`
+/// feature (no webbrowser crate), so it only logs a warning. shortcut: no iOS/Windows-specific opener beyond `explorer`.
+const OPENERS: &[&[&str]] = if cfg!(target_os = "macos") {
+    &[&["open"]]
+} else if cfg!(windows) {
+    &[&["explorer"]]
+} else {
+    &[&["xdg-open"], &["gio", "open"], &["sensible-browser"]]
+};
+
+/// Runs the openers through `run(argv)` (true = opened); stops at the first success.
+pub fn open_with(url: &SafeWebUrl, run: &mut dyn FnMut(&[&str]) -> bool) -> bool {
+    OPENERS.iter().any(|argv| {
+        let mut full = argv.to_vec();
+        full.push(url.as_str());
+        run(&full)
+    })
+}
+
+/// Opens in the system browser off the UI thread; the receiver yields the outcome once.
+pub fn open_url(url: &SafeWebUrl) -> std::sync::mpsc::Receiver<bool> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let url = url.clone();
+    std::thread::spawn(move || {
+        let ok = open_with(&url, &mut |a| {
+            std::process::Command::new(a[0]).args(&a[1..]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success())
+        });
+        let _ = tx.send(ok);
+    });
+    rx
+}

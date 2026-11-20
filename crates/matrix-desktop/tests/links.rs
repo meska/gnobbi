@@ -149,3 +149,14 @@ fn sample_message_links_cover_each_web_url_and_skip_other_schemes() {
         ]
     );
 }
+
+#[test]
+fn opener_falls_through_and_reports_failure() {
+    let url = SafeWebUrl::parse("https://news.ycombinator.com/item?id=50558533").unwrap();
+    let mut seen = Vec::new();
+    assert!(!matrix_desktop::open_with(&url, &mut |a| { seen.push(a.join(" ")); false }));
+    assert!(seen.iter().all(|c| c.ends_with("item?id=50558533")));
+    let mut n = 0;
+    assert!(matrix_desktop::open_with(&url, &mut |_| { n += 1; true }));
+    assert_eq!(n, 1);
+}

@@ -145,6 +145,8 @@ struct App {
     shot_sent: bool,
     pending_link: Option<(matrix_domain::MatrixLink, std::time::Instant)>,
     pending_web: Option<matrix_desktop::SafeWebUrl>,
+    opening_web: Option<(matrix_desktop::SafeWebUrl, std::sync::mpsc::Receiver<bool>)>,
+    failed_web: Option<matrix_desktop::SafeWebUrl>,
     hook_sent: bool,
     hook_added: bool,
     auto_login2: Option<serde_json::Value>,
@@ -188,7 +190,7 @@ impl App {
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
         let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
-            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
+            pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false };
         if let Some(i) = last {
             app.switch_to(i);
@@ -487,19 +489,39 @@ impl eframe::App for App {
         if let Some(url) = self.pending_web.clone() {
             let mut choice = None;
             let modal = egui::Modal::new(egui::Id::unique("confirm-web-link")).show(&ctx, |ui| {
-                ui.heading("Apri link");
+                ui.heading(i18n::t("Open link"));
                 ui.label(url.as_str());
                 ui.horizontal(|ui| {
-                    if ui.button("Annulla").clicked() { choice = Some(false); }
-                    if ui.button("Apri").clicked() { choice = Some(true); }
+                    if ui.button(i18n::t("Cancel")).clicked() { choice = Some(false); }
+                    if ui.button(i18n::t("Open")).clicked() { choice = Some(true); }
                 });
             });
             if choice == Some(true) {
-                ctx.open_url(egui::OpenUrl::new_tab(url.as_str()));
+                self.opening_web = Some((url.clone(), matrix_desktop::open_url(&url)));
             }
             if choice.is_some() || modal.should_close() {
                 self.pending_web = None;
             }
+        }
+        if let Some((url, rx)) = &self.opening_web {
+            match rx.try_recv() {
+                Ok(true) => self.opening_web = None,
+                Ok(false) => { self.failed_web = Some(url.clone()); self.opening_web = None; }
+                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(100)),
+                Err(_) => self.opening_web = None,
+            }
+        }
+        if let Some(url) = self.failed_web.clone() {
+            let mut done = false;
+            let modal = egui::Modal::new(egui::Id::unique("failed-web-link")).show(&ctx, |ui| {
+                ui.heading(i18n::t("Could not open the link."));
+                ui.label(url.as_str());
+                ui.horizontal(|ui| {
+                    if ui.button(i18n::t("Copy link")).clicked() { ctx.copy_text(url.as_str().to_owned()); done = true; }
+                    if ui.button(i18n::t("Close")).clicked() { done = true; }
+                });
+            });
+            if done || modal.should_close() { self.failed_web = None; }
         }
     }
 }
