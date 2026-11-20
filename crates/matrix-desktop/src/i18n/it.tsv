@@ -1,0 +1,4 @@
+# Catalogo italiano di Gnobbi, scritto da zero. UTF-8, una riga per voce:
+# contesto<TAB>sorgente inglese<TAB>traduzione. Contesto vuoto = etichetta normale;
+# menu = voce di menu; @plural = forme separate da | (it: uno|altri), segnaposto {n}.
+# In sorgente e traduzione: \t = tab, \n = a capo, \\ = backslash.

@@ -670,3 +670,7 @@ The Gnobbi app icons (the default "minimal mark", the gnome and the monster vari
 ## egui frontend (crates/matrix-desktop)
 
 The egui stack (eframe/egui 0.37 and the storytold winit fork, both vendored under vendor/, provenance in their GNOBBI-VENDOR.md) and its dependencies are not yet in the list above. epaint_default_fonts bundles fonts under OFL-1.1 and Ubuntu-font-1.0 (full texts in vendor/egui-6d518fc/crates/epaint_default_fonts/).
+
+## Code adapted from other projects
+
+- CADCraft (https://github.com/storytold/cadcraft) — MIT OR Apache-2.0 — the TSV catalog scheme (`context<TAB>source<TAB>translation`, `@plural` rows, English-key fallback) in `crates/matrix-desktop/src/i18n.rs`. Gnobbi's catalogs are written from scratch.

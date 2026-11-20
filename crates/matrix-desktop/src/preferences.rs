@@ -245,6 +245,8 @@ pub struct Preferences {
     /// «Conteggio» per account: catalog IDs with it on. Stored as `notification_accounts`, which
     /// `encode` never writes, so only `set_count_preview` touches it.
     pub count_preview_accounts: BTreeSet<u64>,
+    /// Interface language; `Auto` follows the system.
+    pub language: crate::i18n::Preference,
 }
 
 impl Default for Preferences {
@@ -270,6 +272,7 @@ impl Default for Preferences {
             message_preview: true,
             thread_width: None,
             count_preview_accounts: BTreeSet::new(),
+            language: Default::default(),
         }
     }
 }
@@ -430,6 +433,7 @@ impl Preferences {
                         .collect()
                 })
                 .unwrap_or_default(),
+            language: map.get("language").and_then(Value::as_str).and_then(crate::i18n::Preference::parse).unwrap_or_default(),
         }
     }
 
@@ -468,7 +472,7 @@ impl Preferences {
     }
 
     fn encode(&self, map: &mut serde_json::Map<String, Value>) {
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width, "language": self.language.code() });
         if let Value::Object(own) = body {
             map.extend(own);
         }

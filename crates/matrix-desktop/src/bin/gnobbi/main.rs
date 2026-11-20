@@ -147,6 +147,7 @@ struct App {
 impl App {
     fn new(dirs: Option<&AppDirs>, root: std::path::PathBuf, trust: Option<Vec<u8>>, link: Option<matrix_domain::MatrixLink>, multi: bool) -> App {
         let prefs = dirs.map(Preferences::load).unwrap_or_else(Preferences::default);
+        matrix_desktop::i18n::apply(prefs.language, None);
         #[cfg(target_os = "linux")]
         if dirs.is_some() {
             desktop_entry::install_at_start(prefs.icon, prefs.desktop_entry_dont_ask);
@@ -1312,6 +1313,9 @@ impl App {
                 && let Some(icon) = app_icon(new.icon)
             {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Icon(Some(std::sync::Arc::new(icon))));
+            }
+            if new.language != self.prefs.language {
+                matrix_desktop::i18n::apply(new.language, Some(ui.ctx()));
             }
             self.prefs = new;
             self.applied = None;

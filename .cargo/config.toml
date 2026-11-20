@@ -1,6 +1,10 @@
 [build]
 jobs = 4
 
+[alias]
+# Missing translations per language: `cargo i18n`.
+i18n = "test -p matrix-desktop --test i18n_coverage -- --ignored --nocapture"
+
 # Windows main thread has a 1 MB stack (8 MB on Linux); deeply nested HTML parsing needs the same headroom.
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/STACK:8388608"]
