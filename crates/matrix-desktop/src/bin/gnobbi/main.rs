@@ -130,6 +130,8 @@ struct App {
     account_form: accounts::Form,
     poll_form: poll::Form,
     confirm: Option<&'static str>,
+    /// «Esci» on an account: the confirmation and what follows it.
+    sign_out: Option<accounts::SignOut>,
     theme: Theme,
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
@@ -191,7 +193,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, sign_out: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, opening_web: None, failed_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false };
         if let Some(i) = last {
@@ -219,6 +221,76 @@ impl App {
             if let Some(d) = &self.dirs {
                 let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
             }
+        }
+    }
+
+    /// «Esci» on an account: confirm, revoke the device on the server, then delete the account from this device.
+    fn sign_out_step(&mut self, ctx: &egui::Context) {
+        let Some(so) = &mut self.sign_out else { return };
+        let dir = so.dir.clone();
+        match so.show(ctx) {
+            None => {}
+            Some(accounts::SignOutStep::Close) => self.sign_out = None,
+            Some(accounts::SignOutStep::Start) => {
+                let session = if dir == self.root { self.session.as_ref() } else { self.parked.iter().find(|p| p.root == dir).map(|p| &p.session) };
+                if let Some(session) = session {
+                    let control = session.control();
+                    control.logout_and_stop();
+                    so.wait_for(control);
+                } else {
+                    self.sign_out = None;
+                }
+            }
+            // The worker was stopped for the logout: the account starts again from its saved profile.
+            Some(accounts::SignOutStep::Restart) => {
+                self.sign_out = None;
+                if let Some(d) = &self.dirs
+                    && let Ok(fresh) = Session::start(d, dir.clone(), self.trust.clone())
+                {
+                    if dir == self.root {
+                        self.session = Some(fresh);
+                    } else if let Some(p) = self.parked.iter_mut().find(|p| p.root == dir) {
+                        p.session = fresh;
+                    }
+                }
+            }
+            Some(accounts::SignOutStep::Remove) => {
+                self.sign_out = None;
+                self.remove_account(&dir);
+            }
+        }
+    }
+
+    /// Takes the account out of the app and the catalog and deletes its files and vault items; no other account is touched.
+    fn remove_account(&mut self, dir: &std::path::Path) {
+        let Some(d) = self.dirs.clone() else { return };
+        if dir == self.root {
+            // The next remaining account comes on screen; with none left the sign-in screen starts on a fresh folder.
+            if self.parked.is_empty() {
+                let next = matrix_desktop::AccountCatalog::load(&d).next_root(&d);
+                self.session = None;
+                match Session::start(&d, next.clone(), self.trust.clone()) {
+                    Ok(s) => (self.session, self.root, self.recorded) = (Some(s), next, false),
+                    Err(e) => self.start_error = Some(e),
+                }
+            } else {
+                let p = self.parked.remove(0);
+                self.session = Some(p.session);
+                (self.root, self.recorded) = (p.root, p.recorded);
+                (self.new_form, self.device_fields, self.account_form, self.poll_form, self.confirm) = Default::default();
+                self.rail.settings = false;
+                self.rail.devices = false;
+                self.rail.customize = false;
+                let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
+            }
+        } else {
+            self.parked.retain(|p| p.root != dir);
+        }
+        let mut catalog = matrix_desktop::AccountCatalog::load(&d);
+        let id = catalog.id_for_root(&d, dir);
+        accounts::wipe(dir, id.and_then(|id| catalog.cache_dir(&d, id)));
+        if let Some(id) = id && catalog.remove(id) {
+            let _ = catalog.save(&d);
         }
     }
 
@@ -402,7 +474,7 @@ impl eframe::App for App {
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::Escape))
                     && !session.new_open && session.explore.is_none() && !session.poll_open && session.edit.is_none()
-                    && !(self.rail.devices && session.verification.as_ref().is_some_and(devices::modal_open)) && self.pending_web.is_none() && !self.account_form.editing()
+                    && !(self.rail.devices && session.verification.as_ref().is_some_and(devices::modal_open)) && self.pending_web.is_none() && self.sign_out.is_none() && !self.account_form.editing()
                 {
                     if self.rail.any_drawer() { (self.rail.edit, self.rail.settings, self.rail.devices, self.rail.accounts, self.rail.customize) = (false, false, false, false, false); }
                     else if session.quick_open { session.quick_open = false; }
@@ -1486,9 +1558,17 @@ impl App {
                     let next = matrix_desktop::AccountCatalog::load(dirs).next_root(dirs);
                     self.open_account(next);
                 }
+                Some(accounts::Launch::SignOut(dir)) => {
+                    let catalog = matrix_desktop::AccountCatalog::load(dirs);
+                    let entry = catalog.id_for_root(dirs, &dir).and_then(|id| catalog.get(id));
+                    let id = entry.and_then(|e| e.user_id.as_deref().or(e.homeserver.as_deref())).unwrap_or_default();
+                    let name = entry.map(|e| e.label.as_str()).filter(|l| !l.is_empty()).unwrap_or(id);
+                    self.sign_out = Some(accounts::SignOut::new(dir, name, id));
+                }
                 None => {}
             }
         }
+        self.sign_out_step(ui.ctx());
         let new = settings::show(ui.ctx(), &mut self.rail, &self.prefs, self.dirs.as_ref(), t)
             .or_else(|| customize::show(ui.ctx(), &mut self.rail, &self.prefs, self.system_scale, self.dirs.as_ref(), t));
         if let Some(new) = new {

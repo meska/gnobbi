@@ -9,10 +9,21 @@ pub struct WorkerControl {
     stop: Arc<AtomicBool>,
     logout: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
+    revoked: Arc<AtomicBool>,
 }
 impl WorkerControl {
-    pub fn new(stop: Arc<AtomicBool>, logout: Arc<AtomicBool>, done: Arc<AtomicBool>) -> Self {
-        Self { stop, logout, done }
+    pub fn new(
+        stop: Arc<AtomicBool>,
+        logout: Arc<AtomicBool>,
+        done: Arc<AtomicBool>,
+        revoked: Arc<AtomicBool>,
+    ) -> Self {
+        Self { stop, logout, done, revoked }
+    }
+
+    /// After `is_done`: the server accepted the logout (device deleted). False when offline or never signed in.
+    pub fn revoked(&self) -> bool {
+        self.revoked.load(Ordering::Acquire)
     }
 
     /// Stops the worker; once its writes are drained it revokes this session on the server

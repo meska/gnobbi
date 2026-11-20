@@ -279,6 +279,11 @@ pub struct Session {
 
 impl Session {
     /// Opens the default profile under the app data directory; a saved account unlocks by itself through the OS vault.
+    /// Remote to end this account's worker with a server logout («Esci»).
+    pub fn control(&self) -> matrix_engine::WorkerControl {
+        self._worker.control()
+    }
+
     pub fn start(dirs: &AppDirs, root: std::path::PathBuf, trust: Option<Vec<u8>>) -> Result<Session, String> {
         matrix_desktop::create_private_dir(&root).map_err(|e| e.to_string())?;
         let status_dir = root.clone();

@@ -484,3 +484,7 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Audio	Audio
 	File	File
 	Photo	Foto
+	Log out	Esci
+	Encryption keys on this device not backed up are lost.	Le chiavi di cifratura non salvate in un backup andranno perse.
+	The server did not answer. Remove it from this device anyway?	Il server non risponde. Rimuoverlo comunque da questo dispositivo?
+	Remove from this device	Rimuovi da questo dispositivo

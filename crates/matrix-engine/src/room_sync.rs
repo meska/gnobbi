@@ -43,6 +43,7 @@ pub struct RoomListWorker {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     logout: std::sync::Arc<std::sync::atomic::AtomicBool>,
     done: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    revoked: std::sync::Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<Result<(), ShutdownError>>>,
     history_route: Option<(
         crate::Sender<crate::history::HistoryRequest>,
@@ -107,7 +108,8 @@ impl RoomListWorker {
         let cancelled = stop.clone();
         let logout = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let (worker_logout, worker_done) = (logout.clone(), done.clone());
+        let revoked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (worker_logout, worker_done, worker_revoked) = (logout.clone(), done.clone(), revoked.clone());
         let avatars = crate::avatar::AvatarSlot::default();
         let worker_avatars = avatars.clone();
         let send_control = crate::sending::ControlSlot::default();
@@ -979,9 +981,10 @@ impl RoomListWorker {
                     // what is still queued stays in the store and restarts with the account.
                     queue_client.send_queue().set_enabled(false).await;
                     if worker_logout.load(std::sync::atomic::Ordering::Acquire) {
-                        let _ =
+                        let out =
                             tokio::time::timeout(Duration::from_secs(15), sync.session.logout())
                                 .await;
+                        worker_revoked.store(matches!(out, Ok(Ok(()))), std::sync::atomic::Ordering::Release);
                     }
                     // The outbox holds a client too: drop it here, inside the runtime (see below).
                     if let Ok(mut slot) = worker_control.lock() {
@@ -1008,6 +1011,7 @@ impl RoomListWorker {
                 stop,
                 logout,
                 done,
+                revoked,
                 thread: Some(thread),
                 history_route: Some((history_commands, history_events)),
             },
@@ -1021,7 +1025,7 @@ impl RoomListWorker {
     }
 
     pub fn control(&self) -> WorkerControl {
-        WorkerControl::new(self.stop.clone(), self.logout.clone(), self.done.clone())
+        WorkerControl::new(self.stop.clone(), self.logout.clone(), self.done.clone(), self.revoked.clone())
     }
 
     /// Single-owner, bounded two-command media route.

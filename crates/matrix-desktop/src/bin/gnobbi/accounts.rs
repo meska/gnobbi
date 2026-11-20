@@ -63,7 +63,7 @@ fn draft(profile: &std::path::Path) -> PathBuf {
 }
 
 /// The card of the account on screen. False until the profile has arrived (the plain row is drawn instead).
-fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::Path, t: &DesignTokens) -> bool {
+fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::Path, logout: &mut bool, t: &DesignTokens) -> bool {
     let Some(v) = &mut s.verification else { return false };
     let Some(shown) = v.profile().cloned() else { return false };
     // Until the server's answer arrives nothing is editable, so no control appears and then vanishes.
@@ -142,7 +142,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
                 }
                 ui.label(RichText::new(&id).size(12.).color(rgb(t.secondary)));
             });
-        }, |_| {});
+        }, |ui| *logout = sign_out_button(ui));
         if can_name || can_photo {
             ui.add_space(4.);
             ui.horizontal(|ui| {
@@ -220,6 +220,8 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
 pub enum Launch {
     Open(PathBuf),
     Add,
+    /// «Esci» on the account whose profile folder this is.
+    SignOut(PathBuf),
 }
 
 /// What the running accounts (the ones not on screen) add to their row.
@@ -230,8 +232,8 @@ pub struct Running {
 }
 
 /// One account: round picture, name, id and server in grey, then «Attivo» or the unread badge and «Apri».
-fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: &crate::avatar::Avatar, active: bool, unread: u64, t: &DesignTokens) -> bool {
-    let mut open = false;
+fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: &crate::avatar::Avatar, active: bool, unread: u64, t: &DesignTokens) -> (bool, bool) {
+    let (mut open, mut logout) = (false, false);
     let m = crate::metrics::get();
     crate::rows::lines_row(
         ui,
@@ -241,6 +243,7 @@ fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: &crate::avatar::Avata
         },
         &[crate::rows::Line::new(name, m.body, rgb(t.text)), crate::rows::Line::new(line, m.secondary, rgb(t.secondary))],
         |ui| {
+            logout = sign_out_button(ui);
             if active {
                 ui.label(RichText::new(i18n::t("Active")).size(m.secondary).color(rgb(t.accent)));
             } else {
@@ -252,7 +255,13 @@ fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: &crate::avatar::Avata
             }
         },
     );
-    open
+    (open, logout)
+}
+
+/// The icon-only «Esci» of a row or of the card.
+fn sign_out_button(ui: &mut egui::Ui) -> bool {
+    let label = i18n::t("Log out");
+    crate::icons::button(ui, crate::icons::Icon::SignOut, false, label).on_hover_text(label).clicked()
 }
 
 /// The «Account» drawer, opened from «Impostazioni»; «‹» goes back there.
@@ -272,13 +281,17 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 egui::Frame::NONE.inner_margin(egui::Margin { left: 20, right: 20, top: 0, bottom: 20 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.;
+                    let mut logout = false;
                     let carded = session.is_some_and(|s| {
                         let will = s.verification.as_ref().is_some_and(|v| v.profile().is_some());
                         if will {
                             crate::settings::section(ui, i18n::t("Active account"), t);
                         }
-                        card(ui, s, form, current, t)
+                        card(ui, s, form, current, &mut logout, t)
                     });
+                    if logout {
+                        out = Some(Launch::SignOut(current.to_owned()));
+                    }
                     if carded {
                         crate::settings::section(ui, i18n::t("Other accounts"), t);
                     }
@@ -297,10 +310,13 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
                         };
                         let other = running.iter().find(|r| Some(&r.dir) == dir.as_ref());
                         let picture = if active { &own } else { other.map_or(&crate::avatar::Avatar::Missing, |r| &r.picture) };
-                        if row(ui, &entry.label, &line, picture, active, other.map_or(0, |r| r.unread), t)
-                            && let Some(dir) = dir
-                        {
-                            out = Some(Launch::Open(dir));
+                        let (open, logout) = row(ui, &entry.label, &line, picture, active, other.map_or(0, |r| r.unread), t);
+                        if let Some(dir) = dir {
+                            if logout {
+                                out = Some(Launch::SignOut(dir));
+                            } else if open {
+                                out = Some(Launch::Open(dir));
+                            }
                         }
                     }
                     // Debug builds only (screenshots): three accounts with the same name.
@@ -351,4 +367,122 @@ pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: &crate::avat
         p.galley(badge.center() - g.size() / 2., g, rgb(t.on_accent));
     }
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// The account being signed out: asked, waiting for the server, or refused by it.
+pub struct SignOut {
+    pub dir: PathBuf,
+    name: String,
+    user_id: String,
+    phase: Phase,
+}
+
+enum Phase {
+    Ask,
+    Waiting(matrix_engine::WorkerControl),
+    /// The server did not take the logout (offline): remove here anyway, or keep the account.
+    Failed,
+}
+
+/// What the user did in the window, or what the worker finished with.
+pub enum SignOutStep {
+    /// «Esci» pressed: end this account's worker with the server logout.
+    Start,
+    /// Gone from the server, or the user chose to remove it here anyway.
+    Remove,
+    /// «Annulla» after a failed logout: the stopped account must be started again.
+    Restart,
+    Close,
+}
+
+impl SignOut {
+    /// `name` and `user_id` come from the catalog entry of `dir`.
+    pub fn new(dir: PathBuf, name: &str, user_id: &str) -> Self {
+        SignOut { dir, name: name.to_owned(), user_id: user_id.to_owned(), phase: Phase::Ask }
+    }
+
+    pub fn wait_for(&mut self, control: matrix_engine::WorkerControl) {
+        self.phase = Phase::Waiting(control);
+    }
+
+    /// The confirmation window (small, name and id, destructive «Esci»); drawn every frame while it is open.
+    pub fn show(&mut self, ctx: &egui::Context) -> Option<SignOutStep> {
+        if let Phase::Waiting(c) = &self.phase
+            && c.is_done()
+        {
+            if c.revoked() {
+                return Some(SignOutStep::Remove);
+            }
+            self.phase = Phase::Failed;
+        }
+        let mut step = None;
+        let modal = egui::Modal::new(egui::Id::new("sign-out-account")).show(ctx, |ui| {
+            ui.set_max_width(320.);
+            ui.heading(i18n::t("Log out"));
+            ui.label(&self.name);
+            ui.label(RichText::new(&self.user_id).size(12.).color(ui.visuals().weak_text_color()));
+            let line = match &self.phase {
+                Phase::Ask => i18n::t("Encryption keys on this device not backed up are lost."),
+                Phase::Waiting(_) => "",
+                Phase::Failed => i18n::t("The server did not answer. Remove it from this device anyway?"),
+            };
+            if !line.is_empty() {
+                ui.label(line);
+            }
+            let tall = egui::vec2(0., crate::metrics::button());
+            ui.horizontal(|ui| match &self.phase {
+                Phase::Waiting(_) => {
+                    ui.spinner();
+                }
+                phase => {
+                    let failed = matches!(phase, Phase::Failed);
+                    if ui.add(egui::Button::new(i18n::t("Cancel")).min_size(tall)).clicked() {
+                        step = Some(if failed { SignOutStep::Restart } else { SignOutStep::Close });
+                    }
+                    let red = ui.visuals().error_fg_color;
+                    let go = egui::Button::new(RichText::new(i18n::t(if failed { "Remove from this device" } else { "Log out" })).color(egui::Color32::WHITE)).fill(red).min_size(tall);
+                    if ui.add(go).clicked() {
+                        step = Some(if failed { SignOutStep::Remove } else { SignOutStep::Start });
+                    }
+                }
+            });
+        });
+        if step.is_none() && modal.should_close() && !matches!(self.phase, Phase::Waiting(_)) {
+            step = Some(if matches!(self.phase, Phase::Failed) { SignOutStep::Restart } else { SignOutStep::Close });
+        }
+        step
+    }
+}
+
+/// Deletes everything one account left on this device: vault items, profile folder (the `-video` sibling and the media cache too).
+/// Blocking. Vault and file errors are ignored: nothing here may stop the removal of the others' data being untouched.
+pub fn wipe(dir: &std::path::Path, cache: Option<PathBuf>) {
+    // The store folders are `account-<n>`; their vault items are keyed by that path and number.
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(n) = name.strip_prefix("account-").and_then(|n| n.parse::<u64>().ok()) {
+            let _ = matrix_engine::signin::forget_secrets(matrix_domain::AccountId::new(n), &[entry.path()]);
+        }
+    }
+    let mut video = dir.file_name().unwrap_or_default().to_owned();
+    video.push("-video");
+    for d in [Some(dir.to_owned()), Some(dir.with_file_name(video)), cache].into_iter().flatten() {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn wipe_removes_the_profile_its_video_folder_and_cache_only() {
+        let base = std::env::temp_dir().join(format!("gnobbi-wipe-{}", std::process::id()));
+        let (a, b, cache) = (base.join("accounts/1"), base.join("accounts/2"), base.join("cache1"));
+        for d in [&a, &b, &cache, &base.join("accounts/1-video")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        super::wipe(&a, Some(cache.clone()));
+        assert!(!a.exists() && !cache.exists() && !base.join("accounts/1-video").exists());
+        assert!(b.exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
