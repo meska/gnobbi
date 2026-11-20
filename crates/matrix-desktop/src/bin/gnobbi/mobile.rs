@@ -13,6 +13,46 @@ pub fn set_keyboard(points: f32) {
     KEYBOARD.store(points.max(0.).to_bits(), Ordering::Relaxed);
 }
 
+/// iOS: follows the on-screen keyboard (frame changes and hide) into `set_keyboard`. Call once at startup, on the main thread.
+#[cfg(target_os = "ios")]
+pub fn observe_keyboard(ctx: &egui::Context) {
+    use objc2::{MainThreadMarker, msg_send, runtime::AnyObject};
+    use objc2_core_foundation::CGRect;
+    use objc2_foundation::{NSNotification, NSNotificationCenter};
+    use objc2_ui_kit::{UIApplication, UIKeyboardFrameEndUserInfoKey, UIKeyboardWillChangeFrameNotification, UIKeyboardWillHideNotification};
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let center = NSNotificationCenter::defaultCenter();
+    let on = |name: &objc2_foundation::NSNotificationName, hide: bool| {
+        let ctx = ctx.clone();
+        let block = block2::RcBlock::new(move |n: std::ptr::NonNull<NSNotification>| {
+            let n = unsafe { n.as_ref() };
+            let covered = if hide {
+                0.
+            } else {
+                // The end frame is in screen coordinates; a full-screen app's window starts at the screen top.
+                let frame = n.userInfo().and_then(|u| u.objectForKey(unsafe { UIKeyboardFrameEndUserInfoKey }));
+                let bottom = UIApplication::sharedApplication(mtm).keyWindow().map(|w| w.bounds().max().y);
+                match (frame, bottom) {
+                    (Some(v), Some(bottom)) => {
+                        let v: &AnyObject = &v;
+                        let f: CGRect = unsafe { msg_send![v, CGRectValue] };
+                        (bottom - f.min().y) as f32
+                    }
+                    _ => return,
+                }
+            };
+            set_keyboard(covered);
+            ctx.request_repaint();
+        });
+        // The centre keeps the observer; it lives as long as the app.
+        let _ = unsafe { center.addObserverForName_object_queue_usingBlock(Some(name), None, None, &block) };
+    };
+    unsafe {
+        on(UIKeyboardWillChangeFrameNotification, false);
+        on(UIKeyboardWillHideNotification, true);
+    }
+}
+
 /// iOS, or the test hook GNOBBI_EGUI_TOUCH on desktop.
 pub fn touch() -> bool {
     static TOUCH_ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

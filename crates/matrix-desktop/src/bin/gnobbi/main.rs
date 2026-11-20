@@ -1851,6 +1851,8 @@ fn main() -> eframe::Result {
     let result = eframe::run_native(TITLE, options, Box::new(move |cc| {
         eprintln!("gnobbi: creator called");
         register_emoji_font(&cc.egui_ctx);
+        #[cfg(target_os = "ios")]
+        mobile::observe_keyboard(&cc.egui_ctx);
         Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))
     }));
     eprintln!("gnobbi: run_native returned {:?}", result.as_ref().err());
