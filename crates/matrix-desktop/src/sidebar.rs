@@ -95,6 +95,8 @@ pub struct Sidebar {
     /// «Non lette» view: only joined rooms with unread messages or a manual mark. Exclusive with `space`.
     unread_view: bool,
     selected: Option<usize>,
+    /// Rooms the user opened (`select`, `navigate`); the automatic first pick and `select_outside_view` do not count.
+    picks: u64,
     keyboard_focus: Option<RoomScope>,
     /// Invitations whose answer is on its way, and those whose last answer failed.
     answering: std::collections::HashSet<RoomScope>,
@@ -125,6 +127,7 @@ impl Sidebar {
             visible: Vec::new(),
             query: String::new(),
             selected: None,
+            picks: 0,
             keyboard_focus: None,
             space: None,
             unread_view: false,
@@ -250,6 +253,7 @@ impl Sidebar {
             visible: (0..300).collect(),
             query: String::new(),
             selected: Some(0),
+            picks: 0,
             keyboard_focus: None,
             space: None,
             unread_view: false,
@@ -748,6 +752,7 @@ impl Sidebar {
                 self.retire_navigation();
             }
             self.selected = Some(i);
+            self.picks += 1;
             self.keyboard_focus = Some(scope.clone());
             true
         } else {
@@ -779,6 +784,7 @@ impl Sidebar {
             self.retire_navigation();
         }
         self.selected = Some(self.visible[position]);
+        self.picks += 1;
         self.keyboard_focus = Some(self.rooms[self.visible[position]].scope.clone());
         Some(position)
     }
@@ -788,6 +794,11 @@ impl Sidebar {
         self.visible
             .iter()
             .position(|&i| self.rooms[i].scope == *scope)
+    }
+
+    /// How many times the user opened a room; a start-up restore gives way once it grows.
+    pub fn picks(&self) -> u64 {
+        self.picks
     }
 
     pub fn rooms(&self) -> &[SidebarRoom] {
@@ -1366,6 +1377,22 @@ mod invite_tests {
         assert!(!sidebar.select(&a));
         assert!(sidebar.select_outside_view(&a));
         assert_eq!(sidebar.selected().map(|r| &r.scope), Some(&a));
+    }
+
+    #[test]
+    fn only_the_user_counts_as_opening_a_room() {
+        let account = AccountId::new(1);
+        let mut sidebar = Sidebar::connected(account);
+        let info = || RoomInfo { joined_members: 2, preview: Some("x".into()), ..Default::default() };
+        upsert(&mut sidebar, account, "!a:t.invalid", "a", info());
+        upsert(&mut sidebar, account, "!b:t.invalid", "b", info());
+        let (a, b) = (scope(account, "!a:t.invalid"), scope(account, "!b:t.invalid"));
+        // the automatic first pick, its removal (the pick moves on) and the restore's own open are not the user
+        sidebar.apply_diff(RoomListDiff::Remove(a.clone()));
+        assert!(sidebar.select_outside_view(&b));
+        assert_eq!(sidebar.picks(), 0);
+        assert!(sidebar.select(&b));
+        assert_eq!(sidebar.picks(), 1, "a click on the open row is a choice too");
     }
 
     #[test]

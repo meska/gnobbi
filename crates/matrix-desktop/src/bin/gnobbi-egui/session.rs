@@ -158,9 +158,10 @@ pub struct Session {
     /// `last_room` in the profile folder: the room on screen, written at every change and reopened at the next start.
     last_file: std::path::PathBuf,
     last_room: Option<String>,
-    /// The saved room is still to reopen; with it the row the list picked by itself and when.
+    /// The saved room is still to reopen; its start state is `restore_from`.
     restoring: bool,
-    restore_auto: Option<(String, std::time::Instant)>,
+    /// Start-up restore: the user's room openings (`Sidebar::picks`) and when the sync went live (the 20 s run from there: the saved room can come after the first pages of the list).
+    restore_from: Option<(u64, Option<std::time::Instant>)>,
     /// Commands from the UI waiting for the single send slot.
     op_queue: Vec<OperationCommand>,
     /// Member whose card is open and what the engine answered about them.
@@ -302,7 +303,7 @@ impl Session {
             last_file,
             restoring: last_room.is_some(),
             last_room,
-            restore_auto: None,
+            restore_from: None,
             op_queue: Vec::new(),
             space_placed: None,
             profile: None,
@@ -717,10 +718,17 @@ impl Session {
         let current = self.sidebar.selected().map(|r| r.scope.clone());
         if self.restoring && let Some(want) = &self.last_room {
             let now = current.as_ref().map(|c| c.room_id.as_str());
-            let (auto, since) = self.restore_auto.get_or_insert_with(|| (now.unwrap_or_default().to_owned(), std::time::Instant::now()));
-            if now.is_none() {
-                self.restore_auto = None;
-            } else if restore_over(want, auto, now, since.elapsed()) {
+            if self.sidebar.rooms().is_empty() {
+                self.restore_from = None;
+            }
+            let (picks, live) = self.restore_from.get_or_insert((self.sidebar.picks(), None));
+            if live.is_none() && self.sync == Some(RoomSyncStatus::Ready) {
+                *live = Some(std::time::Instant::now());
+            }
+            let (picks, waited) = (*picks, live.map(|t| t.elapsed()).unwrap_or_default());
+            if self.sidebar.rooms().is_empty() {
+                // list not loaded yet: wait
+            } else if restore_over(want, now, self.sidebar.picks() != picks, waited) {
                 self.restoring = false;
             } else if let Some(scope) = self.sidebar.rooms().iter().find(|r| r.scope.room_id.as_str() == want).map(|r| r.scope.clone())
                 && self.sidebar.select_outside_view(&scope)
@@ -1668,17 +1676,16 @@ fn accept_user_answer(gate: &mut bool, state: &matrix_engine::operations::Search
     !*gate
 }
 
-/// Start-up reopening of the saved room `want` ends when it is on screen, when the user opened a room other than
-/// the one the list picked by itself (`auto`), or after a while (a room that left the list must not pop up later).
-// shortcut: a click on the very row the list picked by itself is not seen as a choice, upgrade if the 20 s window proves too long.
 /// A saved position whose row is not loaded: wait for the saved page and the full one (both can come after the first), page back up to a cap, give up when history ends or fails.
 fn restore_gave_up(status: matrix_desktop::HistoryStatus, pages: u8, waited: std::time::Duration) -> bool {
     use matrix_desktop::HistoryStatus::*;
     pages >= 12 || matches!(status, Failed) || (matches!(status, Start) && (pages >= 2 || waited.as_secs() >= 3))
 }
 
-fn restore_over(want: &str, auto: &str, now: Option<&str>, waited: std::time::Duration) -> bool {
-    now == Some(want) || now != Some(auto) || waited > std::time::Duration::from_secs(20)
+/// Start-up reopening of the saved room `want` ends when it is on screen, when the user opened a room themselves
+/// (the list's own first pick, moved or not by later diffs, is not a choice), or after a while (a room that left the list must not pop up later).
+fn restore_over(want: &str, now: Option<&str>, user_picked: bool, waited: std::time::Duration) -> bool {
+    now == Some(want) || user_picked || waited > std::time::Duration::from_secs(20)
 }
 
 #[cfg(test)]
@@ -1689,10 +1696,12 @@ mod stale_tests {
     #[test]
     fn saved_room_is_reopened_unless_the_user_chose_or_time_passed() {
         let s = std::time::Duration::from_secs;
-        assert!(!restore_over("!last", "!first", Some("!first"), s(1)));
-        assert!(restore_over("!last", "!first", Some("!other"), s(1)));
-        assert!(restore_over("!last", "!first", Some("!last"), s(1)));
-        assert!(restore_over("!last", "!first", Some("!first"), s(21)));
+        assert!(!restore_over("!last", Some("!first"), false, s(1)));
+        // the list's pick moved to another room by itself (a diff): still waiting
+        assert!(!restore_over("!last", Some("!other"), false, s(1)));
+        assert!(restore_over("!last", Some("!first"), true, s(1)));
+        assert!(restore_over("!last", Some("!last"), false, s(1)));
+        assert!(restore_over("!last", Some("!first"), false, s(21)));
     }
 
     #[test]
