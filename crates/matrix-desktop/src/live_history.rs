@@ -29,7 +29,16 @@ impl HistoryStatus {
 /// How long after new rows a room with threads is read once more.
 pub const SETTLE: std::time::Duration = std::time::Duration::from_millis(1500);
 
-type SeenEvent = (String, Option<(u32, u32)>, Option<matrix_domain::Poll>);
+type SeenEvent = (String, Option<(u32, u32)>, Option<matrix_domain::Poll>, Option<matrix_engine::history::ReplyRef>);
+
+fn seen_of(event: &HistoryEvent) -> SeenEvent {
+    (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread)), event.poll.clone(), event.reply_to.clone())
+}
+
+/// A quote still waiting for its original: the room is read again shortly.
+fn quote_loading(event: &HistoryEvent) -> bool {
+    event.reply_to.as_ref().is_some_and(|r| r.state == matrix_engine::history::ReplyState::Loading)
+}
 
 pub struct HistorySession {
     views: ViewRequests,
@@ -116,18 +125,21 @@ impl HistorySession {
                 } else {
                     HistoryStatus::Start
                 };
-                Some(
-                    page.events
-                        .into_iter()
-                        .filter(|event| {
-                            if self.seen.contains_key(&event.event_id) {
-                                return false;
-                            }
-                            self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread)), event.poll.clone()));
-                            true
-                        })
-                        .collect(),
-                )
+                let rows: Vec<_> = page
+                    .events
+                    .into_iter()
+                    .filter(|event| {
+                        if self.seen.contains_key(&event.event_id) {
+                            return false;
+                        }
+                        self.seen.insert(event.event_id.clone(), seen_of(event));
+                        true
+                    })
+                    .collect();
+                if rows.iter().any(quote_loading) {
+                    self.settle_soon();
+                }
+                Some(rows)
             }
             _ => {
                 self.status = HistoryStatus::Failed;
@@ -231,15 +243,18 @@ impl HistorySession {
         let published: Vec<_> = std::mem::take(&mut self.live_rows)
                 .into_iter()
                 .filter(|event| {
-                    if self.seen.get(&event.event_id).is_some_and(|(b, n, p)| *b == event.body && *n == event.thread.as_ref().map(|t| (t.num_replies, t.unread)) && *p == event.poll) {
+                    if self.seen.get(&event.event_id) == Some(&seen_of(&event)) {
                         return false;
                     }
-                    self.seen.insert(event.event_id.clone(), (event.body.clone(), event.thread.as_ref().map(|t| (t.num_replies, t.unread)), event.poll.clone()));
+                    self.seen.insert(event.event_id.clone(), seen_of(&event));
                     true
                 })
                 .collect();
+        if published.iter().any(quote_loading) {
+            self.settle_soon();
+        }
         // Only rooms that have threads pay for the second look (shortcut: a fixed delay, no stream).
-        if !published.is_empty() && self.seen.values().any(|(_, n, _)| n.is_some()) {
+        if !published.is_empty() && self.seen.values().any(|(_, n, ..)| n.is_some()) {
             self.settle = Some(std::time::Instant::now() + SETTLE);
         }
         Some(published)

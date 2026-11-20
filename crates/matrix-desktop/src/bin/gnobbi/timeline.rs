@@ -295,7 +295,13 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
             }
-            let quote = e.reply_to.as_ref().map(|r| (crate::list::clean_single_line(r.author.as_deref().unwrap_or(matrix_engine::history::REPLY_UNAVAILABLE)), r.preview.as_deref().filter(|_| r.author.is_some()).map(crate::list::clean_single_line)));
+            let quote = e.reply_to.as_ref().map(|r| {
+                use matrix_engine::history::ReplyState as S;
+                let (Some(author), S::Resolved) = (r.author.as_deref(), r.state) else {
+                    return (i18n::t(match r.state { S::Loading => "Loading…", S::Deleted => "Message deleted", S::Encrypted => "Encrypted message", _ => "Message unavailable" }).to_owned(), None);
+                };
+                (crate::list::clean_single_line(author), r.preview.as_deref().map(crate::list::clean_single_line))
+            });
             if let Some((a, p)) = &quote {
                 w = w.max(measure(a, 12.)).max(p.as_deref().map_or(0., |p| measure(p, 12.)).min(220.));
             }

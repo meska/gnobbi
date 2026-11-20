@@ -145,16 +145,68 @@ pub struct HistoryEvent {
     pub utd: bool,
 }
 
-/// The message a reply answers. `author`/`preview` are None while the original is not loaded or was deleted.
+/// The message a reply answers. `author`/`preview` are None unless `state` is `Resolved`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReplyRef {
     pub event_id: EventId,
     pub author: Option<String>,
     pub preview: Option<String>,
+    pub state: ReplyState,
 }
 
-/// Shown in the quote when the original is not available.
-pub const REPLY_UNAVAILABLE: &str = "Messaggio non disponibile";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyState {
+    Resolved,
+    /// A request for the original is running.
+    Loading,
+    /// The original was redacted.
+    Deleted,
+    /// The original is in the room but cannot be decrypted.
+    Encrypted,
+    /// The original does not exist, is hidden, or the request failed.
+    Unavailable,
+}
+
+/// What the SDK says about the original (`TimelineDetails` of `in_reply_to`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplyDetail {
+    Ready,
+    Pending,
+    Unavailable,
+    Error,
+}
+
+/// Where the quote reads the original from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplySource {
+    /// An event already in the room's timeline (always the freshest copy).
+    Timeline,
+    /// The SDK's own `in_reply_to` detail.
+    Detail,
+    Loading,
+    Unavailable,
+}
+
+/// How long a failed request waits before the next one; and how long an unconfirmed request still shows «loading».
+pub const REPLY_RETRY: std::time::Duration = std::time::Duration::from_secs(60);
+const REPLY_SETTLE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Decide where a quote comes from and whether to start a request. `asked` is the age of our last request for this reply.
+pub fn reply_plan(detail: ReplyDetail, in_timeline: bool, asked: Option<std::time::Duration>) -> (ReplySource, bool) {
+    use ReplyDetail::*;
+    if in_timeline {
+        return (ReplySource::Timeline, false);
+    }
+    match (detail, asked) {
+        (Ready, _) => (ReplySource::Detail, false),
+        (Pending, _) => (ReplySource::Loading, false),
+        (Unavailable, None) => (ReplySource::Loading, true),
+        (Unavailable, Some(a)) if a < REPLY_SETTLE => (ReplySource::Loading, false),
+        (Error, None) => (ReplySource::Unavailable, true),
+        (Error, Some(a)) if a >= REPLY_RETRY => (ReplySource::Unavailable, true),
+        (Unavailable | Error, Some(_)) => (ReplySource::Unavailable, false),
+    }
+}
 
 /// One-line quote text: the media label when there is no caption, else the first line cut at `max` chars.
 pub fn quote_preview(text: &str, media: Option<&Media>, max: usize) -> String {
@@ -186,6 +238,24 @@ mod quote_tests {
         assert_eq!(quote_preview("", Some(&m(MediaKind::Image)), 40), "Foto");
         assert_eq!(quote_preview("didascalia", Some(&m(MediaKind::Image)), 40), "didascalia");
         assert_eq!(quote_preview("", None, 40), "");
+    }
+
+    #[test]
+    fn reply_plan_resolves_in_levels() {
+        use std::time::Duration as D;
+        use {ReplyDetail::*, ReplySource as S};
+        assert_eq!(reply_plan(Ready, false, None), (S::Detail, false));
+        // The original is already in the timeline: no request, whatever the SDK detail says.
+        assert_eq!(reply_plan(Unavailable, true, None), (S::Timeline, false));
+        assert_eq!(reply_plan(Error, true, Some(D::from_secs(1))), (S::Timeline, false));
+        // Not in the timeline: one request, «loading» meanwhile.
+        assert_eq!(reply_plan(Unavailable, false, None), (S::Loading, true));
+        assert_eq!(reply_plan(Unavailable, false, Some(D::from_secs(1))), (S::Loading, false));
+        assert_eq!(reply_plan(Pending, false, Some(D::from_secs(1))), (S::Loading, false));
+        // Failed: «unavailable», retried only after the wait.
+        assert_eq!(reply_plan(Error, false, Some(D::from_secs(5))), (S::Unavailable, false));
+        assert_eq!(reply_plan(Error, false, Some(REPLY_RETRY)), (S::Unavailable, true));
+        assert_eq!(reply_plan(Unavailable, false, Some(D::from_secs(30))), (S::Unavailable, false));
     }
 }
 

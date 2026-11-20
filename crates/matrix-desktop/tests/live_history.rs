@@ -791,3 +791,23 @@ fn live_refresh_publishes_a_poll_whose_votes_or_end_changed_with_the_same_body()
         assert_eq!(rows[0].poll, Some(poll(votes, ended)));
     }
 }
+
+#[test]
+fn a_loading_quote_is_read_again_and_republished_once_resolved() {
+    use matrix_engine::history::{ReplyRef, ReplyState};
+    let quote = |state| Some(ReplyRef { event_id: EventId::new("$orig"), author: (state == ReplyState::Resolved).then(|| "Omar".into()), preview: None, state });
+    let mut view = HistorySession::new();
+    let room = scope("!quote:test");
+    let initial = view.select(Some(room.clone())).unwrap();
+    let mut first = page(&initial, &["$reply"], None);
+    first.page.as_mut().unwrap().events[0].reply_to = quote(ReplyState::Loading);
+    view.apply(first).unwrap();
+    assert!(view.refresh().is_none(), "no activity yet: the settle delay has not passed");
+    std::thread::sleep(matrix_desktop::SETTLE);
+    let refresh = view.refresh().expect("a loading quote is read again by itself");
+    let mut done = page(&refresh, &["$reply"], None);
+    done.page.as_mut().unwrap().events[0].reply_to = quote(ReplyState::Resolved);
+    let rows = view.apply_live(done).unwrap();
+    assert_eq!(rows.len(), 1, "the resolved quote replaces the loading row");
+    assert_eq!(rows[0].reply_to.as_ref().unwrap().state, ReplyState::Resolved);
+}

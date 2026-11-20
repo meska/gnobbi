@@ -1889,7 +1889,7 @@ async fn thread_info(
 
 /// The rows of `loaded`, for the disposable-server tests in `tests/`.
 #[doc(hidden)]
-pub async fn rows_for_test(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Vec<crate::history::HistoryEvent> {
+pub async fn rows_for_test(room: &matrix_sdk::Room, timeline: &std::sync::Arc<matrix_sdk_ui::timeline::Timeline>) -> Vec<crate::history::HistoryEvent> {
     loaded(room, timeline).await.rows
 }
 
@@ -1912,7 +1912,7 @@ fn utd_cause_text(cause: matrix_sdk_crypto::types::events::UtdCause) -> &'static
 }
 
 /// Translate the items. Never downloads: media rows keep only the sources of the event.
-pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::timeline::Timeline) -> Loaded {
+pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<matrix_sdk_ui::timeline::Timeline>) -> Loaded {
     use crate::history::{HistoryEvent, ReactionCount};
     use matrix_sdk_ui::timeline::{MsgLikeKind, VirtualTimelineItem};
     let mut out = Loaded {
@@ -1920,7 +1920,11 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
         reactions: Vec::new(),
         at_start: false,
     };
-    for item in timeline.items().await.iter() {
+    let items = timeline.items().await;
+    // The originals of replies that are already loaded (what a click on the quote scrolls to).
+    let by_id: std::collections::HashMap<&str, &matrix_sdk_ui::timeline::EventTimelineItem> =
+        items.iter().filter_map(|i| i.as_event()).filter_map(|e| Some((e.event_id()?.as_str(), e))).collect();
+    for item in items.iter() {
         if let Some(VirtualTimelineItem::TimelineStart) = item.as_virtual() {
             out.at_start = true;
         }
@@ -2028,7 +2032,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
             thread: thread_info(room, content).await,
             thread_root: content.thread_root.as_ref().map(|r| matrix_domain::EventId::new(r.as_str())),
             reply_to: match &content.in_reply_to {
-                Some(r) => Some(reply_ref(room, r).await),
+                Some(r) => Some(reply_ref(room, timeline, id, r, by_id.get(r.event_id.as_str()).copied()).await),
                 None => None,
             },
             status: false,
@@ -2041,11 +2045,50 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &matrix_sdk_ui::ti
     out
 }
 
-/// The quote of a reply from what the SDK already holds of the original (no extra request).
-async fn reply_ref(room: &matrix_sdk::room::Room, r: &matrix_sdk_ui::timeline::InReplyToDetails) -> crate::history::ReplyRef {
-    use matrix_sdk_ui::timeline::{MsgLikeKind, TimelineDetails};
+/// Reply ids whose original we asked the server for, with the time: one request each, a retry only after `REPLY_RETRY`.
+static REPLY_REQUESTED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<matrix_sdk::ruma::OwnedEventId, std::time::Instant>>> = std::sync::LazyLock::new(Default::default);
+
+/// The quote of reply `id`: the original from the timeline's own items, else the SDK detail, else a
+/// background `fetch_details_for_event` (the next `loaded` shows the result).
+async fn reply_ref(
+    room: &matrix_sdk::room::Room,
+    timeline: &std::sync::Arc<matrix_sdk_ui::timeline::Timeline>,
+    id: &matrix_sdk::ruma::EventId,
+    r: &matrix_sdk_ui::timeline::InReplyToDetails,
+    in_timeline: Option<&matrix_sdk_ui::timeline::EventTimelineItem>,
+) -> crate::history::ReplyRef {
+    use crate::history::{ReplyDetail, ReplySource, ReplyState};
+    use matrix_sdk_ui::timeline::{EmbeddedEvent, MsgLikeKind, TimelineDetails};
+    let detail = match &r.event {
+        TimelineDetails::Ready(_) => ReplyDetail::Ready,
+        TimelineDetails::Pending => ReplyDetail::Pending,
+        TimelineDetails::Unavailable => ReplyDetail::Unavailable,
+        TimelineDetails::Error(_) => ReplyDetail::Error,
+    };
+    let asked = REPLY_REQUESTED.lock().unwrap().get(id).map(|t| t.elapsed());
+    let (source, fetch) = crate::history::reply_plan(detail, in_timeline.is_some(), asked);
+    if fetch {
+        REPLY_REQUESTED.lock().unwrap().insert(id.to_owned(), std::time::Instant::now());
+        let (timeline, id) = (timeline.clone(), id.to_owned());
+        tokio::spawn(async move {
+            let _ = timeline.fetch_details_for_event(&id).await;
+        });
+    }
+    let own;
+    let orig: Option<&EmbeddedEvent> = match (source, &r.event) {
+        (ReplySource::Timeline, _) => {
+            own = EmbeddedEvent::from_timeline_item(in_timeline.expect("planned from the timeline"));
+            Some(&own)
+        }
+        (ReplySource::Detail, TimelineDetails::Ready(e)) => Some(e),
+        _ => None,
+    };
     let (mut author, mut preview) = (None, None);
-    if let TimelineDetails::Ready(orig) = &r.event {
+    let mut state = match source {
+        ReplySource::Loading => ReplyState::Loading,
+        _ => ReplyState::Unavailable,
+    };
+    if let Some(orig) = orig {
         let text = match orig.content.as_msglike().map(|m| &m.kind) {
             Some(MsgLikeKind::Message(m)) => {
                 let media = media_of(m.msgtype());
@@ -2054,15 +2097,24 @@ async fn reply_ref(room: &matrix_sdk::room::Room, r: &matrix_sdk_ui::timeline::I
             }
             Some(MsgLikeKind::Sticker(_)) => Some("Sticker".to_owned()),
             Some(MsgLikeKind::Poll(p)) => Some(crate::history::quote_preview(&p.results().question, None, 80)),
-            _ => None, // deleted or undecryptable: «Messaggio non disponibile»
+            Some(MsgLikeKind::Redacted) => {
+                state = ReplyState::Deleted;
+                None
+            }
+            Some(MsgLikeKind::UnableToDecrypt(_)) => {
+                state = ReplyState::Encrypted;
+                None
+            }
+            _ => None,
         };
         if text.is_some() {
             let s = history_sender(room, &orig.sender).await;
             author = Some(s.name.unwrap_or(s.id));
             preview = text.filter(|t| !t.is_empty());
+            state = ReplyState::Resolved;
         }
     }
-    crate::history::ReplyRef { event_id: matrix_domain::EventId::new(r.event_id.as_str()), author, preview }
+    crate::history::ReplyRef { event_id: matrix_domain::EventId::new(r.event_id.as_str()), author, preview, state }
 }
 
 /// The SDK result (already counted: last vote wins, votes after the end ignored) as a domain `Poll`.
@@ -2224,7 +2276,7 @@ async fn status_row(
 /// saved chunks added.
 pub(crate) async fn fill(
     room: &matrix_sdk::Room,
-    timeline: &matrix_sdk_ui::timeline::Timeline,
+    timeline: &std::sync::Arc<matrix_sdk_ui::timeline::Timeline>,
     want: usize,
 ) -> (Loaded, Result<(), crate::history::HistoryError>) {
     // shortcut: at most 10 steps of one page for a long absence, then the newest part is shown.
