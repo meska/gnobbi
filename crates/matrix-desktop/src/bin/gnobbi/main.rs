@@ -934,6 +934,10 @@ impl App {
         if narrow && std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("list") {
             self.list_open = true;
         }
+        // Left-edge swipe = the back button.
+        if single && !self.list_open && mobile::back_swipe(ui.ctx()) {
+            self.list_open = true;
+        }
         let mut side = None;
         if let Some(s) = &mut self.session {
             let room = s.sidebar.selected().map(|r| r.scope.clone());

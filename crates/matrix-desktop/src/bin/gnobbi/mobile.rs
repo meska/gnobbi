@@ -103,9 +103,38 @@ pub fn safe_ui(ui: &mut egui::Ui, fill: egui::Color32) -> egui::Ui {
     ui.new_child(egui::UiBuilder::new().max_rect(safe))
 }
 
+/// A drag that began at the left edge ends as «back»: mostly horizontal and past a third of the width, or a quick flick of at least 40 pt.
+fn is_back_swipe(dx: f32, dy: f32, secs: f32, width: f32) -> bool {
+    dx > 2. * dy.abs() && (dx > width / 3. || (dx > 40. && dx > 500. * secs))
+}
+
+/// True on the frame a left-edge swipe to the right is released (the iOS back gesture).
+/// shortcut: acts on release, the page does not follow the finger; add a translate if the feel asks for it.
+pub fn back_swipe(ctx: &egui::Context) -> bool {
+    const EDGE: f32 = 24.;
+    let id = egui::Id::new("back-swipe");
+    let edge = ctx.content_rect().left() + EDGE;
+    let (pressed, released, time) = ctx.input(|i| (i.pointer.any_pressed().then(|| i.pointer.press_origin()).flatten(), i.pointer.any_released().then(|| i.pointer.interact_pos().or(i.pointer.latest_pos())).flatten(), i.time));
+    if let Some(p) = pressed {
+        ctx.data_mut(|d| d.insert_temp(id, (p.x < edge).then_some((p, time))));
+    }
+    let start = if released.is_some() { ctx.data_mut(|d| d.remove_temp::<Option<(egui::Pos2, f64)>>(id)).flatten() } else { None };
+    matches!((start, released), (Some((s, t0)), Some(e)) if is_back_swipe(e.x - s.x, e.y - s.y, (time - t0) as f32, ctx.content_rect().width()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn back_swipe_needs_a_horizontal_drag_far_or_fast() {
+        assert!(is_back_swipe(150., 10., 0.6, 393.), "past a third");
+        assert!(is_back_swipe(60., 5., 0.1, 393.), "short but fast");
+        assert!(!is_back_swipe(60., 5., 0.5, 393.), "short and slow: cancelled");
+        assert!(!is_back_swipe(200., 150., 0.3, 393.), "diagonal: a scroll");
+        assert!(!is_back_swipe(-200., 0., 0.2, 393.), "leftwards");
+        assert!(!is_back_swipe(0., 0., 0.1, 393.), "a tap");
+    }
 
     /// Header top and composer bottom of one frame on a 393x852 screen.
     fn frame(ctx: &egui::Context, insets: &mut Insets, event: Option<egui::SafeAreaInsets>) -> (f32, f32) {
