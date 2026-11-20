@@ -20,7 +20,7 @@ fn cancelling_invalidates_the_bounded_pending_alert_before_delivery() {
     let (started_tx, started_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let mut first = true;
-    let worker = NotificationWorker::spawn_with(move |notification| {
+    let worker = NotificationWorker::spawn_with(move |notification, _| {
         started_tx.send(notification.body()).unwrap();
         if first {
             first = false;
@@ -65,7 +65,7 @@ fn isolated_os_notification_roundtrip() {
     let bus = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
     assert_eq!(std::env::var("MATRIX_NOTIFICATION_TEST_BUS").unwrap(), bus);
     let expected = std::env::var("MATRIX_NOTIFICATION_EXPECT").unwrap();
-    let result = deliver_os(alert(), &Click::default());
+    let result = deliver_os(alert(), None, &Click::default());
     if expected == "timeout" {
         assert_eq!(result, Err(NotificationError::Timeout));
     } else if expected == "unavailable" {
@@ -77,8 +77,15 @@ fn isolated_os_notification_roundtrip() {
 }
 
 #[test]
+#[ignore = "private D-Bus only; run with the recorder of the notification_bus script"]
+fn isolated_os_notification_carries_the_avatar_as_image_data() {
+    let picture = crate::notification_avatar::shrink((8, 8, vec![255; 8 * 8 * 4]));
+    assert_eq!(deliver_os(alert(), picture, &Click::default()), Ok(()));
+}
+
+#[test]
 fn worker_reports_failure_without_remote_error_details() {
-    let worker = NotificationWorker::spawn_with(|_| Err(NotificationError::Unavailable)).unwrap();
+    let worker = NotificationWorker::spawn_with(|_, _| Err(NotificationError::Unavailable)).unwrap();
     let handle = worker.handle();
     assert!(!handle.failed());
     assert!(handle.submit(alert()));
@@ -95,7 +102,7 @@ fn worker_reports_failure_without_remote_error_details() {
 fn worker_delivers_content_free_payload_off_the_calling_thread() {
     let (sender, receiver) = mpsc::channel();
     let caller = std::thread::current().id();
-    let worker = NotificationWorker::spawn_with(move |notification| {
+    let worker = NotificationWorker::spawn_with(move |notification, _| {
         sender
             .send((
                 std::thread::current().id(),
@@ -122,7 +129,7 @@ fn saved_message_preview_switch_reaches_the_alert_body_and_defaults_to_on() {
         let mut policy = NotificationPolicy::new(scope.account_id);
         policy.set_enabled(true);
         policy.set_message_preview(crate::Preferences { message_preview: on, ..Default::default() }.message_preview);
-        let preview = MessagePreview { content: PreviewContent::Text("ciao".into()), sender: None, direct: true };
+        let preview = MessagePreview { content: PreviewContent::Text("ciao".into()), sender: None, direct: true, sender_avatar: None };
         policy.alert(&scope, Some(preview)).unwrap().body()
     };
     assert_eq!(body(true), "ciao");
@@ -135,7 +142,7 @@ fn delivered_alert_names_its_account_and_a_click_is_handed_back_once() {
     let click = Click::default();
     let slot = click.clone();
     let (sender, receiver) = mpsc::channel();
-    let worker = NotificationWorker::spawn_clicks(click, move |notification| {
+    let worker = NotificationWorker::spawn_clicks(click, move |notification, _| {
         let (account, scope) = notification.target();
         sender
             .send((notification.title().to_owned(), account))

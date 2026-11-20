@@ -440,10 +440,17 @@ impl Session {
                     {
                         let name = if self.account_name.is_empty() { "Gnobbi".to_owned() } else { crate::list::clean_single_line(&self.account_name) };
                         let user = self.verification.as_ref().and_then(|v| v.profile()).map(|(id, _)| id.clone()).unwrap_or_default();
-                        let room = self.sidebar.rooms().iter().find(|r| r.scope == scope).map(|r| r.name.clone());
+                        let room_row = self.sidebar.rooms().iter().find(|r| r.scope == scope);
+                        let room = room_row.map(|r| r.name.clone());
                         let peers: Vec<&str> = self.peers.iter().map(String::as_str).collect();
                         let alert = alert.from_account(self.catalog_id.unwrap_or(account), name.clone()).titled(&name, &user, room.as_deref(), &peers);
-                        handle.submit(alert);
+                        // The picture is fetched by the existing avatar source (cache first); the notification worker waits for it briefly.
+                        let picture = alert.avatar_mxc(room_row.and_then(|r| r.info.avatar.as_deref())).and_then(|mxc| {
+                            let (tx, rx) = std::sync::mpsc::channel();
+                            self.avatar_slot.try_lock().ok()?.as_ref()?.request(mxc.to_owned(), tx);
+                            Some(rx)
+                        });
+                        handle.submit_with_avatar(alert, picture);
                     }
                 }
                 // Alerts and timeline activity belong to later slices.

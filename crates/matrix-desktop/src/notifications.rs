@@ -5,6 +5,8 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc,
 };
+use crate::notification_avatar::{self as avatar, Avatar};
+use matrix_engine::avatar::AvatarPicture;
 use std::time::Duration;
 
 /// Controls of the «Notifiche locali» panel, in Tab order; the keyboard focus lives in every build.
@@ -46,15 +48,19 @@ type Click = Arc<Mutex<Option<(Option<AccountId>, RoomScope)>>>;
 #[derive(Clone)]
 pub struct NotificationHandle {
     click: Click,
-    sender: mpsc::SyncSender<(u64, Notification)>,
+    sender: mpsc::SyncSender<(u64, Notification, Option<mpsc::Receiver<AvatarPicture>>)>,
     revision: Arc<AtomicU64>,
     failed: Arc<AtomicBool>,
 }
 impl NotificationHandle {
     /// Nonblocking, best effort: one pending alert maximum.
     pub fn submit(&self, notification: Notification) -> bool {
+        self.submit_with_avatar(notification, None)
+    }
+    /// Like `submit`; the worker waits at most `avatar::WAIT` for the picture, off the caller's thread.
+    pub fn submit_with_avatar(&self, notification: Notification, picture: Option<mpsc::Receiver<AvatarPicture>>) -> bool {
         self.sender
-            .try_send((self.revision.load(Ordering::Acquire), notification))
+            .try_send((self.revision.load(Ordering::Acquire), notification, picture))
             .is_ok()
     }
     /// Invalidates queued alerts, not those already handed to the OS service.
@@ -78,22 +84,26 @@ pub struct NotificationWorker {
 impl NotificationWorker {
     pub fn spawn() -> std::io::Result<Self> {
         init();
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        if let Some(dir) = avatar::dir() {
+            avatar::sweep(&dir, Duration::from_secs(24 * 3600));
+        }
         let click = Click::default();
         let slot = click.clone();
-        Self::spawn_clicks(click, move |n| deliver_os(n, &slot))
+        Self::spawn_clicks(click, move |n, a| deliver_os(n, a, &slot))
     }
     #[cfg(test)]
     fn spawn_with<F>(deliver: F) -> std::io::Result<Self>
     where
-        F: FnMut(Notification) -> Result<(), NotificationError> + Send + 'static,
+        F: FnMut(Notification, Option<Avatar>) -> Result<(), NotificationError> + Send + 'static,
     {
         Self::spawn_clicks(Click::default(), deliver)
     }
     fn spawn_clicks<F>(click: Click, mut deliver: F) -> std::io::Result<Self>
     where
-        F: FnMut(Notification) -> Result<(), NotificationError> + Send + 'static,
+        F: FnMut(Notification, Option<Avatar>) -> Result<(), NotificationError> + Send + 'static,
     {
-        let (sender, receiver) = mpsc::sync_channel(1);
+        let (sender, receiver) = mpsc::sync_channel::<(u64, Notification, Option<mpsc::Receiver<AvatarPicture>>)>(1);
         let stop = Arc::new(AtomicBool::new(false));
         let cancelled = stop.clone();
         let revision = Arc::new(AtomicU64::new(0));
@@ -105,11 +115,12 @@ impl NotificationWorker {
             .spawn(move || {
                 while !cancelled.load(Ordering::Acquire) {
                     match receiver.recv_timeout(Duration::from_millis(50)) {
-                        Ok((version, notification)) => {
+                        Ok((version, notification, picture)) => {
                             if !cancelled.load(Ordering::Acquire)
                                 && version == current.load(Ordering::Acquire)
                             {
-                                failure.store(deliver(notification).is_err(), Ordering::Release);
+                                let picture = picture.and_then(|rx| avatar::wait(&rx, avatar::WAIT));
+                                failure.store(deliver(notification, picture).is_err(), Ordering::Release);
                             }
                         }
                         Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -205,7 +216,7 @@ mod linux {
         body.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
     }
 
-    pub fn deliver(notification: Notification, click: &Click) -> Result<(), NotificationError> {
+    pub fn deliver(notification: Notification, picture: Option<Avatar>, click: &Click) -> Result<(), NotificationError> {
         let mut guard = BUS.lock().map_err(|_| NotificationError::Worker)?;
         if guard.is_none() {
             *guard = Some(connect(click)?);
@@ -218,12 +229,16 @@ mod linux {
         let replaces = bus.ids.lock().ok().and_then(|ids| ids.get(&scope).map(|(id, _)| *id)).unwrap_or(0);
         let body = notification.body();
         let body = if bus.markup { escape(&body) } else { body };
-        let hints = HashMap::from([
+        let mut hints = HashMap::from([
             ("urgency", Value::from(0u8)),
             ("suppress-sound", Value::from(true)),
             ("transient", Value::from(true)),
             ("category", Value::from("im.received")),
         ]);
+        if let Some(a) = picture {
+            // freedesktop `image-data`: (width, height, rowstride, has_alpha, bits, channels, bytes)
+            hints.insert("image-data", Value::from((a.width as i32, a.height as i32, a.width as i32 * 4, true, 8i32, 4i32, a.rgba)));
+        }
         let sent = bus.proxy.call::<_, _, u32>(
             "Notify",
             &("Gnobbi", replaces, "", notification.title_line(), body, vec!["open", crate::i18n::t("Open")], hints, 5000i32),
@@ -244,8 +259,8 @@ mod linux {
     }
 }
 #[cfg(target_os = "linux")]
-fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
-    linux::deliver(notification, click)
+fn deliver_os(notification: Notification, picture: Option<Avatar>, click: &Click) -> Result<(), NotificationError> {
+    linux::deliver(notification, picture, click)
 }
 /// What an alert carries so a click can be understood by a process that did not raise it (the app was
 /// closed and the click launched it): the account and the room, as `<account>:<room id>`. Also the OS
@@ -309,7 +324,7 @@ mod macos {
     use super::*;
     use block2::{DynBlock, RcBlock};
     use objc2::{AnyThread, define_class, msg_send, rc::Retained, runtime::ProtocolObject};
-    use objc2_foundation::{NSBundle, NSDictionary, NSError, NSObject, NSObjectProtocol, NSString};
+    use objc2_foundation::{NSArray, NSBundle, NSDictionary, NSError, NSObject, NSObjectProtocol, NSString, NSURL};
     use objc2_user_notifications::*;
     use std::collections::HashMap;
     use std::sync::Once;
@@ -360,7 +375,7 @@ mod macos {
         });
     }
 
-    pub fn deliver(notification: Notification, click: &Click) -> Result<(), NotificationError> {
+    pub fn deliver(notification: Notification, picture: Option<Avatar>, click: &Click) -> Result<(), NotificationError> {
         if NSBundle::mainBundle().bundleIdentifier().is_none() {
             return Err(NotificationError::Unavailable);
         }
@@ -382,12 +397,26 @@ mod macos {
         let info = NSDictionary::from_retained_objects(&[&*NSString::from_str(KEY)], &[key.clone()]);
         // SAFETY: the setter's untyped dictionary is the same object; only the generic parameters differ.
         unsafe { content.setUserInfo(&Retained::cast_unchecked::<NSDictionary>(info)) };
+        // Thumbnail attachment (the left icon of a notification is the app's, only Communication Notifications can replace it).
+        // The center copies the file when the request is added, so ours goes away right after.
+        let file = picture.as_ref().and_then(avatar::png).zip(avatar::dir()).and_then(|(png, dir)| avatar::write(&dir, &png));
+        if let Some(path) = &file
+            && let Ok(attachment) = unsafe {
+                UNNotificationAttachment::attachmentWithIdentifier_URL_options_error(&NSString::from_str("avatar"), &NSURL::fileURLWithPath(&NSString::from_str(&path.to_string_lossy())), None)
+            }
+        {
+            content.setAttachments(&NSArray::from_retained_slice(&[attachment]));
+        }
         let request = UNNotificationRequest::requestWithIdentifier_content_trigger(&key, &content, None);
         let (done, result) = mpsc::channel();
         center.addNotificationRequest_withCompletionHandler(&request, Some(&RcBlock::new(move |e: *mut NSError| {
             let _ = done.send(e.is_null());
         })));
-        match result.recv_timeout(Duration::from_secs(2)) {
+        let outcome = result.recv_timeout(Duration::from_secs(2));
+        if let Some(path) = file {
+            let _ = std::fs::remove_file(path);
+        }
+        match outcome {
             Ok(true) => Ok(()),
             Ok(false) => Err(NotificationError::Unavailable), // not authorized (yet) or refused by the system
             Err(_) => Err(NotificationError::Timeout),
@@ -396,11 +425,11 @@ mod macos {
 }
 /// Blocking platform boundary: only the notification worker may call this.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
-    macos::deliver(notification, click)
+fn deliver_os(notification: Notification, picture: Option<Avatar>, click: &Click) -> Result<(), NotificationError> {
+    macos::deliver(notification, picture, click)
 }
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "ios")))]
-fn deliver_os(_: Notification, _: &Click) -> Result<(), NotificationError> {
+fn deliver_os(_: Notification, _: Option<Avatar>, _: &Click) -> Result<(), NotificationError> {
     Err(NotificationError::Unavailable)
 }
 

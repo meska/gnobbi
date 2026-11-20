@@ -59,7 +59,7 @@ objc = "=0.2.7"
 objc2-core-foundation = "=0.3.2"
 # Notifications with a click (UNUserNotificationCenter).
 objc2 = "=0.6.5"
-objc2-foundation = { version = "=0.3.2", features = ["NSBundle", "NSString", "NSError", "NSObject"] }
+objc2-foundation = { version = "=0.3.2", features = ["NSBundle", "NSString", "NSError", "NSObject", "NSArray", "NSURL"] }
 objc2-user-notifications = { version = "=0.3.2", features = ["block2"] }
 block2 = "=0.6.2"
 

@@ -4,7 +4,7 @@ use matrix_domain::{
 };
 
 fn msg(content: PreviewContent, sender: Option<&str>, direct: bool) -> MessagePreview {
-    MessagePreview { content, sender: sender.map(Into::into), direct }
+    MessagePreview { content, sender: sender.map(Into::into), direct, sender_avatar: None }
 }
 fn text(t: &str) -> MessagePreview {
     msg(PreviewContent::Text(t.into()), Some("Anna"), true)
@@ -126,4 +126,16 @@ fn policy_preview_defaults_on_and_shows_only_the_latest_message() {
     assert_eq!(policy.alert(&scope(1), Some(text("due"))).unwrap().body(), "due");
     policy.set_message_preview(false);
     assert_eq!(policy.alert(&scope(1), Some(text("due"))).unwrap().body(), "New messages");
+}
+
+#[test]
+fn avatar_prefers_sender_then_room_then_none() {
+    let scope = matrix_domain::RoomScope { account_id: matrix_domain::AccountId::new(1), room_id: matrix_domain::RoomId::new("!r:x") };
+    let mut policy = NotificationPolicy::new(scope.account_id);
+    policy.set_enabled(true);
+    let with = |a: Option<&str>| policy.alert(&scope, Some(MessagePreview { sender_avatar: a.map(Into::into), ..msg(PreviewContent::Sticker, None, false) })).unwrap();
+    assert_eq!(with(Some("mxc://s/a")).avatar_mxc(Some("mxc://s/room")), Some("mxc://s/a"));
+    assert_eq!(with(None).avatar_mxc(Some("mxc://s/room")), Some("mxc://s/room"));
+    assert_eq!(with(None).avatar_mxc(None), None);
+    assert_eq!(policy.alert(&scope, None).unwrap().avatar_mxc(None), None);
 }

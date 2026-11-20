@@ -40,6 +40,8 @@ pub struct MessagePreview {
     pub content: PreviewContent,
     pub sender: Option<String>,
     pub direct: bool,
+    /// mxc of the sender's profile picture, when known.
+    pub sender_avatar: Option<String>,
 }
 
 fn clean(text: &str) -> String {
@@ -207,6 +209,7 @@ impl NotificationPolicy {
             scope: scope.clone(),
             origin: None,
             sender: preview.as_ref().and_then(|p| p.sender.clone()),
+            sender_avatar: preview.as_ref().and_then(|p| p.sender_avatar.clone()),
             direct: preview.as_ref().is_some_and(|p| p.direct),
             title: None,
         })
@@ -221,6 +224,7 @@ pub struct Notification {
     /// Catalog ID and display name of the account it came from; set by the window.
     origin: Option<(AccountId, String)>,
     sender: Option<String>,
+    sender_avatar: Option<String>,
     direct: bool,
     title: Option<(String, Option<String>)>,
 }
@@ -238,6 +242,10 @@ impl Notification {
     pub fn titled(mut self, account_name: &str, account_id: &str, room_name: Option<&str>, other_accounts: &[&str]) -> Self {
         self.title = Some(notification_title(self.sender.as_deref(), account_name, account_id, room_name, other_accounts, self.direct));
         self
+    }
+    /// Picture for the OS alert: the sender's, else the room's; none for system alerts without either.
+    pub fn avatar_mxc<'a>(&'a self, room_avatar: Option<&'a str>) -> Option<&'a str> {
+        self.sender_avatar.as_deref().or(room_avatar)
     }
     pub fn title(&self) -> &str {
         match (&self.title, &self.origin) {

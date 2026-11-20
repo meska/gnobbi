@@ -94,8 +94,15 @@ pub(crate) async fn watch(client: &Client, account: matrix_domain::AccountId, al
                                 },
                                 None => None,
                             };
+                            let sender_avatar = match &sender {
+                                Some(id) => match room.get_member_no_sync(id).await {
+                                    Ok(Some(member)) => crate::avatar::normalize_avatar(member.avatar_url().map(|u| u.to_string())),
+                                    _ => None,
+                                },
+                                None => None,
+                            };
                             let direct = room.is_direct().await.unwrap_or(false);
-                            Some(MessagePreview { content: content_of(event), sender: name, direct })
+                            Some(MessagePreview { content: content_of(event), sender: name, direct, sender_avatar })
                         }
                         RawAnySyncOrStrippedTimelineEvent::Stripped(_) => None,
                     };
