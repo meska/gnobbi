@@ -9,7 +9,5 @@ CARGO_TARGET_DIR=$t cargo rustc --locked $flag -p matrix-desktop --bin gnobbi --
   -C link-arg=-Wl,-sectcreate,__TEXT,__entitlements,"$here/sim.entitlements"
 app=$t/ios/Gnobbi.app; rm -rf "$app"; mkdir -p "$app"
 cp "$t/$triple/$out/gnobbi" "$app/"; cp "$here/Info.plist" "$app/Info.plist"
-# shortcut: SDK version lowered to 26.0 because from the iOS 27 SDK UIKit traps an app without UIScene lifecycle (winit 0.30 has none); fix by adopting UIScene in winit.
-vtool -set-build-version iossim 17.0 26.0 -replace -output "$app/gnobbi" "$app/gnobbi"
 codesign -f -s - "$app/gnobbi"
 echo "$app"
