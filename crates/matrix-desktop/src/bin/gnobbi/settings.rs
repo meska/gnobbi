@@ -97,8 +97,12 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                     changed |= switch(ui, tr("Message preview"), &mut p.message_preview, t);
                     section(ui, tr("Notifications"), t);
                     changed |= switch(ui, tr("Notifications"), &mut p.notifications, t);
-                    section(ui, tr("System"), t);
-                    changed |= switch(ui, tr("Close to tray"), &mut p.close_to_tray, t);
+                    // iOS has no tray (nor other desktop-only system rows): no System section.
+                    #[cfg(not(target_os = "ios"))]
+                    {
+                        section(ui, tr("System"), t);
+                        changed |= switch(ui, tr("Close to tray"), &mut p.close_to_tray, t);
+                    }
                     #[cfg(target_os = "linux")]
                     {
                         let id = egui::Id::new("desktop-entry-result");

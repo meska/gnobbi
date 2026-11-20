@@ -28,34 +28,54 @@ where
     }));
 }
 
-/// iOS: the first call raises the system permission prompt (that attempt fails, the next one works); then the
-/// session must be PlayAndRecord or the input unit stays silent.
+/// `start` error that is not an error: the system permission prompt is up; the app retries on `permission_granted`.
+pub const PERMISSION_PENDING: &str = "";
+
+#[cfg(target_os = "ios")]
+static GRANTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True once, after the user taps «Consenti» on the prompt raised by `start`.
+pub fn permission_granted() -> bool {
+    #[cfg(target_os = "ios")]
+    return GRANTED.swap(false, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(not(target_os = "ios"))]
+    false
+}
+
+/// iOS: the first call raises the system permission prompt (`PERMISSION_PENDING`, retried after «Consenti»); then the
+/// session must be PlayAndRecord and active or the input unit stays silent.
 #[cfg(target_os = "ios")]
 #[allow(deprecated)] // the AVAudioApplication replacement is iOS 17+ only and this one still works
-fn prepare_session() -> bool {
+fn prepare_session(repaint: impl Fn() + Send + 'static) -> Result<(), &'static str> {
     use objc2_avf_audio::{AVAudioSession, AVAudioSessionCategoryPlayAndRecord, AVAudioSessionRecordPermission as P};
     // SAFETY: plain AVAudioSession calls; the block outlives the call (UIKit copies it).
     unsafe {
         let session = AVAudioSession::sharedInstance();
         match session.recordPermission() {
-            P::Granted => AVAudioSessionCategoryPlayAndRecord.is_some_and(|c| session.setCategory_error(c).is_ok()),
-            P::Undetermined => {
-                session.requestRecordPermission(&block2::RcBlock::new(|_| {}));
-                false
+            P::Granted => {
+                let category = AVAudioSessionCategoryPlayAndRecord.ok_or(NO_MIC)?;
+                session.setCategory_error(category).map_err(|_| NO_MIC)?;
+                session.setActive_error(true).map_err(|_| NO_MIC)
             }
-            _ => false,
+            P::Undetermined => {
+                session.requestRecordPermission(&block2::RcBlock::new(move |ok: objc2::runtime::Bool| {
+                    GRANTED.store(ok.as_bool(), std::sync::atomic::Ordering::Relaxed);
+                    repaint();
+                }));
+                Err(PERMISSION_PENDING)
+            }
+            _ => Err(NO_MIC),
         }
     }
 }
 
+const NO_MIC: &str = "Microfono non disponibile";
+
 impl Recorder {
     /// Starts capturing from the default input device; the error is the one line shown to the user.
-    pub fn start(upload_limit: u64) -> Result<Self, &'static str> {
-        const NO_MIC: &str = "Microfono non disponibile";
+    pub fn start(upload_limit: u64, _repaint: impl Fn() + Send + 'static) -> Result<Self, &'static str> {
         #[cfg(target_os = "ios")]
-        if !prepare_session() {
-            return Err(NO_MIC);
-        }
+        prepare_session(_repaint)?;
         let device = cpal::default_host().default_input_device().ok_or(NO_MIC)?;
         let config = device.default_input_config().map_err(|_| NO_MIC)?;
         let channels = usize::from(config.channels()).max(1);

@@ -1257,7 +1257,7 @@ impl App {
             if let Some(image) = out.pasted { s.attach_image(&image, true); }
             if let Some(path) = out.picked { s.attach(&path, true); }
             match out.voice {
-                Some(composer::VoiceAct::Start) => s.start_recording(true),
+                Some(composer::VoiceAct::Start) => s.start_recording(true, ui.ctx()),
                 Some(composer::VoiceAct::Send) => s.stop_recording(true),
                 Some(composer::VoiceAct::Cancel) => s.stop_recording(false),
                 None => {}
@@ -1302,7 +1302,7 @@ impl App {
                     s.attach(&path, false);
                 }
                 match voice_act {
-                    Some(composer::VoiceAct::Start) => s.start_recording(false),
+                    Some(composer::VoiceAct::Start) => s.start_recording(false, ui.ctx()),
                     Some(composer::VoiceAct::Send) => s.stop_recording(true),
                     Some(composer::VoiceAct::Cancel) => s.stop_recording(false),
                     None => {}
@@ -1960,16 +1960,15 @@ fn main() -> eframe::Result {
         setup.device_descriptor = std::sync::Arc::new(|adapter| eframe::wgpu::DeviceDescriptor { label: Some("gnobbi"), required_limits: adapter.limits(), ..Default::default() });
         options.wgpu_options.wgpu_setup = eframe::egui_wgpu::WgpuSetup::CreateNew(setup);
     }
-    eprintln!("gnobbi: run_native start");
     let result = eframe::run_native(TITLE, options, Box::new(move |cc| {
-        eprintln!("gnobbi: creator called");
         register_emoji_font(&cc.egui_ctx);
         icons::register(&cc.egui_ctx);
         #[cfg(target_os = "ios")]
         mobile::observe_keyboard(&cc.egui_ctx);
+        #[cfg(target_os = "ios")]
+        pick::purge_temp();
         Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))
     }));
-    eprintln!("gnobbi: run_native returned {:?}", result.as_ref().err());
     result
 }
 

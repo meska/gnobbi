@@ -192,6 +192,8 @@ pub struct Session {
     pub profile_saved: Option<Result<(), &'static str>>,
     /// The file the running save writes; on iOS it goes to the share sheet when the save is done.
     share_after: std::path::PathBuf,
+    /// Composer (thread or room) that asked for the microphone while the permission prompt was up.
+    mic_pending: Option<bool>,
     pub new_open: bool,
     pub new_term: String,
     new_sent: String,
@@ -350,6 +352,7 @@ impl Session {
             profile_busy: false,
             profile_saved: None,
             share_after: std::path::PathBuf::new(),
+            mic_pending: None,
             new_open: false,
             new_term: String::new(),
             new_sent: String::new(),
@@ -535,6 +538,11 @@ impl Session {
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         changed |= self.drive_history();
+        if let Some(thread) = self.mic_pending && matrix_desktop::voice_recorder::permission_granted() {
+            self.mic_pending = None;
+            self.start_recording(thread, ctx);
+            changed = true;
+        }
         changed |= self.drive_media(ctx);
         changed |= self.drive_stickers();
         changed |= self.drive_avatars(ctx);
@@ -1508,8 +1516,9 @@ impl Session {
                     return;
                 }
                 if let Some(scope) = self.draft_scope.clone() {
-                    self.share_after = path.clone();
-                    self.notice = (!self.media.request_save(scope, viewer.id.clone(), path)).then(|| i18n::t("A save is already in progress").to_owned());
+                    let queued = self.media.request_save(scope, viewer.id.clone(), path.clone());
+                    if queued { self.share_after = path; }
+                    self.notice = (!queued).then(|| i18n::t("A save is already in progress").to_owned());
                 }
             }
             crate::viewer::Action::Open => {
@@ -1532,8 +1541,9 @@ impl Session {
             path = dir.join(format!("{n}-{base}"));
         }
         let _ = std::fs::create_dir_all(&dir);
-        self.share_after = path.clone();
-        self.notice = (!self.media.request_save(scope, event, path)).then(|| i18n::t("A save is already in progress").to_owned());
+        let queued = self.media.request_save(scope, event, path.clone());
+        if queued { self.share_after = path; }
+        self.notice = (!queued).then(|| i18n::t("A save is already in progress").to_owned());
     }
 
     /// Takes a dropped file as the pending attachment (up to the server's upload limit, 50 MB until it is known).
@@ -1702,14 +1712,16 @@ impl Session {
     }
 
     /// One microphone: a second start (the other composer) while a note is being recorded does nothing.
-    pub fn start_recording(&mut self, thread: bool) {
+    pub fn start_recording(&mut self, thread: bool, ctx: &egui::Context) {
         if self.recorder.is_some() { return; }
-        match matrix_desktop::voice_recorder::Recorder::start(self.upload_limit.unwrap_or(50 << 20)) {
+        match matrix_desktop::voice_recorder::Recorder::start(self.upload_limit.unwrap_or(50 << 20), { let ctx = ctx.clone(); move || ctx.request_repaint() }) {
             Ok(recorder) => {
                 self.record_thread = thread;
                 self.recorder = Some(recorder);
                 self.notice = None;
             }
+            // First tap: the permission prompt is up; poll() restarts after «Consenti».
+            Err(matrix_desktop::voice_recorder::PERMISSION_PENDING) => self.mic_pending = Some(thread),
             Err(error) => self.notice = Some(error.to_owned()),
         }
     }

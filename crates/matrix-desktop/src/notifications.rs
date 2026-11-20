@@ -382,7 +382,7 @@ mod macos {
         install_delegate();
         let center = UNUserNotificationCenter::currentNotificationCenter();
         static AUTH: Once = Once::new();
-        AUTH.call_once(|| center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert, &RcBlock::new(|_, _: *mut NSError| {})));
+        AUTH.call_once(|| center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &RcBlock::new(|_, _: *mut NSError| {})));
         let (catalog, scope) = notification.target();
         let key_text = target_key(catalog, scope);
         let key = NSString::from_str(&key_text);

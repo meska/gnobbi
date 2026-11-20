@@ -30,6 +30,7 @@ pub fn start(_ctx: &eframe::egui::Context, title: &str, images_only: bool) {
 /// Photos from the library (PHPicker) for images, any file (UIDocumentPicker) otherwise.
 #[cfg(target_os = "ios")]
 pub fn start(ctx: &eframe::egui::Context, title: &str, images_only: bool) {
+    purge_temp(); // the previous pick has been read by now
     let (ctx, t) = (ctx.clone(), title.to_owned());
     let done = move |r: robius_file_picker::Result<Option<robius_file_picker::PickedFile>>| {
         store(&t, r.ok().flatten().and_then(|f| f.into_path()));
@@ -37,6 +38,20 @@ pub fn start(ctx: &eframe::egui::Context, title: &str, images_only: bool) {
     };
     let dialog = robius_file_picker::FileDialog::new().set_title(title);
     let _ = if images_only { dialog.pick_image(done) } else { dialog.pick_file(done) };
+}
+
+/// iOS: picked copies (robius `into_path` drops their cleanup) and shared files stay in tmp until iOS purges it;
+/// delete them at the next pick/save and at launch. shortcut: not right after upload/share, upgrade with a per-file guard.
+#[cfg(target_os = "ios")]
+pub fn purge_temp() {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name();
+        let name = name.to_string_lossy();
+        if name == "gnobbi-share" || name.starts_with("robius-file-picker-") {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
 }
 
 /// Where a file to save goes: the folder the user picks on desktop, a private temp file on iOS (shared afterwards).
@@ -55,6 +70,8 @@ pub fn save_as(name: &str) -> Option<PathBuf> {
 /// Where «Scarica» writes: Downloads on desktop, a private temp folder on iOS (the app container has no Downloads the user can reach).
 pub fn save_dir() -> PathBuf {
     if cfg!(target_os = "ios") {
+        #[cfg(target_os = "ios")]
+        purge_temp();
         let dir = std::env::temp_dir().join("gnobbi-share");
         let _ = std::fs::create_dir_all(&dir);
         dir

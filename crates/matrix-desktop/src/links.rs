@@ -150,7 +150,7 @@ impl SafeWebUrl {
 }
 
 /// Openers tried in order until one exits 0. egui's own `ctx.open_url` does nothing here: eframe is built without the `links`
-/// feature (no webbrowser crate), so it only logs a warning. shortcut: no iOS/Windows-specific opener beyond `explorer`.
+/// feature (no webbrowser crate), so it only logs a warning. shortcut: no Windows opener beyond `explorer`; iOS has its own `open_url`.
 const OPENERS: &[&[&str]] = if cfg!(target_os = "macos") {
     &[&["open"]]
 } else if cfg!(windows) {
@@ -168,7 +168,28 @@ pub fn open_with(url: &SafeWebUrl, run: &mut dyn FnMut(&[&str]) -> bool) -> bool
     })
 }
 
+/// iOS has no opener command: UIApplication opens it. Must run on the main thread, which is the UI thread (`MainThreadMarker`);
+/// the answer comes back through the completion handler.
+#[cfg(target_os = "ios")]
+pub fn open_url(url: &SafeWebUrl) -> std::sync::mpsc::Receiver<bool> {
+    use objc2::MainThreadMarker;
+    use objc2_foundation::{NSDictionary, NSString, NSURL};
+    use objc2_ui_kit::UIApplication;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx2 = tx.clone();
+    let opened = MainThreadMarker::new().and_then(|mtm| {
+        let nsurl = NSURL::URLWithString(&NSString::from_str(url.as_str()))?;
+        let done = block2::RcBlock::new(move |ok: objc2::runtime::Bool| { let _ = tx2.send(ok.as_bool()); });
+        // SAFETY: main thread (marker); the block is copied by UIKit; empty options.
+        unsafe { UIApplication::sharedApplication(mtm).openURL_options_completionHandler(&nsurl, &NSDictionary::new(), Some(&done)) };
+        Some(())
+    });
+    if opened.is_none() { let _ = tx.send(false); }
+    rx
+}
+
 /// Opens in the system browser off the UI thread; the receiver yields the outcome once.
+#[cfg(not(target_os = "ios"))]
 pub fn open_url(url: &SafeWebUrl) -> std::sync::mpsc::Receiver<bool> {
     let (tx, rx) = std::sync::mpsc::channel();
     let url = url.clone();
