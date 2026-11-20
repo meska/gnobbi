@@ -22,8 +22,8 @@ fn exact_midnight_to_the_millisecond() {
         let local_midnight = (ms(2026, 11, 6, 0, 0, 0, 0) as i64 - off) as u64;
         // `now` must stay the same local day as the probes in every zone: use a now just after the local midnight.
         let now = local_midnight + 3_600_000;
-        assert_eq!(day_label_in(local_midnight - 1, now, &z, &p), "Ieri", "{z}");
-        assert_eq!(day_label_in(local_midnight, now, &z, &p), "Oggi", "{z}");
+        assert_eq!(day_label_in(local_midnight - 1, now, &z, &p), "Yesterday", "{z}");
+        assert_eq!(day_label_in(local_midnight, now, &z, &p), "Today", "{z}");
         assert_eq!(list_stamp_in(local_midnight, now, &z, &p), "00:00", "{z}");
         assert_eq!(list_stamp_in(local_midnight - 1, now, &z, &p), "Gio", "{z}");
         assert!(starts_day_in(Some(local_midnight - 1), local_midnight, &z), "{z}");
@@ -56,9 +56,9 @@ fn day_label_and_stamp_agree_on_the_same_day_in_negative_offsets() {
     let p = Patterns::fallback();
     let z = zone(-5); // UTC 03:00 on the 6th is 22:00 on the 5th
     let now = ms(2026, 11, 6, 3, 0, 0, 0);
-    assert_eq!(day_label_in(ms(2026, 11, 6, 2, 0, 0, 0), now, &z, &p), "Oggi"); // 21:00 on the 5th
+    assert_eq!(day_label_in(ms(2026, 11, 6, 2, 0, 0, 0), now, &z, &p), "Today"); // 21:00 on the 5th
     assert_eq!(list_stamp_in(ms(2026, 11, 6, 2, 0, 0, 0), now, &z, &p), "21:00");
-    assert_eq!(day_label_in(ms(2026, 11, 5, 4, 59, 0, 0), now, &z, &p), "Ieri"); // 23:59 on the 4th
+    assert_eq!(day_label_in(ms(2026, 11, 5, 4, 59, 0, 0), now, &z, &p), "Yesterday"); // 23:59 on the 4th
 }
 
 #[test]
@@ -76,7 +76,7 @@ fn next_midnight_on_the_dst_days_of_rome() {
     // Exactly at midnight the next one is a full day away, never `now` itself.
     let m = ms(2026, 11, 5, 23, 0, 0, 0);
     assert_eq!(next(m), m + 86_400_000);
-    // Right after the autumn repeat of 02:00 the label still says "Oggi" for the first pass.
+    // Right after the autumn repeat of 02:00 the label still says "Today" for the first pass.
     let p = Patterns::fallback();
     let first = ms(2026, 10, 25, 0, 30, 0, 0); // 02:30 CEST
     let second = ms(2026, 10, 25, 1, 30, 0, 0); // 02:30 CET

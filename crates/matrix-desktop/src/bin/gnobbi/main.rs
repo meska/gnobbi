@@ -1532,7 +1532,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 ui.collapsing("Reagisci", |ui| {
                     egui::Grid::new("reaction-emoji-grid").show(ui, |ui| {
                         for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
-                            if ui.button(*emoji).on_hover_text(*name).clicked() {
+                            if ui.button(*emoji).on_hover_text(matrix_desktop::i18n::t(name)).clicked() {
                                 action = Some(*emoji);
                             }
                             if i % 8 == 7 { ui.end_row(); }

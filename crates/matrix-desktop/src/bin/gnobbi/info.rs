@@ -1,6 +1,6 @@
 //! Right panel: the open room's facts and its members.
 use eframe::egui::{self, Align2, Color32, FontId, RichText, Vec2};
-use matrix_desktop::{DesignTokens, SidebarRoom};
+use matrix_desktop::{DesignTokens, SidebarRoom, i18n};
 use matrix_engine::operations::Member;
 
 fn rgb(c: u32) -> Color32 {
@@ -28,13 +28,13 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
                     ui.add_space(4.);
                     out.open_link = topic_view(ui, &topic, t);
                 }
-                if room.info.edit_rights.any() && ui.button("Modifica").clicked() {
+                if room.info.edit_rights.any() && ui.button(i18n::t("Edit")).clicked() {
                     out.edit = true;
                 }
                 ui.add_space(8.);
-                ui.label(RichText::new(format!("{} membri", room.info.joined_members)).color(rgb(t.secondary)));
+                ui.label(RichText::new(i18n::plural(room.info.joined_members as u64, "{n} member", "{n} members")).color(rgb(t.secondary)));
                 if room.info.encrypted == Some(true) {
-                    ui.label(RichText::new("Cifrata").color(rgb(t.secondary)));
+                    ui.label(RichText::new(i18n::t("Encrypted")).color(rgb(t.secondary)));
                 }
             });
         });
@@ -197,7 +197,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        ui.add_sized([w, 32.], egui::TextEdit::singleline(term).hint_text("Cerca nella stanza").align(egui::Align2::LEFT_CENTER));
+        ui.add_sized([w, 32.], egui::TextEdit::singleline(term).hint_text(i18n::t("Search in room")).align(egui::Align2::LEFT_CENTER));
     });
     ui.add_space(8.);
     match state {
@@ -206,10 +206,10 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
             ui.vertical_centered(|ui| ui.spinner());
         }
         S::NoResults { .. } => {
-            ui.label(RichText::new("Nessun risultato").color(rgb(t.secondary)));
+            ui.label(RichText::new(i18n::t("No results")).color(rgb(t.secondary)));
         }
         S::Error { .. } => {
-            ui.colored_label(rgb(t.error), "Ricerca non riuscita");
+            ui.colored_label(rgb(t.error), i18n::t("Search failed"));
         }
         S::Results { hits, more, .. } => {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -230,7 +230,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
                 }
                 match more {
                     matrix_engine::operations::MoreHits::Available | matrix_engine::operations::MoreHits::Failed => {
-                        let label = if matches!(more, matrix_engine::operations::MoreHits::Failed) { "Riprova" } else { "Altri risultati" };
+                        let label = if matches!(more, matrix_engine::operations::MoreHits::Failed) { i18n::t("Retry") } else { i18n::t("More results") };
                         if ui.button(label).clicked() { *more_clicked = true; }
                     }
                     matrix_engine::operations::MoreHits::Loading => { ui.spinner(); }
@@ -272,28 +272,28 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
                 }
             });
             ui.horizontal_wrapped(|ui| {
-                ui.label("Link profilo");
+                ui.label(i18n::t("Profile link"));
                 if copy_icon(ui).clicked() {
                     ui.ctx().copy_text(format!("https://matrix.to/#/{id}"));
                 }
             });
             match p.verified {
-                Some(true) => ui.label("Verificato"),
-                Some(false) => ui.label(RichText::new("Non verificato").color(rgb(t.error))),
+                Some(true) => ui.label(i18n::t("Verified")),
+                Some(false) => ui.label(RichText::new(i18n::t("Not verified")).color(rgb(t.error))),
                 None => ui.label(""),
             };
             if !me {
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button("Messaggio").clicked() { *action = Some(ProfileAction::Message); }
-                    if ui.button("Menziona").clicked() { *action = Some(ProfileAction::Mention); }
-                    if p.verified == Some(false) && ui.add_enabled(can_verify, egui::Button::new("Verifica")).clicked() { *action = Some(ProfileAction::Verify); }
-                    if rights.is_some_and(|r| r.read_receipt.is_some()) && ui.button("Ultima lettura").clicked() { *action = Some(ProfileAction::ReadReceipt); }
+                    if ui.button(i18n::t("Message")).clicked() { *action = Some(ProfileAction::Message); }
+                    if ui.button(i18n::t("Mention")).clicked() { *action = Some(ProfileAction::Mention); }
+                    if p.verified == Some(false) && ui.add_enabled(can_verify, egui::Button::new(i18n::t("Verify"))).clicked() { *action = Some(ProfileAction::Verify); }
+                    if rights.is_some_and(|r| r.read_receipt.is_some()) && ui.button(i18n::t("Last read")).clicked() { *action = Some(ProfileAction::ReadReceipt); }
                 });
-                if dm_failed { ui.colored_label(rgb(t.error), "Chat non disponibile"); }
+                if dm_failed { ui.colored_label(rgb(t.error), i18n::t("Chat unavailable")); }
             }
             ui.add_space(8.);
             let mut ignored = p.ignored;
-            if crate::settings::switch(ui, "Ignora", &mut ignored, t) {
+            if crate::settings::switch(ui, i18n::t("Ignore"), &mut ignored, t) {
                 flip = Some(ignored);
             }
             if let Some(r) = rights {
@@ -318,7 +318,7 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
                 });
                 // Each destructive action asks once more before it goes out.
                 let mut ask = |ui: &mut egui::Ui, key: &'static str, label: &str, action: Moderation| {
-                    let label = if *confirm == Some(key) { "Conferma" } else { label };
+                    let label = if *confirm == Some(key) { i18n::t("Confirm") } else { label };
                     if ui.button(RichText::new(label).color(rgb(t.error))).clicked() {
                         if *confirm == Some(key) {
                             *moderation = Some(action);
@@ -329,16 +329,16 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
                     }
                 };
                 if r.kick {
-                    ask(ui, "kick", "Espelli", Moderation::Kick);
+                    ask(ui, "kick", i18n::t("Kick"), Moderation::Kick);
                 }
                 if r.ban {
-                    ask(ui, "ban", "Blocca", Moderation::Ban);
+                    ask(ui, "ban", i18n::t("Ban"), Moderation::Ban);
                 }
                 if !r.recent.is_empty() {
-                    ask(ui, "redact", &format!("Elimina {} messaggi", r.recent.len()), Moderation::RedactMessages(r.recent.clone()));
+                    ask(ui, "redact", &i18n::plural(r.recent.len() as u64, "Delete {n} message", "Delete {n} messages"), Moderation::RedactMessages(r.recent.clone()));
                 }
                 if failed {
-                    ui.colored_label(rgb(t.error), "Non riuscito");
+                    ui.colored_label(rgb(t.error), i18n::t("Failed"));
                 }
             }
         });
@@ -361,7 +361,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
         if let Some((_, name)) = &th.reply_to {
             let name = name.clone();
             ui.horizontal(|ui| {
-                ui.label(format!("Risposta a {name}"));
+                ui.label(i18n::t("Reply to {name}").replace("{name}", &name));
                 if ui.button("×").clicked() { th.reply_to = None; }
             });
         }
@@ -372,7 +372,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
     let Some(page) = &th.page else {
         ui.add_space(16.);
         if th.failed {
-            ui.colored_label(rgb(t.error), "Thread non disponibile");
+            ui.colored_label(rgb(t.error), i18n::t("Thread unavailable"));
         } else {
             ui.vertical_centered(|ui| ui.spinner());
         }
@@ -380,7 +380,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
     };
     th.tail_visible = false;
     egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show(ui, |ui| {
-        if !page.at_start && !th.stalled && th.growing.is_none() && ui.button("Carica precedenti").clicked() {
+        if !page.at_start && !th.stalled && th.growing.is_none() && ui.button(i18n::t("Load earlier")).clicked() {
             th.growing = Some(page.replies.len());
             th.want = th.want.saturating_add(50);
             th.next_read = std::time::Instant::now();
@@ -394,7 +394,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
                     let name = e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone());
                     ui.label(RichText::new(name).strong().size(12.).color(rgb(t.accent)));
                     if e.redacted {
-                        ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
+                        ui.label(RichText::new(i18n::t("Message deleted")).italics().color(rgb(t.secondary)));
                     } else {
                         ui.label(&e.body);
                     }
@@ -404,7 +404,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
                 });
             }).response.interact(egui::Sense::click());
             row.context_menu(|ui| {
-                if ui.button("Rispondi").clicked() {
+                if ui.button(i18n::t("Reply")).clicked() {
                     th.reply_to = Some((e.event_id.clone(), e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone())));
                     ui.close();
                 }
@@ -454,13 +454,13 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
     ui.horizontal(|ui| {
         ui.add_space(16.);
         ui.vertical(|ui| {
-            ui.label(RichText::new("Indirizzi").strong());
+            ui.label(RichText::new(i18n::t("Addresses")).strong());
             for alias in &list {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(alias);
                     if data.canonical.main.as_deref() == Some(alias) {
-                        ui.label(RichText::new("principale").size(11.).color(rgb(t.secondary)));
-                    } else if data.can_edit_aliases && ui.small_button("Principale").clicked() {
+                        ui.label(RichText::new(i18n::t("main")).size(11.).color(rgb(t.secondary)));
+                    } else if data.can_edit_aliases && ui.small_button(i18n::t("Main")).clicked() {
                         view.action = Some(AliasAction::SetCanonical { alias: alias.clone() });
                     }
                     if data.can_edit_aliases && crate::info::close_icon(ui).clicked() {
@@ -471,9 +471,9 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
             if data.can_edit_aliases {
                 // Wrapped: field + server + button are wider than the 300 px panel and made its content overflow on both sides.
                 ui.horizontal_wrapped(|ui| {
-                    ui.add(egui::TextEdit::singleline(view.input).desired_width(110.).hint_text("nome").align(egui::Align2::LEFT_CENTER));
+                    ui.add(egui::TextEdit::singleline(view.input).desired_width(110.).hint_text(i18n::t("name")).align(egui::Align2::LEFT_CENTER));
                     ui.label(RichText::new(format!(":{}", data.server)).color(rgb(t.secondary)));
-                    if ui.button("Aggiungi").clicked() && !view.input.trim().is_empty() {
+                    if ui.button(i18n::t("Add")).clicked() && !view.input.trim().is_empty() {
                         view.action = Some(AliasAction::Add { local: view.input.trim().to_owned(), make_canonical: None });
                         view.input.clear();
                     }

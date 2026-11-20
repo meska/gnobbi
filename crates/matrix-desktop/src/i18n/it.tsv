@@ -2,3 +2,153 @@
 # contesto<TAB>sorgente inglese<TAB>traduzione. Contesto vuoto = etichetta normale;
 # menu = voce di menu; @plural = forme separate da | (it: uno|altri), segnaposto {n}.
 # In sorgente e traduzione: \t = tab, \n = a capo, \\ = backslash.
+
+# list
+	Pinned	Fissata
+	Low priority	Bassa priorità
+	New chat	Nuova chat
+	Explore public rooms	Esplora stanze pubbliche
+	Search conversations	Cerca conversazioni
+	Mark as read	Segna come letto
+	Mark as unread	Segna come non letto
+	Add to a space…	Aggiungi a uno spazio…
+	Leave?	Uscire?
+	Leave	Esci
+	Add to a space	Aggiungi a uno spazio
+	Add	Aggiungi
+	Cancel	Annulla
+	Unpin	Stacca
+	Pin to top	Fissa in alto
+	Remove from low priority	Togli dalla bassa priorità
+	Mark as low priority	Segna come bassa priorità
+	Remove from {name}	Togli da {name}
+	All messages	Tutti i messaggi
+	Mentions only	Solo menzioni
+	Muted	Silenziata
+
+# composer
+banner	Reply	Risposta
+	Edit	Modifica
+	Send note	Invia nota
+	Reply in thread	Rispondi nel thread
+	Write a message	Scrivi un messaggio
+	Emoji	Emoji
+	Sticker	Sticker
+	Poll	Sondaggio
+	Attach a file	Allega un file
+	Voice note	Nota vocale
+	Send	Invia
+
+# composer (emoji names)
+	Grinning face	Faccina sorridente
+	Beaming face	Faccina raggiante
+	Face with tears of joy	Faccina che ride fino alle lacrime
+	Rolling on the floor laughing	Faccina che rotola dalle risate
+	Smiling face with smiling eyes	Faccina con occhi sorridenti
+	Smiling face with heart eyes	Faccina con occhi a cuore
+	Face blowing a kiss	Faccina che manda un bacio
+	Smiling face with sunglasses	Faccina con occhiali da sole
+	Thinking face	Faccina pensierosa
+	Grinning face with sweat	Faccina sorridente con sudore
+	Winking face	Faccina che fa l'occhiolino
+	Upside-down face	Faccina capovolta
+	Crying face	Faccina triste
+	Loudly crying face	Faccina che piange forte
+	Angry face	Faccina arrabbiata
+	Screaming face	Faccina spaventata
+	Thumbs up	Pollice in su
+	Thumbs down	Pollice in giù
+	Clapping hands	Applauso
+	Folded hands	Mani giunte
+	Flexed biceps	Bicipite
+	Waving hand	Mano che saluta
+	Handshake	Stretta di mano
+	Raising hands	Mani alzate
+	Party popper	Festa
+	Fire	Fuoco
+	Sparkles	Scintille
+	Hundred points	Cento punti
+	Check mark	Segno di spunta
+	Cross mark	Croce rossa
+	Eyes	Occhi
+	Cup of coffee	Tazza di caffè
+
+# timeline
+	Today	Oggi
+	Yesterday	Ieri
+	Message deleted	Messaggio eliminato
+	Go to bottom	Vai in fondo
+	image	immagine
+	video	video
+@plural	{n} reply	{n} risposta|{n} risposte
+
+# info
+	Encrypted	Cifrata
+	Search in room	Cerca nella stanza
+	No results	Nessun risultato
+	Search failed	Ricerca non riuscita
+	Retry	Riprova
+	More results	Altri risultati
+	Profile link	Link profilo
+	Verified	Verificato
+	Not verified	Non verificato
+	Message	Messaggio
+	Mention	Menziona
+	Verify	Verifica
+	Last read	Ultima lettura
+	Chat unavailable	Chat non disponibile
+	Ignore	Ignora
+	Confirm	Conferma
+	Kick	Espelli
+	Ban	Blocca
+	Failed	Non riuscito
+	Thread unavailable	Thread non disponibile
+	Load earlier	Carica precedenti
+	Reply	Rispondi
+	Addresses	Indirizzi
+	main	principale
+	Main	Principale
+	name	nome
+@plural	{n} member	{n} membro|{n} membri
+@plural	Delete {n} message	Elimina {n} messaggio|Elimina {n} messaggi
+	Reply to {name}	Risposta a {name}
+
+# members
+	Admin	Admin
+	Moderator	Moderatore
+	Member	Membro
+	Invite	Invita
+	Banned	Bloccati
+	Banned list unavailable	Bloccati non disponibili
+	Unban	Sblocca
+	Reason	Motivo
+	Actions for {name}	Azioni per {name}
+
+# roomedit
+	Name	Nome
+	Topic	Argomento
+	Drop an image here for the photo	Trascina un'immagine qui per la foto
+	Choose photo…	Scegli foto…
+	Room photo	Foto della stanza
+	Save	Salva
+	Photo: {name}	Foto: {name}
+
+# poll
+	New poll	Nuovo sondaggio
+	Question	Domanda
+	Add option	Aggiungi opzione
+	Multiple choice	Scelta multipla
+	Results visible right away	Risultati visibili subito
+	Option {n}	Opzione {n}
+
+# viewer
+	Video	Video
+	Image	Immagine
+	Save as	Salva con nome
+	Open	Apri
+	Cannot open the content	Impossibile aprire il contenuto
+
+# stickers
+	Stickers are not encrypted, like an unencrypted image	Gli sticker non sono cifrati, come un'immagine non cifrata
+	No sticker packs	Nessun pacchetto di sticker
+	Stickers unavailable	Sticker non disponibili

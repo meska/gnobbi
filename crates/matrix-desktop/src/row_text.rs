@@ -24,9 +24,6 @@ pub fn one_line(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Visible text of a deleted message row (the screen-reader label keeps the descriptive one).
-pub const REDACTED_LABEL: &str = "Messaggio eliminato";
-
 /// Sender prefix of the compact deleted row: «Anna:», one line.
 pub fn redacted_name(name: &str) -> String {
     format!("{}:", one_line(name))
@@ -45,7 +42,6 @@ mod tests {
 
     #[test]
     fn redacted_row_text_is_plain_one_line() {
-        assert_eq!(REDACTED_LABEL, "Messaggio eliminato");
         assert_eq!(redacted_name("Anna\nRossi"), "Anna Rossi:");
     }
 

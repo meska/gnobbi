@@ -140,11 +140,26 @@ pub fn tr<'a>(lang: &str, context: &str, source: &'a str) -> &'a str {
     catalog(lang).and_then(|c| c.get(context)?.get(source)).map_or(source, String::as_str)
 }
 
+#[cfg(not(test))]
 static CURRENT: AtomicUsize = AtomicUsize::new(0);
+// Tests run on parallel threads: a language per thread keeps text assertions apart from the hot-switch test.
+#[cfg(test)]
+thread_local!(static CURRENT: AtomicUsize = const { AtomicUsize::new(0) });
+
+fn swap_current(index: usize) -> usize {
+    #[cfg(not(test))]
+    return CURRENT.swap(index, Ordering::Relaxed);
+    #[cfg(test)]
+    CURRENT.with(|c| c.swap(index, Ordering::Relaxed))
+}
 
 /// The active language code (`en` until a preference is applied).
 pub fn current() -> &'static str {
-    LANGUAGES[CURRENT.load(Ordering::Relaxed).min(LANGUAGES.len() - 1)].code
+    #[cfg(not(test))]
+    let index = CURRENT.load(Ordering::Relaxed);
+    #[cfg(test)]
+    let index = CURRENT.with(|c| c.load(Ordering::Relaxed));
+    LANGUAGES[index.min(LANGUAGES.len() - 1)].code
 }
 
 /// Is the active language written right to left? egui has no bidi or mirrored layout: callers pick
@@ -193,7 +208,7 @@ pub fn apply(pref: Preference, ctx: Option<&eframe::egui::Context>) -> &'static 
     let locales = sys_locale::get_locales().collect::<Vec<_>>();
     let code = script::usable(pref.resolve(&locales));
     let index = LANGUAGES.iter().position(|l| l.code == code).unwrap_or(0);
-    if CURRENT.swap(index, Ordering::Relaxed) != index {
+    if swap_current(index) != index {
         for hook in HOOKS.lock().unwrap_or_else(|e| e.into_inner()).iter() {
             hook(code);
         }
@@ -254,6 +269,14 @@ mod tests {
             for (k, v) in c.get("@plural").into_iter().flatten() {
                 assert_eq!(v.split('|').count(), l.plural_forms, "{}: {k}", l.code);
             }
+        }
+    }
+
+    /// `t(name)` on the emoji names is not a literal call: the coverage scan cannot see these keys.
+    #[test]
+    fn emoji_names_are_translated() {
+        for (name, _) in crate::EMOJI_SET {
+            assert_ne!(tr("it", "", name), name, "{name}");
         }
     }
 

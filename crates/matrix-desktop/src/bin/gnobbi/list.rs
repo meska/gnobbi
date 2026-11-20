@@ -1,6 +1,6 @@
 //! Left side of the shell: the room list, drawn from the toolkit-free `Sidebar`.
 use eframe::egui::{self, Align2, Color32, FontId, Sense, Vec2, text::LayoutJob};
-use matrix_desktop::{DesignTokens, Sidebar};
+use matrix_desktop::{DesignTokens, Sidebar, i18n};
 
 const ROW: f32 = 52.;
 
@@ -84,9 +84,18 @@ fn right_reserved(unread: bool, mark: Option<Mark>) -> f32 {
     (if unread { 28. } else { 0. }) + if mark.is_some() { MARK_SLOT } else { 0. }
 }
 
+fn mode_label(mode: matrix_domain::notifications::RoomNotifyMode) -> &'static str {
+    use matrix_domain::notifications::RoomNotifyMode::*;
+    match mode {
+        AllMessages => i18n::t("All messages"),
+        MentionsAndKeywordsOnly => i18n::t("Mentions only"),
+        Mute => i18n::t("Muted"),
+    }
+}
+
 fn draw_mark(ui: &egui::Ui, id: egui::Id, m: Mark, right: f32, y: f32, t: &DesignTokens) {
     let rect = egui::Rect::from_center_size(egui::pos2(right - MARK / 2., y), Vec2::splat(MARK));
-    let (label, color) = match m { Mark::Pin => ("Fissata", rgb(t.accent).gamma_multiply(0.8)), Mark::Low => ("Bassa priorità", rgb(t.secondary).gamma_multiply(0.7)) };
+    let (label, color) = match m { Mark::Pin => (i18n::t("Pinned"), rgb(t.accent).gamma_multiply(0.8)), Mark::Low => (i18n::t("Low priority"), rgb(t.secondary).gamma_multiply(0.7)) };
     let (p, c, s) = (ui.painter(), rect.center(), egui::Stroke::new(1.5, color));
     match m {
         // Pushpin: round head, tilted body, needle.
@@ -138,11 +147,11 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             ui.add_space(12.);
             let plus = crate::mobile::icon_button(ui, "+");
             egui::Popup::menu(&plus).show(|ui| {
-                if ui.button("Nuova chat").clicked() {
+                if ui.button(i18n::t("New chat")).clicked() {
                     *new_chat = true;
                     ui.close();
                 }
-                if ui.button("Esplora stanze pubbliche").clicked() {
+                if ui.button(i18n::t("Explore public rooms")).clicked() {
                     session.open_explore();
                     ui.close();
                 }
@@ -158,7 +167,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        let r = ui.add_sized([w, crate::mobile::target(32.)], egui::TextEdit::singleline(query).hint_text("Cerca conversazioni").align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([w, crate::mobile::target(32.)], egui::TextEdit::singleline(query).hint_text(i18n::t("Search conversations")).align(egui::Align2::LEFT_CENTER));
         if std::mem::take(focus) {
             r.request_focus();
         }
@@ -239,21 +248,21 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                 }
                 menu.show(|ui| {
                     use crate::session::RoomAction;
-                    for (label, choice) in [("Segna come letto", RoomAction::Mark(true)), ("Segna come non letto", RoomAction::Mark(false)), (sidebar.favourite_label(&room.scope), RoomAction::Tag("m.favourite")), (sidebar.low_priority_label(&room.scope), RoomAction::Tag("m.lowpriority"))] {
+                    for (label, choice) in [(i18n::t("Mark as read"), RoomAction::Mark(true)), (i18n::t("Mark as unread"), RoomAction::Mark(false)), (if sidebar.is_favourite(&room.scope) { i18n::t("Unpin") } else { i18n::t("Pin to top") }, RoomAction::Tag("m.favourite")), (if sidebar.has_tag(&room.scope, "m.lowpriority") { i18n::t("Remove from low priority") } else { i18n::t("Mark as low priority") }, RoomAction::Tag("m.lowpriority"))] {
                         if ui.button(label).clicked() { action = Some((room.scope.clone(), choice)); ui.close(); }
                     }
                     if let Some((asked, Some(choices))) = &session.space_choices && asked == &room.scope {
                         let (add, remove) = space_entries(choices);
-                        if add && ui.button("Aggiungi a uno spazio…").clicked() { session.space_pick = Some((room.scope.clone(), None)); ui.close(); }
+                        if add && ui.button(i18n::t("Add to a space…")).clicked() { session.space_pick = Some((room.scope.clone(), None)); ui.close(); }
                         for space in remove {
-                            if ui.button(format!("Togli da {}", space.name)).clicked() { action = Some((room.scope.clone(), RoomAction::RemoveFrom(space.scope.clone()))); ui.close(); }
+                            if ui.button(i18n::t("Remove from {name}").replace("{name}", &space.name)).clicked() { action = Some((room.scope.clone(), RoomAction::RemoveFrom(space.scope.clone()))); ui.close(); }
                         }
                     }
                     for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
-                        let label = if sidebar.notify_mode(&room.scope) == mode { format!("✓ {}", mode.label()) } else { mode.label().to_owned() };
+                        let label = if sidebar.notify_mode(&room.scope) == mode { format!("✓ {}", mode_label(mode)) } else { mode_label(mode).to_owned() };
                         if ui.button(label).clicked() { action = Some((room.scope.clone(), RoomAction::Mode(mode))); ui.close(); }
                     }
-                    let label = if session.confirm_leave.as_ref() == Some(&room.scope) { "Uscire?" } else { "Esci" };
+                    let label = if session.confirm_leave.as_ref() == Some(&room.scope) { i18n::t("Leave?") } else { i18n::t("Leave") };
                     if ui.button(label).clicked() && confirm_leave(&mut session.confirm_leave, &room.scope) {
                         action = Some((room.scope.clone(), RoomAction::Leave));
                         ui.close();
@@ -284,7 +293,7 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
         _ => Vec::new(),
     };
     let (mut open, mut add, mut cancel) = (true, false, false);
-    egui::Window::new("Aggiungi a uno spazio").open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Add to a space")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(300.);
         egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
             for space in spaces {
@@ -293,8 +302,8 @@ pub fn space_picker(ctx: &egui::Context, session: &mut crate::session::Session) 
         });
         ui.add_space(8.);
         ui.horizontal(|ui| {
-            add = ui.add_enabled(chosen.is_some(), egui::Button::new("Aggiungi")).clicked();
-            cancel = ui.button("Annulla").clicked();
+            add = ui.add_enabled(chosen.is_some(), egui::Button::new(i18n::t("Add"))).clicked();
+            cancel = ui.button(i18n::t("Cancel")).clicked();
         });
     });
     if add && let Some((room, Some(space))) = session.space_pick.take() {

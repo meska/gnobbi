@@ -1,4 +1,5 @@
 use eframe::egui;
+use matrix_desktop::i18n;
 use matrix_domain::EventId;
 use matrix_engine::media::{MediaError, Preview};
 use std::path::PathBuf;
@@ -62,7 +63,7 @@ impl Viewer {
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) { return Action::Close; }
         let mut action = Action::None;
         let size = ctx.content_rect().size();
-        egui::Window::new(if self.video { "Video" } else { "Immagine" })
+        egui::Window::new(if self.video { i18n::t(i18n::t("Video")) } else { i18n::t("Image") })
             .collapsible(false).resizable(true).default_size(size * 0.8)
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
@@ -74,16 +75,16 @@ impl Viewer {
                     ui.painter().line_segment([c + egui::vec2(-5., -5.), c + egui::vec2(5., 5.)], stroke);
                     ui.painter().line_segment([c + egui::vec2(-5., 5.), c + egui::vec2(5., -5.)], stroke);
                     if resp.clicked() { action = Action::Close; }
-                    if ui.button("Salva con nome").clicked() {
+                    if ui.button(i18n::t("Save as")).clicked() {
                         let name = std::path::Path::new(&self.name).file_name().and_then(|s| s.to_str()).unwrap_or("file");
                         if let Some(path) = crate::pick::save_as(name) { action = Action::Save(path); }
                     }
-                    if self.video && ui.add_enabled(!self.opening, egui::Button::new("Apri")).clicked() {
+                    if self.video && ui.add_enabled(!self.opening, egui::Button::new(i18n::t("Open"))).clicked() {
                         self.opening = true;
                         action = Action::Open;
                     }
                 });
-                if self.failed { ui.label("Impossibile aprire il contenuto"); }
+                if self.failed { ui.label(i18n::t("Cannot open the content")); }
                 if let Some(tex) = self.original.as_ref().or(thumbnail) {
                     let available = ui.available_size().max(egui::Vec2::splat(1.));
                     let image = tex.size_vec2();

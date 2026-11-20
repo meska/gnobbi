@@ -417,14 +417,6 @@ impl Sidebar {
     }
 
     /// Room-menu entry for the room's current state.
-    pub fn favourite_label(&self, scope: &RoomScope) -> &'static str {
-        if self.is_favourite(scope) { "Stacca" } else { "Fissa in alto" }
-    }
-
-    pub fn low_priority_label(&self, scope: &RoomScope) -> &'static str {
-        if self.has_tag(scope, LOW_PRIORITY) { "Togli dalla bassa priorità" } else { "Segna come bassa priorità" }
-    }
-
     pub fn tag_pending(&self) -> bool {
         self.tag.is_some()
     }
@@ -1539,12 +1531,12 @@ mod favourite_tests {
     #[test]
     fn menu_label_follows_the_state() {
         let (mut s, scope) = one();
-        assert_eq!(s.favourite_label(&scope), "Fissa in alto");
+        assert!(!s.is_favourite(&scope));
         s.toggle_tag(&scope, FAVOURITE);
-        assert_eq!(s.favourite_label(&scope), "Stacca");
+        assert!(s.is_favourite(&scope));
         s.tag_done(Ok(()));
         s.toggle_tag(&scope, FAVOURITE);
-        assert_eq!(s.favourite_label(&scope), "Fissa in alto");
+        assert!(!s.is_favourite(&scope));
     }
 
     #[test]
@@ -1572,11 +1564,11 @@ mod favourite_tests {
     #[test]
     fn low_priority_label_and_row_flip_at_once() {
         let (mut s, scope) = one();
-        assert_eq!(s.low_priority_label(&scope), "Segna come bassa priorità");
+        assert!(!s.has_tag(&scope, LOW_PRIORITY));
         assert!(!s.rooms()[0].low_priority());
         let edit = s.toggle_tag(&scope, LOW_PRIORITY);
         assert_eq!(edit, Some(TagEdit::Assign { room_id: "!r:x".into(), tag: LOW_PRIORITY.into(), on: true }));
-        assert_eq!(s.low_priority_label(&scope), "Togli dalla bassa priorità");
+        assert!(s.has_tag(&scope, LOW_PRIORITY));
         assert!(s.rooms()[0].low_priority());
         s.tag_done(Ok(()));
         let off = s.toggle_tag(&scope, LOW_PRIORITY);

@@ -860,21 +860,21 @@ mod day_separator_tests {
         let h = history(&[DAY - 30 * 3 * 24 * HOUR, DAY + HOUR, DAY + 2 * HOUR, DAY + 25 * HOUR]);
         let m = marks(&h, &utc, DAY + 26 * HOUR);
         assert!(m[0].is_some(), "first row opens its day");
-        assert_eq!(&m[1..], [Some("Ieri".to_owned()), None, Some("Oggi".to_owned())]);
+        assert_eq!(&m[1..], [Some("Yesterday".to_owned()), None, Some("Today".to_owned())]);
     }
 
     #[test]
     fn midnight_belongs_to_the_new_day_and_the_zone_decides_the_day() {
         let utc = FixedOffset::east_opt(0).unwrap();
         let h = history(&[DAY - 1, DAY]);
-        assert_eq!(marks(&h, &utc, DAY)[1].as_deref(), Some("Oggi"));
+        assert_eq!(marks(&h, &utc, DAY)[1].as_deref(), Some("Today"));
         // UTC+2: 23:59:59.999 UTC is 01:59 and midnight UTC is 02:00 — the same local day, no separator.
         let rome = FixedOffset::east_opt(2 * 3600).unwrap();
         assert_eq!(marks(&h, &rome, DAY)[1], None);
         // UTC-5 (UTC midnight is 19:00 the day before): the break falls at 05:00 UTC.
         let west = FixedOffset::west_opt(5 * 3600).unwrap();
         let h = history(&[DAY + 4 * HOUR, DAY + 5 * HOUR]);
-        assert_eq!(marks(&h, &west, DAY + 6 * HOUR)[1].as_deref(), Some("Oggi"));
+        assert_eq!(marks(&h, &west, DAY + 6 * HOUR)[1].as_deref(), Some("Today"));
         assert_eq!(marks(&h, &utc, DAY + 6 * HOUR)[1], None);
     }
 }

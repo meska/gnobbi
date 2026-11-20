@@ -1,6 +1,7 @@
 //! «Nuovo sondaggio» window: question, options, the two switches.
 use crate::session::Session;
 use eframe::egui;
+use matrix_desktop::i18n;
 use matrix_domain::PollDraft;
 
 
@@ -28,24 +29,24 @@ impl Form {
 
 pub fn show(ctx: &egui::Context, s: &mut Session, f: &mut Form, t: &matrix_desktop::DesignTokens) {
     let mut open = true;
-    egui::Window::new("Nuovo sondaggio").open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("New poll")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(320.);
-        ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut f.question).hint_text("Domanda"));
+        ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut f.question).hint_text(i18n::t("Question")));
         let mut remove = None;
         egui::ScrollArea::vertical().max_height(300.).show(ui, |ui| {
             for (i, a) in f.answers.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     let width = (ui.available_width() - 32.).max(0.);
-                    ui.add_sized([width, 28.], egui::TextEdit::singleline(a).hint_text(format!("Opzione {}", i + 1)));
+                    ui.add_sized([width, 28.], egui::TextEdit::singleline(a).hint_text(i18n::t("Option {n}").replace("{n}", &(i + 1).to_string())));
                     if i >= PollDraft::MIN_ANSWERS && ui.button("×").clicked() { remove = Some(i); }
                 });
             }
         });
         if let Some(i) = remove { f.remove_option(i); }
-        if f.answers.len() < PollDraft::MAX_ANSWERS && ui.button("Aggiungi opzione").clicked() { f.add_option(); }
+        if f.answers.len() < PollDraft::MAX_ANSWERS && ui.button(i18n::t("Add option")).clicked() { f.add_option(); }
         ui.add_space(4.);
-        crate::settings::switch(ui, "Scelta multipla", &mut f.multiple, t);
-        crate::settings::switch(ui, "Risultati visibili subito", &mut f.disclosed, t);
+        crate::settings::switch(ui, i18n::t("Multiple choice"), &mut f.multiple, t);
+        crate::settings::switch(ui, i18n::t("Results visible right away"), &mut f.disclosed, t);
         ui.add_space(6.);
         let draft = PollDraft {
             question: f.question.trim().to_owned(),
@@ -54,7 +55,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, f: &mut Form, t: &matrix_deskt
             disclosed: f.disclosed,
         };
         let valid = draft.validate().is_ok();
-        if ui.add_enabled(valid, egui::Button::new("Invia")).clicked() {
+        if ui.add_enabled(valid, egui::Button::new(i18n::t("Send"))).clicked() {
             s.send_poll(draft);
             *f = Form::default();
             s.poll_open = false;

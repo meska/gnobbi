@@ -1,7 +1,7 @@
 //! Central column: the selected room's messages, read-only. Rows have different heights, so the
 //! heights seen so far are cached and off-screen rows are replaced by empty space.
 use eframe::egui::{self, Align, Color32, CornerRadius, Layout, RichText, Vec2};
-use matrix_desktop::{DemoEvent, DesignTokens};
+use matrix_desktop::{DemoEvent, DesignTokens, i18n};
 
 /// Poll clicks of this frame: (poll start, option index).
 #[derive(Default)]
@@ -243,7 +243,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             if let Some(name) = label {
                 ui.label(RichText::new(matrix_desktop::row_text::redacted_name(name)).size(12.).strong().color(rgb(t.accent)));
             }
-            ui.label(small(matrix_desktop::row_text::REDACTED_LABEL));
+            ui.label(small(i18n::t("Message deleted")));
             ui.label(small(&e.time));
         });
         let pos = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None });
@@ -322,11 +322,11 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             let size = tex.size_vec2();
                             let scale = (max.min(320.) / size.x).min(1.).min(320. / size.y);
                             if ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click())).clicked() && matches!(media.kind, matrix_engine::history::MediaKind::Image | matrix_engine::history::MediaKind::Video) {
-                                acts.picture = Some((id.clone(), media.kind == matrix_engine::history::MediaKind::Video, e.attachment_name.clone().unwrap_or_else(|| "immagine".into())));
+                                acts.picture = Some((id.clone(), media.kind == matrix_engine::history::MediaKind::Video, e.attachment_name.clone().unwrap_or_else(|| i18n::t("image").into())));
                             }
                         }
                         None => {
-                            if ui.add(egui::Label::new(RichText::new(&media.label).color(rgb(t.secondary))).sense(egui::Sense::click())).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| "video".into()))); }
+                            if ui.add(egui::Label::new(RichText::new(&media.label).color(rgb(t.secondary))).sense(egui::Sense::click())).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
                         }
                     }
                 }
@@ -361,7 +361,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     }
                     ui.label(RichText::new(poll.footer()).size(11.).color(rgb(t.secondary)));
                 } else if e.redacted {
-                    ui.label(RichText::new("Messaggio eliminato").italics().color(rgb(t.secondary)));
+                    ui.label(RichText::new(i18n::t("Message deleted")).italics().color(rgb(t.secondary)));
                 } else if !e.text.is_empty() {
                     let mut pills: Vec<_> = matrix_desktop::mention_gaps::fitting(&e.text, &e.mentions)
                         .filter_map(|m| match &m.kind { matrix_engine::rich_text::MentionKind::User { sender, .. } => Some((m.range.clone(), sender)), _ => None })
@@ -411,7 +411,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
                             avatar(ui, 20., pic, &initials, 9., t);
                         }
-                        if ui.link(format!("{} risposte", th.num_replies)).clicked() {
+                        if ui.link(i18n::plural(th.num_replies as u64, "{n} reply", "{n} replies")).clicked() {
                             thread = true;
                         }
                     });
@@ -568,7 +568,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         // Round button, bottom right above the composer: more to read below. No text; the screen-reader name is the only label.
         let c = out.inner_rect.right_bottom() - Vec2::splat(36.);
         let resp = ui.interact(egui::Rect::from_center_size(c, Vec2::splat(40.)), ui.id().with("to-bottom"), egui::Sense::click());
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Vai in fondo"));
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, i18n::t("Go to bottom")));
         let ink = if resp.hovered() { ui.visuals().strong_text_color() } else { rgb(t.secondary) };
         ui.painter().circle(c, 20., rgb(t.surface), egui::Stroke::new(1., rgb(t.border)));
         ui.painter().add(egui::Shape::line(vec![c + Vec2::new(-6., -3.), c + Vec2::new(0., 3.), c + Vec2::new(6., -3.)], egui::Stroke::new(2., ink)));

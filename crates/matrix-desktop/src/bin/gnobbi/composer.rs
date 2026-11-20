@@ -1,5 +1,6 @@
 //! Bottom bar: multi-line text box. Enter sends, Shift+Enter adds a line, one draft per room.
 use eframe::egui::{self, Key, Modifiers, RichText};
+use matrix_desktop::i18n;
 
 pub fn panel(frame: egui::Frame) -> egui::Panel {
     egui::Panel::bottom("composer").min_size(40.).show_separator_line(false).frame(frame.inner_margin(egui::Margin::symmetric(0, 4)))
@@ -49,7 +50,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     if mode != Mode::Send {
         ui.horizontal(|ui| {
             ui.add_space(12.);
-            ui.label(RichText::new(if mode == Mode::Reply { "Risposta" } else { "Modifica" }).strong());
+            ui.label(RichText::new(if mode == Mode::Reply { i18n::t_ctx("banner", "Reply") } else { i18n::t("Edit") }).strong());
             if crate::info::close_icon(ui).clicked() {
                 *cancel = true;
             }
@@ -68,10 +69,10 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         ui.horizontal(|ui| {
             ui.add_space(12.);
             ui.colored_label(ui.visuals().error_fg_color, format!("● {}:{:02}", secs / 60, secs % 60));
-            if ui.button("Invia nota").clicked() {
+            if ui.button(i18n::t("Send note")).clicked() {
                 *voice = Some(VoiceAct::Send);
             }
-            if ui.button("Annulla").clicked() {
+            if ui.button(i18n::t("Cancel")).clicked() {
                 *voice = Some(VoiceAct::Cancel);
             }
         });
@@ -102,7 +103,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let scroll = egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(0.).id_salt(nid("composer-scroll")).show(&mut child, |ui| {
             egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, pad as i8)).show(ui, |ui| {
                 ui.spacing_mut().interact_size.y = row; // else the editor is 20 px tall and the text sits at its top
-                egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text(if thread { "Rispondi nel thread" } else { "Scrivi un messaggio" }).desired_width(w).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
+                egui::TextEdit::multiline(draft).id(id).desired_rows(1).hint_text(if thread { i18n::t("Reply in thread") } else { i18n::t("Write a message") }).desired_width(w).lock_focus(true).frame(egui::Frame::NONE).margin(egui::Margin::ZERO).show(ui)
             }).inner
         });
         let text_h = scroll.content_size.y.min(max_h);
@@ -116,14 +117,14 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         ui.add_space((text_h - slot).max(0.));
         ui.horizontal(|ui| {
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), &emoji_strokes(), 1., true, "Emoji");
+        let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), &emoji_strokes(), 1., true, i18n::t(i18n::t("Emoji")));
         egui::Popup::menu(&emoji).show(|ui| {
             let tab = egui::Id::new(crate::stickers::TAB_ID);
             let mut sticker_tab = stickers.is_some() && ui.data(|d| d.get_temp::<bool>(tab)).unwrap_or(false);
             if stickers.is_some() {
                 ui.horizontal(|ui| {
-                    ui.selectable_value(&mut sticker_tab, false, "Emoji");
-                    ui.selectable_value(&mut sticker_tab, true, "Sticker");
+                    ui.selectable_value(&mut sticker_tab, false, i18n::t(i18n::t("Emoji")));
+                    ui.selectable_value(&mut sticker_tab, true, i18n::t(i18n::t("Sticker")));
                 });
                 ui.data_mut(|d| d.insert_temp(tab, sticker_tab));
             }
@@ -133,7 +134,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
             }
             egui::Grid::new(nid("emoji-grid")).show(ui, |ui| {
                 for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
-                    if ui.button(*emoji).on_hover_text(*name).clicked() {
+                    if ui.button(*emoji).on_hover_text(i18n::t(name)).clicked() {
                         insert_emoji(ui.ctx(), id, draft, emoji);
                         ui.close();
                     }
@@ -145,14 +146,14 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         });
         if !thread {
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        if icon_at(ui, rect, "composer-poll", &poll_strokes(), 1., true, "Sondaggio").clicked() {
+        if icon_at(ui, rect, "composer-poll", &poll_strokes(), 1., true, i18n::t("Poll")).clicked() {
             *poll = true;
         }
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        if icon_at(ui, rect, "composer-attach", &attach_strokes(), 1., true, "Allega un file").clicked() {
-            crate::pick::start(ui.ctx(), "Allega un file", false);
+        if icon_at(ui, rect, "composer-attach", &attach_strokes(), 1., true, i18n::t("Attach a file")).clicked() {
+            crate::pick::start(ui.ctx(), i18n::t("Attach a file"), false);
         }
-        if let Some(p) = crate::pick::done("Allega un file") {
+        if let Some(p) = crate::pick::done(i18n::t("Attach a file")) {
             *picked = Some(p);
         }
         }
@@ -160,10 +161,10 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         let has_text = !(draft.trim().is_empty() && attachment.is_none());
         let t = ui.ctx().animate_bool_with_time(nid("composer-send-fade"), has_text, 0.15);
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        if !thread && t < 1. && icon_at(ui, rect, "composer-voice", &voice_strokes(), 1. - t, !has_text, "Nota vocale").clicked() {
+        if !thread && t < 1. && icon_at(ui, rect, "composer-voice", &voice_strokes(), 1. - t, !has_text, i18n::t("Voice note")).clicked() {
             *voice = Some(VoiceAct::Start);
         }
-        if t > 0. && icon_at(ui, rect, &format!("composer-send{salt}"), &send_strokes(), t, has_text, "Invia").clicked() {
+        if t > 0. && icon_at(ui, rect, &format!("composer-send{salt}"), &send_strokes(), t, has_text, i18n::t("Send")).clicked() {
             send_click = true;
         }
         });
@@ -343,7 +344,7 @@ mod tests {
             out.textures_delta.clear();
             for s in &out.shapes {
                 if let egui::epaint::Shape::Text(t) = &s.shape {
-                    if t.galley.text() == "Scrivi un messaggio" {
+                    if t.galley.text() == matrix_desktop::i18n::t("Write a message") {
                         hint_y = (t.pos + t.galley.rect.center().to_vec2()).y;
                     }
                 }

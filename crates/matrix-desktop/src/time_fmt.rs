@@ -3,11 +3,11 @@
 //!
 //! Rules (day = calendar day in the zone, so midnight and DST switches follow the wall clock, never 24 h blocks):
 //! - today: the time only; yesterday up to 6 days back: abbreviated weekday + time; older: short date + time.
-//! - separator between days (`day_label`): «Oggi» / «Ieri» / abbreviated weekday / short date (no time).
+//! - separator between days (`day_label`): «Today» / «Yesterday» / abbreviated weekday / short date (no time).
 //! - weekday, short date order/separators (year always 2 digits), 12/24 h and AM/PM text come from the system
 //!   locale, read once through the platform formatter (macOS CFDateFormatter, Windows GetLocaleInfoEx,
 //!   Linux nl_langinfo) as an ICU-style pattern: d/dd, M/MM, y (always printed with 2 digits), H/HH, h/hh, m/mm,
-//!   a (or t) for AM/PM, 'quoted text'. «Oggi»/«Ieri» are UI strings (the app UI is Italian), not formats.
+//!   a (or t) for AM/PM, 'quoted text'. «Today»/«Yesterday» are UI strings (`i18n::t`), not formats.
 //! - Fallback when the locale cannot be read (Linux with LANG unset/C/POSIX or not installed, a failing API call,
 //!   unsupported OS): `Patterns::fallback()` = the reference it_IT look «Mer» / «GG/MM/AA» / «HH:mm».
 //! - Locale and zone are injected (`Patterns`, `tz`, `now_ms`) so tests do not depend on the machine.
@@ -135,14 +135,14 @@ pub fn clock_time_in<Tz: TimeZone>(ms: u64, tz: &Tz, p: &Patterns) -> String {
     local(ms, tz).map_or_else(|| "--:--".to_owned(), |t| render(&p.time, &t, p))
 }
 
-/// Day separator: «Oggi», «Ieri», abbreviated weekday (2..=6 days back) or short date; empty when out of range.
+/// Day separator: «Today», «Yesterday», abbreviated weekday (2..=6 days back) or short date; empty when out of range.
 pub fn day_label_in<Tz: TimeZone>(ms: u64, now_ms: u64, tz: &Tz, p: &Patterns) -> String {
     let (Some(t), Some(now)) = (local(ms, tz), local(now_ms, tz)) else {
         return String::new();
     };
     match days_ago(&t, &now) {
-        ..=0 => "Oggi".to_owned(),
-        1 => "Ieri".to_owned(),
+        ..=0 => crate::i18n::t("Today").to_owned(),
+        1 => crate::i18n::t("Yesterday").to_owned(),
         d => weekday_or_date(&t, d, p),
     }
 }
@@ -524,7 +524,7 @@ mod tests {
                     "30/10/26 14:05",
                     "31/12/25 14:05",
                 ],
-                ["Oggi", "Ieri", "Sab", "30/10/26", "31/12/25"],
+                ["Today", "Yesterday", "Sab", "30/10/26", "31/12/25"],
             ),
             (
                 "en_US",
@@ -535,7 +535,7 @@ mod tests {
                     "10/30/26 2:05 PM",
                     "12/31/25 2:05 PM",
                 ],
-                ["Oggi", "Ieri", "Sat", "10/30/26", "12/31/25"],
+                ["Today", "Yesterday", "Sat", "10/30/26", "12/31/25"],
             ),
             (
                 "en_GB",
@@ -546,7 +546,7 @@ mod tests {
                     "30/10/26 14:05",
                     "31/12/25 14:05",
                 ],
-                ["Oggi", "Ieri", "Sat", "30/10/26", "31/12/25"],
+                ["Today", "Yesterday", "Sat", "30/10/26", "31/12/25"],
             ),
             (
                 "de_DE",
@@ -557,7 +557,7 @@ mod tests {
                     "30.10.26 14:05",
                     "31.12.25 14:05",
                 ],
-                ["Oggi", "Ieri", "Sa.", "30.10.26", "31.12.25"],
+                ["Today", "Yesterday", "Sa.", "30.10.26", "31.12.25"],
             ),
             (
                 "ja_JP",
@@ -568,7 +568,7 @@ mod tests {
                     "26/10/30 14:05",
                     "25/12/31 14:05",
                 ],
-                ["Oggi", "Ieri", "土", "26/10/30", "25/12/31"],
+                ["Today", "Yesterday", "土", "26/10/30", "25/12/31"],
             ),
         ];
         for (name, times, labels) in expected {
@@ -611,18 +611,18 @@ mod tests {
         let p = Patterns::fallback();
         let t = ms(2026, 1, 15, 23, 30); // 00:30 on the 16th in CET
         assert_eq!(day_or_time_in(t, t + 3_600_000, &cet, &p), "00:30");
-        assert_eq!(day_label_in(t, t + 3_600_000, &cet, &p), "Oggi");
+        assert_eq!(day_label_in(t, t + 3_600_000, &cet, &p), "Today");
         assert_eq!(
             day_label_in(t, t + 3_600_000 + 86_400_000, &cet, &p),
-            "Ieri"
+            "Yesterday"
         );
         assert_eq!(
             day_label_in(t, t + 3_600_000 + 7 * 86_400_000, &cet, &p),
             "16/01/26"
         );
-        // In UTC the message is on the 15th: ten minutes later still "Oggi", one hour later (the 16th) "Ieri".
-        assert_eq!(day_label_in(t, t + 600_000, &utc(), &p), "Oggi");
-        assert_eq!(day_label_in(t, t + 3_600_000, &utc(), &p), "Ieri");
+        // In UTC the message is on the 15th: ten minutes later still today, one hour later (the 16th) yesterday.
+        assert_eq!(day_label_in(t, t + 600_000, &utc(), &p), "Today");
+        assert_eq!(day_label_in(t, t + 3_600_000, &utc(), &p), "Yesterday");
     }
 
     #[test]
@@ -633,7 +633,7 @@ mod tests {
         assert_eq!(day_or_time_in(u64::MAX, 0, &utc(), &p), "--:--");
         assert_eq!(
             day_label_in(ms(2026, 11, 7, 1, 0), ms(2026, 11, 6, 1, 0), &utc(), &p),
-            "Oggi"
+            "Today"
         ); // clock skew
     }
 

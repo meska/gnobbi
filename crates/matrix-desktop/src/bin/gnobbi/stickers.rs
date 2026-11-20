@@ -1,5 +1,6 @@
 //! «Sticker» tab of the emoji popup: the packs of the open room, one grid per pack; a click sends.
 use eframe::egui::{self, RichText};
+use matrix_desktop::i18n;
 use matrix_engine::stickers::{Sticker, StickerPack};
 use std::collections::HashMap;
 
@@ -29,11 +30,11 @@ pub fn urls(panel: &Panel) -> impl Iterator<Item = &str> {
 pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &HashMap<String, Option<egui::TextureHandle>>) {
     panel.open = true;
     // The sticker's media is the pack's own, public on the homeserver even in an encrypted room.
-    ui.label(RichText::new("Gli sticker non sono cifrati, come un'immagine non cifrata").small().weak());
+    ui.label(RichText::new(i18n::t("Stickers are not encrypted, like an unencrypted image")).small().weak());
     let packs = match &panel.packs {
         Some(Ok(p)) if !p.is_empty() => p.clone(),
-        Some(Ok(_)) => return drop(ui.label("Nessun pacchetto di sticker")),
-        Some(Err(())) => return drop(ui.label("Sticker non disponibili")),
+        Some(Ok(_)) => return drop(ui.label(i18n::t("No sticker packs"))),
+        Some(Err(())) => return drop(ui.label(i18n::t("Stickers unavailable"))),
         None => return drop(ui.spinner()),
     };
     egui::ScrollArea::vertical().max_height(320.).max_width(8. * (CELL + 6.)).show(ui, |ui| {

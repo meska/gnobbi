@@ -1,16 +1,16 @@
 //! Member administration of a room or a space: «Invita», «Espelli»/«Blocca» with an optional reason, «Bloccati» with «Sblocca».
 use crate::list::rgb;
 use eframe::egui::{self, Align, Align2, Layout, RichText};
-use matrix_desktop::DesignTokens;
+use matrix_desktop::{DesignTokens, i18n};
 use matrix_domain::RoomScope;
 use matrix_engine::operations::{BannedMember, Member, MemberPermissions, Moderation};
 
 pub fn role_label(role: matrix_domain::role::MemberRole) -> &'static str {
     use matrix_domain::role::MemberRole::*;
     match role {
-        Admin => "Admin",
-        Moderator => "Moderatore",
-        Member => "Membro",
+        Admin => i18n::t(i18n::t("Admin")),
+        Moderator => i18n::t("Moderator"),
+        Member => i18n::t("Member"),
     }
 }
 
@@ -81,7 +81,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
         ui.add_space(8.);
         ui.horizontal(|ui| {
             ui.add_space(14.);
-            if ui.button("Invita").clicked() {
+            if ui.button(i18n::t("Invite")).clicked() {
                 act = Some(Act::Invite);
             }
         });
@@ -97,7 +97,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if menu {
                         ui.add_space(8.);
-                        let resp = crate::space::dots(ui, t, &format!("Azioni per {}", m.name));
+                        let resp = crate::space::dots(ui, t, &i18n::t("Actions for {name}").replace("{name}", &m.name));
                         let mut popup = egui::Popup::menu(&resp);
                         if std::mem::take(&mut hook) {
                             popup = popup.open(true);
@@ -110,10 +110,10 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                                 }
                             };
                             if perms.can_kick {
-                                ask(ui, "Espelli", false);
+                                ask(ui, i18n::t("Kick"), false);
                             }
                             if perms.can_ban {
-                                ask(ui, "Blocca", true);
+                                ask(ui, i18n::t("Ban"), true);
                             }
                         });
                     } else if perms.can_kick || perms.can_ban {
@@ -135,12 +135,12 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
     ui.separator();
     ui.horizontal(|ui| {
         ui.add_space(14.);
-        ui.label(RichText::new("Bloccati").strong());
+        ui.label(RichText::new(i18n::t("Banned")).strong());
     });
     let Ok(rows) = &admin.banned else {
         ui.horizontal(|ui| {
             ui.add_space(14.);
-            ui.colored_label(rgb(t.error), "Bloccati non disponibili");
+            ui.colored_label(rgb(t.error), i18n::t("Banned list unavailable"));
         });
         return act;
     };
@@ -152,7 +152,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                 ui.add_space(8.);
                 // Unban needs the kick level on top of the ban level.
                 if perms.can_kick {
-                    if ui.add_enabled(!busy, egui::Button::new("Sblocca")).clicked() {
+                    if ui.add_enabled(!busy, egui::Button::new(i18n::t("Unban"))).clicked() {
                         act = Some(Act::Unban(b.user_id.clone()));
                     }
                 }
@@ -171,7 +171,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
     if admin.failed && admin.dialog.is_none() && !admin.inviting {
         ui.horizontal(|ui| {
             ui.add_space(14.);
-            ui.colored_label(rgb(t.error), "Non riuscito");
+            ui.colored_label(rgb(t.error), i18n::t("Failed"));
         });
     }
     act
@@ -188,14 +188,14 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
     let Some(mut admin) = s.admin.take() else { return };
     let mut send = None;
     if let Some(d) = &mut admin.dialog {
-        let (verb, mut cancel) = (if d.ban { "Blocca" } else { "Espelli" }, false);
+        let (verb, mut cancel) = (if d.ban { i18n::t("Ban") } else { i18n::t("Kick") }, false);
         egui::Window::new(verb).id(egui::Id::new("member-dialog")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
             ui.set_width(340.);
             ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&d.name)).strong()).truncate());
             ui.add_space(4.);
-            ui.add_enabled_ui(!admin.busy, |ui| ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut d.reason).hint_text("Motivo").align(Align2::LEFT_CENTER)));
+            ui.add_enabled_ui(!admin.busy, |ui| ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut d.reason).hint_text(i18n::t("Reason")).align(Align2::LEFT_CENTER)));
             if admin.failed {
-                ui.colored_label(rgb(t.error), "Non riuscito");
+                ui.colored_label(rgb(t.error), i18n::t("Failed"));
             }
             ui.add_space(8.);
             ui.horizontal(|ui| {
@@ -207,7 +207,7 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
                     let reason = d.reason.trim().to_owned();
                     send = Some((d.user_id.clone(), if d.ban { Moderation::BanWith(reason) } else { Moderation::KickWith(reason) }));
                 }
-                cancel = ui.button("Annulla").clicked();
+                cancel = ui.button(i18n::t("Cancel")).clicked();
             });
         });
         if cancel {
@@ -215,7 +215,7 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
         }
     } else if admin.inviting {
         let mut open = true;
-        egui::Window::new("Invita").id(egui::Id::new("member-invite")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        egui::Window::new(i18n::t("Invite")).id(egui::Id::new("member-invite")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
             ui.set_width(340.);
             ui.add_enabled_ui(!admin.busy, |ui| {
                 if let Some(user) = crate::newchat::people(ui, s, t) {
@@ -225,7 +225,7 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
             if admin.busy {
                 ui.spinner();
             } else if admin.failed {
-                ui.colored_label(rgb(t.error), "Non riuscito");
+                ui.colored_label(rgb(t.error), i18n::t("Failed"));
             }
         });
         if !open {
