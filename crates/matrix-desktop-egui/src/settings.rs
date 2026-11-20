@@ -1,4 +1,4 @@
-//! Settings window: the saved preferences the GPUI app offers for look and behaviour. Every change is written at once.
+//! Settings drawer: the saved preferences the GPUI app offers for look and behaviour. Every change is written at once.
 use eframe::egui::{self, Color32, Sense, Vec2};
 use matrix_desktop::{Accent, AppDirs, AutoNight, DesignTokens, IconChoice, Preferences, Theme};
 
@@ -33,59 +33,86 @@ pub fn toggle(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -
     resp.clicked()
 }
 
-/// Draws the window; returns the new preferences when something was changed (already saved).
-pub fn show(ctx: &egui::Context, open: &mut bool, prefs: &Preferences, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
+/// Section title of the drawer.
+fn section(ui: &mut egui::Ui, title: &str, t: &DesignTokens) {
+    ui.add_space(14.);
+    ui.label(egui::RichText::new(title).size(13.).strong().color(rgb(t.accent)));
+}
+
+/// One choice among a few: fixed label, the list on the right.
+fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&mut egui::Ui)) {
+    ui.horizontal(|ui| {
+        let name = ui.label(label);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, add).response.labelled_by(name.id);
+        });
+    });
+}
+
+/// Draws the drawer beside the rail; returns the new preferences when something was changed (already saved).
+pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferences, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
     let mut p = prefs.clone();
     let mut changed = false;
-    egui::Window::new("Impostazioni").open(open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
-        ui.set_min_width(320.);
-        let theme_name = p.theme.map_or("Sistema", Theme::label);
-        egui::ComboBox::from_label("Tema").selected_text(theme_name).show_ui(ui, |ui| {
-            changed |= ui.selectable_value(&mut p.theme, None, "Sistema").changed();
-            for th in Theme::ALL {
-                changed |= ui.selectable_value(&mut p.theme, Some(th), th.label()).changed();
-            }
+    let closed = crate::rail::drawer(ctx, rail.panel, "settings-drawer", "Impostazioni", rail.settings, t, |ui, rect| {
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                egui::Frame::NONE.inner_margin(egui::Margin { left: 20, right: 20, top: 0, bottom: 20 }).show(ui, |ui| {
+                    ui.spacing_mut().interact_size.y = 36.;
+                    ui.spacing_mut().item_spacing.y = 6.;
+                    section(ui, "Aspetto", t);
+                    choice(ui, "Tema", p.theme.map_or("Sistema", Theme::label), |ui| {
+                        changed |= ui.selectable_value(&mut p.theme, None, "Sistema").changed();
+                        for th in Theme::ALL {
+                            changed |= ui.selectable_value(&mut p.theme, Some(th), th.label()).changed();
+                        }
+                    });
+                    choice(ui, "Accento", p.accent.map_or("Sistema", Accent::label), |ui| {
+                        changed |= ui.selectable_value(&mut p.accent, None, "Sistema").changed();
+                        for a in Accent::ALL {
+                            changed |= ui.selectable_value(&mut p.accent, Some(a), a.label()).changed();
+                        }
+                    });
+                    choice(ui, "Icona", p.icon.label(), |ui| {
+                        for i in IconChoice::ALL {
+                            changed |= ui.selectable_value(&mut p.icon, i, i.label()).changed();
+                        }
+                    });
+                    choice(ui, "Notte automatica", p.auto_night.label(), |ui| {
+                        for a in AutoNight::ALL {
+                            changed |= ui.selectable_value(&mut p.auto_night, a, a.label()).changed();
+                        }
+                    });
+                    section(ui, "Chat", t);
+                    changed |= switch(ui, "Conferme di lettura", &mut p.read_receipts, t);
+                    changed |= switch(ui, "Nascondi messaggi eliminati", &mut p.hide_redacted, t);
+                    changed |= switch(ui, "Anteprima dei messaggi", &mut p.message_preview, t);
+                    section(ui, "Notifiche", t);
+                    changed |= switch(ui, "Notifiche", &mut p.notifications, t);
+                    section(ui, "Sistema", t);
+                    changed |= switch(ui, "Chiudi nella tray", &mut p.close_to_tray, t);
+                    #[cfg(target_os = "linux")]
+                    {
+                        let id = egui::Id::new("desktop-entry-result");
+                        if ui.button("Aggiungi al menu").clicked() {
+                            let installed = crate::desktop_entry::install(p.icon).is_ok();
+                            let opted_in = installed && (!p.desktop_entry_dont_ask || dirs.is_some_and(|d| Preferences::update(d, |saved| saved.desktop_entry_dont_ask = false).is_ok()));
+                            ui.ctx().data_mut(|data| data.insert_temp(id, opted_in));
+                            if opted_in && p.desktop_entry_dont_ask {
+                                p.desktop_entry_dont_ask = false;
+                                changed = true;
+                            }
+                        }
+                        if let Some(ok) = ui.ctx().data(|data| data.get_temp::<bool>(id)) {
+                            ui.label(if ok { "Aggiunto al menu" } else { "Impossibile aggiungere al menu" });
+                        }
+                    }
+                });
+            });
         });
-        let accent_name = p.accent.map_or("Sistema", Accent::label);
-        egui::ComboBox::from_label("Accento").selected_text(accent_name).show_ui(ui, |ui| {
-            changed |= ui.selectable_value(&mut p.accent, None, "Sistema").changed();
-            for a in Accent::ALL {
-                changed |= ui.selectable_value(&mut p.accent, Some(a), a.label()).changed();
-            }
-        });
-        egui::ComboBox::from_label("Icona").selected_text(p.icon.label()).show_ui(ui, |ui| {
-            for i in IconChoice::ALL {
-                changed |= ui.selectable_value(&mut p.icon, i, i.label()).changed();
-            }
-        });
-        egui::ComboBox::from_label("Notte automatica").selected_text(p.auto_night.label()).show_ui(ui, |ui| {
-            for a in AutoNight::ALL {
-                changed |= ui.selectable_value(&mut p.auto_night, a, a.label()).changed();
-            }
-        });
-        ui.separator();
-        changed |= switch(ui, "Conferme di lettura", &mut p.read_receipts, t);
-        changed |= switch(ui, "Nascondi messaggi eliminati", &mut p.hide_redacted, t);
-        changed |= switch(ui, "Anteprima dei messaggi", &mut p.message_preview, t);
-        changed |= switch(ui, "Notifiche", &mut p.notifications, t);
-        changed |= switch(ui, "Chiudi nella tray", &mut p.close_to_tray, t);
-        #[cfg(target_os = "linux")]
-        {
-            let id = egui::Id::new("desktop-entry-result");
-            if ui.button("Aggiungi al menu").clicked() {
-                let installed = crate::desktop_entry::install(p.icon).is_ok();
-                let opted_in = installed && (!p.desktop_entry_dont_ask || dirs.is_some_and(|d| Preferences::update(d, |saved| saved.desktop_entry_dont_ask = false).is_ok()));
-                ui.ctx().data_mut(|data| data.insert_temp(id, opted_in));
-                if opted_in && p.desktop_entry_dont_ask {
-                    p.desktop_entry_dont_ask = false;
-                    changed = true;
-                }
-            }
-            if let Some(ok) = ui.ctx().data(|data| data.get_temp::<bool>(id)) {
-                ui.label(if ok { "Aggiunto al menu" } else { "Impossibile aggiungere al menu" });
-            }
-        }
     });
+    if closed {
+        rail.settings = false;
+    }
     if !changed {
         return None;
     }

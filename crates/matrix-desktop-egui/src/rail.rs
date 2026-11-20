@@ -1,5 +1,5 @@
-//! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and «Organizza stanze» at the bottom,
-//! which opens the drawer where the spaces are dragged into order and into each other.
+//! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and, at the bottom,
+//! «Organizza stanze» (the drawer where the spaces are dragged into order and into each other) and «Impostazioni» (the settings drawer).
 use crate::list::{badge, one_line, photo, rgb};
 use eframe::egui::{self, Align2, FontId, Sense, Stroke, Vec2};
 use matrix_desktop::{AppDirs, DesignTokens, NavigationEntry, RailLayout, RailLayouts, Sidebar};
@@ -30,11 +30,25 @@ pub struct State {
     /// Parent spaces shown with their subspaces (room ids); this run only.
     pub open: HashSet<String>,
     pub edit: bool,
+    /// The settings drawer is out. One drawer at a time: set both through `set_edit` / `set_settings`.
+    pub settings: bool,
     pub moving: Option<Move>,
     /// Why the last move did not happen.
     pub error: Option<String>,
     /// Where the rail was drawn last; the drawer slides out from its right edge.
     pub panel: Option<egui::Rect>,
+}
+
+impl State {
+    pub fn set_edit(&mut self, on: bool) {
+        self.edit = on;
+        self.settings &= !on;
+    }
+
+    pub fn set_settings(&mut self, on: bool) {
+        self.settings = on;
+        self.edit &= !on;
+    }
 }
 
 /// One space of the rail tree.
@@ -226,6 +240,7 @@ enum Icon<'a> {
     Unread,
     All,
     Edit,
+    Settings,
     Space(&'a Row),
 }
 
@@ -264,6 +279,14 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
                 p.circle_filled(c + Vec2::new(knob, dy), 4., ink);
             }
         }
+        Icon::Settings => {
+            // Gear: eight teeth around a ring.
+            for i in 0..8 {
+                let d = Vec2::angled(i as f32 * std::f32::consts::TAU / 8.);
+                p.line_segment([c + d * 7., c + d * 11.], Stroke::new(4., ink));
+            }
+            p.circle_stroke(c, 6., Stroke::new(3.5, ink));
+        }
         Icon::Space(row) => {
             let size = if row.depth > 0 { 28. } else { 34. };
             let initial: String = row.name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
@@ -296,7 +319,9 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
 pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, state: &mut State, account: u64, placed: Option<Result<(), OperationError>>, t: &DesignTokens) {
     // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows «Organizza stanze», rail-drag / rail-line also a held row.
     let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
-    state.edit |= matches!(view.as_str(), "rail-edit" | "rail-drag" | "rail-line");
+    if matches!(view.as_str(), "rail-edit" | "rail-drag" | "rail-line") {
+        state.set_edit(true);
+    }
     let layout = state.layouts.get(account);
     settle(state, sidebar, &layout, placed);
     state.panel = Some(ui.max_rect());
@@ -304,7 +329,7 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
     let all = sidebar.navigation_entries().first().map_or(0, |e| e.unread);
     let (unread_rooms, unread_view, in_space) = (sidebar.unread_rooms() as u64, sidebar.unread_view(), sidebar.active_space().is_some());
     ui.spacing_mut().item_spacing.y = 0.;
-    egui::ScrollArea::vertical().max_height(ui.available_height() - ITEM - 4.).auto_shrink(false).show(ui, |ui| {
+    egui::ScrollArea::vertical().max_height(ui.available_height() - 2. * ITEM - 4.).auto_shrink(false).show(ui, |ui| {
         ui.add_space(4.);
         if item(ui, avatars, t, Icon::Unread, "Non lette", unread_rooms, unread_view).clicked() {
             sidebar.set_unread_view(true);
@@ -325,7 +350,10 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
         }
     });
     if item(ui, avatars, t, Icon::Edit, "Organizza stanze", 0, state.edit).clicked() {
-        state.edit = !state.edit;
+        state.set_edit(!state.edit);
+    }
+    if item(ui, avatars, t, Icon::Settings, "Impostazioni", 0, state.settings).clicked() {
+        state.set_settings(!state.settings);
     }
 }
 
@@ -375,46 +403,61 @@ enum Edit {
     Close,
 }
 
-/// «Organizza stanze»: a drawer beside the rail. Rows are dragged (or moved with the arrow keys and buttons) into order and into
-/// each other: inside a space that is `m.space.child` on the server, at the top level a local order. The switch hides a
-/// space from the rail, locally.
-pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, form: &mut crate::newchat::Form, state: &mut State, account: u64, dirs: Option<&AppDirs>, t: &DesignTokens) {
-    let open = ctx.animate_bool_with_time(egui::Id::new("rail-drawer-open"), state.edit, 0.18);
-    let Some(panel) = state.panel.filter(|_| open > 0.) else { return };
-    let mut layout = state.layouts.get(account);
-    let rows = tree(&session.sidebar, &layout, &state.open, true, state.moving.as_ref());
-    let frozen = state.moving.is_some();
+/// How far the drawer `name` is out (0..1), sliding towards `shown`.
+fn slide(ctx: &egui::Context, name: &str, shown: bool) -> f32 {
+    ctx.animate_bool_with_time(egui::Id::new((name, "open")), shown, 0.18)
+}
+
+/// A drawer beside the rail (`panel`): it slides out from the rail's right edge over the dimmed window, with its title and an X.
+/// `body` gets the rectangle below the title. True when the X or the dimmed part was clicked; Esc is the caller's.
+pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str, title: &str, shown: bool, t: &DesignTokens, body: impl FnOnce(&mut egui::Ui, egui::Rect)) -> bool {
+    let open = slide(ctx, name, shown);
+    let Some(panel) = panel.filter(|_| open > 0.) else { return false };
     let width = DRAWER.min(ctx.content_rect().right() - panel.right());
     let clip = egui::Rect::from_min_max(panel.right_top(), egui::pos2(ctx.content_rect().right(), panel.bottom()));
     let rect = egui::Rect::from_min_size(panel.right_top() - Vec2::new((1. - open) * width, 0.), Vec2::new(width, panel.height()));
-    let mut act = None;
+    let mut closed = false;
     // The rest of the window is dimmed: a click there closes the drawer and reaches nothing else. The rail stays usable.
-    egui::Area::new(egui::Id::new("rail-scrim")).order(egui::Order::Middle).fixed_pos(clip.min).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new((name, "scrim"))).order(egui::Order::Middle).fixed_pos(clip.min).show(ctx, |ui| {
         let (r, resp) = ui.allocate_exact_size(clip.size(), Sense::click());
         ui.painter().rect_filled(r, 0., egui::Color32::from_black_alpha((open * 102.) as u8));
-        if resp.clicked() {
-            act = Some(Edit::Close);
-        }
+        closed |= resp.clicked();
     });
-    egui::Area::new(egui::Id::new("rail-drawer")).order(egui::Order::Foreground).fixed_pos(rect.min).constrain(false).show(ctx, |ui| {
+    egui::Area::new(egui::Id::new(name)).order(egui::Order::Foreground).fixed_pos(rect.min).constrain(false).show(ctx, |ui| {
         ui.set_clip_rect(clip);
         ui.set_min_size(rect.size());
-        ui.interact(rect, egui::Id::new("rail-drawer-back"), Sense::click());
+        ui.interact(rect, egui::Id::new((name, "back")), Sense::click());
         let p = ui.painter().clone();
         p.rect_filled(rect, 0., rgb(t.surface));
         let head = egui::Rect::from_min_size(rect.min, Vec2::new(width, 56.));
-        p.text(head.left_center() + Vec2::new(20., 0.), Align2::LEFT_CENTER, "Organizza stanze", FontId::proportional(17.), rgb(t.text));
+        p.text(head.left_center() + Vec2::new(20., 0.), Align2::LEFT_CENTER, title, FontId::proportional(17.), rgb(t.text));
         let x = egui::Rect::from_center_size(egui::pos2(head.right() - 30., head.center().y), Vec2::splat(36.));
-        let close = ui.interact(x, egui::Id::new("rail-drawer-close"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+        let close = ui.interact(x, egui::Id::new((name, "close")), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         lit(ui, &close, x, 18., t);
         for d in [Vec2::new(6., 6.), Vec2::new(6., -6.)] {
             p.line_segment([x.center() - d, x.center() + d], Stroke::new(2., rgb(t.secondary)));
         }
         close.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Chiudi"));
-        if close.clicked() {
-            act = Some(Edit::Close);
-        }
-        let actions = egui::Rect::from_min_size(egui::pos2(rect.left() + 20., head.bottom() + 8.), Vec2::new((width - 40.).max(0.), 36.));
+        closed |= close.clicked();
+        body(ui, egui::Rect::from_min_max(head.left_bottom(), rect.max));
+    });
+    closed
+}
+
+/// «Organizza stanze»: a drawer beside the rail. Rows are dragged (or moved with the arrow keys and buttons) into order and into
+/// each other: inside a space that is `m.space.child` on the server, at the top level a local order. The switch hides a
+/// space from the rail, locally.
+pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, form: &mut crate::newchat::Form, state: &mut State, account: u64, dirs: Option<&AppDirs>, t: &DesignTokens) {
+    if slide(ctx, "rail-drawer", state.edit) == 0. {
+        return;
+    }
+    let mut layout = state.layouts.get(account);
+    let rows = tree(&session.sidebar, &layout, &state.open, true, state.moving.as_ref());
+    let frozen = state.moving.is_some();
+    let mut act = None;
+    let closed = drawer(ctx, state.panel, "rail-drawer", "Organizza stanze", state.edit, t, |ui, rect| {
+        let (p, width) = (ui.painter().clone(), rect.width());
+        let actions = egui::Rect::from_min_size(egui::pos2(rect.left() + 20., rect.top() + 8.), Vec2::new((width - 40.).max(0.), 36.));
         ui.scope_builder(egui::UiBuilder::new().max_rect(actions), |ui| {
             ui.horizontal(|ui| {
                 for (label, space) in [("+ Nuova stanza", false), ("+ Nuovo spazio", true)] {
@@ -565,7 +608,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
             });
         });
     });
-    match act {
+    match act.or(closed.then_some(Edit::Close)) {
         None => return,
         Some(Edit::Close) => {
             state.edit = false;
@@ -637,6 +680,18 @@ mod tests {
 
     fn at(rows: &[Row], name: &str) -> usize {
         rows.iter().position(|r| r.name == name).unwrap()
+    }
+
+    #[test]
+    fn one_drawer_at_a_time() {
+        let mut s = State::default();
+        s.set_edit(true);
+        s.set_settings(true);
+        assert!(s.settings && !s.edit);
+        s.set_edit(true);
+        assert!(s.edit && !s.settings);
+        s.set_settings(false);
+        assert!(s.edit, "closing one leaves the other");
     }
 
     #[test]

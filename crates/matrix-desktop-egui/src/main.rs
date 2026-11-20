@@ -95,7 +95,6 @@ fn list_max_width(window_width: f32) -> f32 { (window_width - MIN_WIDTH).clamp(2
 struct App {
     prefs: Preferences,
     dirs: Option<AppDirs>,
-    settings_open: bool,
     accounts_open: bool,
     /// Narrow window only: the room list replaces the chat while true.
     list_open: bool,
@@ -172,7 +171,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), accounts_open: false, list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
         if let Some(i) = last {
@@ -194,7 +193,7 @@ impl App {
             self.account_form = Default::default();
             self.poll_form = Default::default();
             self.confirm = None;
-            self.settings_open = false;
+            self.rail.settings = false;
             if let Some(d) = &self.dirs {
                 let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
             }
@@ -327,17 +326,17 @@ impl eframe::App for App {
             }
             if session.account.is_some() && !session.recovering() {
                 let command = |key| ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, key));
-                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::E)) && !session.new_open && !session.quick_open && !self.settings_open {
+                if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::E)) && !session.new_open && !session.quick_open && !self.rail.settings {
                     session.open_explore();
-                } else if command(egui::Key::K) && !session.new_open && !session.explore.is_some() && !self.settings_open {
+                } else if command(egui::Key::K) && !session.new_open && !session.explore.is_some() && !self.rail.settings {
                     session.quick_open = !session.quick_open; session.quick_sel = 0;
                     session.new_term.clear();
                     if session.quick_open { ctx.memory_mut(|m| m.request_focus(egui::Id::unique("quick-search-field"))); }
-                } else if !session.quick_open && !session.new_open && session.explore.is_none() && !self.settings_open {
+                } else if !session.quick_open && !session.new_open && session.explore.is_none() && !self.rail.settings {
                     if command(egui::Key::F) {
                         session.focus_search = true;
                     } else if command(egui::Key::Comma) {
-                        self.settings_open = true;
+                        self.rail.set_settings(true);
                     } else if command(egui::Key::N) {
                         session.new_open = true;
                     } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::I)) {
@@ -357,9 +356,9 @@ impl eframe::App for App {
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::Escape))
                     && !session.new_open && session.explore.is_none() && !session.poll_open && session.edit.is_none()
-                    && !session.devices_open && !self.settings_open && !self.accounts_open && self.pending_web.is_none()
+                    && !session.devices_open && !self.accounts_open && self.pending_web.is_none()
                 {
-                    if self.rail.edit { self.rail.edit = false; }
+                    if self.rail.edit || self.rail.settings { (self.rail.edit, self.rail.settings) = (false, false); }
                     else if session.quick_open { session.quick_open = false; }
                     else if let Some(a) = session.admin.as_mut().filter(|a| !a.busy && (a.dialog.is_some() || a.inviting)) { (a.dialog, a.inviting, a.failed) = (None, false, false); }
                     else if session.space_view.is_some() { session.space_view = None; }
@@ -370,7 +369,7 @@ impl eframe::App for App {
                     else if session.search_open { session.search_open = false; }
                 }
             }
-            if self.settings_open || self.accounts_open || self.pending_web.is_some() || session.new_open || session.explore.is_some() || session.quick_open || session.poll_open || session.edit.is_some() || session.devices_open || session.viewer.is_some() {
+            if self.rail.settings || self.accounts_open || self.pending_web.is_some() || session.new_open || session.explore.is_some() || session.quick_open || session.poll_open || session.edit.is_some() || session.devices_open || session.viewer.is_some() {
                 if let Some(thread) = &mut session.thread { thread.tail_visible = false; }
             }
             session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
@@ -700,7 +699,7 @@ impl App {
                     self.new_form.open_space(view == "space-public");
                 }
                 "poll" => s.poll_open = true,
-                "settings" => self.settings_open = true,
+                "settings" => self.rail.set_settings(true),
                 "accounts" => self.accounts_open = true,
                 _ => {}
             }
@@ -936,7 +935,7 @@ impl App {
                             self.list_open = false;
                         }
                         session.new_open |= new_chat;
-                        self.settings_open |= settings;
+                        if settings { self.rail.set_settings(true); }
                         self.accounts_open |= accounts;
                         if devices {
                             session.devices_open = true;
@@ -1006,10 +1005,7 @@ impl App {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(if single { 4. } else { 12. });
-                    // One column: these three live in the list's «☰» menu.
-                    if !single && mobile::icon_button(ui, "⚙").clicked() {
-                        self.settings_open = !self.settings_open;
-                    }
+                    // One column: these two live in the list's «☰» menu. Settings open from the rail.
                     if !single && mobile::icon_button(ui, "👤").clicked() {
                         self.accounts_open = !self.accounts_open;
                     }
@@ -1257,8 +1253,7 @@ impl App {
                 None => {}
             }
         }
-        if self.settings_open
-            && let Some(new) = settings::show(ui.ctx(), &mut self.settings_open, &self.prefs, self.dirs.as_ref(), t)
+        if let Some(new) = settings::show(ui.ctx(), &mut self.rail, &self.prefs, self.dirs.as_ref(), t)
         {
             if new.icon != self.prefs.icon
                 && let Some(icon) = app_icon(new.icon)
