@@ -14,7 +14,7 @@ Caratteristiche principali:
 
 - `crates/matrix-domain`: modelli e design token, senza SDK né toolkit grafico;
 - `crates/matrix-engine`: adattatore del Matrix Rust SDK (con la feature `sdk`);
-- `crates/matrix-desktop`: il client desktop. La libreria è lo strato applicativo senza toolkit (stato, preferenze, proiezioni), il binario `gnobbi-egui` (`src/bin/gnobbi-egui`) è l'interfaccia egui;
+- `crates/matrix-desktop`: il client desktop. La libreria è lo strato applicativo senza toolkit (stato, preferenze, proiezioni), il binario `gnobbi` (`src/bin/gnobbi`) è l'app, con interfaccia egui;
 - `crates/matrix-mobile`: ponte UniFFI per le app di esempio in `apps/` (non fa parte della build desktop);
 - `vendor/`: copie locali di dipendenze patchate (Matrix Rust SDK, egui/eframe, winit), collegate da `[patch.crates-io]` nel `Cargo.toml` di radice;
 - `packaging/`: AppImage, pacchetto macOS, zip Windows, icone.
@@ -27,7 +27,7 @@ Serve una toolchain Rust recente (edizione 2024; sviluppato con rustc 1.99). Dal
 cargo build --locked -p matrix-desktop --features linux-vault
 ```
 
-Il binario è `target/debug/gnobbi-egui`. Su macOS la feature è `mac-vault`, su Windows `windows-vault` (portachiavi di sistema). Con il solo `cargo build --locked` si compilano le librerie di base (`matrix-domain`, `matrix-engine`).
+Il binario è `target/debug/gnobbi`. Su macOS la feature è `mac-vault`, su Windows `windows-vault` (portachiavi di sistema). Con il solo `cargo build --locked` si compilano le librerie di base (`matrix-domain`, `matrix-engine`).
 
 Su Linux la build richiede `pkg-config` e gli header di sistema; l'ambiente di riferimento (Debian 12) ha installati `build-essential pkg-config libssl-dev libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev libvulkan-dev libdbus-1-dev`. A runtime le librerie GPU/Vulkan/Wayland arrivano dall'host.
 
@@ -44,7 +44,7 @@ I test che toccano rete e homeserver usano fixture usa e getta; le unit test gir
 
 Il primo accesso chiede homeserver, ID Matrix e password; la chiave che protegge l'archivio locale è custodita nel portachiavi di sistema (Secret Service su Linux), senza frase da inventare. Dopo l'accesso un passo facoltativo permette di inserire la chiave di recupero Matrix esistente (non la frase locale) per recuperare dal backup la cronologia cifrata precedente; non tutti i vecchi messaggi sono garantiti nel backup. Una chiave errata o un errore di rete lasciano il backup intatto e si può riprovare; si può sempre proseguire senza recupero. Un account senza archivio segreto Matrix lo scopre quando si prova una chiave: a quel punto Gnobbi offre «Crea chiave di recupero», che genera una chiave e il backup delle chiavi di cifratura, mostra la chiave una sola volta (copia esplicita, poi conferma di averla salvata) e solo allora prosegue; se la creazione fallisce, il server resta com'era e si può riprovare. Gnobbi crea il recupero soltanto quando mancano sia l'archivio segreto sia il backup: un account con backup ma senza archivio (o l'inverso) viene rifiutato senza modifiche, e chiavi o backup esistenti non vengono mai sostituiti. Il backup protegge i messaggi cifrati scambiati da questo dispositivo dopo la creazione: la cronologia precedente, mai salvata in un backup, non diventa leggibile e non è promessa. Se il portachiavi non è disponibile o è bloccato, Gnobbi lo dice e non modifica il profilo. Compilando senza `linux-vault` resta il vecchio modulo con frase locale.
 
-Avvio: `target/debug/gnobbi-egui` (o `cargo run --locked -p matrix-desktop --features linux-vault`) apre il profilo predefinito nella cartella dati dell'app; i profili successivi si aggiungono dal pannello account dell'app. `gnobbi-egui --signin <cartella-profilo-assoluta> [--ca-file <pem-assoluto>]` apre un profilo isolato, ad esempio per provare un homeserver di test.
+Avvio: `target/debug/gnobbi` (o `cargo run --locked -p matrix-desktop --features linux-vault`) apre il profilo predefinito nella cartella dati dell'app; i profili successivi si aggiungono dal pannello account dell'app. `gnobbi --signin <cartella-profilo-assoluta> [--ca-file <pem-assoluto>]` apre un profilo isolato, ad esempio per provare un homeserver di test.
 
 ## Come contribuire
 

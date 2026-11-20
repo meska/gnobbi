@@ -1,6 +1,6 @@
 #!/bin/sh
 # Mac App Store / TestFlight package of Gnobbi from the dist binary
-# (cargo build --locked -p matrix-desktop --features mac-vault --profile dist; binary gnobbi-egui).
+# (cargo build --locked -p matrix-desktop --features mac-vault --profile dist).
 # Needs, in the login keychain of the user running it (a GUI-session user, e.g. the CI LaunchAgent):
 #   "Apple Distribution", "3rd Party Mac Developer Installer" identities and a Mac App Store provisioning
 #   profile named "Gnobbi Mac App Store" in ~/Library/MobileDevice/Provisioning Profiles.
@@ -12,7 +12,7 @@ OUT=${1:-$root/artifacts/macos}
 TEAM=T4RJLVSR79; BID=net.meskatech.gnobbi; APPID="$TEAM.$BID"
 VERSION=${GNOBBI_VERSION:-0.1.0}
 BUILD=${GNOBBI_BUILD:-$(git -C "$root" rev-list --count HEAD)}
-bin="${CARGO_TARGET_DIR:-$root/target}/dist/gnobbi-egui"
+bin="${CARGO_TARGET_DIR:-$root/target}/dist/gnobbi"
 [ -x "$bin" ] || { echo "build first: cargo build --locked -p matrix-desktop --features mac-vault --profile dist" >&2; exit 1; }
 lipo -archs "$bin" | grep -q arm64 || { echo "binary is not arm64" >&2; exit 1; }
 PROFILE=$(grep -l -a "Gnobbi Mac App Store" "$HOME/Library/MobileDevice/Provisioning Profiles/"*.provisionprofile 2>/dev/null | head -1 || true)

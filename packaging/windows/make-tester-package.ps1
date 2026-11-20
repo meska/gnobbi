@@ -8,7 +8,7 @@
 # (cartella download) copiera' questo zip come gnobbi-windows-x64-<build>.zip e link stabile.
 
 param(
-    [string]$Exe = "target\release\gnobbi-egui.exe",
+    [string]$Exe = "target\release\gnobbi.exe",
     [string]$Commit = ""
 )
 

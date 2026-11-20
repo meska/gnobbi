@@ -1,4 +1,4 @@
-//! App layer shared by the egui frontend (`gnobbi-egui`): state, preferences, projections; no UI toolkit.
+//! App layer shared by the egui frontend (bin `gnobbi`): state, preferences, projections; no UI toolkit.
 
 pub mod build_info;
 pub mod new_chat;

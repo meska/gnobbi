@@ -34,7 +34,7 @@ mod tests {
 
     #[test]
     fn automatic_install_respects_status_and_opt_out() {
-        let root = std::env::temp_dir().join(format!("gnobbi-egui-entry-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("gnobbi-entry-{}", std::process::id()));
         fs::create_dir_all(&root).unwrap();
         let exe = root.join("gnobbi");
         fs::write(&exe, "test").unwrap();
