@@ -73,7 +73,7 @@ impl Admin {
 }
 
 /// «Invita», the member rows with their «⋮» menu, then «Bloccati». Only what the user's power level allows is drawn.
-pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &str, t: &DesignTokens) -> Option<Act> {
+pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &str, avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Option<Act> {
     let mut act = None;
     let perms = admin.map(|a| a.perms).unwrap_or_default();
     let busy = admin.is_some_and(|a| a.busy);
@@ -120,7 +120,7 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                         // The own row has no «⋮»: its place stays empty so the badges line up.
                         ui.add_space(40.);
                     }
-                    if crate::info::member_row(ui, m, t).clicked() {
+                    if crate::info::member_row(ui, avatars, m, t).clicked() {
                         act = Some(Act::Profile(m.user_id.clone()));
                     }
                 });

@@ -1,6 +1,6 @@
 //! The selected space: the «⋮» menu of the list header and the window behind it (facts and «Stanze», or the members).
 use crate::list::rgb;
-use eframe::egui::{self, Align2, FontId, RichText, Sense, Vec2};
+use eframe::egui::{self, Align2, RichText, Sense, Vec2};
 use matrix_desktop::{DesignTokens, SidebarRoom};
 use matrix_domain::RoomScope;
 use matrix_engine::operations::{Member, SpaceChildren};
@@ -239,9 +239,7 @@ fn candidates<'a>(rooms: &'a [SidebarRoom], children: &SpaceChildren) -> Vec<&'a
 fn avatar(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, name: &str, mxc: Option<&str>, t: &DesignTokens) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(32.), Sense::hover());
     let initials: String = name.chars().filter(|c| c.is_alphanumeric()).take(2).collect::<String>().to_uppercase();
-    ui.painter().circle_filled(rect.center(), 16., rgb(crate::AVATAR));
-    ui.painter().text(rect.center(), Align2::CENTER_CENTER, initials, FontId::proportional(12.), rgb(t.on_accent));
-    crate::list::photo(ui, avatars, mxc, rect.center(), 32.);
+    crate::avatar::paint(ui, rect.center(), 32., rgb(crate::AVATAR), &crate::avatar::lookup(avatars, mxc), &initials, 12., rgb(t.on_accent));
 }
 
 pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &DesignTokens) {
@@ -273,7 +271,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
                             ui.colored_label(rgb(t.error), "Non riuscito");
                         }
                     } else {
-                        member = crate::members::list(ui, members, session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, t);
+                        member = crate::members::list(ui, members, session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, &session.avatars, t);
                     }
                 })),
             }

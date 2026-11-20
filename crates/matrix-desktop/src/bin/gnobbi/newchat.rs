@@ -100,7 +100,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Immagine"));
                         match &form.avatar {
                             Some((_, tex)) => {
-                                egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(egui::CornerRadius::same(24)).paint_at(ui, rect);
+                                crate::avatar::paint(ui, rect.center(), 48., crate::list::rgb(crate::AVATAR), &crate::avatar::Avatar::Ready(tex.clone()), "", 0., egui::Color32::TRANSPARENT);
                             }
                             None => {
                                 ui.painter().circle_filled(rect.center(), 24., crate::list::rgb(t.input));

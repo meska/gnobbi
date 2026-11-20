@@ -2,7 +2,6 @@
 use eframe::egui::{self, RichText};
 use matrix_desktop::i18n;
 use matrix_engine::stickers::{Sticker, StickerPack};
-use std::collections::HashMap;
 
 pub const TAB_ID: &str = "emoji-tab-sticker";
 const CELL: f32 = 64.;
@@ -27,7 +26,7 @@ pub fn urls(panel: &Panel) -> impl Iterator<Item = &str> {
     packs.iter().flat_map(|p| &p.stickers).map(|s| s.url.as_str())
 }
 
-pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &HashMap<String, Option<egui::TextureHandle>>) {
+pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &crate::avatar::Avatars) {
     panel.open = true;
     // The sticker's media is the pack's own, public on the homeserver even in an encrypted room.
     ui.label(RichText::new(i18n::t("Stickers are not encrypted, like an unencrypted image")).small().weak());
@@ -42,7 +41,7 @@ pub fn show(ui: &mut egui::Ui, panel: &mut Panel, textures: &HashMap<String, Opt
             ui.label(RichText::new(&pack.name).strong());
             ui.horizontal_wrapped(|ui| {
                 for s in &pack.stickers {
-                    let tex = textures.get(&s.url).and_then(Option::as_ref);
+                    let tex = match textures.get(&s.url) { Some(crate::avatar::Avatar::Ready(t)) => Some(t), _ => None };
                     let r = match tex {
                         Some(t) => ui.add(egui::Button::image(egui::Image::new(t).fit_to_exact_size(egui::vec2(CELL, CELL))).frame(false)),
                         None => ui.add_sized([CELL, CELL], egui::Button::new(&s.shortcode).frame(false)),

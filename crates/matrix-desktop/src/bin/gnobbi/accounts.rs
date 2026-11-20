@@ -105,7 +105,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
     }
     let (id, name) = shown;
     let current = v.profile_avatar().map(str::to_owned);
-    let own = current.as_ref().and_then(|mxc| s.avatars.get(mxc)?.clone());
+    let own = crate::avatar::lookup(&s.avatars, current.as_deref());
     let busy = s.profile_busy;
     let name_changed = can_name && f.name.trim() != name.as_deref().unwrap_or("") && !f.name.trim().is_empty();
     let dirty = name_changed || !matches!(f.photo, Photo::Keep);
@@ -118,19 +118,11 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             let resp = crate::metrics::clickable(resp);
             let shown_name = name.as_deref().unwrap_or(&id);
             let picture = match &f.photo {
-                Photo::Set(_, tex) => Some(tex),
-                Photo::Keep => own.as_ref(),
-                Photo::Remove => None,
+                Photo::Set(_, tex) => crate::avatar::Avatar::Ready(tex.clone()),
+                Photo::Keep => own.clone(),
+                Photo::Remove => crate::avatar::Avatar::Missing,
             };
-            match picture {
-                Some(tex) => {
-                    egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(egui::CornerRadius::same(32)).paint_at(ui, rect);
-                }
-                None => {
-                    ui.painter().circle_filled(rect.center(), 32., rgb(crate::AVATAR));
-                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, matrix_desktop::initials(shown_name), egui::FontId::proportional(24.), rgb(t.on_accent));
-                }
-            }
+            crate::avatar::paint(ui, rect.center(), 64., rgb(crate::AVATAR), &picture, &matrix_desktop::initials(shown_name), 24., rgb(t.on_accent));
             if can_photo {
                 let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
                 resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, matrix_desktop::i18n::t("Edit photo")));
@@ -232,23 +224,19 @@ pub enum Launch {
 /// What the running accounts (the ones not on screen) add to their row.
 pub struct Running {
     pub dir: PathBuf,
-    pub picture: Option<egui::TextureHandle>,
+    pub picture: crate::avatar::Avatar,
     pub unread: u64,
 }
 
 /// One account: round picture, name, id and server in grey, then «Attivo» or the unread badge and «Apri».
-fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: Option<&egui::TextureHandle>, active: bool, unread: u64, t: &DesignTokens) -> bool {
+fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: &crate::avatar::Avatar, active: bool, unread: u64, t: &DesignTokens) -> bool {
     let mut open = false;
     let m = crate::metrics::get();
     crate::rows::lines_row(
         ui,
         |ui| {
             let (r, _) = ui.allocate_exact_size(egui::Vec2::splat(32.), egui::Sense::hover());
-            ui.painter().circle_filled(r.center(), 16., rgb(crate::AVATAR));
-            ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, matrix_desktop::initials(name), egui::FontId::proportional(13.), rgb(t.on_accent));
-            if let Some(tex) = picture {
-                egui::Image::new(tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(16)).paint_at(ui, r);
-            }
+            crate::avatar::paint(ui, r.center(), 32., rgb(crate::AVATAR), picture, &matrix_desktop::initials(name), 13., rgb(t.on_accent));
         },
         &[crate::rows::Line::new(name, m.body, rgb(t.text)), crate::rows::Line::new(line, m.secondary, rgb(t.secondary))],
         |ui| {
@@ -270,7 +258,7 @@ fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: Option<&egui::Texture
 pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, current: &std::path::Path, session: Option<&mut Session>, running: &[Running], form: &mut Form, t: &DesignTokens) -> Option<Launch> {
     let mut out = None;
     let mut back = false;
-    let own = session.as_ref().and_then(|s| s.own_picture());
+    let own = session.as_ref().map_or(crate::avatar::Avatar::Missing, |s| s.own_avatar());
     let closed = crate::rail::drawer_back(ctx, rail.panel, "accounts-drawer", "Account", rail.accounts, t, Some(&mut back), |ui, rect| {
         let size = crate::metrics::button() + 4.;
         let action = egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), egui::Vec2::splat(size));
@@ -307,7 +295,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
                             (None, h) => h.unwrap_or_default().to_owned(),
                         };
                         let other = running.iter().find(|r| Some(&r.dir) == dir.as_ref());
-                        let picture = if active { own.as_ref() } else { other.and_then(|r| r.picture.as_ref()) };
+                        let picture = if active { &own } else { other.map_or(&crate::avatar::Avatar::Missing, |r| &r.picture) };
                         if row(ui, &entry.label, &line, picture, active, other.map_or(0, |r| r.unread), t)
                             && let Some(dir) = dir
                         {
@@ -318,7 +306,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
                     #[cfg(debug_assertions)]
                     if std::env::var_os("GNOBBI_EGUI_FAKE_ACCOUNTS").is_some() {
                         for (id, unread) in [("@marco:example.com · example.com", 0), ("@marco:gnobbi.chat · gnobbi.chat", 3), ("@marco:matrix.org", 120)] {
-                            row(ui, "Marco", id, None, id.contains("example") && !carded, unread, t);
+                            row(ui, "Marco", id, &crate::avatar::Avatar::Missing, id.contains("example") && !carded, unread, t);
                         }
                     }
                 });
@@ -334,7 +322,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
 }
 
 /// One row of the account switcher in the rail: small round picture, name, the account id in grey under it, a check on the shown one, the unread badge on the others.
-pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: Option<&egui::TextureHandle>, shown: bool, unread: u64, t: &DesignTokens) -> egui::Response {
+pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: &crate::avatar::Avatar, shown: bool, unread: u64, t: &DesignTokens) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(264., 44.), egui::Sense::click());
     let resp = crate::metrics::clickable(resp);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{name} {id}")));
@@ -343,12 +331,8 @@ pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: Option<&egui
         p.rect_filled(rect, 8., rgb(t.input));
     }
     let c = egui::Pos2::new(rect.left() + 8. + 12., rect.center().y);
-    p.circle_filled(c, 12., rgb(crate::AVATAR));
-    p.text(c, egui::Align2::CENTER_CENTER, matrix_desktop::initials(name), egui::FontId::proportional(11.), rgb(t.on_accent));
-    if let Some(tex) = picture {
-        let r = egui::Rect::from_center_size(c, egui::Vec2::splat(24.));
-        egui::Image::new(tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(12)).paint_at(ui, r);
-    }
+    crate::avatar::paint(ui, c, 24., rgb(crate::AVATAR), picture, &matrix_desktop::initials(name), 11., rgb(t.on_accent));
+    let p = ui.painter();
     let x = c.x + 20.;
     let right = rect.right() - 12.;
     let (name_pos, id_pos) = if id.is_empty() { (egui::Pos2::new(x, rect.center().y - 8.), None) } else { (egui::Pos2::new(x, rect.top() + 6.), Some(egui::Pos2::new(x, rect.top() + 24.))) };

@@ -113,14 +113,6 @@ pub fn badge(ui: &egui::Ui, center: egui::Pos2, n: u64, t: &DesignTokens) -> f32
     r.left()
 }
 
-/// A round picture (or nothing, when there is none) centred at `c`; the caller draws the initials circle first.
-pub fn photo(ui: &egui::Ui, avatars: &crate::timeline::Avatars, mxc: Option<&str>, c: egui::Pos2, size: f32) -> bool {
-    let Some(tex) = mxc.and_then(|m| avatars.get(m)?.as_ref()) else { return false };
-    let rect = egui::Rect::from_center_size(c, Vec2::splat(size));
-    egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(egui::CornerRadius::same((size / 2.) as u8)).paint_at(ui, rect);
-    true
-}
-
 /// Header with the search field, then the rows. Selection goes through `Sidebar::select`; true when a room was chosen, the open one too.
 /// `more` adds the caller's buttons left of «+».
 pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens, more: &mut dyn FnMut(&mut egui::Ui)) -> bool {
@@ -193,11 +185,9 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             } else if resp.hovered() {
                 ui.painter().rect_filled(rect, 0., rgb(t.input));
             }
-            let p = ui.painter();
             let c = egui::pos2(rect.left() + 36., rect.center().y);
-            p.circle_filled(c, 20., rgb(room.color));
-            p.text(c, Align2::CENTER_CENTER, &room.initials, FontId::proportional(15.), rgb(t.avatar_text));
-            photo(ui, &session.avatars, room.info.avatar.as_deref(), c, 40.);
+            crate::avatar::paint(ui, c, 40., rgb(room.color), &crate::avatar::lookup(&session.avatars, room.info.avatar.as_deref()), &room.initials, 15., rgb(t.avatar_text));
+            let p = ui.painter();
             let text_left = rect.left() + 68.;
             let stamp = room.stamp();
             let stamp_w = stamp.as_ref().map_or(0., |s| p.layout_no_wrap(s.clone(), FontId::proportional(12.), rgb(t.secondary)).size().x);

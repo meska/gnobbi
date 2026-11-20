@@ -2,6 +2,7 @@
 //! GPUI app (`SignInForm`), so messages, vault restore and error categories stay identical.
 use matrix_desktop::i18n;
 use eframe::egui;
+use crate::avatar::Avatar;
 use matrix_desktop::{AppDirs, DemoHistory, FormStatus, HistorySession, LiveMedia, LiveOperations, SignInForm};
 use matrix_domain::{EventId, TimelineId};
 use matrix_engine::history::MediaKind;
@@ -194,7 +195,7 @@ pub struct Session {
     /// Thumbnails of the open room's pictures and videos, by event.
     pub pictures: std::collections::HashMap<EventId, egui::TextureHandle>,
     /// Sender photos by mxc; `None` = asked and none came (initials stay).
-    pub avatars: std::collections::HashMap<String, Option<egui::TextureHandle>>,
+    pub avatars: crate::avatar::Avatars,
     avatar_failed: std::collections::HashMap<String, std::time::Instant>,
     avatar_slot: matrix_engine::avatar::AvatarSlot,
     avatar_chan: (std::sync::mpsc::Sender<matrix_engine::avatar::AvatarPicture>, std::sync::mpsc::Receiver<matrix_engine::avatar::AvatarPicture>),
@@ -512,6 +513,15 @@ impl Session {
         }
     }
 
+    /// Not asked yet, or a transient failure older than 30 s.
+    fn avatar_wanted(&self, mxc: &str) -> bool {
+        match self.avatars.get(mxc) {
+            None => true,
+            Some(Avatar::Missing) => self.avatar_failed.get(mxc).is_some_and(|at| at.elapsed() >= std::time::Duration::from_secs(30)),
+            Some(_) => false,
+        }
+    }
+
     /// Asks for the senders' photos of the open room and turns the answers into textures.
     /// A transient failure is asked again after 30 s (like the GPUI timeline); initials stay meanwhile.
     fn drive_avatars(&mut self, ctx: &egui::Context) -> bool {
@@ -520,12 +530,12 @@ impl Session {
             let tex = p.rgba.map(|(w, h, rgba)| ctx.load_texture(&p.mxc, egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba), Default::default()));
             changed |= tex.is_some();
             if tex.is_none() && p.retry {
-                self.avatars.remove(&p.mxc);
-                self.avatar_failed.insert(p.mxc, std::time::Instant::now());
-                continue;
+                // Missing (initials) until the retry after 30 s.
+                self.avatar_failed.insert(p.mxc.clone(), std::time::Instant::now());
+            } else {
+                self.avatar_failed.remove(&p.mxc);
             }
-            self.avatar_failed.remove(&p.mxc);
-            self.avatars.insert(p.mxc, tex);
+            self.avatars.insert(p.mxc, tex.map_or(Avatar::Missing, Avatar::Ready));
         }
         let Ok(slot) = self.avatar_slot.try_lock() else { return changed };
         let Some(source) = slot.as_ref() else { return changed };
@@ -539,18 +549,16 @@ impl Session {
         wanted.extend(crate::stickers::urls(&self.stickers).map(str::to_owned));
         if let (Some(_), matrix_engine::search::SearchState::Results { hits, .. }) = (&self.explore, &self.public_rooms) { wanted.extend(hits.iter().filter_map(|h| h.avatar_url.clone())); }
         for mxc in wanted {
-            let waiting = self.avatar_failed.get(&mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
-            if budget > 0 && !self.avatars.contains_key(&mxc) && !waiting {
+            if budget > 0 && self.avatar_wanted(&mxc) {
                 budget -= 1;
-                self.avatars.insert(mxc.clone(), None);
+                self.avatars.insert(mxc.clone(), Avatar::Loading);
                 source.request(mxc, self.avatar_chan.0.clone());
             }
         }
         let Some(messages) = &self.messages else { return changed };
         for mxc in messages.sender_avatar_mxcs() {
-            let waiting = self.avatar_failed.get(mxc).is_some_and(|at| at.elapsed() < std::time::Duration::from_secs(30));
-            if !self.avatars.contains_key(mxc) && !waiting {
-                self.avatars.insert(mxc.to_owned(), None);
+            if self.avatar_wanted(mxc) {
+                self.avatars.insert(mxc.to_owned(), Avatar::Loading);
                 source.request(mxc.to_owned(), self.avatar_chan.0.clone());
             }
         }
@@ -1524,8 +1532,8 @@ impl Session {
     }
 
     /// The account's own picture, once downloaded (the spaces rail and the tray draw it).
-    pub fn own_picture(&self) -> Option<egui::TextureHandle> {
-        self.avatars.get(self.verification.as_ref()?.profile_avatar()?)?.clone()
+    pub fn own_avatar(&self) -> crate::avatar::Avatar {
+        crate::avatar::lookup(&self.avatars, self.verification.as_ref().and_then(|v| v.profile_avatar()))
     }
 
     pub fn react(&mut self, key: &str) {

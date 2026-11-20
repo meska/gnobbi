@@ -28,7 +28,7 @@ pub enum Mode {
 pub const THREAD: &str = "-thread";
 
 /// `salt` is `""` for the room composer and `THREAD` for the drawer (no attach, poll or voice there: they would act on the room).
-pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &std::collections::HashMap<String, Option<egui::TextureHandle>>)>) -> Option<String> {
+pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     // consume_key matches Shift loosely, so Shift+Enter is checked on the event and left to the TextEdit (it inserts the newline).
     let shift_enter = ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.shift)));

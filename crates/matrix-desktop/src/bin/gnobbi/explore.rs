@@ -1,7 +1,7 @@
 //! «Esplora stanze pubbliche»: the public-room directory of the account's server (or another one) as a window.
 //! The search, debounce, paging and errors are the engine's (`SearchRooms` / `MoreRooms`); this file is the form and the rows.
 use crate::{join::JoinState, list::{one_line, rgb}, session::Session};
-use eframe::egui::{self, Align2, FontId, Sense, Vec2};
+use eframe::egui::{self, Align2, Sense, Vec2};
 use matrix_desktop::{DesignTokens, add_server::normalize_server, quick_search::{Category, DirectoryRequest, room_request}, search_list::{Hit, Status, more_text}};
 use matrix_engine::{operations::DirectoryRoom, search::{More, SearchState}};
 
@@ -181,9 +181,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
         ui.painter().rect_filled(rect, 10., rgb(t.input));
     }
     let c = egui::pos2(rect.left() + 28., rect.center().y);
-    ui.painter().circle_filled(c, 20., rgb(matrix_desktop::AVATAR_FALLBACK));
-    ui.painter().text(c, Align2::CENTER_CENTER, room.name.chars().take(2).collect::<String>(), FontId::proportional(15.), rgb(t.avatar_text));
-    crate::list::photo(ui, &s.avatars, room.avatar_url.as_deref(), c, 40.);
+    crate::avatar::paint(ui, c, 40., rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::lookup(&s.avatars, room.avatar_url.as_deref()), &room.name.chars().take(2).collect::<String>(), 15., rgb(t.avatar_text));
     let btn = egui::Rect::from_min_size(egui::pos2(rect.right() - 96., rect.center().y - crate::metrics::button() / 2.), Vec2::new(88., crate::metrics::button()));
     let left = rect.left() + 58.;
     let width = (btn.left() - 8. - left).max(20.);

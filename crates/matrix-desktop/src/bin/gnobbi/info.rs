@@ -1,5 +1,5 @@
 //! Right panel: the open room's facts and its members.
-use eframe::egui::{self, Align2, Color32, FontId, RichText, Vec2};
+use eframe::egui::{self, Color32, FontId, RichText, Vec2};
 use matrix_desktop::{DesignTokens, SidebarRoom, i18n};
 use matrix_engine::operations::Member;
 
@@ -15,7 +15,7 @@ pub struct Out {
     pub edit: bool,
 }
 
-pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), t: &DesignTokens) -> Out {
+pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, admin: Option<&crate::members::Admin>, me: &str, aliases: &mut AliasView, (status, hidden_status): (&mut matrix_desktop::StatusChoice, usize), avatars: &crate::avatar::Avatars, t: &DesignTokens) -> Out {
     let mut out = Out::default();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.add_space(16.);
@@ -61,7 +61,7 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
             ui.vertical_centered(|ui| ui.spinner());
             return;
         };
-        out.member = crate::members::list(ui, members, admin, me, t);
+        out.member = crate::members::list(ui, members, admin, me, avatars, t);
     });
     out
 }
@@ -174,7 +174,7 @@ mod topic_tests {
 }
 
 /// One member: initials, name on one line and the role badge at the right edge.
-pub fn member_row(ui: &mut egui::Ui, m: &Member, t: &DesignTokens) -> egui::Response {
+pub fn member_row(ui: &mut egui::Ui, avatars: &crate::avatar::Avatars, m: &Member, t: &DesignTokens) -> egui::Response {
     use matrix_domain::role::MemberRole;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
     let resp = crate::metrics::clickable(resp);
@@ -183,8 +183,7 @@ pub fn member_row(ui: &mut egui::Ui, m: &Member, t: &DesignTokens) -> egui::Resp
     }
     let c = egui::pos2(rect.left() + 28., rect.center().y);
     let initials: String = m.name.trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
-    ui.painter().circle_filled(c, 14., rgb(matrix_desktop::AVATAR_FALLBACK));
-    ui.painter().text(c, Align2::CENTER_CENTER, initials, FontId::proportional(12.), rgb(t.on_accent));
+    crate::avatar::paint(ui, c, 28., rgb(matrix_desktop::AVATAR_FALLBACK), &crate::avatar::lookup(avatars, m.avatar.as_deref()), &initials, 12., rgb(t.on_accent));
     let role = crate::members::role_label(m.role);
     let ink = rgb(match m.role {
         MemberRole::Admin => t.on_accent,

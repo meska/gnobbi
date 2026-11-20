@@ -57,26 +57,17 @@ mod tests {
 }
 
 pub type Pictures = std::collections::HashMap<matrix_domain::EventId, egui::TextureHandle>;
-pub type Avatars = std::collections::HashMap<String, Option<egui::TextureHandle>>;
+pub use crate::avatar::Avatars;
 
-/// Round avatar of `size`: the photo when there is one, else initials on the fallback colour.
-fn avatar(ui: &mut egui::Ui, size: f32, pic: Option<&egui::TextureHandle>, initials: &str, font: f32, t: &DesignTokens) -> egui::Response {
+/// Round avatar of `size` (see `crate::avatar::paint`).
+fn avatar(ui: &mut egui::Ui, size: f32, pic: &crate::avatar::Avatar, initials: &str, font: f32, t: &DesignTokens) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
     paint_avatar(ui, rect, pic, initials, font, t);
     resp
 }
 
-fn paint_avatar(ui: &egui::Ui, rect: egui::Rect, pic: Option<&egui::TextureHandle>, initials: &str, font: f32, t: &DesignTokens) {
-    let size = rect.width();
-    match pic {
-        Some(tex) => {
-            egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(CornerRadius::same((size / 2.) as u8)).paint_at(ui, rect);
-        }
-        None => {
-            ui.painter().circle_filled(rect.center(), size / 2., rgb(matrix_desktop::AVATAR_FALLBACK));
-            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(font), rgb(t.avatar_text));
-        }
-    }
+fn paint_avatar(ui: &egui::Ui, rect: egui::Rect, pic: &crate::avatar::Avatar, initials: &str, font: f32, t: &DesignTokens) {
+    crate::avatar::paint(ui, rect.center(), rect.width(), rgb(matrix_desktop::AVATAR_FALLBACK), pic, initials, font, rgb(t.avatar_text));
 }
 
 /// Gap between groups / inside one, bubble padding, width.
@@ -199,8 +190,8 @@ fn read_circles(ui: &mut egui::Ui, readers: &[matrix_engine::history::HistorySen
     for r in readers.iter().take(READER_MAX) {
         let name = r.name.as_deref().unwrap_or(&r.id);
         let initials: String = name.trim_start_matches('@').chars().take(1).collect::<String>().to_uppercase();
-        let pic = r.avatar.as_deref().and_then(|m| avatars.get(m)?.as_ref());
-        avatar(ui, READER_SIZE, pic, &initials, 9., t).on_hover_text(name);
+        let pic = crate::avatar::lookup(avatars, r.avatar.as_deref());
+        avatar(ui, READER_SIZE, &pic, &initials, 9., t).on_hover_text(name);
     }
     if readers.len() > READER_MAX {
         ui.label(RichText::new(format!("+{}", readers.len() - READER_MAX)).size(10.).color(rgb(t.secondary)));
@@ -221,12 +212,12 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         let text_w = ui.painter().layout_no_wrap(e.text.clone(), font, Color32::WHITE).size().x.min((avail - 36.).max(40.));
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.;
-            let pic = e.sender.as_ref().and_then(|s| s.avatar.as_deref()).and_then(|m| avatars.get(m)?.as_ref());
+            let pic = crate::avatar::lookup(avatars, e.sender.as_ref().and_then(|s| s.avatar.as_deref()));
             let has_avatar = e.sender.is_some();
             ui.add_space(((avail - text_w - if has_avatar { 18. } else { 0. }) / 2.).max(0.));
             if let Some(s) = &e.sender {
                 let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
-                avatar(ui, 12., pic, &initials, 7., t);
+                avatar(ui, 12., &pic, &initials, 7., t);
             }
             ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&e.text)).size(11.).color(rgb(t.secondary))).truncate());
         });
@@ -393,9 +384,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             ui.spacing_mut().item_spacing.x = 0.;
                             for (seg, who) in segs {
                                 if let Some(s) = who {
-                                    let pic = s.avatar.as_deref().and_then(|m| avatars.get(m)?.as_ref());
+                                    let pic = crate::avatar::lookup(avatars, s.avatar.as_deref());
                                     let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
-                                    avatar(ui, 20., pic, &initials, 9., t);
+                                    avatar(ui, 20., &pic, &initials, 9., t);
                                     ui.label(RichText::new(seg).size(BODY).strong().color(rgb(t.accent)));
                                     continue;
                                 }
@@ -420,9 +411,9 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 if let Some(th) = &e.thread {
                     ui.horizontal(|ui| {
                         if let Some(s) = &th.latest_sender {
-                            let pic = s.avatar.as_deref().and_then(|m| avatars.get(m)?.as_ref());
+                            let pic = crate::avatar::lookup(avatars, s.avatar.as_deref());
                             let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
-                            avatar(ui, 20., pic, &initials, 9., t);
+                            avatar(ui, 20., &pic, &initials, 9., t);
                         }
                         if ui.link(i18n::plural(th.num_replies as u64, "{n} reply", "{n} replies")).clicked() {
                             thread = true;
@@ -453,8 +444,8 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         });
         if let (Some(column), false, Some(s)) = (column, below, &e.sender) {
             let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
-            let pic = s.avatar.as_deref().and_then(|m| avatars.get(m)?.as_ref());
-            paint_avatar(ui, egui::Rect::from_min_size(egui::pos2(column.left(), frame.response.rect.bottom() - 32.), Vec2::splat(32.)), pic, &initials, 12., t);
+            let pic = crate::avatar::lookup(avatars, s.avatar.as_deref());
+            paint_avatar(ui, egui::Rect::from_min_size(egui::pos2(column.left(), frame.response.rect.bottom() - 32.), Vec2::splat(32.)), &pic, &initials, 12., t);
         }
         // Read from the input, not a widget over the bubble: a click-sensing widget on top would swallow the clicks of the link and the download button.
         let pos = ui.input(|i| if i.pointer.button_clicked(egui::PointerButton::Secondary) { i.pointer.interact_pos() } else { None });

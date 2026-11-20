@@ -11,6 +11,7 @@ use matrix_engine::RoomSyncStatus;
 use std::time::Duration;
 
 mod accounts;
+mod avatar;
 mod avatar_editor;
 mod pick;
 mod composer;
@@ -981,12 +982,7 @@ impl App {
                     }
                     let c = rect.center_top() + egui::Vec2::new(0., 26.);
                     let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
-                    ui.painter().circle_filled(c, 18., rgb(AVATAR));
-                    ui.painter().text(c, egui::Align2::CENTER_CENTER, initial, egui::FontId::proportional(16.), rgb(t.on_accent));
-                    if let Some(tex) = session.own_picture() {
-                        let r = egui::Rect::from_center_size(c, egui::Vec2::splat(36.));
-                        egui::Image::new(&tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(18)).paint_at(ui, r);
-                    }
+                    avatar::paint(ui, c, 36., rgb(AVATAR), &session.own_avatar(), &initial, 16., rgb(t.on_accent));
                     for (i, (_, n)) in others.iter().enumerate() {
                         let in_row = (others.len() - i / 5 * 5).min(5);
                         let d = egui::Pos2::new(c.x + ((i % 5) as f32 - (in_row - 1) as f32 / 2.) * 10., rect.top() + 55. + (i / 5) as f32 * 10.);
@@ -1009,11 +1005,11 @@ impl App {
                                 let (Some(c), Some(d)) = (&catalog, &self.dirs) else { return String::new() };
                                 c.accounts().iter().find(|e| c.data_dir(d, e.id).as_deref() == Some(root)).and_then(|e| e.user_id.clone().or_else(|| e.homeserver.clone())).unwrap_or_default()
                             };
-                            let shown_row = (name.to_owned(), line(&self.root), session.own_picture());
-                            let rows: Vec<_> = self.parked.iter().map(|p| (p.session.account_name.clone(), line(&p.root), p.session.own_picture())).collect();
-                            accounts::switch_row(ui, &shown_row.0, &shown_row.1, shown_row.2.as_ref(), true, 0, t);
+                            let shown_row = (name.to_owned(), line(&self.root), session.own_avatar());
+                            let rows: Vec<_> = self.parked.iter().map(|p| (p.session.account_name.clone(), line(&p.root), p.session.own_avatar())).collect();
+                            accounts::switch_row(ui, &shown_row.0, &shown_row.1, &shown_row.2, true, 0, t);
                             for (i, ((other, id, pic), (_, n))) in rows.iter().zip(&others).enumerate() {
-                                if accounts::switch_row(ui, other, id, pic.as_ref(), false, *n, t).clicked() {
+                                if accounts::switch_row(ui, other, id, pic, false, *n, t).clicked() {
                                     pick_account = Some(i);
                                     ui.close();
                                 }
@@ -1093,7 +1089,7 @@ impl App {
         let (info_on, search_on) = self.session.as_ref().map_or((false, false), |s| (s.info_open, s.search_open));
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
         let badge = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| (r.initials.clone(), r.color)));
-        let head_pic = self.session.as_ref().and_then(|s| s.sidebar.selected().and_then(|r| r.info.avatar.as_deref()).and_then(|a| s.avatars.get(a)?.clone()));
+        let head_pic = self.session.as_ref().map(|s| avatar::lookup(&s.avatars, s.sidebar.selected().and_then(|r| r.info.avatar.as_deref())));
         egui::Panel::top("header").exact_size(t.header).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 ui.add_space(if single { 4. } else { 16. });
@@ -1103,11 +1099,7 @@ impl App {
                 }
                 if let Some((initials, color)) = &badge {
                     let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(32.), egui::Sense::hover());
-                    ui.painter().circle_filled(rect.center(), 16., rgb(*color));
-                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, initials, egui::FontId::proportional(13.), rgb(t.avatar_text));
-                    if let Some(tex) = &head_pic {
-                        egui::Image::new(tex).fit_to_exact_size(rect.size()).corner_radius(egui::CornerRadius::same(16)).paint_at(ui, rect);
-                    }
+                    avatar::paint(ui, rect.center(), 32., rgb(*color), head_pic.as_ref().unwrap_or(&avatar::Avatar::Missing), initials, 13., rgb(t.avatar_text));
                     ui.add_space(4.);
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1144,7 +1136,7 @@ impl App {
             let mut status = s.status_choices.get(&room_id);
             let (status_was, hidden_status) = (status, s.messages.as_ref().filter(|m| m.scope() == &room.scope).map_or(0, |m| m.hidden_status_count()));
             let mut view = info::AliasView { data: s.aliases.as_ref(), error: s.alias_error, input: &mut alias_input, action: None };
-            egui::Panel::right("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, (&mut status, hidden_status), t));
+            egui::Panel::right("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, (&mut status, hidden_status), &s.avatars, t));
             alias_action = view.action.take();
             self.alias_input = alias_input;
             if status != status_was && let Some(s) = &mut self.session {
@@ -1371,7 +1363,7 @@ impl App {
             roomedit::show(ui.ctx(), s, rights, if is_space { "Modifica spazio" } else { "Modifica stanza" });
         }
         if let Some(dirs) = &self.dirs {
-            let running: Vec<_> = self.parked.iter().map(|p| accounts::Running { dir: p.root.clone(), picture: p.session.own_picture(), unread: p.session.sidebar.navigation_entries().first().map_or(0, |e| e.unread) }).collect();
+            let running: Vec<_> = self.parked.iter().map(|p| accounts::Running { dir: p.root.clone(), picture: p.session.own_avatar(), unread: p.session.sidebar.navigation_entries().first().map_or(0, |e| e.unread) }).collect();
             match accounts::show(ui.ctx(), &mut self.rail, dirs, &self.root, self.session.as_mut(), &running, &mut self.account_form, t) {
                 Some(accounts::Launch::Open(dir)) => self.open_account(dir),
                 Some(accounts::Launch::Add) => {

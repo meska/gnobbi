@@ -1,7 +1,7 @@
 //! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and, at the bottom,
 //! «Organizza spazi» (the drawer where the spaces are dragged into order and into each other) and «Impostazioni» (the settings drawer).
 use crate::icons;
-use crate::list::{badge, one_line, photo, rgb};
+use crate::list::{badge, one_line, rgb};
 use eframe::egui::{self, Align2, FontId, Sense, Stroke, Vec2};
 use matrix_desktop::{AppDirs, DesignTokens, NavigationEntry, RailLayout, RailLayouts, Sidebar};
 use matrix_domain::RoomScope;
@@ -288,9 +288,7 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
         Icon::Space(row) => {
             let size = if row.depth > 0 { 28. } else { 34. };
             let initial: String = row.name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
-            p.circle_filled(c, size / 2., rgb(crate::AVATAR));
-            p.text(c, Align2::CENTER_CENTER, initial, FontId::proportional(size * 0.45), rgb(t.on_accent));
-            photo(ui, avatars, row.avatar.as_deref(), c, size);
+            crate::avatar::paint(ui, c, size, rgb(crate::AVATAR), &crate::avatar::lookup(avatars, row.avatar.as_deref()), &initial, size * 0.45, rgb(t.on_accent));
             if row.depth > 0 {
                 p.line_segment([egui::pos2(rect.left() + 11., rect.top()), egui::pos2(rect.left() + 11., rect.top() + 40.)], Stroke::new(1., rgb(t.border)));
             }
@@ -378,11 +376,9 @@ fn lit(ui: &egui::Ui, resp: &egui::Response, rect: egui::Rect, radius: f32, t: &
 }
 
 /// Initial on the fallback colour, the picture over it when there is one.
-fn face(ui: &egui::Ui, p: &egui::Painter, avatars: &crate::timeline::Avatars, row: &Row, c: egui::Pos2, size: f32, t: &DesignTokens) {
+fn face(ui: &egui::Ui, avatars: &crate::timeline::Avatars, row: &Row, c: egui::Pos2, size: f32, t: &DesignTokens) {
     let initial: String = row.name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
-    p.circle_filled(c, size / 2., rgb(crate::AVATAR));
-    p.text(c, Align2::CENTER_CENTER, initial, FontId::proportional(size * 0.45), rgb(t.on_accent));
-    photo(ui, avatars, row.avatar.as_deref(), c, size);
+    crate::avatar::paint(ui, c, size, rgb(crate::AVATAR), &crate::avatar::lookup(avatars, row.avatar.as_deref()), &initial, size * 0.45, rgb(t.on_accent));
 }
 
 /// The row being dragged (egui drag-and-drop payload): its room id.
@@ -549,7 +545,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                         icons::paint(&p, egui::pos2(x, cy), icons::Icon::DotsSixVertical, false, crate::metrics::get().icon, rgb(if frozen { t.disabled } else { t.placeholder }));
                     }
                     x += 18. + row.depth as f32 * INDENT;
-                    face(ui, &p, &session.avatars, row, egui::pos2(x + 14., cy), 28., t);
+                    face(ui, &session.avatars, row, egui::pos2(x + 14., cy), 28., t);
                     let name = one_line(ui, &row.name, 15., rgb(if row.hidden { t.placeholder } else { t.text }), grab.right() - x - 44.);
                     p.galley(egui::pos2(x + 38., cy - name.size().y / 2.), name, rgb(t.text));
                     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, !frozen, format!("Sposta {}", row.name)));
@@ -582,7 +578,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                 let card = egui::Rect::from_min_size(pos + Vec2::new(14., -20.), Vec2::new(220., 40.));
                 g.rect_filled(card.translate(Vec2::new(0., 3.)), 10., egui::Color32::from_black_alpha(48));
                 g.rect(card, 10., rgb(t.input), Stroke::new(1., rgb(t.border)), egui::StrokeKind::Inside);
-                face(ui, &g, &session.avatars, &rows[at], card.left_center() + Vec2::new(24., 0.), 26., t);
+                face(ui, &session.avatars, &rows[at], card.left_center() + Vec2::new(24., 0.), 26., t);
                 let name = one_line(ui, &rows[at].name, 15., rgb(t.text), 160.);
                 g.galley(egui::pos2(card.left() + 46., card.center().y - name.size().y / 2.), name, rgb(t.text));
                 if let Some(why) = &refused {

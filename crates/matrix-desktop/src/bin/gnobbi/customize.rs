@@ -84,8 +84,7 @@ fn preview(ui: &mut egui::Ui, t: &DesignTokens) {
     let p = ui.painter();
     p.rect_filled(rect, 8., rgb(t.input));
     let c = egui::pos2(rect.left() + 32., rect.center().y);
-    p.circle_filled(c, 20., rgb(crate::AVATAR));
-    p.text(c, egui::Align2::CENTER_CENTER, "G", egui::FontId::proportional(m.body + 1.), rgb(t.on_accent));
+    crate::avatar::paint(ui, c, 40., rgb(crate::AVATAR), &crate::avatar::Avatar::Missing, "G", m.body + 1., rgb(t.on_accent));
     let name = crate::list::one_line(ui, tr("Preview"), m.body + 1., rgb(t.text), rect.width() - 80.);
     ui.painter().galley(egui::pos2(rect.left() + 64., rect.top() + 8.), name, rgb(t.text));
     let sub = crate::list::one_line(ui, tr("A sample message"), m.secondary + 1., rgb(t.secondary), rect.width() - 80.);
