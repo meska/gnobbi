@@ -836,8 +836,8 @@ impl RoomListWorker {
                                     let result = crate::stickers::send(&operation_client, account, &scope, &sticker).await;
                                     OperationResult::StickerSent { scope, result }
                                 }
-                                OperationCommand::ThreadSend { scope, root, reply_to, body } => {
-                                    let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body).await;
+                                OperationCommand::ThreadSend { scope, root, reply_to, body, attachment } => {
+                                    let result = crate::threads::send_scoped(&operation_client, &operation_timelines, account, &scope, &root, reply_to.as_ref(), &body, attachment.as_ref()).await;
                                     OperationResult::ThreadSent { scope, root, result }
                                 }
                                 OperationCommand::SetNotificationMode { scope, mode } => {
@@ -1254,9 +1254,10 @@ impl RoomSync {
         root: &matrix_domain::EventId,
         reply_to: Option<&matrix_domain::EventId>,
         body: &str,
+        attachment: Option<&crate::sending::Attachment>,
     ) -> Result<matrix_domain::EventId, crate::operations::OperationError> {
         let client = self.session.client.as_ref().ok_or(crate::operations::OperationError::Unavailable)?;
-        crate::threads::send_scoped(client, &self.timelines, self.session.account_id(), scope, root, reply_to, body).await
+        crate::threads::send_scoped(client, &self.timelines, self.session.account_id(), scope, root, reply_to, body, attachment).await
     }
 
     /// The room's threads, newest activity first (one `ThreadListService` page).

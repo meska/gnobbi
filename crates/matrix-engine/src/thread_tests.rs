@@ -166,8 +166,11 @@ fn disposable_thread_composer_sends_into_the_thread() {
             let _ = sync.sliding_round().await;
             page = sync.open_thread(&scope, &root_id, 25).await.unwrap();
         }
-        let plain = sync.send_in_thread(&scope, &root_id, None, "plain in thread").await.unwrap();
-        let answer = sync.send_in_thread(&scope, &root_id, Some(&first_id), "answer to one").await.unwrap();
+        let plain = sync.send_in_thread(&scope, &root_id, None, "plain in thread", None).await.unwrap();
+        let answer = sync.send_in_thread(&scope, &root_id, Some(&first_id), "answer to one", None).await.unwrap();
+        // A voice note takes the attachment path: still an event of the thread.
+        let note = crate::sending::Attachment { filename: "note.ogg".into(), data: b"OggS not really audio".to_vec(), voice: Some(crate::sending::Voice { duration_ms: 1200, waveform: vec![0.1, 0.9] }) };
+        let voice = sync.send_in_thread(&scope, &root_id, None, "", Some(&note)).await.unwrap();
         // The other account reads what the server holds.
         let seen = |id: matrix_domain::EventId| {
             let (config, room) = (config.clone(), room.clone());
@@ -182,6 +185,11 @@ fn disposable_thread_composer_sends_into_the_thread() {
         assert_eq!((a["rel_type"].as_str(), a["event_id"].as_str()), (Some("m.thread"), Some(root.as_str())));
         assert_eq!(a["m.in_reply_to"]["event_id"].as_str(), Some(first.as_str()), "send_reply points at the answered event");
         assert!(a.get("is_falling_back").is_none_or(|f| f != true), "a real reply is no fallback");
+        let voice_event = seen(voice.clone()).await;
+        let v = &voice_event["content"];
+        println!("THREAD_VOICE {}", serde_json::json!({"msgtype": v["msgtype"], "relates": v["m.relates_to"], "voice": v.get("org.matrix.msc3245.voice").is_some()}));
+        assert_eq!(v["msgtype"], "m.audio");
+        assert_eq!((v["m.relates_to"]["rel_type"].as_str(), v["m.relates_to"]["event_id"].as_str()), (Some("m.thread"), Some(root.as_str())));
         // The thread snapshot holds each exactly once, with the ID the server gave.
         let mut page = sync.open_thread(&scope, &root_id, 25).await.unwrap();
         for _ in 0..10 {

@@ -361,11 +361,13 @@ pub enum OperationCommand {
     /// Send an `m.sticker` with the pack's plain `url`; answered with `OperationResult::StickerSent`.
     SendSticker { scope: RoomScope, sticker: crate::stickers::Sticker },
     /// A text into the thread: a plain thread message, or a reply to `reply_to` (a thread event).
+    /// With `attachment` (file, image or voice note) `body` is its caption.
     ThreadSend {
         scope: RoomScope,
         root: EventId,
         reply_to: Option<EventId>,
         body: String,
+        attachment: Option<crate::sending::Attachment>,
     },
 }
 /// One explicit change of the personal groups. `tag` is the full tag name (`m.favourite`,

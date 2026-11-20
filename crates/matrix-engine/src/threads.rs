@@ -168,13 +168,14 @@ pub(crate) async fn send_scoped(
     root: &EventId,
     reply_to: Option<&EventId>,
     body: &str,
+    attachment: Option<&crate::sending::Attachment>,
 ) -> Result<EventId, crate::operations::OperationError> {
     use crate::operations::OperationError as E;
     use matrix_sdk::ruma::{EventId as Ruma, RoomId};
     if scope.account_id != account {
         return Err(E::WrongScope);
     }
-    if body.trim().is_empty() || body.len() > 32768 {
+    if (body.trim().is_empty() && attachment.is_none()) || body.len() > 32768 {
         return Err(E::InvalidInput);
     }
     let room_id = RoomId::parse(scope.room_id.as_str()).map_err(|_| E::WrongScope)?;
@@ -185,6 +186,17 @@ pub(crate) async fn send_scoped(
         .filter(|r| r.state() == matrix_sdk::RoomState::Joined)
         .ok_or(E::Unavailable)?;
     let timeline = timelines.thread(&room, &root_id).await.map_err(|_| E::Unavailable)?;
+    if let Some(file) = attachment {
+        // Same path as the room's attachments: the thread-focused `Timeline` adds `m.thread` (and the fallback) to media too.
+        // shortcut: an attachment is a plain thread message, `reply_to` is not carried; pass `in_reply_to` in the config if replies with files are wanted.
+        let request = crate::sending::SendRequest { scope: scope.clone(), transaction_id: crate::sending::fresh_transaction_id(), body: body.to_owned(), attachment: None, poll: None, mentions: Vec::new() };
+        return crate::sending::send_attachment(client, &room, &timeline, &request, file).await.map_err(|e| match e {
+            crate::sending::SendError::WrongScope => E::WrongScope,
+            crate::sending::SendError::InvalidInput | crate::sending::SendError::TooLarge => E::InvalidInput,
+            crate::sending::SendError::Unavailable | crate::sending::SendError::Encryption => E::Unavailable,
+            crate::sending::SendError::Transport => E::Transport,
+        });
+    }
     let content = crate::sending::markdown_content(body, &[]);
     let mut updates = client.send_queue().subscribe();
     match &reply {

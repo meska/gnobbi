@@ -366,7 +366,7 @@ impl eframe::App for App {
                         }
                     }
                     _ if self.rail.accounts && session.profile_caps.is_some_and(|c| c.1) => self.account_form.pick(path.clone(), &self.root, &ctx),
-                    _ => session.attach(path),
+                    _ => session.attach(path, false),
                 }
             }
             if session.account.is_some() && !session.recovering() {
@@ -664,6 +664,14 @@ impl App {
                 s.send(text);
                 self.hook_sent = true;
                 self.hook_menu_at = Some(std::time::Instant::now());
+            }
+            // View «thread»: the drawer of the room's first thread; GNOBBI_EGUI_THREAD_TYPE=<text> is typed into its composer.
+            if view == "thread"
+                && s.thread.is_none()
+                && let Some(matrix_domain::TimelineId::Server(root)) = s.messages.as_ref().and_then(|m| m.events().iter().find(|e| e.thread.is_some()).map(|e| e.id.id.clone()))
+            {
+                s.open_thread(root);
+                if let (Some(th), Ok(text)) = (&mut s.thread, std::env::var("GNOBBI_EGUI_THREAD_TYPE")) { th.draft = text; }
             }
             // View «menu»: right-click menu of the newest message, a few seconds after the send.
             if view == "menu"
@@ -1217,7 +1225,10 @@ impl App {
             && (!single || side == Some(Side::Thread))
             && let Some(mut th) = s.thread.take()
         {
-            let (mut close, mut body) = (false, None);
+            let (mut close, mut out) = (false, info::ThreadOut::default());
+            let mut acts = timeline::Acts { now_playing: s.audio_now(), ..Default::default() };
+            let members = s.sidebar.selected().map_or(3, |r| r.info.joined_members);
+            let recording = s.recording(true);
             let w = self.prefs.thread_width.map_or(320., |w| w as f32);
             let hovered = ui.style().visuals.widgets.hovered.fg_stroke;
             let active = ui.style().visuals.widgets.active.fg_stroke;
@@ -1228,7 +1239,7 @@ impl App {
             let shown = panel.show_separator_line(false).frame(bar(t)).show(ui, |ui| {
                 ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
                 ui.style_mut().visuals.widgets.active.fg_stroke = active;
-                body = info::thread(ui, &mut th, &mut close, t);
+                out = info::thread(ui, &mut th, &s.pictures, &s.avatars, members, recording, &mut acts, &mut close, t);
             });
             ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
             ui.style_mut().visuals.widgets.active.fg_stroke = active;
@@ -1240,10 +1251,22 @@ impl App {
             }
             if !close {
                 s.thread = Some(th);
+            } else if recording.is_some() {
+                s.stop_recording(false);
             }
-            if let Some(body) = body {
-                s.send_thread(body);
+            if let Some(image) = out.pasted { s.attach_image(&image, true); }
+            if let Some(path) = out.picked { s.attach(&path, true); }
+            match out.voice {
+                Some(composer::VoiceAct::Start) => s.start_recording(true),
+                Some(composer::VoiceAct::Send) => s.stop_recording(true),
+                Some(composer::VoiceAct::Cancel) => s.stop_recording(false),
+                None => {}
             }
+            if let Some(body) = out.send { s.send_thread(body); }
+            if let Some((id, name)) = out.save { s.save(id, &name); }
+            if let Some((id, video, name)) = acts.picture.take() { s.open_viewer(id, video, name); }
+            if let Some(id) = acts.play.take() { s.play_audio(id); }
+            if acts.open_link.is_some() { self.pending_web = acts.open_link; }
         }
         let mut to_send = None;
         composer::panel(bar(t)).show(ui, |ui| {
@@ -1263,9 +1286,10 @@ impl App {
                     ui.label(notice);
                 }
                 let members: Vec<_> = s.members.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
-                to_send = composer::show(ui, "", &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, s.recorder.as_ref().map(|r| r.elapsed_secs()), &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)));
+                let recording = s.recording(false);
+                to_send = composer::show(ui, "", &mut s.draft, mode, name.as_deref(), &mut cancel, &mut drop_file, &mut open_poll, &mut picked_file, &mut pasted_image, recording, &mut voice_act, &members, &mut s.mentions, Some((&mut s.stickers, &s.avatars)));
                 if let Some(image) = pasted_image {
-                    s.attach_image(&image);
+                    s.attach_image(&image, false);
                 }
                 if drop_file {
                     s.attachment = None;
@@ -1275,10 +1299,10 @@ impl App {
                     s.send_sticker(sticker);
                 }
                 if let Some(path) = picked_file {
-                    s.attach(&path);
+                    s.attach(&path, false);
                 }
                 match voice_act {
-                    Some(composer::VoiceAct::Start) => s.start_recording(),
+                    Some(composer::VoiceAct::Start) => s.start_recording(false),
                     Some(composer::VoiceAct::Send) => s.stop_recording(true),
                     Some(composer::VoiceAct::Cancel) => s.stop_recording(false),
                     None => {}
@@ -1424,7 +1448,7 @@ impl App {
                 let members = room.map_or(3, |r| r.info.joined_members);
                 let readers = room.map(|r| messages.readers_by_row(&r.info.public_read_receipts)).unwrap_or_default();
                 // Scroll state per room: one shared id carried the old room's offset into the new one (jump on switch).
-                let (first, menu, save, thread) = ui.push_id(room.map(|r| r.scope.room_id.as_str()), |ui| timeline::show(ui, room.map_or(0, |r| r.unread), messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, &readers, t, jump)).inner;
+                let (first, menu, save, thread) = ui.push_id(room.map(|r| r.scope.room_id.as_str()), |ui| timeline::show(ui, room.map_or(0, |r| r.unread), messages.events(), messages, &mut s.heights, &s.pictures, &s.avatars, &mut acts, members, &readers, t, jump, None)).inner;
                 if jump.is_some() && let Some((root, open_thread)) = s.search_jump.take() {
                     if open_thread { s.open_thread(root); } else { s.flash = Some((root, std::time::Instant::now())); }
                 }

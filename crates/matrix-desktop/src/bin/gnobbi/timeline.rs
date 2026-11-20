@@ -40,11 +40,23 @@ mod tests {
     #[test]
     fn prepended_page_shifts_measured_heights() {
         let (mut rows, mut first) = (vec![10., 20.], None);
-        assert_eq!(super::shift_for_prepend(&mut rows, &mut first, &[&3, &4]), 0);
+        assert_eq!(super::shift_for_prepend(&mut rows, &mut first, &[&3, &4], 0), 0);
         assert_eq!((rows.clone(), first), (vec![10., 20.], Some(3)));
         let mut first = Some(3);
-        assert_eq!(super::shift_for_prepend(&mut rows, &mut first, &[&1, &2, &3, &4]), 2);
+        assert_eq!(super::shift_for_prepend(&mut rows, &mut first, &[&1, &2, &3, &4], 0), 2);
         assert_eq!((rows, first), (vec![56., 56., 10., 20.], Some(1)));
+        // A thread: the root (30) stays first, the older replies land between it and the ones already measured.
+        let (mut rows, mut first) = (vec![30., 10., 20.], Some(3));
+        assert_eq!(super::shift_for_prepend(&mut rows, &mut first, &[&1, &2, &3, &4], 1), 2);
+        assert_eq!((rows, first), (vec![30., 56., 56., 10., 20.], Some(1)));
+    }
+
+    #[test]
+    fn ambiguous_sender_label_splits_into_name_and_id() {
+        assert_eq!(super::split_id("Marco (@meska:example.org)", "@meska:example.org"), ("Marco", true));
+        assert_eq!(super::split_id("Marco (ufficio)", "@meska:example.org"), ("Marco (ufficio)", false));
+        assert_eq!(super::split_id("@meska:example.org", "@meska:example.org"), ("@meska:example.org", false));
+        assert_eq!(super::split_id("Marco ()", ""), ("Marco ()", false));
     }
 
     #[test]
@@ -299,7 +311,16 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             ui.set_width(if wide { inner.min(320.).max(w) } else { w.min(inner) + 1. });
             ui.vertical(|ui| {
                 if let Some(name) = label {
-                    ui.label(RichText::new(name).size(12.).strong().color(rgb(t.accent)));
+                    // The display name alone; the user id is the tooltip, and stands beside the name (small, grey) only when the engine added it to tell two members apart.
+                    let id = e.sender.as_ref().map_or("", |s| s.id.as_str());
+                    let (name, twin) = split_id(name, id);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.;
+                        ui.label(RichText::new(name).size(12.).strong().color(rgb(t.accent))).on_hover_text(id);
+                        if twin {
+                            ui.add(egui::Label::new(RichText::new(id).size(10.).color(rgb(t.secondary))).truncate());
+                        }
+                    });
                 }
                 if let (Some((author, preview)), Some(r)) = (&quote, &e.reply_to) {
                     // Telegram-style quote: accent bar, original author, one line of its text; a click scrolls to the original.
@@ -456,16 +477,27 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
     (opened, save, thread)
 }
 
+/// «Name (@id)» as the engine writes an ambiguous sender: the name alone and whether the id was there.
+fn split_id<'a>(label: &'a str, id: &str) -> (&'a str, bool) {
+    match label.strip_suffix(')').and_then(|l| l.strip_suffix(id)).and_then(|l| l.strip_suffix(" (")) {
+        Some(name) if !id.is_empty() => (name, true),
+        _ => (label, false),
+    }
+}
+
 /// Older page on top: the measured heights move with their rows, else every row takes a neighbour's height and the scroll jumps.
-fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Option<T>, ids: &[&T]) -> usize {
+/// `ids` are the rows after the `head` pinned ones (a thread's root stays first while older replies arrive below it).
+fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Option<T>, ids: &[&T], head: usize) -> usize {
     let at = first.as_ref().and_then(|f| ids.iter().position(|id| *id == f)).unwrap_or(0);
-    rows.splice(0..0, std::iter::repeat_n(GUESS, at));
+    let head = head.min(rows.len());
+    rows.splice(head..head, std::iter::repeat_n(GUESS, at));
     *first = ids.first().map(|id| (*id).clone());
     at
 }
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
-pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, readers: &std::collections::HashMap<usize, Vec<matrix_engine::history::HistorySender>>, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+/// `head` is `None` for a room; in a thread it is the number of rows pinned on top (its root) and the rows gather at the bottom, beside the composer.
+pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, readers: &std::collections::HashMap<usize, Vec<matrix_engine::history::HistorySender>>, t: &DesignTokens, jump: Option<usize>, head: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
     // Touch: the 44 pt minimum is for buttons and fields, not for every row of the history.
     if crate::mobile::touch() {
         ui.spacing_mut().interact_size.y = egui::style::Spacing::default().interact_size.y;
@@ -474,7 +506,8 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
     let mut save = None;
     let mut thread = None;
     // Heights are kept across width changes (rows in view are re-measured): clearing them to GUESS collapsed the content height and the scroll offset jumped on every resize step.
-    let prepended = shift_for_prepend(&mut heights.rows, &mut heights.first, &events.iter().map(|e| &e.id).collect::<Vec<_>>());
+    let pinned = head.unwrap_or(0).min(events.len());
+    let prepended = shift_for_prepend(&mut heights.rows, &mut heights.first, &events[pinned..].iter().map(|e| &e.id).collect::<Vec<_>>(), pinned);
     heights.rows.resize(events.len(), GUESS);
     let mut first = 0;
     let hide = !heights.ready && jump.is_none() && !events.is_empty();
@@ -519,6 +552,10 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         ui.set_max_width(ui.clip_rect().width().min(ui.available_width()));
         let mut y = GAP; // rows start below the top gap: the anchor offset must be measured from the same origin as `top_of`
         let mut seen_first = false;
+        if head.is_some() {
+            // Few replies: no desert under them, they sit at the bottom like a chat (nothing to scroll then, so the offsets below are untouched).
+            ui.add_space((view.height() - top_of(&heights.rows, events.len()) - GAP).max(0.));
+        }
         ui.add_space(GAP);
         for (i, e) in events.iter().enumerate() {
             let h = heights.rows[i];

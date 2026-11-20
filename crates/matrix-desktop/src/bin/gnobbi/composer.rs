@@ -27,7 +27,7 @@ pub enum Mode {
 /// Suffix of the widget ids of the thread drawer's composer, so it can sit beside the main one.
 pub const THREAD: &str = "-thread";
 
-/// `salt` is `""` for the room composer and `THREAD` for the drawer (no attach, poll or voice there: they would act on the room).
+/// `salt` is `""` for the room composer and `THREAD` for the drawer: the same bar minus the poll (attach and voice go into the thread).
 pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attachment: Option<&str>, cancel: &mut bool, drop_attachment: &mut bool, poll: &mut bool, picked: &mut Option<std::path::PathBuf>, pasted: &mut Option<egui::ColorImage>, recording: Option<u64>, voice: &mut Option<VoiceAct>, members: &[matrix_engine::operations::Member], mentions: &mut Vec<matrix_engine::sending::Mention>, mut stickers: Option<(&mut crate::stickers::Panel, &crate::avatar::Avatars)>) -> Option<String> {
     // Taken before the editor sees it, so a bare Enter never inserts a newline.
     // consume_key matches Shift loosely, so Shift+Enter is checked on the event and left to the TextEdit (it inserts the newline).
@@ -87,7 +87,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
     ui.horizontal_top(|ui| {
         ui.add_space(12.);
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
-        let slots = if thread { 2. } else { 4. };
+        let slots = if thread { 3. } else { 4. };
         let w = (ui.available_width() - slots * slot - (slots + 1.) * ui.spacing().item_spacing.x - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
         let id = nid("composer-text");
         if ui.memory(|m| m.has_focus(id)) {
@@ -152,19 +152,22 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         if icon_at(ui, rect, "composer-poll", Icon::ChartBarHorizontal, 1., true, i18n::t("Poll")).clicked() {
             *poll = true;
         }
+        }
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        if icon_at(ui, rect, "composer-attach", Icon::Paperclip, 1., true, i18n::t("Attach a file")).clicked() {
+        // The picker answers by its title, the same for both bars: remember which one asked.
+        let asker = egui::Id::new("composer-attach-asker");
+        if icon_at(ui, rect, &format!("composer-attach{salt}"), Icon::Paperclip, 1., true, i18n::t("Attach a file")).clicked() {
+            ui.data_mut(|d| d.insert_temp(asker, thread));
             crate::pick::start(ui.ctx(), i18n::t("Attach a file"), false);
         }
-        if let Some(p) = crate::pick::done(i18n::t("Attach a file")) {
+        if ui.data(|d| d.get_temp::<bool>(asker)) == Some(thread) && let Some(p) = crate::pick::done(i18n::t("Attach a file")) {
             *picked = Some(p);
-        }
         }
         // Voice and Send share one slot and cross-fade; the one fading out is inert.
         let has_text = !(draft.trim().is_empty() && attachment.is_none());
         let t = ui.ctx().animate_bool_with_time(nid("composer-send-fade"), has_text, 0.15);
         let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
-        if !thread && t < 1. && icon_at(ui, rect, "composer-voice", Icon::Microphone, 1. - t, !has_text, i18n::t("Voice note")).clicked() {
+        if t < 1. && icon_at(ui, rect, &format!("composer-voice{salt}"), Icon::Microphone, 1. - t, !has_text, i18n::t("Voice note")).clicked() {
             *voice = Some(VoiceAct::Start);
         }
         if t > 0. && icon_at(ui, rect, &format!("composer-send{salt}"), Icon::PaperPlaneRight, t, has_text, i18n::t("Send")).clicked() {
@@ -377,6 +380,34 @@ mod tests {
         assert!((6. ..=16.).contains(&(panel_right - mic_right)), "right gap {}", panel_right - mic_right);
         let (_, _, _, _, _, _, tall_bottom, tall_icon_bottom) = run("a\nb\nc", vec![]);
         assert!((panel_bottom - mic_bottom - (tall_bottom - tall_icon_bottom)).abs() <= 1., "multiline icons must stay at the bottom");
+    }
+
+    /// The thread bar is the room bar: microphone in the last slot while empty, send in the same slot with text, emoji and attach where they were.
+    #[test]
+    fn thread_bar_swaps_microphone_and_send_in_one_slot_like_the_room_bar() {
+        use eframe::egui;
+        let rects = |text: &str| {
+            let ctx = crate::icons::test_context();
+            let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320., 600.))), predicted_dt: 1., ..Default::default() };
+            for _ in 0..4 {
+                let mut out = ctx.run_ui(input.clone(), |ui| {
+                    let (mut draft, mut a, mut b, mut c, mut d, mut e, mut f) = (text.to_owned(), false, false, false, None, None, None);
+                    super::show(ui, super::THREAD, &mut draft, super::Mode::Send, None, &mut a, &mut b, &mut c, &mut d, &mut e, None, &mut f, &[], &mut Vec::new(), None);
+                });
+                out.textures_delta.clear();
+            }
+            let r = |id: &str| ctx.read_response(egui::Id::new(id)).map(|r| (r.rect, r.sense.senses_click()));
+            (r("composer-emoji-thread"), r("composer-attach-thread"), r("composer-voice-thread"), r("composer-send-thread"), r("composer-poll"))
+        };
+        let (emoji, attach, voice, send, poll) = rects("");
+        let (emoji2, attach2, voice2, send2, _) = rects("ciao");
+        assert!(poll.is_none(), "no poll in a thread");
+        assert_eq!((emoji.unwrap().0, attach.unwrap().0), (emoji2.unwrap().0, attach2.unwrap().0), "the other icons do not move");
+        let (mic, plane) = (voice.unwrap(), send2.unwrap());
+        assert!(mic.1 && plane.1, "microphone clickable when empty, send with text");
+        assert_eq!(mic.0, plane.0, "one slot for both");
+        assert!(send.is_none_or(|s| !s.1) && voice2.is_none_or(|v| !v.1), "the faded one is inert");
+        assert!(320. - mic.0.right() <= 16., "no empty slot at the right edge");
     }
 
     #[test]

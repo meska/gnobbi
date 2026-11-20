@@ -373,79 +373,79 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
     flip
 }
 
-/// Thread panel: the root, its replies (oldest first) and a line to answer in the thread. Returns the text to send.
-pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &mut bool, t: &DesignTokens) -> Option<String> {
-    let mut send = None;
-    ui.add_space(12.);
-    ui.horizontal(|ui| {
-        ui.add_space(12.);
-        if crate::info::close_icon(ui, i18n::t("Close thread")).clicked() {
-            *close = true;
-        }
+/// What the thread drawer asks of the session this frame.
+#[derive(Default)]
+pub struct ThreadOut {
+    pub send: Option<String>,
+    pub voice: Option<crate::composer::VoiceAct>,
+    pub picked: Option<std::path::PathBuf>,
+    pub pasted: Option<egui::ColorImage>,
+    pub save: Option<(matrix_domain::EventId, String)>,
+}
+
+/// Thread drawer: title bar, the root and its replies as the room's own bubbles (gathered at the bottom), and the room's composer bar.
+/// The bars keep the panel's colour, the messages lie on the chat background. `recording` = seconds of the note being recorded here.
+pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, pictures: &crate::timeline::Pictures, avatars: &crate::timeline::Avatars, members: u64, recording: Option<u64>, acts: &mut crate::timeline::Acts, close: &mut bool, t: &DesignTokens) -> ThreadOut {
+    let mut out = ThreadOut::default();
+    egui::Panel::top("thread-head").show_separator_line(false).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(12, 10))).show_inside(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.add_space(8.);
+            ui.label(RichText::new(i18n::t("Thread")).size(crate::metrics::get().title).color(rgb(t.text)));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if close_icon(ui, i18n::t("Close thread")).clicked() {
+                    *close = true;
+                }
+            });
+        });
     });
-    egui::Panel::bottom("thread-input").show_separator_line(false).frame(egui::Frame::NONE).show_inside(ui, |ui| {
-        ui.add_space(6.);
+    egui::Panel::bottom("thread-input").show_separator_line(false).frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4))).show_inside(ui, |ui| {
         if let Some((_, name)) = &th.reply_to {
-            let name = name.clone();
+            let label = if name.is_empty() { i18n::t_ctx("banner", "Reply").to_owned() } else { i18n::t("Reply to {name}").replace("{name}", name) };
             ui.horizontal(|ui| {
-                ui.label(i18n::t("Reply to {name}").replace("{name}", &name));
+                ui.add_space(12.);
+                ui.add(egui::Label::new(label).truncate());
                 if crate::icons::button(ui, crate::icons::Icon::X, false, i18n::t("Cancel reply")).clicked() { th.reply_to = None; }
             });
         }
-        let (mut cancel, mut drop, mut poll, mut picked, mut pasted, mut voice) = (false, false, false, None, None, None);
-        send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, None, &mut cancel, &mut drop, &mut poll, &mut picked, &mut pasted, None, &mut voice, &[], &mut Vec::new(), None);
-        ui.add_space(6.);
+        let (mut cancel, mut drop, mut poll) = (false, false, false);
+        let name = th.attachment.as_ref().map(|(n, _)| n.clone());
+        out.send = crate::composer::show(ui, crate::composer::THREAD, &mut th.draft, crate::composer::Mode::Send, name.as_deref(), &mut cancel, &mut drop, &mut poll, &mut out.picked, &mut out.pasted, recording, &mut out.voice, &[], &mut Vec::new(), None);
+        if drop { th.attachment = None; }
     });
-    let Some(page) = &th.page else {
-        ui.add_space(16.);
-        if th.failed {
-            ui.colored_label(rgb(t.error), i18n::t("Thread unavailable"));
-        } else {
-            ui.vertical_centered(|ui| ui.spinner());
-        }
-        return send;
-    };
     th.tail_visible = false;
-    egui::ScrollArea::vertical().auto_shrink(false).stick_to_bottom(true).show(ui, |ui| {
-        if !page.at_start && !th.stalled && th.growing.is_none() && ui.button(i18n::t("Load earlier")).clicked() {
-            th.growing = Some(page.replies.len());
-            th.want = th.want.saturating_add(50);
-            th.next_read = std::time::Instant::now();
-        }
-        for e in page.root.iter().chain(page.replies.iter()) {
-            ui.add_space(6.);
-            let row = ui.horizontal(|ui| {
-                ui.add_space(12.);
-                ui.vertical(|ui| {
-                    ui.set_max_width(ui.available_width() - 12.);
-                    let name = e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone());
-                    ui.label(RichText::new(name).strong().size(12.).color(rgb(t.accent)));
-                    if e.redacted {
-                        ui.label(RichText::new(i18n::t("Message deleted")).italics().color(rgb(t.secondary)));
-                    } else {
-                        ui.label(&e.body);
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                        if e.outgoing {
-                            ui.label(crate::icons::rich(crate::icons::Icon::Check, false, 12.).color(rgb(t.secondary)));
-                        }
-                        ui.label(RichText::new(matrix_desktop::time_fmt::clock_time(e.timestamp_ms)).size(10.).color(rgb(t.secondary)));
-                    });
-                });
-            }).response.interact(egui::Sense::click());
-            row.context_menu(|ui| {
-                if ui.button(i18n::t("Reply")).clicked() {
-                    th.reply_to = Some((e.event_id.clone(), e.sender.name.clone().unwrap_or_else(|| e.sender.id.clone())));
-                    ui.close();
-                }
-            });
-            if page.replies.last().or(page.root.as_ref()).is_some_and(|last| last.event_id == e.event_id) {
-                th.tail_visible = ui.clip_rect().contains_rect(row.rect);
+    egui::CentralPanel::default().frame(egui::Frame::NONE.fill(rgb(t.timeline))).show_inside(ui, |ui| {
+        let Some(history) = &th.history else {
+            ui.add_space(16.);
+            if th.failed {
+                ui.vertical_centered(|ui| ui.colored_label(rgb(t.error), i18n::t("Thread unavailable")));
+            } else {
+                ui.vertical_centered(|ui| ui.spinner());
             }
-            ui.separator();
+            return;
+        };
+        let top = ui.max_rect().center_top();
+        let head = th.head();
+        let (first, menu, save, _) = ui.push_id(("thread", th.root.as_str()), |ui| crate::timeline::show(ui, 0, history.events(), history, &mut th.heights, pictures, avatars, acts, members, &Default::default(), t, None, Some(head))).inner;
+        out.save = save;
+        let opened = menu.and_then(|(id, pos)| match id.id { matrix_domain::TimelineId::Server(id) => Some((id, pos)), _ => None });
+        // One entry: «Reply». A click anywhere else (not the one that opened it) closes it.
+        if let Some((id, pos)) = th.menu.clone().filter(|_| opened.is_none()) {
+            let reply = egui::Area::new(egui::Id::new("thread-menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ui.ctx(), |ui| egui::Frame::popup(ui.style()).fill(rgb(t.surface)).show(ui, |ui| ui.button(i18n::t("Reply")).clicked()).inner).inner;
+            if reply {
+                let name = history.row(&id).and_then(|e| e.sender.as_ref()).map(|s| s.name.clone().unwrap_or_else(|| s.id.clone())).unwrap_or_default();
+                th.reply_to = Some((id, name));
+            }
+            if reply || ui.input(|i| i.pointer.any_click() || i.key_pressed(egui::Key::Escape)) { th.menu = None; }
+        }
+        if opened.is_some() { th.menu = opened; }
+        th.tail_visible = th.heights.at_bottom;
+        th.scrolled(first);
+        if th.growing.is_some() {
+            // Over the list, not in it: the rows do not move when it comes and goes.
+            ui.put(egui::Rect::from_center_size(top + Vec2::new(0., 16.), Vec2::splat(16.)), egui::Spinner::new().size(16.));
         }
     });
-    send
+    out
 }
 
 /// The small copy button.

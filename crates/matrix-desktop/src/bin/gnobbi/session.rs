@@ -18,13 +18,22 @@ use matrix_engine::{
 pub struct ThreadState {
     pub root: EventId,
     views: matrix_engine::ViewRequests,
-    pub page: Option<Box<matrix_engine::history::ThreadPage>>,
+    /// The root (when the room holds it) and the replies, as timeline rows; `None` until the first page.
+    pub history: Option<matrix_desktop::DemoHistory>,
+    at_start: bool,
+    pub heights: crate::timeline::Heights,
     pub failed: bool,
     pub draft: String,
+    /// File, picture or voice note going out with the next send.
+    pub attachment: Option<(String, Vec<u8>)>,
+    voice: Option<matrix_engine::sending::Voice>,
     pub reply_to: Option<(EventId, String)>,
-    pub want: usize,
+    /// Right-clicked reply and where.
+    pub menu: Option<(EventId, egui::Pos2)>,
+    want: usize,
+    /// Replies held when an older page was asked for; `Some` = that request is on its way.
     pub growing: Option<usize>,
-    pub stalled: bool,
+    stalled: bool,
     pub tail_visible: bool,
     read_views: matrix_engine::ViewRequests,
     read_target: Option<EventId>,
@@ -33,6 +42,42 @@ pub struct ThreadState {
     read_at: Option<std::time::Instant>,
     /// Next re-read; the thread has no live feed of its own here.
     pub next_read: std::time::Instant,
+}
+
+/// Older replies are asked for when the reader is near the top: one request at a time, never once the thread is whole
+/// (`total` replies when the root says so, else the timeline's own start) or after a request that brought nothing.
+fn wants_older(first_visible: usize, held: usize, total: Option<usize>, at_start: bool, stalled: bool, loading: bool) -> bool {
+    first_visible <= 3 && !loading && !stalled && !total.map_or(at_start, |n| held >= n)
+}
+
+#[test]
+fn thread_pages_back_near_the_top_once_and_stops_at_the_root() {
+    assert!(wants_older(0, 50, Some(120), true, false, false), "the count wins over an early `at_start`");
+    assert!(wants_older(3, 50, None, false, false, false));
+    assert!(!wants_older(4, 50, Some(120), false, false, false), "not near the top");
+    assert!(!wants_older(0, 50, Some(120), false, false, true), "one load at a time");
+    assert!(!wants_older(0, 50, Some(120), false, true, false), "a page that brought nothing ends it");
+    assert!(!wants_older(0, 120, Some(120), false, false, false), "whole thread");
+    assert!(!wants_older(0, 3, None, true, false, false), "start reached");
+}
+
+impl ThreadState {
+    /// Rows pinned on top of the list: the root, when it is there.
+    pub fn head(&self) -> usize {
+        self.history.as_ref().and_then(|h| h.events().first()).is_some_and(|e| e.id.id == TimelineId::Server(self.root.clone())) as usize
+    }
+
+    /// The list scrolled to `first_visible`: asks for the older replies when it is time.
+    pub fn scrolled(&mut self, first_visible: usize) {
+        let Some(h) = &self.history else { return };
+        let held = h.events().len() - self.head();
+        let total = h.events().first().filter(|_| self.head() == 1).and_then(|e| e.thread.as_ref()).map(|t| t.num_replies as usize);
+        if wants_older(first_visible, held, total, self.at_start, self.stalled, self.growing.is_some()) {
+            self.growing = Some(held);
+            self.want = self.want.saturating_add(50);
+            self.next_read = std::time::Instant::now();
+        }
+    }
 }
 
 /// «Modifica stanza» form: what is typed, the picture dropped on it and whether the last try failed.
@@ -116,6 +161,8 @@ pub struct Session {
     audio: Option<(EventId, matrix_desktop::audio_player::AudioOutput)>,
     /// A voice note being recorded (the microphone is open); `voice` is the note waiting to be sent with the next send.
     pub recorder: Option<matrix_desktop::voice_recorder::Recorder>,
+    /// The recording was started from the thread's composer: its bar shows there and the note goes into the thread.
+    record_thread: bool,
     voice: Option<matrix_engine::sending::Voice>,
     /// Set by the app each frame: the window has focus, the newest message is in view, the «Conferme di lettura» setting.
     pub reading: (bool, bool, bool),
@@ -279,6 +326,7 @@ impl Session {
             info_open: false,
             audio: None,
             recorder: None,
+            record_thread: false,
             voice: None,
             reading: (false, false, true),
             read_dirty: true,
@@ -556,7 +604,8 @@ impl Session {
             }
         }
         let Some(messages) = &self.messages else { return changed };
-        for mxc in messages.sender_avatar_mxcs() {
+        let thread = self.thread.iter().filter_map(|th| th.history.as_ref());
+        for mxc in messages.sender_avatar_mxcs().chain(thread.flat_map(|h| h.sender_avatar_mxcs())) {
             if self.avatar_wanted(mxc) {
                 self.avatars.insert(mxc.to_owned(), Avatar::Loading);
                 source.request(mxc.to_owned(), self.avatar_chan.0.clone());
@@ -571,7 +620,8 @@ impl Session {
         if let (Some(messages), Some(scope)) = (&self.messages, &self.draft_scope) {
             let mut videos = Vec::new();
             let mut wanted = Vec::new();
-            for e in messages.events().iter().rev() {
+            let thread = self.thread.iter().filter_map(|th| th.history.as_ref()).flat_map(|h| h.events());
+            for e in messages.events().iter().chain(thread).rev() {
                 let (Some(media), TimelineId::Server(id)) = (&e.media, &e.id.id) else { continue };
                 match media.kind {
                     MediaKind::Video => videos.push(id.clone()),
@@ -850,7 +900,7 @@ impl Session {
                 th.read_pending = false;
                 th.read_at = None;
                 th.read_public = None;
-            } else if let Some(target) = th.page.as_ref().and_then(|p| p.replies.last().or(p.root.as_ref())).map(|e| e.event_id.clone())
+            } else if let Some(target) = th.history.as_ref().and_then(|h| h.events().last()).and_then(|e| match &e.id.id { TimelineId::Server(id) => Some(id.clone()), _ => None })
                 && th.read_target.as_ref() != Some(&target)
                 && !th.read_pending
                 && th.read_at.is_none_or(|at| at.elapsed() >= std::time::Duration::from_secs(1))
@@ -1023,15 +1073,20 @@ impl Session {
                     && th.root == root
                     && th.views.accepts(&tag)
                 {
-                    match result {
-                        Ok(page) => {
+                    match (result, &self.draft_scope) {
+                        (Ok(page), Some(scope)) => {
+                            let page = *page;
                             if let Some(before) = th.growing.take() {
                                 th.stalled = page.replies.len() <= before;
                             }
-                            th.page = Some(page);
+                            // Rebuilt from the page: older replies land between the root and the ones held, which an append could not do.
+                            let mut rows = matrix_desktop::DemoHistory::new(scope.clone(), 0);
+                            rows.append_server(page.root.into_iter().chain(page.replies).collect());
+                            th.history = Some(rows);
+                            th.at_start = page.at_start;
                             th.failed = false;
                         }
-                        Err(_) => { th.failed = true; th.growing = None; },
+                        _ => { th.failed = true; th.growing = None; },
                     }
                     changed = true;
                 }
@@ -1257,14 +1312,15 @@ impl Session {
     }
 
     pub fn open_thread(&mut self, root: EventId) {
-        self.thread = Some(ThreadState { root, views: Default::default(), page: None, failed: false, draft: String::new(), reply_to: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
+        self.thread = Some(ThreadState { root, views: Default::default(), history: None, at_start: false, heights: Default::default(), failed: false, draft: String::new(), attachment: None, voice: None, reply_to: None, menu: None, want: 50, growing: None, stalled: false, tail_visible: false, read_views: Default::default(), read_target: None, read_pending: false, read_public: None, read_at: None, next_read: std::time::Instant::now() });
         self.info_open = false;
         self.search_open = false;
     }
 
     pub fn send_thread(&mut self, body: String) {
         let (Some(th), Some(scope)) = (&mut self.thread, self.draft_scope.clone()) else { return };
-        self.op_queue.push(OperationCommand::ThreadSend { scope, root: th.root.clone(), reply_to: th.reply_to.take().map(|(id, _)| id), body });
+        let attachment = th.attachment.take().map(|(filename, data)| matrix_engine::sending::Attachment { filename, data, voice: th.voice.take() });
+        self.op_queue.push(OperationCommand::ThreadSend { scope, root: th.root.clone(), reply_to: th.reply_to.take().map(|(id, _)| id), body, attachment });
     }
 
     /// Votes for option `ix` of the poll started by `target` (the engine replaces own votes; the same option again withdraws).
@@ -1481,27 +1537,31 @@ impl Session {
     }
 
     /// Takes a dropped file as the pending attachment (up to the server's upload limit, 50 MB until it is known).
-    pub fn attach(&mut self, path: &std::path::Path) {
+    /// `thread`: for the open thread's composer instead of the room's.
+    pub fn attach(&mut self, path: &std::path::Path, thread: bool) {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
         let data = std::fs::metadata(path).ok().filter(|m| 0 < m.len() && m.len() <= self.upload_limit.unwrap_or(50 << 20)).and_then(|_| std::fs::read(path).ok());
         match (name, data) {
-            (Some(name), Some(data)) => {
-                self.attachment = Some((name, data));
-                self.notice = None;
-            }
+            (Some(name), Some(data)) => self.set_attachment(thread, name, data, None),
             _ => self.notice = Some(i18n::t("File cannot be attached").to_owned()),
         }
     }
 
-    pub fn attach_image(&mut self, image: &egui::ColorImage) {
+    pub fn attach_image(&mut self, image: &egui::ColorImage, thread: bool) {
         match crate::composer::pasted_png(image).filter(|data| !data.is_empty() && data.len() as u64 <= self.upload_limit.unwrap_or(50 << 20)) {
-            Some(data) => {
-                self.attachment = Some(("Immagine.png".to_owned(), data));
-                self.voice = None;
-                self.notice = None;
-            }
+            Some(data) => self.set_attachment(thread, "Immagine.png".to_owned(), data, None),
             None => self.notice = Some(i18n::t("Image cannot be attached").to_owned()),
         }
+    }
+
+    /// The pending attachment of the room's composer or of the thread's.
+    fn set_attachment(&mut self, thread: bool, name: String, data: Vec<u8>, voice: Option<matrix_engine::sending::Voice>) {
+        if !thread {
+            (self.attachment, self.voice) = (Some((name, data)), voice);
+        } else if let Some(th) = &mut self.thread {
+            (th.attachment, th.voice) = (Some((name, data)), voice);
+        }
+        self.notice = None;
     }
 
     /// Reply or edit: the composer works on the selected message until Enter or X.
@@ -1636,9 +1696,17 @@ impl Session {
         }
     }
 
-    pub fn start_recording(&mut self) {
+    /// Seconds recorded so far, for the composer the recording belongs to.
+    pub fn recording(&self, thread: bool) -> Option<u64> {
+        self.recorder.as_ref().filter(|_| self.record_thread == thread).map(|r| r.elapsed_secs())
+    }
+
+    /// One microphone: a second start (the other composer) while a note is being recorded does nothing.
+    pub fn start_recording(&mut self, thread: bool) {
+        if self.recorder.is_some() { return; }
         match matrix_desktop::voice_recorder::Recorder::start(self.upload_limit.unwrap_or(50 << 20)) {
             Ok(recorder) => {
+                self.record_thread = thread;
                 self.recorder = Some(recorder);
                 self.notice = None;
             }
@@ -1655,9 +1723,10 @@ impl Session {
         }
         match matrix_desktop::voice_attachment(&samples, rate, self.upload_limit.unwrap_or(50 << 20)) {
             Some(note) => {
-                self.attachment = Some((note.filename, note.data));
-                self.voice = note.voice;
-                self.send(String::new());
+                let thread = self.record_thread;
+                // A thread closed meanwhile: the note has nowhere to go and is dropped.
+                self.set_attachment(thread, note.filename, note.data, note.voice);
+                if thread { self.send_thread(String::new()) } else { self.send(String::new()) }
             }
             None => self.notice = Some(i18n::t("No audio recorded").to_owned()),
         }
