@@ -5,7 +5,12 @@ use eframe::egui::{self, Align2, FontId, Sense, Vec2};
 use matrix_desktop::{DesignTokens, add_server::normalize_server, quick_search::{Category, DirectoryRequest, room_request}, search_list::{Hit, Status, more_text}};
 use matrix_engine::{operations::DirectoryRoom, search::{More, SearchState}};
 
-const ROW: f32 = 64.;
+const ROW: f32 = 76.;
+
+fn button_color(t: &DesignTokens, accent_percent: u32) -> egui::Color32 {
+    let channel = |shift: u32| ((((t.selected >> shift) & 255u32) * (100 - accent_percent) + ((t.accent >> shift) & 255u32) * accent_percent) / 100) as u8;
+    egui::Color32::from_rgb(channel(16), channel(8), channel(0))
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Pick {
@@ -77,13 +82,13 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     };
     let mut click: Option<(DirectoryRoom, bool)> = None;
     let mut more = false;
-    egui::Window::new("Esplora stanze pubbliche").open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new("Esplora stanze pubbliche").frame(egui::Frame::window(&ctx.style_of(ctx.theme())).stroke(egui::Stroke::NONE)).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(460.);
         let field = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut e.term).hint_text("Cerca stanze pubbliche").align(Align2::LEFT_CENTER));
         if std::mem::take(&mut e.fresh) {
             field.request_focus();
         }
-        ui.add_space(6.);
+        ui.add_space(12.);
         ui.horizontal(|ui| {
             let label = match e.pick {
                 Pick::Own => "Il tuo server",
@@ -99,6 +104,10 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 ui.add(egui::TextEdit::singleline(&mut e.other).hint_text("nome del server").desired_width(150.));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.visuals_mut().selection.bg_fill = rgb(t.selection);
+                ui.visuals_mut().selection.stroke = egui::Stroke::new(1., rgb(t.text));
+                ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
                 ui.selectable_value(&mut e.spaces, true, "Spazi");
                 ui.selectable_value(&mut e.spaces, false, "Stanze");
             });
@@ -106,7 +115,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
         if e.pick == Pick::Other && !e.other.trim().is_empty() && let Err(err) = e.server() {
             ui.colored_label(rgb(t.error), err.text());
         }
-        ui.add_space(8.);
+        ui.add_space(12.);
         let line = |ui: &mut egui::Ui, text: &str, color: u32| {
             ui.label(egui::RichText::new(text).color(rgb(color)));
         };
@@ -121,7 +130,8 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
             SearchState::NoResults { .. } => line(ui, Status::NoResults.text(), t.secondary),
             SearchState::Error { error, .. } => line(ui, Status::Error(*error).text(), t.error),
             SearchState::Results { hits, more: m, .. } => {
-                egui::ScrollArea::vertical().max_height(380.).show(ui, |ui| {
+                egui::ScrollArea::vertical().max_height(380.).scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 4.;
                     for room in hits {
                         let joined = s.sidebar.rooms().iter().any(|r| !r.info.invited && r.scope.room_id.as_str() == room.room_id);
                         let act = action(joined, s.joins.get(&room.room_id));
@@ -167,7 +177,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
 fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &DesignTokens) -> bool {
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::hover());
     if resp.hovered() {
-        ui.painter().rect_filled(rect, 6., rgb(t.input));
+        ui.painter().rect_filled(rect, 10., rgb(t.input));
     }
     let c = egui::pos2(rect.left() + 28., rect.center().y);
     ui.painter().circle_filled(c, 20., rgb(matrix_desktop::AVATAR_FALLBACK));
@@ -182,7 +192,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
         Action::Open => ("Già dentro", t.accent),
         _ => (topic, t.secondary),
     };
-    for (text, size, color, y) in [(room.name.as_str(), 15., t.text, 8.), (&*room.detail(), 12., t.secondary, 28.), (third, 12., third_color, 45.)] {
+    for (text, size, color, y) in [(room.name.as_str(), 15., t.text, 10.), (&*room.detail(), 12., t.secondary, 30.), (third, 12., third_color, 48.)] {
         if !text.is_empty() {
             let g = one_line(ui, text, size, rgb(color), width);
             ui.painter().galley(egui::pos2(left, rect.top() + y), g, rgb(color));
@@ -194,13 +204,48 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
         Action::Joining => "Ingresso…",
         Action::Retry(_) => "Riprova",
     };
-    ui.put(btn, egui::Button::new(label)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && *act != Action::Joining
+    ({
+        let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(btn));
+        let visuals = &mut ui.style_mut().visuals;
+        for widget in [&mut visuals.widgets.inactive, &mut visuals.widgets.hovered, &mut visuals.widgets.active] {
+            widget.bg_stroke = egui::Stroke::NONE;
+            widget.expansion = 0.;
+            widget.fg_stroke.color = rgb(t.text);
+        }
+        visuals.widgets.inactive.bg_fill = button_color(t, 22);
+        visuals.widgets.inactive.weak_bg_fill = button_color(t, 22);
+        visuals.widgets.hovered.bg_fill = button_color(t, 32);
+        visuals.widgets.hovered.weak_bg_fill = button_color(t, 32);
+        visuals.widgets.active.bg_fill = rgb(t.selected);
+        visuals.widgets.active.weak_bg_fill = rgb(t.selected);
+        ui.put(btn, egui::Button::new(egui::RichText::new(label).color(rgb(t.text))))
+            .on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+    }) && *act != Action::Joining
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::join::Cause;
+
+    #[test]
+    fn button_and_secondary_text_contrast_in_all_themes() {
+        fn luminance(c: egui::Color32) -> f64 {
+            let channel = |n: u8| { let v = f64::from(n) / 255.; if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) } };
+            0.2126 * channel(c.r()) + 0.7152 * channel(c.g()) + 0.0722 * channel(c.b())
+        }
+        fn contrast(a: egui::Color32, b: egui::Color32) -> f64 {
+            let (a, b) = (luminance(a), luminance(b));
+            (a.max(b) + 0.05) / (a.min(b) + 0.05)
+        }
+        for t in [matrix_desktop::LIGHT, matrix_desktop::DAY, matrix_desktop::DARK, matrix_desktop::NIGHT] {
+            for bg in [button_color(&t, 22), button_color(&t, 32), rgb(t.selected)] {
+                assert!(contrast(rgb(t.text), bg) >= 4.5);
+            }
+            assert!(contrast(rgb(t.secondary), rgb(t.input)) >= 4.5);
+            assert!(contrast(rgb(t.input), button_color(&t, 22)) >= 1.25);
+        }
+    }
 
     #[test]
     fn request_follows_term_server_and_kind() {
