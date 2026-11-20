@@ -23,13 +23,16 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
             ui.add_space(16.);
             ui.vertical(|ui| {
                 ui.set_max_width(ui.available_width() - 16.);
-                ui.heading(&room.name);
+                ui.horizontal(|ui| {
+                    let width = (ui.available_width() - if room.info.edit_rights.any() { crate::metrics::button() + ui.spacing().item_spacing.x } else { 0. }).max(0.);
+                    ui.add_sized([width, crate::metrics::button()], egui::Label::new(RichText::new(&room.name).heading()).truncate());
+                    if room.info.edit_rights.any() && crate::icons::button(ui, crate::icons::Icon::PencilSimple, false, i18n::t("Edit")).on_hover_text(i18n::t("Edit")).clicked() {
+                        out.edit = true;
+                    }
+                });
                 if let Some(topic) = room.info.shown_topic().filter(|t| !t.text.is_empty()) {
                     ui.add_space(4.);
                     out.open_link = topic_view(ui, &topic, t);
-                }
-                if room.info.edit_rights.any() && ui.button(i18n::t("Edit")).clicked() {
-                    out.edit = true;
                 }
                 ui.add_space(8.);
                 ui.label(RichText::new(i18n::plural(room.info.joined_members as u64, "{n} member", "{n} members")).color(rgb(t.secondary)));
@@ -39,18 +42,19 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
             });
         });
         ui.add_space(12.);
-        ui.separator();
         addresses(ui, aliases, t);
         ui.add_space(8.);
         ui.horizontal(|ui| {
             ui.add_space(16.);
             ui.vertical(|ui| {
                 ui.set_max_width(ui.available_width() - 16.);
-                crate::settings::choice(ui, i18n::t("Status messages"), status.label(), |ui| {
+                let label = i18n::t("Status messages");
+                let name = ui.label(label);
+                crate::metrics::clickable(egui::ComboBox::from_id_salt(label).selected_text(status.label()).width(ui.available_width()).show_ui(ui, |ui| {
                     for c in matrix_desktop::StatusChoice::ALL {
                         ui.selectable_value(status, c, c.label());
                     }
-                });
+                }).response).labelled_by(name.id);
                 if hidden_status > 0 {
                     ui.label(RichText::new(i18n::plural(hidden_status as u64, "{n} status message hidden", "{n} status messages hidden")).size(11.).color(rgb(t.secondary)));
                 }
@@ -135,6 +139,13 @@ fn topic_view(ui: &mut egui::Ui, topic: &matrix_engine::rich_text::Topic, t: &De
 
 #[cfg(test)]
 mod topic_tests {
+    #[test]
+    fn alias_row_wraps_before_the_server_or_field_is_squeezed() {
+        assert!(!super::alias_wrap(280., 100., 30., 8.));
+        assert!(super::alias_wrap(200., 100., 30., 8.));
+        assert!(super::alias_wrap(0., 100., 30., 8.));
+    }
+
     #[test]
     fn topic_runs_carry_styles_links_and_lists() {
         let topic = matrix_engine::rich_text::topic("[sito](https://example.org) **forte** *chino* [no](javascript:alert(1)) https://nudo.example\n\n- uno\n- due\n\n1. primo", None);
@@ -450,6 +461,10 @@ pub struct AliasView<'a> {
     pub action: Option<matrix_engine::alias::AliasAction>,
 }
 
+fn alias_wrap(width: f32, server: f32, button: f32, gap: f32) -> bool {
+    width < server + button * 3. + gap * 2.
+}
+
 fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
     use matrix_engine::alias::AliasAction;
     let Some(data) = view.data else { return };
@@ -467,6 +482,7 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
     ui.horizontal(|ui| {
         ui.add_space(16.);
         ui.vertical(|ui| {
+            ui.set_max_width(ui.available_width() - 16.);
             ui.label(RichText::new(i18n::t("Addresses")).strong());
             for alias in &list {
                 ui.horizontal_wrapped(|ui| {
@@ -482,11 +498,25 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
                 });
             }
             if data.can_edit_aliases {
-                // Wrapped: field + server + button are wider than the 300 px panel and made its content overflow on both sides.
-                ui.horizontal_wrapped(|ui| {
-                    ui.add(crate::metrics::line(view.input).desired_width(110.).hint_text(i18n::t("name")).align(egui::Align2::LEFT_CENTER));
-                    ui.label(RichText::new(format!(":{}", data.server)).color(rgb(t.secondary)));
-                    if ui.button(i18n::t("Add")).clicked() && !view.input.trim().is_empty() {
+                let server = format!(":{}", data.server);
+                let font = egui::TextStyle::Body.resolve(ui.style());
+                let server_width = ui.fonts_mut(|fonts| fonts.layout_no_wrap(server.clone(), font, rgb(t.secondary)).size().x);
+                let available = ui.available_width();
+                let gap = ui.spacing().item_spacing.x;
+                let button = crate::metrics::button();
+                let wrap = alias_wrap(available, server_width, button, gap);
+                if wrap {
+                    ui.add(crate::metrics::line(view.input).desired_width(available).hint_text(i18n::t("name")));
+                }
+                ui.horizontal(|ui| {
+                    if wrap {
+                        let indent = (available - server_width - button - gap * 2.).max(0.);
+                        if indent > 0. { ui.add_space(indent); }
+                    } else {
+                        ui.add(crate::metrics::line(view.input).desired_width((available - server_width - button - gap * 2.).max(0.)).hint_text(i18n::t("name")));
+                    }
+                    ui.label(RichText::new(server).color(rgb(t.secondary)));
+                    if crate::icons::button(ui, crate::icons::Icon::Plus, false, i18n::t("Add")).on_hover_text(i18n::t("Add")).clicked() && !view.input.trim().is_empty() {
                         view.action = Some(AliasAction::Add { local: view.input.trim().to_owned(), make_canonical: None });
                         view.input.clear();
                     }
@@ -498,7 +528,6 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
         });
     });
     ui.add_space(4.);
-    ui.separator();
 }
 
 /// The small close button; `label` is its screen-reader name.

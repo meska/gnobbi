@@ -51,6 +51,7 @@ icons! {
     DeviceMobile = 0xe1e0 "device-mobile",
     Globe = 0xe288 "globe",
     Users = 0xe4d6 "users",
+    UserPlus = 0xe4d0 "user-plus",
     Question = 0xe3e8 "question",
     Palette = 0xe6c8 "palette",
     Clock = 0xe19a "clock",

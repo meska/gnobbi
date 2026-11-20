@@ -81,7 +81,9 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
         ui.add_space(8.);
         ui.horizontal(|ui| {
             ui.add_space(14.);
-            if ui.button(i18n::t("Invite")).clicked() {
+            let invite = ui.button(crate::icons::with_label(crate::icons::Icon::UserPlus, i18n::t("Invite"))).on_hover_text(i18n::t("Invite"));
+            invite.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, i18n::t("Invite")));
+            if invite.clicked() {
                 act = Some(Act::Invite);
             }
         });
