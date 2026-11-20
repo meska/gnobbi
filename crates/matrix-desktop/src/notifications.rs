@@ -251,11 +251,11 @@ fn deliver_os(notification: Notification, click: &Click) -> Result<(), Notificat
 /// closed and the click launched it): the account and the room, as `<account>:<room id>`. Also the OS
 /// request identifier, so one room keeps one live alert across restarts. Worker ids repeat between
 /// profile folders, so the catalog id (0: unknown) comes first: `<catalog>:<worker>:<room id>`.
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
 fn target_key(catalog: Option<AccountId>, scope: &RoomScope) -> String {
     format!("{}:{}:{}", catalog.map_or(0, |a| a.as_u64()), scope.account_id.as_u64(), scope.room_id.as_str())
 }
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
 fn parse_target(key: &str) -> Option<(Option<AccountId>, RoomScope)> {
     let (catalog, rest) = key.split_once(':')?;
     let (account, room) = rest.split_once(':')?;
@@ -265,18 +265,18 @@ fn parse_target(key: &str) -> Option<(Option<AccountId>, RoomScope)> {
 }
 
 /// A click that reached the process before (or without) the session that owns it: kept here until that account polls.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 static EARLY_CLICK: Mutex<Option<(Option<AccountId>, RoomScope)>> = Mutex::new(None);
 
 /// The alert clicked while no live session knew it (a click that launched the app), if it belongs to the
 /// catalog account `account`. An alert with no catalog id (unknown) goes to the first asker.
 pub fn take_early_click(account: Option<AccountId>) -> Option<RoomScope> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         let mut early = EARLY_CLICK.lock().ok()?;
         return early.take_if(|(owner, _)| owner.is_none() || *owner == account).map(|(_, scope)| scope);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     {
         let _ = account;
         None
@@ -285,7 +285,7 @@ pub fn take_early_click(account: Option<AccountId>) -> Option<RoomScope> {
 
 /// True (and the click dropped) when the pending early click names a catalog account that is not in `known`.
 pub fn drop_early_click_of_gone_account(known: &[AccountId]) -> bool {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     if let Ok(mut early) = EARLY_CLICK.lock() {
         return early.take_if(|(owner, _)| owner.is_some_and(|o| !known.contains(&o))).is_some();
     }
@@ -295,7 +295,7 @@ pub fn drop_early_click_of_gone_account(known: &[AccountId]) -> bool {
 
 /// Call at process start: macOS hands a click that launched the app to the delegate, which must exist by then.
 pub fn init() {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     macos::install_delegate();
 }
 
@@ -304,7 +304,7 @@ pub fn init() {
 /// fills the `Click` slot of the session that raised it (as on Linux) or, when that session does not
 /// exist (the click launched the app), `EARLY_CLICK`. Needs a bundled, signed app: without a bundle id
 /// (`cargo run`) the center would abort the process, so the alert is reported unavailable instead.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod macos {
     use super::*;
     use block2::{DynBlock, RcBlock};
@@ -395,11 +395,11 @@ mod macos {
     }
 }
 /// Blocking platform boundary: only the notification worker may call this.
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 fn deliver_os(notification: Notification, click: &Click) -> Result<(), NotificationError> {
     macos::deliver(notification, click)
 }
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "ios")))]
 fn deliver_os(_: Notification, _: &Click) -> Result<(), NotificationError> {
     Err(NotificationError::Unavailable)
 }

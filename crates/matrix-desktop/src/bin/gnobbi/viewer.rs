@@ -37,6 +37,14 @@ impl Viewer {
     pub fn open_player(&mut self, path: PathBuf) {
         let (tx, rx) = std::sync::mpsc::channel();
         self.player = Some(rx);
+        // iOS has no external opener process (and UIKit wants the main thread): the share sheet offers the file to other apps.
+        #[cfg(target_os = "ios")]
+        {
+            crate::pick::share(&path);
+            let _ = tx.send(true);
+            return;
+        }
+        #[cfg(not(target_os = "ios"))]
         std::thread::spawn(move || {
             let program = std::env::var("GNOBBI_VIDEO_OPENER").unwrap_or_else(|_| if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" }.into());
             let ok = std::process::Command::new(program).arg(path).status().is_ok_and(|s| s.success());
