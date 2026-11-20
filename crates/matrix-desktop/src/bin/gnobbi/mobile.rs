@@ -118,6 +118,11 @@ impl Insets {
             self.0 = real;
         }
         let mut all = self.0;
+        // iOS keeps reporting the portrait insets after a rotation (top = notch, sides 0): in landscape the notch is on a side, so use it there on both sides.
+        // shortcut: assumes insets left+right == 0 means stale and top > 40 means a notch (SE top is 20); drop it if UIKit starts reporting the sides.
+        if raw.screen_rect.is_some_and(|r| r.width() > r.height()) && all.0.left + all.0.right == 0. && all.0.top > 40. {
+            (all.0.left, all.0.right) = (all.0.top, all.0.top);
+        }
         all.0.bottom = all.0.bottom.max(f32::from_bits(KEYBOARD.load(Ordering::Relaxed)));
         raw.safe_area_insets = Some(all);
     }
@@ -216,6 +221,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn landscape_notch_becomes_a_side_inset() {
+        let mut insets = Insets::default();
+        let mut raw = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(852., 393.))), safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 62., bottom: 34., ..Default::default() })), ..Default::default() };
+        insets.apply(&mut raw);
+        let m = raw.safe_area_insets.unwrap().0;
+        assert_eq!((m.left, m.right, m.top), (62., 62., 62.));
+        let mut se = egui::RawInput { screen_rect: raw.screen_rect, safe_area_insets: Some(egui::SafeAreaInsets(egui::epaint::MarginF32 { top: 20., ..Default::default() })), ..Default::default() };
+        insets.apply(&mut se);
+        assert_eq!(se.safe_area_insets.unwrap().0.left, 0., "no notch: nothing to add");
     }
 
     #[test]
