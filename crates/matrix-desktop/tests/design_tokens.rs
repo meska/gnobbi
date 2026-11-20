@@ -1,4 +1,5 @@
 //! The generated tokens (matrix-domain, from design/tokens.toml) must equal what the desktop uses today.
+use matrix_desktop::i18n::{self, Preference};
 use matrix_desktop::{AVATAR_FALLBACK, DEMO_NOTICE, DesignTokens, SCRIM, Theme, row_text};
 use matrix_domain::design as gen_;
 
@@ -19,6 +20,8 @@ fn same(id: &str, d: DesignTokens, g: gen_::Palette) {
 
 #[test]
 fn generated_tokens_equal_the_desktop_for_all_four_themes() {
+    // design/tokens.toml carries the Italian labels; the desktop labels are translated.
+    i18n::apply(Preference::Italian, None);
     assert_eq!(gen_::THEMES.len(), Theme::ALL.len());
     for (theme, g) in Theme::ALL.into_iter().zip(gen_::THEMES) {
         same(g.id, theme.tokens(), g.palette);

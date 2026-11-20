@@ -252,6 +252,13 @@ mod tests {
     }
 
     #[test]
+    fn plural_with_real_catalog_rows_zero_one_many() {
+        let f = |l, n| plural_in(l, n, "{n} member", "{n} members");
+        assert_eq!([0, 1, 5].map(|n| f("it", n)), ["0 membri", "1 membro", "5 membri"]);
+        assert_eq!([0, 1, 5].map(|n| f("en", n)), ["0 members", "1 member", "5 members"]);
+    }
+
+    #[test]
     fn auto_resolution_and_env_override() {
         let loc = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(resolve_with(Preference::Auto, None, &loc(&["de-DE", "it_IT.UTF-8", "en"])), "it");
