@@ -96,10 +96,10 @@ fn next_midnight_when_midnight_does_not_exist() {
 
 #[test]
 fn spoken_form_of_list_stamps() {
-    assert_eq!(last_message_spoken("14:27"), "ultimo messaggio alle 14:27");
-    assert_eq!(last_message_spoken("2:27 PM"), "ultimo messaggio alle 2:27 PM");
-    assert_eq!(last_message_spoken("30.10.26"), "ultimo messaggio il 30.10.26");
-    assert_eq!(last_message_spoken("26/10/30"), "ultimo messaggio il 26/10/30");
+    assert_eq!(last_message_spoken("14:27"), "last message at 14:27");
+    assert_eq!(last_message_spoken("2:27 PM"), "last message at 2:27 PM");
+    assert_eq!(last_message_spoken("30.10.26"), "last message on 30.10.26");
+    assert_eq!(last_message_spoken("26/10/30"), "last message on 26/10/30");
 }
 
 /// ja_JP on Linux: glibc's T_FMT «%H時%M分%S秒» becomes «HH時mm分», a time with no colon: the spoken form follows the value.
@@ -109,6 +109,6 @@ fn spoken_form_of_a_time_without_colon() {
     let stamp = list_stamp_in(ms(2026, 11, 6, 14, 5, 0, 0), ms(2026, 11, 6, 18, 0, 0, 0), &zone(0), &p);
     assert_eq!(stamp, "14時05分");
     let (at, now) = (ms(2026, 11, 6, 14, 5, 0, 0), ms(2026, 11, 6, 18, 0, 0, 0));
-    assert_eq!(last_message_spoken_in(at, now, &zone(0), &p), "ultimo messaggio alle 14時05分");
-    assert_eq!(last_message_spoken_in(at - 8 * 86_400_000, now, &zone(0), &p), "ultimo messaggio il 29/10/26");
+    assert_eq!(last_message_spoken_in(at, now, &zone(0), &p), "last message at 14時05分");
+    assert_eq!(last_message_spoken_in(at - 8 * 86_400_000, now, &zone(0), &p), "last message on 29/10/26");
 }

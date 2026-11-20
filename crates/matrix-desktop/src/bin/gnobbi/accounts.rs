@@ -1,5 +1,6 @@
 //! «Account» drawer: the card of the account on screen (name and picture, editable where the server allows)
-//! and the other accounts of the catalog, all running in this app; "Apri" brings one on screen.
+//! and the other accounts of the catalog, all running in this app; i18n::t("Open") brings one on screen.
+use matrix_desktop::i18n;
 use crate::list::rgb;
 use crate::avatar_editor::Editor;
 use crate::session::Session;
@@ -134,7 +135,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), block), egui::Layout::top_down(egui::Align::Min), |ui| {
                 ui.spacing_mut().item_spacing.y = 2.;
                 if can_name {
-                    let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut f.name).hint_text("Nome").align(egui::Align2::LEFT_CENTER).char_limit(matrix_engine::profile::MAX_NAME_CHARS));
+                    let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut f.name).hint_text(i18n::t("Name")).align(egui::Align2::LEFT_CENTER).char_limit(matrix_engine::profile::MAX_NAME_CHARS));
                     save |= field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 } else {
                     ui.label(shown_name);
@@ -146,13 +147,13 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             ui.add_space(4.);
             ui.horizontal(|ui| {
                 if can_photo {
-                    choose |= ui.button("Scegli foto…").clicked();
+                    choose |= ui.button(i18n::t("Choose photo…")).clicked();
                     let has_photo = match f.photo {
                         Photo::Keep => current.is_some(),
                         Photo::Set(..) => true,
                         Photo::Remove => false,
                     };
-                    if has_photo && ui.button("Rimuovi foto").clicked() {
+                    if has_photo && ui.button(i18n::t("Remove photo")).clicked() {
                         // Nothing to remove on the server: dropping the choice is enough.
                         f.photo = if current.is_some() { Photo::Remove } else { Photo::Keep };
                         f.editor = None;
@@ -162,7 +163,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
                     if busy {
                         ui.spinner();
                     } else {
-                        save |= ui.add_enabled(dirty, egui::Button::new("Salva")).clicked();
+                        save |= ui.add_enabled(dirty, egui::Button::new(i18n::t("Save"))).clicked();
                     }
                 });
             });
@@ -173,9 +174,9 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         save = true;
     }
     if choose {
-        crate::pick::start(ui.ctx(), "Foto del profilo", true);
+        crate::pick::start(ui.ctx(), i18n::t("Profile photo"), true);
     }
-    if let Some(path) = crate::pick::done("Foto del profilo") {
+    if let Some(path) = crate::pick::done(i18n::t("Profile photo")) {
         f.pick(path, profile, ui.ctx());
     }
     // One line: the answer to the last «Salva».
@@ -184,7 +185,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
             ui.add(egui::Label::new(RichText::new(line).color(ui.visuals().error_fg_color)).truncate());
         }
         (Some(Ok(())), false) => {
-            ui.label(RichText::new("Salvato").color(rgb(t.secondary)));
+            ui.label(RichText::new(i18n::t("Saved")).color(rgb(t.secondary)));
         }
         _ => {}
     }
@@ -209,7 +210,7 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, profile: &std::path::P
         } else if let (Photo::Keep, Some(mxc)) = (&f.photo, &current) {
             f.editor = Some(Editor::from_server(s.avatar_original(mxc), draft(profile), ui.ctx()));
         } else {
-            crate::pick::start(ui.ctx(), "Foto del profilo", true);
+            crate::pick::start(ui.ctx(), i18n::t("Profile photo"), true);
         }
     }
     true
@@ -241,9 +242,9 @@ fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: &crate::avatar::Avata
         &[crate::rows::Line::new(name, m.body, rgb(t.text)), crate::rows::Line::new(line, m.secondary, rgb(t.secondary))],
         |ui| {
             if active {
-                ui.label(RichText::new("Attivo").size(m.secondary).color(rgb(t.accent)));
+                ui.label(RichText::new(i18n::t("Active")).size(m.secondary).color(rgb(t.accent)));
             } else {
-                open = ui.add(egui::Button::new("Apri").wrap_mode(egui::TextWrapMode::Extend)).clicked();
+                open = ui.add(egui::Button::new(i18n::t("Open")).wrap_mode(egui::TextWrapMode::Extend)).clicked();
                 if unread > 0 {
                     let (r, _) = ui.allocate_exact_size(egui::vec2(24., 20.), egui::Sense::hover());
                     crate::list::badge(ui, r.center(), unread, t);
@@ -259,7 +260,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
     let mut out = None;
     let mut back = false;
     let own = session.as_ref().map_or(crate::avatar::Avatar::Missing, |s| s.own_avatar());
-    let closed = crate::rail::drawer_back(ctx, rail.panel, "accounts-drawer", "Account", rail.accounts, t, Some(&mut back), |ui, rect| {
+    let closed = crate::rail::drawer_back(ctx, rail.panel, "accounts-drawer", i18n::t("Account"), rail.accounts, t, Some(&mut back), |ui, rect| {
         let size = crate::metrics::button() + 4.;
         let action = egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), egui::Vec2::splat(size));
         let label = matrix_desktop::i18n::t("Add account");
@@ -274,12 +275,12 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
                     let carded = session.is_some_and(|s| {
                         let will = s.verification.as_ref().is_some_and(|v| v.profile().is_some());
                         if will {
-                            crate::settings::section(ui, "Account attivo", t);
+                            crate::settings::section(ui, i18n::t("Active account"), t);
                         }
                         card(ui, s, form, current, t)
                     });
                     if carded {
-                        crate::settings::section(ui, "Altri account", t);
+                        crate::settings::section(ui, i18n::t("Other accounts"), t);
                     }
                     for entry in catalog.accounts() {
                         let dir = catalog.data_dir(dirs, entry.id);

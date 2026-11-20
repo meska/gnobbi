@@ -1,5 +1,6 @@
 //! «Esplora stanze pubbliche»: the public-room directory of the account's server (or another one) as a window.
 //! The search, debounce, paging and errors are the engine's (`SearchRooms` / `MoreRooms`); this file is the form and the rows.
+use matrix_desktop::i18n;
 use crate::{join::JoinState, list::{one_line, rgb}, session::Session};
 use eframe::egui::{self, Align2, Sense, Vec2};
 use matrix_desktop::{DesignTokens, add_server::normalize_server, quick_search::{Category, DirectoryRequest, room_request}, search_list::{Hit, Status, more_text}};
@@ -82,35 +83,35 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     };
     let mut click: Option<(DirectoryRoom, bool)> = None;
     let mut more = false;
-    egui::Window::new("Esplora stanze pubbliche").frame(egui::Frame::window(&ctx.style_of(ctx.theme())).stroke(egui::Stroke::NONE)).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Explore public rooms")).frame(egui::Frame::window(&ctx.style_of(ctx.theme())).stroke(egui::Stroke::NONE)).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(460.);
-        let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut e.term).hint_text("Cerca stanze pubbliche").align(Align2::LEFT_CENTER));
+        let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut e.term).hint_text(i18n::t("Search public rooms")).align(Align2::LEFT_CENTER));
         if std::mem::take(&mut e.fresh) {
             field.request_focus();
         }
         ui.add_space(12.);
         ui.horizontal(|ui| {
             let label = match e.pick {
-                Pick::Own => "Il tuo server",
+                Pick::Own => i18n::t("Your server"),
                 Pick::MatrixOrg => "matrix.org",
-                Pick::Other => "Altro server…",
+                Pick::Other => i18n::t("Other server…"),
             };
             let combo = egui::ComboBox::from_id_salt("explore-server").selected_text(label).show_ui(ui, |ui| {
-                ui.selectable_value(&mut e.pick, Pick::Own, "Il tuo server");
+                ui.selectable_value(&mut e.pick, Pick::Own, i18n::t("Your server"));
                 ui.selectable_value(&mut e.pick, Pick::MatrixOrg, "matrix.org");
-                ui.selectable_value(&mut e.pick, Pick::Other, "Altro server…");
+                ui.selectable_value(&mut e.pick, Pick::Other, i18n::t("Other server…"));
             });
             crate::metrics::clickable(combo.response);
             if e.pick == Pick::Other {
-                ui.add(crate::metrics::line(&mut e.other).hint_text("nome del server").desired_width(150.));
+                ui.add(crate::metrics::line(&mut e.other).hint_text(i18n::t("server name")).desired_width(150.));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.visuals_mut().selection.bg_fill = rgb(t.selection);
                 ui.visuals_mut().selection.stroke = egui::Stroke::new(1., rgb(t.text));
                 ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
                 ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
-                ui.selectable_value(&mut e.spaces, true, "Spazi");
-                ui.selectable_value(&mut e.spaces, false, "Stanze");
+                ui.selectable_value(&mut e.spaces, true, i18n::t("Spaces"));
+                ui.selectable_value(&mut e.spaces, false, i18n::t("Rooms"));
             });
         });
         if e.pick == Pick::Other && !e.other.trim().is_empty() && let Err(err) = e.server() {
@@ -188,7 +189,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
     let topic = room.topic.as_deref().unwrap_or("");
     let (third, third_color) = match act {
         Action::Retry(why) => (*why, t.error),
-        Action::Open => ("Già dentro", t.accent),
+        Action::Open => (i18n::t("Already in"), t.accent),
         _ => (topic, t.secondary),
     };
     for (text, size, color, y) in [(room.name.as_str(), 15., t.text, 10.), (&*room.detail(), 12., t.secondary, 30.), (third, 12., third_color, 48.)] {
@@ -198,10 +199,10 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
         }
     }
     let label = match act {
-        Action::Open => "Apri",
-        Action::Join => "Entra",
+        Action::Open => i18n::t("Open"),
+        Action::Join => i18n::t("Join"),
         Action::Joining => matrix_desktop::i18n::t("Joining…"),
-        Action::Retry(_) => "Riprova",
+        Action::Retry(_) => i18n::t("Retry"),
     };
     ({
         let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(btn));

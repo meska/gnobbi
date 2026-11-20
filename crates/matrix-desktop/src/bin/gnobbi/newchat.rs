@@ -1,4 +1,5 @@
 //! «Nuova chat» window: direct chat by user search, new room, new space, join by address.
+use matrix_desktop::i18n;
 use crate::session::Session;
 use eframe::egui::{self, RichText};
 use matrix_engine::operations::{SearchState, SpaceAvatar};
@@ -68,10 +69,10 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
         }
     }
     let mut open = true;
-    egui::Window::new("Nuova chat").open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("New chat")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(340.);
         ui.horizontal(|ui| {
-            for (i, label) in ["Chat diretta", "Stanza", "Spazio", "Unisciti"].into_iter().enumerate() {
+            for (i, label) in [i18n::t("Direct chat"), i18n::t("Room"), i18n::t("Space"), i18n::t("Join a room")].into_iter().enumerate() {
                 ui.selectable_value(&mut form.tab, i as u8, label);
             }
         });
@@ -83,12 +84,12 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                 }
             }
             1 => {
-                ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.name).hint_text("Nome"));
-                ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.topic).hint_text("Argomento"));
+                ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.name).hint_text(i18n::t("Name")));
+                ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.topic).hint_text(i18n::t("Topic")));
                 ui.add_space(4.);
-                crate::settings::switch(ui, "Pubblica", &mut form.public, t);
+                crate::settings::switch(ui, i18n::t("Public"), &mut form.public, t);
                 ui.add_space(8.);
-                if ui.add_enabled(!form.name.trim().is_empty(), egui::Button::new("Crea")).clicked() {
+                if ui.add_enabled(!form.name.trim().is_empty(), egui::Button::new(i18n::t("Create"))).clicked() {
                     s.create_room(std::mem::take(&mut form.name), std::mem::take(&mut form.topic), form.public);
                 }
             }
@@ -97,7 +98,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                     ui.horizontal(|ui| {
                         let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(48.), egui::Sense::click());
                         let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Immagine"));
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, i18n::t("Image")));
                         match &form.avatar {
                             Some((_, tex)) => {
                                 crate::avatar::paint(ui, rect.center(), 48., crate::list::rgb(crate::AVATAR), &crate::avatar::Avatar::Ready(tex.clone()), "", 0., egui::Color32::TRANSPARENT);
@@ -111,21 +112,21 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                             ui.painter().circle_stroke(rect.center(), 24., egui::Stroke::new(2., crate::list::rgb(t.accent)));
                         }
                         if resp.clicked() {
-                            crate::pick::start(ui.ctx(), "Immagine", true);
+                            crate::pick::start(ui.ctx(), i18n::t("Image"), true);
                         }
-                        if let Some(path) = crate::pick::done("Immagine") {
+                        if let Some(path) = crate::pick::done(i18n::t("Image")) {
                             form.avatar = read_avatar(ui.ctx(), &path);
                             s.new_failed = form.avatar.is_none();
                         }
-                        ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.space).hint_text("Nome"));
+                        ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.space).hint_text(i18n::t("Name")));
                     });
                     ui.add_space(4.);
-                    crate::settings::switch(ui, "Pubblica", &mut form.space_public, t);
+                    crate::settings::switch(ui, i18n::t("Public"), &mut form.space_public, t);
                 });
                 ui.add_space(8.);
                 if s.new_busy {
                     ui.spinner();
-                } else if ui.add_enabled(!form.space.trim().is_empty(), egui::Button::new("Crea")).clicked() {
+                } else if ui.add_enabled(!form.space.trim().is_empty(), egui::Button::new(i18n::t("Create"))).clicked() {
                     form.sent = true;
                     s.create_space(&form.space, form.space_public, form.avatar.as_ref().map(|(a, _)| a.clone()));
                 }
@@ -133,13 +134,13 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
             _ => {
                 let join = s.joins.get(form.target.trim());
                 let (running, line, failed) = (join.is_some_and(|j| j.is_running()), join.and_then(|j| j.line()), join.is_some_and(|j| j.error().is_some()));
-                ui.add_enabled_ui(!running, |ui| ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.target).hint_text("#stanza:server o !id:server")));
+                ui.add_enabled_ui(!running, |ui| ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.target).hint_text(i18n::t("#room:server or !id:server"))));
                 ui.add_space(8.);
                 // One row: the spinner takes the button's place for as long as the server is joining, then the outcome.
                 ui.horizontal(|ui| {
                     if running {
                         ui.spinner();
-                    } else if ui.add_enabled(!form.target.trim().is_empty(), egui::Button::new("Unisciti")).clicked() {
+                    } else if ui.add_enabled(!form.target.trim().is_empty(), egui::Button::new(i18n::t("Join a room"))).clicked() {
                         form.joining = true;
                         s.join(&form.target);
                     }
@@ -151,7 +152,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
         }
         if s.new_failed {
             ui.add_space(6.);
-            ui.colored_label(ui.visuals().error_fg_color, "Non riuscito");
+            ui.colored_label(ui.visuals().error_fg_color, i18n::t("Failed"));
         }
     });
     if !open {
@@ -162,14 +163,14 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
 /// The user search («Cerca persone» and its results); returns the user that was clicked.
 pub fn people(ui: &mut egui::Ui, s: &mut Session, t: &matrix_desktop::DesignTokens) -> Option<String> {
     let mut picked = None;
-    ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.new_term).hint_text("Cerca persone").align(egui::Align2::LEFT_CENTER));
+    ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.new_term).hint_text(i18n::t("Search people")).align(egui::Align2::LEFT_CENTER));
     ui.add_space(6.);
     match &s.users {
         SearchState::Searching { .. } => {
             ui.spinner();
         }
         SearchState::NoResults { .. } => {
-            ui.label(RichText::new("Nessun risultato").color(crate::list::rgb(t.secondary)));
+            ui.label(RichText::new(i18n::t("No results")).color(crate::list::rgb(t.secondary)));
         }
         SearchState::Results { hits, .. } => {
             egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {

@@ -1,4 +1,5 @@
 //! The selected space: the «⋮» menu of the list header and the window behind it (facts and «Stanze», or the members).
+use matrix_desktop::i18n;
 use crate::list::rgb;
 use eframe::egui::{self, Align2, RichText, Sense, Vec2};
 use matrix_desktop::{DesignTokens, SidebarRoom};
@@ -26,7 +27,7 @@ pub fn dots(ui: &mut egui::Ui, _t: &DesignTokens, label: &str) -> egui::Response
 pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &DesignTokens) {
     let Some(scope) = session.sidebar.active_space().cloned() else { return };
     let can_edit = session.sidebar.spaces().any(|r| r.scope == scope && r.info.edit_rights.any());
-    let resp = dots(ui, t, "Menu spazio");
+    let resp = dots(ui, t, i18n::t("Space menu"));
     if resp.clicked() {
         session.space_facts_for(scope.clone());
     }
@@ -42,32 +43,32 @@ pub fn menu(ui: &mut egui::Ui, session: &mut crate::session::Session, t: &Design
         }
         // Unknown yet (or the engine failed): not offered, no line.
         let block = session.space_facts.as_ref().and_then(|(_, c)| c.as_ref()).map(|c| leave_block(session.sidebar.rooms(), &scope, c));
-        if ui.button("Info spazio").clicked() {
+        if ui.button(i18n::t("Space info")).clicked() {
             session.open_space(scope.clone(), false);
             ui.close();
         }
-        if ui.button("Membri").clicked() {
+        if ui.button(i18n::t("Members")).clicked() {
             session.open_space(scope.clone(), true);
             ui.close();
         }
-        if can_edit && ui.button("Modifica").clicked() {
+        if can_edit && ui.button(i18n::t("Edit")).clicked() {
             session.open_edit_of(&scope);
             ui.close();
         }
         let facts = session.space_facts.as_ref().and_then(|(_, c)| c.as_ref());
         let (promote, delete) = (facts.is_some_and(can_promote), facts.is_some_and(can_delete));
-        if promote && ui.button("Passa il ruolo di amministratore…").clicked() {
+        if promote && ui.button(i18n::t("Hand over the admin role…")).clicked() {
             session.open_promote(scope.clone());
             ui.close();
         }
-        if ui.add_enabled(block == Some(None) && !session.sidebar.space_leaving(), egui::Button::new("Esci dallo spazio")).clicked() {
+        if ui.add_enabled(block == Some(None) && !session.sidebar.space_leaving(), egui::Button::new(i18n::t("Leave space"))).clicked() {
             session.space_exit = Some((scope.clone(), false));
             ui.close();
         }
         if let Some(Some(why)) = block {
             ui.add(egui::Label::new(RichText::new(why.line()).size(12.).color(rgb(t.secondary))).extend());
         }
-        if delete && ui.add_enabled(!session.space_deleting, egui::Button::new(RichText::new("Elimina spazio").color(rgb(t.error)))).clicked() {
+        if delete && ui.add_enabled(!session.space_deleting, egui::Button::new(RichText::new(i18n::t("Delete space")).color(rgb(t.error)))).clicked() {
             session.space_delete = Some((scope.clone(), String::new()));
             ui.close();
         }
@@ -83,15 +84,15 @@ pub fn exit_window(ctx: &egui::Context, session: &mut crate::session::Session, t
         return;
     };
     let (mut leave, mut cancel) = (false, false);
-    egui::Window::new("Esci dallo spazio").id(egui::Id::new("space-exit")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Leave space")).id(egui::Id::new("space-exit")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(340.);
         ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
         ui.add_space(4.);
-        crate::settings::switch(ui, "Dimentica", forget, t);
+        crate::settings::switch(ui, i18n::t("Forget"), forget, t);
         ui.add_space(8.);
         ui.horizontal(|ui| {
-            leave = ui.button(RichText::new("Esci").color(rgb(t.error))).clicked();
-            cancel = ui.button("Annulla").clicked();
+            leave = ui.button(RichText::new(i18n::t("Leave")).color(rgb(t.error))).clicked();
+            cancel = ui.button(i18n::t("Cancel")).clicked();
         });
     });
     if leave || cancel {
@@ -127,31 +128,31 @@ pub fn admin_candidates<'a>(members: &'a [Member], me: &str) -> Vec<&'a Member> 
 pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session, t: &DesignTokens) {
     if let Some((name, result)) = &session.space_report {
         let mut close = false;
-        egui::Window::new("Elimina spazio").id(egui::Id::new("space-report")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+        egui::Window::new(i18n::t("Delete space")).id(egui::Id::new("space-report")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
             ui.set_width(340.);
             ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(name)).strong()).truncate());
             match result {
-                Err(_) => drop(ui.colored_label(rgb(t.error), "Non riuscito, nessuna modifica garantita: riprova")),
+                Err(_) => drop(ui.colored_label(rgb(t.error), i18n::t("Failed, no change guaranteed: try again"))),
                 Ok(d) => {
-                    ui.label(format!("Stanze scollegate: {}", d.unlinked));
+                    ui.label(i18n::t("Rooms unlinked: {n}").replace("{n}", &d.unlinked.to_string()));
                     if d.unlink_failed > 0 {
-                        ui.colored_label(rgb(t.error), format!("Stanze non scollegate: {}", d.unlink_failed));
+                        ui.colored_label(rgb(t.error), i18n::t("Rooms not unlinked: {n}").replace("{n}", &d.unlink_failed.to_string()));
                     }
-                    ui.label(format!("Membri espulsi: {}", d.kicked));
+                    ui.label(i18n::t("Members removed: {n}").replace("{n}", &d.kicked.to_string()));
                     match &d.kick_failed {
-                        None => drop(ui.colored_label(rgb(t.error), "Elenco dei membri non letto")),
-                        Some(f) if !f.is_empty() => drop(ui.colored_label(rgb(t.error), format!("Non espulsi: {}", f.join(", ")))),
+                        None => drop(ui.colored_label(rgb(t.error), i18n::t("Member list not read"))),
+                        Some(f) if !f.is_empty() => drop(ui.colored_label(rgb(t.error), i18n::t("Not removed: {names}").replace("{names}", &f.join(", ")))),
                         Some(_) => {}
                     }
                     match &d.left {
-                        Some(Ok(_)) => drop(ui.label("Spazio lasciato e dimenticato")),
-                        Some(Err(_)) => drop(ui.colored_label(rgb(t.error), "Spazio non lasciato: riprova")),
-                        None => drop(ui.colored_label(rgb(t.error), "Spazio non lasciato: restano dei membri")),
+                        Some(Ok(_)) => drop(ui.label(i18n::t("Space left and forgotten"))),
+                        Some(Err(_)) => drop(ui.colored_label(rgb(t.error), i18n::t("Space not left: try again"))),
+                        None => drop(ui.colored_label(rgb(t.error), i18n::t("Space not left: members remain"))),
                     }
                 }
             }
             ui.add_space(8.);
-            close = ui.button("Chiudi").clicked();
+            close = ui.button(i18n::t("Close")).clicked();
         });
         if close {
             session.space_report = None;
@@ -167,20 +168,20 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
     let (rooms, people) = facts.map_or((0, 0), |c| (c.children.len(), c.other_members));
     let (mut go, mut cancel) = (false, false);
     let busy = session.space_deleting;
-    egui::Window::new("Elimina spazio").id(egui::Id::new("space-delete")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
+    egui::Window::new(i18n::t("Delete space")).id(egui::Id::new("space-delete")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(340.);
         ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
         ui.add_space(4.);
-        ui.label(format!("Membri che verranno espulsi: {people}"));
-        ui.label(format!("Stanze scollegate (restano esistenti): {rooms}"));
-        ui.colored_label(rgb(t.error), "Azione irreversibile");
+        ui.label(i18n::t("Members who will be removed: {n}").replace("{n}", &people.to_string()));
+        ui.label(i18n::t("Rooms unlinked (they stay existing): {n}").replace("{n}", &rooms.to_string()));
+        ui.colored_label(rgb(t.error), i18n::t("This cannot be undone"));
         ui.add_space(4.);
         ui.add_enabled(!busy, crate::metrics::line(typed).hint_text(space.name.as_str()).desired_width(f32::INFINITY));
         ui.add_space(8.);
         ui.horizontal(|ui| {
-            let red = egui::Button::new(RichText::new("Elimina spazio").color(egui::Color32::WHITE)).fill(rgb(t.error));
+            let red = egui::Button::new(RichText::new(i18n::t("Delete space")).color(egui::Color32::WHITE)).fill(rgb(t.error));
             go = ui.add_enabled(name_confirmed(typed, &space.name) && !busy && facts.is_some(), red).clicked();
-            cancel = ui.add_enabled(!busy, egui::Button::new("Annulla")).clicked();
+            cancel = ui.add_enabled(!busy, egui::Button::new(i18n::t("Cancel"))).clicked();
             if busy {
                 ui.spinner();
             }
@@ -205,8 +206,8 @@ pub enum LeaveBlock {
 impl LeaveBlock {
     pub fn line(self) -> &'static str {
         match self {
-            Self::OwnRooms => "Ci sono ancora tue stanze in questo spazio.",
-            Self::LastAdmin => "Sei l'ultimo amministratore dello spazio.",
+            Self::OwnRooms => i18n::t("You still have rooms in this space."),
+            Self::LastAdmin => i18n::t("You are the last admin of the space."),
         }
     }
 }
@@ -254,7 +255,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
     egui::Window::new(&space.name).id(egui::Id::new("space-view")).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(340.);
         if view.members_page {
-            ui.label(RichText::new("Membri").strong());
+            ui.label(RichText::new(i18n::t("Members")).strong());
             match &view.members {
                 None => drop(ui.vertical_centered(|ui| ui.spinner())),
                 Some(members) => drop(egui::ScrollArea::vertical().max_height(360.).show(ui, |ui| {
@@ -262,13 +263,13 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
                         for m in admin_candidates(members, &session.user) {
                             ui.horizontal(|ui| {
                                 ui.add(egui::Label::new(crate::list::clean_single_line(&m.name)).truncate());
-                                if ui.button("Rendi amministratore").clicked() {
+                                if ui.button(i18n::t("Make admin")).clicked() {
                                     promote = Some(m.user_id.clone());
                                 }
                             });
                         }
                         if session.moderation_failed {
-                            ui.colored_label(rgb(t.error), "Non riuscito");
+                            ui.colored_label(rgb(t.error), i18n::t("Failed"));
                         }
                     } else {
                         member = crate::members::list(ui, members, session.admin.as_ref().filter(|a| a.scope == view.scope), &session.user, &session.avatars, t);
@@ -283,16 +284,16 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
                 return;
             }
             Some(Err(())) => {
-                ui.colored_label(rgb(t.error), "Stanze non disponibili");
+                ui.colored_label(rgb(t.error), i18n::t("Rooms not available"));
                 return;
             }
             Some(Ok(children)) => children,
         };
         if let Some(chosen) = &mut view.adding {
-            ui.label(RichText::new("Aggiungi stanza esistente").strong());
+            ui.label(RichText::new(i18n::t("Add existing room")).strong());
             let rooms = candidates(session.sidebar.rooms(), children);
             if rooms.is_empty() {
-                ui.label(RichText::new("Nessuna stanza").color(secondary));
+                ui.label(RichText::new(i18n::t("No rooms")).color(secondary));
             }
             egui::ScrollArea::vertical().max_height(300.).show(ui, |ui| {
                 for room in rooms {
@@ -302,10 +303,10 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
             ui.add_space(8.);
             let mut cancel = false;
             ui.horizontal(|ui| {
-                if ui.add_enabled(chosen.is_some(), egui::Button::new("Aggiungi")).clicked() {
+                if ui.add_enabled(chosen.is_some(), egui::Button::new(i18n::t("Add"))).clicked() {
                     add = chosen.take();
                 }
-                cancel = ui.button("Annulla").clicked();
+                cancel = ui.button(i18n::t("Cancel")).clicked();
             });
             if cancel || add.is_some() {
                 view.adding = None;
@@ -315,18 +316,18 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
         if let Some(topic) = space.info.topic.as_deref().filter(|t| !t.is_empty()) {
             ui.label(RichText::new(topic).color(secondary));
         }
-        ui.label(RichText::new(format!("{} membri", space.info.joined_members)).color(secondary));
+        ui.label(RichText::new(i18n::plural(space.info.joined_members as u64, "{n} member", "{n} members")).color(secondary));
         ui.separator();
-        ui.label(RichText::new("Stanze").strong());
+        ui.label(RichText::new(i18n::t("Rooms")).strong());
         if children.children.is_empty() {
-            ui.label(RichText::new("Nessuna stanza").color(secondary));
+            ui.label(RichText::new(i18n::t("No rooms")).color(secondary));
         }
         egui::ScrollArea::vertical().max_height(300.).show(ui, |ui| {
             for child in &children.children {
                 ui.horizontal(|ui| {
                     avatar(ui, &session.avatars, &child.name, child.avatar_url.as_deref(), t);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if children.editable && ui.button("Togli").clicked() {
+                        if children.editable && ui.button(i18n::t("Remove")).clicked() {
                             remove = Some(child.scope.clone());
                         }
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -340,7 +341,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
         });
         if children.editable {
             ui.add_space(8.);
-            if ui.button("Aggiungi stanza esistente").clicked() {
+            if ui.button(i18n::t("Add existing room")).clicked() {
                 view.adding = Some(None);
             }
         }

@@ -354,3 +354,108 @@ menu	Bring All to Front	Porta tutto in primo piano
 	Unlocking…	Sblocco in corso…
 	Show password	Mostra password
 	Hide password	Nascondi password
+# main
+	Accept	Accetta
+	Decline	Rifiuta
+	Edit space	Modifica spazio
+	Edit room	Modifica stanza
+	Start failed	Avvio non riuscito
+	Search	Cerca
+	Conversations	Conversazioni
+	Users	Utenti
+	Public rooms	Stanze pubbliche
+	React	Reagisci
+	Confirm closing	Conferma chiusura
+	Close poll	Chiudi sondaggio
+	Confirm deletion	Conferma eliminazione
+	Delete	Elimina
+	Encrypted history	Cronologia cifrata
+	Matrix recovery key	Chiave di recupero Matrix
+	I saved the key: continue	Ho salvato la chiave: continua
+	Recover encrypted history	Recupera cronologia cifrata
+	Try creating the key again	Riprova a creare la chiave
+	Create recovery key	Crea chiave di recupero
+	Continue without recovery	Continua senza recupero
+# rail
+	A space cannot go inside itself	Uno spazio non può stare dentro sé stesso
+	You do not have permission to edit «{name}»	Non hai i permessi per modificare «{name}»
+	{label}, {n} unread	{label}, {n} non letti
+	Move {name}	Sposta {name}
+	Move {name} down	Sposta giù {name}
+	Move {name} up	Sposta su {name}
+	Organise spaces	Organizza spazi
+	Unread	Non lette
+	All chats	Tutte le chat
+	Spaces	Spazi
+	No spaces	Nessuno spazio
+# space
+	Rooms unlinked: {n}	Stanze scollegate: {n}
+	Rooms not unlinked: {n}	Stanze non scollegate: {n}
+	Members removed: {n}	Membri espulsi: {n}
+	Not removed: {names}	Non espulsi: {names}
+	Members who will be removed: {n}	Membri che verranno espulsi: {n}
+	Rooms unlinked (they stay existing): {n}	Stanze scollegate (restano esistenti): {n}
+	Space menu	Menu spazio
+	Space info	Info spazio
+	Members	Membri
+	Hand over the admin role…	Passa il ruolo di amministratore…
+	Leave space	Esci dallo spazio
+	Delete space	Elimina spazio
+	Forget	Dimentica
+	Failed, no change guaranteed: try again	Non riuscito, nessuna modifica garantita: riprova
+	Member list not read	Elenco dei membri non letto
+	Space left and forgotten	Spazio lasciato e dimenticato
+	Space not left: try again	Spazio non lasciato: riprova
+	Space not left: members remain	Spazio non lasciato: restano dei membri
+	This cannot be undone	Azione irreversibile
+	You still have rooms in this space.	Ci sono ancora tue stanze in questo spazio.
+	You are the last admin of the space.	Sei l'ultimo amministratore dello spazio.
+	Make admin	Rendi amministratore
+	Rooms not available	Stanze non disponibili
+	Add existing room	Aggiungi stanza esistente
+	No rooms	Nessuna stanza
+	Rooms	Stanze
+	Remove	Togli
+# explore
+	Search public rooms	Cerca stanze pubbliche
+	Your server	Il tuo server
+	Other server…	Altro server…
+	server name	nome del server
+	Already in	Già dentro
+	Join	Entra
+# accounts
+	Remove photo	Rimuovi foto
+	Active	Attivo
+	Active account	Account attivo
+	Other accounts	Altri account
+# devices
+	Last active {when}	Ultima attività {when}
+	{text} in {path}	{text} in {path}
+	This device	Questo dispositivo
+	Keys	Chiavi
+	Export password	Password dell'export
+	Export keys	Esporta chiavi
+	Regenerate recovery key	Rigenera chiave di recupero
+	Recover keys	Recupera chiavi
+	Recovery key	Chiave di recupero
+	Recover	Recupera
+	Other devices	Altri dispositivi
+	Sign out	Disconnetti
+	Device name	Nome del dispositivo
+	New recovery key	Nuova chiave di recupero
+	Done	Fatto
+# newchat
+	Direct chat	Chat diretta
+	Room	Stanza
+	Space	Spazio
+	Join a room	Unisciti
+	Public	Pubblica
+	Create	Crea
+	#room:server or !id:server	#stanza:server o !id:server
+	Search people	Cerca persone
+# pick
+	Images	Immagini
+# time_fmt
+	last message at {when}	ultimo messaggio alle {when}
+	last message on {when}	ultimo messaggio il {when}
+	last message {when}	ultimo messaggio {when}

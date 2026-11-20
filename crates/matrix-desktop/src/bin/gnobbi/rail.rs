@@ -1,5 +1,6 @@
 //! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and, at the bottom,
 //! «Organizza spazi» (the drawer where the spaces are dragged into order and into each other) and «Impostazioni» (the settings drawer).
+use matrix_desktop::i18n;
 use crate::icons;
 use crate::list::{badge, one_line, rgb};
 use eframe::egui::{self, Align2, FontId, Sense, Stroke, Vec2};
@@ -190,9 +191,9 @@ fn subtree(rows: &[Row], at: usize) -> std::ops::Range<usize> {
 pub fn refusal(rows: &[Row], at: usize, parent: Option<&str>) -> Option<String> {
     let find = |id: &str| rows.iter().position(|r| r.id() == id);
     if parent.and_then(find).is_some_and(|p| subtree(rows, at).contains(&p)) {
-        return Some("Uno spazio non può stare dentro sé stesso".into());
+        return Some(i18n::t("A space cannot go inside itself").into());
     }
-    [parent, rows[at].parent.as_deref()].into_iter().flatten().filter_map(find).find(|&i| !rows[i].editable).map(|i| format!("Non hai i permessi per modificare «{}»", rows[i].name))
+    [parent, rows[at].parent.as_deref()].into_iter().flatten().filter_map(find).find(|&i| !rows[i].editable).map(|i| i18n::t("You do not have permission to edit «{name}»").replace("{name}", &rows[i].name))
 }
 
 /// What the drawer shows while a row hovers.
@@ -303,7 +304,7 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
     if n > 0 {
         badge(ui, c + Vec2::new(17., -12.), n, t);
     }
-    let spoken = if matches!(icon, Icon::Edit) { "Organizza spazi".to_owned() } else if n > 0 { format!("{label}, {n} non letti") } else { label.to_owned() };
+    let spoken = if matches!(icon, Icon::Edit) { i18n::t("Organise spaces").to_owned() } else if n > 0 { i18n::t("{label}, {n} unread").replace("{label}", label).replace("{n}", &n.to_string()) } else { label.to_owned() };
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &spoken));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -324,10 +325,10 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
     ui.spacing_mut().item_spacing.y = 0.;
     egui::ScrollArea::vertical().max_height(ui.available_height() - 2. * ITEM - 4.).auto_shrink(false).show(ui, |ui| {
         ui.add_space(4.);
-        if item(ui, avatars, t, Icon::Unread, "Non lette", unread_rooms, unread_view).clicked() {
+        if item(ui, avatars, t, Icon::Unread, i18n::t("Unread"), unread_rooms, unread_view).clicked() {
             sidebar.set_unread_view(true);
         }
-        if item(ui, avatars, t, Icon::All, "Tutte le chat", all, !unread_view && !in_space).clicked() {
+        if item(ui, avatars, t, Icon::All, i18n::t("All chats"), all, !unread_view && !in_space).clicked() {
             sidebar.set_space(None);
         }
         for row in &rows {
@@ -342,10 +343,10 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
             }
         }
     });
-    if item(ui, avatars, t, Icon::Edit, "Spazi", 0, state.edit).clicked() {
+    if item(ui, avatars, t, Icon::Edit, i18n::t("Spaces"), 0, state.edit).clicked() {
         state.set_edit(!state.edit);
     }
-    if item(ui, avatars, t, Icon::Settings, "Impostazioni", 0, state.settings).clicked() {
+    if item(ui, avatars, t, Icon::Settings, i18n::t("Settings"), 0, state.settings).clicked() {
         state.set_settings(!state.settings);
     }
 }
@@ -463,7 +464,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
     let rows = tree(&session.sidebar, &layout, &state.open, true, state.moving.as_ref());
     let frozen = state.moving.is_some();
     let mut act = None;
-    let closed = drawer(ctx, state.panel, "rail-drawer", "Organizza spazi", state.edit, t, |ui, rect| {
+    let closed = drawer(ctx, state.panel, "rail-drawer", i18n::t("Organise spaces"), state.edit, t, |ui, rect| {
         let (p, width) = (ui.painter().clone(), rect.width());
         let size = crate::metrics::button() + 4.;
         let action = egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), Vec2::splat(size));
@@ -480,7 +481,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
             top += 36.;
         }
         if rows.is_empty() {
-            p.text(egui::pos2(rect.center().x, top + 40.), Align2::CENTER_CENTER, "Nessuno spazio", FontId::proportional(15.), rgb(t.secondary));
+            p.text(egui::pos2(rect.center().x, top + 40.), Align2::CENTER_CENTER, i18n::t("No spaces"), FontId::proportional(15.), rgb(t.secondary));
             return;
         }
         let body = egui::Rect::from_min_max(egui::pos2(rect.left(), top + 4.), rect.max);
@@ -554,7 +555,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                     face(ui, &session.avatars, row, egui::pos2(x + 14., cy), 28., t);
                     let name = one_line(ui, &row.name, 15., rgb(if row.hidden { t.placeholder } else { t.text }), grab.right() - x - 44.);
                     p.galley(egui::pos2(x + 38., cy - name.size().y / 2.), name, rgb(t.text));
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, !frozen, format!("Sposta {}", row.name)));
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, !frozen, i18n::t("Move {name}").replace("{name}", &row.name)));
                     if !frozen {
                         resp.on_hover_cursor(egui::CursorIcon::Grab);
                     }
@@ -565,10 +566,10 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                             act = Some(Edit::Toggle(row.scope.clone()));
                         }
                         ui.add_space(14.);
-                        if arrow(ui, t, false, allowed && next.is_some(), &format!("Sposta giù {}", row.name)) && let Some(n) = next {
+                        if arrow(ui, t, false, allowed && next.is_some(), &i18n::t("Move {name} down").replace("{name}", &row.name)) && let Some(n) = next {
                             act = Some(Edit::Place(i, row.parent.clone(), siblings(n).1.map(id)));
                         }
-                        if arrow(ui, t, true, allowed && prev.is_some(), &format!("Sposta su {}", row.name)) && let Some(b) = prev {
+                        if arrow(ui, t, true, allowed && prev.is_some(), &i18n::t("Move {name} up").replace("{name}", &row.name)) && let Some(b) = prev {
                             act = Some(Edit::Place(i, row.parent.clone(), Some(id(b))));
                         }
                     });
@@ -811,7 +812,7 @@ mod tests {
         assert_eq!(drop_target(&rows, a, 1, 0.9, 2), None, "between its own subspaces");
         // Asked anyway (keyboard, stale target): refused with the reason.
         for parent in ["!a:x", "!a1:x", "!a11:x"] {
-            assert_eq!(refusal(&rows, a, Some(parent)).as_deref(), Some("Uno spazio non può stare dentro sé stesso"));
+            assert_eq!(refusal(&rows, a, Some(parent)).as_deref(), Some("A space cannot go inside itself"));
         }
         assert_eq!(refusal(&rows, a, Some("!b:x")), None);
         assert_eq!(refusal(&rows, at(&rows, "a11"), Some("!a:x")), None, "a subspace may move up to its grandparent");
@@ -824,10 +825,10 @@ mod tests {
         let rows = all(&s, None);
         let (kid, free, rwkid) = (at(&rows, "kid"), at(&rows, "free"), at(&rows, "rwkid"));
         assert!(!rows[at(&rows, "ro")].editable && rows[at(&rows, "rw")].editable);
-        assert_eq!(refusal(&rows, free, Some("!ro2:x")).as_deref(), Some("Non hai i permessi per modificare «ro2»"), "new parent");
-        assert_eq!(refusal(&rows, kid, Some("!rw:x")).as_deref(), Some("Non hai i permessi per modificare «ro»"), "old parent");
-        assert_eq!(refusal(&rows, kid, None).as_deref(), Some("Non hai i permessi per modificare «ro»"), "out to the top level");
-        assert_eq!(refusal(&rows, kid, Some("!ro:x")).as_deref(), Some("Non hai i permessi per modificare «ro»"), "reorder inside");
+        assert_eq!(refusal(&rows, free, Some("!ro2:x")).as_deref(), Some("You do not have permission to edit «ro2»"), "new parent");
+        assert_eq!(refusal(&rows, kid, Some("!rw:x")).as_deref(), Some("You do not have permission to edit «ro»"), "old parent");
+        assert_eq!(refusal(&rows, kid, None).as_deref(), Some("You do not have permission to edit «ro»"), "out to the top level");
+        assert_eq!(refusal(&rows, kid, Some("!ro:x")).as_deref(), Some("You do not have permission to edit «ro»"), "reorder inside");
         assert_eq!(refusal(&rows, free, Some("!rw:x")), None);
         assert_eq!(refusal(&rows, rwkid, None), None);
         assert_eq!(refusal(&rows, free, None), None, "the top level is the user's own order");

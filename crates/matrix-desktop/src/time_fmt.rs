@@ -169,16 +169,17 @@ pub fn list_stamp_in<Tz: TimeZone>(ms: u64, now_ms: u64, tz: &Tz, p: &Patterns) 
     }
 }
 
-/// Screen-reader form of a list stamp; `is_time` (known from the value, not the text: ja_JP «14時05分» has no colon) picks «alle» vs «il».
+/// Screen-reader form of a list stamp; `is_time` (known from the value, not the text: ja_JP «14時05分» has no colon) picks «at» vs «on».
 fn spoken(stamp: &str, is_time: bool) -> String {
-    let when = if is_time {
-        format!("alle {stamp}")
+    use crate::i18n::t;
+    let line = if is_time {
+        t("last message at {when}")
     } else if stamp.chars().any(|c| c.is_ascii_digit()) {
-        format!("il {stamp}")
+        t("last message on {when}")
     } else {
-        stamp.to_owned()
+        t("last message {when}")
     };
-    format!("ultimo messaggio {when}")
+    line.replace("{when}", stamp)
 }
 
 /// Spoken form of the stamp `list_stamp_in` gives for the same arguments.
@@ -436,8 +437,8 @@ mod tests {
         assert_eq!(at(ms(2026, 10, 29, 9, 0)), "Gio"); // 6 days
         assert_eq!(at(ms(2026, 10, 28, 9, 0)), "28/10/26"); // 7 days
         assert_eq!(last_message_stamp(None), None);
-        assert_eq!(last_message_spoken("14:27"), "ultimo messaggio alle 14:27");
-        assert_eq!(last_message_spoken("28/10/26"), "ultimo messaggio il 28/10/26");
+        assert_eq!(last_message_spoken("14:27"), "last message at 14:27");
+        assert_eq!(last_message_spoken("28/10/26"), "last message on 28/10/26");
     }
 
     #[test]

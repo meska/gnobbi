@@ -1041,9 +1041,9 @@ impl App {
                         if list::rooms(ui, session, &mut new_chat, t, &mut |ui| {
                             if !single { return; }
                             egui::Popup::menu(&icons::button(ui, icons::Icon::List, false, i18n::t("Menu"))).show(|ui| {
-                                settings = ui.button("Impostazioni").clicked();
-                                accounts = ui.button("Account").clicked();
-                                devices = ui.button("Dispositivi").clicked();
+                                settings = ui.button(i18n::t("Settings")).clicked();
+                                accounts = ui.button(i18n::t("Account")).clicked();
+                                devices = ui.button(i18n::t("Devices")).clicked();
                                 if settings || accounts || devices { ui.close(); }
                             });
                         }) {
@@ -1339,10 +1339,10 @@ impl App {
                     ui.heading(crate::list::clean_single_line(&name));
                     ui.add_space(12.);
                     ui.horizontal(|ui| {
-                        if ui.button("Accetta").clicked() {
+                        if ui.button(i18n::t("Accept")).clicked() {
                             s.answer_invite(scope.clone(), true);
                         }
-                        if ui.button("Rifiuta").clicked() {
+                        if ui.button(i18n::t("Decline")).clicked() {
                             s.answer_invite(scope, false);
                         }
                     });
@@ -1471,7 +1471,7 @@ impl App {
             && s.edit.is_some()
             && let Some((rights, is_space)) = s.edit.as_ref().and_then(|e| s.sidebar.rooms().iter().find(|r| r.scope == e.scope)).map(|r| (r.info.edit_rights, r.info.is_space))
         {
-            roomedit::show(ui.ctx(), s, rights, if is_space { "Modifica spazio" } else { "Modifica stanza" });
+            roomedit::show(ui.ctx(), s, rights, if is_space { i18n::t("Edit space") } else { i18n::t("Edit room") });
         }
         if let Some(dirs) = &self.dirs {
             let running: Vec<_> = self.parked.iter().map(|p| accounts::Running { dir: p.root.clone(), picture: p.session.own_avatar(), unread: p.session.sidebar.navigation_entries().first().map_or(0, |e| e.unread) }).collect();
@@ -1515,7 +1515,7 @@ impl App {
                     ui.allocate_ui_with_layout(egui::vec2(width, 0.), egui::Layout::top_down(egui::Align::LEFT), |ui| match &mut self.session {
                         Some(session) => sign_in_form(ui, session, t),
                         None => {
-                            ui.label(self.start_error.as_deref().unwrap_or("Avvio non riuscito"));
+                            ui.label(self.start_error.as_deref().unwrap_or(i18n::t("Start failed")));
                         }
                     });
                 });
@@ -1558,8 +1558,8 @@ fn quick_search(ctx: &egui::Context, s: &mut Session) {
     let mut picked = if enter && total > 0 { Some(sel) } else { None };
     let modal = egui::Modal::new(egui::Id::unique("quick-search")).show(ctx, |ui| {
         ui.set_min_width(360.);
-        ui.heading("Cerca");
-        if ui.add(crate::metrics::line(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text("Cerca")).changed() {
+        ui.heading(i18n::t("Search"));
+        if ui.add(crate::metrics::line(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text(i18n::t("Search"))).changed() {
             s.users = SearchState::Idle;
             s.public_rooms = matrix_engine::search::SearchState::Idle;
             s.quick_sel = 0;
@@ -1570,14 +1570,14 @@ fn quick_search(ctx: &egui::Context, s: &mut Session) {
                 if i == sel && moved { r.scroll_to_me(None); }
                 if r.clicked() { picked = Some(i); }
             };
-            if !hits.is_empty() { ui.label("Conversazioni"); }
+            if !hits.is_empty() { ui.label(i18n::t("Conversations")); }
             for (i, hit) in hits.iter().enumerate() { row(ui, i, hit.name.clone()); }
-            if !users.is_empty() { ui.label("Utenti"); }
+            if !users.is_empty() { ui.label(i18n::t("Users")); }
             for (i, hit) in users.iter().enumerate() {
                 let name = hit.display_name.as_deref().unwrap_or(&hit.user_id);
                 row(ui, hits.len() + i, format!("{name}  {}", hit.user_id));
             }
-            if !public.is_empty() { ui.label("Stanze pubbliche"); }
+            if !public.is_empty() { ui.label(i18n::t("Public rooms")); }
             for (i, hit) in public.iter().enumerate() {
                 // The join's spinner and its one-line state sit on the room's own row.
                 ui.horizontal(|ui| {
@@ -1628,7 +1628,7 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 return;
             };
             if p.react {
-                ui.collapsing("Reagisci", |ui| {
+                ui.collapsing(i18n::t("React"), |ui| {
                     egui::Grid::new("reaction-emoji-grid").show(ui, |ui| {
                         for (i, (name, emoji)) in matrix_desktop::EMOJI_SET.iter().enumerate() {
                             if ui.button(*emoji).on_hover_text(matrix_desktop::i18n::t(name)).clicked() {
@@ -1639,25 +1639,25 @@ fn message_menu(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                     });
                 });
             }
-            if p.reply && ui.button("Rispondi").clicked() {
+            if p.reply && ui.button(i18n::t("Reply")).clicked() {
                 action = Some("reply");
             }
-            if p.reply && ui.button("Rispondi nel thread").clicked() {
+            if p.reply && ui.button(i18n::t("Reply in thread")).clicked() {
                 action = Some("thread");
             }
-            if p.edit && ui.button("Modifica").clicked() {
+            if p.edit && ui.button(i18n::t("Edit")).clicked() {
                 action = Some("edit");
             }
             let poll = s.ops.selection().and_then(|id| s.messages.as_ref()?.events().iter().find(|e| e.id == *id)?.poll.clone());
             if s.ops.can_end_poll(poll.as_ref()) {
-                let label = if s.confirm_end_poll { "Conferma chiusura" } else { "Chiudi sondaggio" };
+                let label = if s.confirm_end_poll { i18n::t("Confirm closing") } else { i18n::t("Close poll") };
                 if ui.button(label).clicked() {
                     if s.confirm_end_poll { action = Some("end"); } else { s.confirm_end_poll = true; }
                 }
-                if s.confirm_end_poll && ui.button("Annulla").clicked() { s.confirm_end_poll = false; }
+                if s.confirm_end_poll && ui.button(i18n::t("Cancel")).clicked() { s.confirm_end_poll = false; }
             }
             if p.redact {
-                let label = if s.confirm_delete { "Conferma eliminazione" } else { "Elimina" };
+                let label = if s.confirm_delete { i18n::t("Confirm deletion") } else { i18n::t("Delete") };
                 if ui.button(RichText::new(label).color(rgb(t.error))).clicked() {
                     if s.confirm_delete { action = Some("delete") } else { s.confirm_delete = true }
                 }
@@ -1807,18 +1807,18 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
 
 /// «Cronologia cifrata»: the recovery key restores old encrypted messages; it can be skipped.
 fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
-    ui.heading("Cronologia cifrata");
+    ui.heading(i18n::t("Encrypted history"));
     ui.add_space(8.);
     let accent = |text: &str| egui::Button::new(egui::RichText::new(text).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent));
     if let Some(key) = s.form.recovery_key() {
-        ui.label("Chiave di recupero Matrix");
+        ui.label(i18n::t("Matrix recovery key"));
         let kept_id = egui::Id::new("sign-in-key-kept");
         let mut kept = ui.data(|d| d.get_temp::<bool>(kept_id)).unwrap_or(false);
         devices::key_view(ui, key, &mut kept);
         ui.checkbox(&mut kept, matrix_desktop::key_export::KEPT_LABEL);
         ui.data_mut(|d| d.insert_temp(kept_id, kept));
         ui.add_space(8.);
-        if ui.add_enabled(kept, egui::Button::new(egui::RichText::new("Ho salvato la chiave: continua").color(list::rgb(t.on_accent))).fill(list::rgb(t.accent)).min_size(egui::vec2(ui.available_width(), crate::metrics::button()))).clicked() {
+        if ui.add_enabled(kept, egui::Button::new(egui::RichText::new(i18n::t("I saved the key: continue")).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent)).min_size(egui::vec2(ui.available_width(), crate::metrics::button()))).clicked() {
             ui.data_mut(|d| d.remove::<bool>(kept_id));
             s.defer_recovery();
         }
@@ -1831,14 +1831,14 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         return;
     }
     if s.form.recovery() != Some(matrix_engine::signin::RecoveryState::Unsupported) {
-        let r = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.phrase).hint_text("Chiave di recupero Matrix").password(true).align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.phrase).hint_text(i18n::t("Matrix recovery key")).password(true).align(egui::Align2::LEFT_CENTER));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.add_space(8.);
-        if ui.add_sized([ui.available_width(), crate::metrics::button()], accent("Recupera cronologia cifrata")).clicked() || enter {
+        if ui.add_sized([ui.available_width(), crate::metrics::button()], accent(i18n::t("Recover encrypted history"))).clicked() || enter {
             s.recover();
         }
     } else if s.form.setup_offered() {
-        let label = if s.form.setup_phase().is_some() { "Riprova a creare la chiave" } else { "Crea chiave di recupero" };
+        let label = if s.form.setup_phase().is_some() { i18n::t("Try creating the key again") } else { i18n::t("Create recovery key") };
         if ui.add_sized([ui.available_width(), crate::metrics::button()], accent(label)).clicked() {
             s.setup_recovery();
         }
@@ -1849,7 +1849,7 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         ui.colored_label(ui.visuals().error_fg_color, message);
     }
     ui.add_space(6.);
-    if ui.add_sized([ui.available_width(), crate::metrics::button()], accent("Continua senza recupero")).clicked() {
+    if ui.add_sized([ui.available_width(), crate::metrics::button()], accent(i18n::t("Continue without recovery"))).clicked() {
         s.defer_recovery();
     }
 }

@@ -1,6 +1,7 @@
 //! File pickers: NSOpenPanel / xdg portal / Windows dialog through rfd; on iOS UIDocumentPicker and PHPicker
 //! through robius-file-picker, plus the share sheet. The iOS pickers answer later, so the API is
 //! `start` (on the click) + `done` (every frame): on desktop `start` blocks and `done` hands the answer back at once.
+use matrix_desktop::i18n;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -22,7 +23,7 @@ pub fn done(title: &str) -> Option<PathBuf> {
 pub fn start(_ctx: &eframe::egui::Context, title: &str, images_only: bool) {
     let mut dialog = rfd::FileDialog::new().set_title(title);
     if images_only {
-        dialog = dialog.add_filter("Immagini", &["png", "jpg", "jpeg", "gif", "webp"]);
+        dialog = dialog.add_filter(i18n::t("Images"), &["png", "jpg", "jpeg", "gif", "webp"]);
     }
     store(title, dialog.pick_file());
 }
@@ -57,7 +58,7 @@ pub fn purge_temp() {
 /// Where a file to save goes: the folder the user picks on desktop, a private temp file on iOS (shared afterwards).
 #[cfg(not(target_os = "ios"))]
 pub fn save_as(name: &str) -> Option<PathBuf> {
-    rfd::FileDialog::new().set_title("Salva con nome").set_file_name(name).save_file()
+    rfd::FileDialog::new().set_title(i18n::t("Save as")).set_file_name(name).save_file()
 }
 
 #[cfg(target_os = "ios")]
