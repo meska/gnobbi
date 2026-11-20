@@ -63,7 +63,8 @@ pub fn photo(ui: &egui::Ui, avatars: &crate::timeline::Avatars, mxc: Option<&str
 }
 
 /// Header with the search field, then the rows. Selection goes through `Sidebar::select`; true when a room was chosen, the open one too.
-pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens) -> bool {
+/// `more` adds the caller's buttons left of «+».
+pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens, more: &mut dyn FnMut(&mut egui::Ui)) -> bool {
     let (title, _, _) = session.sidebar.list_header();
     let in_space = session.sidebar.active_space().is_some();
     ui.add_space(12.);
@@ -73,7 +74,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
         ui.heading(clean_single_line(&title));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.);
-            let plus = ui.button("+");
+            let plus = crate::mobile::icon_button(ui, "+");
             egui::Popup::menu(&plus).show(|ui| {
                 if ui.button("Nuova chat").clicked() {
                     *new_chat = true;
@@ -84,6 +85,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                     ui.close();
                 }
             });
+            more(ui);
         });
     });
     let sidebar = &mut session.sidebar;
@@ -94,7 +96,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        let r = ui.add_sized([w, 32.], egui::TextEdit::singleline(query).hint_text("Cerca conversazioni").align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([w, crate::mobile::target(32.)], egui::TextEdit::singleline(query).hint_text("Cerca conversazioni").align(egui::Align2::LEFT_CENTER));
         if std::mem::take(focus) {
             r.request_focus();
         }

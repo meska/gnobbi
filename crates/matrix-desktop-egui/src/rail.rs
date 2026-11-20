@@ -331,7 +331,7 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
 
 /// Small drawn arrow button of the edit window.
 fn arrow(ui: &mut egui::Ui, t: &DesignTokens, up: bool, enabled: bool, label: &str) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(28.), if enabled { Sense::click() } else { Sense::hover() });
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::mobile::target(28.)), if enabled { Sense::click() } else { Sense::hover() });
     if enabled && (resp.hovered() || resp.has_focus()) {
         ui.painter().rect_filled(rect, 8., rgb(t.input));
     }

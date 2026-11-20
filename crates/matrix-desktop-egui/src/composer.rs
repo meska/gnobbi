@@ -78,12 +78,13 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         return None;
     }
     let mut send_click = false;
+    let slot = crate::mobile::target(32.); // side of an icon: 32 px, 44 on touch
     // Not horizontal_centered: it fills the panel's height from the previous frame, so the bar never shrank after a narrow-window wrap.
     ui.horizontal_top(|ui| {
         ui.add_space(12.);
         // Same order as GPUI, all on the right: text, emoji, poll, attach, then the mic/send slot (32 px each).
         let slots = if thread { 2. } else { 4. };
-        let w = (ui.available_width() - slots * 32. - (slots + 1.) * ui.spacing().item_spacing.x - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
+        let w = (ui.available_width() - slots * slot - (slots + 1.) * ui.spacing().item_spacing.x - 12.).max(80.); // Keep the right gap close to the 12 px left pad.
         let id = nid("composer-text");
         if ui.memory(|m| m.has_focus(id)) {
             *pasted = ui.input(|i| i.events.iter().find_map(|e| match e {
@@ -94,7 +95,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         format_shortcuts(ui, id, draft);
         // Borderless like Telegram; grows with the text up to 8 rows, then scrolls. The 6 px vertical padding makes one row as tall as the 32 px icons.
         let row = ui.text_style_height(&egui::TextStyle::Body);
-        let pad = ((32. - row) / 2.).max(0.); // centres one text row on the 32 px icons
+        let pad = ((slot - row) / 2.).max(0.); // centres one text row on the 32 px icons
         let max_h = 8. * row + 2. * pad;
         // A child ui with its own max height: inside a horizontal row the available height is one row, which would cap the scroll area.
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(ui.cursor().min, egui::vec2(w + 8., max_h))));
@@ -112,9 +113,9 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         // Icons stay at the bottom of a tall box.
         ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 0.; // else the space above adds a gap and the icons sit lower than the text
-        ui.add_space((text_h - 32.).max(0.));
+        ui.add_space((text_h - slot).max(0.));
         ui.horizontal(|ui| {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         let emoji = icon_at(ui, rect, &format!("composer-emoji{salt}"), &emoji_strokes(), 1., true, "Emoji");
         egui::Popup::menu(&emoji).show(|ui| {
             let tab = egui::Id::new(crate::stickers::TAB_ID);
@@ -143,11 +144,11 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
             });
         });
         if !thread {
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         if icon_at(ui, rect, "composer-poll", &poll_strokes(), 1., true, "Sondaggio").clicked() {
             *poll = true;
         }
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         if icon_at(ui, rect, "composer-attach", &attach_strokes(), 1., true, "Allega un file").clicked() {
             *picked = crate::pick::file("Allega un file", false);
         }
@@ -155,7 +156,7 @@ pub fn show(ui: &mut egui::Ui, salt: &str, draft: &mut String, mode: Mode, attac
         // Voice and Send share one slot and cross-fade; the one fading out is inert.
         let has_text = !(draft.trim().is_empty() && attachment.is_none());
         let t = ui.ctx().animate_bool_with_time(nid("composer-send-fade"), has_text, 0.15);
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(32., 32.), egui::Sense::hover());
+        let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(slot), egui::Sense::hover());
         if !thread && t < 1. && icon_at(ui, rect, "composer-voice", &voice_strokes(), 1. - t, !has_text, "Nota vocale").clicked() {
             *voice = Some(VoiceAct::Start);
         }

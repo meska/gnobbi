@@ -450,6 +450,10 @@ fn shift_for_prepend<T: PartialEq + Clone>(rows: &mut Vec<f32>, first: &mut Opti
 
 /// Draws the rows in view; returns the index of the first one in view, for paging back.
 pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matrix_desktop::DemoHistory, heights: &mut Heights, pictures: &Pictures, avatars: &Avatars, acts: &mut Acts, members: u64, readers: &std::collections::HashMap<usize, Vec<matrix_engine::history::HistorySender>>, t: &DesignTokens, jump: Option<usize>) -> (usize, Option<(matrix_domain::ScopedTimelineId, egui::Pos2)>, Option<(matrix_domain::EventId, String)>, Option<matrix_domain::EventId>) {
+    // Touch: the 44 pt minimum is for buttons and fields, not for every row of the history.
+    if crate::mobile::touch() {
+        ui.spacing_mut().interact_size.y = egui::style::Spacing::default().interact_size.y;
+    }
     let mut menu = None;
     let mut save = None;
     let mut thread = None;

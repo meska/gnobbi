@@ -19,7 +19,7 @@ pub struct SpaceView {
 
 /// Three dots, drawn: the glyph is missing from the macOS system font.
 pub fn dots(ui: &mut egui::Ui, t: &DesignTokens, label: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(32.), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::mobile::target(32.)), Sense::click());
     if resp.hovered() || resp.has_focus() {
         ui.painter().rect_filled(rect, 8., rgb(t.input));
     }

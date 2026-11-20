@@ -20,6 +20,7 @@ mod info;
 mod join;
 mod list;
 mod members;
+mod mobile;
 mod newchat;
 mod poll;
 mod rail;
@@ -110,6 +111,7 @@ struct App {
     /// A parked account to bring forward at the end of the frame (a click on one of its notifications).
     wake: Option<usize>,
     tray: Option<matrix_desktop::tray::Tray>,
+    insets: mobile::Insets,
     quitting: bool,
     window_visible: bool,
     new_form: newchat::Form,
@@ -170,7 +172,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), settings_open: false, accounts_open: false, list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
         if let Some(i) = last {
@@ -223,6 +225,9 @@ impl App {
         let key = (self.theme, self.tokens.accent);
         if self.applied != Some(key) {
             ctx.set_visuals(visuals(&self.tokens, self.theme.is_dark()));
+            if mobile::touch() {
+                ctx.all_styles_mut(|s| s.spacing.interact_size.y = mobile::target(0.));
+            }
             self.applied = Some(key);
         }
     }
@@ -276,6 +281,10 @@ impl eframe::App for App {
         // The backend answers off-thread and cannot wake the UI: poll it ten times a second.
         // shortcut: a fixed tick, replace by a repaint signal from the workers when idle power matters.
         ctx.request_repaint_after(Duration::from_millis(100));
+    }
+
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.insets.apply(raw);
     }
 
     fn on_exit(&mut self) {
@@ -408,6 +417,7 @@ impl eframe::App for App {
             self.switch_to(i);
         }
         let t = self.tokens;
+        let ui = &mut mobile::safe_ui(ui, list_fill(&t));
         // macOS: the content runs under the transparent titlebar; paint that strip like the bars below it.
         #[cfg(target_os = "macos")]
         egui::Panel::top("titlebar").exact_size(28.).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(rgb(t.surface))).show(ui, |ui| {
@@ -903,10 +913,26 @@ impl App {
                 if narrow {
                     egui::Panel::left("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| {
                         let mut new_chat = false;
-                        if list::rooms(ui, session, &mut new_chat, t) {
+                        // One column: the chat header has no room for the app's own windows, they sit in one menu here.
+                        let (mut settings, mut accounts, mut devices) = (false, false, false);
+                        if list::rooms(ui, session, &mut new_chat, t, &mut |ui| {
+                            if !single { return; }
+                            egui::Popup::menu(&mobile::icon_button(ui, "☰")).show(|ui| {
+                                settings = ui.button("Impostazioni").clicked();
+                                accounts = ui.button("Account").clicked();
+                                devices = ui.button("Dispositivi").clicked();
+                                if settings || accounts || devices { ui.close(); }
+                            });
+                        }) {
                             self.list_open = false;
                         }
                         session.new_open |= new_chat;
+                        self.settings_open |= settings;
+                        self.accounts_open |= accounts;
+                        if devices {
+                            session.devices_open = true;
+                            if let Some(v) = &mut session.verification { v.refresh(); }
+                        }
                     });
                 } else {
                     let max = list_max_width(ui.ctx().content_rect().width());
@@ -923,7 +949,7 @@ impl App {
                             ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
                             ui.style_mut().visuals.widgets.active.fg_stroke = active;
                             let mut new_chat = false;
-                            list::rooms(ui, session, &mut new_chat, t);
+                            list::rooms(ui, session, &mut new_chat, t, &mut |_| {});
                             session.new_open |= new_chat;
                         });
                     ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
@@ -954,8 +980,10 @@ impl App {
         let head_pic = self.session.as_ref().and_then(|s| s.sidebar.selected().and_then(|r| r.info.avatar.as_deref()).and_then(|a| s.avatars.get(a)?.clone()));
         egui::Panel::top("header").exact_size(t.header).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
-                ui.add_space(16.);
-                if narrow && ui.button("☰").clicked() {
+                ui.add_space(if single { 4. } else { 16. });
+                // One column: the list is the previous screen, so the button reads «back».
+                let back: egui::WidgetText = if single { egui::RichText::new("‹").size(28.).into() } else { "☰".into() };
+                if narrow && mobile::icon_button(ui, back).clicked() {
                     self.list_open = true;
                 }
                 if let Some((initials, color)) = &badge {
@@ -967,16 +995,16 @@ impl App {
                     }
                     ui.add_space(4.);
                 }
-                ui.label(crate::list::clean_single_line(title.as_deref().unwrap_or(state)));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.add_space(12.);
-                    if ui.button("⚙").clicked() {
+                    ui.add_space(if single { 4. } else { 12. });
+                    // One column: these three live in the list's «☰» menu.
+                    if !single && mobile::icon_button(ui, "⚙").clicked() {
                         self.settings_open = !self.settings_open;
                     }
-                    if ui.button("👤").clicked() {
+                    if !single && mobile::icon_button(ui, "👤").clicked() {
                         self.accounts_open = !self.accounts_open;
                     }
-                    if ui.button("🖥").clicked()
+                    if !single && mobile::icon_button(ui, "🖥").clicked()
                         && let Some(s) = &mut self.session
                     {
                         s.devices_open = !s.devices_open;
@@ -984,18 +1012,22 @@ impl App {
                             v.refresh();
                         }
                     }
-                    if has_room && ui.button("ⓘ").clicked()
+                    if has_room && mobile::icon_button(ui, "ⓘ").clicked()
                         && let Some(s) = &mut self.session
                     {
                         s.info_open = !s.info_open;
                         s.search_open = false;
                     }
-                    if has_room && ui.button("🔍").clicked()
+                    if has_room && mobile::icon_button(ui, "🔍").clicked()
                         && let Some(s) = &mut self.session
                     {
                         s.search_open = !s.search_open;
                         s.info_open = false;
                     }
+                    // Last, so the title gets what the buttons leave and is cut with an ellipsis instead of running under them.
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(crate::list::clean_single_line(title.as_deref().unwrap_or(state))).truncate());
+                    });
                 });
             });
         });

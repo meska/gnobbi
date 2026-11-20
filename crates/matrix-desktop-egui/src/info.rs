@@ -420,7 +420,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
 
 /// The small copy icon (two sheets), drawn: the font has no glyph for it everywhere.
 pub fn copy_icon(ui: &mut egui::Ui) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.), egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::mobile::target(20.)), egui::Sense::click());
     let color = if resp.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
     let stroke = egui::Stroke::new(1.3, color);
     let c = rect.center();
@@ -490,7 +490,7 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
 
 /// The small X, drawn: the glyph is missing from the macOS system font.
 pub fn close_icon(ui: &mut egui::Ui) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(20.), egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::mobile::target(20.)), egui::Sense::click());
     let color = if resp.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
     let c = rect.center();
     let stroke = egui::Stroke::new(1.4, color);
