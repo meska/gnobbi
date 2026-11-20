@@ -62,8 +62,8 @@ pub fn photo(ui: &egui::Ui, avatars: &crate::timeline::Avatars, mxc: Option<&str
     true
 }
 
-/// Header with the search field, then the rows. Returns nothing: selection goes through `Sidebar::select`.
-pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens) {
+/// Header with the search field, then the rows. Selection goes through `Sidebar::select`; true when a room was chosen, the open one too.
+pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat: &mut bool, t: &DesignTokens) -> bool {
     let (title, _, _) = session.sidebar.list_header();
     let in_space = session.sidebar.active_space().is_some();
     ui.add_space(12.);
@@ -89,6 +89,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     let sidebar = &mut session.sidebar;
     let query = &mut session.query;
     let focus = &mut session.focus_search;
+    let mut chosen = false;
     ui.add_space(8.);
     ui.horizontal(|ui| {
         ui.add_space(12.);
@@ -107,6 +108,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
             {
                 let scope = sidebar.rooms()[first].scope.clone();
                 sidebar.select(&scope);
+                chosen = true;
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 query.clear();
@@ -194,8 +196,10 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     });
     if let Some(scope) = pick {
         sidebar.select(&scope);
+        chosen = true;
     }
     if let Some((scope, action)) = action { session.room_action(scope, action); }
+    chosen
 }
 
 /// Space entries of the room menu: whether «Aggiungi a uno spazio…» shows, and the spaces behind «Togli da <spazio>».

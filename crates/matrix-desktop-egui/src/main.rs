@@ -78,6 +78,16 @@ struct Parked {
 const NARROW_WIDTH: f32 = 772.;
 /// Narrow layout shows rail 76 + chat; the chat needs ≥360.
 const MIN_WIDTH: f32 = 436.;
+/// Below this (a phone held upright) there is one column: the list, or the chat without the rail, or a side panel in place of the chat.
+const SINGLE_WIDTH: f32 = 480.;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Side { Member, Info, Search, Thread }
+
+/// One column: the side panel drawn in place of the chat, which is also the one «back» closes.
+fn side_on_top(info: bool, member: bool, search: bool, thread: bool) -> Option<Side> {
+    if info && member { Some(Side::Member) } else if info { Some(Side::Info) } else if search { Some(Side::Search) } else if thread { Some(Side::Thread) } else { None }
+}
 
 fn list_max_width(window_width: f32) -> f32 { (window_width - MIN_WIDTH).clamp(240., 600.) }
 
@@ -786,10 +796,48 @@ impl App {
         };
         // The shown account sits on top of the spaces rail: a click lists the others, each with a dot below it (filled = unread).
         let mut pick_account = None;
-        let narrow = ui.ctx().content_rect().width() < NARROW_WIDTH;
+        let width = ui.ctx().content_rect().width();
+        let narrow = width < NARROW_WIDTH;
+        let single = width < SINGLE_WIDTH;
         if !narrow {
             self.list_open = false;
         }
+        // Test hook: GNOBBI_EGUI_VIEW=list shows the list of a narrow window without a click.
+        if narrow && std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("list") {
+            self.list_open = true;
+        }
+        let mut side = None;
+        if let Some(s) = &mut self.session {
+            let room = s.sidebar.selected().map(|r| r.scope.clone());
+            // A room just created or joined is shown, not left behind the list (shortcut: a link or the quick search to a room already in the list leaves the list open; give `Session` an "opened" flag if that is ever met on a phone).
+            let (pending, started) = (egui::Id::new("pending-room"), egui::Id::new("shell-started"));
+            let waiting = s.pending_select.is_some();
+            if !waiting && ui.data(|d| d.get_temp(pending)) == Some(true) {
+                self.list_open = false;
+            }
+            // Started as one column (a phone): the list comes first, the room reopened from the last run stays behind it.
+            if single && ui.data(|d| d.get_temp::<bool>(started)).is_none() {
+                self.list_open = true;
+            }
+            ui.data_mut(|d| { d.insert_temp(pending, waiting); d.insert_temp(started, true); });
+            if single {
+                side = side_on_top(s.info_open && room.is_some(), s.profile.is_some(), s.search_open, s.thread.is_some());
+                // «Back» closes the side panel on top before it shows the list.
+                if self.list_open && room.is_some() && let Some(top) = side {
+                    match top {
+                        Side::Member => s.profile = None,
+                        Side::Info => s.info_open = false,
+                        Side::Search => s.search_open = false,
+                        Side::Thread => s.thread = None,
+                    }
+                    self.list_open = false;
+                    side = side_on_top(s.info_open, s.profile.is_some(), s.search_open, s.thread.is_some());
+                }
+                // Without a room there is nothing to show but the list.
+                self.list_open |= room.is_none();
+            }
+        }
+        let covered = side.is_some();
         let unread = |s: &Session| s.sidebar.navigation_entries().first().map_or(0, |e| e.unread);
         let others: Vec<(String, u64)> = self.parked.iter().map(|p| (p.session.account_name.clone(), unread(&p.session))).collect();
         // The catalog lists the account once its login is recorded; until then the layout is the default one, kept under 0.
@@ -801,60 +849,63 @@ impl App {
         let account = self.rail_account.as_ref().filter(|(root, _)| *root == self.root).map_or(0, |(_, id)| *id);
         if let Some(session) = &mut self.session {
             rail::edit_window(ui.ctx(), session, &mut self.rail, account, self.dirs.as_ref(), t);
-            egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
-                ui.add_space(8.);
-                // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
-                let dots = others.len().div_ceil(5) as f32 * 10.;
-                let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
-                let name = session.account_name.as_str();
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
-                if !others.is_empty() && resp.hovered() {
-                    ui.painter().rect_filled(rect.shrink2(egui::Vec2::new(6., 2.)), 10., rgb(t.input));
-                }
-                let c = rect.center_top() + egui::Vec2::new(0., 26.);
-                let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
-                ui.painter().circle_filled(c, 18., rgb(AVATAR));
-                ui.painter().text(c, egui::Align2::CENTER_CENTER, initial, egui::FontId::proportional(16.), rgb(t.on_accent));
-                if let Some(tex) = session.own_picture() {
-                    let r = egui::Rect::from_center_size(c, egui::Vec2::splat(36.));
-                    egui::Image::new(&tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(18)).paint_at(ui, r);
-                }
-                for (i, (_, n)) in others.iter().enumerate() {
-                    let in_row = (others.len() - i / 5 * 5).min(5);
-                    let d = egui::Pos2::new(c.x + ((i % 5) as f32 - (in_row - 1) as f32 / 2.) * 10., rect.top() + 55. + (i / 5) as f32 * 10.);
-                    if *n > 0 {
-                        ui.painter().circle_filled(d, 3., rgb(t.accent));
-                    } else {
-                        ui.painter().circle_stroke(d, 2.5, egui::Stroke::new(1., rgb(t.secondary)));
+            if !single || self.list_open {
+                egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
+                    ui.add_space(8.);
+                    // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
+                    let dots = others.len().div_ceil(5) as f32 * 10.;
+                    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
+                    let name = session.account_name.as_str();
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+                    if !others.is_empty() && resp.hovered() {
+                        ui.painter().rect_filled(rect.shrink2(egui::Vec2::new(6., 2.)), 10., rgb(t.input));
                     }
-                }
-                if !others.is_empty() {
-                    // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the list without a click.
-                    if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
-                        egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
+                    let c = rect.center_top() + egui::Vec2::new(0., 26.);
+                    let initial: String = name.trim_start_matches('@').chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_else(|| "?".to_owned());
+                    ui.painter().circle_filled(c, 18., rgb(AVATAR));
+                    ui.painter().text(c, egui::Align2::CENTER_CENTER, initial, egui::FontId::proportional(16.), rgb(t.on_accent));
+                    if let Some(tex) = session.own_picture() {
+                        let r = egui::Rect::from_center_size(c, egui::Vec2::splat(36.));
+                        egui::Image::new(&tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(18)).paint_at(ui, r);
                     }
-                    egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
-                        for (i, (other, n)) in others.iter().enumerate() {
-                            let count = if *n > 0 { n.to_string() } else { String::new() };
-                            if ui.add(egui::Button::new(other.as_str()).right_text(egui::RichText::new(count).color(rgb(t.accent)))).clicked() {
-                                pick_account = Some(i);
-                                ui.close();
-                            }
+                    for (i, (_, n)) in others.iter().enumerate() {
+                        let in_row = (others.len() - i / 5 * 5).min(5);
+                        let d = egui::Pos2::new(c.x + ((i % 5) as f32 - (in_row - 1) as f32 / 2.) * 10., rect.top() + 55. + (i / 5) as f32 * 10.);
+                        if *n > 0 {
+                            ui.painter().circle_filled(d, 3., rgb(t.accent));
+                        } else {
+                            ui.painter().circle_stroke(d, 2.5, egui::Stroke::new(1., rgb(t.secondary)));
                         }
-                    });
-                }
-                resp.on_hover_text(name);
-                let placed = session.space_placed.take();
-                rail::show(ui, &mut session.sidebar, &session.avatars, &mut self.rail, account, placed, t);
-            });
+                    }
+                    if !others.is_empty() {
+                        // Test hook: GNOBBI_EGUI_VIEW=account-menu shows the list without a click.
+                        if std::env::var("GNOBBI_EGUI_VIEW").as_deref() == Ok("account-menu") {
+                            egui::Popup::open_id(ui.ctx(), egui::Popup::default_response_id(&resp));
+                        }
+                        egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
+                            for (i, (other, n)) in others.iter().enumerate() {
+                                let count = if *n > 0 { n.to_string() } else { String::new() };
+                                if ui.add(egui::Button::new(other.as_str()).right_text(egui::RichText::new(count).color(rgb(t.accent)))).clicked() {
+                                    pick_account = Some(i);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    }
+                    resp.on_hover_text(name);
+                    let placed = session.space_placed.take();
+                    rail::show(ui, &mut session.sidebar, &session.avatars, &mut self.rail, account, placed, t);
+                });
+            }
             if !narrow || self.list_open {
-                let before = session.sidebar.selected().map(|r| r.scope.clone());
-                // Narrow: the list takes the whole width left of the rail and the chat is not drawn (shortcut: re-clicking the open room does not close it).
+                // Narrow: the list takes the whole width left of the rail and the chat is not drawn; a tap on a row, the open one too, goes to the chat.
                 let list_fill = list_fill(t);
                 if narrow {
                     egui::Panel::left("list-narrow").exact_size(ui.available_width()).resizable(false).show_separator_line(false).frame(bar(t).fill(list_fill)).show(ui, |ui| {
                         let mut new_chat = false;
-                        list::rooms(ui, session, &mut new_chat, t);
+                        if list::rooms(ui, session, &mut new_chat, t) {
+                            self.list_open = false;
+                        }
                         session.new_open |= new_chat;
                     });
                 } else {
@@ -888,9 +939,6 @@ impl App {
                             eprintln!("Gnobbi: list_width {:?}", error.kind());
                         }
                     }
-                }
-                if narrow && session.sidebar.selected().map(|r| r.scope.clone()) != before {
-                    self.list_open = false;
                 }
                 if narrow {
                     return;
@@ -953,6 +1001,7 @@ impl App {
         });
         if let Some(s) = &self.session
             && s.info_open
+            && (!single || side == Some(Side::Info))
             && let Some(room) = s.sidebar.selected()
         {
             let members = s.members.as_ref().map(|(_, m)| m.as_slice());
@@ -960,7 +1009,7 @@ impl App {
             let mut alias_input = std::mem::take(&mut self.alias_input);
             let mut alias_action = None;
             let mut view = info::AliasView { data: s.aliases.as_ref(), error: s.alias_error, input: &mut alias_input, action: None };
-            egui::Panel::right("info").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, t));
+            egui::Panel::right("info").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, t));
             alias_action = view.action.take();
             self.alias_input = alias_input;
             if out.open_link.is_some() {
@@ -984,7 +1033,7 @@ impl App {
             let (rights, failed, busy) = (s.rights.clone(), s.moderation_failed, s.moderating);
             let me = id == s.user;
             let can_verify = s.verification.as_ref().is_some_and(|v| v.can_begin());
-            egui::Panel::right("member").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, busy, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t));
+            egui::Panel::right("member").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| flip = info::card(ui, &id, profile.as_ref(), rights.as_ref(), failed, busy, s.new_failed, me, can_verify, &mut action, &mut self.confirm, &mut moderation, &mut close, t));
             match action {
                 Some(info::ProfileAction::Message) => s.start_dm(id.clone()),
                 Some(info::ProfileAction::Mention) => {
@@ -1022,11 +1071,12 @@ impl App {
         }
         if let Some(s) = &mut self.session
             && s.search_open
+            && (!single || side == Some(Side::Search))
         {
             let state = s.search.clone();
             let mut selected = None;
             let mut more = false;
-            egui::Panel::right("search").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, &mut more, t));
+            egui::Panel::right("search").exact_size(if single { ui.available_width() } else { 300. }).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| selected = info::search(ui, &mut s.search_term, &state, &mut more, t));
             if more { s.more_messages(); }
             if selected.is_some() {
                 s.search_jump = selected;
@@ -1034,6 +1084,7 @@ impl App {
             }
         }
         if let Some(s) = &mut self.session
+            && (!single || side == Some(Side::Thread))
             && let Some(mut th) = s.thread.take()
         {
             let (mut close, mut body) = (false, None);
@@ -1042,7 +1093,9 @@ impl App {
             let active = ui.style().visuals.widgets.active.fg_stroke;
             ui.style_mut().visuals.widgets.hovered.fg_stroke = Stroke::NONE;
             ui.style_mut().visuals.widgets.active.fg_stroke = Stroke::NONE;
-            let shown = egui::Panel::right("thread").default_size(w).size_range(260. ..=640.).resizable(true).show_separator_line(false).frame(bar(t)).show(ui, |ui| {
+            // Its own id in one column: the full width must not become the remembered width of the resizable panel.
+            let panel = if single { egui::Panel::right("thread-single").exact_size(ui.available_width()).resizable(false) } else { egui::Panel::right("thread").default_size(w).size_range(260. ..=640.).resizable(true) };
+            let shown = panel.show_separator_line(false).frame(bar(t)).show(ui, |ui| {
                 ui.style_mut().visuals.widgets.hovered.fg_stroke = hovered;
                 ui.style_mut().visuals.widgets.active.fg_stroke = active;
                 body = info::thread(ui, &mut th, &mut close, t);
@@ -1051,7 +1104,7 @@ impl App {
             ui.style_mut().visuals.widgets.active.fg_stroke = active;
             // Saved once the drag is over, not on every frame of it.
             let now = shown.response.rect.width().round() as u32;
-            if !ui.input(|i| i.pointer.any_down()) && self.prefs.thread_width.unwrap_or(320) != now && let Some(dirs) = &self.dirs {
+            if !single && !ui.input(|i| i.pointer.any_down()) && self.prefs.thread_width.unwrap_or(320) != now && let Some(dirs) = &self.dirs {
                 self.prefs.thread_width = Some(now);
                 if let Err(e) = Preferences::update(dirs, |p| p.thread_width = Some(now)) { eprintln!("thread width not saved: {e}"); }
             }
@@ -1066,6 +1119,7 @@ impl App {
         composer::panel(bar(t)).show(ui, |ui| {
             if let Some(s) = &mut self.session
                 && s.messages.is_some()
+                && !covered
             {
                 let mode = s.target.as_ref().map_or(composer::Mode::Send, |(_, m)| *m);
                 let mut cancel = false;
@@ -1175,6 +1229,10 @@ impl App {
         }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
             // The click that changes room lands before `drive_history` swaps the messages: drawing the old room under the new room's scroll state moved it to the bottom and saved that as its reading position.
+            // A side panel has taken the whole width: nothing is laid out in the sliver left.
+            if covered {
+                return;
+            }
             let stale = self.session.as_ref().is_some_and(|s| s.messages.as_ref().is_some_and(|m| s.sidebar.selected().is_some_and(|r| r.scope != *m.scope())));
             if stale {
                 ui.ctx().request_repaint();
@@ -1673,6 +1731,15 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_column_shows_one_side_panel_at_a_time() {
+        assert_eq!(side_on_top(true, true, false, true), Some(Side::Member));
+        assert_eq!(side_on_top(true, false, false, true), Some(Side::Info));
+        assert_eq!(side_on_top(false, true, true, true), Some(Side::Search));
+        assert_eq!(side_on_top(false, true, false, true), Some(Side::Thread));
+        assert_eq!(side_on_top(false, true, false, false), None);
+    }
 
     #[test]
     fn list_width_bounds_and_persistence() {
