@@ -963,6 +963,9 @@ impl App {
             egui::Panel::right("info").exact_size(300.).resizable(false).show_separator_line(false).frame(bar(t)).show(ui, |ui| out = info::show(ui, room, members, s.admin.as_ref().filter(|a| a.scope == room.scope), &s.user, &mut view, t));
             alias_action = view.action.take();
             self.alias_input = alias_input;
+            if out.open_link.is_some() {
+                self.pending_web = out.open_link.take();
+            }
             if let (Some(action), Some(s)) = (alias_action, &mut self.session) {
                 s.alias_action(action);
             }

@@ -11,6 +11,7 @@ fn rgb(c: u32) -> Color32 {
 #[derive(Default)]
 pub struct Out {
     pub member: Option<crate::members::Act>,
+    pub open_link: Option<matrix_desktop::SafeWebUrl>,
     pub edit: bool,
 }
 
@@ -23,9 +24,9 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
             ui.vertical(|ui| {
                 ui.set_max_width(ui.available_width() - 16.);
                 ui.heading(&room.name);
-                if let Some(topic) = room.info.topic.as_deref().filter(|t| !t.is_empty()) {
+                if let Some(topic) = room.info.shown_topic().filter(|t| !t.text.is_empty()) {
                     ui.add_space(4.);
-                    ui.label(RichText::new(topic).color(rgb(t.secondary)));
+                    out.open_link = topic_view(ui, &topic, t);
                 }
                 if room.info.edit_rights.any() && ui.button("Modifica").clicked() {
                     out.edit = true;
@@ -48,6 +49,92 @@ pub fn show(ui: &mut egui::Ui, room: &SidebarRoom, members: Option<&[Member]>, a
         out.member = crate::members::list(ui, members, admin, me, t);
     });
     out
+}
+
+/// One stretch of the topic drawn in a single style; `url` makes it a link.
+struct Run<'a> {
+    text: &'a str,
+    bold: bool,
+    italic: bool,
+    strike: bool,
+    code: bool,
+    url: Option<matrix_desktop::SafeWebUrl>,
+}
+
+/// The engine's topic cut at every style and link edge; bare URLs become links as in the timeline, unsafe hrefs stay text.
+fn topic_runs(topic: &matrix_engine::rich_text::Topic) -> Vec<Run<'_>> {
+    use matrix_engine::rich_text::Style;
+    let text = topic.text.as_str();
+    let mut cuts = vec![0, text.len()];
+    cuts.extend(topic.styles.iter().flat_map(|s| [s.range.start, s.range.end]));
+    cuts.extend(topic.links.iter().flat_map(|l| [l.range.start, l.range.end]));
+    cuts.retain(|&c| text.is_char_boundary(c));
+    cuts.sort_unstable();
+    cuts.dedup();
+    let mut runs = Vec::new();
+    for w in cuts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let has = |style| topic.styles.iter().any(|s| s.style == style && s.range.start <= a && b <= s.range.end);
+        let href = topic.links.iter().find(|l| l.range.start <= a && b <= l.range.end).and_then(|l| matrix_desktop::SafeWebUrl::parse(&l.href));
+        let parts = match href {
+            Some(url) => vec![(&text[a..b], Some(url))],
+            None => crate::timeline::link_parts(&text[a..b]),
+        };
+        let (bold, italic, strike, code) = (has(Style::Bold), has(Style::Italic), has(Style::Strike), has(Style::Code));
+        runs.extend(parts.into_iter().map(|(text, url)| Run { text, bold, italic, strike, code, url }));
+    }
+    runs
+}
+
+/// The topic with its styles; links look and behave as in the timeline. Returns the link clicked this frame.
+fn topic_view(ui: &mut egui::Ui, topic: &matrix_engine::rich_text::Topic, t: &DesignTokens) -> Option<matrix_desktop::SafeWebUrl> {
+    let mut clicked = None;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.;
+        for run in topic_runs(topic) {
+            // shortcut: no bold face is bundled, bold is the main text colour; add a bold font to upgrade.
+            let mut text = RichText::new(run.text).color(rgb(if run.url.is_some() { t.accent } else if run.bold { t.text } else { t.secondary }));
+            if run.italic {
+                text = text.italics();
+            }
+            if run.strike {
+                text = text.strikethrough();
+            }
+            if run.code {
+                text = text.monospace();
+            }
+            match run.url {
+                Some(url) => {
+                    if ui.link(text.underline()).clicked() {
+                        clicked = Some(url);
+                    }
+                }
+                None => {
+                    ui.label(text);
+                }
+            }
+        }
+    });
+    clicked
+}
+
+#[cfg(test)]
+mod topic_tests {
+    #[test]
+    fn topic_runs_carry_styles_links_and_lists() {
+        let topic = matrix_engine::rich_text::topic("[sito](https://example.org) **forte** *chino* [no](javascript:alert(1)) https://nudo.example\n\n- uno\n- due\n\n1. primo", None);
+        let runs = super::topic_runs(&topic);
+        assert_eq!(runs.iter().map(|r| r.text).collect::<String>(), topic.text);
+        let run = |s: &str| runs.iter().find(|r| r.text.contains(s)).unwrap();
+        assert!(run("sito").text == "sito" && run("sito").url.as_ref().is_some_and(|u| u.as_str().starts_with("https://example.org")));
+        assert!(run("forte").bold && !run("forte").italic && run("chino").italic && !run("chino").bold);
+        assert!(runs.iter().all(|r| r.url.as_ref().is_none_or(|u| !u.as_str().starts_with("javascript"))));
+        assert!(run("nudo").url.is_some());
+        assert!(topic.text.contains("• uno") && topic.text.contains("1. primo") && !topic.text.contains("**"));
+        let plain = matrix_engine::RoomInfo { topic: Some("Solo testo è".into()), ..Default::default() }.shown_topic().unwrap();
+        let runs = super::topic_runs(&plain);
+        assert!(runs.len() == 1 && runs[0].text == "Solo testo è" && runs[0].url.is_none() && !runs[0].bold);
+    }
 }
 
 /// One member: initials, name on one line and the role badge at the right edge.

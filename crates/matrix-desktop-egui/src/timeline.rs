@@ -19,7 +19,7 @@ pub struct Acts {
     pub flash: Option<matrix_domain::EventId>,
 }
 
-fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWebUrl>)> {
+pub(crate) fn link_parts(text: &str) -> Vec<(&str, Option<matrix_desktop::SafeWebUrl>)> {
     let mut parts = Vec::new();
     let mut start = 0;
     for link in matrix_desktop::message_links(text) {
