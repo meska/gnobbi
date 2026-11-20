@@ -5,9 +5,10 @@
 use crate::{AccountCatalog, AppDirs, Platform, app_dirs};
 use matrix_domain::AccountId;
 use matrix_engine::auth::{AccountSession, AuthError};
+use matrix_engine::recovery::RecoveryError;
 use matrix_engine::signin::{Secret, SignInError, SignInProfile, forget_secrets, platform_source};
 use serde_json::{Value, json};
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use zeroize::Zeroizing;
@@ -32,8 +33,10 @@ pub enum Cmd {
     Login { user: String, homeserver: Option<String>, source: SecretSource },
     Logout { account: String, local: bool },
     Status { account: Option<String> },
-    /// Recognised, implemented by the keys card.
-    Keys,
+    /// Recovery key from the chosen source, checked by the server before anything local changes.
+    KeysUpdate { account: String, source: SecretSource },
+    /// New recovery key to `output` (`-` = stdout).
+    KeysRotate { account: String, output: String },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -78,7 +81,8 @@ pub fn parse(args: &[String], env: &dyn Fn(&str) -> Option<String>) -> Result<Pa
         return Err("usage: gnobbi account login|logout|status|keys".into());
     };
     let (sub, rest) = match (sub.as_str(), rest.split_first()) {
-        ("keys", Some((k, r))) if matches!(k.as_str(), "update" | "rotate") => ("keys", r),
+        ("keys", Some((k, r))) if k == "update" => ("keys update", r),
+        ("keys", Some((k, r))) if k == "rotate" => ("keys rotate", r),
         ("keys", _) => return Err("usage: gnobbi account keys update|rotate".into()),
         (s @ ("login" | "logout" | "status"), _) => (s, rest),
         (other, _) => return Err(format!("unknown command {other}")),
@@ -88,7 +92,8 @@ pub fn parse(args: &[String], env: &dyn Fn(&str) -> Option<String>) -> Result<Pa
         "login" => [&common[..], &[("--user", true), ("--homeserver", true), ("--password-stdin", false), ("--password-file", true)]].concat(),
         "logout" => [&common[..], &[("--account", true), ("--local", false)]].concat(),
         "status" => [&common[..], &[("--account", true)]].concat(),
-        _ => return Ok(Parsed { cmd: Cmd::Keys, json: rest.iter().any(|a| a == "--json"), ca_file: None }),
+        "keys update" => [&common[..], &[("--account", true), ("--recovery-key-stdin", false), ("--recovery-key-file", true)]].concat(),
+        _ => [&common[..], &[("--account", true), ("--output", true)]].concat(),
     };
     let found = flags(rest, &spec)?;
     let get = |name: &str| found.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone());
@@ -114,7 +119,29 @@ pub fn parse(args: &[String], env: &dyn Fn(&str) -> Option<String>) -> Result<Pa
             account: value("--account", "GNOBBI_ACCOUNT").ok_or("--account is required (or GNOBBI_ACCOUNT)")?,
             local: get("--local").is_some(),
         },
-        _ => Cmd::Status { account: value("--account", "GNOBBI_ACCOUNT") },
+        "status" => Cmd::Status { account: value("--account", "GNOBBI_ACCOUNT") },
+        _ => {
+            let account = value("--account", "GNOBBI_ACCOUNT").ok_or("--account is required (or GNOBBI_ACCOUNT)")?;
+            if sub == "keys rotate" {
+                let output = get("--output").flatten().ok_or("--output PATH (or -) is required")?;
+                if output != "-" && !Path::new(&output).is_absolute() {
+                    return Err("--output must be an absolute path or -".into());
+                }
+                Cmd::KeysRotate { account, output }
+            } else {
+                let sources = [
+                    get("--recovery-key-stdin").map(|_| SecretSource::Stdin),
+                    get("--recovery-key-file").flatten().map(|p| SecretSource::File(p.into())),
+                    env("GNOBBI_RECOVERY_KEY").map(|_| SecretSource::Env),
+                ];
+                let mut sources = sources.into_iter().flatten();
+                let source = sources.next().unwrap_or(SecretSource::Ask);
+                if sources.next().is_some() {
+                    return Err("give the recovery key from one source only".into());
+                }
+                Cmd::KeysUpdate { account, source }
+            }
+        }
     };
     Ok(Parsed { cmd, json, ca_file })
 }
@@ -170,6 +197,18 @@ pub fn signin_error(e: SignInError) -> CliError {
     }
 }
 
+pub fn recovery_error(e: RecoveryError) -> CliError {
+    match e {
+        RecoveryError::WrongKey | RecoveryError::InvalidSecret => fail(11, "wrong_recovery_key", "wrong recovery key"),
+        RecoveryError::LoggedOut => fail(5, "session_expired", "session expired; log in again"),
+        RecoveryError::Transport | RecoveryError::Deadline => fail(6, "temporary", "homeserver unreachable or busy; retry later"),
+        RecoveryError::InvalidScope => fail(1, "internal", "invalid recovery scope"),
+        RecoveryError::NoSecretStorage | RecoveryError::BackupUnavailable | RecoveryError::IdentityRequired | RecoveryError::AlreadyConfigured | RecoveryError::Failed | RecoveryError::WrongPhrase => {
+            fail(12, "keys_not_ready", "recovery keys not ready: run keys update first, or set up key backup")
+        }
+    }
+}
+
 fn io_error(_: std::io::Error) -> CliError {
     storage("cannot update the account catalog")
 }
@@ -201,17 +240,17 @@ fn read_secret_file(path: &Path) -> Result<Zeroizing<String>, CliError> {
     read_limited(std::fs::File::open(path).map_err(|_| usage("cannot read the password file"))?)
 }
 
-fn read_password(source: &SecretSource, env_secret: Option<Zeroizing<String>>) -> Result<Zeroizing<String>, CliError> {
+fn read_password(source: &SecretSource, env_secret: Option<Zeroizing<String>>, what: &str, var: &str) -> Result<Zeroizing<String>, CliError> {
     match source {
         SecretSource::Stdin => read_limited(std::io::stdin().lock()),
         SecretSource::File(path) => read_secret_file(path),
-        SecretSource::Env => env_secret.filter(|v| !v.is_empty()).ok_or_else(|| usage("GNOBBI_PASSWORD is empty")),
+        SecretSource::Env => env_secret.filter(|v| !v.is_empty()).ok_or_else(|| usage(format!("{var} is empty"))),
         SecretSource::Ask if std::io::stdin().is_terminal() => {
-            let typed = rpassword::prompt_password("Password: ").map_err(|_| usage("cannot read the password"))?;
+            let typed = rpassword::prompt_password(format!("{what}: ")).map_err(|_| usage(format!("cannot read the {what}")))?;
             let typed = Zeroizing::new(typed);
             if typed.is_empty() { Err(usage("secret is empty")) } else { Ok(typed) }
         }
-        SecretSource::Ask => Err(usage("no password: use --password-stdin")),
+        SecretSource::Ask => Err(usage(format!("no {what}: use stdin, a file or {var}"))),
     }
 }
 
@@ -513,6 +552,88 @@ async fn login(dirs: &AppDirs, user: String, homeserver: Option<String>, mut pas
     Err(if revoked { error } else { CliError { message: format!("{}; the new device may still be listed on the server", error.message), ..error } })
 }
 
+/// Account + saved session for a `keys` command.
+async fn open_account(dirs: &AppDirs, selector: &str, ca: Option<Vec<u8>>) -> Result<(AccountSession, Value), CliError> {
+    let catalog = load_catalog(dirs)?;
+    let id = select(&catalog, selector).ok_or_else(|| fail(3, "not_found", "account not found"))?;
+    let root = catalog.data_dir(dirs, id).ok_or_else(|| fail(9, "storage", "account storage error"))?;
+    let session = restore(root, ca).await.map_err(signin_error)?.ok_or_else(|| fail(5, "session_expired", "no saved session; log in again"))?;
+    Ok((session, account_json(&catalog, id, None, None)))
+}
+
+async fn keys_update(dirs: &AppDirs, selector: &str, key: Zeroizing<String>, ca: Option<Vec<u8>>) -> Result<Outcome, CliError> {
+    let (mut session, account) = open_account(dirs, selector, ca).await?;
+    // The server checks the key first; nothing local is written before that.
+    session.recover_all_room_keys(&key).await.map_err(recovery_error)?;
+    let verified = session.keys_recovered().await;
+    let json = json!({ "ok": true, "command": "keys update", "account": account, "verified": verified });
+    Ok(Outcome { json, text: format!("{selector} keys updated, verified: {verified}"), exit: 0 })
+}
+
+/// Creates the private temp file next to `dest` BEFORE the server changes, so a file problem never comes after.
+fn prepare_output(dest: &Path) -> Result<(std::fs::File, PathBuf), CliError> {
+    if std::fs::symlink_metadata(dest).is_ok() {
+        return Err(usage("--output already exists; it is never overwritten"));
+    }
+    let name = dest.file_name().and_then(|n| n.to_str()).ok_or_else(|| usage("invalid --output"))?;
+    let tmp = dest.with_file_name(format!(".{name}.tmp-{}", std::process::id()));
+    let mut open = std::fs::OpenOptions::new();
+    open.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
+    let file = open.open(&tmp).map_err(|_| storage("cannot create the --output file"))?;
+    Ok((file, tmp))
+}
+
+/// Writes, syncs and publishes the key without overwriting `dest`.
+fn publish_key(mut file: std::fs::File, tmp: &Path, dest: &Path, key: &str) -> std::io::Result<()> {
+    file.write_all(key.as_bytes())?;
+    file.write_all(b"\n")?;
+    file.sync_all()?;
+    std::fs::hard_link(tmp, dest)?;
+    std::fs::remove_file(tmp)?;
+    #[cfg(unix)]
+    if let Some(dir) = dest.parent() {
+        std::fs::File::open(dir).and_then(|d| d.sync_all())?;
+    }
+    Ok(())
+}
+
+async fn keys_rotate(dirs: &AppDirs, selector: &str, output: &str, ca: Option<Vec<u8>>) -> Result<Outcome, CliError> {
+    let pending = (output != "-").then(|| prepare_output(Path::new(output))).transpose()?;
+    let result = async {
+        let (mut session, account) = open_account(dirs, selector, ca).await?;
+        let key = session.reset_recovery_key().await.map_err(recovery_error)?;
+        Ok::<_, CliError>((account, key))
+    }
+    .await;
+    let (account, key) = match result {
+        Ok(v) => v,
+        Err(e) => {
+            if let Some((_, tmp)) = &pending {
+                let _ = std::fs::remove_file(tmp);
+            }
+            return Err(e);
+        }
+    };
+    let mut json = json!({ "ok": true, "command": "keys rotate", "account": account });
+    let text = match pending {
+        Some((file, tmp)) => {
+            if publish_key(file, &tmp, Path::new(output), key.expose()).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+                return Err(storage("the old recovery key no longer works and the new one could not be saved; run keys rotate again"));
+            }
+            json["output"] = json!(output);
+            format!("new recovery key written to {output}")
+        }
+        None => {
+            json["recovery_key"] = json!(key.expose());
+            key.expose().to_owned()
+        }
+    };
+    Ok(Outcome { json, text, exit: 0 })
+}
+
 fn take_env(key: &str) -> Option<Zeroizing<String>> {
     let value = std::env::var(key).ok()?;
     // SAFETY: called first thing in `main`, before the runtime or any thread exists.
@@ -522,7 +643,12 @@ fn take_env(key: &str) -> Option<Zeroizing<String>> {
 
 fn command_name(args: &[String]) -> &str {
     match args.first().map(String::as_str) {
-        Some(c @ ("login" | "logout" | "status" | "keys")) => c,
+        Some(c @ ("login" | "logout" | "status")) => c,
+        Some("keys") => match args.get(1).map(String::as_str) {
+            Some("update") => "keys update",
+            Some("rotate") => "keys rotate",
+            _ => "keys",
+        },
         _ => "account",
     }
 }
@@ -546,8 +672,10 @@ pub fn main(args: &[String]) -> i32 {
     let json = args.iter().any(|a| a == "--json");
     let command = command_name(args);
     let password = take_env("GNOBBI_PASSWORD");
+    let recovery = take_env("GNOBBI_RECOVERY_KEY");
     let env = |key: &str| match key {
         "GNOBBI_PASSWORD" => password.as_ref().map(|_| String::new()),
+        "GNOBBI_RECOVERY_KEY" => recovery.as_ref().map(|_| String::new()),
         _ => std::env::var(key).ok(),
     };
     let parsed = match parse(args, &env) {
@@ -559,12 +687,16 @@ pub fn main(args: &[String]) -> i32 {
         let dirs = app_dirs(Platform::CURRENT, |k| std::env::var(k).ok()).ok_or_else(|| storage("no user directories (HOME unset?)"))?;
         match parsed.cmd {
             Cmd::Login { user, homeserver, source } => {
-                let secret = read_password(&source, password)?;
+                let secret = read_password(&source, password, "password", "GNOBBI_PASSWORD")?;
                 login(&dirs, user, homeserver, secret, ca).await
             }
             Cmd::Logout { account, local } => logout(&dirs, &account, local, ca).await,
             Cmd::Status { account } => status(&dirs, account.as_deref(), ca).await,
-            Cmd::Keys => Err(usage("keys: not implemented yet")),
+            Cmd::KeysUpdate { account, source } => {
+                let key = read_password(&source, recovery, "recovery key", "GNOBBI_RECOVERY_KEY")?;
+                keys_update(&dirs, &account, key, ca).await
+            }
+            Cmd::KeysRotate { account, output } => keys_rotate(&dirs, &account, &output, ca).await,
         }
     };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build();

@@ -69,7 +69,84 @@ fn parse_logout_status_keys() {
     let env = |k: &str| (k == "GNOBBI_ACCOUNT").then(|| "3".to_owned());
     assert_eq!(parse(&args("status"), &env).unwrap().cmd, Cmd::Status { account: Some("3".into()) });
     assert_eq!(parse(&args("status --ca-file /x.pem"), &no_env).unwrap().ca_file, Some("/x.pem".into()));
-    assert_eq!(parse(&args("keys rotate --json"), &no_env).unwrap().cmd, Cmd::Keys);
+}
+
+#[test]
+fn parse_keys() {
+    let p = parse(&args("keys update --account @a:b --recovery-key-stdin --json"), &no_env).unwrap();
+    assert_eq!(p.cmd, Cmd::KeysUpdate { account: "@a:b".into(), source: SecretSource::Stdin });
+    assert!(p.json);
+    let env = |k: &str| (k == "GNOBBI_RECOVERY_KEY").then(String::new);
+    let p = parse(&args("keys update --account 3"), &env).unwrap();
+    assert_eq!(p.cmd, Cmd::KeysUpdate { account: "3".into(), source: SecretSource::Env });
+    let p = parse(&args("keys rotate --account 3 --output -"), &no_env).unwrap();
+    assert_eq!(p.cmd, Cmd::KeysRotate { account: "3".into(), output: "-".into() });
+    let p = parse(&args("keys rotate --account 3 --output=/k/key"), &no_env).unwrap();
+    assert_eq!(p.cmd, Cmd::KeysRotate { account: "3".into(), output: "/k/key".into() });
+    for line in [
+        "keys update --account 3 --recovery-key abc",
+        "keys update --account 3 --recovery-key=abc",
+        "keys update --account 3 --recovery-key-stdin --recovery-key-file /k",
+        "keys update --recovery-key-stdin",
+        "keys rotate --account 3",
+        "keys rotate --account 3 --output rel/path",
+        "keys rotate --account 3 --output -  --recovery-key-stdin",
+        "keys",
+    ] {
+        assert!(parse(&args(line), &no_env).is_err(), "{line}");
+    }
+    assert!(parse(&args("keys update --account 3 --recovery-key-stdin"), &env).is_err(), "flag plus environment");
+}
+
+#[test]
+fn recovery_errors_map_to_exit_codes() {
+    for (e, exit) in [
+        (RecoveryError::WrongKey, 11),
+        (RecoveryError::InvalidSecret, 11),
+        (RecoveryError::LoggedOut, 5),
+        (RecoveryError::Transport, 6),
+        (RecoveryError::Deadline, 6),
+        (RecoveryError::NoSecretStorage, 12),
+        (RecoveryError::BackupUnavailable, 12),
+        (RecoveryError::IdentityRequired, 12),
+        (RecoveryError::AlreadyConfigured, 12),
+        (RecoveryError::Failed, 12),
+    ] {
+        assert_eq!(recovery_error(e).exit, exit, "{e:?}");
+    }
+}
+
+#[test]
+fn keys_unknown_account_is_not_found() {
+    let dirs = temp_dirs("keys-nf");
+    assert_eq!(run(keys_update(&dirs, "@x:y", Zeroizing::new("k".into()), None)).err().unwrap().exit, 3);
+    assert_eq!(run(keys_rotate(&dirs, "@x:y", "-", None)).err().unwrap().exit, 3);
+}
+
+#[test]
+fn rotate_output_is_private_atomic_and_never_overwrites() {
+    let dirs = temp_dirs("keys-out");
+    std::fs::create_dir_all(&dirs.data).unwrap();
+    let dest = dirs.data.join("recovery.key");
+    let (file, tmp) = prepare_output(&dest).unwrap();
+    assert!(!dest.exists() && tmp.exists(), "nothing published before the key is known");
+    publish_key(file, &tmp, &dest, "EsTc abcd").unwrap();
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "EsTc abcd\n");
+    assert!(!tmp.exists());
+    #[cfg(unix)]
+    assert_eq!(std::os::unix::fs::PermissionsExt::mode(&std::fs::metadata(&dest).unwrap().permissions()) & 0o777, 0o600);
+    // Existing output: usage error before the server is touched (no session needed to see it).
+    assert_eq!(run(keys_rotate(&dirs, "@x:y", dest.to_str().unwrap(), None)).err().unwrap().exit, 2);
+    assert_eq!(std::fs::read_to_string(&dest).unwrap(), "EsTc abcd\n");
+}
+
+#[test]
+fn rotate_output_not_writable_fails_before_the_server() {
+    let dirs = temp_dirs("keys-ro");
+    let missing = dirs.data.join("no-such-dir").join("k");
+    assert_eq!(prepare_output(&missing).err().unwrap().exit, 9);
+    // Same order in keys_rotate: exit 9 even though the account does not exist.
+    assert_eq!(run(keys_rotate(&dirs, "@x:y", missing.to_str().unwrap(), None)).err().unwrap().exit, 9);
 }
 
 fn secret(bytes: &[u8]) -> Result<String, i32> {
