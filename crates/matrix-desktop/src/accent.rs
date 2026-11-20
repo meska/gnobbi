@@ -38,13 +38,13 @@ impl Accent {
 
     pub fn label(self) -> &'static str {
         match self {
-            Accent::Blue => "Blu",
-            Accent::Teal => "Verde acqua",
-            Accent::Green => "Verde",
-            Accent::Orange => "Arancione",
-            Accent::Red => "Rosso",
-            Accent::Pink => "Rosa",
-            Accent::Purple => "Viola",
+            Accent::Blue => crate::i18n::t("Blue"),
+            Accent::Teal => crate::i18n::t("Teal"),
+            Accent::Green => crate::i18n::t("Green"),
+            Accent::Orange => crate::i18n::t("Orange"),
+            Accent::Red => crate::i18n::t("Red"),
+            Accent::Pink => crate::i18n::t("Pink"),
+            Accent::Purple => crate::i18n::t("Purple"),
         }
     }
 

@@ -102,6 +102,21 @@ fn roundtrip_keeps_values() {
 }
 
 #[test]
+fn language_choice_persists_and_applies() {
+    use matrix_desktop::i18n::{self, Preference};
+    let _gate = no_spawn();
+    let d = dirs(&tmp("language"));
+    assert_eq!(Preferences::load(&d).language, Preference::Auto);
+    Preferences::update(&d, |p| p.language = Preference::Italian).unwrap();
+    let saved = Preferences::load(&d).language;
+    assert_eq!(saved, Preference::Italian);
+    assert_eq!(i18n::apply(saved, None), "it");
+    assert_eq!(i18n::t("Settings"), "Impostazioni");
+    assert_eq!(i18n::apply(Preference::English, None), "en");
+    assert_eq!(i18n::t("Settings"), "Settings");
+}
+
+#[test]
 fn transaction_excludes_a_second_thread_but_not_another_directory() {
     use std::sync::mpsc;
     use std::time::Duration;
@@ -502,7 +517,7 @@ fn icon_defaults_to_minimal_mark_saves_and_invalid_value_falls_back() {
     assert_eq!(Preferences::default().icon, IconChoice::MinimalMark);
     assert_eq!(
         IconChoice::ALL.map(IconChoice::label),
-        ["Segno minimo", "Gnomo", "Mostriciattolo"]
+        ["Minimal mark", "Gnome", "Little monster"]
     );
     let _gate = no_spawn();
     let d = dirs(&tmp("icon"));

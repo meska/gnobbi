@@ -28,10 +28,10 @@ impl Theme {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Theme::Classic => "Classico",
-            Theme::Day => "Giorno",
-            Theme::Dark => "Scuro",
-            Theme::Night => "Notte",
+            Theme::Classic => crate::i18n::t("Classic"),
+            Theme::Day => crate::i18n::t("Day"),
+            Theme::Dark => crate::i18n::t("Dark"),
+            Theme::Night => crate::i18n::t("Night"),
         }
     }
     /// The palette with the accent chosen in Settings.
@@ -83,9 +83,9 @@ impl AutoNight {
     }
     pub fn label(self) -> &'static str {
         match self {
-            AutoNight::Off => "No",
-            AutoNight::Schedule => "Orario",
-            AutoNight::System => "Sistema",
+            AutoNight::Off => crate::i18n::t("No"),
+            AutoNight::Schedule => crate::i18n::t("Schedule"),
+            AutoNight::System => crate::i18n::t("System"),
         }
     }
     fn parse(s: &str) -> Option<AutoNight> {
@@ -151,9 +151,9 @@ impl IconChoice {
     /// Accessible name; the interface shows only the thumbnail.
     pub fn label(self) -> &'static str {
         match self {
-            IconChoice::MinimalMark => "Segno minimo",
-            IconChoice::Gnome => "Gnomo",
-            IconChoice::Monster => "Mostriciattolo",
+            IconChoice::MinimalMark => crate::i18n::t("Minimal mark"),
+            IconChoice::Gnome => crate::i18n::t("Gnome"),
+            IconChoice::Monster => crate::i18n::t("Little monster"),
         }
     }
     /// 64 px PNG thumbnail.
