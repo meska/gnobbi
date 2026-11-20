@@ -109,6 +109,7 @@ struct App {
     /// A parked account to bring forward at the end of the frame (a click on one of its notifications).
     wake: Option<usize>,
     tray: Option<TrayHandle>,
+    insets: mobile::Insets,
     quitting: bool,
     window_visible: bool,
     new_form: newchat::Form,
