@@ -96,7 +96,7 @@ pub fn exit_window(ctx: &egui::Context, session: &mut crate::session::Session, t
     let (mut leave, mut cancel) = (false, false);
     egui::Window::new("Esci dallo spazio").id(egui::Id::new("space-exit")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(340.);
-        ui.add(egui::Label::new(RichText::new(&space.name).strong()).truncate());
+        ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
         ui.add_space(4.);
         crate::settings::switch(ui, "Dimentica", forget, t);
         ui.add_space(8.);
@@ -140,7 +140,7 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
         let mut close = false;
         egui::Window::new("Elimina spazio").id(egui::Id::new("space-report")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
             ui.set_width(340.);
-            ui.add(egui::Label::new(RichText::new(name).strong()).truncate());
+            ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(name)).strong()).truncate());
             match result {
                 Err(_) => drop(ui.colored_label(rgb(t.error), "Non riuscito, nessuna modifica garantita: riprova")),
                 Ok(d) => {
@@ -180,7 +180,7 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
     let busy = session.space_deleting;
     egui::Window::new("Elimina spazio").id(egui::Id::new("space-delete")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(340.);
-        ui.add(egui::Label::new(RichText::new(&space.name).strong()).truncate());
+        ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&space.name)).strong()).truncate());
         ui.add_space(4.);
         ui.label(format!("Membri che verranno espulsi: {people}"));
         ui.label(format!("Stanze scollegate (restano esistenti): {rooms}"));
@@ -274,7 +274,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
                     if view.promote {
                         for m in admin_candidates(members, &session.user) {
                             ui.horizontal(|ui| {
-                                ui.add(egui::Label::new(&m.name).truncate());
+                                ui.add(egui::Label::new(crate::list::clean_single_line(&m.name)).truncate());
                                 if ui.button("Rendi amministratore").clicked() {
                                     promote = Some(m.user_id.clone());
                                 }
@@ -344,7 +344,7 @@ pub fn window(ctx: &egui::Context, session: &mut crate::session::Session, t: &De
                         }
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                             // A room the user is not in is listed, greyed.
-                            let name = RichText::new(&child.name).color(if child.joined { rgb(t.text) } else { secondary });
+                            let name = RichText::new(crate::list::clean_single_line(&child.name)).color(if child.joined { rgb(t.text) } else { secondary });
                             ui.add(egui::Label::new(name).truncate());
                         });
                     });

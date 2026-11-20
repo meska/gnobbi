@@ -4,6 +4,33 @@ use matrix_desktop::{DesignTokens, Sidebar};
 
 const ROW: f32 = 52.;
 
+pub(crate) fn clean_single_line(text: &str) -> String {
+    let mut out = String::new();
+    let mut space = false;
+    for c in text.chars() {
+        if matches!(c, '\u{00ad}' | '\u{061c}' | '\u{200b}' | '\u{200c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}' | '\u{2066}'..='\u{2069}' | '\u{feff}' | '\u{fffc}' | '\u{fffd}') {
+            continue;
+        }
+        if c.is_whitespace() || c.is_control() {
+            space = !out.is_empty();
+        } else {
+            if space { out.push(' '); }
+            out.push(c);
+            space = false;
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod single_line_tests {
+    #[test]
+    fn normalizes_line_breaks_and_preserves_emoji() {
+        assert_eq!(super::clean_single_line("Gentile Marco Mescalchin,\r\nper velocità…"), "Gentile Marco Mescalchin, per velocità…");
+        assert_eq!(super::clean_single_line("  A\u{200b}\u{feff}\t\u{85}\u{2028}\u{2029}\u{b}\u{c} B\u{a0}  👩\u{200d}💻❤️ "), "A B 👩\u{200d}💻❤️");
+    }
+}
+
 pub fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
 }
@@ -14,7 +41,7 @@ fn count(n: u64) -> String {
 
 /// One line, cut with an ellipsis instead of wrapping.
 pub fn one_line(ui: &egui::Ui, text: &str, size: f32, color: Color32, width: f32) -> std::sync::Arc<egui::Galley> {
-    let mut job = LayoutJob::simple_singleline(text.to_owned(), FontId::proportional(size), color);
+    let mut job = LayoutJob::simple_singleline(clean_single_line(text), FontId::proportional(size), color);
     job.wrap = egui::text::TextWrapping::truncate_at_width(width);
     ui.painter().layout_job(job)
 }
@@ -43,7 +70,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     ui.horizontal(|ui| {
         ui.add_space(if in_space { 8. } else { 16. });
         crate::space::menu(ui, session, t);
-        ui.heading(title);
+        ui.heading(clean_single_line(&title));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.);
             let plus = ui.button("+");

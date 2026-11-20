@@ -422,7 +422,7 @@ impl Session {
                     if !reading
                         && let (Some(alert), Some(handle), Some(account)) = (self.notifications.alert(&scope, message), &self.notify, self.account)
                     {
-                        let name = if self.account_name.is_empty() { "Gnobbi".to_owned() } else { self.account_name.clone() };
+                        let name = if self.account_name.is_empty() { "Gnobbi".to_owned() } else { crate::list::clean_single_line(&self.account_name) };
                         handle.submit(alert.from_account(account, name));
                     }
                 }

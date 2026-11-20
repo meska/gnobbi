@@ -176,7 +176,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
     let btn = egui::Rect::from_min_size(egui::pos2(rect.right() - 96., rect.center().y - 15.), Vec2::new(88., 30.));
     let left = rect.left() + 58.;
     let width = (btn.left() - 8. - left).max(20.);
-    let topic = room.topic.as_deref().and_then(|x| x.lines().next()).unwrap_or("");
+    let topic = room.topic.as_deref().unwrap_or("");
     let (third, third_color) = match act {
         Action::Retry(why) => (*why, t.error),
         Action::Open => ("Già dentro", t.accent),

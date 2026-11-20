@@ -228,7 +228,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
                 avatar(ui, 12., pic, &initials, 7., t);
             }
-            ui.add(egui::Label::new(RichText::new(&e.text).size(11.).color(rgb(t.secondary))).truncate());
+            ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&e.text)).size(11.).color(rgb(t.secondary))).truncate());
         });
         return (None, false, false);
     }
@@ -288,16 +288,16 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             if let Some(name) = label {
                 w = w.max(measure(name, 12.));
             }
-            let quote = e.reply_to.as_ref().map(|r| (r.author.as_deref().unwrap_or(matrix_engine::history::REPLY_UNAVAILABLE), r.preview.as_deref().filter(|_| r.author.is_some())));
-            if let Some((a, p)) = quote {
-                w = w.max(measure(a, 12.)).max(p.map_or(0., |p| measure(p, 12.)).min(220.));
+            let quote = e.reply_to.as_ref().map(|r| (crate::list::clean_single_line(r.author.as_deref().unwrap_or(matrix_engine::history::REPLY_UNAVAILABLE)), r.preview.as_deref().filter(|_| r.author.is_some()).map(crate::list::clean_single_line)));
+            if let Some((a, p)) = &quote {
+                w = w.max(measure(a, 12.)).max(p.as_deref().map_or(0., |p| measure(p, 12.)).min(220.));
             }
             ui.set_width(if wide { inner.min(320.).max(w) } else { w.min(inner) + 1. });
             ui.vertical(|ui| {
                 if let Some(name) = label {
                     ui.label(RichText::new(name).size(12.).strong().color(rgb(t.accent)));
                 }
-                if let (Some((author, preview)), Some(r)) = (quote, &e.reply_to) {
+                if let (Some((author, preview)), Some(r)) = (&quote, &e.reply_to) {
                     // Telegram-style quote: accent bar, original author, one line of its text; a click scrolls to the original.
                     let q = ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 6.;

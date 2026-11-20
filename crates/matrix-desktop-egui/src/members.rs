@@ -156,12 +156,12 @@ pub fn list(ui: &mut egui::Ui, members: &[Member], admin: Option<&Admin>, me: &s
                         act = Some(Act::Unban(b.user_id.clone()));
                     }
                 }
-                let name = egui::Label::new(RichText::new(&b.name).color(rgb(t.text))).truncate();
+                let name = egui::Label::new(RichText::new(crate::list::clean_single_line(&b.name)).color(rgb(t.text))).truncate();
                 match &b.reason {
                     Some(reason) => drop(ui.with_layout(Layout::top_down(Align::Min), |ui| {
                         ui.add_space(3.);
                         ui.add(name);
-                        ui.add(egui::Label::new(RichText::new(reason).size(12.).color(rgb(t.secondary))).truncate());
+                        ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(reason)).size(12.).color(rgb(t.secondary))).truncate());
                     })),
                     None => drop(ui.with_layout(Layout::left_to_right(Align::Center), |ui| ui.add(name))),
                 }
@@ -191,7 +191,7 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
         let (verb, mut cancel) = (if d.ban { "Blocca" } else { "Espelli" }, false);
         egui::Window::new(verb).id(egui::Id::new("member-dialog")).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
             ui.set_width(340.);
-            ui.add(egui::Label::new(RichText::new(&d.name).strong()).truncate());
+            ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&d.name)).strong()).truncate());
             ui.add_space(4.);
             ui.add_enabled_ui(!admin.busy, |ui| ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut d.reason).hint_text("Motivo").align(Align2::LEFT_CENTER)));
             if admin.failed {
