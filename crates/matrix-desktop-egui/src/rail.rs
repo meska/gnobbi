@@ -1,4 +1,4 @@
-//! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and «Modifica» at the bottom,
+//! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and «Organizza stanze» at the bottom,
 //! which opens the drawer where the spaces are dragged into order and into each other.
 use crate::list::{badge, one_line, photo, rgb};
 use eframe::egui::{self, Align2, FontId, Sense, Stroke, Vec2};
@@ -294,7 +294,7 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
 
 /// The rail below the account picture. `account` is the catalog id the layout is stored under; `placed` the engine's answer to a move.
 pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline::Avatars, state: &mut State, account: u64, placed: Option<Result<(), OperationError>>, t: &DesignTokens) {
-    // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows the «Modifica» drawer, rail-drag / rail-line also a held row.
+    // Test hooks: GNOBBI_EGUI_VIEW=rail-open unfolds every parent space, rail-edit shows «Organizza stanze», rail-drag / rail-line also a held row.
     let view = std::env::var("GNOBBI_EGUI_VIEW").unwrap_or_default();
     state.edit |= matches!(view.as_str(), "rail-edit" | "rail-drag" | "rail-line");
     let layout = state.layouts.get(account);
@@ -324,7 +324,7 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
             }
         }
     });
-    if item(ui, avatars, t, Icon::Edit, "Modifica", 0, state.edit).clicked() {
+    if item(ui, avatars, t, Icon::Edit, "Organizza stanze", 0, state.edit).clicked() {
         state.edit = !state.edit;
     }
 }
@@ -375,10 +375,10 @@ enum Edit {
     Close,
 }
 
-/// «Modifica barra»: a drawer beside the rail. Rows are dragged (or moved with the arrow keys and buttons) into order and into
+/// «Organizza stanze»: a drawer beside the rail. Rows are dragged (or moved with the arrow keys and buttons) into order and into
 /// each other: inside a space that is `m.space.child` on the server, at the top level a local order. The switch hides a
 /// space from the rail, locally.
-pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, state: &mut State, account: u64, dirs: Option<&AppDirs>, t: &DesignTokens) {
+pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, form: &mut crate::newchat::Form, state: &mut State, account: u64, dirs: Option<&AppDirs>, t: &DesignTokens) {
     let open = ctx.animate_bool_with_time(egui::Id::new("rail-drawer-open"), state.edit, 0.18);
     let Some(panel) = state.panel.filter(|_| open > 0.) else { return };
     let mut layout = state.layouts.get(account);
@@ -402,11 +402,8 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, s
         ui.interact(rect, egui::Id::new("rail-drawer-back"), Sense::click());
         let p = ui.painter().clone();
         p.rect_filled(rect, 0., rgb(t.surface));
-        for x in [rect.left(), rect.right()] {
-            p.vline(x, rect.y_range(), Stroke::new(1., rgb(t.border)));
-        }
         let head = egui::Rect::from_min_size(rect.min, Vec2::new(width, 56.));
-        p.text(head.left_center() + Vec2::new(20., 0.), Align2::LEFT_CENTER, "Modifica barra", FontId::proportional(17.), rgb(t.text));
+        p.text(head.left_center() + Vec2::new(20., 0.), Align2::LEFT_CENTER, "Organizza stanze", FontId::proportional(17.), rgb(t.text));
         let x = egui::Rect::from_center_size(egui::pos2(head.right() - 30., head.center().y), Vec2::splat(36.));
         let close = ui.interact(x, egui::Id::new("rail-drawer-close"), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         lit(ui, &close, x, 18., t);
@@ -417,8 +414,19 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, s
         if close.clicked() {
             act = Some(Edit::Close);
         }
-        p.hline(rect.x_range(), head.bottom(), Stroke::new(1., rgb(t.border)));
-        let mut top = head.bottom();
+        let actions = egui::Rect::from_min_size(egui::pos2(rect.left() + 20., head.bottom() + 8.), Vec2::new((width - 40.).max(0.), 36.));
+        ui.scope_builder(egui::UiBuilder::new().max_rect(actions), |ui| {
+            ui.horizontal(|ui| {
+                for (label, space) in [("+ Nuova stanza", false), ("+ Nuovo spazio", true)] {
+                    if ui.add_sized([((width - 48.) / 2.).max(0.), 36.], egui::Button::new(label)).clicked() {
+                        form.open_creation(space);
+                        session.new_open = true;
+                        act = Some(Edit::Close);
+                    }
+                }
+            });
+        });
+        let mut top = actions.bottom() + 8.;
         if let Some(error) = &state.error {
             let line = one_line(ui, error, 13., rgb(t.error), width - 40.);
             p.galley(egui::pos2(rect.left() + 20., top + 18. - line.size().y / 2.), line, rgb(t.error));

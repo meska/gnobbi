@@ -19,7 +19,25 @@ pub struct Form {
     joining: bool,
 }
 
+#[cfg(test)]
+mod creation_tests {
+    use super::*;
+
+    #[test]
+    fn organizer_opens_the_requested_creation_tab() {
+        let mut form = Form::default();
+        form.open_creation(false);
+        assert_eq!(form.tab, 1);
+        form.open_creation(true);
+        assert_eq!(form.tab, 2);
+    }
+}
+
 impl Form {
+    pub fn open_creation(&mut self, space: bool) {
+        self.tab = if space { 2 } else { 1 };
+    }
+
     /// A `matrix:` link to a room we are not in: the «Unisciti» tab with its address; nothing is joined until the user clicks.
     // shortcut: the link's `via` servers are not passed on, so the join goes through the user's own server only.
     pub fn prefill_join(&mut self, target: &str) {

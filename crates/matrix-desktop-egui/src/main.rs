@@ -858,7 +858,7 @@ impl App {
         }
         let account = self.rail_account.as_ref().filter(|(root, _)| *root == self.root).map_or(0, |(_, id)| *id);
         if let Some(session) = &mut self.session {
-            rail::edit_window(ui.ctx(), session, &mut self.rail, account, self.dirs.as_ref(), t);
+            rail::edit_window(ui.ctx(), session, &mut self.new_form, &mut self.rail, account, self.dirs.as_ref(), t);
             if !single || self.list_open {
                 egui::Panel::left("rail").exact_size(rail::WIDTH).resizable(false).show_separator_line(false).frame(egui::Frame::NONE.fill(chat_background(t))).show(ui, |ui| {
                     ui.add_space(8.);
