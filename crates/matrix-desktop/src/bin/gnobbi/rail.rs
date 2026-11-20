@@ -463,8 +463,10 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
     let mut act = None;
     let closed = drawer(ctx, state.panel, "rail-drawer", "Organizza spazi", state.edit, t, |ui, rect| {
         let (p, width) = (ui.painter().clone(), rect.width());
-        let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 196., rect.top() - 46.), Vec2::new(140., crate::metrics::button()));
-        if ui.put(action, egui::Button::new(icons::with_label(icons::Icon::Plus, matrix_desktop::i18n::t("New space")))).clicked() {
+        let size = crate::metrics::button() + 4.;
+        let action = egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), Vec2::splat(size));
+        let label = matrix_desktop::i18n::t("New space");
+        if icons::button_at(ui, action, egui::Id::new("new-space"), icons::Icon::Plus, false, crate::metrics::get().icon, label, Some(rgb(t.accent)), true, 1.).on_hover_text(label).clicked() {
             form.open_creation(true);
             session.new_open = true;
             act = Some(Edit::Close);

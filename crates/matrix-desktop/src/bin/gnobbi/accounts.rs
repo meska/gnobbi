@@ -272,8 +272,10 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
     let mut back = false;
     let own = session.as_ref().and_then(|s| s.own_picture());
     let closed = crate::rail::drawer_back(ctx, rail.panel, "accounts-drawer", "Account", rail.accounts, t, Some(&mut back), |ui, rect| {
-        let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 236., rect.top() - 46.), egui::Vec2::new(180., crate::metrics::button()));
-        if ui.put(action, egui::Button::new(crate::icons::with_label(crate::icons::Icon::Plus, matrix_desktop::i18n::t("Add account")))).clicked() {
+        let size = crate::metrics::button() + 4.;
+        let action = egui::Rect::from_center_size(egui::pos2(rect.right() - 30. - size, rect.top() - 28.), egui::Vec2::splat(size));
+        let label = matrix_desktop::i18n::t("Add account");
+        if crate::icons::button_at(ui, action, egui::Id::new("add-account"), crate::icons::Icon::Plus, false, crate::metrics::get().icon, label, Some(rgb(t.accent)), true, 1.).on_hover_text(label).clicked() {
             out = Some(Launch::Add);
         }
         let catalog = AccountCatalog::load(dirs);

@@ -87,7 +87,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                 egui::Frame::NONE.inner_margin(egui::Margin { left: 20, right: 20, top: 0, bottom: 20 }).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 6.;
                     section(ui, tr("Account and security"), t);
-                    accounts = nav_row(ui, tr("Account"), crate::icons::Icon::User, t).clicked();
+                    accounts = nav_row(ui, tr("Account"), crate::icons::Icon::Users, t).clicked();
                     devices = nav_row(ui, tr("Devices"), crate::icons::Icon::Desktop, t).clicked();
                     customize = nav_row(ui, tr("Customize"), crate::icons::Icon::Palette, t).clicked();
                     section(ui, tr("Chat"), t);

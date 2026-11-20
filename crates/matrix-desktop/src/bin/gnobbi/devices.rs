@@ -95,7 +95,8 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                     if let Some(own) = v.own().cloned() {
                         crate::settings::section(ui, "Questo dispositivo", t);
                         row(ui, &own, t, |ui| {
-                            if ui.add(egui::Button::new("Rinomina").wrap_mode(egui::TextWrapMode::Extend)).clicked() {
+                            let rename = matrix_desktop::i18n::t("Rename");
+                            if crate::icons::button(ui, crate::icons::Icon::PencilSimple, false, rename).on_hover_text(rename).clicked() {
                                 v.open_rename();
                             }
                         });
