@@ -394,6 +394,8 @@ mod macos {
             content.setSubtitle(&NSString::from_str(room));
         }
         content.setBody(&NSString::from_str(&notification.body()));
+        #[cfg(target_os = "ios")]
+        content.setSound(Some(&objc2_user_notifications::UNNotificationSound::defaultSound()));
         let info = NSDictionary::from_retained_objects(&[&*NSString::from_str(KEY)], &[key.clone()]);
         // SAFETY: the setter's untyped dictionary is the same object; only the generic parameters differ.
         unsafe { content.setUserInfo(&Retained::cast_unchecked::<NSDictionary>(info)) };

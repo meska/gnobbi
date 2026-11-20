@@ -397,6 +397,12 @@ fn slide(ctx: &egui::Context, name: &str, shown: bool) -> f32 {
     ctx.animate_bool_with_time(egui::Id::new((name, "open")), shown, 0.18)
 }
 
+/// Left edge and width of a drawer. In the single-column mobile layout the list fills the window, so the rail's right edge leaves
+/// no room: the drawer takes the whole content rect (already inside the safe area) instead of 0 px.
+fn drawer_span(rail_right: f32, content: egui::Rect) -> (f32, f32) {
+    if content.width() < crate::NARROW_WIDTH { (content.left(), content.width()) } else { (rail_right, DRAWER.min(content.right() - rail_right)) }
+}
+
 /// A drawer beside the rail (`panel`): it slides out from the rail's right edge over the dimmed window, with its title and an X.
 /// `body` gets the rectangle below the title. True when the X or the dimmed part was clicked; Esc is the caller's.
 pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str, title: &str, shown: bool, t: &DesignTokens, body: impl FnOnce(&mut egui::Ui, egui::Rect)) -> bool {
@@ -407,9 +413,9 @@ pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str
 pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str, title: &str, shown: bool, t: &DesignTokens, back: Option<&mut bool>, body: impl FnOnce(&mut egui::Ui, egui::Rect)) -> bool {
     let open = slide(ctx, name, shown);
     let Some(panel) = panel.filter(|_| open > 0.) else { return false };
-    let width = DRAWER.min(ctx.content_rect().right() - panel.right());
-    let clip = egui::Rect::from_min_max(panel.right_top(), egui::pos2(ctx.content_rect().right(), panel.bottom()));
-    let rect = egui::Rect::from_min_size(panel.right_top() - Vec2::new((1. - open) * width, 0.), Vec2::new(width, panel.height()));
+    let (left, width) = drawer_span(panel.right(), ctx.content_rect());
+    let clip = egui::Rect::from_min_max(egui::pos2(left, panel.top()), egui::pos2(ctx.content_rect().right(), panel.bottom()));
+    let rect = egui::Rect::from_min_size(clip.min - Vec2::new((1. - open) * width, 0.), Vec2::new(width, panel.height()));
     let mut closed = false;
     // The rest of the window is dimmed: a click there closes the drawer and reaches nothing else. The rail stays usable.
     egui::Area::new(egui::Id::new((name, "scrim"))).order(egui::Order::Middle).fixed_pos(clip.min).show(ctx, |ui| {
@@ -647,6 +653,13 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn drawer_fills_a_narrow_window_and_stays_beside_the_rail_on_desktop() {
+        let r = |w| egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(w, 800.));
+        assert_eq!(super::drawer_span(393., r(393.)), (0., 393.));
+        assert_eq!(super::drawer_span(72., r(1000.)), (72., 380.));
+    }
+
     use super::*;
     use matrix_domain::{AccountId, RoomId};
     use matrix_engine::{RoomInfo, RoomListDiff, RoomSummary};
