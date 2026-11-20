@@ -92,6 +92,8 @@ fn roundtrip_keeps_values() {
         thread_width: Some(500),
         count_preview_accounts: Default::default(),
         language: matrix_desktop::i18n::Preference::Italian,
+        text_size: matrix_desktop::TextSize::Large,
+        density: matrix_desktop::Density::Compact,
     };
     p.save(&d).unwrap();
     assert_eq!(Preferences::load(&d), p);
