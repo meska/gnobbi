@@ -108,8 +108,7 @@ struct App {
     trust: Option<Vec<u8>>,
     /// A parked account to bring forward at the end of the frame (a click on one of its notifications).
     wake: Option<usize>,
-    tray: Option<matrix_desktop::tray::Tray>,
-    insets: mobile::Insets,
+    tray: Option<TrayHandle>,
     quitting: bool,
     window_visible: bool,
     new_form: newchat::Form,
@@ -170,7 +169,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: matrix_desktop::tray::Tray::start(), insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error };
         if let Some(i) = last {
@@ -728,6 +727,10 @@ impl App {
     }
 
     /// Tray clicks, the menu and icon state, and what closing the window does (hide when the tray can be reached).
+    #[cfg(target_os = "ios")]
+    fn tray(&mut self, _ctx: &egui::Context) {} // iOS: no tray, no close-to-tray
+
+    #[cfg(not(target_os = "ios"))]
     fn tray(&mut self, ctx: &egui::Context) {
         use matrix_desktop::tray_menu::{CloseAction, TrayAction, close_action, tray_menu};
         let show = |ctx: &egui::Context| {
@@ -1691,6 +1694,14 @@ fn single_instance_gate(_link: Option<String>) {}
 
 /// Linux: the bundled Noto Color Emoji (SIL OFL 1.1, see THIRD_PARTY_NOTICES.md) as the last fallback, so the emoji set is the
 /// same on every system. macOS and Windows keep their own emoji font (system_fonts).
+#[cfg(not(target_os = "ios"))]
+use matrix_desktop::tray::Tray as TrayHandle;
+/// iOS stub: the tray module needs tray-icon, which does not exist there.
+#[cfg(target_os = "ios")]
+struct TrayHandle;
+#[cfg(target_os = "ios")]
+impl TrayHandle { fn start() -> Option<Self> { None } }
+
 fn register_emoji_font(ctx: &egui::Context) {
     #[cfg(target_os = "linux")]
     {
@@ -1733,6 +1744,25 @@ fn mac_app(hide: bool) {
 }
 
 fn main() -> eframe::Result {
+    // iOS: stderr goes nowhere; spike diagnostics, replace with os_log before a store build.
+    #[cfg(target_os = "ios")]
+    if let Some(home) = std::env::var_os("HOME") {
+        use std::os::fd::AsRawFd;
+        let _ = std::fs::create_dir_all(std::path::Path::new(&home).join("Documents"));
+        if let Ok(f) = std::fs::File::create(std::path::Path::new(&home).join("Documents/gnobbi.log")) {
+            unsafe { libc::dup2(f.as_raw_fd(), 2); libc::dup2(f.as_raw_fd(), 1); }
+        }
+        struct Stderr;
+        impl log::Log for Stderr {
+            fn enabled(&self, m: &log::Metadata) -> bool { m.level() <= log::Level::Warn }
+            fn log(&self, r: &log::Record) { if self.enabled(r.metadata()) { eprintln!("[{}] {}: {}", r.level(), r.target(), r.args()); } }
+            fn flush(&self) {}
+        }
+        if std::env::var_os("RUST_LOG").is_some() {
+            let _ = tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::from_default_env()).with_writer(std::io::stderr).try_init();
+        }
+        let _ = log::set_logger(&Stderr).map(|()| log::set_max_level(log::LevelFilter::Warn));
+    }
     matrix_desktop::notifications::init();
     // A `matrix:` link is not an option: taken out first, validated by the engine, carried out once the rooms are there.
     let (args, raw_link) = matrix_desktop::take_matrix_link(std::env::args().skip(1).collect());
@@ -1774,7 +1804,8 @@ fn main() -> eframe::Result {
         }
     }
     let first = Theme::Classic.tokens();
-    let options = eframe::NativeOptions {
+    #[allow(unused_mut)]
+    let mut options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size([first.width, first.height])
             .with_min_inner_size([MIN_WIDTH, 420.])
@@ -1786,10 +1817,21 @@ fn main() -> eframe::Result {
             .with_icon(app_icon(dirs.as_ref().map(Preferences::load).unwrap_or_default().icon).unwrap_or_default()),
         ..Default::default()
     };
-    eframe::run_native(TITLE, options, Box::new(move |cc| {
+    // iOS: the Metal adapter (the simulator's at least) caps max_inter_stage_shader_variables at 15, below wgpu's default 16 that egui-wgpu requests.
+    #[cfg(target_os = "ios")]
+    {
+        let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
+        setup.device_descriptor = std::sync::Arc::new(|adapter| eframe::wgpu::DeviceDescriptor { label: Some("gnobbi"), required_limits: adapter.limits(), ..Default::default() });
+        options.wgpu_options.wgpu_setup = eframe::egui_wgpu::WgpuSetup::CreateNew(setup);
+    }
+    eprintln!("gnobbi: run_native start");
+    let result = eframe::run_native(TITLE, options, Box::new(move |cc| {
+        eprintln!("gnobbi: creator called");
         register_emoji_font(&cc.egui_ctx);
         Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))
-    }))
+    }));
+    eprintln!("gnobbi: run_native returned {:?}", result.as_ref().err());
+    result
 }
 
 #[cfg(test)]

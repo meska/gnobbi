@@ -68,7 +68,10 @@ impl Viewer {
                     if resp.clicked() { action = Action::Close; }
                     if ui.button("Salva con nome").clicked() {
                         let name = std::path::Path::new(&self.name).file_name().and_then(|s| s.to_str()).unwrap_or("file");
+                        #[cfg(not(target_os = "ios"))]
                         if let Some(path) = rfd::FileDialog::new().set_title("Salva con nome").set_file_name(name).save_file() { action = Action::Save(path); }
+                        #[cfg(target_os = "ios")]
+                        let _ = name; // iOS stub: no save dialog (rfd), share sheet not written
                     }
                     if self.video && ui.add_enabled(!self.opening, egui::Button::new("Apri")).clicked() {
                         self.opening = true;

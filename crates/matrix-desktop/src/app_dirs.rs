@@ -9,7 +9,7 @@ pub enum Platform {
 }
 
 impl Platform {
-    pub const CURRENT: Platform = if cfg!(target_os = "macos") {
+    pub const CURRENT: Platform = if cfg!(any(target_os = "macos", target_os = "ios")) {
         Platform::MacOs
     } else if cfg!(windows) {
         Platform::Windows
