@@ -586,6 +586,8 @@ pub struct Member {
     pub name: String,
     /// `mxc://` avatar of the member in this room (an empty string counts as none).
     pub avatar: Option<String>,
+    /// Role from the power level (v12 creators count as `Admin`), read with the list.
+    pub role: matrix_domain::role::MemberRole,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1626,7 +1628,7 @@ pub async fn members(
     .await
     .map_err(|_| OperationError::Transport)?
     .map_err(|_| OperationError::Transport)?;
-    Ok(joined
+    let mut list: Vec<Member> = joined
         .into_iter()
         .map(|m| Member {
             user_id: m.user_id().to_string(),
@@ -1634,8 +1636,24 @@ pub async fn members(
                 .display_name()
                 .map_or_else(|| m.user_id().to_string(), str::to_owned),
             avatar: m.avatar_url().map(ToString::to_string).filter(|u| !u.is_empty()),
+            role: role_of(m.power_level()).0,
         })
-        .collect())
+        .collect();
+    list.sort_by(|a, b| {
+        matrix_domain::role::cmp_by_role_then_name((a.role, &a.name), (b.role, &b.name))
+    });
+    Ok(list)
+}
+
+/// Role and "creator" flag (infinite PL, v12) of a power level.
+#[cfg(feature = "sdk")]
+fn role_of(pl: matrix_sdk::ruma::events::room::power_levels::UserPowerLevel) -> (matrix_domain::role::MemberRole, bool) {
+    use matrix_domain::role::MemberRole;
+    use matrix_sdk::ruma::events::room::power_levels::UserPowerLevel;
+    match pl {
+        UserPowerLevel::Int(i) => (MemberRole::from_power_level(i64::from(i)), false),
+        _ => (MemberRole::Admin, true), // non-exhaustive enum: the only other value is Infinite
+    }
 }
 
 /// Profile of `user_id` from the homeserver (`Account::fetch_user_profile_of`).
@@ -1729,10 +1747,7 @@ fn member_rights(
     use matrix_domain::role::MemberRole;
     use matrix_sdk::ruma::{Int, events::room::power_levels::UserPowerLevel};
     let (mine, theirs) = (pl.for_user(me), pl.for_user(target));
-    let (role, creator) = match theirs {
-        UserPowerLevel::Int(i) => (MemberRole::from_power_level(i64::from(i)), false),
-        _ => (MemberRole::Admin, true), // non-exhaustive enum: the only other value is Infinite
-    };
+    let (role, creator) = role_of(theirs);
     if !joined || me == target {
         return (MemberRights { role, creator, ..Default::default() }, false);
     }
@@ -1905,19 +1920,6 @@ pub(crate) async fn moderate(
     })
     .await
     .map_err(|_| OperationError::Transport)?
-}
-
-/// Sets the member's role (power level 100/50/0) with the SDK's `update_power_levels`; rights are re-read
-/// at the moment of the call, so hierarchy and creators are enforced here too (`Forbidden`).
-#[cfg(feature = "sdk")]
-pub(crate) async fn set_member_role(
-    client: &matrix_sdk::Client,
-    account: matrix_domain::AccountId,
-    scope: &RoomScope,
-    user_id: &str,
-    role: matrix_domain::role::MemberRole,
-) -> Result<(), OperationError> {
-    moderate(client, account, scope, user_id, &Moderation::SetPower(role.power_level())).await
 }
 
 #[cfg(feature = "sdk")]

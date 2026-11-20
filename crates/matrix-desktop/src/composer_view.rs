@@ -1682,7 +1682,7 @@ mod tests {
     }
 
     fn member(id: &str, name: &str, avatar: Option<&str>) -> Member {
-        Member { user_id: id.into(), name: name.into(), avatar: avatar.map(Into::into) }
+        Member { user_id: id.into(), name: name.into(), avatar: avatar.map(Into::into), role: Default::default() }
     }
 
     fn picture() -> std::sync::Arc<gpui::RenderImage> {
@@ -2657,6 +2657,7 @@ mod tests {
                 user_id: id.into(),
                 name: name.into(),
                 avatar: None,
+                role: Default::default(),
             };
             v.set_live(true);
             v.set_members(

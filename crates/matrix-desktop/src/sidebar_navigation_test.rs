@@ -1896,7 +1896,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 assert!(ok.unwrap().success(), "shot {name}");
             };
             let members = |n: usize| (0..n).map(|i| matrix_engine::operations::Member {
-                user_id: format!("@utente{i:04}:fixture.test"), name: format!("Utente di prova {i:04}"), avatar: None,
+                user_id: format!("@utente{i:04}:fixture.test"), name: format!("Utente di prova {i:04}"), avatar: None, role: Default::default(),
             }).collect::<Vec<_>>();
             let mut report = serde_json::Map::new();
             for (label, n) in [("closed", None), ("open-0", Some(0)), ("open-1000", Some(1000)), ("open-343", Some(343))] {
@@ -1976,7 +1976,7 @@ pub(crate) fn install(window: &mut Window, cx: &mut Context<Shell>) {
                 assert!(ok.unwrap().success(), "shot {name}");
             };
             let members = |n: usize| (0..n).map(|i| matrix_engine::operations::Member {
-                user_id: format!("@utente{i:04}:fixture.test"), name: format!("Utente di prova {i:04}"), avatar: None,
+                user_id: format!("@utente{i:04}:fixture.test"), name: format!("Utente di prova {i:04}"), avatar: None, role: Default::default(),
             }).collect::<Vec<_>>();
             let mut ptr = std::process::Command::new("/tmp/gui-out/pointer").env("DIME_ISOLATED_WAYLAND", "1")
                 .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();

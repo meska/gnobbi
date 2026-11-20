@@ -272,6 +272,7 @@ mod mention_tests {
             user_id: id.into(),
             name: name.into(),
             avatar: None,
+            role: Default::default(),
         };
         let members = vec![m("@b:x", "Sabrina"), m("@a:x", "Bruno"), m("@c:x", "@c:x")];
         let names: Vec<_> = mention_matches(&members, "br")
@@ -292,6 +293,7 @@ mod mention_tests {
             user_id: id.into(),
             name: name.into(),
             avatar: avatar.map(Into::into),
+            role: Default::default(),
         };
         let with = vec![
             m("@b:x", "Sabrina", Some("mxc://x/b")),

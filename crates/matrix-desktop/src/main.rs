@@ -1998,6 +1998,8 @@ impl Shell {
                                 result: Err(OperationError::Unavailable),
                             }
                         }
+                        // Members writes belong to the egui client; this deprecated crate never sends them.
+                        _ => return,
                     };
                     self.operations.borrow_mut().apply(result);
                 }

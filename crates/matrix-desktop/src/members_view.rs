@@ -30,6 +30,10 @@ fn act_for(action: &Moderation) -> ProfileAct {
         Moderation::Ban => ProfileAct::Ban,
         Moderation::SetPower(l) => ProfileAct::Power(*l),
         Moderation::RedactMessages(_) => ProfileAct::RemoveMessages,
+        // Only the egui client sends these.
+        Moderation::KickWith(_) => ProfileAct::Kick,
+        Moderation::BanWith(_) => ProfileAct::Ban,
+        Moderation::Unban(_) | Moderation::Invite => ProfileAct::Ignore,
     }
 }
 

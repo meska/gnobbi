@@ -26,7 +26,7 @@ fn load(this: &mut Shell, p: UserProfile, rights: Option<MemberRights>) {
 }
 
 fn mod_rights() -> MemberRights {
-    MemberRights { kick: true, ban: true, levels: vec![0, 100], recent: vec!["$e1".into(), "$e2".into()], read_receipt: None }
+    MemberRights { kick: true, ban: true, levels: vec![0, 100], recent: vec!["$e1".into(), "$e2".into()], read_receipt: None, ..Default::default() }
 }
 
 fn composer_text(this: &mut Shell, window: &mut Window, cx: &mut Context<Shell>) -> String {
@@ -68,9 +68,9 @@ pub(crate) async fn scenario(this: WeakEntity<Shell>, cx: &mut AsyncWindowContex
         let id = this.accounts.add(ME, "https://fixture.test", "io");
         this.active_id = Some(id);
         this.room_members = vec![
-            Member { user_id: ME.into(), name: "Io".into(), avatar: None },
-            Member { user_id: ADA.into(), name: "Ada".into(), avatar: Some(String::new()) },
-            Member { user_id: "@bo:fixture.test".into(), name: "Bo".into(), avatar: None },
+            Member { user_id: ME.into(), name: "Io".into(), avatar: None, role: Default::default() },
+            Member { user_id: ADA.into(), name: "Ada".into(), avatar: Some(String::new()), role: Default::default() },
+            Member { user_id: "@bo:fixture.test".into(), name: "Bo".into(), avatar: None, role: Default::default() },
         ];
         this.set_room_details_open(true);
         // Non-modal sheet: a keyboard user enters it with F6; the fixture does the same focus move.
