@@ -20,7 +20,7 @@ fn event(id: &str) -> HistoryEvent {
         audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None, reply_to: None,
-        status: false,
+        status: false, status_row: None,
         utd: false,
         attachment_name: None,
         attachment_size: None, media: None,
@@ -795,7 +795,7 @@ fn live_refresh_publishes_a_poll_whose_votes_or_end_changed_with_the_same_body()
 #[test]
 fn a_loading_quote_is_read_again_and_republished_once_resolved() {
     use matrix_engine::history::{ReplyRef, ReplyState};
-    let quote = |state| Some(ReplyRef { event_id: EventId::new("$orig"), author: (state == ReplyState::Resolved).then(|| "Omar".into()), preview: None, state });
+    let quote = |state| Some(ReplyRef { event_id: EventId::new("$orig"), author: (state == ReplyState::Resolved).then(|| "Omar".into()), preview: None, placeholder: false, state });
     let mut view = HistorySession::new();
     let room = scope("!quote:test");
     let initial = view.select(Some(room.clone())).unwrap();

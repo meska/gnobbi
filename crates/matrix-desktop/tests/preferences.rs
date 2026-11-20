@@ -87,6 +87,7 @@ fn roundtrip_keeps_values() {
         update_check_enabled: false,
         last_check: Some(1_700_000_000),
         max_build_seen: 812,
+        no_recovery_offer_accounts: Default::default(),
         bad_builds: [7, 3].into(),
         update_base: Some("http://lan/dl/".into()),
         list_width: Some(412),

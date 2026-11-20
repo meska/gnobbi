@@ -21,7 +21,7 @@ fn ev(id: &str, sender: &str, ts: u64, status: bool, mine: bool) -> HistoryEvent
         thread: None,
         thread_root: None,
         reply_to: None,
-        status,
+        status, status_row: None,
         utd: false,
         attachment_name: None,
         attachment_size: None,

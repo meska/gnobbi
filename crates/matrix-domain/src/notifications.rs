@@ -138,14 +138,6 @@ pub enum RoomNotifyMode {
 }
 impl RoomNotifyMode {
     pub const ALL: [Self; 3] = [Self::AllMessages, Self::MentionsAndKeywordsOnly, Self::Mute];
-    /// On-screen label and accessibility name.
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::AllMessages => "All messages",
-            Self::MentionsAndKeywordsOnly => "Mentions only",
-            Self::Mute => "Muted",
-        }
-    }
 }
 
 /// What kind of event wants to notify.
@@ -318,10 +310,5 @@ mod decision_tests {
         ] {
             assert_eq!(should_notify(mode, low, kind), want, "{mode:?} low={low} {kind:?}");
         }
-    }
-
-    #[test]
-    fn labels_are_the_agreed_ones() {
-        assert_eq!(RoomNotifyMode::ALL.map(RoomNotifyMode::label), ["All messages", "Mentions only", "Muted"]);
     }
 }

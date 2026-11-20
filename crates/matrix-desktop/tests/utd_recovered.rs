@@ -15,7 +15,7 @@ fn ev(body: &str, utd: bool) -> HistoryEvent {
         styles: Vec::new(), mentions: Vec::new(), highlighted: false, poll: None, media: None,
         thread: None,
         thread_root: None, reply_to: None,
-        status: false,
+        status: false, status_row: None,
         utd,
         attachment_name: None,
         attachment_size: None,

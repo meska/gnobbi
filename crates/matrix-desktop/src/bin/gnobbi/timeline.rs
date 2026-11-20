@@ -221,7 +221,8 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
         let font = egui::FontId::proportional(11.);
         let avail = ui.available_width();
         // A line longer than the column is cut with an ellipsis: unwrapped, it widened the whole timeline past the visible edge.
-        let text_w = ui.painter().layout_no_wrap(e.text.clone(), font, Color32::WHITE).size().x.min((avail - 36.).max(40.));
+        let status_text = e.status_row.as_ref().map_or_else(|| e.text.clone(), matrix_desktop::row_text::status_row_text);
+        let text_w = ui.painter().layout_no_wrap(status_text.clone(), font, Color32::WHITE).size().x.min((avail - 36.).max(40.));
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.;
             let pic = crate::avatar::lookup(avatars, e.sender.as_ref().and_then(|s| s.avatar.as_deref()));
@@ -231,7 +232,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 let initials: String = s.name.as_deref().unwrap_or(&s.id).trim_start_matches('@').chars().take(2).collect::<String>().to_uppercase();
                 avatar(ui, 12., &pic, &initials, 7., t);
             }
-            ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&e.text)).size(11.).color(rgb(t.secondary))).truncate());
+            ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&status_text)).size(11.).color(rgb(t.secondary))).truncate());
         });
         return (None, false, false);
     }
@@ -303,7 +304,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 let (Some(author), S::Resolved) = (r.author.as_deref(), r.state) else {
                     return (i18n::t(match r.state { S::Loading => "Loading…", S::Deleted => "Message deleted", S::Encrypted => "Encrypted message", _ => "Message unavailable" }).to_owned(), None);
                 };
-                (crate::list::clean_single_line(author), r.preview.as_deref().map(crate::list::clean_single_line))
+                (crate::list::clean_single_line(author), r.preview.as_deref().map(|p| crate::list::clean_single_line(if r.placeholder { i18n::t(p) } else { p })))
             });
             if let Some((a, p)) = &quote {
                 w = w.max(measure(a, 12.)).max(p.as_deref().map_or(0., |p| measure(p, 12.)).min(220.));
@@ -351,7 +352,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             }
                         }
                         None => {
-                            if crate::metrics::clickable(ui.add(egui::Label::new(RichText::new(&media.label).color(rgb(t.secondary))).sense(egui::Sense::click()))).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
+                            if crate::metrics::clickable(ui.add(egui::Label::new(RichText::new(media.translated(|k| i18n::t(k).to_owned())).color(rgb(t.secondary))).sense(egui::Sense::click()))).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
                         }
                     }
                 }

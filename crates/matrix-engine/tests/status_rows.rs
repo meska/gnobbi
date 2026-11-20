@@ -50,11 +50,11 @@ async fn build(config: &serde_json::Value, who: &str) -> Client {
     c
 }
 
-/// Status rows alice sees, oldest first: (body, sender id).
+/// Status rows alice sees, oldest first: («Status|actor|subject», sender id). The wording is the UI's.
 async fn rows(sync: &RoomSync, views: &mut ViewRequests, scope: &RoomScope) -> Vec<(String, String)> {
     let hidden = ReadVisibility { window_focused: false, room_foreground: false, bottom_gap_px: 0.0, public_receipts: true };
     let (page, _) = sync.open_history(views.start(scope.clone()).unwrap(), hidden).await.unwrap();
-    page.events.iter().filter(|e| e.status).map(|e| (e.body.clone(), e.sender.id.clone())).collect()
+    page.events.iter().filter(|e| e.status).map(|e| { let r = e.status_row.as_ref().expect("status row data"); assert!(e.body.is_empty()); (format!("{:?}|{}|{}", r.status, r.actor, r.subject), e.sender.id.clone()) }).collect()
 }
 
 /// Wait until at least `count` status rows contain `frag`; panics with all rows seen.
@@ -141,13 +141,13 @@ fn status_rows_cover_every_kind() {
         // Member profile: name set, changed, avatar, name removed (m.room.member updates in every joined room).
         let account = b.account();
         account.set_display_name(Some("Roberto")).await.unwrap();
-        expect(&sync, &mut views, &scope, "ha cambiato il nome in Roberto", 1).await;
+        expect(&sync, &mut views, &scope, "DisplayName { old: None, new: Some(\"Roberto\") }", 1).await;
         account.set_display_name(Some("Bob")).await.unwrap();
-        expect(&sync, &mut views, &scope, "Roberto ha cambiato il nome in Bob", 1).await;
+        expect(&sync, &mut views, &scope, "DisplayName { old: Some(\"Roberto\"), new: Some(\"Bob\") }", 1).await;
         account.set_avatar_url(Some("mxc://matrix-desktop.test/fakeavatar".into())).await.unwrap();
-        expect(&sync, &mut views, &scope, "ha cambiato l'avatar", 2).await; // room avatar + member avatar
+        expect(&sync, &mut views, &scope, "Avatar", 2).await; // room avatar + member avatar
         account.set_display_name(None).await.unwrap();
-        expect(&sync, &mut views, &scope, "ha rimosso il nome visualizzato", 1).await;
+        expect(&sync, &mut views, &scope, "DisplayName { old: Some(\"Bob\"), new: None }", 1).await;
         ra.kick_user(&bob, None).await.unwrap();
         ra.ban_user(&bob, None).await.unwrap();
         ra.unban_user(&bob, None).await.unwrap();
@@ -155,32 +155,29 @@ fn status_rows_cover_every_kind() {
         ra.invite_user_by_id(&carol).await.unwrap();
         carol_c.join_room_by_id(&room_id).await.unwrap();
 
-        let all = expect(&sync, &mut views, &scope, "nella stanza", 4).await; // alice (creator), bob twice, carol
+        let all = expect(&sync, &mut views, &scope, "Joined|", 4).await; // alice (creator), bob twice, carol
         for (b, s) in &all {
             eprintln!("STATUS {s} | {b}");
         }
-        let text = |t: &str| all.iter().any(|(b, _)| b == t);
         let n = |frag: &str| all.iter().filter(|(b, _)| b.contains(frag)).count();
         let _ = alice;
-        assert!(text("@alice:matrix-desktop.test ha creato questa stanza.") || n("ha creato questa stanza") == 1, "creation");
-        assert!(n("ha cambiato il nome della stanza in «Casa»") == 1, "room name");
-        assert!(n("ha cambiato l'argomento della stanza in «Cena»") == 1, "topic");
-        assert!(n("ha rimosso l'argomento della stanza") == 1, "topic removed");
-        assert!(n("ha cambiato l'avatar della stanza") >= 1, "room avatar");
-        assert_eq!(n("ha invitato"), 5, "invites: bob x4, carol");
-        assert!(n("ha rifiutato l'invito") == 1, "reject");
-        assert!(n("ha revocato l'invito a") == 1, "revoke");
-        // «entrato/a» is the wording today; only the verb-free tail is pinned here.
-        assert_eq!(n("nella stanza"), 4, "joins: creator, bob x2 (a join/leave series), carol; none dropped or merged");
-        assert_eq!(n("dalla stanza"), 2, "one leave, one kick");
-        assert!(n("ha rimosso") >= 1 && n("dalla stanza") >= 1, "kick");
-        assert_eq!(n("ha cambiato il nome in"), 2, "member rename x2");
-        assert_eq!(n("ha cambiato l'avatar"), 2, "member avatar + room avatar");
-        // no display name: the user ID stands in for the name, in this row and in the ones about them
-        assert_eq!(n("@bob:matrix-desktop.test ha rimosso il nome visualizzato"), 1, "id fallback");
-        assert_eq!(n("ha rimosso @bob:matrix-desktop.test dalla stanza"), 1, "kick names the id");
-        assert!(n("ha bandito") == 1, "ban");
-        assert!(n("ha revocato il ban a") == 1, "unban");
+        assert_eq!(n("Created|@alice:matrix-desktop.test|") + n("Created|alice|"), 1, "creation");
+        assert!(n("RoomName(\"Casa\")") == 1, "room name");
+        assert!(n("RoomTopic(\"Cena\")") == 1, "topic");
+        assert!(n("RoomTopic(\"\")") == 1, "topic removed");
+        assert!(n("RoomAvatar") >= 1, "room avatar");
+        assert_eq!(n("Invited|"), 5, "invites: bob x4, carol");
+        assert!(n("InvitationRejected|") == 1, "reject");
+        assert!(n("InvitationRevoked|") == 1, "revoke");
+        assert_eq!(n("Joined|"), 4, "joins: creator, bob x2 (a join/leave series), carol; none dropped or merged");
+        assert_eq!(n("Left|") + n("Kicked|"), 2, "one leave, one kick");
+        assert!(n("Kicked|") >= 1, "kick");
+        assert_eq!(n("DisplayName {"), 4, "member rename x2, set, removed");
+        assert_eq!(n("MemberAvatar|") + n("RoomAvatar|"), 2, "member avatar + room avatar");
+        // no display name: the ID (its local part) stands in for the name, never an empty one
+        assert!(all.iter().all(|(b, _)| !b.contains("||")), "empty name");
+        assert!(n("Banned|") == 1, "ban");
+        assert!(n("Unbanned|") == 1, "unban");
         // unknown/hidden state: nothing mentions it, no empty or raw-type text
         assert!(all.iter().all(|(b, _)| !b.trim().is_empty() && !b.contains("org.example") && !b.contains("m.room.")), "hidden state leaked");
         // fallback: a user with no display name shows as the ID, never empty

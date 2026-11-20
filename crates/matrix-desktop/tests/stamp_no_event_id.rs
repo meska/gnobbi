@@ -24,7 +24,7 @@ fn live_server_message_stamp_has_no_event_id() {
         audio: None,
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None, thread_root: None, reply_to: None,
-        status: false,
+        status: false, status_row: None,
         utd: false,
         attachment_name: None,
         attachment_size: None, media: None,

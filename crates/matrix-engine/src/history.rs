@@ -48,8 +48,21 @@ pub enum MediaKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Media {
     pub kind: MediaKind,
-    /// What the attachment is, never the caption: «Immagine», «Video · 0:12», «File · a.pdf · 2 MB».
+    /// What the attachment is, never the caption: «Image», «Video · 0:12», «File · a.pdf · 2 MB».
+    /// The first part is an English key for the UI to translate (see `Media::translated`); the
+    /// rest (time, size, file name) is the same in every language.
     pub label: String,
+}
+
+impl Media {
+    /// `label` with its first part passed through `tr`.
+    // shortcut: splits at the first « · »; a label kind never contains one, upgrade if one does.
+    pub fn translated(&self, tr: impl Fn(&str) -> String) -> String {
+        match self.label.split_once(" · ") {
+            Some((kind, rest)) => format!("{} · {rest}", tr(kind)),
+            None => tr(&self.label),
+        }
+    }
 }
 
 /// Name offered in the save dialog: the sender controls it, so keep one safe path component.
@@ -139,6 +152,8 @@ pub struct HistoryEvent {
     pub reply_to: Option<ReplyRef>,
     /// A status row (join, invite, rename…): `body` is its wording and `sender` the person it shows.
     pub status: bool,
+    /// Set on a status row: what it says, worded by the UI (`body` is empty).
+    pub status_row: Option<crate::status_line::StatusRow>,
     /// Set on a poll start: `body` is its question. Private user data: never log.
     pub poll: Option<matrix_domain::Poll>,
     /// The event could not be decrypted (no keys): the only rows a key recovery can fix.
@@ -151,6 +166,9 @@ pub struct ReplyRef {
     pub event_id: EventId,
     pub author: Option<String>,
     pub preview: Option<String>,
+    /// `preview` is an English key standing for an attachment without caption («Photo»), not the
+    /// original's text: the UI translates it.
+    pub placeholder: bool,
     pub state: ReplyState,
 }
 
@@ -213,7 +231,7 @@ pub fn quote_preview(text: &str, media: Option<&Media>, max: usize) -> String {
     let line = text.lines().map(str::trim).find(|l| !l.is_empty());
     let Some(line) = line else {
         return media.map_or_else(String::new, |m| match m.kind {
-            MediaKind::Image => "Foto".into(),
+            MediaKind::Image => "Photo".into(),
             MediaKind::Video => "Video".into(),
             MediaKind::Audio => "Audio".into(),
             MediaKind::File => "File".into(),
@@ -235,7 +253,7 @@ mod quote_tests {
         assert_eq!(quote_preview("abcdefghij", None, 5), "abcde…");
         assert_eq!(quote_preview("àèìòùàèìòù", None, 3), "àèì…");
         let m = |kind| Media { kind, label: "x".into() };
-        assert_eq!(quote_preview("", Some(&m(MediaKind::Image)), 40), "Foto");
+        assert_eq!(quote_preview("", Some(&m(MediaKind::Image)), 40), "Photo");
         assert_eq!(quote_preview("didascalia", Some(&m(MediaKind::Image)), 40), "didascalia");
         assert_eq!(quote_preview("", None, 40), "");
     }

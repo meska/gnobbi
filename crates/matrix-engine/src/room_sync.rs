@@ -2037,6 +2037,7 @@ pub(crate) async fn loaded(room: &matrix_sdk::Room, timeline: &std::sync::Arc<ma
                 None => None,
             },
             status: false,
+            status_row: None,
             utd: matches!(content.kind, MsgLikeKind::UnableToDecrypt(_)),
             attachment_name,
             attachment_size,
@@ -2084,7 +2085,7 @@ async fn reply_ref(
         (ReplySource::Detail, TimelineDetails::Ready(e)) => Some(e),
         _ => None,
     };
-    let (mut author, mut preview) = (None, None);
+    let (mut author, mut preview, mut placeholder) = (None, None, false);
     let mut state = match source {
         ReplySource::Loading => ReplyState::Loading,
         _ => ReplyState::Unavailable,
@@ -2094,9 +2095,13 @@ async fn reply_ref(
             Some(MsgLikeKind::Message(m)) => {
                 let media = media_of(m.msgtype());
                 let body = if media.is_some() { caption_rich(room, m.msgtype(), false).await.0 } else { message_rich(room, m.msgtype(), false).await.0 };
+                placeholder = media.is_some() && body.trim().is_empty();
                 Some(crate::history::quote_preview(&body, media.as_ref(), 80))
             }
-            Some(MsgLikeKind::Sticker(_)) => Some("Sticker".to_owned()),
+            Some(MsgLikeKind::Sticker(_)) => {
+                placeholder = true;
+                Some("Sticker".to_owned())
+            }
             Some(MsgLikeKind::Poll(p)) => Some(crate::history::quote_preview(&p.results().question, None, 80)),
             Some(MsgLikeKind::Redacted) => {
                 state = ReplyState::Deleted;
@@ -2115,7 +2120,7 @@ async fn reply_ref(
             state = ReplyState::Resolved;
         }
     }
-    crate::history::ReplyRef { event_id: matrix_domain::EventId::new(r.event_id.as_str()), author, preview, state }
+    crate::history::ReplyRef { event_id: matrix_domain::EventId::new(r.event_id.as_str()), author, preview, placeholder, state }
 }
 
 /// The SDK result (already counted: last vote wins, votes after the end ignored) as a domain `Poll`.
@@ -2179,7 +2184,7 @@ async fn status_row(
     event: &matrix_sdk_ui::timeline::EventTimelineItem,
     id: &matrix_sdk::ruma::EventId,
 ) -> Option<crate::history::HistoryEvent> {
-    use crate::status_line::{Status, status_spans};
+    use crate::status_line::{Status, StatusRow};
     use matrix_sdk::ruma::events::{StateEventContentChange::Original, room::member::MembershipState};
     use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange as State, MembershipChange as M, TimelineItemContent as C};
     let actor = history_sender(room, event.sender()).await;
@@ -2239,19 +2244,12 @@ async fn status_row(
         }
         _ => return None,
     };
-    // Actor and subject are clickable names: the actor is the event sender, the subject the person shown.
-    let (text, actor_at, subject_at) = status_spans(&status, &label(&actor), &subject);
-    let mut mentions: Vec<_> = [(actor_at, &actor), (subject_at, &shown)]
-        .into_iter()
-        .filter_map(|(range, who)| Some(crate::rich_text::MentionSpan { range: range?, kind: crate::rich_text::MentionKind::User { sender: who.clone(), me: false } }))
-        .collect();
-    mentions.sort_by_key(|m| m.range.start);
     // An invitation for you needs attention: `highlighted` keeps it out of the «hide status rows» filter.
     let for_me = matches!(status, Status::Invited) && shown.id == room.own_user_id().as_str();
     Some(crate::history::HistoryEvent {
         poll: None,
         event_id: matrix_domain::EventId::new(id.as_str()),
-        body: crate::status_line::with_reason(text, reason.as_deref()),
+        body: String::new(),
         outgoing: false,
         redacted: false,
         timestamp_ms: event.timestamp().0.into(),
@@ -2260,12 +2258,13 @@ async fn status_row(
         audio: None,
         media: None,
         styles: Vec::new(),
-        mentions,
+        mentions: Vec::new(),
         highlighted: for_me,
         thread: None,
         thread_root: None,
         reply_to: None,
         status: true,
+        status_row: Some(StatusRow { status, actor: label(&actor), subject, reason }),
         utd: false,
         attachment_name: None,
         attachment_size: None,
@@ -2667,7 +2666,7 @@ fn message_label(msgtype: &MessageType) -> String {
                 .map(|d| crate::history::duration_label(d.as_millis() as u64));
             join(
                 if a.voice.is_some() {
-                    "Nota vocale"
+                    "Voice note"
                 } else {
                     "Audio"
                 },
@@ -2689,7 +2688,7 @@ fn message_label(msgtype: &MessageType) -> String {
         }
         MessageType::Location(_) => "Posizione".into(),
         MessageType::VerificationRequest(_) => "Richiesta di verifica".into(),
-        MessageType::Image(_) => "Immagine".into(),
+        MessageType::Image(_) => "Image".into(),
         other => other.msgtype().to_owned(),
     }
 }

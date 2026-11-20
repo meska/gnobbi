@@ -30,7 +30,7 @@ fn ev(id: &str, sender: &str, ts: u64, redacted: bool) -> HistoryEvent {
         styles: Vec::new(), mentions: Vec::new(), highlighted: false,
         thread: None,
         thread_root: None, reply_to: None,
-        status: false,
+        status: false, status_row: None,
         utd: false,
         attachment_name: None,
         attachment_size: None, media: None,

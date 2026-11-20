@@ -20,7 +20,7 @@ fn root(replies: Option<u32>, latest: &str) -> HistoryEvent {
             unread: 0,
         }),
         thread_root: None, reply_to: None,
-        status: false,
+        status: false, status_row: None,
         utd: false,
         attachment_name: None,
         attachment_size: None, media: None,

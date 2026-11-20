@@ -240,7 +240,7 @@ fn non_text_message_types_get_real_labels() {
         ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.ogg","url":"mxc://t/a","org.matrix.msc3245.voice":{}}),
-            "Nota vocale",
+            "Voice note",
         ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.mp3","url":"mxc://t/a"}),
@@ -248,7 +248,7 @@ fn non_text_message_types_get_real_labels() {
         ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.ogg","url":"mxc://t/a","info":{"duration":75000},"org.matrix.msc3245.voice":{}}),
-            "Nota vocale · 1:15",
+            "Voice note · 1:15",
         ),
         (
             serde_json::json!({"msgtype":"m.audio","body":"a.mp3","url":"mxc://t/a","info":{"duration":12000}}),
@@ -476,7 +476,7 @@ fn attachment_caption_comes_from_the_sdk_not_from_the_file_name() {
     assert!(media_of(&msgtype_of(serde_json::json!({"msgtype":"m.text","body":"ciao"}))).is_none());
     assert!(caption_sources(&msgtype_of(serde_json::json!({"msgtype":"m.text","body":"ciao"}))).0.is_none());
     let image = media_of(&msgtype_of(serde_json::json!({"msgtype":"m.image","body":"x","filename":"a.png","url":"mxc://t/x"}))).unwrap();
-    assert_eq!((image.kind, image.label.as_str()), (crate::history::MediaKind::Image, "Immagine"));
+    assert_eq!((image.kind, image.label.as_str()), (crate::history::MediaKind::Image, "Image"));
 }
 
 #[test]

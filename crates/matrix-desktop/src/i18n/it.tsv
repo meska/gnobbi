@@ -459,3 +459,28 @@ menu	Bring All to Front	Porta tutto in primo piano
 	last message at {when}	ultimo messaggio alle {when}
 	last message on {when}	ultimo messaggio il {when}
 	last message {when}	ultimo messaggio {when}
+# engine text (status rows, attachment labels)
+	A user	Un utente
+	{actor} created this room.	{actor} ha creato questa stanza.
+	{actor} created this chat.	{actor} ha creato questo MD.
+	{actor} invited {subject}	{actor} ha invitato {subject}
+	{subject} joined the room	{subject} è entrato/a nella stanza
+	{subject} left the room	{subject} è uscito/a dalla stanza
+	{actor} banned {subject}	{actor} ha bandito {subject}
+	{actor} unbanned {subject}	{actor} ha revocato il ban a {subject}
+	{actor} removed {subject} from the room	{actor} ha rimosso {subject} dalla stanza
+	{subject} declined the invitation	{subject} ha rifiutato l'invito
+	{actor} revoked the invitation for {subject}	{actor} ha revocato l'invito a {subject}
+	{actor} removed the room name	{actor} ha rimosso il nome della stanza
+	{actor} changed the room name to «{name}»	{actor} ha cambiato il nome della stanza in «{name}»
+	{actor} removed the room topic	{actor} ha rimosso l'argomento della stanza
+	{actor} changed the room topic to «{topic}»	{actor} ha cambiato l'argomento della stanza in «{topic}»
+	{actor} changed the room avatar	{actor} ha cambiato l'avatar della stanza
+	{old} changed their name to {new}	{old} ha cambiato il nome in {new}
+	{subject} set their name to {new}	{subject} ha impostato il nome {new}
+	{subject} removed their display name	{subject} ha rimosso il nome visualizzato
+	{subject} changed their avatar	{subject} ha cambiato l'avatar
+	{text} (reason: {reason})	{text} (motivo: {reason})
+	Audio	Audio
+	File	File
+	Photo	Foto

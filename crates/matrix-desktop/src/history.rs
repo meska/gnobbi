@@ -74,6 +74,8 @@ pub struct DemoEvent {
     pub reply_to: Option<matrix_engine::history::ReplyRef>,
     /// A status row (join, invite, rename…): drawn as a quiet centred line, not a bubble.
     pub status: bool,
+    /// Set on a status row: what it says; `text` is empty, `status_text` words it in the active language.
+    pub status_row: Option<matrix_engine::status_line::StatusRow>,
     /// Could not be decrypted: the row offers «Recupera chiavi» while the recovery is incomplete.
     pub utd: bool,
 }
@@ -202,7 +204,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     reply_to: None,
-                    status: false,
+                    status: false, status_row: None,
                     utd: false,
                     video: None,
                     audio: None,
@@ -286,7 +288,7 @@ impl DemoHistory {
             thread: None,
             thread_root: None,
             reply_to: None,
-            status: false,
+            status: false, status_row: None,
             utd: false,
             video: None,
             audio: None,
@@ -438,6 +440,7 @@ impl DemoHistory {
                 thread_root: event.thread_root,
                 reply_to: event.reply_to,
                 status: event.status,
+                status_row: event.status_row,
                 utd: event.utd,
                 attachment_name: event.attachment_name,
                 attachment_size: event.attachment_size,
@@ -590,7 +593,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     reply_to: None,
-                    status: false,
+                    status: false, status_row: None,
                     utd: false,
                     video: None,
                     audio: None,
@@ -681,7 +684,7 @@ impl DemoHistory {
                     thread: None,
                     thread_root: None,
                     reply_to: None,
-                    status: false,
+                    status: false, status_row: None,
                     utd: false,
                     video: None,
                     audio: None,
