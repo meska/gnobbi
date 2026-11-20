@@ -10,6 +10,10 @@ Caratteristiche principali:
 
 **Stato: sviluppo iniziale.** Non ci sono ancora release o binari pubblici: il progetto si compila dai sorgenti e l'interfaccia è in continua evoluzione.
 
+## Traduzioni
+
+L'interfaccia è traducibile con semplici file di testo: vedi [TRANSLATING.md](TRANSLATING.md) (in inglese).
+
 ## Struttura
 
 - `crates/matrix-domain`: modelli e design token, senza SDK né toolkit grafico;

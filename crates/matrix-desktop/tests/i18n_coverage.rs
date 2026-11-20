@@ -1,4 +1,4 @@
-//! Translation coverage: `cargo i18n` lists, per language, the strings used in the source
+//! Translation coverage: `cargo i18n` lists, per language (empty catalogs only as a count), the strings used in the source
 //! (`t("…")`, `t_ctx("ctx", "…")`, `plural(n, "…", "…")`) that the catalog lacks. Never fails the build.
 use matrix_desktop::i18n::{LANGUAGES, parse};
 use std::collections::BTreeSet;
@@ -96,12 +96,16 @@ fn finds_literal_calls_only() {
 fn translation_gaps() {
     let keys = keys_used();
     println!("{} strings used in the source", keys.len());
-    for l in LANGUAGES.iter().filter(|l| !l.source.is_empty()) {
-        let (catalog, errors) = parse(l.source);
+    for l in LANGUAGES.iter().filter(|l| l.code != "en") {
+        let (catalog, errors) = parse(l.source, l.plural_forms);
         let missing: Vec<_> = keys.iter().filter(|(c, s)| !catalog.get(c).is_some_and(|m| m.contains_key(s))).collect();
         println!("\n[{}] {} missing, {} malformed rows", l.code, missing.len(), errors.len());
         for e in errors {
             println!("  row error: {e}");
+        }
+        if catalog.is_empty() {
+            println!("  (no translations yet: not listed)");
+            continue;
         }
         for (c, s) in missing {
             println!("  {}\t{}", c, s.replace('\t', "\\t").replace('\n', "\\n"));

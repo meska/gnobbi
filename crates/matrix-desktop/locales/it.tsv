@@ -1,7 +1,12 @@
-# Catalogo italiano di Gnobbi, scritto da zero. UTF-8, una riga per voce:
-# contesto<TAB>sorgente inglese<TAB>traduzione. Contesto vuoto = etichetta normale;
-# menu = voce di menu; @plural = forme separate da | (it: uno|altri), segnaposto {n}.
-# In sorgente e traduzione: \t = tab, \n = a capo, \\ = backslash.
+# Gnobbi translation: it Italiano
+# Written by the Gnobbi team, not yet reviewed by a native speaker.
+# License: MIT OR Apache-2.0
+# Date: 2026-11-20
+# Reviewed by: —
+# Format: UTF-8, one row per string: context<TAB>English source<TAB>translation. Empty context = plain label; menu = menu item.
+# In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
+# @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of it in this order, separated by |: one|other (1 is one).
+# See TRANSLATING.md.
 
 # list
 	Pinned	Fissata

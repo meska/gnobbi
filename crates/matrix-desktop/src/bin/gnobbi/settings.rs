@@ -1,6 +1,6 @@
 //! Settings drawer: the saved preferences the GPUI app offers for look and behaviour. Every change is written at once.
 use eframe::egui::{self, Color32, Sense, Vec2};
-use matrix_desktop::i18n::{self, t as tr};
+use matrix_desktop::i18n::t as tr;
 use matrix_desktop::{AppDirs, DesignTokens, Preferences};
 
 fn rgb(c: u32) -> Color32 {
@@ -65,15 +65,6 @@ pub fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&
             crate::metrics::clickable(egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, add).response).labelled_by(name.id);
         });
     });
-}
-
-/// Each language in its own name, whatever the interface language; fixed on purpose.
-pub fn lang_name(l: i18n::Preference) -> &'static str {
-    match l {
-        i18n::Preference::Auto => "Auto",
-        i18n::Preference::English => "English",
-        i18n::Preference::Italian => "Italiano",
-    }
 }
 
 /// Draws the drawer beside the rail; returns the new preferences when something was changed (already saved).

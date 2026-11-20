@@ -703,4 +703,4 @@ The egui stack (eframe/egui 0.37 and the storytold winit fork, both vendored und
 
 ## Code adapted from other projects
 
-- CADCraft (https://github.com/storytold/cadcraft) — MIT OR Apache-2.0 — the TSV catalog scheme (`context<TAB>source<TAB>translation`, `@plural` rows, English-key fallback) in `crates/matrix-desktop/src/i18n.rs`. Gnobbi's catalogs are written from scratch.
+- CADCraft (https://github.com/storytold/cadcraft) — MIT OR Apache-2.0 — the TSV catalog scheme (`context<TAB>source<TAB>translation`, `@plural` rows, English-key fallback) in `crates/matrix-desktop/src/i18n.rs`; the catalogs are `crates/matrix-desktop/locales/<code>.tsv`. Gnobbi's catalogs are written from scratch.

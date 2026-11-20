@@ -1,0 +1,9 @@
+# Gnobbi translation: cs Čeština
+# Original translation, AI-assisted, not yet reviewed by a native speaker.
+# License: MIT OR Apache-2.0
+# Date: 2026-11-20
+# Reviewed by: —
+# Format: UTF-8, one row per string: context<TAB>English source<TAB>translation. Empty context = plain label; menu = menu item.
+# In source and translation: \t = tab, \n = newline, \\ = backslash. Keep placeholders such as {n} and {name} unchanged.
+# @plural rows: the context is @plural, the source is the English "one" form, the translation has the forms of cs in this order, separated by |: one|few|other.
+# See TRANSLATING.md.

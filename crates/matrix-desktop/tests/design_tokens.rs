@@ -21,7 +21,7 @@ fn same(id: &str, d: DesignTokens, g: gen_::Palette) {
 #[test]
 fn generated_tokens_equal_the_desktop_for_all_four_themes() {
     // design/tokens.toml carries the Italian labels; the desktop labels are translated.
-    i18n::apply(Preference::Italian, None);
+    i18n::apply(Preference::Fixed("it"), None);
     assert_eq!(gen_::THEMES.len(), Theme::ALL.len());
     for (theme, g) in Theme::ALL.into_iter().zip(gen_::THEMES) {
         same(g.id, theme.tokens(), g.palette);

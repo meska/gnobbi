@@ -120,7 +120,7 @@ mod tests {
 
     #[test]
     fn status_rows_in_english_and_italian() {
-        let it = |f: &dyn Fn() -> String| { i18n::apply(i18n::Preference::Italian, None); let r = f(); i18n::apply(i18n::Preference::English, None); r };
+        let it = |f: &dyn Fn() -> String| { i18n::apply(i18n::Preference::Fixed("it"), None); let r = f(); i18n::apply(i18n::Preference::Fixed("en"), None); r };
         assert_eq!(row(Status::Joined, "Bob", "Bob", Some("  ")), "Bob joined the room");
         assert_eq!(it(&|| row(Status::Joined, "Bob", "Bob", Some("  "))), "Bob è entrato/a nella stanza");
         assert_eq!(row(Status::Kicked, "Ann", "Bob", Some("spam")), "Ann removed Bob from the room (reason: spam)");

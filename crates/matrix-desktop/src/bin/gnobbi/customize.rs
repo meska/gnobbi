@@ -32,9 +32,9 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                         changed = true;
                     }
                     section(ui, tr("Appearance"), t);
-                    choice(ui, tr("Language"), crate::settings::lang_name(p.language), |ui| {
-                        for l in i18n::Preference::ALL {
-                            changed |= ui.selectable_value(&mut p.language, l, crate::settings::lang_name(l)).changed();
+                    choice(ui, tr("Language"), p.language.name(), |ui| {
+                        for l in i18n::Preference::choices() {
+                            changed |= ui.selectable_value(&mut p.language, l, l.name()).changed();
                         }
                     });
                     choice(ui, tr("Theme"), p.theme.map_or(tr("System"), Theme::label), |ui| {

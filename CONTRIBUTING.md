@@ -7,7 +7,7 @@ Grazie dell'interesse. Il progetto è in sviluppo iniziale: l'ambito attuale è 
 - Apri una *issue* che descrive il problema o la proposta prima di una PR di una certa entità: così eviti lavoro che non entra nell'ambito attuale.
 - Le funzioni Matrix passano prima di tutto dal [Matrix Rust SDK](https://github.com/matrix-org/matrix-rust-sdk) ufficiale: codice scritto a mano al suo posto, in generale, non viene accettato.
 - Niente telemetria, niente dati personali, niente segreti o credenziali nei commit.
-- I testi dell'interfaccia sono in italiano.
+- I testi dell'interfaccia sono in inglese nel codice e tradotti nei cataloghi `locales/`: vedi [TRANSLATING.md](TRANSLATING.md).
 
 ## Compilare e testare
 

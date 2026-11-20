@@ -93,7 +93,7 @@ fn roundtrip_keeps_values() {
         list_width: Some(412),
         thread_width: Some(500),
         count_preview_accounts: Default::default(),
-        language: matrix_desktop::i18n::Preference::Italian,
+        language: matrix_desktop::i18n::Preference::Fixed("it"),
         text_size: matrix_desktop::TextSize::Large,
         density: matrix_desktop::Density::Compact,
     };
@@ -111,12 +111,12 @@ fn language_choice_persists_and_applies() {
     let _gate = no_spawn();
     let d = dirs(&tmp("language"));
     assert_eq!(Preferences::load(&d).language, Preference::Auto);
-    Preferences::update(&d, |p| p.language = Preference::Italian).unwrap();
+    Preferences::update(&d, |p| p.language = Preference::Fixed("it")).unwrap();
     let saved = Preferences::load(&d).language;
-    assert_eq!(saved, Preference::Italian);
+    assert_eq!(saved, Preference::Fixed("it"));
     assert_eq!(i18n::apply(saved, None), "it");
     assert_eq!(i18n::t("Settings"), "Impostazioni");
-    assert_eq!(i18n::apply(Preference::English, None), "en");
+    assert_eq!(i18n::apply(Preference::Fixed("en"), None), "en");
     assert_eq!(i18n::t("Settings"), "Settings");
 }
 

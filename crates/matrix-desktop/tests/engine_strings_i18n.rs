@@ -10,14 +10,14 @@ fn engine_lines_and_notification_bodies_follow_the_language() {
     use ProfileError::*;
     let errors = [NameEmpty, NameTooLong, NotAllowed, FileUnreadable, FileTooLarge, FileInvalid, Network, Rejected];
     let lines = [OperationError::Forbidden, OperationError::Unavailable, OperationError::Transport].map(space_error_line);
-    i18n::apply(Preference::English, None);
+    i18n::apply(Preference::Fixed("en"), None);
     assert_eq!(notification_body(None, true, false), "New messages");
-    i18n::apply(Preference::Italian, None);
+    i18n::apply(Preference::Fixed("it"), None);
     for line in errors.map(ProfileError::message).into_iter().chain(lines) {
         assert_ne!(t(line), line, "missing it row: {line}");
     }
     assert_eq!(notification_body(None, true, false), "Nuovi messaggi");
     assert_eq!(notification_body(None, true, true), "1 nuovo messaggio");
-    i18n::apply(Preference::English, None);
+    i18n::apply(Preference::Fixed("en"), None);
     assert_eq!(notification_body(None, true, false), "New messages");
 }
