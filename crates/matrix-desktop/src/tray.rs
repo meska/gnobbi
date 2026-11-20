@@ -244,7 +244,7 @@ pub fn mac_menubar() -> Menu {
         accelerator::{Accelerator, Code, Modifiers},
         Submenu,
     };
-    let cmd = |code| Some(Accelerator::new(Some(Modifiers::META), code));
+    let cmd = |code| Some(Accelerator::new(Modifiers::META, code));
     let item = |id: &str, title: &str, key: Option<Accelerator>| MenuItem::with_id(id, title, true, key);
     let sep = || PredefinedMenuItem::separator();
     let menu = Menu::new();
@@ -268,7 +268,7 @@ pub fn mac_menubar() -> Menu {
     let edit = Submenu::new("Modifica", true);
     edit.append_items(&[
         &edit_item(Edit::Undo, "Annulla", cmd(Code::KeyZ)),
-        &edit_item(Edit::Redo, "Ripeti", Some(Accelerator::new(Some(Modifiers::META | Modifiers::SHIFT), Code::KeyZ))),
+        &edit_item(Edit::Redo, "Ripeti", Some(Accelerator::new(Modifiers::META | Modifiers::SHIFT, Code::KeyZ))),
         &sep(),
         &edit_item(Edit::Cut, "Taglia", cmd(Code::KeyX)),
         &edit_item(Edit::Copy, "Copia", cmd(Code::KeyC)),
