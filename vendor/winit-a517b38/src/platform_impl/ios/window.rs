@@ -372,8 +372,15 @@ impl Inner {
         warn!("`Window::set_window_icon` is ignored on iOS")
     }
 
-    pub fn set_ime_cursor_area(&self, _position: Position, _size: Size) {
-        warn!("`Window::set_ime_cursor_area` is ignored on iOS")
+    /// Where the keyboard puts its candidates (`UITextInput` `firstRectForRange:`).
+    pub fn set_ime_cursor_area(&self, position: Position, size: Size) {
+        let scale_factor = self.scale_factor();
+        let position = position.to_logical::<f64>(scale_factor);
+        let size = size.to_logical::<f64>(scale_factor);
+        self.view.set_ime_area(CGRect {
+            origin: CGPoint { x: position.x, y: position.y },
+            size: CGSize { width: size.width, height: size.height },
+        });
     }
 
     /// Show / hide the keyboard. To show the keyboard, we call `becomeFirstResponder`,
@@ -381,6 +388,7 @@ impl Inner {
     /// [objc2_ui_kit::UIKeyInput], the keyboard will be shown.
     /// <https://developer.apple.com/documentation/uikit/uiresponder/1621113-becomefirstresponder>
     pub fn set_ime_allowed(&self, allowed: bool) {
+        self.view.set_ime_allowed(allowed);
         if allowed {
             unsafe {
                 self.view.becomeFirstResponder();
@@ -392,14 +400,26 @@ impl Inner {
         }
     }
 
-    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {
-        warn!("`Window::set_ime_purpose` is ignored on iOS")
+    /// Only `Password` has an effect: no suggestions or autocorrection, and the typed text isn't
+    /// shown to UIKit.
+    pub fn set_ime_purpose(&self, purpose: ImePurpose) {
+        self.view.set_ime_secure(matches!(purpose, ImePurpose::Password));
     }
 
-    pub fn reset_ime(&self) {}
+    pub fn reset_ime(&self) {
+        self.view.reset_ime();
+    }
 
     #[inline]
-    pub fn reset_ime_with_request(&self, _request_id: u64) {}
+    pub fn reset_ime_with_request(&self, request_id: u64) {
+        self.view.reset_ime_with_request(request_id);
+    }
+
+    pub(crate) fn take_ime_delete_surrounding(&self) -> Option<crate::platform::ios::ImeDeleteSurrounding> {
+        self.view
+            .take_ime_delete_surrounding()
+            .map(|before_bytes| crate::platform::ios::ImeDeleteSurrounding { before_bytes, after_bytes: 0 })
+    }
 
     pub fn focus_window(&self) {
         warn!("`Window::set_focus` is ignored on iOS")

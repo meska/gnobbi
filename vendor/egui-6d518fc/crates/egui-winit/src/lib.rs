@@ -3843,6 +3843,13 @@ fn ime_delete_surrounding(window: &Window) -> Option<(usize, usize)> {
             .take_ime_delete_surrounding()
             .map(|delete| (delete.before_bytes, delete.after_bytes))
     }
+    #[cfg(target_os = "ios")]
+    {
+        use winit::platform::ios::WindowExtIOS as _;
+        window
+            .take_ime_delete_surrounding()
+            .map(|delete| (delete.before_bytes, delete.after_bytes))
+    }
     #[cfg(all(
         feature = "wayland",
         unix,
@@ -3859,6 +3866,7 @@ fn ime_delete_surrounding(window: &Window) -> Option<(usize, usize)> {
     }
     #[cfg(not(any(
         target_os = "macos",
+        target_os = "ios",
         all(
             feature = "wayland",
             unix,

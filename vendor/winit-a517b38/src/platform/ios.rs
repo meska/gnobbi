@@ -192,6 +192,27 @@ pub trait WindowExtIOS {
     ///
     /// The default is to not recognize gestures.
     fn recognize_rotation_gesture(&self, should_recognize: bool);
+
+    /// The text to delete before inserting the [`Ime::Commit`] being handled.
+    ///
+    /// Call this when handling each `Ime::Commit`, after removing the preedit and before
+    /// inserting the committed text, which may be empty when the keyboard only deletes.
+    /// Returns `None` when the commit deletes nothing.
+    ///
+    /// The keyboard replaces text it just saw next to the caret: autocorrection replaces the word
+    /// just typed. Same shape as `WindowExtMacOS::take_ime_delete_surrounding`.
+    ///
+    /// [`Ime::Commit`]: crate::event::Ime::Commit
+    fn take_ime_delete_surrounding(&self) -> Option<ImeDeleteSurrounding>;
+}
+
+/// Text the keyboard asks to delete around the cursor, in bytes of UTF-8 text.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ImeDeleteSurrounding {
+    /// Bytes to delete before the cursor.
+    pub before_bytes: usize,
+    /// Bytes to delete after the cursor.
+    pub after_bytes: usize,
 }
 
 impl WindowExtIOS for Window {
@@ -256,6 +277,11 @@ impl WindowExtIOS for Window {
     #[inline]
     fn recognize_rotation_gesture(&self, should_recognize: bool) {
         self.window.maybe_queue_on_main(move |w| w.recognize_rotation_gesture(should_recognize));
+    }
+
+    #[inline]
+    fn take_ime_delete_surrounding(&self) -> Option<ImeDeleteSurrounding> {
+        self.window.maybe_wait_on_main(|w| w.take_ime_delete_surrounding())
     }
 }
 
