@@ -71,7 +71,7 @@ pub fn one_line(ui: &egui::Ui, text: &str, size: f32, color: Color32, width: f32
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Mark { Pin, Low }
 
-const MARK: f32 = 13.;
+const MARK: f32 = 14.;
 const MARK_SLOT: f32 = MARK + 4.;
 
 /// Pinned wins when another client set both tags.
@@ -96,21 +96,9 @@ fn mode_label(mode: matrix_domain::notifications::RoomNotifyMode) -> &'static st
 fn draw_mark(ui: &egui::Ui, id: egui::Id, m: Mark, right: f32, y: f32, t: &DesignTokens) {
     let rect = egui::Rect::from_center_size(egui::pos2(right - MARK / 2., y), Vec2::splat(MARK));
     let (label, color) = match m { Mark::Pin => (i18n::t("Pinned"), rgb(t.accent).gamma_multiply(0.8)), Mark::Low => (i18n::t("Low priority"), rgb(t.secondary).gamma_multiply(0.7)) };
-    let (p, c, s) = (ui.painter(), rect.center(), egui::Stroke::new(1.5, color));
-    match m {
-        // Pushpin: round head, tilted body, needle.
-        Mark::Pin => {
-            p.circle_filled(c + Vec2::new(1.5, -2.5), 3.5, color);
-            p.line_segment([c + Vec2::new(-0.5, -0.5), c + Vec2::new(-3.5, 3.), ], s);
-            p.line_segment([c + Vec2::new(-3.5, 3.), c + Vec2::new(-5.5, 5.5)], egui::Stroke::new(1., color));
-        }
-        // Arrow down.
-        Mark::Low => {
-            p.line_segment([c + Vec2::new(0., -5.), c + Vec2::new(0., 5.)], s);
-            p.line_segment([c + Vec2::new(-3.5, 1.5), c + Vec2::new(0., 5.)], s);
-            p.line_segment([c + Vec2::new(3.5, 1.5), c + Vec2::new(0., 5.)], s);
-        }
-    }
+    // Pinned is an active state (Fill); low priority is the plain down arrow.
+    let (icon, fill) = match m { Mark::Pin => (crate::icons::Icon::PushPin, true), Mark::Low => (crate::icons::Icon::ArrowDown, false) };
+    crate::icons::paint(ui.painter(), rect.center(), icon, fill, MARK, color);
     let resp = ui.interact(rect, id, Sense::hover()).on_hover_text(label);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, label));
 }
@@ -145,7 +133,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
         ui.heading(clean_single_line(&title));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.add_space(12.);
-            let plus = crate::mobile::icon_button(ui, "+");
+            let plus = crate::icons::button(ui, crate::icons::Icon::Plus, false, i18n::t("New"));
             egui::Popup::menu(&plus).show(|ui| {
                 if ui.button(i18n::t("New chat")).clicked() {
                     *new_chat = true;
@@ -167,7 +155,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        let r = ui.add_sized([w, crate::mobile::target(32.)], egui::TextEdit::singleline(query).hint_text(i18n::t("Search conversations")).align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([w, crate::metrics::button()], crate::metrics::line(query).hint_text(i18n::t("Search conversations")).align(egui::Align2::LEFT_CENTER));
         if std::mem::take(focus) {
             r.request_focus();
         }
@@ -199,6 +187,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
         for &index in &visible[range] {
             let room = &sidebar.rooms()[index];
             let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), ROW), Sense::click());
+            let resp = crate::metrics::clickable(resp);
             if selected.as_ref() == Some(&room.scope) {
                 ui.painter().rect_filled(rect, 0., rgb(t.selected));
             } else if resp.hovered() {
@@ -259,7 +248,7 @@ pub fn rooms(ui: &mut egui::Ui, session: &mut crate::session::Session, new_chat:
                         }
                     }
                     for mode in matrix_domain::notifications::RoomNotifyMode::ALL {
-                        let label = if sidebar.notify_mode(&room.scope) == mode { format!("✓ {}", mode_label(mode)) } else { mode_label(mode).to_owned() };
+                        let label = if sidebar.notify_mode(&room.scope) == mode { crate::icons::with_label(crate::icons::Icon::Check, mode_label(mode)) } else { egui::text::LayoutJob::simple_singleline(mode_label(mode).to_owned(), FontId::proportional(crate::metrics::get().body), Color32::PLACEHOLDER) };
                         if ui.button(label).clicked() { action = Some((room.scope.clone(), RoomAction::Mode(mode))); ui.close(); }
                     }
                     let label = if session.confirm_leave.as_ref() == Some(&room.scope) { i18n::t("Leave?") } else { i18n::t("Leave") };

@@ -93,6 +93,122 @@ impl AutoNight {
     }
 }
 
+/// «Dimensione testo»: scales the whole interface (egui zoom factor on top of the display's own scale), so text, icons, buttons,
+/// spacing and rail grow together and never truncate. `System` follows the OS text-size setting; the others are fixed overrides.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TextSize {
+    #[default]
+    System,
+    Small,
+    Normal,
+    Large,
+}
+
+/// The interface scale stays in this range whatever the system or the choice says.
+pub const SCALE_RANGE: (f32, f32) = (0.8, 2.0);
+
+impl TextSize {
+    pub const ALL: [TextSize; 4] = [TextSize::System, TextSize::Small, TextSize::Normal, TextSize::Large];
+    fn name(self) -> &'static str {
+        match self {
+            TextSize::System => "system",
+            TextSize::Small => "small",
+            TextSize::Normal => "normal",
+            TextSize::Large => "large",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            TextSize::System => crate::i18n::t("Follow the system"),
+            TextSize::Small => crate::i18n::t("Small"),
+            TextSize::Normal => crate::i18n::t("Normal"),
+            TextSize::Large => crate::i18n::t("Large"),
+        }
+    }
+    /// Final egui zoom factor; `system` is the OS text scale (1.0 when unknown or unreadable).
+    pub fn zoom(self, system: f32) -> f32 {
+        let system = if system.is_finite() && system > 0. { system } else { 1. };
+        match self {
+            TextSize::System => system.clamp(SCALE_RANGE.0, SCALE_RANGE.1),
+            TextSize::Small => 0.9,
+            TextSize::Normal => 1.,
+            TextSize::Large => 1.15,
+        }
+    }
+    fn parse(s: &str) -> Option<TextSize> {
+        Self::ALL.into_iter().find(|a| a.name() == s)
+    }
+}
+
+/// `gsettings get org.gnome.desktop.interface text-scaling-factor` output («1.25»).
+pub fn parse_gsettings_scale(out: &str) -> Option<f32> {
+    out.trim().parse::<f32>().ok().filter(|v| v.is_finite() && *v > 0.)
+}
+
+/// `reg query HKCU\SOFTWARE\Microsoft\Accessibility /v TextScaleFactor` output (percent as REG_DWORD, 100..225).
+pub fn parse_windows_text_scale(out: &str) -> Option<f32> {
+    let hex = out.split_whitespace().skip_while(|w| *w != "REG_DWORD").nth(1)?.strip_prefix("0x")?;
+    u32::from_str_radix(hex, 16).ok().filter(|p| *p > 0).map(|p| p as f32 / 100.)
+}
+
+/// «Dimensione pulsanti e icone».
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Density {
+    /// Follows the text: the standard measures, which the interface zoom already scales.
+    #[default]
+    System,
+    Compact,
+    Normal,
+    Comfortable,
+}
+
+/// The one scale of buttons, icons, spacing and fonts (points); every control reads it through `Density::metrics`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Metrics {
+    /// Height of a standard button; an icon-only button is a square of this side (44 on touch, applied by the caller).
+    pub button: f32,
+    pub pad_x: f32,
+    pub radius: f32,
+    /// Standard icon size inside a button.
+    pub icon: f32,
+    /// Space between neighbouring elements.
+    pub gap: f32,
+    pub body: f32,
+    pub secondary: f32,
+    pub title: f32,
+}
+
+impl Density {
+    pub const ALL: [Density; 4] = [Density::System, Density::Compact, Density::Normal, Density::Comfortable];
+    fn name(self) -> &'static str {
+        match self {
+            Density::System => "system",
+            Density::Compact => "compact",
+            Density::Normal => "normal",
+            Density::Comfortable => "comfortable",
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Density::System => crate::i18n::t("Follow the text"),
+            Density::Compact => crate::i18n::t("Compact"),
+            Density::Normal => crate::i18n::t("Normal"),
+            Density::Comfortable => crate::i18n::t("Comfortable"),
+        }
+    }
+    pub fn metrics(self) -> Metrics {
+        let (button, pad_x, icon, gap) = match self {
+            Density::Compact => (28., 10., 16., 6.),
+            Density::System | Density::Normal => (32., 12., 18., 8.),
+            Density::Comfortable => (36., 14., 20., 10.),
+        };
+        Metrics { button, pad_x, radius: 6., icon, gap, body: 14., secondary: 12., title: 18. }
+    }
+    fn parse(s: &str) -> Option<Density> {
+        Self::ALL.into_iter().find(|a| a.name() == s)
+    }
+}
+
 /// Font family of the interface.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FontChoice {
@@ -247,6 +363,9 @@ pub struct Preferences {
     pub count_preview_accounts: BTreeSet<u64>,
     /// Interface language; `Auto` follows the system.
     pub language: crate::i18n::Preference,
+    /// «Dimensione testo» and «Dimensione pulsanti e icone»: absent from older files, then the default.
+    pub text_size: TextSize,
+    pub density: Density,
 }
 
 impl Default for Preferences {
@@ -273,6 +392,8 @@ impl Default for Preferences {
             thread_width: None,
             count_preview_accounts: BTreeSet::new(),
             language: Default::default(),
+            text_size: TextSize::System,
+            density: Density::System,
         }
     }
 }
@@ -423,6 +544,8 @@ impl Preferences {
             list_width: map.get("list_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
             message_preview: map.get("message_preview").and_then(Value::as_bool).unwrap_or(true),
             thread_width: map.get("thread_width").and_then(Value::as_u64).and_then(|w| u32::try_from(w).ok()),
+            text_size: map.get("text_size").and_then(Value::as_str).and_then(TextSize::parse).unwrap_or_default(),
+            density: map.get("density").and_then(Value::as_str).and_then(Density::parse).unwrap_or_default(),
             count_preview_accounts: map
                 .get("notification_accounts")
                 .and_then(Value::as_object)
@@ -472,7 +595,7 @@ impl Preferences {
     }
 
     fn encode(&self, map: &mut serde_json::Map<String, Value>) {
-        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width, "language": self.language.code() });
+        let body = json!({ "theme": self.theme.map_or("system", Theme::name), "accent": self.accent.map_or("system", Accent::name), "debug": self.debug, "read_receipts": self.read_receipts, "auto_night": self.auto_night.name(), "font": self.font.name(), "icon": self.icon.name(), "hide_deleted": self.hide_redacted, "close_to_tray": self.close_to_tray, "notifications": self.notifications, "desktop_entry_dont_ask": self.desktop_entry_dont_ask, "update_check_enabled": self.update_check_enabled, "last_check": self.last_check, "max_build_seen": self.max_build_seen, "bad_builds": self.bad_builds, "update_base": self.update_base, "list_width": self.list_width, "message_preview": self.message_preview, "thread_width": self.thread_width, "language": self.language.code(), "text_size": self.text_size.name(), "density": self.density.name() });
         if let Value::Object(own) = body {
             map.extend(own);
         }
@@ -641,5 +764,63 @@ mod diag_tests {
     fn diag_line_has_code_and_kind_only() {
         let e = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "/home/u/secret.json @user:srv");
         assert_eq!(super::diag("settings_migrate", &e), "Gnobbi: settings_migrate PermissionDenied");
+    }
+}
+
+#[cfg(test)]
+mod scale_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn from(v: Value) -> Preferences {
+        Preferences::from_map(v.as_object().unwrap())
+    }
+
+    #[test]
+    fn missing_or_unknown_scale_fields_mean_follow_the_system() {
+        for v in [json!({}), json!({"theme": "dark"}), json!({"text_size": 3, "density": "huge"})] {
+            let p = from(v);
+            assert_eq!((p.text_size, p.density), (TextSize::System, Density::System));
+        }
+        let p = from(json!({"text_size": "large", "density": "compact"}));
+        assert_eq!((p.text_size, p.density), (TextSize::Large, Density::Compact));
+    }
+
+    #[test]
+    fn the_scale_round_trips_through_the_settings_map() {
+        let mut map = serde_json::Map::new();
+        Preferences { text_size: TextSize::Small, density: Density::Comfortable, ..Preferences::default() }.encode(&mut map);
+        let p = Preferences::from_map(&map);
+        assert_eq!((p.text_size, p.density), (TextSize::Small, Density::Comfortable));
+    }
+
+    #[test]
+    fn levels_map_to_growing_measures() {
+        let [s, c, n, k] = Density::ALL.map(Density::metrics);
+        assert_eq!(s, n, "follow the text = the standard measures");
+        assert_eq!((c.button, n.button, k.button), (28., 32., 36.));
+        assert_eq!((c.icon, n.icon, k.icon), (16., 18., 20.));
+        assert!(c.pad_x < n.pad_x && n.pad_x < k.pad_x && c.gap < n.gap && n.gap < k.gap);
+        assert!(k.button >= k.icon * 1.5, "touch area well above the glyph");
+    }
+
+    #[test]
+    fn final_scale_is_the_system_factor_or_the_override_clamped() {
+        assert_eq!(TextSize::System.zoom(1.25), 1.25);
+        assert_eq!(TextSize::System.zoom(3.), 2.);
+        assert_eq!(TextSize::System.zoom(0.5), 0.8);
+        for bad in [0., -1., f32::NAN, f32::INFINITY] {
+            assert_eq!(TextSize::System.zoom(bad), 1., "unreadable = 1.0");
+        }
+        assert_eq!((TextSize::Small.zoom(1.5), TextSize::Normal.zoom(1.5), TextSize::Large.zoom(1.5)), (0.9, 1., 1.15));
+    }
+
+    #[test]
+    fn system_text_scale_readers() {
+        assert_eq!(parse_gsettings_scale("1.25\n"), Some(1.25));
+        assert_eq!(parse_gsettings_scale("uint32 1\n"), None);
+        assert_eq!(parse_gsettings_scale("garbage"), None);
+        assert_eq!(parse_windows_text_scale("    TextScaleFactor    REG_DWORD    0x96\n"), Some(1.5));
+        assert_eq!(parse_windows_text_scale("ERROR: The system was unable to find the specified registry key"), None);
     }
 }

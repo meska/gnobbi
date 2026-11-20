@@ -8,7 +8,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, rights: matrix_engine::EditRig
     let Some(e): Option<&mut RoomEdit> = s.edit.as_mut() else { return };
     egui::Window::new(title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(320.);
-        ui.add_enabled(rights.name, egui::TextEdit::singleline(&mut e.name).hint_text(i18n::t("Name")));
+        ui.add_enabled(rights.name, crate::metrics::line(&mut e.name).hint_text(i18n::t("Name")));
         ui.add_enabled(rights.topic, egui::TextEdit::multiline(&mut e.topic).hint_text(i18n::t("Topic")).desired_rows(3));
         if rights.avatar {
             match &e.avatar {

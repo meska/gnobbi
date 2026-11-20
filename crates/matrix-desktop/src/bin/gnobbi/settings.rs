@@ -1,7 +1,7 @@
 //! Settings drawer: the saved preferences the GPUI app offers for look and behaviour. Every change is written at once.
 use eframe::egui::{self, Color32, Sense, Vec2};
 use matrix_desktop::i18n::{self, t as tr};
-use matrix_desktop::{Accent, AppDirs, AutoNight, DesignTokens, IconChoice, Preferences, Theme};
+use matrix_desktop::{AppDirs, DesignTokens, Preferences};
 
 fn rgb(c: u32) -> Color32 {
     Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8)
@@ -41,8 +41,8 @@ pub fn section(ui: &mut egui::Ui, title: &str, t: &DesignTokens) {
 }
 
 /// A row that opens another drawer: icon, label, «›» on the right.
-fn nav_row(ui: &mut egui::Ui, label: &str, kind: crate::devices::Kind, t: &DesignTokens) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), Sense::click());
+fn nav_row(ui: &mut egui::Ui, label: &str, icon: crate::icons::Icon, t: &DesignTokens) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), crate::metrics::button() + 8.), Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     if resp.hovered() || resp.has_focus() {
         ui.painter().rect_filled(rect, 8., rgb(t.input));
@@ -50,26 +50,25 @@ fn nav_row(ui: &mut egui::Ui, label: &str, kind: crate::devices::Kind, t: &Desig
     if resp.has_focus() {
         ui.painter().rect_stroke(rect, 8., egui::Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Inside);
     }
-    crate::devices::icon(ui.painter(), egui::Rect::from_center_size(rect.left_center() + Vec2::new(20., 0.), Vec2::splat(22.)), kind, rgb(t.secondary));
+    crate::icons::paint(ui.painter(), rect.left_center() + Vec2::new(20., 0.), icon, false, crate::metrics::get().icon + 4., rgb(t.secondary));
     ui.painter().text(rect.left_center() + Vec2::new(44., 0.), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(14.), rgb(t.text));
-    let c = rect.right_center() - Vec2::new(16., 0.);
-    ui.painter().add(egui::Shape::line(vec![c + Vec2::new(-3., -6.), c + Vec2::new(3., 0.), c + Vec2::new(-3., 6.)], egui::Stroke::new(2., rgb(t.secondary))));
+    crate::icons::paint(ui.painter(), rect.right_center() - Vec2::new(16., 0.), crate::icons::Icon::CaretRight, false, crate::metrics::get().icon - 2., rgb(t.secondary));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     resp
 }
 
 /// One choice among a few: fixed label, the list on the right.
-fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&mut egui::Ui)) {
+pub fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
         let name = ui.label(label);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, add).response.labelled_by(name.id);
+            crate::metrics::clickable(egui::ComboBox::from_id_salt(label).selected_text(selected).width(150.).show_ui(ui, add).response).labelled_by(name.id);
         });
     });
 }
 
 /// Each language in its own name, whatever the interface language; fixed on purpose.
-fn lang_name(l: i18n::Preference) -> &'static str {
+pub fn lang_name(l: i18n::Preference) -> &'static str {
     match l {
         i18n::Preference::Auto => "Auto",
         i18n::Preference::English => "English",
@@ -81,44 +80,16 @@ fn lang_name(l: i18n::Preference) -> &'static str {
 pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferences, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
     let mut p = prefs.clone();
     let mut changed = false;
-    let (mut devices, mut accounts) = (false, false);
+    let (mut devices, mut accounts, mut customize) = (false, false, false);
     let closed = crate::rail::drawer(ctx, rail.panel, "settings-drawer", tr("Settings"), rail.settings, t, |ui, rect| {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 egui::Frame::NONE.inner_margin(egui::Margin { left: 20, right: 20, top: 0, bottom: 20 }).show(ui, |ui| {
-                    ui.spacing_mut().interact_size.y = 36.;
                     ui.spacing_mut().item_spacing.y = 6.;
                     section(ui, tr("Account and security"), t);
-                    accounts = nav_row(ui, tr("Account"), crate::devices::Kind::Person, t).clicked();
-                    devices = nav_row(ui, tr("Devices"), crate::devices::Kind::Desktop, t).clicked();
-                    section(ui, tr("Appearance"), t);
-                    choice(ui, tr("Language"), lang_name(p.language), |ui| {
-                        for l in i18n::Preference::ALL {
-                            changed |= ui.selectable_value(&mut p.language, l, lang_name(l)).changed();
-                        }
-                    });
-                    choice(ui, tr("Theme"), p.theme.map_or(tr("System"), Theme::label), |ui| {
-                        changed |= ui.selectable_value(&mut p.theme, None, tr("System")).changed();
-                        for th in Theme::ALL {
-                            changed |= ui.selectable_value(&mut p.theme, Some(th), th.label()).changed();
-                        }
-                    });
-                    choice(ui, tr("Accent"), p.accent.map_or(tr("System"), Accent::label), |ui| {
-                        changed |= ui.selectable_value(&mut p.accent, None, tr("System")).changed();
-                        for a in Accent::ALL {
-                            changed |= ui.selectable_value(&mut p.accent, Some(a), a.label()).changed();
-                        }
-                    });
-                    choice(ui, tr("Icon"), p.icon.label(), |ui| {
-                        for i in IconChoice::ALL {
-                            changed |= ui.selectable_value(&mut p.icon, i, i.label()).changed();
-                        }
-                    });
-                    choice(ui, tr("Automatic night"), p.auto_night.label(), |ui| {
-                        for a in AutoNight::ALL {
-                            changed |= ui.selectable_value(&mut p.auto_night, a, a.label()).changed();
-                        }
-                    });
+                    accounts = nav_row(ui, tr("Account"), crate::icons::Icon::User, t).clicked();
+                    devices = nav_row(ui, tr("Devices"), crate::icons::Icon::Desktop, t).clicked();
+                    customize = nav_row(ui, tr("Customize"), crate::icons::Icon::Palette, t).clicked();
                     section(ui, tr("Chat"), t);
                     changed |= switch(ui, tr("Read receipts"), &mut p.read_receipts, t);
                     changed |= switch(ui, tr("Hide deleted messages"), &mut p.hide_redacted, t);
@@ -156,9 +127,18 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
     if accounts {
         rail.set_accounts(true);
     }
+    if customize {
+        rail.set_customize(true);
+    }
     if !changed {
         return None;
     }
+    persist(dirs, &p);
+    Some(p)
+}
+
+/// Saves what the settings drawers change, field by field, so a setting they do not know is never rewritten.
+pub fn persist(dirs: Option<&AppDirs>, p: &Preferences) {
     if let Some(dirs) = dirs {
         // Field by field, so a setting this window does not know is never rewritten.
         let new = p.clone();
@@ -173,7 +153,8 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
             saved.notifications = new.notifications;
             saved.close_to_tray = new.close_to_tray;
             saved.language = new.language;
+            saved.text_size = new.text_size;
+            saved.density = new.density;
         });
     }
-    Some(p)
 }

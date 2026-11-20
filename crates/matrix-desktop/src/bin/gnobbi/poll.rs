@@ -31,14 +31,14 @@ pub fn show(ctx: &egui::Context, s: &mut Session, f: &mut Form, t: &matrix_deskt
     let mut open = true;
     egui::Window::new(i18n::t("New poll")).open(&mut open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_min_width(320.);
-        ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut f.question).hint_text(i18n::t("Question")));
+        ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut f.question).hint_text(i18n::t("Question")));
         let mut remove = None;
         egui::ScrollArea::vertical().max_height(300.).show(ui, |ui| {
             for (i, a) in f.answers.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     let width = (ui.available_width() - 32.).max(0.);
-                    ui.add_sized([width, 28.], egui::TextEdit::singleline(a).hint_text(i18n::t("Option {n}").replace("{n}", &(i + 1).to_string())));
-                    if i >= PollDraft::MIN_ANSWERS && ui.button("×").clicked() { remove = Some(i); }
+                    ui.add_sized([width, crate::metrics::button()], crate::metrics::line(a).hint_text(i18n::t("Option {n}").replace("{n}", &(i + 1).to_string())));
+                    if i >= PollDraft::MIN_ANSWERS && crate::icons::button(ui, crate::icons::Icon::X, false, i18n::t("Remove option")).clicked() { remove = Some(i); }
                 });
             }
         });

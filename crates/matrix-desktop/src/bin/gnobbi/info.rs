@@ -162,6 +162,7 @@ mod topic_tests {
 pub fn member_row(ui: &mut egui::Ui, m: &Member, t: &DesignTokens) -> egui::Response {
     use matrix_domain::role::MemberRole;
     let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), egui::Sense::click());
+    let resp = crate::metrics::clickable(resp);
     if resp.hovered() {
         ui.painter().rect_filled(rect, 0., rgb(t.input));
     }
@@ -197,7 +198,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
     ui.horizontal(|ui| {
         ui.add_space(12.);
         let w = ui.available_width() - 12.;
-        ui.add_sized([w, 32.], egui::TextEdit::singleline(term).hint_text(i18n::t("Search in room")).align(egui::Align2::LEFT_CENTER));
+        ui.add_sized([w, crate::metrics::button()], crate::metrics::line(term).hint_text(i18n::t("Search in room")).align(egui::Align2::LEFT_CENTER));
     });
     ui.add_space(8.);
     match state {
@@ -223,6 +224,7 @@ pub fn search(ui: &mut egui::Ui, term: &mut String, state: &matrix_engine::opera
                             ui.label(&h.excerpt);
                         });
                     }).response.interact(egui::Sense::click());
+                    let response = crate::metrics::clickable(response);
                     if response.clicked() {
                         selected = Some((matrix_domain::EventId::new(h.thread_root.as_deref().unwrap_or(&h.event_id)), h.thread_root.is_some()));
                     }
@@ -251,7 +253,7 @@ pub fn card(ui: &mut egui::Ui, id: &str, profile: Option<&matrix_engine::operati
     ui.add_space(16.);
     ui.horizontal(|ui| {
         ui.add_space(16.);
-        if crate::info::close_icon(ui).clicked() {
+        if crate::info::close_icon(ui, i18n::t("Close card")).clicked() {
             *close = true;
         }
     });
@@ -352,7 +354,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
     ui.add_space(12.);
     ui.horizontal(|ui| {
         ui.add_space(12.);
-        if crate::info::close_icon(ui).clicked() {
+        if crate::info::close_icon(ui, i18n::t("Close thread")).clicked() {
             *close = true;
         }
     });
@@ -362,7 +364,7 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
             let name = name.clone();
             ui.horizontal(|ui| {
                 ui.label(i18n::t("Reply to {name}").replace("{name}", &name));
-                if ui.button("×").clicked() { th.reply_to = None; }
+                if crate::icons::button(ui, crate::icons::Icon::X, false, i18n::t("Cancel reply")).clicked() { th.reply_to = None; }
             });
         }
         let (mut cancel, mut drop, mut poll, mut picked, mut pasted, mut voice) = (false, false, false, None, None, None);
@@ -399,7 +401,10 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
                         ui.label(&e.body);
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                        ui.label(RichText::new(matrix_desktop::bubble_stamp(&matrix_desktop::time_fmt::clock_time(e.timestamp_ms), e.outgoing, None)).size(10.).color(rgb(t.secondary)));
+                        if e.outgoing {
+                            ui.label(crate::icons::rich(crate::icons::Icon::Check, false, 12.).color(rgb(t.secondary)));
+                        }
+                        ui.label(RichText::new(matrix_desktop::time_fmt::clock_time(e.timestamp_ms)).size(10.).color(rgb(t.secondary)));
                     });
                 });
             }).response.interact(egui::Sense::click());
@@ -418,15 +423,9 @@ pub fn thread(ui: &mut egui::Ui, th: &mut crate::session::ThreadState, close: &m
     send
 }
 
-/// The small copy icon (two sheets), drawn: the font has no glyph for it everywhere.
+/// The small copy button.
 pub fn copy_icon(ui: &mut egui::Ui) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::mobile::target(20.)), egui::Sense::click());
-    let color = if resp.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
-    let stroke = egui::Stroke::new(1.3, color);
-    let c = rect.center();
-    ui.painter().rect_stroke(egui::Rect::from_min_size(c + Vec2::new(-6., -7.), Vec2::new(9., 11.)), 1.5, stroke, egui::StrokeKind::Inside);
-    ui.painter().rect_stroke(egui::Rect::from_min_size(c + Vec2::new(-3., -4.), Vec2::new(9., 11.)), 1.5, stroke, egui::StrokeKind::Inside);
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    crate::icons::button(ui, crate::icons::Icon::Copy, false, i18n::t("Copy"))
 }
 
 /// What the panel needs for the room's addresses and what the user did with them this frame.
@@ -463,7 +462,7 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
                     } else if data.can_edit_aliases && ui.small_button(i18n::t("Main")).clicked() {
                         view.action = Some(AliasAction::SetCanonical { alias: alias.clone() });
                     }
-                    if data.can_edit_aliases && crate::info::close_icon(ui).clicked() {
+                    if data.can_edit_aliases && crate::info::close_icon(ui, i18n::t("Remove address")).clicked() {
                         view.action = Some(AliasAction::Remove { alias: alias.clone() });
                     }
                 });
@@ -471,7 +470,7 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
             if data.can_edit_aliases {
                 // Wrapped: field + server + button are wider than the 300 px panel and made its content overflow on both sides.
                 ui.horizontal_wrapped(|ui| {
-                    ui.add(egui::TextEdit::singleline(view.input).desired_width(110.).hint_text(i18n::t("name")).align(egui::Align2::LEFT_CENTER));
+                    ui.add(crate::metrics::line(view.input).desired_width(110.).hint_text(i18n::t("name")).align(egui::Align2::LEFT_CENTER));
                     ui.label(RichText::new(format!(":{}", data.server)).color(rgb(t.secondary)));
                     if ui.button(i18n::t("Add")).clicked() && !view.input.trim().is_empty() {
                         view.action = Some(AliasAction::Add { local: view.input.trim().to_owned(), make_canonical: None });
@@ -488,13 +487,7 @@ fn addresses(ui: &mut egui::Ui, view: &mut AliasView, t: &DesignTokens) {
     ui.separator();
 }
 
-/// The small X, drawn: the glyph is missing from the macOS system font.
-pub fn close_icon(ui: &mut egui::Ui) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::mobile::target(20.)), egui::Sense::click());
-    let color = if resp.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
-    let c = rect.center();
-    let stroke = egui::Stroke::new(1.4, color);
-    ui.painter().line_segment([c + Vec2::new(-4., -4.), c + Vec2::new(4., 4.)], stroke);
-    ui.painter().line_segment([c + Vec2::new(-4., 4.), c + Vec2::new(4., -4.)], stroke);
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+/// The small close button; `label` is its screen-reader name.
+pub fn close_icon(ui: &mut egui::Ui, label: &str) -> egui::Response {
+    crate::icons::button(ui, crate::icons::Icon::X, false, label)
 }

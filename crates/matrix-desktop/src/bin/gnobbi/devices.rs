@@ -18,8 +18,6 @@ pub enum Kind {
     Desktop,
     Phone,
     Web,
-    /// Not a device: the person icon of the «Account» row in the settings.
-    Person,
     Other,
 }
 
@@ -37,32 +35,16 @@ pub fn kind_of(name: &str) -> Kind {
     }
 }
 
-/// Small line icon of the platform inside `r`.
+/// Icon of the platform, centred in `r`.
 pub fn icon(p: &egui::Painter, r: egui::Rect, kind: Kind, ink: egui::Color32) {
-    let (c, s) = (r.center(), egui::Stroke::new(1.6, ink));
-    match kind {
-        Kind::Desktop => {
-            p.rect_stroke(egui::Rect::from_center_size(c - egui::vec2(0., 2.), egui::vec2(20., 13.)), 2., s, egui::StrokeKind::Middle);
-            p.line_segment([c + egui::vec2(-5., 8.), c + egui::vec2(5., 8.)], s);
-        }
-        Kind::Phone => {
-            p.rect_stroke(egui::Rect::from_center_size(c, egui::vec2(12., 20.)), 3., s, egui::StrokeKind::Middle);
-            p.line_segment([c + egui::vec2(-2., 7.), c + egui::vec2(2., 7.)], s);
-        }
-        Kind::Web => {
-            p.circle_stroke(c, 9., s);
-            p.line_segment([c - egui::vec2(9., 0.), c + egui::vec2(9., 0.)], s);
-            p.circle_stroke(c, 4., s);
-        }
-        Kind::Person => {
-            p.circle_stroke(c - egui::vec2(0., 4.), 4.5, s);
-            p.circle_stroke(c + egui::vec2(0., 12.), 8., s);
-        }
-        Kind::Other => {
-            p.rect_stroke(egui::Rect::from_center_size(c, egui::vec2(16., 16.)), 4., s, egui::StrokeKind::Middle);
-            p.circle_filled(c, 2., ink);
-        }
-    }
+    use crate::icons::Icon;
+    let icon = match kind {
+        Kind::Desktop => Icon::Desktop,
+        Kind::Phone => Icon::DeviceMobile,
+        Kind::Web => Icon::Globe,
+        Kind::Other => Icon::Question,
+    };
+    crate::icons::paint(p, r.center(), icon, false, crate::metrics::get().icon + 4., ink);
 }
 
 fn rgb(c: u32) -> egui::Color32 {
@@ -70,33 +52,33 @@ fn rgb(c: u32) -> egui::Color32 {
 }
 
 /// One device: icon, name (and «Non verificato» badge), «Verificato · Ultima attività · IP», the id in monospace; `actions` on the right.
-fn row(ui: &mut egui::Ui, d: &matrix_engine::verification::VerificationDevice, t: &DesignTokens, actions: impl FnOnce(&mut egui::Ui)) {
+fn row(ui: &mut egui::Ui, d: &matrix_engine::verification::VerificationDevice, t: &DesignTokens, buttons: usize, actions: impl FnOnce(&mut egui::Ui)) {
     let secondary = rgb(t.secondary);
     let mut meta = vec![if d.verified { "Verificato".to_owned() } else { String::new() }];
     meta.extend(d.last_seen_ts.map(|ms| format!("Ultima attività {}", matrix_desktop::time_fmt::day_or_time(ms))));
     meta.extend(d.last_seen_ip.clone());
     let meta = meta.into_iter().filter(|m| !m.is_empty()).collect::<Vec<_>>().join(" · ");
-    ui.horizontal(|ui| {
-        let (r, _) = ui.allocate_exact_size(egui::vec2(28., 28.), egui::Sense::hover());
-        icon(ui.painter(), r, kind_of(device_title(d)), secondary);
-        // Fixed width for the text, the rest of the row is the actions (the longest, «Disconnetti», is ~80 pt).
-        let width = (ui.available_width() - 90.).max(60.);
-        ui.allocate_ui_with_layout(egui::vec2(width, 0.), egui::Layout::top_down(egui::Align::Min), |ui| {
-            ui.horizontal(|ui| {
-                ui.add(egui::Label::new(RichText::new(device_title(d)).size(15.)).truncate());
-                if !d.verified {
-                    ui.label(RichText::new(" Non verificato ").size(11.).strong().color(rgb(t.on_accent)).background_color(rgb(t.error)));
-                }
-            });
-            if !meta.is_empty() {
-                ui.add(egui::Label::new(RichText::new(meta).size(12.).color(secondary)));
-            }
-            if d.display_name.is_some() {
-                ui.add(egui::Label::new(RichText::new(&d.device_id).monospace().size(11.).color(secondary)).truncate());
-            }
-        });
-        ui.vertical(actions);
-    });
+    let m = crate::metrics::get();
+    let mut lines = vec![crate::rows::Line { tag: (!d.verified).then_some(("Non verificato", rgb(t.error), rgb(t.on_accent))), ..crate::rows::Line::new(device_title(d), m.body + 1., rgb(t.text)) }];
+    if !meta.is_empty() {
+        lines.push(crate::rows::Line::new(&meta, m.secondary, secondary));
+    }
+    if d.display_name.is_some() {
+        lines.push(crate::rows::Line { mono: true, ..crate::rows::Line::new(&d.device_id, m.secondary - 1., secondary) });
+    }
+    crate::rows::lines_row(
+        ui,
+        |ui| {
+            let (r, _) = ui.allocate_exact_size(egui::vec2(28., 28.), egui::Sense::hover());
+            icon(ui.painter(), r, kind_of(device_title(d)), secondary);
+        },
+        &lines,
+        |ui| {
+            // The actions are stacked; their block has a known size, so the row centres it on its axis.
+            let size = egui::vec2(92., buttons as f32 * crate::metrics::button() + buttons.saturating_sub(1) as f32 * ui.spacing().item_spacing.y);
+            ui.allocate_ui_with_layout(size, egui::Layout::top_down(egui::Align::Max), actions);
+        },
+    );
 }
 
 /// Whether a dialog of this page is open (Esc belongs to it, not to the drawer).
@@ -114,7 +96,7 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                     ui.spacing_mut().item_spacing.y = 8.;
                     if let Some(own) = v.own().cloned() {
                         crate::settings::section(ui, "Questo dispositivo", t);
-                        row(ui, &own, t, |ui| {
+                        row(ui, &own, t, 1, |ui| {
                             if ui.button("Rinomina").clicked() {
                                 v.open_rename();
                             }
@@ -123,7 +105,7 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                     crate::settings::section(ui, "Chiavi", t);
                     ui.horizontal(|ui| {
                         let width = (ui.available_width() - 110.).max(80.);
-                        ui.add(egui::TextEdit::singleline(&mut f.export_pass).password(true).desired_width(width).hint_text("Password dell'export"));
+                        ui.add(crate::metrics::line(&mut f.export_pass).password(true).desired_width(width).hint_text("Password dell'export"));
                         if ui.button("Esporta chiavi").clicked() && !f.export_pass.is_empty() {
                             let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
                             let path = std::path::Path::new(&home).join("Downloads").join("gnobbi-chiavi.txt");
@@ -153,7 +135,7 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                         crate::settings::section(ui, "Recupera chiavi", t);
                         ui.horizontal(|ui| {
                             let width = (ui.available_width() - 80.).max(80.);
-                            ui.add(egui::TextEdit::singleline(&mut f.key).password(true).desired_width(width).hint_text("Chiave di recupero"));
+                            ui.add(crate::metrics::line(&mut f.key).password(true).desired_width(width).hint_text("Chiave di recupero"));
                             if ui.button("Recupera").clicked() && !f.key.trim().is_empty() {
                                 v.recover_keys(zeroize::Zeroizing::new(std::mem::take(&mut f.key)));
                             }
@@ -169,7 +151,7 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                         ui.spinner();
                     }
                     for (i, d) in others.iter().enumerate() {
-                        row(ui, d, t, |ui| {
+                        row(ui, d, t, 1 + usize::from(!d.verified), |ui| {
                             if !d.verified && ui.button("Verifica").clicked() {
                                 begin = Some(i);
                             }
@@ -252,7 +234,7 @@ pub fn dialogs(ctx: &egui::Context, v: &mut DeviceVerification, f: &mut Fields) 
             if let Some(n) = note {
                 ui.label(n);
             }
-            let r = ui.add(egui::TextEdit::singleline(&mut f.password).password(true).hint_text("Password"));
+            let r = ui.add(crate::metrics::line(&mut f.password).password(true).hint_text("Password"));
             if let Some(e) = error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -279,7 +261,7 @@ pub fn dialogs(ctx: &egui::Context, v: &mut DeviceVerification, f: &mut Fields) 
         let (busy, error) = (dialog.busy, dialog.error);
         let (mut go, mut cancel) = (false, false);
         egui::Window::new("Rinomina").order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
-            ui.add(egui::TextEdit::singleline(&mut f.rename).hint_text("Nome del dispositivo"));
+            ui.add(crate::metrics::line(&mut f.rename).hint_text("Nome del dispositivo"));
             if let Some(e) = error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }

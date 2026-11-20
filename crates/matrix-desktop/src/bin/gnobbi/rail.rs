@@ -1,5 +1,6 @@
 //! Spaces rail, folder-bar style: «Non lette», «Tutte le chat», the joined spaces as a tree (icon above its name) and, at the bottom,
 //! «Organizza spazi» (the drawer where the spaces are dragged into order and into each other) and «Impostazioni» (the settings drawer).
+use crate::icons;
 use crate::list::{badge, one_line, photo, rgb};
 use eframe::egui::{self, Align2, FontId, Sense, Stroke, Vec2};
 use matrix_desktop::{AppDirs, DesignTokens, NavigationEntry, RailLayout, RailLayouts, Sidebar};
@@ -34,6 +35,8 @@ pub struct State {
     pub settings: bool,
     pub devices: bool,
     pub accounts: bool,
+    /// «Personalizza»: look and size drawer, opened from the settings.
+    pub customize: bool,
     /// The devices drawer was just opened: the caller refreshes the list once and clears this.
     pub refresh_devices: bool,
     pub moving: Option<Move>,
@@ -44,34 +47,27 @@ pub struct State {
 }
 
 impl State {
-    pub fn set_edit(&mut self, on: bool) {
-        self.edit = on;
-        self.settings &= !on;
-        self.devices &= !on;
-        self.accounts &= !on;
+    /// Closes every drawer but the one being opened (`keep`: "edit", "settings", "devices", "accounts" or "customize").
+    fn only(&mut self, keep: &str, on: bool) {
+        for (name, flag) in [("edit", &mut self.edit), ("settings", &mut self.settings), ("devices", &mut self.devices), ("accounts", &mut self.accounts), ("customize", &mut self.customize)] {
+            if name == keep { *flag = on } else { *flag &= !on }
+        }
     }
 
-    pub fn set_settings(&mut self, on: bool) {
-        self.settings = on;
-        self.edit &= !on;
-        self.devices &= !on;
-        self.accounts &= !on;
-    }
+    pub fn set_edit(&mut self, on: bool) { self.only("edit", on) }
+
+    pub fn set_settings(&mut self, on: bool) { self.only("settings", on) }
 
     pub fn set_devices(&mut self, on: bool) {
         self.refresh_devices |= on && !self.devices;
-        self.devices = on;
-        self.edit &= !on;
-        self.settings &= !on;
-        self.accounts &= !on;
+        self.only("devices", on)
     }
 
-    pub fn set_accounts(&mut self, on: bool) {
-        self.accounts = on;
-        self.edit &= !on;
-        self.settings &= !on;
-        self.devices &= !on;
-    }
+    pub fn set_accounts(&mut self, on: bool) { self.only("accounts", on) }
+
+    pub fn set_customize(&mut self, on: bool) { self.only("customize", on) }
+
+    pub fn any_drawer(&self) -> bool { self.edit || self.settings || self.devices || self.accounts || self.customize }
 }
 
 /// One space of the rail tree.
@@ -283,33 +279,12 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
     let c = egui::pos2(rect.center().x + depth * 4., rect.top() + 22.);
     let ink = rgb(if selected { t.accent } else { t.secondary });
     let p = ui.painter();
-    let bubble = |at: egui::Pos2, color| {
-        let body = egui::Rect::from_center_size(at, Vec2::new(22., 16.));
-        p.rect_filled(body, 6., color);
-        p.add(egui::Shape::convex_polygon(vec![body.left_bottom() + Vec2::new(3., -5.), body.left_bottom() + Vec2::new(10., -1.), body.left_bottom() + Vec2::new(1., 4.)], color, Stroke::NONE));
-    };
+    let glyph = crate::metrics::get().icon + 6.;
     match &icon {
-        Icon::Unread => bubble(c, ink),
-        Icon::All => {
-            let back = if selected { rgb(t.selected) } else if resp.hovered() || resp.has_focus() { rgb(t.input) } else { crate::chat_background(t) };
-            bubble(c + Vec2::new(4., -4.), ink);
-            p.rect_filled(egui::Rect::from_center_size(c + Vec2::new(-3., 3.), Vec2::new(25., 19.)), 7., back);
-            bubble(c + Vec2::new(-3., 3.), ink);
-        }
-        Icon::Edit => {
-            for (dy, knob) in [(-5., 5.), (5., -5.)] {
-                p.line_segment([c + Vec2::new(-11., dy), c + Vec2::new(11., dy)], Stroke::new(2., ink));
-                p.circle_filled(c + Vec2::new(knob, dy), 4., ink);
-            }
-        }
-        Icon::Settings => {
-            // Gear: eight teeth around a ring.
-            for i in 0..8 {
-                let d = Vec2::angled(i as f32 * std::f32::consts::TAU / 8.);
-                p.line_segment([c + d * 7., c + d * 11.], Stroke::new(4., ink));
-            }
-            p.circle_stroke(c, 6., Stroke::new(3.5, ink));
-        }
+        Icon::Unread => icons::paint(p, c, icons::Icon::ChatCircleDots, selected, glyph, ink),
+        Icon::All => icons::paint(p, c, icons::Icon::Chats, selected, glyph, ink),
+        Icon::Edit => icons::paint(p, c, icons::Icon::SlidersHorizontal, selected, glyph, ink),
+        Icon::Settings => icons::paint(p, c, icons::Icon::GearSix, selected, glyph, ink),
         Icon::Space(row) => {
             let size = if row.depth > 0 { 28. } else { 34. };
             let initial: String = row.name.chars().next().map(|ch| ch.to_uppercase().collect()).unwrap_or_default();
@@ -320,11 +295,8 @@ fn item(ui: &mut egui::Ui, avatars: &crate::timeline::Avatars, t: &DesignTokens,
                 p.line_segment([egui::pos2(rect.left() + 11., rect.top()), egui::pos2(rect.left() + 11., rect.top() + 40.)], Stroke::new(1., rgb(t.border)));
             }
             if row.has_children {
-                // Chevron, drawn: right when folded, down when open.
-                let a = egui::pos2(rect.left() + 12. + depth * 4., c.y);
-                let pts = if row.open { [a + Vec2::new(-4., -2.), a + Vec2::new(0., 2.), a + Vec2::new(4., -2.)] } else { [a + Vec2::new(-2., -4.), a + Vec2::new(2., 0.), a + Vec2::new(-2., 4.)] };
-                p.line_segment([pts[0], pts[1]], Stroke::new(1.5, rgb(t.secondary)));
-                p.line_segment([pts[1], pts[2]], Stroke::new(1.5, rgb(t.secondary)));
+                // Chevron: right when folded, down when open.
+                icons::paint(p, egui::pos2(rect.left() + 12. + depth * 4., c.y), if row.open { icons::Icon::CaretDown } else { icons::Icon::CaretRight }, false, crate::metrics::get().icon - 4., rgb(t.secondary));
             }
         }
     }
@@ -382,17 +354,15 @@ pub fn show(ui: &mut egui::Ui, sidebar: &mut Sidebar, avatars: &crate::timeline:
 
 /// Small drawn arrow button of the edit window.
 fn arrow(ui: &mut egui::Ui, t: &DesignTokens, up: bool, enabled: bool, label: &str) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::mobile::target(28.)), if enabled { Sense::click() } else { Sense::hover() });
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::metrics::button()), if enabled { Sense::click() } else { Sense::hover() });
+    let resp = crate::metrics::clickable(resp);
     if enabled && (resp.hovered() || resp.has_focus()) {
         ui.painter().rect_filled(rect, 8., rgb(t.input));
     }
     if resp.has_focus() {
         ui.painter().rect_stroke(rect, 8., Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Inside);
     }
-    let (c, dy) = (rect.center(), if up { -3. } else { 3. });
-    let stroke = Stroke::new(2., rgb(if enabled { t.text } else { t.disabled }));
-    ui.painter().line_segment([c + Vec2::new(-5., -dy), c + Vec2::new(0., dy)], stroke);
-    ui.painter().line_segment([c + Vec2::new(0., dy), c + Vec2::new(5., -dy)], stroke);
+    icons::paint(ui.painter(), rect.center(), if up { icons::Icon::CaretUp } else { icons::Icon::CaretDown }, false, crate::metrics::get().icon, rgb(if enabled { t.text } else { t.disabled }));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
     resp.clicked()
 }
@@ -460,23 +430,20 @@ pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'stati
         let head = egui::Rect::from_min_size(rect.min, Vec2::new(width, 56.));
         let mut title_x = 20.;
         if let Some(back) = back {
-            let b = egui::Rect::from_center_size(egui::pos2(head.left() + 30., head.center().y), Vec2::splat(36.));
+            let b = egui::Rect::from_center_size(egui::pos2(head.left() + 30., head.center().y), Vec2::splat(crate::metrics::button() + 4.));
             let r = ui.interact(b, egui::Id::new((name, "return")), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
             lit(ui, &r, b, 18., t);
-            let c = b.center();
-            p.add(egui::Shape::line(vec![c + Vec2::new(3., -7.), c + Vec2::new(-4., 0.), c + Vec2::new(3., 7.)], Stroke::new(2., rgb(t.secondary))));
-            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Indietro"));
+            icons::paint(&p, b.center(), icons::Icon::CaretLeft, false, crate::metrics::get().icon, rgb(t.secondary));
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, matrix_desktop::i18n::t("Back")));
             *back |= r.clicked();
             title_x = 52.;
         }
         p.text(head.left_center() + Vec2::new(title_x, 0.), Align2::LEFT_CENTER, title, FontId::proportional(17.), rgb(t.text));
-        let x = egui::Rect::from_center_size(egui::pos2(head.right() - 30., head.center().y), Vec2::splat(36.));
+        let x = egui::Rect::from_center_size(egui::pos2(head.right() - 30., head.center().y), Vec2::splat(crate::metrics::button() + 4.));
         let close = ui.interact(x, egui::Id::new((name, "close")), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         lit(ui, &close, x, 18., t);
-        for d in [Vec2::new(6., 6.), Vec2::new(6., -6.)] {
-            p.line_segment([x.center() - d, x.center() + d], Stroke::new(2., rgb(t.secondary)));
-        }
-        close.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Chiudi"));
+        icons::paint(&p, x.center(), icons::Icon::X, false, crate::metrics::get().icon, rgb(t.secondary));
+        close.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, matrix_desktop::i18n::t("Close")));
         closed |= close.clicked();
         body(ui, egui::Rect::from_min_max(head.left_bottom(), rect.max));
     });
@@ -496,8 +463,8 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
     let mut act = None;
     let closed = drawer(ctx, state.panel, "rail-drawer", "Organizza spazi", state.edit, t, |ui, rect| {
         let (p, width) = (ui.painter().clone(), rect.width());
-        let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 176., rect.top() - 46.), Vec2::new(120., 36.));
-        if ui.put(action, egui::Button::new("+ Nuovo spazio")).clicked() {
+        let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 196., rect.top() - 46.), Vec2::new(140., crate::metrics::button()));
+        if ui.put(action, egui::Button::new(icons::with_label(icons::Icon::Plus, matrix_desktop::i18n::t("New space")))).clicked() {
             form.open_creation(true);
             session.new_open = true;
             act = Some(Edit::Close);
@@ -733,6 +700,10 @@ mod tests {
         assert!(s.accounts && !s.settings && !s.devices && !s.edit);
         s.set_devices(true);
         assert!(!s.accounts);
+        s.set_customize(true);
+        assert!(s.customize && !s.devices && !s.settings && !s.accounts && !s.edit);
+        s.set_settings(true);
+        assert!(s.settings && !s.customize);
     }
 
     #[test]

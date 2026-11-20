@@ -13,18 +13,22 @@ use std::time::Duration;
 mod accounts;
 mod pick;
 mod composer;
+mod customize;
 mod devices;
 mod explore;
 #[cfg(target_os = "linux")]
 mod desktop_entry;
+mod icons;
 mod info;
 mod join;
 mod list;
 mod members;
+mod metrics;
 mod mobile;
 mod newchat;
 mod poll;
 mod rail;
+mod rows;
 mod roomedit;
 mod space;
 mod stickers;
@@ -80,6 +84,7 @@ struct Parked {
 const NARROW_WIDTH: f32 = 772.;
 /// Narrow layout shows rail 76 + chat; the chat needs ≥360.
 const MIN_WIDTH: f32 = 436.;
+const MIN_HEIGHT: f32 = 420.;
 /// Below this (a phone held upright) there is one column: the list, or the chat without the rail, or a side panel in place of the chat.
 const SINGLE_WIDTH: f32 = 480.;
 
@@ -125,7 +130,10 @@ struct App {
     theme: Theme,
     tokens: DesignTokens,
     /// What `visuals` was last built for: rebuilt only when it changes.
-    applied: Option<(Theme, u32)>,
+    applied: Option<(Theme, u32, matrix_desktop::TextSize, matrix_desktop::Density, u32)>,
+    /// OS text scale (1.0 when unknown), read at start and when the window regains focus.
+    system_scale: f32,
+    was_focused: bool,
     session: Option<Session>,
     /// Test hook: GNOBBI_EGUI_SHOT=<file.png> saves what the window paints after a few frames and exits.
     shot: Option<(std::path::PathBuf, std::time::Instant)>,
@@ -178,7 +186,7 @@ impl App {
         }
         // The account on screen at the last quit comes back on screen; gone or never saved: the default profile.
         let last = dirs.and_then(|d| std::fs::read_to_string(d.data.join(LAST_ACCOUNT)).ok()).and_then(|l| parked.iter().position(|p| p.root.to_string_lossy() == l.trim()));
-        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
+        let mut app = App { prefs, dirs: dirs.cloned(), list_open: false, rail: rail::State { layouts: dirs.map(matrix_desktop::RailLayouts::load).unwrap_or_default(), ..Default::default() }, rail_account: None, root: root.clone(), recorded: false, parked, trust: trust.clone(), wake: None, tray: TrayHandle::start(), #[cfg(target_os = "macos")] menubar: None, insets: mobile::Insets::from_env(), quitting: false, window_visible: true, new_form: Default::default(), device_fields: Default::default(), account_form: Default::default(), poll_form: Default::default(), confirm: None, theme, tokens: theme.tokens_with(matrix_desktop::current_accent()), applied: None, system_scale: metrics::system_scale(), was_focused: true, shot: std::env::var_os("GNOBBI_EGUI_SHOT").map(|p| (p.into(), std::time::Instant::now())),
             pending_link: link.map(|l| (l, std::time::Instant::now())), pending_web: None, shot_sent: false, hook_sent: false, hook_added: false, auto_login2: std::env::var_os("GNOBBI_EGUI_LOGIN2").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), hook_type: false, hook_alias: false, hook_member: false, alias_input: String::new(), hook_keys: false, hook_menu_at: None,
             auto_login: std::env::var_os("GNOBBI_EGUI_LOGIN").and_then(|p| serde_json::from_slice(&std::fs::read(p).ok()?).ok()), session, start_error, login_sent: false };
         if let Some(i) = last {
@@ -202,6 +210,7 @@ impl App {
             self.confirm = None;
             self.rail.settings = false;
             self.rail.devices = false;
+            self.rail.customize = false;
             if let Some(d) = &self.dirs {
                 let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
             }
@@ -227,14 +236,17 @@ impl App {
     /// Theme and accent for now (OS appearance, saved choice, automatic night); re-read every minute.
     fn refresh(&mut self, ctx: &egui::Context) {
         let system_dark = ctx.system_theme().is_some_and(|t| t == egui::Theme::Dark);
+        let focused = ctx.input(|i| i.focused);
+        if focused && !self.was_focused {
+            self.system_scale = metrics::system_scale();
+        }
+        self.was_focused = focused;
         self.theme = self.prefs.effective_theme(system_dark, matrix_desktop::local_hour());
         self.tokens = self.theme.tokens_with(self.prefs.effective_accent());
-        let key = (self.theme, self.tokens.accent);
+        let key = (self.theme, self.tokens.accent, self.prefs.text_size, self.prefs.density, self.system_scale.to_bits());
         if self.applied != Some(key) {
             ctx.set_visuals(visuals(&self.tokens, self.theme.is_dark()));
-            if mobile::touch() {
-                ctx.all_styles_mut(|s| s.spacing.interact_size.y = mobile::target(0.));
-            }
+            metrics::apply(ctx, &self.prefs, self.system_scale);
             self.applied = Some(key);
         }
     }
@@ -387,7 +399,7 @@ impl eframe::App for App {
                     && !session.new_open && session.explore.is_none() && !session.poll_open && session.edit.is_none()
                     && !(self.rail.devices && session.verification.as_ref().is_some_and(devices::modal_open)) && self.pending_web.is_none()
                 {
-                    if self.rail.edit || self.rail.settings || self.rail.devices || self.rail.accounts { (self.rail.edit, self.rail.settings, self.rail.devices, self.rail.accounts) = (false, false, false, false); }
+                    if self.rail.any_drawer() { (self.rail.edit, self.rail.settings, self.rail.devices, self.rail.accounts, self.rail.customize) = (false, false, false, false, false); }
                     else if session.quick_open { session.quick_open = false; }
                     else if let Some(a) = session.admin.as_mut().filter(|a| !a.busy && (a.dialog.is_some() || a.inviting)) { (a.dialog, a.inviting, a.failed) = (None, false, false); }
                     else if session.space_view.is_some() { session.space_view = None; }
@@ -398,7 +410,7 @@ impl eframe::App for App {
                     else if session.search_open { session.search_open = false; }
                 }
             }
-            if self.rail.settings || self.rail.accounts || self.pending_web.is_some() || session.new_open || session.explore.is_some() || session.quick_open || session.poll_open || session.edit.is_some() || self.rail.devices || session.viewer.is_some() {
+            if self.rail.settings || self.rail.accounts || self.rail.customize || self.pending_web.is_some() || session.new_open || session.explore.is_some() || session.quick_open || session.poll_open || session.edit.is_some() || self.rail.devices || session.viewer.is_some() {
                 if let Some(thread) = &mut session.thread { thread.tail_visible = false; }
             }
             session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
@@ -749,6 +761,7 @@ impl App {
                 "poll" => s.poll_open = true,
                 "settings" => self.rail.set_settings(true),
                 "accounts" => self.rail.set_accounts(true),
+                "customize" => self.rail.set_customize(true),
                 _ => {}
             }
         }
@@ -931,6 +944,7 @@ impl App {
                     // Five dots per row fit the rail; more accounts wrap onto further rows, each centred.
                     let dots = others.len().div_ceil(5) as f32 * 10.;
                     let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(rail::WIDTH, 52. + dots), if others.is_empty() { egui::Sense::hover() } else { egui::Sense::click() });
+                    let resp = crate::metrics::clickable(resp);
                     let name = session.account_name.as_str();
                     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
                     if !others.is_empty() && resp.hovered() {
@@ -992,7 +1006,7 @@ impl App {
                         let (mut settings, mut accounts, mut devices) = (false, false, false);
                         if list::rooms(ui, session, &mut new_chat, t, &mut |ui| {
                             if !single { return; }
-                            egui::Popup::menu(&mobile::icon_button(ui, "☰")).show(|ui| {
+                            egui::Popup::menu(&icons::button(ui, icons::Icon::List, false, i18n::t("Menu"))).show(|ui| {
                                 settings = ui.button("Impostazioni").clicked();
                                 accounts = ui.button("Account").clicked();
                                 devices = ui.button("Dispositivi").clicked();
@@ -1047,6 +1061,7 @@ impl App {
             self.switch_to(i);
         }
         let has_room = self.session.as_ref().is_some_and(|s| s.messages.is_some());
+        let (info_on, search_on) = self.session.as_ref().map_or((false, false), |s| (s.info_open, s.search_open));
         let title = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| r.name.clone()));
         let badge = self.session.as_ref().and_then(|s| s.sidebar.selected().map(|r| (r.initials.clone(), r.color)));
         let head_pic = self.session.as_ref().and_then(|s| s.sidebar.selected().and_then(|r| r.info.avatar.as_deref()).and_then(|a| s.avatars.get(a)?.clone()));
@@ -1054,8 +1069,7 @@ impl App {
             ui.horizontal_centered(|ui| {
                 ui.add_space(if single { 4. } else { 16. });
                 // One column: the list is the previous screen, so the button reads «back».
-                let back: egui::WidgetText = if single { egui::RichText::new("‹").size(28.).into() } else { "☰".into() };
-                if narrow && mobile::icon_button(ui, back).clicked() {
+                if narrow && icons::button(ui, if single { icons::Icon::CaretLeft } else { icons::Icon::List }, false, if single { i18n::t("Back") } else { i18n::t("Chat list") }).clicked() {
                     self.list_open = true;
                 }
                 if let Some((initials, color)) = &badge {
@@ -1069,13 +1083,13 @@ impl App {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(if single { 4. } else { 12. });
-                    if has_room && mobile::icon_button(ui, "ⓘ").clicked()
+                    if has_room && icons::button(ui, icons::Icon::Info, info_on, i18n::t("Info")).clicked()
                         && let Some(s) = &mut self.session
                     {
                         s.info_open = !s.info_open;
                         s.search_open = false;
                     }
-                    if has_room && mobile::icon_button(ui, "🔍").clicked()
+                    if has_room && icons::button(ui, icons::Icon::MagnifyingGlass, search_on, i18n::t("Search in room")).clicked()
                         && let Some(s) = &mut self.session
                     {
                         s.search_open = !s.search_open;
@@ -1327,8 +1341,9 @@ impl App {
                 None => {}
             }
         }
-        if let Some(new) = settings::show(ui.ctx(), &mut self.rail, &self.prefs, self.dirs.as_ref(), t)
-        {
+        let new = settings::show(ui.ctx(), &mut self.rail, &self.prefs, self.dirs.as_ref(), t)
+            .or_else(|| customize::show(ui.ctx(), &mut self.rail, &self.prefs, self.system_scale, self.dirs.as_ref(), t));
+        if let Some(new) = new {
             if new.icon != self.prefs.icon
                 && let Some(icon) = app_icon(new.icon)
             {
@@ -1462,7 +1477,7 @@ fn quick_search(ctx: &egui::Context, s: &mut Session) {
     let modal = egui::Modal::new(egui::Id::unique("quick-search")).show(ctx, |ui| {
         ui.set_min_width(360.);
         ui.heading("Cerca");
-        if ui.add(egui::TextEdit::singleline(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text("Cerca")).changed() {
+        if ui.add(crate::metrics::line(&mut s.new_term).id(egui::Id::unique("quick-search-field")).hint_text("Cerca")).changed() {
             s.users = SearchState::Idle;
             s.public_rooms = matrix_engine::search::SearchState::Idle;
             s.quick_sel = 0;
@@ -1620,7 +1635,7 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     ui.add_space(12.);
     let mut enter = false;
     let mut field = |ui: &mut egui::Ui, text: &mut String, hint: &str, secret: bool| {
-        let r = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(text).hint_text(hint).password(secret).align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(text).hint_text(hint).password(secret).align(egui::Align2::LEFT_CENTER));
         enter |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.add_space(8.);
     };
@@ -1648,7 +1663,7 @@ fn sign_in_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
     if prompt.is_some() {
         let label = if unlock { "Sblocca" } else { "Accedi" };
         let button = egui::Button::new(egui::RichText::new(label).color(list::rgb(t.on_accent))).fill(list::rgb(t.accent));
-        if ui.add_sized([ui.available_width(), 36.], button).clicked() || enter {
+        if ui.add_sized([ui.available_width(), crate::metrics::button()], button).clicked() || enter {
             s.submit();
         }
     } else {
@@ -1668,14 +1683,13 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         ui.label("Chiave di recupero Matrix");
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let copy = ui.button("⧉");
-                copy.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Copia chiave"));
+                let copy = icons::button(ui, icons::Icon::Copy, false, i18n::t("Copy key"));
                 if copy.clicked() { ui.ctx().copy_text(key.to_owned()); }
                 ui.add(egui::Label::new(egui::RichText::new(key).monospace()).selectable(true));
             });
         });
         ui.add_space(8.);
-        if ui.add_sized([ui.available_width(), 36.], accent("Ho salvato la chiave: continua")).clicked() {
+        if ui.add_sized([ui.available_width(), crate::metrics::button()], accent("Ho salvato la chiave: continua")).clicked() {
             s.defer_recovery();
         }
         return;
@@ -1687,15 +1701,15 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         return;
     }
     if s.form.recovery() != Some(matrix_engine::signin::RecoveryState::Unsupported) {
-        let r = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut s.phrase).hint_text("Chiave di recupero Matrix").password(true).align(egui::Align2::LEFT_CENTER));
+        let r = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.phrase).hint_text("Chiave di recupero Matrix").password(true).align(egui::Align2::LEFT_CENTER));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         ui.add_space(8.);
-        if ui.add_sized([ui.available_width(), 36.], accent("Recupera cronologia cifrata")).clicked() || enter {
+        if ui.add_sized([ui.available_width(), crate::metrics::button()], accent("Recupera cronologia cifrata")).clicked() || enter {
             s.recover();
         }
     } else if s.form.setup_offered() {
         let label = if s.form.setup_phase().is_some() { "Riprova a creare la chiave" } else { "Crea chiave di recupero" };
-        if ui.add_sized([ui.available_width(), 36.], accent(label)).clicked() {
+        if ui.add_sized([ui.available_width(), crate::metrics::button()], accent(label)).clicked() {
             s.setup_recovery();
         }
     }
@@ -1705,7 +1719,7 @@ fn recovery_form(ui: &mut egui::Ui, s: &mut Session, t: &DesignTokens) {
         ui.colored_label(ui.visuals().error_fg_color, message);
     }
     ui.add_space(6.);
-    if ui.add_sized([ui.available_width(), 36.], accent("Continua senza recupero")).clicked() {
+    if ui.add_sized([ui.available_width(), crate::metrics::button()], accent("Continua senza recupero")).clicked() {
         s.defer_recovery();
     }
 }
@@ -1874,7 +1888,7 @@ fn main() -> eframe::Result {
     let mut options = eframe::NativeOptions {
         viewport: ViewportBuilder::default()
             .with_inner_size([first.width, first.height])
-            .with_min_inner_size([MIN_WIDTH, 420.])
+            .with_min_inner_size([MIN_WIDTH, MIN_HEIGHT])
             .with_title(TITLE)
             .with_fullsize_content_view(true)
             .with_titlebar_shown(false)
@@ -1894,6 +1908,7 @@ fn main() -> eframe::Result {
     let result = eframe::run_native(TITLE, options, Box::new(move |cc| {
         eprintln!("gnobbi: creator called");
         register_emoji_font(&cc.egui_ctx);
+        icons::register(&cc.egui_ctx);
         #[cfg(target_os = "ios")]
         mobile::observe_keyboard(&cc.egui_ctx);
         Ok(Box::new(App::new(dirs.as_ref(), root, trust, link, multi)))

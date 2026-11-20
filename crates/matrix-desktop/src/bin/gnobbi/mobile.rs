@@ -64,11 +64,6 @@ pub fn target(desktop: f32) -> f32 {
     if touch() { desktop.max(TOUCH) } else { desktop }
 }
 
-/// A one-glyph button, 44 pt square on touch.
-pub fn icon_button(ui: &mut egui::Ui, glyph: impl Into<egui::WidgetText>) -> egui::Response {
-    ui.add(egui::Button::new(glyph).min_size(egui::Vec2::splat(target(0.))))
-}
-
 /// The insets of the last window event, with the keyboard folded into the bottom one.
 #[derive(Default)]
 pub struct Insets(egui::SafeAreaInsets);

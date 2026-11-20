@@ -270,3 +270,38 @@ menu	Minimize	Riduci a icona
 menu	Zoom	Zoom
 menu	Bring All to Front	Porta tutto in primo piano
 @plural	Gnobbi, {n} unread	Gnobbi, {n} non letto|Gnobbi, {n} non letti
+
+# Phosphor icons, sizes and Personalizza
+	Customize	Personalizza
+	Sizes	Dimensioni
+	Text size	Dimensione testo
+	Buttons and icons size	Dimensione pulsanti e icone
+	Follow the system	Segui il sistema
+	Follow the text	Segui il testo
+	Small	Piccolo
+	Normal	Normale
+	Large	Grande
+	Compact	Compatta
+	Comfortable	Comoda
+	Restore defaults	Ripristina predefiniti
+	Preview	Anteprima
+	A sample message	Un messaggio di esempio
+	Button	Pulsante
+	Remove attachment	Rimuovi allegato
+	Cancel reply	Annulla risposta
+	Close card	Chiudi scheda
+	Close thread	Chiudi thread
+	Remove address	Rimuovi indirizzo
+	Copy	Copia
+	Menu	Menu
+	Back	Indietro
+	Chat list	Elenco chat
+	Info	Informazioni
+	Copy key	Copia chiave
+	Remove option	Rimuovi opzione
+	Pause	Pausa
+	Play	Riproduci
+	New	Nuovo
+	New space	Nuovo spazio
+	Close	Chiudi
+	Add account	Aggiungi account

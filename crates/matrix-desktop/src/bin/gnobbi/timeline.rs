@@ -280,7 +280,8 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
             let wide = e.media.is_some() || e.poll.is_some() || e.thread.is_some() || e.attachment_name.is_some();
             let inner = max - 2. * PAD_X;
             let measure = |text: &str, size: f32| ui.painter().layout(text.to_owned(), egui::FontId::proportional(size), Color32::WHITE, inner).size().x;
-            let foot_w = measure(&e.stamp(), STAMP) + readers_width(readers.len());
+            let (time, mark) = e.stamp_parts();
+            let foot_w = measure(time, STAMP) + mark.map_or(0., |_| STAMP + 2. + READER_GAP) + readers_width(readers.len());
             let body = (!e.text.is_empty() && e.poll.is_none()).then(|| {
                 let size = BODY * big.unwrap_or(1.);
                 let mut job = egui::text::LayoutJob::simple(if big.is_some() { e.text.trim().to_owned() } else { e.text.clone() }, egui::FontId::proportional(size), ui.visuals().text_color(), inner);
@@ -317,7 +318,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                             }
                         });
                     });
-                    let hit = ui.interact(q.response.rect, ui.id().with(("quote", &e.id.id)), egui::Sense::click());
+                    let hit = crate::metrics::clickable(ui.interact(q.response.rect, ui.id().with(("quote", &e.id.id)), egui::Sense::click()));
                     if hit.hovered() { ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand); }
                     if hit.clicked() { acts.reply_jump = Some(r.event_id.clone()); }
                     ui.add_space(4.);
@@ -327,19 +328,19 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                         Some(tex) => {
                             let size = tex.size_vec2();
                             let scale = (max.min(320.) / size.x).min(1.).min(320. / size.y);
-                            if ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click())).clicked() && matches!(media.kind, matrix_engine::history::MediaKind::Image | matrix_engine::history::MediaKind::Video) {
+                            if crate::metrics::clickable(ui.add(egui::Image::new(tex).fit_to_exact_size(size * scale).corner_radius(CornerRadius::same(8)).sense(egui::Sense::click()))).clicked() && matches!(media.kind, matrix_engine::history::MediaKind::Image | matrix_engine::history::MediaKind::Video) {
                                 acts.picture = Some((id.clone(), media.kind == matrix_engine::history::MediaKind::Video, e.attachment_name.clone().unwrap_or_else(|| i18n::t("image").into())));
                             }
                         }
                         None => {
-                            if ui.add(egui::Label::new(RichText::new(&media.label).color(rgb(t.secondary))).sense(egui::Sense::click())).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
+                            if crate::metrics::clickable(ui.add(egui::Label::new(RichText::new(&media.label).color(rgb(t.secondary))).sense(egui::Sense::click()))).clicked() && media.kind == matrix_engine::history::MediaKind::Video { acts.picture = Some((id.clone(), true, e.attachment_name.clone().unwrap_or_else(|| i18n::t("video").into()))); }
                         }
                     }
                 }
                 if let (Some(_), matrix_domain::TimelineId::Server(id)) = (&e.audio, &e.id.id) {
                     let (playing, progress) = acts.now_playing.as_ref().filter(|(p, ..)| p == id).map_or((false, 0.), |(_, pl, pr)| (*pl, *pr));
                     ui.horizontal(|ui| {
-                        if ui.button(if playing { "⏸" } else { "▶" }).clicked() {
+                        if crate::icons::button(ui, if playing { crate::icons::Icon::Pause } else { crate::icons::Icon::Play }, true, if playing { i18n::t("Pause") } else { i18n::t("Play") }).clicked() {
                             acts.play = Some(id.clone());
                         }
                         ui.add(egui::ProgressBar::new(progress).desired_width(140.).desired_height(8.));
@@ -347,7 +348,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                 }
                 if let Some(name) = &e.attachment_name
                     && !e.redacted
-                    && ui.button(format!("⬇ {name}")).clicked()
+                    && ui.button(crate::icons::with_label(crate::icons::Icon::DownloadSimple, name)).clicked()
                 {
                     save = true;
                 }
@@ -358,7 +359,7 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     ui.add_space(4.);
                     for (ix, answer) in poll.answers.iter().enumerate() {
                         let share = if poll.results_visible() { poll.share(ix) } else { 0. };
-                        let r = ui.add_enabled(!poll.ended, egui::Button::new(poll.option_label(ix)).wrap().selected(answer.own).min_size(Vec2::new(inner.min(200.), 26.)));
+                        let r = ui.add_enabled(!poll.ended, egui::Button::new(poll.option_label(ix)).wrap().selected(answer.own).min_size(Vec2::new(inner.min(200.), crate::metrics::get().button - 6.)));
                         let bar = egui::Rect::from_min_size(r.rect.left_bottom() - Vec2::new(0., 3.), Vec2::new(r.rect.width() * share, 3.));
                         ui.painter().rect_filled(bar, 1., rgb(t.accent));
                         if r.clicked() {
@@ -431,7 +432,12 @@ fn row(ui: &mut egui::Ui, e: &DemoEvent, pictures: &Pictures, avatars: &Avatars,
                     pill.show(ui, |ui| {
                         ui.spacing_mut().item_spacing.x = READER_GAP;
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            ui.label(RichText::new(e.stamp()).size(STAMP).color(rgb(t.secondary)));
+                            // Right to left: the delivery mark is the rightmost, the time left of it.
+                            if let Some(mark) = mark {
+                                let ink = if mark == matrix_desktop::StampMark::Failed { rgb(t.error) } else { rgb(t.secondary) };
+                                ui.label(crate::icons::rich(crate::icons::stamp_icon(mark), false, STAMP + 2.).color(ink));
+                            }
+                            ui.label(RichText::new(time).size(STAMP).color(rgb(t.secondary)));
                             // Right to left: the circles sit left of the time.
                             read_circles(ui, readers, avatars, t);
                         });
@@ -584,7 +590,7 @@ pub fn show(ui: &mut egui::Ui, unread: u64, events: &[DemoEvent], history: &matr
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, i18n::t("Go to bottom")));
         let ink = if resp.hovered() { ui.visuals().strong_text_color() } else { rgb(t.secondary) };
         ui.painter().circle(c, 20., rgb(t.surface), egui::Stroke::new(1., rgb(t.border)));
-        ui.painter().add(egui::Shape::line(vec![c + Vec2::new(-6., -3.), c + Vec2::new(0., 3.), c + Vec2::new(6., -3.)], egui::Stroke::new(2., ink)));
+        crate::icons::paint(ui.painter(), c, crate::icons::Icon::ArrowDown, false, crate::metrics::get().icon + 2., ink);
         if unread > 0 {
             super::list::badge(ui, c - Vec2::new(0., 26.), unread, t);
         }

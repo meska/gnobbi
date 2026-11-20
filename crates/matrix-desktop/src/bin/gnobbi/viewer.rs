@@ -68,12 +68,7 @@ impl Viewer {
             .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    // Painted X: the font has no glyph for the cross character on every system.
-                    let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(24.), egui::Sense::click());
-                    let c = rect.center();
-                    let stroke = egui::Stroke::new(1.6, ui.visuals().text_color());
-                    ui.painter().line_segment([c + egui::vec2(-5., -5.), c + egui::vec2(5., 5.)], stroke);
-                    ui.painter().line_segment([c + egui::vec2(-5., 5.), c + egui::vec2(5., -5.)], stroke);
+                    let resp = crate::icons::button(ui, crate::icons::Icon::X, false, matrix_desktop::i18n::t("Close"));
                     if resp.clicked() { action = Action::Close; }
                     if ui.button(i18n::t("Save as")).clicked() {
                         let name = std::path::Path::new(&self.name).file_name().and_then(|s| s.to_str()).unwrap_or("file");

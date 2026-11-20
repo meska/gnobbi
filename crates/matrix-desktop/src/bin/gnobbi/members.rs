@@ -193,7 +193,7 @@ pub fn windows(ctx: &egui::Context, s: &mut crate::session::Session, t: &DesignT
             ui.set_width(340.);
             ui.add(egui::Label::new(RichText::new(crate::list::clean_single_line(&d.name)).strong()).truncate());
             ui.add_space(4.);
-            ui.add_enabled_ui(!admin.busy, |ui| ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut d.reason).hint_text(i18n::t("Reason")).align(Align2::LEFT_CENTER)));
+            ui.add_enabled_ui(!admin.busy, |ui| ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut d.reason).hint_text(i18n::t("Reason")).align(Align2::LEFT_CENTER)));
             if admin.failed {
                 ui.colored_label(rgb(t.error), i18n::t("Failed"));
             }

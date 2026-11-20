@@ -83,8 +83,8 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                 }
             }
             1 => {
-                ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut form.name).hint_text("Nome"));
-                ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut form.topic).hint_text("Argomento"));
+                ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.name).hint_text("Nome"));
+                ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.topic).hint_text("Argomento"));
                 ui.add_space(4.);
                 crate::settings::switch(ui, "Pubblica", &mut form.public, t);
                 ui.add_space(8.);
@@ -104,7 +104,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                             }
                             None => {
                                 ui.painter().circle_filled(rect.center(), 24., crate::list::rgb(t.input));
-                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "+", egui::FontId::proportional(22.), crate::list::rgb(t.secondary));
+                                crate::icons::paint(ui.painter(), rect.center(), crate::icons::Icon::Plus, false, crate::metrics::get().icon + 6., crate::list::rgb(t.secondary));
                             }
                         }
                         if resp.has_focus() || resp.hovered() {
@@ -117,7 +117,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
                             form.avatar = read_avatar(ui.ctx(), &path);
                             s.new_failed = form.avatar.is_none();
                         }
-                        ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut form.space).hint_text("Nome"));
+                        ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.space).hint_text("Nome"));
                     });
                     ui.add_space(4.);
                     crate::settings::switch(ui, "Pubblica", &mut form.space_public, t);
@@ -133,7 +133,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
             _ => {
                 let join = s.joins.get(form.target.trim());
                 let (running, line, failed) = (join.is_some_and(|j| j.is_running()), join.and_then(|j| j.line()), join.is_some_and(|j| j.error().is_some()));
-                ui.add_enabled_ui(!running, |ui| ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut form.target).hint_text("#stanza:server o !id:server")));
+                ui.add_enabled_ui(!running, |ui| ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut form.target).hint_text("#stanza:server o !id:server")));
                 ui.add_space(8.);
                 // One row: the spinner takes the button's place for as long as the server is joining, then the outcome.
                 ui.horizontal(|ui| {
@@ -162,7 +162,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, form: &mut Form, t: &matrix_de
 /// The user search («Cerca persone» and its results); returns the user that was clicked.
 pub fn people(ui: &mut egui::Ui, s: &mut Session, t: &matrix_desktop::DesignTokens) -> Option<String> {
     let mut picked = None;
-    ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut s.new_term).hint_text("Cerca persone").align(egui::Align2::LEFT_CENTER));
+    ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut s.new_term).hint_text("Cerca persone").align(egui::Align2::LEFT_CENTER));
     ui.add_space(6.);
     match &s.users {
         SearchState::Searching { .. } => {
@@ -204,7 +204,7 @@ mod tests {
         let (jpg, txt) = (dir.join("gnobbi-space-avatar-test.jpg"), dir.join("gnobbi-space-avatar-test.txt"));
         image::RgbImage::from_pixel(200, 100, image::Rgb([200, 100, 50])).save_with_format(&jpg, image::ImageFormat::Jpeg).unwrap();
         std::fs::write(&txt, "ciao").unwrap();
-        let ctx = eframe::egui::Context::default();
+        let ctx = crate::icons::test_context();
         let (avatar, preview) = super::read_avatar(&ctx, &jpg).unwrap();
         assert_eq!(avatar.mime, "image/jpeg");
         assert_eq!(preview.size(), [96, 48]);

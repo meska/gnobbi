@@ -99,8 +99,11 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
     let dirty = name_changed || !matches!(f.photo, Photo::Keep);
     let (mut save, mut choose) = (false, false);
     ui.add_enabled_ui(!busy, |ui| {
-        ui.horizontal(|ui| {
+        // Avatar and the name/id block share one axis: the block has a known height, so the row centres both.
+        let block = crate::metrics::button() + 2. + ui.painter().layout_no_wrap(id.clone(), egui::FontId::proportional(12.), egui::Color32::WHITE).size().y;
+        egui::containers::Sides::new().height(72.).shrink_left().show(ui, |ui| {
             let (rect, resp) = ui.allocate_exact_size(egui::Vec2::splat(64.), if can_photo { egui::Sense::click() } else { egui::Sense::hover() });
+            let resp = crate::metrics::clickable(resp);
             let shown_name = name.as_deref().unwrap_or(&id);
             let picture = match &f.photo {
                 Photo::Set(_, tex) => Some(tex),
@@ -124,17 +127,17 @@ fn card(ui: &mut egui::Ui, s: &mut Session, f: &mut Form, t: &DesignTokens) -> b
                 }
                 choose |= resp.clicked();
             }
-            ui.add_space(4.);
-            ui.vertical(|ui| {
+            ui.allocate_ui_with_layout(egui::vec2(ui.available_width(), block), egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.spacing_mut().item_spacing.y = 2.;
                 if can_name {
-                    let field = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut f.name).hint_text("Nome").align(egui::Align2::LEFT_CENTER).char_limit(matrix_engine::profile::MAX_NAME_CHARS));
+                    let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut f.name).hint_text("Nome").align(egui::Align2::LEFT_CENTER).char_limit(matrix_engine::profile::MAX_NAME_CHARS));
                     save |= field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 } else {
                     ui.label(shown_name);
                 }
                 ui.label(RichText::new(&id).size(12.).color(rgb(t.secondary)));
             });
-        });
+        }, |_| {});
         if can_name || can_photo {
             ui.add_space(4.);
             ui.horizontal(|ui| {
@@ -212,21 +215,21 @@ pub struct Running {
 /// One account: round picture, name, id and server in grey, then «Attivo» or the unread badge and «Apri».
 fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: Option<&egui::TextureHandle>, active: bool, unread: u64, t: &DesignTokens) -> bool {
     let mut open = false;
-    ui.horizontal(|ui| {
-        let (r, _) = ui.allocate_exact_size(egui::Vec2::splat(32.), egui::Sense::hover());
-        ui.painter().circle_filled(r.center(), 16., rgb(crate::AVATAR));
-        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, matrix_desktop::initials(name), egui::FontId::proportional(13.), rgb(t.on_accent));
-        if let Some(tex) = picture {
-            egui::Image::new(tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(16)).paint_at(ui, r);
-        }
-        let width = (ui.available_width() - 90.).max(60.);
-        ui.allocate_ui_with_layout(egui::vec2(width, 0.), egui::Layout::top_down(egui::Align::Min), |ui| {
-            ui.add(egui::Label::new(RichText::new(name).size(15.)).truncate());
-            ui.add(egui::Label::new(RichText::new(line).size(12.).color(rgb(t.secondary))).truncate());
-        });
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    let m = crate::metrics::get();
+    crate::rows::lines_row(
+        ui,
+        |ui| {
+            let (r, _) = ui.allocate_exact_size(egui::Vec2::splat(32.), egui::Sense::hover());
+            ui.painter().circle_filled(r.center(), 16., rgb(crate::AVATAR));
+            ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, matrix_desktop::initials(name), egui::FontId::proportional(13.), rgb(t.on_accent));
+            if let Some(tex) = picture {
+                egui::Image::new(tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(16)).paint_at(ui, r);
+            }
+        },
+        &[crate::rows::Line::new(name, m.body, rgb(t.text)), crate::rows::Line::new(line, m.secondary, rgb(t.secondary))],
+        |ui| {
             if active {
-                ui.label(RichText::new("Attivo").size(12.).color(rgb(t.accent)));
+                ui.label(RichText::new("Attivo").size(m.secondary).color(rgb(t.accent)));
             } else {
                 open = ui.button("Apri").clicked();
                 if unread > 0 {
@@ -234,8 +237,8 @@ fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: Option<&egui::Texture
                     crate::list::badge(ui, r.center(), unread, t);
                 }
             }
-        });
-    });
+        },
+    );
     open
 }
 
@@ -245,8 +248,8 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
     let mut back = false;
     let own = session.as_ref().and_then(|s| s.own_picture());
     let closed = crate::rail::drawer_back(ctx, rail.panel, "accounts-drawer", "Account", rail.accounts, t, Some(&mut back), |ui, rect| {
-        let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 206., rect.top() - 46.), egui::Vec2::new(150., 36.));
-        if ui.put(action, egui::Button::new("+ Aggiungi account")).clicked() {
+        let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 236., rect.top() - 46.), egui::Vec2::new(180., crate::metrics::button()));
+        if ui.put(action, egui::Button::new(crate::icons::with_label(crate::icons::Icon::Plus, matrix_desktop::i18n::t("Add account")))).clicked() {
             out = Some(Launch::Add);
         }
         let catalog = AccountCatalog::load(dirs);
@@ -307,6 +310,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
 /// One row of the account switcher in the rail: small round picture, name, the account id in grey under it, a check on the shown one, the unread badge on the others.
 pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: Option<&egui::TextureHandle>, shown: bool, unread: u64, t: &DesignTokens) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(egui::Vec2::new(264., 44.), egui::Sense::click());
+    let resp = crate::metrics::clickable(resp);
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{name} {id}")));
     let p = ui.painter();
     if resp.hovered() || resp.has_focus() {
@@ -327,7 +331,7 @@ pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: Option<&egui
         ui.painter().galley(pos, crate::list::one_line(ui, id, 11., rgb(t.secondary), right - x - 32.), rgb(t.secondary));
     }
     if shown {
-        ui.painter().text(egui::Pos2::new(right, rect.center().y), egui::Align2::RIGHT_CENTER, "✓", egui::FontId::proportional(14.), rgb(t.accent));
+        crate::icons::paint(ui.painter(), egui::Pos2::new(right - 8., rect.center().y), crate::icons::Icon::Check, true, crate::metrics::get().icon - 2., rgb(t.accent));
     } else if unread > 0 {
         let count = if unread > 99 { "99+".to_owned() } else { unread.to_string() };
         let g = p.layout_no_wrap(count, egui::FontId::proportional(9.), rgb(t.on_accent));

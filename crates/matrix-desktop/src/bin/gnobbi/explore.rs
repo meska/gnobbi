@@ -84,7 +84,7 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
     let mut more = false;
     egui::Window::new("Esplora stanze pubbliche").frame(egui::Frame::window(&ctx.style_of(ctx.theme())).stroke(egui::Stroke::NONE)).open(&mut open).collapsible(false).resizable(false).anchor(Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_width(460.);
-        let field = ui.add_sized([ui.available_width(), 32.], egui::TextEdit::singleline(&mut e.term).hint_text("Cerca stanze pubbliche").align(Align2::LEFT_CENTER));
+        let field = ui.add_sized([ui.available_width(), crate::metrics::button()], crate::metrics::line(&mut e.term).hint_text("Cerca stanze pubbliche").align(Align2::LEFT_CENTER));
         if std::mem::take(&mut e.fresh) {
             field.request_focus();
         }
@@ -95,13 +95,14 @@ pub fn show(ctx: &egui::Context, s: &mut Session, t: &DesignTokens) {
                 Pick::MatrixOrg => "matrix.org",
                 Pick::Other => "Altro server…",
             };
-            egui::ComboBox::from_id_salt("explore-server").selected_text(label).show_ui(ui, |ui| {
+            let combo = egui::ComboBox::from_id_salt("explore-server").selected_text(label).show_ui(ui, |ui| {
                 ui.selectable_value(&mut e.pick, Pick::Own, "Il tuo server");
                 ui.selectable_value(&mut e.pick, Pick::MatrixOrg, "matrix.org");
                 ui.selectable_value(&mut e.pick, Pick::Other, "Altro server…");
             });
+            crate::metrics::clickable(combo.response);
             if e.pick == Pick::Other {
-                ui.add(egui::TextEdit::singleline(&mut e.other).hint_text("nome del server").desired_width(150.));
+                ui.add(crate::metrics::line(&mut e.other).hint_text("nome del server").desired_width(150.));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.visuals_mut().selection.bg_fill = rgb(t.selection);
@@ -183,7 +184,7 @@ fn row(ui: &mut egui::Ui, s: &Session, room: &DirectoryRoom, act: &Action, t: &D
     ui.painter().circle_filled(c, 20., rgb(matrix_desktop::AVATAR_FALLBACK));
     ui.painter().text(c, Align2::CENTER_CENTER, room.name.chars().take(2).collect::<String>(), FontId::proportional(15.), rgb(t.avatar_text));
     crate::list::photo(ui, &s.avatars, room.avatar_url.as_deref(), c, 40.);
-    let btn = egui::Rect::from_min_size(egui::pos2(rect.right() - 96., rect.center().y - 15.), Vec2::new(88., 30.));
+    let btn = egui::Rect::from_min_size(egui::pos2(rect.right() - 96., rect.center().y - crate::metrics::button() / 2.), Vec2::new(88., crate::metrics::button()));
     let left = rect.left() + 58.;
     let width = (btn.left() - 8. - left).max(20.);
     let topic = room.topic.as_deref().unwrap_or("");

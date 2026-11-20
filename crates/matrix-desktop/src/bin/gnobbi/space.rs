@@ -19,7 +19,8 @@ pub struct SpaceView {
 
 /// Three dots, drawn: the glyph is missing from the macOS system font.
 pub fn dots(ui: &mut egui::Ui, t: &DesignTokens, label: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::mobile::target(32.)), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::metrics::button()), Sense::click());
+    let resp = crate::metrics::clickable(resp);
     if resp.hovered() || resp.has_focus() {
         ui.painter().rect_filled(rect, 8., rgb(t.input));
     }
@@ -186,7 +187,7 @@ pub fn delete_window(ctx: &egui::Context, session: &mut crate::session::Session,
         ui.label(format!("Stanze scollegate (restano esistenti): {rooms}"));
         ui.colored_label(rgb(t.error), "Azione irreversibile");
         ui.add_space(4.);
-        ui.add_enabled(!busy, egui::TextEdit::singleline(typed).hint_text(space.name.as_str()).desired_width(f32::INFINITY));
+        ui.add_enabled(!busy, crate::metrics::line(typed).hint_text(space.name.as_str()).desired_width(f32::INFINITY));
         ui.add_space(8.);
         ui.horizontal(|ui| {
             let red = egui::Button::new(RichText::new("Elimina spazio").color(egui::Color32::WHITE)).fill(rgb(t.error));

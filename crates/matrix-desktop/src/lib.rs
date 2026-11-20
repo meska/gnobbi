@@ -60,7 +60,7 @@ pub mod add_server;
 pub mod directory_servers;
 mod rail_layout;
 pub use preferences::{
-    AutoNight, FontChoice, IconChoice, Preferences, Theme, is_night_hour, local_hour, set_font,
+    AutoNight, Density, FontChoice, IconChoice, Metrics, Preferences, SCALE_RANGE, TextSize, Theme, parse_gsettings_scale, parse_windows_text_scale, is_night_hour, local_hour, set_font,
     ui_font,
 };
 pub use rail_layout::{RailLayout, RailLayouts};
@@ -91,7 +91,7 @@ mod live_history;
 pub use live_history::{HistorySession, HistoryStatus, SETTLE};
 mod history;
 pub use history::{
-    DemoEvent, DemoHistory, DemoSendState, bubble_stamp, debug_room_line, opens_message_menu,
+    DemoEvent, DemoHistory, DemoSendState, StampMark, bubble_stamp, stamp_mark, debug_room_line, opens_message_menu,
 };
 pub mod big_emoji;
 pub mod row_text;

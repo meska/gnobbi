@@ -659,6 +659,36 @@ Gnobbi depends on the crates below (all targets and features, from Cargo.lock). 
 - The font is embedded in the Linux binary at build time (no network at run time, nothing extra in the AppImage); it is used for every emoji cluster, so the set is the same on every Linux system. macOS and Windows use the system emoji font.
 - The OFL allows bundling and redistribution with software; the font is not sold by itself and is not renamed or modified.
 
+
+## Bundled icon font: Phosphor Icons
+
+- Phosphor Icons 2.1.2 (`@phosphor-icons/web`, Regular and Fill TTF), Copyright (c) 2020-2021 Phosphor Icons, MIT License. Source: https://github.com/phosphor-icons/web (npm package 2.1.2).
+- Files: `crates/matrix-desktop/assets/fonts/Phosphor-subset.ttf` and `Phosphor-Fill-subset.ttf`, subsets (only the glyphs the app uses, no layout tables) made with fontTools; embedded in every build and used for all button icons.
+
+```
+MIT License
+
+Copyright (c) 2020-2021 Phosphor Icons
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## AppImage package
 
 The Linux AppImage bundles only the application binary (which embeds the font above), its desktop entry, metadata and icons (own assets). No system libraries are bundled; GPU, Wayland and Vulkan libraries come from the host. The AppImage file embeds the upstream type 2 runtime from the AppImage project (MIT; it statically links squashfuse, BSD-2-Clause, and libfuse, LGPL-2.1-or-later): https://github.com/AppImage/type2-runtime

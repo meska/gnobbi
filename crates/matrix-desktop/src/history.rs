@@ -84,6 +84,11 @@ impl DemoEvent {
         bubble_stamp(&self.time, self.outgoing, self.send_state)
     }
 
+    /// The footer as time and delivery mark, for a UI that draws the mark as an icon.
+    pub fn stamp_parts(&self) -> (&str, Option<StampMark>) {
+        (&self.time, stamp_mark(self.outgoing, self.send_state))
+    }
+
     /// Footer for a 1:1 row: a read own message gets the double check.
     pub fn stamp_read(&self, read: bool) -> String {
         if read && self.outgoing && self.send_state.is_none() {
@@ -791,13 +796,30 @@ fn now_ms() -> u64 {
     u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(0)
 }
 
-/// Bubble footer: the time plus one glyph for the delivery state (no state words).
-pub fn bubble_stamp(time: &str, outgoing: bool, state: Option<DemoSendState>) -> String {
+/// Delivery state shown next to the time of a bubble.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StampMark {
+    Pending,
+    Failed,
+    Sent,
+}
+
+pub fn stamp_mark(outgoing: bool, state: Option<DemoSendState>) -> Option<StampMark> {
     match (outgoing, state) {
-        (_, Some(DemoSendState::Pending)) => format!("{time} ◷"),
-        (_, Some(DemoSendState::Failed)) => format!("{time} !"),
-        (true, None) => format!("{time} ✓"),
-        (false, None) => time.to_owned(),
+        (_, Some(DemoSendState::Pending)) => Some(StampMark::Pending),
+        (_, Some(DemoSendState::Failed)) => Some(StampMark::Failed),
+        (true, None) => Some(StampMark::Sent),
+        (false, None) => None,
+    }
+}
+
+/// Bubble footer as plain text (tests, spoken text): the time plus one glyph for the delivery state (no state words).
+pub fn bubble_stamp(time: &str, outgoing: bool, state: Option<DemoSendState>) -> String {
+    match stamp_mark(outgoing, state) {
+        Some(StampMark::Pending) => format!("{time} ◷"),
+        Some(StampMark::Failed) => format!("{time} !"),
+        Some(StampMark::Sent) => format!("{time} ✓"),
+        None => time.to_owned(),
     }
 }
 
