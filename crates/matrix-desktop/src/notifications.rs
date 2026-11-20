@@ -358,7 +358,12 @@ mod macos {
             // The window decides upstream (`reading`) whether an alert is wanted: when it is, show it even in the foreground.
             #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
             fn will_present(&self, _: &UNUserNotificationCenter, _: &UNNotification, done: &DynBlock<dyn Fn(UNNotificationPresentationOptions)>) {
-                done.call((UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List,));
+                // iOS plays the sound only if the foreground presentation asks for it.
+                #[cfg(target_os = "ios")]
+                let options = UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List | UNNotificationPresentationOptions::Sound;
+                #[cfg(not(target_os = "ios"))]
+                let options = UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List;
+                done.call((options,));
             }
         }
     );
@@ -372,7 +377,15 @@ mod macos {
             let delegate: Retained<Delegate> = unsafe { msg_send![super(Delegate::alloc().set_ivars(())), init] };
             UNUserNotificationCenter::currentNotificationCenter().setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
             std::mem::forget(delegate); // the center keeps only a weak reference
+            // iOS: ask at launch, so the prompt is not first raised by (and the alert lost with) the first incoming message.
+            #[cfg(target_os = "ios")]
+            authorize();
         });
+    }
+
+    fn authorize() {
+        static AUTH: Once = Once::new();
+        AUTH.call_once(|| UNUserNotificationCenter::currentNotificationCenter().requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &RcBlock::new(|_, _: *mut NSError| {})));
     }
 
     pub fn deliver(notification: Notification, picture: Option<Avatar>, click: &Click) -> Result<(), NotificationError> {
@@ -381,8 +394,7 @@ mod macos {
         }
         install_delegate();
         let center = UNUserNotificationCenter::currentNotificationCenter();
-        static AUTH: Once = Once::new();
-        AUTH.call_once(|| center.requestAuthorizationWithOptions_completionHandler(UNAuthorizationOptions::Alert | UNAuthorizationOptions::Sound, &RcBlock::new(|_, _: *mut NSError| {})));
+        authorize();
         let (catalog, scope) = notification.target();
         let key_text = target_key(catalog, scope);
         let key = NSString::from_str(&key_text);

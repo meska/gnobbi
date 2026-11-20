@@ -490,7 +490,9 @@ impl eframe::App for App {
             if self.rail.settings || self.rail.accounts || self.rail.customize || self.pending_web.is_some() || session.new_open || session.explore.is_some() || session.quick_open || session.poll_open || session.edit.is_some() || self.rail.devices || session.viewer.is_some() {
                 if let Some(thread) = &mut session.thread { thread.tail_visible = false; }
             }
-            session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
+            // Narrow layout with the chat list on top: the selected room is not on screen.
+            let room_hidden = self.list_open && ctx.content_rect().width() < NARROW_WIDTH;
+            session.reading = (ctx.input(|i| i.focused) && !room_hidden, session.heights.at_bottom, self.prefs.read_receipts);
             if !self.recorded
                 && let (Some(v), Some(dirs)) = (&session.verification, &self.dirs)
                 && let Some((id, name)) = v.profile()
