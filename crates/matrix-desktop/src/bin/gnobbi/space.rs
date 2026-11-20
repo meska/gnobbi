@@ -17,21 +17,9 @@ pub struct SpaceView {
     pub promote: bool,
 }
 
-/// Three dots, drawn: the glyph is missing from the macOS system font.
-pub fn dots(ui: &mut egui::Ui, t: &DesignTokens, label: &str) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(crate::metrics::button()), Sense::click());
-    let resp = crate::metrics::clickable(resp);
-    if resp.hovered() || resp.has_focus() {
-        ui.painter().rect_filled(rect, 8., rgb(t.input));
-    }
-    if resp.has_focus() {
-        ui.painter().rect_stroke(rect, 8., egui::Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Inside);
-    }
-    for dy in [-6., 0., 6.] {
-        ui.painter().circle_filled(rect.center() + Vec2::new(0., dy), 1.8, rgb(t.text));
-    }
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+/// The vertical three-dot button (Phosphor); `label` is its screen-reader name.
+pub fn dots(ui: &mut egui::Ui, _t: &DesignTokens, label: &str) -> egui::Response {
+    crate::icons::button(ui, crate::icons::Icon::DotsThreeVertical, false, label)
 }
 
 /// «⋮» of the list header; draws nothing unless a space is selected.

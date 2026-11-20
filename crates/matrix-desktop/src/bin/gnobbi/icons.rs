@@ -53,6 +53,8 @@ icons! {
     Clock = 0xe19a "clock",
     PushPin = 0xe3e2 "push-pin",
     WarningCircle = 0xe4e2 "warning-circle",
+    DotsThreeVertical = 0xe208 "dots-three-vertical",
+    DotsSixVertical = 0xeae2 "dots-six-vertical",
 }
 
 static REGULAR: &[u8] = include_bytes!("../../../assets/fonts/Phosphor-subset.ttf");

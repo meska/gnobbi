@@ -544,10 +544,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
                     if row.busy {
                         egui::Spinner::new().color(rgb(t.accent)).paint_at(ui, egui::Rect::from_center_size(egui::pos2(x, cy), Vec2::splat(16.)));
                     } else {
-                        // Grip: six dots.
-                        for (dx, dy) in [(-3., -6.), (3., -6.), (-3., 0.), (3., 0.), (-3., 6.), (3., 6.)] {
-                            p.circle_filled(egui::pos2(x + dx, cy + dy), 1.5, rgb(if frozen { t.disabled } else { t.placeholder }));
-                        }
+                        icons::paint(&p, egui::pos2(x, cy), icons::Icon::DotsSixVertical, false, crate::metrics::get().icon, rgb(if frozen { t.disabled } else { t.placeholder }));
                     }
                     x += 18. + row.depth as f32 * INDENT;
                     face(ui, &p, &session.avatars, row, egui::pos2(x + 14., cy), 28., t);
