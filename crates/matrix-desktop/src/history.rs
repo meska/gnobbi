@@ -699,12 +699,19 @@ impl DemoHistory {
         &self,
         receipts: &[matrix_engine::receipts::PublicReadReceipt],
     ) -> std::collections::HashMap<usize, Vec<matrix_engine::history::HistorySender>> {
-        let mut rows = std::collections::HashMap::<usize, Vec<_>>::new();
+        // One entry per user id: the same user can sit on several events (public + private, thread + main, stale marker), keep the newest row.
+        let mut last = std::collections::HashMap::<&str, (usize, &matrix_engine::history::HistorySender)>::new();
         for r in receipts {
             let Some(at) = self.events.iter().position(|e| matches!(&e.id.id, TimelineId::Server(id) if *id == r.event_id)) else { continue };
             let Some(row) = self.events[..=at].iter().rposition(|e| e.outgoing && matches!(e.id.id, TimelineId::Server(_))) else { continue };
-            rows.entry(row).or_default().extend(r.users.iter().cloned());
+            for u in &r.users {
+                let e = last.entry(u.id.as_str()).or_insert((row, u));
+                if row > e.0 { *e = (row, u); }
+            }
         }
+        let mut rows = std::collections::HashMap::<usize, Vec<_>>::new();
+        for (row, u) in last.into_values() { rows.entry(row).or_default().push(u.clone()); }
+        for v in rows.values_mut() { v.sort_by(|a, b| a.id.cmp(&b.id)); }
         rows
     }
 
@@ -895,5 +902,10 @@ mod reader_circle_tests {
         assert_eq!(rows.get(&0).map(Vec::len), Some(2));
         assert_eq!(rows.get(&2).map(Vec::len), Some(1));
         assert_eq!(rows.len(), 2);
+
+        // Same user on two events (and twice on one): one circle, on the newest own row.
+        let rows = h.readers_by_row(&[at("$a", &["@x:t", "@y:t", "@y:t"]), at("$c", &["@x:t"])]);
+        assert_eq!(rows.get(&2).map(|v| v.iter().map(|s| s.id.as_str()).collect::<Vec<_>>()), Some(vec!["@x:t"]));
+        assert_eq!(rows.get(&0).map(|v| v.iter().map(|s| s.id.as_str()).collect::<Vec<_>>()), Some(vec!["@y:t"]));
     }
 }
