@@ -1,5 +1,5 @@
 // Member roles on a real Synapse/Tuwunel (driver: the member_detail_probe script with PROBE_FN=auth::auth_tests::live_member_roles_on_a_real_homeserver).
-// alice creates the room; bob and carol join. Role changes go through the engine (`set_member_role`); every outcome is read from the server's
+// alice creates the room; bob and carol join. Role changes go through the engine path the UI uses (`moderate` with `SetPower`); every outcome is read from the server's
 // m.room.power_levels and from the engine (`load_member_rights`). Included by auth_tests; reuses the mw_* helpers of member_writes_tests.rs.
 use matrix_domain::role::MemberRole;
 
@@ -49,7 +49,9 @@ fn live_member_roles_on_a_real_homeserver() {
         let rights = async |who: &matrix_sdk::Client, target: &str| {
             crate::operations::load_member_rights(who, &crate::room_sync::Timelines::default(), account, &scope, target).await.expect("rights")
         };
-        let set = async |who: &matrix_sdk::Client, target: &str, role| crate::operations::set_member_role(who, account, &scope, target, role).await;
+        let set = async |who: &matrix_sdk::Client, target: &str, role: MemberRole| {
+            crate::operations::moderate(who, account, &scope, target, &crate::operations::Moderation::SetPower(role.power_level())).await
+        };
         let bob_role = async |viewer: &matrix_sdk::Client| rights(viewer, &b).await.role;
         let version = mr_version(&alice, &rid).await;
         println!("OBS room version {version}");
