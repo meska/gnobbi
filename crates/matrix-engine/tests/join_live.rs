@@ -130,7 +130,9 @@ fn join_slow_and_failures_end_to_end() {
             };
             let ((ph, end, took), _) = tokio::join!(attempt("slow-then-ok", s("pub_id2"), vec![remote.clone()]), thaw);
             expect(ph.len() == 1 && ph[0].1 == "Slow" && ph[0].0 >= 5.0, format!("slow-then-ok: expected one Slow after the client timeout, got {ph:?}"));
-            expect(matches!(end, JoinPhase::Joined(_)), format!("slow-then-ok: final should be Joined after the thaw, got {end:?} after {took:?}"));
+            // Synapse drops the failed make_join and does not try that server again for 10 min (retry_interval): the join cannot succeed.
+            let synapse = s("home_kind") == "synapse";
+            expect(matches!(end, JoinPhase::Joined(_)) != synapse, format!("slow-then-ok: final after the thaw (synapse home={synapse}) was {end:?} after {took:?}"));
 
             // 4. Never answers + dead server, together (each waits the whole window): unreachable.
             kill("-STOP", "remote_pid");

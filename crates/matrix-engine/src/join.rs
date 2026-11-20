@@ -8,9 +8,12 @@ use matrix_domain::RoomScope;
 use std::time::Duration;
 
 /// How long after the click the join is watched before it is «non confermato».
-/// Configured here only; the HTTP timeout of a single request stays the client's 10 s
-/// (`persistence.rs` / `auth.rs`, `RequestConfig::timeout`) because the SDK join call takes no per-call config.
 pub const JOIN_CONFIRM_WINDOW: Duration = Duration::from_secs(150);
+/// How long the join call is awaited before «Slow». The SDK retries 5xx answers (502/500 of a dead remote)
+/// forever, so the client's 30 s HTTP timeout never fires: this bound ends the call, the watch takes over.
+pub const JOIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Pause before the join request is sent again while watching.
+pub const JOIN_RETRY: Duration = Duration::from_secs(15);
 /// Period of the local membership recheck while watching (sync updates end the wait sooner).
 pub const JOIN_RECHECK: Duration = Duration::from_secs(10);
 
@@ -135,25 +138,37 @@ mod driver {
         }
         // Subscribed BEFORE the request: the sync can deliver the room while the request is still open.
         let updates = client.subscribe_to_room_updates(&id);
-        match client.join_room_by_id_or_alias(&target, &via).await {
-            Ok(_) => return JoinPhase::Joined(scope()),
-            Err(e) => {
-                if let Some(r) = refusal(&e) {
-                    return JoinPhase::Refused(r);
-                }
-            }
+        // One bounded join call: `Some` = final answer (joined or refused), `None` = 5xx / no answer, still in progress.
+        let attempt = async || match tokio::time::timeout(JOIN_CALL_TIMEOUT, client.join_room_by_id_or_alias(&target, &via)).await {
+            Ok(Ok(_)) => Some(JoinPhase::Joined(scope())),
+            Ok(Err(e)) => refusal(&e).map(JoinPhase::Refused),
+            Err(_elapsed) => None,
+        };
+        if let Some(done) = attempt().await {
+            return done;
         }
         emit(JoinPhase::Slow);
-        let joined = confirm(
+        // Synapse drops a failed make_join (nothing goes on in the background), so the join is sent again until the window ends.
+        let retry = async {
+            loop {
+                tokio::time::sleep(JOIN_RETRY).await;
+                if let Some(done) = attempt().await {
+                    return done;
+                }
+            }
+        };
+        let confirmed = confirm(
             updates,
             |u| matches!(u, matrix_sdk::sync::RoomUpdate::Joined { .. }),
             local,
             async || matches!(membership(client, &id).await, Membership::Joined),
             deadline,
             JOIN_RECHECK,
-        )
-        .await;
-        if joined { JoinPhase::Joined(scope()) } else { JoinPhase::Unconfirmed }
+        );
+        tokio::select! {
+            joined = confirmed => if joined { JoinPhase::Joined(scope()) } else { JoinPhase::Unconfirmed },
+            done = retry => done,
+        }
     }
 
     #[cfg(test)]
