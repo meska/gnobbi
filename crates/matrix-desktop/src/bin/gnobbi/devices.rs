@@ -18,6 +18,8 @@ pub enum Kind {
     Desktop,
     Phone,
     Web,
+    /// Not a device: the person icon of the «Account» row in the settings.
+    Person,
     Other,
 }
 
@@ -51,6 +53,10 @@ pub fn icon(p: &egui::Painter, r: egui::Rect, kind: Kind, ink: egui::Color32) {
             p.circle_stroke(c, 9., s);
             p.line_segment([c - egui::vec2(9., 0.), c + egui::vec2(9., 0.)], s);
             p.circle_stroke(c, 4., s);
+        }
+        Kind::Person => {
+            p.circle_stroke(c - egui::vec2(0., 4.), 4.5, s);
+            p.circle_stroke(c + egui::vec2(0., 12.), 8., s);
         }
         Kind::Other => {
             p.rect_stroke(egui::Rect::from_center_size(c, egui::vec2(16., 16.)), 4., s, egui::StrokeKind::Middle);

@@ -30,9 +30,10 @@ pub struct State {
     /// Parent spaces shown with their subspaces (room ids); this run only.
     pub open: HashSet<String>,
     pub edit: bool,
-    /// The settings and devices drawers are out. One drawer at a time: set them through `set_edit` / `set_settings` / `set_devices`.
+    /// The settings, devices and accounts drawers are out. One drawer at a time: set them through `set_edit` / `set_settings` / `set_devices` / `set_accounts`.
     pub settings: bool,
     pub devices: bool,
+    pub accounts: bool,
     /// The devices drawer was just opened: the caller refreshes the list once and clears this.
     pub refresh_devices: bool,
     pub moving: Option<Move>,
@@ -47,12 +48,14 @@ impl State {
         self.edit = on;
         self.settings &= !on;
         self.devices &= !on;
+        self.accounts &= !on;
     }
 
     pub fn set_settings(&mut self, on: bool) {
         self.settings = on;
         self.edit &= !on;
         self.devices &= !on;
+        self.accounts &= !on;
     }
 
     pub fn set_devices(&mut self, on: bool) {
@@ -60,6 +63,14 @@ impl State {
         self.devices = on;
         self.edit &= !on;
         self.settings &= !on;
+        self.accounts &= !on;
+    }
+
+    pub fn set_accounts(&mut self, on: bool) {
+        self.accounts = on;
+        self.edit &= !on;
+        self.settings &= !on;
+        self.devices &= !on;
     }
 }
 
@@ -718,6 +729,10 @@ mod tests {
         assert!(s.devices && !s.edit && !s.settings && s.refresh_devices);
         s.set_settings(true);
         assert!(s.settings && !s.devices);
+        s.set_accounts(true);
+        assert!(s.accounts && !s.settings && !s.devices && !s.edit);
+        s.set_devices(true);
+        assert!(!s.accounts);
     }
 
     #[test]

@@ -1,5 +1,5 @@
-//! «Account» window: the card of the account on screen (name and picture, editable where the server allows)
-//! and the other accounts of the catalog, all running in this window; "Apri" brings one on screen.
+//! «Account» drawer: the card of the account on screen (name and picture, editable where the server allows)
+//! and the other accounts of the catalog, all running in this app; "Apri" brings one on screen.
 use crate::list::rgb;
 use crate::session::Session;
 use eframe::egui::{self, RichText};
@@ -199,46 +199,107 @@ pub enum Launch {
     Add,
 }
 
-pub fn show(ctx: &egui::Context, open: &mut bool, dirs: &AppDirs, current: &std::path::Path, session: Option<&mut Session>, form: &mut Form, t: &DesignTokens) -> Option<Launch> {
-    let mut out = None;
-    let catalog = AccountCatalog::load(dirs);
-    egui::Window::new("Account").open(open).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
-        ui.set_min_width(320.);
-        let secondary = rgb(t.secondary);
-        let carded = session.is_some_and(|s| card(ui, s, form, t));
-        if carded {
-            ui.separator();
+/// What the running accounts (the ones not on screen) add to their row.
+pub struct Running {
+    pub dir: PathBuf,
+    pub picture: Option<egui::TextureHandle>,
+    pub unread: u64,
+}
+
+/// One account: round picture, name, id and server in grey, then «Attivo» or the unread badge and «Apri».
+fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: Option<&egui::TextureHandle>, active: bool, unread: u64, t: &DesignTokens) -> bool {
+    let mut open = false;
+    ui.horizontal(|ui| {
+        let (r, _) = ui.allocate_exact_size(egui::Vec2::splat(32.), egui::Sense::hover());
+        ui.painter().circle_filled(r.center(), 16., rgb(crate::AVATAR));
+        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, matrix_desktop::initials(name), egui::FontId::proportional(13.), rgb(t.on_accent));
+        if let Some(tex) = picture {
+            egui::Image::new(tex).fit_to_exact_size(r.size()).corner_radius(egui::CornerRadius::same(16)).paint_at(ui, r);
         }
-        for entry in catalog.accounts() {
-            let dir = catalog.data_dir(dirs, entry.id);
-            let active = dir.as_deref() == Some(current);
-            if active && carded {
-                continue;
+        let width = (ui.available_width() - 90.).max(60.);
+        ui.allocate_ui_with_layout(egui::vec2(width, 0.), egui::Layout::top_down(egui::Align::Min), |ui| {
+            ui.add(egui::Label::new(RichText::new(name).size(15.)).truncate());
+            ui.add(egui::Label::new(RichText::new(line).size(12.).color(rgb(t.secondary))).truncate());
+        });
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if active {
+                ui.label(RichText::new("Attivo").size(12.).color(rgb(t.accent)));
+            } else {
+                open = ui.add(egui::Button::new(RichText::new("Apri").size(12.).color(rgb(t.secondary))).frame(false)).clicked();
+                if unread > 0 {
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(24., 20.), egui::Sense::hover());
+                    crate::list::badge(ui, r.center(), unread, t);
+                }
             }
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(&entry.label);
-                    ui.label(RichText::new(entry.user_id.as_deref().unwrap_or("")).size(12.).color(secondary));
-                });
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if active {
-                        ui.label("Attivo");
-                    } else if let Some(dir) = dir
-                        && ui.button("Apri").clicked()
-                    {
-                        out = Some(Launch::Open(dir));
+        });
+    });
+    open
+}
+
+/// The «Account» drawer, opened from «Impostazioni»; «‹» goes back there.
+pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, current: &std::path::Path, session: Option<&mut Session>, running: &[Running], form: &mut Form, t: &DesignTokens) -> Option<Launch> {
+    let mut out = None;
+    let mut back = false;
+    let own = session.as_ref().and_then(|s| s.own_picture());
+    let closed = crate::rail::drawer_back(ctx, rail.panel, "accounts-drawer", "Account", rail.accounts, t, Some(&mut back), |ui, rect| {
+        let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 206., rect.top() - 46.), egui::Vec2::new(150., 36.));
+        if ui.put(action, egui::Button::new(RichText::new("+ Aggiungi account").color(rgb(t.accent))).frame(false)).clicked() {
+            out = Some(Launch::Add);
+        }
+        let catalog = AccountCatalog::load(dirs);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+            egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+                egui::Frame::NONE.inner_margin(egui::Margin { left: 20, right: 20, top: 0, bottom: 20 }).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 8.;
+                    let carded = session.is_some_and(|s| {
+                        let will = s.verification.as_ref().is_some_and(|v| v.profile().is_some());
+                        if will {
+                            crate::settings::section(ui, "Account attivo", t);
+                        }
+                        card(ui, s, form, t)
+                    });
+                    if carded {
+                        crate::settings::section(ui, "Altri account", t);
+                    }
+                    for entry in catalog.accounts() {
+                        let dir = catalog.data_dir(dirs, entry.id);
+                        let active = dir.as_deref() == Some(current);
+                        if active && carded {
+                            continue;
+                        }
+                        // The id tells apart accounts with the same name; the server follows unless the id already says it.
+                        let host = entry.homeserver.as_deref().map(|h| h.trim_start_matches("https://").trim_start_matches("http://").trim_end_matches('/'));
+                        let line = match (entry.user_id.as_deref(), host) {
+                            (Some(id), Some(h)) if !id.ends_with(h) => format!("{id} · {h}"),
+                            (Some(id), _) => id.to_owned(),
+                            (None, h) => h.unwrap_or_default().to_owned(),
+                        };
+                        let other = running.iter().find(|r| Some(&r.dir) == dir.as_ref());
+                        let picture = if active { own.as_ref() } else { other.and_then(|r| r.picture.as_ref()) };
+                        if row(ui, &entry.label, &line, picture, active, other.map_or(0, |r| r.unread), t)
+                            && let Some(dir) = dir
+                        {
+                            out = Some(Launch::Open(dir));
+                        }
+                    }
+                    // Debug builds only (screenshots): three accounts with the same name.
+                    #[cfg(debug_assertions)]
+                    if std::env::var_os("GNOBBI_EGUI_FAKE_ACCOUNTS").is_some() {
+                        for (id, unread) in [("@marco:example.com · example.com", 0), ("@marco:gnobbi.chat · gnobbi.chat", 3), ("@marco:matrix.org", 120)] {
+                            row(ui, "Marco", id, None, id.contains("example") && !carded, unread, t);
+                        }
                     }
                 });
             });
-            ui.separator();
-        }
-        if ui.button("Aggiungi account").clicked() {
-            out = Some(Launch::Add);
-        }
+        });
     });
+    if back {
+        rail.set_settings(true);
+    } else if closed {
+        rail.accounts = false;
+    }
     out
 }
-
 
 /// One row of the account switcher in the rail: small round picture, name, the account id in grey under it, a check on the shown one, the unread badge on the others.
 pub fn switch_row(ui: &mut egui::Ui, name: &str, id: &str, picture: Option<&egui::TextureHandle>, shown: bool, unread: u64, t: &DesignTokens) -> egui::Response {
