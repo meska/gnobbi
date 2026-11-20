@@ -1,5 +1,5 @@
 #!/bin/sh
-# Unsigned Gnobbi.app for a real iPhone (aarch64-apple-ios, dist profile, current SDK). Signing/IPA is a separate step.
+# Unsigned Gnobbi.app for a real iPhone (aarch64-apple-ios, dist-ios profile, current SDK). Signing/IPA is a separate step.
 # Usage (macOS with Rust + Xcode): packaging/ios/bundle-device.sh [target-dir]   -> target-dir/ios-device/Gnobbi.app
 # Env: GNOBBI_BUILD (CFBundleVersion, default = commit count), GNOBBI_VERSION (default 1.0)
 set -eu
@@ -7,9 +7,9 @@ here=$(cd "$(dirname "$0")" && pwd); root=$(cd "$here/../.." && pwd)
 t=${1:-target}; triple=aarch64-apple-ios
 build=${GNOBBI_BUILD:-$(git -C "$root" rev-list --count HEAD)}; version=${GNOBBI_VERSION:-1.0}
 # deployment target = MinimumOSVersion: the rustc default (10.0) lacks ___chkstk_darwin for aws-lc
-IPHONEOS_DEPLOYMENT_TARGET=17.0 CARGO_TARGET_DIR=$t cargo build --locked --profile dist -p matrix-desktop --bin gnobbi --target $triple --features ios-vault
+IPHONEOS_DEPLOYMENT_TARGET=17.0 CARGO_TARGET_DIR=$t cargo build --locked --profile dist-ios -p matrix-desktop --bin gnobbi --target $triple --features ios-vault
 app=$t/ios-device/Gnobbi.app; rm -rf "$app" "$t/ios-device/work"; mkdir -p "$app" "$t/ios-device/work/Assets.xcassets/AppIcon.appiconset"
-cp "$t/$triple/dist/gnobbi" "$app/gnobbi"; cp "$here/Info-device.plist" "$app/Info.plist"
+cp "$t/$triple/dist-ios/gnobbi" "$app/gnobbi"; cp "$here/Info-device.plist" "$app/Info.plist"
 w=$t/ios-device/work
 # One 1024 opaque icon: Xcode 15+ derives every size from it (single-size AppIcon).
 cp "$root/packaging/store/apple-1024.png" "$w/Assets.xcassets/AppIcon.appiconset/icon.png"

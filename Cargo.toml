@@ -21,10 +21,16 @@ debug = 0
 # Delivery build only (`--profile dist`); dev/test keep the fast profiles above.
 [profile.dist]
 inherits = "release"
+opt-level = 3
+lto = "thin"
+strip = true
+codegen-units = 16
+
+[profile.dist-ios]
+inherits = "dist"
 # Size: iOS binary 129 MB -> 48 MB (IPA zip 40 -> 18 MB); opt-level s + fat LTO + 1 CGU. panic=abort would save 10 MB more but kills tokio tasks on panic: not adopted.
 opt-level = "s"
 lto = "fat"
-strip = true
 codegen-units = 1
 
 [patch.crates-io]
