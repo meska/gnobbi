@@ -34,9 +34,27 @@ pub fn toggle(ui: &mut egui::Ui, label: &str, on: &mut bool, t: &DesignTokens) -
 }
 
 /// Section title of the drawer.
-fn section(ui: &mut egui::Ui, title: &str, t: &DesignTokens) {
+pub fn section(ui: &mut egui::Ui, title: &str, t: &DesignTokens) {
     ui.add_space(14.);
     ui.label(egui::RichText::new(title).size(13.).strong().color(rgb(t.accent)));
+}
+
+/// A row that opens another drawer: icon, label, «›» on the right.
+fn nav_row(ui: &mut egui::Ui, label: &str, kind: crate::devices::Kind, t: &DesignTokens) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 40.), Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if resp.hovered() || resp.has_focus() {
+        ui.painter().rect_filled(rect, 8., rgb(t.input));
+    }
+    if resp.has_focus() {
+        ui.painter().rect_stroke(rect, 8., egui::Stroke::new(1.5, rgb(t.accent)), egui::StrokeKind::Inside);
+    }
+    crate::devices::icon(ui.painter(), egui::Rect::from_center_size(rect.left_center() + Vec2::new(20., 0.), Vec2::splat(22.)), kind, rgb(t.secondary));
+    ui.painter().text(rect.left_center() + Vec2::new(44., 0.), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(14.), rgb(t.text));
+    let c = rect.right_center() - Vec2::new(16., 0.);
+    ui.painter().add(egui::Shape::line(vec![c + Vec2::new(-3., -6.), c + Vec2::new(3., 0.), c + Vec2::new(-3., 6.)], egui::Stroke::new(2., rgb(t.secondary))));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    resp
 }
 
 /// One choice among a few: fixed label, the list on the right.
@@ -53,6 +71,7 @@ fn choice(ui: &mut egui::Ui, label: &str, selected: &str, add: impl FnOnce(&mut 
 pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferences, dirs: Option<&AppDirs>, t: &DesignTokens) -> Option<Preferences> {
     let mut p = prefs.clone();
     let mut changed = false;
+    let mut devices = false;
     let closed = crate::rail::drawer(ctx, rail.panel, "settings-drawer", "Impostazioni", rail.settings, t, |ui, rect| {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
@@ -88,6 +107,8 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
                     changed |= switch(ui, "Anteprima dei messaggi", &mut p.message_preview, t);
                     section(ui, "Notifiche", t);
                     changed |= switch(ui, "Notifiche", &mut p.notifications, t);
+                    section(ui, "Account e sicurezza", t);
+                    devices = nav_row(ui, "Dispositivi", crate::devices::Kind::Desktop, t).clicked();
                     section(ui, "Sistema", t);
                     changed |= switch(ui, "Chiudi nella tray", &mut p.close_to_tray, t);
                     #[cfg(target_os = "linux")]
@@ -112,6 +133,9 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, prefs: &Preferen
     });
     if closed {
         rail.settings = false;
+    }
+    if devices {
+        rail.set_devices(true);
     }
     if !changed {
         return None;

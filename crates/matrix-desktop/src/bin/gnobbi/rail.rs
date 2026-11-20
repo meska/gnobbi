@@ -30,8 +30,11 @@ pub struct State {
     /// Parent spaces shown with their subspaces (room ids); this run only.
     pub open: HashSet<String>,
     pub edit: bool,
-    /// The settings drawer is out. One drawer at a time: set both through `set_edit` / `set_settings`.
+    /// The settings and devices drawers are out. One drawer at a time: set them through `set_edit` / `set_settings` / `set_devices`.
     pub settings: bool,
+    pub devices: bool,
+    /// The devices drawer was just opened: the caller refreshes the list once and clears this.
+    pub refresh_devices: bool,
     pub moving: Option<Move>,
     /// Why the last move did not happen.
     pub error: Option<String>,
@@ -43,11 +46,20 @@ impl State {
     pub fn set_edit(&mut self, on: bool) {
         self.edit = on;
         self.settings &= !on;
+        self.devices &= !on;
     }
 
     pub fn set_settings(&mut self, on: bool) {
         self.settings = on;
         self.edit &= !on;
+        self.devices &= !on;
+    }
+
+    pub fn set_devices(&mut self, on: bool) {
+        self.refresh_devices |= on && !self.devices;
+        self.devices = on;
+        self.edit &= !on;
+        self.settings &= !on;
     }
 }
 
@@ -411,6 +423,11 @@ fn slide(ctx: &egui::Context, name: &str, shown: bool) -> f32 {
 /// A drawer beside the rail (`panel`): it slides out from the rail's right edge over the dimmed window, with its title and an X.
 /// `body` gets the rectangle below the title. True when the X or the dimmed part was clicked; Esc is the caller's.
 pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str, title: &str, shown: bool, t: &DesignTokens, body: impl FnOnce(&mut egui::Ui, egui::Rect)) -> bool {
+    drawer_back(ctx, panel, name, title, shown, t, None, body)
+}
+
+/// `drawer` with a «‹» left of the title when `back` is given; a click on it sets `*back`.
+pub fn drawer_back(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str, title: &str, shown: bool, t: &DesignTokens, back: Option<&mut bool>, body: impl FnOnce(&mut egui::Ui, egui::Rect)) -> bool {
     let open = slide(ctx, name, shown);
     let Some(panel) = panel.filter(|_| open > 0.) else { return false };
     let width = DRAWER.min(ctx.content_rect().right() - panel.right());
@@ -430,7 +447,18 @@ pub fn drawer(ctx: &egui::Context, panel: Option<egui::Rect>, name: &'static str
         let p = ui.painter().clone();
         p.rect_filled(rect, 0., rgb(t.surface));
         let head = egui::Rect::from_min_size(rect.min, Vec2::new(width, 56.));
-        p.text(head.left_center() + Vec2::new(20., 0.), Align2::LEFT_CENTER, title, FontId::proportional(17.), rgb(t.text));
+        let mut title_x = 20.;
+        if let Some(back) = back {
+            let b = egui::Rect::from_center_size(egui::pos2(head.left() + 30., head.center().y), Vec2::splat(36.));
+            let r = ui.interact(b, egui::Id::new((name, "return")), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
+            lit(ui, &r, b, 18., t);
+            let c = b.center();
+            p.add(egui::Shape::line(vec![c + Vec2::new(3., -7.), c + Vec2::new(-4., 0.), c + Vec2::new(3., 7.)], Stroke::new(2., rgb(t.secondary))));
+            r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Indietro"));
+            *back |= r.clicked();
+            title_x = 52.;
+        }
+        p.text(head.left_center() + Vec2::new(title_x, 0.), Align2::LEFT_CENTER, title, FontId::proportional(17.), rgb(t.text));
         let x = egui::Rect::from_center_size(egui::pos2(head.right() - 30., head.center().y), Vec2::splat(36.));
         let close = ui.interact(x, egui::Id::new((name, "close")), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand);
         lit(ui, &close, x, 18., t);
@@ -686,6 +714,10 @@ mod tests {
         assert!(s.edit && !s.settings);
         s.set_settings(false);
         assert!(s.edit, "closing one leaves the other");
+        s.set_devices(true);
+        assert!(s.devices && !s.edit && !s.settings && s.refresh_devices);
+        s.set_settings(true);
+        assert!(s.settings && !s.devices);
     }
 
     #[test]

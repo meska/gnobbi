@@ -134,7 +134,6 @@ pub struct Session {
     pub thread: Option<ThreadState>,
     pub verification: Option<matrix_desktop::DeviceVerification>,
     ver_route: Option<(matrix_engine::Sender<matrix_engine::verification::VerificationCommand>, Receiver<matrix_engine::verification::VerificationEvent>)>,
-    pub devices_open: bool,
     /// Whether the server lets this account change its (name, picture); None until it has answered.
     pub profile_caps: Option<(bool, bool)>,
     /// A profile save is on its way; then its answer (the error is one line for the card).
@@ -291,7 +290,6 @@ impl Session {
             thread: None,
             verification: None,
             ver_route,
-            devices_open: false,
             profile_caps: None,
             profile_busy: false,
             profile_saved: None,

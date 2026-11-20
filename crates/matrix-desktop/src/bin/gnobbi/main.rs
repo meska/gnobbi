@@ -194,6 +194,7 @@ impl App {
             self.poll_form = Default::default();
             self.confirm = None;
             self.rail.settings = false;
+            self.rail.devices = false;
             if let Some(d) = &self.dirs {
                 let _ = std::fs::write(d.data.join(LAST_ACCOUNT), self.root.to_string_lossy().as_bytes());
             }
@@ -377,9 +378,9 @@ impl eframe::App for App {
                 }
                 if ctx.input(|i| i.key_pressed(egui::Key::Escape))
                     && !session.new_open && session.explore.is_none() && !session.poll_open && session.edit.is_none()
-                    && !session.devices_open && !self.accounts_open && self.pending_web.is_none()
+                    && !(self.rail.devices && session.verification.as_ref().is_some_and(devices::modal_open)) && !self.accounts_open && self.pending_web.is_none()
                 {
-                    if self.rail.edit || self.rail.settings { (self.rail.edit, self.rail.settings) = (false, false); }
+                    if self.rail.edit || self.rail.settings || self.rail.devices { (self.rail.edit, self.rail.settings, self.rail.devices) = (false, false, false); }
                     else if session.quick_open { session.quick_open = false; }
                     else if let Some(a) = session.admin.as_mut().filter(|a| !a.busy && (a.dialog.is_some() || a.inviting)) { (a.dialog, a.inviting, a.failed) = (None, false, false); }
                     else if session.space_view.is_some() { session.space_view = None; }
@@ -390,7 +391,7 @@ impl eframe::App for App {
                     else if session.search_open { session.search_open = false; }
                 }
             }
-            if self.rail.settings || self.accounts_open || self.pending_web.is_some() || session.new_open || session.explore.is_some() || session.quick_open || session.poll_open || session.edit.is_some() || session.devices_open || session.viewer.is_some() {
+            if self.rail.settings || self.accounts_open || self.pending_web.is_some() || session.new_open || session.explore.is_some() || session.quick_open || session.poll_open || session.edit.is_some() || self.rail.devices || session.viewer.is_some() {
                 if let Some(thread) = &mut session.thread { thread.tail_visible = false; }
             }
             session.reading = (ctx.input(|i| i.focused), session.heights.at_bottom, self.prefs.read_receipts);
@@ -708,7 +709,7 @@ impl App {
             match view.as_str() {
                 "info" => s.info_open = true,
                 "search" => s.search_open = true,
-                "devices" => s.devices_open = true,
+                "devices" => self.rail.set_devices(true),
                 "new" => s.new_open = true,
                 // Test hook (runs every frame, so only while closed): «Esplora stanze pubbliche», with a term when written «explore-<term>».
                 v if v.starts_with("explore") && s.explore.is_none() => {
@@ -958,10 +959,7 @@ impl App {
                         session.new_open |= new_chat;
                         if settings { self.rail.set_settings(true); }
                         self.accounts_open |= accounts;
-                        if devices {
-                            session.devices_open = true;
-                            if let Some(v) = &mut session.verification { v.refresh(); }
-                        }
+                        if devices { self.rail.set_devices(true); }
                     });
                 } else {
                     let max = list_max_width(ui.ctx().content_rect().width());
@@ -1029,14 +1027,6 @@ impl App {
                     // One column: these two live in the list's «☰» menu. Settings open from the rail.
                     if !single && mobile::icon_button(ui, "👤").clicked() {
                         self.accounts_open = !self.accounts_open;
-                    }
-                    if !single && mobile::icon_button(ui, "🖥").clicked()
-                        && let Some(s) = &mut self.session
-                    {
-                        s.devices_open = !s.devices_open;
-                        if let Some(v) = &mut s.verification {
-                            v.refresh();
-                        }
                     }
                     if has_room && mobile::icon_button(ui, "ⓘ").clicked()
                         && let Some(s) = &mut self.session
@@ -1241,12 +1231,35 @@ impl App {
             space::delete_window(ui.ctx(), s, t);
             members::windows(ui.ctx(), s, t);
         }
+        let account = self.session.as_ref().and_then(|s| s.account);
         if let Some(s) = &mut self.session
             && let Some(v) = &mut s.verification
         {
-            if s.devices_open {
-                devices::show(ui.ctx(), v, &mut s.devices_open, &mut self.device_fields, t);
+            // Debug builds only (screenshots): a fixed list of other devices, every frame so the engine's own answer cannot replace it.
+            #[cfg(debug_assertions)]
+            if let (Some(account_id), true) = (account, std::env::var_os("GNOBBI_EGUI_FAKE_DEVICES").is_some()) {
+                let d = |id: &str, name: Option<&str>, verified, ago_min: u64, ip: &str| matrix_engine::verification::VerificationDevice {
+                    user_id: String::new(),
+                    device_id: id.into(),
+                    verified,
+                    display_name: name.map(Into::into),
+                    last_seen_ts: Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |n| n.as_millis() as u64) - ago_min * 60_000),
+                    last_seen_ip: Some(ip.into()),
+                };
+                v.apply(matrix_engine::verification::VerificationEvent::Devices {
+                    account_id,
+                    devices: vec![
+                        d("QPLRTXWKAB", Some("Gnobbi (macOS)"), true, 3, "192.0.2.17"),
+                        d("HJ7DKXQ2ZM", Some("Element iOS"), false, 60 * 26, "203.0.113.14"),
+                        d("W4N8CCEYTU", Some("Firefox su Linux"), false, 60 * 24 * 9, "2001:db8:85a3::8a2e:370:7334"),
+                        d("ZZ91ABCDEF", None, false, 60 * 24 * 40, "203.0.113.9"),
+                    ],
+                });
             }
+            if std::mem::take(&mut self.rail.refresh_devices) {
+                v.refresh();
+            }
+            devices::show(ui.ctx(), v, &mut self.rail, &mut self.device_fields, t);
             devices::dialogs(ui.ctx(), v, &mut self.device_fields);
             devices::popup(ui.ctx(), v);
             devices::new_key(ui.ctx(), v);
