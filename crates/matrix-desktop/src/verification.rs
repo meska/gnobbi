@@ -429,9 +429,13 @@ impl DeviceVerification {
         self.pending = Some(VerificationCommand::ResetRecoveryKey { account_id: self.account, phrase });
         true
     }
-    /// Whether the «Crea chiave di recupero» dialog is due now.
+    /// Which recovery dialog (create / enter the existing key) is due now, if any.
+    pub fn recovery_offer(&self, suppressed: bool) -> Option<crate::key_export::OfferKind> {
+        let kind = crate::key_export::offer_kind(self.recovery_disabled, self.keys_complete);
+        crate::key_export::should_offer(kind, suppressed, self.offer_asked, self.keys.is_some())
+    }
     pub fn offers_recovery_key(&self, suppressed: bool) -> bool {
-        crate::key_export::should_offer(self.recovery_disabled, suppressed, self.offer_asked, self.keys.is_some())
+        self.recovery_offer(suppressed) == Some(crate::key_export::OfferKind::Create)
     }
     /// «Non ora» / «Non chiedere più»: nothing more this session.
     pub fn decline_offer(&mut self) {
@@ -1193,6 +1197,26 @@ mod key_recovery_tests {
         v.accept_offer();
         assert!(matches!(v.pending, Some(VerificationCommand::ResetRecoveryKey { .. })));
         assert!(!v.offers_recovery_key(false), "asked once per session");
+    }
+
+    #[test]
+    fn existing_key_on_this_device_missing_offers_enter_never_create() {
+        use crate::key_export::OfferKind::{Create, Enter};
+        let a = AccountId::new(1);
+        let disabled = |d| VerificationEvent::RecoveryDisabled { account_id: a, disabled: d };
+        let mut v = DeviceVerification::new(a);
+        v.apply(complete(1, false));
+        assert_eq!(v.recovery_offer(false), None, "state unknown yet");
+        v.apply(disabled(false));
+        assert_eq!(v.recovery_offer(false), Some(Enter));
+        assert_eq!(v.recovery_offer(true), None, "never ask again");
+        assert!(!v.offers_recovery_key(false), "no Create over an existing key");
+        v.apply(complete(1, true));
+        assert_eq!(v.recovery_offer(false), None, "enabled and complete");
+        v.apply(disabled(true));
+        assert_eq!(v.recovery_offer(false), Some(Create));
+        v.decline_offer();
+        assert_eq!(v.recovery_offer(false), None);
     }
 
     #[test]

@@ -303,33 +303,70 @@ pub fn start_export(v: &mut DeviceVerification, path: std::path::PathBuf, pass: 
 
 pub enum Offer {
     Create,
+    Recover(zeroize::Zeroizing<String>),
     NotNow,
     Never,
 }
 
-/// The first-sign-in question when the account has no recovery key; nothing is written until «Crea chiave di recupero».
-pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool) -> Option<Offer> {
+/// The first-sign-in question: no recovery key → «Crea chiave di recupero» (nothing is written until then);
+/// a key exists but this device lacks it → «Inserisci chiave di recupero» (never Create: it would replace the key).
+pub fn offer(ctx: &egui::Context, v: &DeviceVerification, suppressed: bool, f: &mut Fields) -> Option<Offer> {
     use matrix_desktop::key_export::*;
-    if !v.offers_recovery_key(suppressed) {
-        return None;
-    }
+    use matrix_engine::signin::RecoveryState;
+    let kind = v.recovery_offer(suppressed)?;
+    let enter = kind == OfferKind::Enter;
     let mut answer = None;
     egui::Window::new(OFFER_TITLE).order(egui::Order::Tooltip).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0., 0.]).show(ctx, |ui| {
         ui.set_max_width(380.);
-        ui.label(OFFER_TEXT);
+        ui.label(if enter { ENTER_TEXT } else { OFFER_TEXT });
         ui.add_space(8.);
+        let busy = v.key_recovery() == Some(RecoveryState::Pending);
+        if enter {
+            let eye = egui::Id::new("offer-key-eye");
+            let shown = ui.data(|d| d.get_temp::<bool>(eye)).unwrap_or(false);
+            ui.horizontal(|ui| {
+                let width = (ui.available_width() - crate::metrics::button() - 8.).max(80.);
+                ui.add_enabled(!busy, crate::metrics::line(&mut f.key).password(!shown).desired_width(width).hint_text(i18n::t("Recovery key")));
+                let (icon, name) = if shown { (crate::icons::Icon::EyeSlash, i18n::t("Hide password")) } else { (crate::icons::Icon::Eye, i18n::t("Show password")) };
+                if crate::icons::button(ui, icon, false, name).on_hover_text(name).clicked() {
+                    ui.data_mut(|d| d.insert_temp(eye, !shown));
+                }
+            });
+            if busy {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(RESTORING_LABEL);
+                });
+            } else if let Some(message) = v.key_recovery_message() {
+                ui.colored_label(ui.visuals().error_fg_color, message);
+            }
+            ui.add_space(4.);
+        }
         ui.horizontal_wrapped(|ui| {
-            if ui.button(CREATE_KEY_LABEL).clicked() {
+            if enter {
+                if ui.add_enabled(!busy, egui::Button::new(i18n::t_ctx("menu", "Paste"))).clicked()
+                    && let Ok(text) = arboard::Clipboard::new().and_then(|mut b| b.get_text())
+                {
+                    f.key = text.trim().to_owned();
+                }
+                if ui.add_enabled(!busy && !f.key.trim().is_empty(), egui::Button::new(RESTORE_LABEL)).clicked() {
+                    answer = Some(Offer::Recover(zeroize::Zeroizing::new(std::mem::take(&mut f.key))));
+                }
+            } else if ui.button(CREATE_KEY_LABEL).clicked() {
                 answer = Some(Offer::Create);
             }
-            if ui.button(NOT_NOW_LABEL).clicked() {
+            // Not while restoring: «Annulla»/«Non ora» would hide the progress and the outcome.
+            if ui.add_enabled(!busy, egui::Button::new(if enter { CANCEL_LABEL } else { NOT_NOW_LABEL })).clicked() {
                 answer = Some(Offer::NotNow);
             }
-            if ui.button(NEVER_ASK_LABEL).clicked() {
+            if ui.add_enabled(!busy, egui::Button::new(NEVER_ASK_LABEL)).clicked() {
                 answer = Some(Offer::Never);
             }
         });
     });
+    if matches!(answer, Some(Offer::NotNow | Offer::Never)) {
+        f.key.clear();
+    }
     answer
 }
 

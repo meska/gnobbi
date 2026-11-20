@@ -18,16 +18,37 @@ pub const SAVE_FILE_LABEL: &str = "Salva su file";
 pub const KEPT_LABEL: &str = "L'ho conservata altrove";
 pub const OFFER_TITLE: &str = "Chiave di recupero";
 pub const OFFER_TEXT: &str = "Questo account non ha una chiave di recupero: senza, i messaggi cifrati si perdono con i dispositivi";
+pub const ENTER_TEXT: &str = "Questo dispositivo non ha le chiavi di recupero dell'account: inserisci la chiave per leggere i messaggi cifrati vecchi";
+pub const ENTER_KEY_LABEL: &str = "Inserisci chiave di recupero";
+pub const RESTORE_LABEL: &str = "Ripristina";
+pub const CANCEL_LABEL: &str = "Annulla";
+pub const RESTORING_LABEL: &str = "Ripristino…";
 pub const CREATE_KEY_LABEL: &str = "Crea chiave di recupero";
 pub const NOT_NOW_LABEL: &str = "Non ora";
 pub const NEVER_ASK_LABEL: &str = "Non chiedere più per questo account";
 pub const KEY_FILE_NAME: &str = "gnobbi-chiave-di-recupero.txt";
 
-/// The offer is shown only when the account has no recovery key at all (never for «incomplete»,
-/// where the existing key must be entered), once per session, unless suppressed for the account
+/// The offer (create or enter) is shown once per session, unless suppressed for the account
 /// or another key page is already open.
-pub fn should_offer(disabled: Option<bool>, suppressed: bool, asked: bool, page_open: bool) -> bool {
-    disabled == Some(true) && !suppressed && !asked && !page_open
+pub fn should_offer(kind: Option<OfferKind>, suppressed: bool, asked: bool, page_open: bool) -> Option<OfferKind> {
+    kind.filter(|_| !suppressed && !asked && !page_open)
+}
+
+/// What the first-sign-in dialog proposes. `Create` only when the account has no secret storage at all
+/// (creating on an account that has one would replace its key); `Enter` when the key exists but this
+/// device lacks the secrets (SDK `Incomplete`: not disabled, keys not complete here).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfferKind {
+    Create,
+    Enter,
+}
+
+pub fn offer_kind(disabled: Option<bool>, complete: Option<bool>) -> Option<OfferKind> {
+    match (disabled, complete) {
+        (Some(true), _) => Some(OfferKind::Create),
+        (Some(false), Some(false)) => Some(OfferKind::Enter),
+        _ => None,
+    }
 }
 
 /// Plain text of the key file: the key alone on its own line under a title.
@@ -204,13 +225,17 @@ mod tests {
     }
 
     #[test]
-    fn offer_only_when_disabled_not_suppressed_once() {
-        assert!(should_offer(Some(true), false, false, false));
-        assert!(!should_offer(None, false, false, false), "unknown: wait");
-        assert!(!should_offer(Some(false), false, false, false), "enabled or incomplete: never create");
-        assert!(!should_offer(Some(true), true, false, false), "suppressed for the account");
-        assert!(!should_offer(Some(true), false, true, false), "once per session");
-        assert!(!should_offer(Some(true), false, false, true), "another key page is open");
+    fn offer_kind_maps_the_sdk_state_and_is_asked_once() {
+        use OfferKind::{Create, Enter};
+        assert_eq!(offer_kind(Some(true), Some(false)), Some(Create), "Disabled");
+        assert_eq!(offer_kind(Some(false), Some(false)), Some(Enter), "Incomplete");
+        assert_eq!(offer_kind(Some(false), Some(true)), None, "Enabled");
+        assert_eq!(offer_kind(None, Some(false)), None, "Unknown: wait");
+        assert_eq!(offer_kind(Some(false), None), None, "completeness not known yet");
+        assert_eq!(should_offer(Some(Enter), false, false, false), Some(Enter));
+        assert_eq!(should_offer(Some(Create), true, false, false), None, "suppressed for the account");
+        assert_eq!(should_offer(Some(Create), false, true, false), None, "once per session");
+        assert_eq!(should_offer(Some(Enter), false, false, true), None, "another key page is open");
     }
 
     #[test]

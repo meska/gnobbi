@@ -1531,8 +1531,9 @@ impl App {
             devices::popup(ui.ctx(), v);
             devices::new_key(ui.ctx(), v);
             let suppressed = account.is_some_and(|a| self.prefs.no_recovery_offer_accounts.contains(&a.as_u64()));
-            match devices::offer(ui.ctx(), v, suppressed) {
+            match devices::offer(ui.ctx(), v, suppressed, &mut self.device_fields) {
                 Some(devices::Offer::Create) => v.accept_offer(),
+                Some(devices::Offer::Recover(key)) => { v.recover_keys(key); }
                 Some(devices::Offer::NotNow) => v.decline_offer(),
                 Some(devices::Offer::Never) => {
                     v.decline_offer();
