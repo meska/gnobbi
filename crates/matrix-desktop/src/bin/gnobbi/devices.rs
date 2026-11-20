@@ -99,10 +99,6 @@ fn row(ui: &mut egui::Ui, d: &matrix_engine::verification::VerificationDevice, t
     });
 }
 
-fn quiet(ui: &mut egui::Ui, label: &str, color: egui::Color32) -> egui::Response {
-    ui.add(egui::Button::new(RichText::new(label).size(12.).color(color)).frame(false))
-}
-
 /// Whether a dialog of this page is open (Esc belongs to it, not to the drawer).
 pub fn modal_open(v: &DeviceVerification) -> bool {
     v.delete_dialog().is_some() || v.rename_dialog().is_some() || v.popup_view().is_some() || v.keys.as_ref().is_some_and(|p| p.secret.is_some())
@@ -110,7 +106,6 @@ pub fn modal_open(v: &DeviceVerification) -> bool {
 
 /// The «Dispositivi» drawer, opened from «Impostazioni»; «‹» goes back there.
 pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::rail::State, f: &mut Fields, t: &DesignTokens) {
-    let secondary = rgb(t.secondary);
     let (mut back, mut begin, mut delete) = (false, None, None);
     let closed = crate::rail::drawer_back(ctx, rail.panel, "devices-drawer", "Dispositivi", rail.devices, t, Some(&mut back), |ui, rect| {
         ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
@@ -120,7 +115,7 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                     if let Some(own) = v.own().cloned() {
                         crate::settings::section(ui, "Questo dispositivo", t);
                         row(ui, &own, t, |ui| {
-                            if quiet(ui, "Rinomina", secondary).clicked() {
+                            if ui.button("Rinomina").clicked() {
                                 v.open_rename();
                             }
                         });
@@ -175,10 +170,10 @@ pub fn show(ctx: &egui::Context, v: &mut DeviceVerification, rail: &mut crate::r
                     }
                     for (i, d) in others.iter().enumerate() {
                         row(ui, d, t, |ui| {
-                            if !d.verified && quiet(ui, "Verifica", rgb(t.accent)).clicked() {
+                            if !d.verified && ui.button("Verifica").clicked() {
                                 begin = Some(i);
                             }
-                            if quiet(ui, "Disconnetti", secondary).clicked() {
+                            if ui.button("Disconnetti").clicked() {
                                 delete = Some(i);
                             }
                         });

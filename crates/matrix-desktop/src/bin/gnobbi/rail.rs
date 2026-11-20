@@ -497,7 +497,7 @@ pub fn edit_window(ctx: &egui::Context, session: &mut crate::session::Session, f
     let closed = drawer(ctx, state.panel, "rail-drawer", "Organizza spazi", state.edit, t, |ui, rect| {
         let (p, width) = (ui.painter().clone(), rect.width());
         let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 176., rect.top() - 46.), Vec2::new(120., 36.));
-        if ui.put(action, egui::Button::new(egui::RichText::new("+ Nuovo spazio").color(rgb(t.accent))).frame(false)).clicked() {
+        if ui.put(action, egui::Button::new("+ Nuovo spazio")).clicked() {
             form.open_creation(true);
             session.new_open = true;
             act = Some(Edit::Close);

@@ -228,7 +228,7 @@ fn row(ui: &mut egui::Ui, name: &str, line: &str, picture: Option<&egui::Texture
             if active {
                 ui.label(RichText::new("Attivo").size(12.).color(rgb(t.accent)));
             } else {
-                open = ui.add(egui::Button::new(RichText::new("Apri").size(12.).color(rgb(t.secondary))).frame(false)).clicked();
+                open = ui.button("Apri").clicked();
                 if unread > 0 {
                     let (r, _) = ui.allocate_exact_size(egui::vec2(24., 20.), egui::Sense::hover());
                     crate::list::badge(ui, r.center(), unread, t);
@@ -246,7 +246,7 @@ pub fn show(ctx: &egui::Context, rail: &mut crate::rail::State, dirs: &AppDirs, 
     let own = session.as_ref().and_then(|s| s.own_picture());
     let closed = crate::rail::drawer_back(ctx, rail.panel, "accounts-drawer", "Account", rail.accounts, t, Some(&mut back), |ui, rect| {
         let action = egui::Rect::from_min_size(egui::pos2(rect.right() - 206., rect.top() - 46.), egui::Vec2::new(150., 36.));
-        if ui.put(action, egui::Button::new(RichText::new("+ Aggiungi account").color(rgb(t.accent))).frame(false)).clicked() {
+        if ui.put(action, egui::Button::new("+ Aggiungi account")).clicked() {
             out = Some(Launch::Add);
         }
         let catalog = AccountCatalog::load(dirs);
